@@ -4,6 +4,7 @@ import { delimiter, join } from "node:path";
 import { expect, test } from "vitest";
 import { discoverProviders, findExecutable, versionManagerShim } from "@ace/provider-kit/discovery";
 import { forbiddenTools, prepareTestToolPath } from "./test-tool-path.ts";
+import { planWindowsToolPath } from "./test-tool-path-windows.ts";
 
 const posix = process.platform !== "win32";
 
@@ -70,7 +71,7 @@ test("every process a test starts finds no agent CLI and no version-manager shim
   const env = process.env;
   for (const name of forbiddenTools) expect(await findExecutable(name, env), name).toBeUndefined();
   for (const entry of (env.PATH ?? "").split(delimiter).filter(Boolean)) {
-    const names = posix ? await readdir(entry).catch(() => []) : [];
+    const names = await readdir(entry).catch(() => []);
     for (const name of names) {
       const path = join(entry, name);
       const target = await realpath(path).catch(() => path);
@@ -82,4 +83,32 @@ test("every process a test starts finds no agent CLI and no version-manager shim
   for (const [provider, result] of Object.entries(providers))
     expect(result.installed, provider).toBe(false);
   if (posix) expect(await findExecutable("git", env)).toBeDefined();
+});
+
+test("on Windows a test PATH keeps clean folders, and only the allowed tools of a folder holding an agent CLI", () => {
+  const plan = planWindowsToolPath(
+    [
+      { directory: "C:\\Windows\\System32", names: ["cmd.exe", "where.exe", "kernel32.dll"] },
+      // npm's global bin: agent CLIs beside tools tests need.
+      {
+        directory: "C:\\Users\\p\\AppData\\Roaming\\npm",
+        names: ["codex.cmd", "codex.ps1", "claude.cmd", "pnpm.cmd", "tsc.cmd"],
+      },
+      { directory: "C:\\Users\\p\\.local\\share\\mise\\shims", names: ["node.exe", "bun.exe"] },
+      { directory: "C:\\Program Files\\Git\\cmd", names: ["git.exe"] },
+      { directory: "C:\\Users\\p\\.bun\\bin", names: ["bun.exe", "bunx.exe", "opencode.exe"] },
+      // Shadowed by System32's where.exe, as on the person's PATH.
+      { directory: "C:\\Tools", names: ["Claude.EXE", "where.exe"] },
+    ],
+    [".COM", ".EXE", ".BAT", ".CMD"],
+    "C:\\Program Files\\nodejs\\node.exe",
+  );
+  expect(plan.keep).toEqual(["C:\\Windows\\System32", "C:\\Program Files\\Git\\cmd"]);
+  expect(plan.tools).toEqual([
+    { name: "node.exe", target: "C:\\Program Files\\nodejs\\node.exe", kind: "copy" },
+    { name: "pnpm.cmd", target: "C:\\Users\\p\\AppData\\Roaming\\npm\\pnpm.cmd", kind: "wrapper" },
+    { name: "tsc.cmd", target: "C:\\Users\\p\\AppData\\Roaming\\npm\\tsc.cmd", kind: "wrapper" },
+    { name: "bun.exe", target: "C:\\Users\\p\\.bun\\bin\\bun.exe", kind: "copy" },
+    { name: "bunx.exe", target: "C:\\Users\\p\\.bun\\bin\\bunx.exe", kind: "copy" },
+  ]);
 });

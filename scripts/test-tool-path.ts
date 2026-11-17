@@ -89,7 +89,7 @@ export function allowedTool(name: string, path: string, target: string): boolean
 /**
  * Builds `directory` as the only PATH entry test processes get: links to the runtime tools and
  * to the system directories' executables, minus agent CLIs and shims. Returns the PATH value.
- * Windows can't link without privileges, so there PATH keeps only entries that aren't shims.
+ * Windows can't link without privileges: see `prepareWindowsToolPath`.
  */
 export async function prepareTestToolPath(
   directory: string,
@@ -98,11 +98,15 @@ export async function prepareTestToolPath(
   systemDirectories: readonly string[] = systemToolDirectories,
 ): Promise<string> {
   const path = ambient.PATH ?? ambient.Path ?? "";
-  if (process.platform === "win32")
-    return path
-      .split(delimiter)
-      .filter((entry) => versionManagerShim(join(entry, "tool"), "") === undefined)
-      .join(delimiter);
+  if (process.platform === "win32") {
+    const { prepareWindowsToolPath } = await import("./test-tool-path-windows.ts");
+    return prepareWindowsToolPath(
+      directory,
+      path,
+      ambient.PATHEXT ?? ".COM;.EXE;.BAT;.CMD",
+      runtime,
+    );
+  }
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const candidates: [name: string, path: string][] = [];
   // The runtime running the tests is always real, even when PATH only offers its shim.
