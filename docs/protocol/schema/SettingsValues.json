@@ -118,6 +118,9 @@
     "logs.maxBytes": {
       "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
     },
+    "market.askBeforeAgentPublish": {
+      "type": "boolean"
+    },
     "media.delivery": {
       "enum": [
         "auto",
@@ -551,6 +554,7 @@
     "spade.enabled",
     "beta.spade",
     "beta.marketplace",
+    "market.askBeforeAgentPublish",
     "devices.emulatorWindow",
     "media.encode",
     "media.delivery",

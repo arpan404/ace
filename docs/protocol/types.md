@@ -8865,6 +8865,673 @@ Example:
 }
 ```
 
+## CliAdmission
+
+[JSON Schema](schema/CliAdmission.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission"` |  |
+| ok | yes | `true` |  |
+| status | yes | `"accepted"` |  |
+| commandId | yes | string |  |
+| idempotencyKey | yes | string |  |
+| threadId | yes | string |  |
+
+Example:
+
+```json
+{
+  "commandId": "example",
+  "idempotencyKey": "example",
+  "ok": true,
+  "status": "accepted",
+  "threadId": "example",
+  "type": "admission"
+}
+```
+
+## CliAlias
+
+[JSON Schema](schema/CliAlias.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| words | yes | array | {"items":{"type":"string"}} |
+| deprecatedSince | no | string |  |
+
+Example:
+
+```json
+{
+  "deprecatedSince": "example",
+  "words": []
+}
+```
+
+## CliArgument
+
+[JSON Schema](schema/CliArgument.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| summary | yes | string |  |
+| required | yes | boolean |  |
+| variadic | yes | boolean |  |
+| stdin | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "required": true,
+  "stdin": true,
+  "summary": "example",
+  "variadic": false
+}
+```
+
+## CliCleanupReceipt
+
+[JSON Schema](schema/CliCleanupReceipt.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| planId | yes | string | {"minLength":1,"maxLength":256} |
+| state | yes | ["complete","pending","stale"] |  |
+| items | yes | array | {"maxItems":256,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["removed","pending","protected"]},"reason":{"$ref":"https://ace.local/protocol/v1/StorageReason.json"},"error":{"type":"string","maxLength":128}},"required":["id","state"]}} |
+| revision | no | string |  |
+
+Example:
+
+```json
+{
+  "items": [],
+  "planId": "example",
+  "state": "pending"
+}
+```
+
+## CliCommand
+
+[JSON Schema](schema/CliCommand.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| words | yes | array | {"items":{"type":"string"}} |
+| summary | yes | string |  |
+| description | no | string |  |
+| group | yes | string |  |
+| arguments | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliArgument.json"}} |
+| flags | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliFlag.json"}} |
+| examples | yes | array | {"items":{"type":"object","properties":{"command":{"type":"string"},"summary":{"type":"string"}},"required":["command","summary"]}} |
+| aliases | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliAlias.json"}} |
+| output | no | string |  |
+| mutates | yes | boolean |  |
+| offline | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "aliases": [],
+  "arguments": [],
+  "examples": [],
+  "flags": [],
+  "group": "example",
+  "id": "example",
+  "mutates": false,
+  "offline": true,
+  "output": "example",
+  "summary": "example",
+  "words": []
+}
+```
+
+## CliCommandHelp
+
+[JSON Schema](schema/CliCommandHelp.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| words | yes | array | {"items":{"type":"string"}} |
+| summary | yes | string |  |
+| description | no | string |  |
+| group | yes | string |  |
+| arguments | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliArgument.json"}} |
+| flags | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliFlag.json"}} |
+| examples | yes | array | {"items":{"type":"object","properties":{"command":{"type":"string"},"summary":{"type":"string"}},"required":["command","summary"]}} |
+| aliases | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliAlias.json"}} |
+| output | no | string |  |
+| mutates | yes | boolean |  |
+| offline | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "aliases": [],
+  "arguments": [],
+  "examples": [],
+  "flags": [],
+  "group": "example",
+  "id": "example",
+  "mutates": true,
+  "offline": false,
+  "summary": "example",
+  "words": []
+}
+```
+
+## CliCommandTree
+
+[JSON Schema](schema/CliCommandTree.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string |  |
+| globalFlags | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliFlag.json"}} |
+| commands | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliCommand.json"}} |
+| topics | yes | array | {"items":{"type":"object","properties":{"name":{"type":"string"},"summary":{"type":"string"}},"required":["name","summary"]}} |
+| exitCodes | yes | array | {"items":{"type":"object","properties":{"code":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"name":{"$ref":"https://ace.local/protocol/v1/CliOutcome.json"},"means":{"type":"string"}},"required":["code","name","means"]}} |
+
+Example:
+
+```json
+{
+  "commands": [],
+  "exitCodes": [],
+  "globalFlags": [],
+  "topics": [],
+  "version": "example"
+}
+```
+
+## CliConfigEntry
+
+[JSON Schema](schema/CliConfigEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| setting | yes | string |  |
+| key | yes | string |  |
+| value | yes | [JsonValue.json](schema/JsonValue.json) |  |
+| source | yes | ["default","saved","environment"] |  |
+| overriddenBy | no | string |  |
+| live | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "key": "example",
+  "live": false,
+  "overriddenBy": "example",
+  "setting": "example",
+  "source": "environment",
+  "value": 8
+}
+```
+
+## CliDaemonDown
+
+[JSON Schema](schema/CliDaemonDown.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `false` |  |
+
+Example:
+
+```json
+{
+  "running": false
+}
+```
+
+## CliDaemonStart
+
+[JSON Schema](schema/CliDaemonStart.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `true` |  |
+| url | yes | string |  |
+| tokenPath | yes | string |  |
+| remoteUrl | no | string |  |
+| fingerprint | no | string |  |
+
+Example:
+
+```json
+{
+  "remoteUrl": "example",
+  "running": true,
+  "tokenPath": "example",
+  "url": "example"
+}
+```
+
+## CliDoctorReport
+
+[JSON Schema](schema/CliDoctorReport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| at | yes | number |  |
+| checks | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/DiagnosticCheck.json"}} |
+| planned | yes | array | {"items":{}} |
+| repairs | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/DiagnosticRepair.json"}} |
+
+Example:
+
+```json
+{
+  "at": 1,
+  "checks": [],
+  "planned": [],
+  "repairs": []
+}
+```
+
+## CliError
+
+[JSON Schema](schema/CliError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | `false` |  |
+| status | yes | [CliOutcome.json](schema/CliOutcome.json) |  |
+| code | yes | [CliErrorCode.json](schema/CliErrorCode.json) |  |
+| error | yes | string |  |
+| hint | no | string |  |
+| command | no | string |  |
+| argument | no | string |  |
+| suggestion | no | string |  |
+| retry | no | object | {"properties":{"idempotencyKey":{"type":"string"}},"required":["idempotencyKey"]} |
+| request | no | string |  |
+| admission | no | any JSON value |  |
+| problems | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliProblem.json"}} |
+
+Example:
+
+```json
+{
+  "admission": null,
+  "code": "lock_held",
+  "command": "example",
+  "error": "example",
+  "ok": false,
+  "problems": [],
+  "request": "example",
+  "retry": {
+    "idempotencyKey": "example"
+  },
+  "status": "failed"
+}
+```
+
+## CliErrorCode
+
+[JSON Schema](schema/CliErrorCode.json), input validation.
+
+Type: ["unknown_command","unknown_flag","missing_argument","bad_argument","too_many_arguments","retired_command","ambiguous","refused","not_found","daemon_down","turned_off","busy","forbidden","conflict","suspended","quota","needs_human","signed_out","reauth","person_only","confirm","failed","blocked","check_failed","internal","timeout","uncertain","address_in_use","lock_held","newer_data","incompatible_data"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"lock_held"
+```
+
+## CliFeatures
+
+[JSON Schema](schema/CliFeatures.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| spade | yes | boolean |  |
+| marketplace | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "marketplace": true,
+  "spade": true
+}
+```
+
+## CliFeatureSwitch
+
+[JSON Schema](schema/CliFeatureSwitch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| live | yes | boolean |  |
+| spade | no | boolean |  |
+| marketplace | no | boolean |  |
+
+Example:
+
+```json
+{
+  "live": true,
+  "marketplace": false,
+  "spade": true
+}
+```
+
+## CliFlag
+
+[JSON Schema](schema/CliFlag.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| short | no | string |  |
+| value | no | string |  |
+| summary | yes | string |  |
+| repeat | yes | boolean |  |
+| choices | no | array | {"items":{"type":"string"}} |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "repeat": true,
+  "summary": "example"
+}
+```
+
+## CliLogRecord
+
+[JSON Schema](schema/CliLogRecord.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| at | yes | number |  |
+| level | yes | ["debug","info","warn","error"] |  |
+| component | yes | string |  |
+| message | yes | string |  |
+| data | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "at": 0,
+  "component": "example",
+  "data": null,
+  "level": "error",
+  "message": "example"
+}
+```
+
+## CliMarketCheck
+
+[JSON Schema](schema/CliMarketCheck.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | string |  |
+| name | yes | string |  |
+| hash | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| problems | yes | array | {"items":{"type":"object","properties":{"path":{"type":"string"},"message":{"type":"string"}},"required":["message"],"additionalProperties":{}}} |
+
+Example:
+
+```json
+{
+  "bytes": 1,
+  "files": 1,
+  "hash": "example",
+  "name": "example",
+  "problems": [],
+  "type": "example"
+}
+```
+
+## CliMarketInstall
+
+[JSON Schema](schema/CliMarketInstall.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| review | yes | [MarketReview.json](schema/MarketReview.json) |  |
+| installed | no | [MarketInstalled.json](schema/MarketInstalled.json) |  |
+
+Example:
+
+```json
+{
+  "installed": {
+    "acceptedAt": 1,
+    "hash": "d65df09357dff91cd8f8ec919d266b715ba81d22bfde40f2d864a654cbc875ae",
+    "name": "dk7",
+    "source": "market",
+    "state": "off",
+    "target": "example",
+    "title": "example",
+    "type": "suit",
+    "version": "example"
+  },
+  "review": {
+    "body": {
+      "files": 7,
+      "fonts": [],
+      "passes": false,
+      "problems": [],
+      "scenes": [],
+      "type": "suit"
+    },
+    "byAce": false,
+    "deprecated": "example",
+    "expiresAt": 8,
+    "hash": "e743ad2cf0c20604cf658a0ae5b41cb4c65f330c1ee25dd7322f68f74d22f550",
+    "id": "-GDuNrglbZXJ-MtLuPWhXTawxsotClcaf4OYKreHWiGabXsvPX3fxhl-61ZadYrZA4",
+    "items": 2,
+    "name": "c",
+    "reviewed": false,
+    "scan": {
+      "checks": [],
+      "findings": [],
+      "format": "ace-market-scan",
+      "hash": "6355e7f3aef9fd64e8a8072de7245b748e4bddff9783e0f3497b5a536ce852c3",
+      "read": {
+        "files": 1,
+        "textBytes": 2
+      },
+      "runnable": false,
+      "runnableReason": "example",
+      "scanner": 10,
+      "truncated": true,
+      "verdict": "pass"
+    },
+    "signed": true,
+    "source": "market",
+    "title": "example",
+    "type": "suit",
+    "version": "example"
+  }
+}
+```
+
+## CliMarketSearch
+
+[JSON Schema](schema/CliMarketSearch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| readAt | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "total": 4
+}
+```
+
+## CliMarketShow
+
+[JSON Schema](schema/CliMarketShow.json), input validation.
+
+### entry
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"entry"` |  |
+| entry | yes | [MarketEntryDetail.json](schema/MarketEntryDetail.json) |  |
+
+Example:
+
+```json
+{
+  "entry": {
+    "description": "example",
+    "installed": {
+      "acceptedAt": 7,
+      "deprecated": "example",
+      "hash": "29d2cd33483d80edbfd652e387084dec8d2591fdaa81eeef5c400fa9a634271e",
+      "name": "j",
+      "reason": "example",
+      "source": "git:3zng98oexdsypq",
+      "state": "blocked",
+      "target": "example",
+      "title": "example",
+      "type": "spade-skill",
+      "version": "example"
+    },
+    "summary": {
+      "byAce": false,
+      "categories": [],
+      "downloads": 8,
+      "keywords": [],
+      "line": "example",
+      "name": "p",
+      "previews": [],
+      "publisher": {
+        "id": "example",
+        "name": "y"
+      },
+      "reviewed": false,
+      "source": "git:ydt5atqiue3e867k1etyfn5jhdeef",
+      "supported": true,
+      "title": "example",
+      "type": "example",
+      "updated": 2,
+      "verified": false
+    },
+    "versions": []
+  },
+  "kind": "entry"
+}
+```
+
+### publisher
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"publisher"` |  |
+| page | yes | [MarketPublisherPage.json](schema/MarketPublisherPage.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "publisher",
+  "page": {
+    "downloads": 4,
+    "entries": [],
+    "official": false,
+    "pinned": [],
+    "profile": {
+      "bio": "example",
+      "displayName": "example",
+      "handle": "1ww48h",
+      "id": "example",
+      "joined": 2,
+      "links": [],
+      "pins": [],
+      "proofs": [],
+      "verified": false
+    }
+  }
+}
+```
+
+## CliOkOutput
+
+[JSON Schema](schema/CliOkOutput.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | `true` |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## CliOpenRequest
+
+[JSON Schema](schema/CliOpenRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| threadTitle | yes | string | {"maxLength":256} |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| interaction | yes | [Interaction.json](schema/Interaction.json) |  |
+
+Example:
+
+```json
+{
+  "interaction": {
+    "agentId": "example",
+    "blocking": true,
+    "createdAt": 3,
+    "id": "example",
+    "raw": [],
+    "request": {
+      "kind": "elicitation",
+      "message": "example",
+      "server": "example",
+      "title": "example"
+    },
+    "resolution": {
+      "answers": {},
+      "kind": "question"
+    },
+    "resolvedBy": "example",
+    "state": "resolved",
+    "threadId": "example",
+    "truncated": {
+      "chars": 7
+    }
+  },
+  "provider": "opencode",
+  "threadId": "example",
+  "threadTitle": "example",
+  "workspaceId": "example"
+}
+```
+
 ## CliOperation
 
 [JSON Schema](schema/CliOperation.json), input validation.
@@ -8973,6 +9640,22 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"request.list"` |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| limit | no | integer | {"minimum":1,"maximum":200} |
+
+Example:
+
+```json
+{
+  "op": "request.list"
+}
+```
+
+### Variant 8
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"task.spawn"` |  |
 | parentId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | request | yes | [DelegationRequest.json](schema/DelegationRequest.json) |  |
@@ -8984,19 +9667,22 @@ Example:
   "op": "task.spawn",
   "parentId": "example",
   "request": {
+    "access": "ask",
     "acpAgentId": "example",
-    "effort": "example",
-    "estimatedLoad": 9,
-    "project": "example",
-    "provider": "opencode",
-    "requestId": "yFCtjvoUfuY",
+    "provider": "codex",
+    "requestId": "k__wgo5cj",
     "role": "example",
-    "task": "example"
+    "task": "example",
+    "wait": false,
+    "workspace": {
+      "kind": "existing_worktree",
+      "path": "example"
+    }
   }
 }
 ```
 
-### Variant 8
+### Variant 9
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -9012,7 +9698,7 @@ Example:
 }
 ```
 
-### Variant 9
+### Variant 10
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -9028,11 +9714,11 @@ Example:
   "args": {},
   "op": "sim",
   "threadId": "example",
-  "verb": "logs"
+  "verb": "act"
 }
 ```
 
-### Variant 10
+### Variant 11
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -9044,9 +9730,87 @@ Example:
 
 ```json
 {
-  "key": "bXh3MmFk",
+  "key": "5Gvo",
   "op": "task.cancel",
   "threadId": "example"
+}
+```
+
+## CliOutcome
+
+[JSON Schema](schema/CliOutcome.json), input validation.
+
+Type: ["ok","failed","needs-human","timeout","refused","uncertain","address-in-use","lock-held","usage","newer-data","incompatible-data"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"usage"
+```
+
+## CliProblem
+
+[JSON Schema](schema/CliProblem.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | no | string |  |
+| line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| message | yes | string |  |
+
+Example:
+
+```json
+{
+  "message": "example"
+}
+```
+
+## CliProjectShow
+
+[JSON Schema](schema/CliProjectShow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| project | yes | [Project.json](schema/Project.json) |  |
+| threads | yes | object | {"properties":{"total":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"needsYou":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"running":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["total","needsYou","running"]} |
+
+Example:
+
+```json
+{
+  "project": {
+    "badge": {
+      "color": "violet"
+    },
+    "id": "example",
+    "kind": "chat",
+    "name": "example",
+    "path": "example"
+  },
+  "threads": {
+    "needsYou": 7,
+    "running": 2,
+    "total": 3
+  }
+}
+```
+
+## CliReceipt
+
+[JSON Schema](schema/CliReceipt.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| idempotencyKey | yes | string |  |
+
+Example:
+
+```json
+{
+  "idempotencyKey": "example",
+  "ok": false
 }
 ```
 
@@ -9073,6 +9837,24 @@ Example:
 }
 ```
 
+## CliRequestList
+
+[JSON Schema](schema/CliRequestList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requests | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/CliOpenRequest.json"}} |
+| truncated | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "requests": [],
+  "truncated": false
+}
+```
+
 ## CliResult
 
 [JSON Schema](schema/CliResult.json), input validation.
@@ -9096,6 +9878,24 @@ Example:
 }
 ```
 
+## CliServiceState
+
+[JSON Schema](schema/CliServiceState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| active | yes | boolean |  |
+| linger | no | `true` |  |
+
+Example:
+
+```json
+{
+  "active": false,
+  "linger": true
+}
+```
+
 ## CliSimVerb
 
 [JSON Schema](schema/CliSimVerb.json), input validation.
@@ -9106,6 +9906,149 @@ Example:
 
 ```json
 "list"
+```
+
+## CliSpadeBot
+
+[JSON Schema](schema/CliSpadeBot.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| kind | yes | ["main","bot"] |  |
+| name | yes | string |  |
+| task | yes | string |  |
+| model | yes | string |  |
+| conversation | yes | string |  |
+| state | yes | ["idle","working","waiting"] |  |
+| waitingFor | no | ["approval","question"] |  |
+| status | no | string |  |
+| problem | no | string |  |
+| unseen | yes | boolean |  |
+| pinned | yes | boolean |  |
+| lastActivity | yes | number |  |
+| lastMessage | no | object | {"properties":{"from":{"type":"string","enum":["person","agent"]},"text":{"type":"string"},"at":{"type":"number"}},"required":["from","text","at"]} |
+| parent | no | object | {"properties":{"id":{"type":"string"},"name":{"type":"string"}},"required":["id","name"]} |
+
+Example:
+
+```json
+{
+  "conversation": "example",
+  "id": "example",
+  "kind": "main",
+  "lastActivity": 9,
+  "model": "example",
+  "name": "example",
+  "pinned": true,
+  "problem": "example",
+  "state": "working",
+  "status": "example",
+  "task": "example",
+  "unseen": true,
+  "waitingFor": "approval"
+}
+```
+
+## CliSpadeChat
+
+[JSON Schema](schema/CliSpadeChat.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| bot | yes | string |  |
+| conversation | yes | string |  |
+| reply | no | string |  |
+
+Example:
+
+```json
+{
+  "bot": "example",
+  "conversation": "example"
+}
+```
+
+## CliSpadeStatus
+
+[JSON Schema](schema/CliSpadeStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| beta | yes | boolean |  |
+| enabled | yes | boolean |  |
+| live | yes | boolean |  |
+| status | no | [SpadeStatus.json](schema/SpadeStatus.json) |  |
+
+Example:
+
+```json
+{
+  "beta": true,
+  "enabled": true,
+  "live": true
+}
+```
+
+## CliSpadeSwitch
+
+[JSON Schema](schema/CliSpadeSwitch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| enabled | yes | boolean |  |
+| live | yes | boolean |  |
+| beta | no | `true` |  |
+
+Example:
+
+```json
+{
+  "enabled": false,
+  "live": true
+}
+```
+
+## CliStatus
+
+[JSON Schema](schema/CliStatus.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `true` |  |
+| version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"$ref":"https://ace.local/protocol/v1/ReleaseVersion.json"}]} |
+| ready | no | `true` |  |
+| admission | no | [MaintenanceStatus.json](schema/MaintenanceStatus.json) |  |
+| account | no | object | {"properties":{"signedIn":{"type":"boolean"},"email":{"type":"string"}},"required":["signedIn"]} |
+| needsYou | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+| working | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "account": {
+    "signedIn": false
+  },
+  "running": true,
+  "version": "8707146040.2751929845.2474294158"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `false` |  |
+
+Example:
+
+```json
+{
+  "running": false
+}
 ```
 
 ## CliTaskStatus
@@ -9132,6 +10075,120 @@ Example:
     "waitingFor": "storage"
   },
   "threadId": "example"
+}
+```
+
+## CliThreadList
+
+[JSON Schema](schema/CliThreadList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threads | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"workspaceId":{"type":"string"},"title":{"type":"string"},"provider":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"status":{"$ref":"https://ace.local/protocol/v1/ThreadStatus.json"},"createdAt":{"type":"number"},"updatedAt":{"type":"number"}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":{}}} |
+| rows | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliThreadRow.json"}} |
+| next | yes | string,null |  |
+| window | no | [ThreadListWindow.json](schema/ThreadListWindow.json) |  |
+
+Example:
+
+```json
+{
+  "next": null,
+  "rows": [],
+  "threads": []
+}
+```
+
+## CliThreadRow
+
+[JSON Schema](schema/CliThreadRow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string |  |
+| title | yes | string |  |
+| project | yes | string |  |
+| workspaceId | yes | string |  |
+| provider | yes | string |  |
+| branch | no | string |  |
+| pinned | yes | boolean |  |
+| settled | yes | boolean |  |
+| state | yes | string |  |
+| meaning | yes | string |  |
+| waitingOn | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+| since | no | number |  |
+| activityAt | yes | number |  |
+
+Example:
+
+```json
+{
+  "activityAt": 1,
+  "meaning": "example",
+  "pinned": true,
+  "project": "example",
+  "provider": "example",
+  "settled": true,
+  "state": "example",
+  "threadId": "example",
+  "title": "example",
+  "workspaceId": "example"
+}
+```
+
+## CliThreadShow
+
+[JSON Schema](schema/CliThreadShow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| thread | yes | object | {"properties":{"id":{"type":"string"},"workspaceId":{"type":"string"},"title":{"type":"string"},"provider":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"status":{"$ref":"https://ace.local/protocol/v1/ThreadStatus.json"},"createdAt":{"type":"number"},"updatedAt":{"type":"number"}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":{}} |
+| items | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"type":{"type":"string"},"agentId":{"type":"string"},"createdAt":{"type":"number"}},"required":["id","type","agentId","createdAt"],"additionalProperties":{}}} |
+| itemsBefore | yes | number,null |  |
+| interactions | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/Interaction.json"}} |
+
+Example:
+
+```json
+{
+  "interactions": [],
+  "items": [],
+  "itemsBefore": 8,
+  "thread": {
+    "createdAt": 2,
+    "id": "example",
+    "provider": "claude",
+    "status": {
+      "state": "failed"
+    },
+    "title": "example",
+    "updatedAt": 7,
+    "workspaceId": "example"
+  }
+}
+```
+
+## CliThreadState
+
+[JSON Schema](schema/CliThreadState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string |  |
+| status | yes | [ThreadStatus.json](schema/ThreadStatus.json) |  |
+| state | yes | string |  |
+| tree | yes | [CliTree.json](schema/CliTree.json) |  |
+
+Example:
+
+```json
+{
+  "state": "example",
+  "status": {
+    "state": "done"
+  },
+  "threadId": "example",
+  "tree": []
 }
 ```
 
@@ -9200,6 +10257,22 @@ Example:
 {
   "required": "example",
   "status": "unreadable"
+}
+```
+
+## CliVersionOutput
+
+[JSON Schema](schema/CliVersionOutput.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string |  |
+
+Example:
+
+```json
+{
+  "version": "example"
 }
 ```
 
@@ -20127,6 +21200,7 @@ Example:
 | type | yes | `"marketplace.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":80} |
 | operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
+| thread | no | [ThreadId.json](schema/ThreadId.json) |  |
 
 Example:
 
@@ -20750,12 +21824,12 @@ Example:
 
 [JSON Schema](schema/MarketErrorCode.json), input validation.
 
-Type: ["signed_out","reauth","blocked","suspended","quota","not_found","invalid","refused","forbidden","unavailable","conflict","expired","busy","failed"]. See JSON Schema for constraints.
+Type: ["signed_out","reauth","blocked","suspended","quota","not_found","invalid","refused","forbidden","unavailable","conflict","expired","busy","failed","person_only"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"failed"
+"person_only"
 ```
 
 ## MarketFeedEntryWire
@@ -23491,12 +24565,13 @@ Example:
 | message | yes | string | {"maxLength":2000} |
 | problems | no | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketProblem.json"}} |
 | scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+| request | no | string | {"maxLength":200} |
 
 Example:
 
 ```json
 {
-  "code": "busy",
+  "code": "failed",
   "message": "example",
   "op": "error"
 }
@@ -37336,17 +38411,18 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"beta.spade":{"type":"boolean"},"beta.marketplace":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"beta.spade":{"type":"boolean"},"beta.marketplace":{"type":"boolean"},"market.askBeforeAgentPublish":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
 ```json
 {
   "settings": {
+    "access.nativeModes": {},
     "browser.backendLoss": "headless",
     "browser.profileScope": "thread",
     "clients.keybindings": null,
-    "media.delivery": "auto",
+    "media.encode": "auto",
     "providers.coder.model": "example",
     "providers.coder.reasoningEffort": "high",
     "providers.configuration": [],
@@ -37358,8 +38434,7 @@ Example:
     "storage.backupWorktrees": true,
     "threads.forkOnSwitch": true,
     "threads.settleOnClose": false,
-    "threads.settleOnMerge": true,
-    "threads.useWorktree": false
+    "threads.settleOnMerge": true
   },
   "version": 2
 }
@@ -37401,7 +38476,7 @@ Example:
 
 ```json
 {
-  "key": "remote.relayMcp",
+  "key": "remote.hostedPairingLink",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -37412,7 +38487,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","beta.spade","beta.marketplace","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","beta.spade","beta.marketplace","market.askBeforeAgentPublish","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -37511,7 +38586,7 @@ Example:
 
 ```json
 {
-  "key": "threads.settleOnClose",
+  "key": "threads.settleOnMerge",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -37843,6 +38918,7 @@ Example:
 | spade.enabled | yes | boolean |  |
 | beta.spade | yes | boolean |  |
 | beta.marketplace | yes | boolean |  |
+| market.askBeforeAgentPublish | yes | boolean |  |
 | devices.emulatorWindow | yes | boolean |  |
 | media.encode | yes | ["auto","legacy"] |  |
 | media.delivery | yes | ["auto","legacy"] |  |
@@ -37888,7 +38964,7 @@ Example:
 {
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": 2,
+  "agents.maxRunningChildren": 9,
   "automations.enabled": true,
   "beta.marketplace": true,
   "beta.spade": true,
@@ -37899,19 +38975,24 @@ Example:
   "browser.profile": "ephemeral",
   "browser.profileScope": "thread",
   "browser.userChrome.storageReads": true,
-  "clients.keybindings": [],
-  "clients.theme": [],
+  "clients.keybindings": null,
+  "clients.theme": "example",
   "computer.blockedApps": [],
   "computer.lockedUse": true,
-  "devices.emulatorWindow": false,
-  "devices.enabled": true,
+  "devices.emulatorWindow": true,
+  "devices.enabled": false,
   "generation.autoDraftCommits": true,
-  "generation.model": null,
+  "generation.model": {
+    "effort": "example",
+    "model": "example",
+    "provider": "acp"
+  },
   "host.displayName": "example",
   "host.icon": {
-    "kind": "cloud"
+    "kind": "cpu"
   },
-  "logs.maxBytes": 1048582,
+  "logs.maxBytes": 1048584,
+  "market.askBeforeAgentPublish": false,
   "media.delivery": "auto",
   "media.encode": "auto",
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
@@ -37919,12 +39000,12 @@ Example:
   "projects.roots": [],
   "providers.claude.chrome": "on",
   "providers.coder.model": "example",
-  "providers.coder.provider": "antigravity",
+  "providers.coder.provider": null,
   "providers.coder.reasoningEffort": "default",
   "providers.coder.tier": "fast",
   "providers.codex.toolSource": null,
   "providers.configuration": [],
-  "providers.default": "antigravity",
+  "providers.default": "opencode",
   "providers.planner.model": "example",
   "providers.planner.provider": "codex",
   "providers.planner.reasoningEffort": "minimal",
@@ -37939,18 +39020,18 @@ Example:
   "providers.verifier.tier": "default",
   "remote.agentAccess": "operate",
   "remote.agentTransfers": false,
-  "remote.enabled": false,
+  "remote.enabled": true,
   "remote.hostedPairingLink": false,
-  "remote.lan": true,
+  "remote.lan": false,
   "remote.mcpPublicUrl": null,
-  "remote.publicUrlWebhooks": false,
+  "remote.publicUrlWebhooks": true,
   "remote.relay": false,
-  "remote.relayMcp": false,
-  "remote.relayUrl": "",
+  "remote.relayMcp": true,
+  "remote.relayUrl": "wss://relay.example.invalid/",
   "remote.relayWebhooks": true,
   "remote.tailscale": false,
   "remote.tailscaleMcp": true,
-  "remote.tailscaleWebhooks": true,
+  "remote.tailscaleWebhooks": false,
   "remote.transferIgnoredFiles": false,
   "remote.transport": "local",
   "sourceControl.preferences": {
@@ -37963,26 +39044,24 @@ Example:
     "remote": "origin"
   },
   "spade.enabled": false,
-  "storage.backupWorktrees": false,
+  "storage.backupWorktrees": true,
   "storage.retention": {
-    "attachments": null,
-    "threads": 2,
-    "worktrees": 7
+    "logs": 7
   },
-  "storage.retentionDays": 5,
-  "storage.scheduledCleanup": false,
-  "storage.worktreeRetentionDays": 4,
-  "threads.autoSettleAfter": "never",
+  "storage.retentionDays": 7,
+  "storage.scheduledCleanup": true,
+  "storage.worktreeRetentionDays": 6,
+  "threads.autoSettleAfter": "1w",
   "threads.followUpBehavior": "queue",
   "threads.forkOnSwitch": false,
-  "threads.keepSettledFor": "7d",
-  "threads.limitPolicy": "migrate_now",
-  "threads.settleOnClose": false,
+  "threads.keepSettledFor": "3d",
+  "threads.limitPolicy": "snooze_until_reset",
+  "threads.settleOnClose": true,
   "threads.settleOnMerge": false,
-  "threads.sortBy": "activity",
+  "threads.sortBy": "manual",
   "threads.unresponsiveAfter": "15m",
-  "threads.useWorktree": false,
-  "worktree.preparationTimeoutMs": 60002
+  "threads.useWorktree": true,
+  "worktree.preparationTimeoutMs": 60008
 }
 ```
 

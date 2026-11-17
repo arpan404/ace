@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliServiceState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "active": {
+      "type": "boolean"
+    },
+    "linger": {
+      "const": true,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "active"
+  ],
+  "type": "object"
+}

@@ -11,6 +11,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "thread": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
     "type": {
       "const": "marketplace.request",
       "type": "string"

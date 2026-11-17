@@ -15,7 +15,8 @@
     "conflict",
     "expired",
     "busy",
-    "failed"
+    "failed",
+    "person_only"
   ],
   "type": "string"
 }
