@@ -73,7 +73,7 @@ async function spadeSession(
 }
 
 async function status(context: CommandContext): Promise<void> {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   const { spadeState } = await import("../spade.ts");
   const { spadeStateLines } = await import("../render/spade.ts");
   const { emit } = await import("../io.ts");
@@ -104,7 +104,7 @@ async function status(context: CommandContext): Promise<void> {
 }
 
 async function switchSpade(context: CommandContext, enabled: boolean): Promise<void> {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   await prepareHome(dataDir);
   const spade = await import("../spade.ts");
   const askBeta = context.args.interactive
@@ -126,7 +126,7 @@ async function switchSpade(context: CommandContext, enabled: boolean): Promise<v
 }
 
 async function features(context: CommandContext, on?: boolean): Promise<void> {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   await prepareHome(dataDir);
   const module = await import("../features.ts");
   const render = await import("../render/spade.ts");

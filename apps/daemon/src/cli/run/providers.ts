@@ -26,7 +26,7 @@ async function aceAccount(
 ): Promise<void> {
   return (await import("../ace-account.ts")).aceAccountCommand(
     context.args,
-    context.config().dataDir,
+    (await context.config()).dataDir,
     verb,
   );
 }
