@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use spade_server::workspace::shell::{Confine, Confinement, Job, Kind, Shell};
+use spade_server::workspace::shell::{Confine, Confinement, Job, Kind, Launch, Shell};
 
 /// A sandbox that can never contain a run — it always needs review.
 struct AlwaysNeedsReview;
@@ -65,4 +65,32 @@ async fn a_reviewed_run_that_needs_review_runs_plainly() {
         .await
         .unwrap_or_else(|e| panic!("a reviewed run should execute: {e}"));
     assert_eq!(ran.code, Some(7));
+}
+
+#[test]
+fn a_command_cleared_as_contained_never_launches_plainly_whatever_changed_since() {
+    // Cleared as contained and still held: launches contained, and a run that turns out to need
+    // review is refused rather than run plainly.
+    let held = Launch::Contained
+        .plan(true)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(held.sandboxed && !held.may_run_uncontained && !held.outside);
+    // Cleared as contained but no longer held: refused before anything starts.
+    assert!(Launch::Contained.plan(false).is_err());
+    // Reviewed without relying on the sandbox: contained when held, plainly when not.
+    let reviewed_held = Launch::Reviewed
+        .plan(true)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(reviewed_held.sandboxed && reviewed_held.may_run_uncontained);
+    let reviewed_plain = Launch::Reviewed
+        .plan(false)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(!reviewed_plain.sandboxed && reviewed_plain.may_run_uncontained);
+    // Sent outside by the gate: outside, whether or not the sandbox would hold it.
+    for holds in [true, false] {
+        let outside = Launch::Outside
+            .plan(holds)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(outside.outside && !outside.sandboxed && outside.may_run_uncontained);
+    }
 }

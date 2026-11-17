@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use spade_core::tools::{Risk, ToolDef};
 use spade_models::ToolSpec;
 
-use super::shell::{Ran, Shell};
+use super::shell::{Launch, Ran, Shell};
 use super::{PathError, Workspace, Workspaces};
 use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
@@ -566,12 +566,21 @@ impl Tool for ShellTool {
                 .timeout_s
                 .map_or(SHELL_TIMEOUT, Duration::from_secs)
                 .max(Duration::from_secs(1));
-            // Outside the sandbox only when the gate decided so for this call (ADR 0171).
-            let outside = place
-                .bots
-                .get()
-                .is_some_and(|engine| engine.runs_outside(&key));
-            let sandboxed = !outside && shell.contains(&dir);
+            // What the gate authorized for this call, decided once there and never again here
+            // (ADR 0171; ADR 0167 Windows hardening): a call cleared to run contained launches
+            // only contained, and is refused if the sandbox no longer holds it. With no engine
+            // (no gate), a command runs as the sandbox finds it.
+            let contains_now = shell.contains(&dir);
+            let launch = match place.bots.get() {
+                Some(engine) => engine.take_launch(&key),
+                None if contains_now => Launch::Contained,
+                None => Launch::Reviewed,
+            };
+            let plan = match launch.plan(contains_now) {
+                Ok(plan) => plan,
+                Err(refused) => return ToolOutput::error(refused),
+            };
+            let (outside, sandboxed) = (plan.outside, plan.sandboxed);
             let ran = match &shell {
                 Commands::OneShot(shell) => {
                     shell
@@ -585,10 +594,9 @@ impl Tool for ShellTool {
                             stdin: None,
                             kind: crate::workspace::shell::Kind::Command,
                             outside,
-                            // When the gate did not expect containment (`!sandboxed`), this call
-                            // was reviewed or approved to run outside, so it may run uncontained;
-                            // when it did, a run that turns out to need review must not launch.
-                            may_run_uncontained: !sandboxed,
+                            // Only a call reviewed or approved without relying on the sandbox
+                            // may run uncontained; one cleared as contained must not.
+                            may_run_uncontained: plan.may_run_uncontained,
                         })
                         .await
                 }

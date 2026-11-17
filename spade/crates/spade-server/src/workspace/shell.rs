@@ -84,6 +84,61 @@ pub enum Confinement {
     NeedsReview(String),
 }
 
+/// What the gate authorized when it decided on a command, carried unchanged to the launch so
+/// containment is never decided again there (ADR 0167, Windows hardening). A command the gate let
+/// skip review because the sandbox held it may only ever launch contained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// The gate sent it outside the sandbox (reviewed or approved so).
+    Outside,
+    /// The gate decided it in the sandbox's light (unreviewed because the sandbox held it, or
+    /// reviewed as a sandboxed command): it may launch only contained.
+    Contained,
+    /// Reviewed or approved without relying on the sandbox: contained when the sandbox holds it at
+    /// launch, plainly when it doesn't.
+    Reviewed,
+}
+
+/// How a command launches, from its [`Launch`] and whether the sandbox holds it now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LaunchPlan {
+    pub outside: bool,
+    /// Whether the run is expected to be held by the sandbox.
+    pub sandboxed: bool,
+    /// Whether a run the sandbox turns out not to hold may still launch plainly.
+    pub may_run_uncontained: bool,
+}
+
+/// Why a command cleared to run contained didn't run once the sandbox no longer held it.
+pub const NO_LONGER_CONTAINED: &str = "The command wasn't run: it was cleared to run in Spade's \
+     sandbox, but the sandbox no longer holds it. Run it again and Spade will ask first.";
+
+impl Launch {
+    /// The launch for this authorization when the sandbox does (`contains_now`) or doesn't hold the
+    /// command now. A command cleared as contained is refused, never launched plainly, once the
+    /// sandbox stops holding it; running it again goes back through the gate and its review.
+    pub fn plan(self, contains_now: bool) -> Result<LaunchPlan, String> {
+        match self {
+            Self::Outside => Ok(LaunchPlan {
+                outside: true,
+                sandboxed: false,
+                may_run_uncontained: true,
+            }),
+            Self::Contained if contains_now => Ok(LaunchPlan {
+                outside: false,
+                sandboxed: true,
+                may_run_uncontained: false,
+            }),
+            Self::Contained => Err(NO_LONGER_CONTAINED.to_owned()),
+            Self::Reviewed => Ok(LaunchPlan {
+                outside: false,
+                sandboxed: contains_now,
+                may_run_uncontained: true,
+            }),
+        }
+    }
+}
+
 /// The OS sandbox a bot's runs go through (ADR 0167), set by the server.
 pub trait Confine: Send + Sync {
     /// How to run a command whose home is `home`. `Err` means a sandbox should hold it but can't,
@@ -338,10 +393,7 @@ impl Shell {
                         if job.may_run_uncontained {
                             None
                         } else {
-                            return Err(format!(
-                                "The command wasn't run: it needs your folders, so Spade asks \
-                                 first ({reason})."
-                            ));
+                            return Err(format!("The command wasn't run. {reason}"));
                         }
                     }
                 }

@@ -111,12 +111,40 @@ pub async fn reviewed_world(
     world_with(options, false, sandboxed, extra, scripts).await
 }
 
+/// [`world`] (sandboxed) whose bots' shell goes through `wrap` around the security service, so a
+/// test can change what the sandbox holds between the gate's decision and the launch.
+pub async fn wrapped_world(
+    wrap: impl FnOnce(Arc<dyn Confine>) -> Arc<dyn Confine>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_built(
+        super::Options::default(),
+        false,
+        true,
+        vec![],
+        scripts,
+        wrap,
+    )
+    .await
+}
+
 async fn world_with(
     options: super::Options,
     terminal: bool,
     sandboxed: bool,
     extra: Vec<Arc<dyn Tool>>,
     scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_built(options, terminal, sandboxed, extra, scripts, |late| late).await
+}
+
+async fn world_built(
+    options: super::Options,
+    terminal: bool,
+    sandboxed: bool,
+    extra: Vec<Arc<dyn Tool>>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+    wrap: impl FnOnce(Arc<dyn Confine>) -> Arc<dyn Confine>,
 ) -> Result<World> {
     let dir = tempfile::tempdir()?;
     let root = std::fs::canonicalize(dir.path())?;
@@ -128,7 +156,7 @@ async fn world_with(
     let workspaces = Workspaces::new(data.join("workspace"));
     let late = Arc::new(Late::default());
     let bots = EngineHandle::default();
-    let shell = Shell::system().confined(late.clone());
+    let shell = Shell::system().confined(wrap(late.clone()));
     let kept = (shell.clone(), workspaces.clone(), bots.clone());
     let commands = if terminal {
         let terminals = spade_server::computer::Terminals::new(
