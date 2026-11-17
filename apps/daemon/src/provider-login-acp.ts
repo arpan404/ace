@@ -224,7 +224,8 @@ export function acpLoginDriver(options: {
       const { child, peer } = connected;
       const stop = () => {
         peer.close();
-        void child.stop({ graceMs: 0 });
+        // Only a head start: the finally block stops the same process again and reports there.
+        void child.stop({ graceMs: 0 }).catch(() => {});
       };
       signal.addEventListener("abort", stop, { once: true });
       if (signal.aborted) stop();
@@ -302,7 +303,8 @@ export function acpLoginDriver(options: {
             name: "Agent sign-in",
           });
           const cancel = () => {
-            void terminal?.stop();
+            // Stopping the person's terminal is best effort; its exit is awaited below.
+            void terminal?.stop().catch(() => {});
           };
           signal.addEventListener("abort", cancel, { once: true });
           if (signal.aborted) cancel();

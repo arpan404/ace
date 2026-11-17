@@ -80,14 +80,16 @@ export async function cloudCommand(args: Args, home: string) {
       stderr = (stderr + text).slice(-4096);
     });
     const interrupt = () => {
-      void child.stop({ graceMs: 100 });
+      // The exit awaited below carries the outcome; stopping now is only a head start.
+      void child.stop({ graceMs: 100 }).catch(() => {});
     };
     process.once("SIGINT", interrupt);
     process.once("SIGTERM", interrupt);
     let expired = false;
     const timer = setTimeout(() => {
       expired = true;
-      void child.stop({ graceMs: 100 });
+      // The exit awaited below carries the outcome; stopping now is only a head start.
+      void child.stop({ graceMs: 100 }).catch(() => {});
     }, timeoutMs(args));
     try {
       const exited = await child.exited;

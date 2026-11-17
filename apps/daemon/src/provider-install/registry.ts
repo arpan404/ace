@@ -107,11 +107,14 @@ export function registryInstaller(
         plan.registryPlan ?? (await service.plan(plan, plan.action, signal)).registryPlan;
       if (!preview) throw new Error("Registry plan unavailable");
       const cancel = () => {
-        void registry.handle({
-          type: "registry.install-cancel",
-          requestId: session,
-          intentId: session,
-        });
+        // A cancel the registry can't answer fails the install below, which reports it.
+        void registry
+          .handle({
+            type: "registry.install-cancel",
+            requestId: session,
+            intentId: session,
+          })
+          .catch(() => {});
       };
       signal.throwIfAborted();
       line("Installing from the official agent catalog…");

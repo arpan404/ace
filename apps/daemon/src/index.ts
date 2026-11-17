@@ -182,7 +182,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   if (prepared.state === "fresh") {
     const followUp = new AbortController();
     resources.own(() => followUp.abort(), "home backup log");
-    void logHomeBackup(prepared, log, new Date(now()), followUp.signal);
+    // logHomeBackup() logs its own outcome, including a failure to describe the backup.
+    void logHomeBackup(prepared, log, new Date(now()), followUp.signal).catch(() => {});
   }
   // Under the lock: the last run's ending tells an expected restart from a crash.
   let run: DaemonRun | undefined;
