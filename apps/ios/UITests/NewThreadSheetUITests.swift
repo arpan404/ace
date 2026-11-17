@@ -48,8 +48,9 @@ import XCTest
         agent.tap()
         XCTAssertTrue(app.buttons["modelSheet.done"].waitForExistence(timeout: 10))
         // Levels to pick, one fixed level or a line saying there are none: never no row at all.
-        XCTAssertTrue(app.descendants(matching: .any)["tune.effort"].firstMatch.waitForExistence(timeout: 15))
+        let effort = app.descendants(matching: .any)["tune.effort"].firstMatch.waitForExistence(timeout: 15)
         screenshot("sheet-model-effort")
+        XCTAssertTrue(effort)
     }
 
     func testStartingSendsExactlyTheWordsInTheFieldAndOpensTheThread() {
