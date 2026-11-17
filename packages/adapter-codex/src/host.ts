@@ -356,7 +356,12 @@ export class CodexHost {
       const graceMs = this.#config.graceMs;
       this.#retiring = import("@ace/provider-kit/tree-stop")
         .then(({ stopTreeAfterEof }) => stopTreeAfterEof(proc, graceMs))
-        .then(() => {});
+        // A descendant that outlived its stop is not this host's to wait on: retiring is
+        // reached from timers and voided stops, so it settles either way.
+        .then(
+          () => {},
+          () => {},
+        );
       return this.#retiring;
     }
     this.#retiring = this.#proc.stop({ graceMs: this.#config.graceMs }).then(() => {});

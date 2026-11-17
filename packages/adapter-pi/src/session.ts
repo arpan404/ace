@@ -199,7 +199,8 @@ export async function openPiSession(
     ctx.signal.removeEventListener("abort", abort);
   };
   const fatal = () => {
-    void close("shutdown", false);
+    // A Windows tree that outlived its stop rejects only awaited closes.
+    void close("shutdown", false).catch(() => {});
   };
   const rpc = new PiRpc(
     proc,
@@ -281,7 +282,7 @@ export async function openPiSession(
     return closePromise;
   }
   function abort() {
-    void close("shutdown");
+    void close("shutdown").catch(() => {});
   }
   ctx.signal.addEventListener("abort", abort, { once: true });
   void proc.exited.then(() => {

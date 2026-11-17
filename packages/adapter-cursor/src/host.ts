@@ -205,7 +205,9 @@ export class CursorHost {
   /** ace stops the host itself; the reason survives as the stop's detail. */
   private fail(reason: string): Promise<void> {
     this.stopReason ??= reason;
-    return this.stop();
+    // Failing is fire-and-forget from RPC callbacks; a Windows tree that outlived its stop
+    // rejects only awaited stops (the slot pool's), never these.
+    return this.stop().catch(() => {});
   }
   stop(): Promise<void> {
     this.stopped ??= (async () => {

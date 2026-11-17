@@ -15,7 +15,7 @@ export async function discoverOpenCodeModels(
 ): Promise<unknown> {
   const server = new OpenCodeServer(options);
   const abort = () => {
-    void server.close();
+    void server.close().catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   let stage = "server startup";

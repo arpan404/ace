@@ -86,7 +86,7 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
         loginUrl,
       );
       const abort = () => {
-        void host?.stop();
+        void host?.stop().catch(() => {});
       };
       signal.addEventListener("abort", abort, { once: true });
       try {

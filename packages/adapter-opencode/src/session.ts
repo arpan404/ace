@@ -133,7 +133,8 @@ export class OpenCodeSession implements ProviderSession {
       },
     });
     this.abortListener = () => {
-      void this.close("shutdown");
+      // Shutdown is fire-and-forget here: a server stop that fails must not reject unheard.
+      void this.close("shutdown").catch(() => {});
     };
   }
   static async open(ctx: SessionContext, server: OpenCodeServer): Promise<OpenCodeSession> {
@@ -173,7 +174,7 @@ export class OpenCodeSession implements ProviderSession {
       },
       exited: (deliberate, message) => {
         s.reportExit(deliberate, message);
-        void s.close("shutdown");
+        void s.close("shutdown").catch(() => {});
       },
     });
     ctx.signal.addEventListener("abort", s.abortListener, { once: true });
