@@ -15,6 +15,7 @@ use crate::entry::{Entry, Kind, kind_of, millis, size_of};
 use crate::error::Error;
 use crate::hide::Hidden;
 use crate::rules::Rules;
+use crate::sort;
 use crate::stamp::Stamp;
 
 /// One entry as far as ordering and ignoring are concerned.
@@ -24,7 +25,7 @@ struct Item {
     name: String,
     kind: Kind,
     ignored: bool,
-    /// The lowercased name, so natural ordering does not re-fold the folder on every comparison.
+    /// The folded name, so ordering does not re-fold the folder on every comparison.
     folded: String,
 }
 
@@ -136,7 +137,7 @@ fn item_for(
     }
     Ok(Some(Item {
         ignored: rules.folder_ignored() || rules.ignored(&name, is_dir),
-        folded: name.to_lowercase(),
+        folded: sort::fold(&name),
         path,
         name,
         kind,
@@ -164,6 +165,6 @@ fn compare(left: &Item, right: &Item) -> Ordering {
         .kind
         .is_directory()
         .cmp(&left.kind.is_directory())
-        .then_with(|| natord::compare(&left.folded, &right.folded))
+        .then_with(|| sort::compare(&left.folded, &right.folded))
         .then_with(|| left.name.cmp(&right.name))
 }

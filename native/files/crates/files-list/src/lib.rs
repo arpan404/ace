@@ -20,6 +20,7 @@ mod lister;
 mod page;
 mod rules;
 mod snapshot;
+mod sort;
 mod stamp;
 
 pub use crate::clock::{Clock, SystemClock};

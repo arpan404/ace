@@ -15,7 +15,7 @@ workspace = true
 [dependencies]
 files-safe = { path = "../files-safe" }
 ignore = "0.4"
-natord = "1.0"
+unicode-normalization = "0.1"
 thiserror = "2"
 
 [dev-dependencies]
