@@ -151,6 +151,7 @@ struct ConversationFeed: View {
                     Color.clear.frame(height: extent.before).accessibilityHidden(true)
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).equatable().id(row.id)
+                            .transcriptJumpMark(row.id)
                             .disabled(historyStale)
                             .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear") }
                             // The row's frame in the content, not on screen: a scroll leaves it
@@ -280,6 +281,7 @@ struct ConversationFeed: View {
             @unknown default: break
             }
             intent.animating = phase == .animating
+            TranscriptJumpHooks.scrolling(phase != .idle)
         }
         .onScrollGeometryChange(for: TranscriptScrollIntent.Metrics.self) { geometry in
             // The container is the area inside the insets; the feed runs under the header and
@@ -364,7 +366,10 @@ struct ConversationFeed: View {
             .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
             .modifier(SpacerCounts(before: extent.before, after: extent.after))
             .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
-            .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
+            .onChange(of: reading.loading) { _, loading in
+                if loading, reading.operation == "older" { TranscriptJumpHooks.begin("older") }
+                if !loading { pageIfNeeded(proxy) }
+            }
             .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
                 restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
             }
@@ -552,6 +557,7 @@ struct ConversationFeed: View {
         if pinned && !intent.active { toEnd(proxy) }
     }
     private func appeared(proxy: ScrollViewProxy) {
+        TranscriptJumpHooks.begin("open")
         model.readingWillMove = { captureTop() }
         model.readingMoved = { reading.moved() }
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
