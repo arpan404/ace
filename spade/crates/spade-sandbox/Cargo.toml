@@ -27,7 +27,15 @@ libseccomp = { version = "0.4.0", optional = true }
 # supervisor takes a command's socket (`pidfd_getfd`) and connects or binds it; the launcher's
 # limits, `no_new_privs` and reaping; a dedicated pty per command and the terminal changes the
 # supervisor makes on it.
-rustix = { version = "1.1.6", features = ["fs", "net", "process", "pty", "stdio", "termios", "thread"], optional = true }
+rustix = { version = "1.1.6", features = [
+  "fs",
+  "net",
+  "process",
+  "pty",
+  "stdio",
+  "termios",
+  "thread",
+], optional = true }
 # The launcher outlives Ctrl-C and passes on SIGTERM and SIGHUP to the command.
 signal-hook = { version = "0.4.6", optional = true }
 
