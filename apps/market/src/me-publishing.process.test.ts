@@ -306,4 +306,17 @@ describe("the official publisher", () => {
     );
     expect(me.profile.handle).toBe("ace");
   });
+
+  it("an official account uploads more than an established publisher's 30 a day without a refusal", async () => {
+    const statuses: number[] = [];
+    for (let index = 0; index < 35; index++) {
+      const response = await createDraft(market, "acct_staff", {
+        type: "spade-skill",
+        name: `ace-bulk-${index}`,
+        files: sampleSkill(`ace-bulk-${index}`),
+      });
+      statuses.push(response.status);
+    }
+    expect(statuses.every((status) => status === 201)).toBe(true);
+  });
 });

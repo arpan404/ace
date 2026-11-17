@@ -181,13 +181,22 @@ export function isNewPublisher(publisher: { created: number; liveVersions: numbe
 
 /** A publisher's limits (ADR 0173 §9): uploads a day, stored bytes, drafts. */
 const MiB = 1024 * 1024;
-export function publisherLimits(newPublisher: boolean) {
-  return {
-    uploadsPerDay: newPublisher ? 10 : 30,
-    quotaBytes: newPublisher ? 256 * MiB : 1024 * MiB,
-    draftLimit: 20,
-  };
-}
+export type LimitTier = "new" | "established" | "official";
+const tierLimits = {
+  new: { uploadsPerDay: 10, quotaBytes: 256 * MiB, draftLimit: 20 },
+  established: { uploadsPerDay: 30, quotaBytes: 1024 * MiB, draftLimit: 20 },
+  official: { uploadsPerDay: 500, quotaBytes: 10 * 1024 * MiB, draftLimit: 200 },
+} as const;
+export const publisherLimits = (tier: LimitTier) => tierLimits[tier];
+
+/** The tier a publisher's limits come from: an official one is never new. */
+export const limitTier = (
+  publisher: { created: number; liveVersions: number; official: boolean },
+  now: number,
+): LimitTier => {
+  if (publisher.official) return "official";
+  return isNewPublisher(publisher, now) ? "new" : "established";
+};
 
 /** The day a time falls on, in days since the Unix epoch. */
 export const dayOf = (time: number) => Math.floor(time / 86_400_000);
