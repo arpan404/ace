@@ -86,6 +86,7 @@ export class UsageReplay {
   private readonly sizes;
   private readonly pageEnd;
   private readonly entry;
+  private readonly sessionSlice;
   private readonly sessionSamples;
   constructor(db: DatabaseSync) {
     this.pageEnd = db.prepare(`SELECT seq FROM (
@@ -97,24 +98,37 @@ export class UsageReplay {
     );
     this.entry = db.prepare(`SELECT ${eventEntry} AS entry FROM events WHERE seq=? AND ${relevant}
       UNION ALL SELECT ${deletionEntry} FROM usage_deletions WHERE seq=?`);
-    // A thread's inclusive snapshots since its last deletion, through events_thread_seq.
+    // A slice of a thread's events, index only (events_thread_seq): where the slice ends.
+    this.sessionSlice = db.prepare(`SELECT max(seq) AS seq FROM (
+      SELECT seq FROM events WHERE thread_id=? AND seq>? ORDER BY seq LIMIT ?)`);
+    // The slice's inclusive snapshots since the thread's last deletion.
     this.sessionSamples = db.prepare(`SELECT length(CAST(entry AS BLOB)) AS bytes, entry FROM (
-      SELECT seq, ${eventEntry} AS entry FROM events WHERE thread_id=? AND type='usage.updated'
+      SELECT seq, ${eventEntry} AS entry FROM events WHERE thread_id=? AND seq>? AND seq<=?
+        AND type='usage.updated'
         AND seq>COALESCE((SELECT max(seq) FROM usage_deletions WHERE thread_id=?),0)
         AND json_extract(payload,'$.usageScope') IN ('provider_session','model_session')
     ) ORDER BY seq`);
   }
   /**
-   * One thread's inclusive usage samples as the replay projects them: a record too large or
-   * malformed for the replay is left out here too. Work is bounded by the thread's events.
+   * One slice of a thread's inclusive usage samples, as the replay projects them: the samples
+   * among its next `limit` events after `afterSeq`, and where the slice ended (null once the
+   * thread has no more). A record too large or malformed for the replay is left out here too.
    */
-  *readSessionUsage(threadId: string): Generator<UsageEvent> {
-    for (const raw of this.sessionSamples.iterate(threadId, threadId)) {
+  readSessionUsage(
+    threadId: string,
+    afterSeq: number,
+    limit: number,
+  ): { events: UsageEvent[]; throughSeq: number | null } {
+    const end = this.sessionSlice.get(threadId, afterSeq, limit)?.seq;
+    if (typeof end !== "number") return { events: [], throughSeq: null };
+    const events: UsageEvent[] = [];
+    for (const raw of this.sessionSamples.iterate(threadId, afterSeq, end, threadId)) {
       const row = SessionRow.parse(raw);
       if (row.bytes > 64 * 1024) continue;
       const parsed = UsageEvent.safeParse(JSON.parse(row.entry));
-      if (parsed.success) yield parsed.data;
+      if (parsed.success) events.push(parsed.data);
     }
+    return { events, throughSeq: end };
   }
   read(input: unknown, headSeq: number): { throughSeq: number; events: UsageEvent[] } {
     const q = Options.parse(input);

@@ -177,7 +177,16 @@ test("while older history is still being counted, figures say so and a thread's 
           },
         }),
         // Inclusive snapshots grow; the total is the largest one, per key, scope and model.
-        ...[1, 3, 2].map((step) =>
+        // Per-turn samples between them spread the thread over many slices of its events.
+        ...[1, 3, 2].flatMap((step) => [
+          ...Array.from({ length: 400 }, () =>
+            EventPayload.parse({
+              type: "usage.updated",
+              agentId: `${thread}-root`,
+              inputTokens: 1,
+              outputTokens: 0,
+            }),
+          ),
           EventPayload.parse({
             type: "usage.updated",
             agentId: `${thread}-root`,
@@ -187,7 +196,7 @@ test("while older history is still being counted, figures say so and a thread's 
             counterKey: "session",
             model: "gpt-x",
           }),
-        ),
+        ]),
       ],
       at,
     );

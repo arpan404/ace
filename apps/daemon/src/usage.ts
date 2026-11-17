@@ -77,6 +77,8 @@ export interface UsageReplayFailure {
  * inclusive session totals are read from the thread's own events instead of waiting.
  */
 export const usageFillingBacklog = 4096;
+/** A thread's events read per main-thread slice when its session totals are read directly. */
+const sessionSliceEvents = 256;
 /** Failed background replay retries 1 s, 2 s, 4 s ... capped, then waits for new data. */
 export const usageReplayBackoff = { baseMs: 1000, capMs: 300_000, attempts: 12 };
 const defaultReplayTimer = {
@@ -213,10 +215,22 @@ export function createDaemonUsage(
       if (store.headSeq() - (await worker.cursor()) > usageFillingBacklog) {
         // The replay is far behind: fold this thread's own samples by the projection's rule
         // rather than wait for all of history. Nothing is written, so nothing counts twice.
+        // The thread is read in index-bounded slices, yielding between them.
+        const samples = [];
         store.flushLiveWrites();
-        return UsageSessionTotalPage.parse(
-          sessionTotalsFrom(store.usageReplay.readSessionUsage(request.thread), request),
-        );
+        for (let after = 0; ;) {
+          const slice = store.usageReplay.readSessionUsage(
+            request.thread,
+            after,
+            sessionSliceEvents,
+          );
+          if (slice.throughSeq === null) break;
+          samples.push(...slice.events);
+          after = slice.throughSeq;
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          if (stopped) throw new Error("Usage service closed");
+        }
+        return UsageSessionTotalPage.parse(sessionTotalsFrom(samples, request));
       }
       await catchUp();
       return UsageSessionTotalPage.parse(await worker.sessionTotalsFor(request));
