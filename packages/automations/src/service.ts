@@ -487,9 +487,11 @@ export class AutomationService {
   private admits(): boolean {
     return this.deps.admission?.open() ?? true;
   }
+  /** Tracks background work, which never rejects: a failure (a store write) is reported. */
   private track(operation: Promise<void>): void {
-    this.pending.add(operation);
-    void operation.finally(() => this.pending.delete(operation));
+    const settled = operation.catch((error: unknown) => this.report(error));
+    this.pending.add(settled);
+    void settled.finally(() => this.pending.delete(settled));
   }
   private arm(): void {
     this.cancelTimer?.();
