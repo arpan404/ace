@@ -240,140 +240,148 @@ filesystem and network isolation are both required.
 ## Amendment 1: Linux's sandbox, as built (2026-11-17)
 
 Replaces the Linux bullet of decision 1, the Linux part of decision 9 and the last consequence.
-Linux counts as `contained` only when files, network and signals are held. Only then does
-ADR 0171's sandboxed path (no classifier, no reviewer) apply there as on macOS.
+Linux counts as `contained` only with Landlock ABI 3 or newer and contained files, network,
+signals, syscalls, devices and IPC. Only then does ADR 0171's sandboxed path (no classifier,
+no reviewer) apply there as on macOS.
 
-1. **The launcher stays outside as the run's supervisor.** `spade sandbox-exec <plan> <program>
-<args>…` carves the plan's roots (opening each place it grants), lowers its limits, and starts
-   one thread that applies Landlock and a seccomp filter to itself alone and then starts the
-   command, which inherits both. The launcher's other threads answer the filter and forward
-   terminal and stop signals to the command's private process group.
-   adopt what the command leaves running (`PR_SET_CHILD_SUBREAPER`) and end with the command's
-   own exit code or signal. Spade forbids `unsafe`, so the work is done through crates: `landlock`,
-   `libseccomp` (bindings to the system's libseccomp 2.5 or later, LGPL, linked dynamically),
-   `rustix` and `signal-hook`.
-2. **Files: Landlock at the highest ABI the kernel offers.** Read-write: the workspace, its
-   `.spade/tmp`, folders granted for writing, a terminal's state files, `/dev/null`, `/dev/zero`,
-   `/dev/tty`, `/dev/pts`. Read-only: the system's folders (`/usr`, `/bin`, `/sbin`, `/lib*`,
-   `/etc`, `/opt`, `/nix`, `/snap`, `/var/lib`, `/proc`, `/sys`, `/dev`), confirmed toolchains,
-   folders granted for reading and a plugin's own folder. Nothing else. Landlock can't deny inside
-   an allowed folder, so a folder holding a deny-list place is carved: opened child by child
-   without following links, links skipped, a child that is a denied object (same device and
-   inode) left out. A file met while carving that has more than one name is left out too: a rule
-   on a file holds its inode, so granting a hard link would open every other name of it,
-   `~/.ssh/id_ed25519` included. On ABI 4 and later TCP connects are allowed only to the proxy's
-   port, and on ABI 6 and later signals and abstract Unix sockets stay inside the sandbox. The
-   ABI in force is in the sandbox status (`landlock_abi`).
-3. **Network: a seccomp filter and its supervisor.** Landlock's TCP rule holds a port, not an
-   address, and seccomp can't read an address behind a pointer. So the filter sends every
-   `connect`, `bind` and `listen` to the launcher. It reads the address from the command's memory,
-   decides, takes the command's socket (`pidfd_getfd`) and makes the call itself, with the address
-   it judged, never continuing the command's own call. A thread that rewrites the address after
-   it was read changes nothing. What is allowed: TCP to `127.0.0.1:<proxy port>` and `[::1]` (as
-   `::ffff:127.0.0.1`), binds on loopback, `listen` on a socket bound on loopback, and Unix
-   sockets in the workspace, reached through `/proc/self/fd` after a walk that opens each folder
-   without following a link. Everything else is `EPERM`. The filter itself refuses: sockets
-   other than TCP and Unix stream or seqpacket (no UDP and so no DNS, no raw, packet or netlink
-   sockets, no Unix datagrams, which could be sent to any socket by path), `MSG_FASTOPEN`,
-   `ptrace`, `process_vm_*`, `pidfd_getfd`, `bpf`, `perf_event_open`, `userfaultfd`, the key
-   calls, `io_uring` (its operations skip seccomp), `mount` and the new mount calls, `pivot_root`,
-   `chroot`, `unshare`, `setns`, namespace flags on `clone` (`clone3` answers `ENOSYS`, so the C
-   library falls back), modules, `kexec`, `reboot`, `swap`, `TIOCSTI` and `TIOCLINUX`, a nested
-   seccomp listener (which would answer for itself), and `truncate` by path below Landlock ABI 3.
-   A call made through another architecture's ABI kills the process. `no_new_privs` is set, the
-   open-file limit is at most 65,536 and the task limit is what the machine runs now plus 4,096.
-4. **Apps.** Nothing on a Linux desktop starts or drives an app without the session bus or the
-   display server, and both are sockets outside the workspace (`$XDG_RUNTIME_DIR/bus`,
-   `wayland-0`, `/tmp/.X11-unix/X0`) or in the abstract namespace. All are refused, and the
-   built environment carries none of `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY` or
-   `XDG_RUNTIME_DIR`. So `xdg-open`, `gio open`, `notify-send` and `systemd-run --user` fail.
-   There is no grant for the bus or the display yet. A tool that needs them runs outside the
-   sandbox (ADR 0171 decision 5).
-5. **The probe and the fallbacks.** At start Spade runs a real sandbox through the launcher on a
-   throwaway folder: the check inside writes in its workspace and not beside it, reaches a
-   listener standing in for the proxy, and can't open a UDP socket. If that holds, the status is
-   `contained`. If only Landlock holds (the filter can't load, or Yama's `ptrace_scope` 2 or 3
-   stops the supervisor), runs use Landlock alone, the network is `partial` (ABI 4 and later) or
-   `none`, and commands keep their reviews. Without Landlock (a kernel that lacks it or doesn't
-   enable it, as Docker Desktop's), the sandbox is unavailable and nothing changes. Each case
-   says why in one sentence.
-6. **What it doesn't hold.** `/proc` stays readable, so the command lines and status of the
-   person's other processes are visible (their memory, environment, files and working folders
-   are not: Landlock refuses ptrace access to processes outside the sandbox). Below ABI 6,
-   signals require the private PID namespace described below. A hard link to a credential the person
-   put inside a folder granted whole reads as that folder's file (as on macOS). Builds need
-   `libseccomp-dev` and the machine needs `libseccomp.so.2`, which Ubuntu, Debian, Fedora and Arch
-   ship as part of systemd.
+1. **Keep the launcher outside the command's restrictions.** `spade sandbox-exec <plan>
+<program> <args>…` carves and opens the plan's roots, lowers its limits, becomes a subreaper,
+   and starts one thread that applies Landlock and seccomp to itself. The command inherits
+   both. Other launcher threads answer notifications, forward signals and reap descendants.
+   Spade forbids `unsafe`; this uses `landlock`, `libseccomp` (system libseccomp 2.5 or later,
+   LGPL, dynamically linked), `rustix`, `signal-hook` and util-linux.
+2. **Default-deny syscalls on the two verified native ABIs.** Repeated reviews of a
+   default-allow filter found missed ways to affect host state. Replace it with an explicit
+   developer-tool allowlist on x86_64 and aarch64. Known unlisted calls return `EPERM`.
+   Numbers unknown to libseccomp in the current 0 to 511 allocation range return `ENOSYS` for
+   libc fallback; higher numbers remain `EPERM`. `clone3` also returns `ENOSYS` because its
+   namespace flags are behind a pointer. Foreign ABIs kill the process. Other native
+   architectures fail the filtered probe and retain reviews.
 
-### Hardening before Linux ships
+   The policy was built from the sandbox/security/effects suites and traced real git clone
+   through the proxy, Cargo build/test, npm install, Python venv and make workloads. It also
+   includes reviewed native equivalents and runtime primitives needed across the two ABIs.
+   The admitted list is 210 native syscall numbers on x86_64 and 177 on aarch64, including
+   conditional and supervised calls. `linux/allowlist.rs`, `linux/seccomp.rs` and
+   `linux/metadata.rs` are authoritative; [the syscall inventory](../../spade/docs/linux-syscalls.md)
+   records the names, conditions and smoke evidence. Future compatibility fixes must add a
+   specific reviewed call, rather than restore a default-allow branch. The accepted cost is
+   that an untested tool may need an allowlist addition.
 
-- Files require Landlock ABI 3 or newer, which adds the truncate right. ABI 1 and 2
-  report `files: partial` with a plain reason and retain command reviews. Refusing the
-  path-based `truncate` syscall alone does not contain `open(O_TRUNC)` or `ftruncate`.
-- The supervisor refuses AF_UNSPEC connects. It duplicates the socket, keys a shared lock
-  by its device and inode from `fstat`, and holds that lock from the address check through
-  the operation. A successful supervised bind records permission to listen. `listen`
-  requires that record and checks `getsockname` under the same lock. Unix sockets must
-  likewise have been bound by this supervisor in the workspace. Retained descriptors
-  prevent inode reuse from inheriting permission; the descriptor limit bounds this state
-  and exhaustion refuses further operations.
-- PID-targeted resource and scheduling calls are notified and continued only for PID 0 or
-  the caller's process ID or, for task targets, its notifying TID. `setpriority` and
-  `ioprio_set` permit only process selectors,
-  never groups or users; `kcmp` checks both PIDs. `setrlimit` has no target PID and already
-  acts only on the caller. `process_madvise` is refused entirely: checking an fd and then
-  continuing would race the caller's fd table. No pointer or fd-based target is continued.
-- Below Landlock ABI 6, a filtered launch first starts util-linux `/usr/bin/unshare` with a
-  private user, PID and mount namespace and a fresh `/proc`. It maps the person's current
-  UID, forks the launcher as namespace init, and kills that init if unshare dies. This happens
-  before confinement. The supervisor reaps the namespace's children. PID namespaces make
-  outside processes unaddressable by signal calls, including queued signals, with the session
-  separation below for process-group signals. This avoids pidfd emulation of thread signals. The filter prevents further namespace changes.
-  ABI 6 and newer use Landlock signal scoping instead, without requiring user namespaces.
-- The real filtered probe exercises the same namespace setup on old kernels. If user
-  namespaces, util-linux or its mount setup are unavailable, it fails and falls back to
-  Landlock alone: `signals: partial` below ABI 6, and reviews remain. `contains()` requires
-  all three coverage fields to be contained and Linux ABI at least 3. A filtered launch
-  retries setup on every run and refuses to start the command if it fails.
+3. **Landlock for files, with supervised metadata.** Require ABI 3's truncate right.
+   ABI 1 to 2 report `files: partial` and retain reviews; denying path-based truncate alone
+   cannot contain `open(O_TRUNC)` and `ftruncate`. Read-write roots are the workspace,
+   `.spade/tmp`, consented write folders and a terminal's state files. System folders,
+   confirmed toolchains, read grants and plugin folders are read-only. `/dev` is excluded
+   even from a broad consented root. Roots containing denied places are carved on opened
+   objects without following links; denied inodes and multiply linked files met during
+   carving are omitted. The same descriptors receive Landlock rules.
 
-### Session and process lifecycle hardening
+   Landlock does not mediate chmod, chown, xattr or timestamp writes. Notify all their
+   native variants, including `fchmodat2` (number 452 even on Debian 12's older libseccomp).
+   The supervisor copies arguments, opens targets no-follow with `openat2`, authorizes them
+   against the actual pinned write objects installed in Landlock, and performs the operation
+   on the pinned object. It never continues a path or fd mutation in the caller. Descriptor
+   targets are duplicated and their reopened identity must match. Symlink ancestors and
+   unresolved/deleted fd paths are refused. Only explicit no-follow ownership/timestamp
+   operations may change a symlink itself. Device metadata cannot be changed.
 
-1. **Separate sessions on every ABI.** PID namespaces do not by themselves detach an inherited
-   host process group. Namespace PID 1 must successfully call `setsid` before confinement or
-   command startup. Every command also starts through util-linux `/usr/bin/setsid`, which calls
-   `setsid` in the launcher's freshly spawned child before exec. This avoids an unsafe Rust
-   `pre_exec` hook and applies on ABI 6 and newer as well. Failure starts no command. The launcher
-   forwards `SIGINT`, `SIGQUIT`, `SIGTERM` and `SIGHUP` to the new command group because the
-   command no longer belongs to its terminal's original session. Interrupts are forwarded
-   without escalation so a shell may handle them normally.
-2. **Stop the tree, not unshare's waiting parent.** Below ABI 6, init transfers its own pidfd
-   over a private Unix socket before starting the command. The outer launcher verifies the
-   peer is unshare's child and the pidfd names that peer, unlinks the socket, and acknowledges
-   receipt. Startup fails if this handshake fails. Stop signals go straight to init through
-   that host-side pidfd, independent of util-linux signal-forwarding support. After 500 ms,
-   TERM or HUP escalates to killing namespace init, which kills every descendant.
-3. **Reap before reporting done.** On every ABI, TERM or HUP first reaches the command group;
-   after 250 ms the launcher kills the leader through a pre-opened pidfd and kills owned
-   children. As a subreaper it repeatedly kills and reaps adopted children until `ECHILD`,
-   including descendants that changed session or ignored TERM. Normal command exit drains
-   remaining descendants too. Proc directories are pinned before pidfd acquisition and PPid
-   is checked through the pinned directory, so a reused PID cannot select a host process.
-   `waitid(WNOWAIT)` and a shared forwarding lock keep the leader unreaped until group-signal
-   forwarding is disabled. SIGCHLD reaps other adopted children while the command runs.
-4. **Leave shutdown descriptors available.** Retained socket entries use at most one quarter
-   of the launcher's fd limit, capped at 4,096. Concurrent notification workers are bounded
-   against that limit too, capped at 32. Excess calls return EAGAIN. This keeps pidfd and proc
-   operations available for cleanup, including when a run has a 64-fd limit.
-5. **Audit all PID/TID effects.** `sched_setattr` joins the other supervised scheduling writes.
-   Resource, scheduling, nice and I/O-priority task targets may name zero, the current process,
-   or the notifying thread, never an arbitrary sibling TID. Only process selectors are allowed
-   for priority calls. Both `kcmp` targets must be positive self IDs. `pidfd_open` accepts the
-   caller's positive process ID without PIDFD_THREAD, or the notifying TID with PIDFD_THREAD; NONBLOCK
-   is optional. Zero and unknown flags are refused. Older kernels may return EINVAL for an
-   otherwise permitted thread-handle request. `process_mrelease`, `migrate_pages` and
-   `move_pages` are refused outright, alongside `process_madvise`, `pidfd_getfd`, ptrace and
-   process_vm calls. An unknown critical syscall name fails the filter probe. Read-only
-   sched_getattr/getparam/getscheduler/getaffinity/rr_get_interval, getpriority, ioprio_get,
-   getpgid/getsid and get_robust_list remain allowed. The kernel restricts wait calls to
-   children and setpgid to self/children in the same session; signal calls remain subject to
-   Landlock scoping or the private PID namespace and session.
+4. **Minimal devices and no shared host IPC.** Grant only `/dev/null`, `/dev/zero`,
+   `/dev/full`, `/dev/random`, `/dev/urandom`, `/dev/tty`, and the command's inherited stdio PTY
+   inode after checking its exact `/dev/pts/<number>` path. Never grant all of `/dev` or
+   `/dev/pts`. A different terminal of the same user cannot be opened. Separate sessions
+   mean `/dev/tty` can refer only to a controlling terminal acquired by this command.
+
+   Use this precise Landlock policy rather than retaining mount privileges or depending on
+   private devpts support. The unprivileged launcher after exec has no mount capabilities;
+   signal namespaces do not give its command those privileges. No `/dev/ptmx` or `/dev/shm`
+   is granted, including on namespace-capable hosts. Tools needing new PTYs or POSIX shared
+   memory therefore need further design. If a future private devpts/tmpfs path is added,
+   it must preserve the same boundary and be probed before claiming coverage.
+
+   Below ABI 6, the existing private user/PID/mount namespace launch also requests a private
+   IPC namespace before confinement. Every SysV IPC call is unlisted on every ABI: shm,
+   semaphore and message creation, attachment, operations and control all fail `EPERM`.
+   ABI 6+ therefore contains IPC without requiring user namespaces. An unavailable namespace
+   below ABI 6 fails the filtered launch; no path falls back to shared host IPC while claiming
+   containment.
+
+5. **Supervise socket addresses and PID/TID effects.** Landlock ABI 4 limits TCP ports,
+   but cannot limit an address. Notify connect, bind and listen. Copy and judge the address,
+   duplicate the socket through a pidfd, then perform the operation in the supervisor.
+   Permit TCP only to loopback at the proxy's port, loopback binds, and Unix stream/seqpacket
+   sockets in the workspace. Refuse AF_UNSPEC. Hold a shared lock keyed by socket device/inode
+   from the check through the operation. Listen requires this supervisor's successful bind
+   and a fresh getsockname check under that lock; retained descriptors prevent inode reuse.
+   Socket creation is conditional; UDP, DNS, raw/packet/netlink sockets, Unix datagrams,
+   abstract sockets and MSG_FASTOPEN are refused.
+
+   Notify prlimit64, sched_setaffinity/setscheduler/setparam/setattr, setpriority, ioprio_set,
+   kcmp and pidfd_open. Only zero or self IDs are accepted where the syscall defines them;
+   task operations accept the notifying TID as well as the current process. Priority
+   selectors must name processes. Both kcmp IDs must be positive self IDs. pidfd_open
+   accepts a positive process ID, or the notifying TID with PIDFD_THREAD; NONBLOCK is optional,
+   unknown flags and zero are refused. Older kernels may reject THREAD with EINVAL. setrlimit
+   is already self-only. process_madvise/mrelease, process_vm, ptrace, NUMA migration and
+   pidfd_getfd stay unlisted. No fd/pointer target is checked and then continued.
+
+   ioctl has an explicit request list for terminal/fd controls and file cloning; prctl has
+   self-only options. Make's UID/GID restoration is conditional on the launcher's current real
+   IDs or the no-change sentinel. Namespace changes, arbitrary ioctls, nested seccomp,
+   io_uring and kernel administration remain unlisted. no_new_privs is set; open files are
+   capped at 65,536 and tasks at the machine's current count plus 4,096.
+
+6. **Separate sessions and isolate every signal form.** Below Landlock ABI 6, util-linux
+   unshare creates a private user, PID, IPC and mount namespace with a fresh proc before
+   confinement. Namespace PID 1 must successfully call setsid. It sends its own pidfd over
+   a private authenticated Unix handshake to the outer launcher before command startup.
+   The outer launcher verifies the peer is unshare's child and that the pidfd names it,
+   then unlinks the socket. Signals go directly through this handle, bypassing unshare's
+   waiting parent. TERM/HUP escalates to killing namespace init after 500 ms, ending all
+   descendants. This contains queued/thread signals without emulating their semantics.
+   ABI 6+ uses Landlock signal and abstract-socket scoping and needs no namespace.
+
+   On every ABI the freshly spawned child runs through `/usr/bin/setsid` before exec.
+   This creates a private session/group without an unsafe Rust pre_exec hook. Failure
+   starts no command. INT, QUIT, TERM and HUP are forwarded to that private group; interrupts
+   do not escalate. A failed old-kernel namespace or pidfd handshake fails the filtered probe
+   and leaves signals partial. A filtered launch repeats setup and fails closed on each run.
+
+7. **Serialize and bound shutdown work.** TERM/HUP escalates after 250 ms through a
+   pre-opened leader pidfd and owned-child kills. Normal exit also drains adopted descendants.
+   A single reaper mutex serializes SIGCHLD, shutdown killing and wait operations. Kill and
+   reap at most 32 children per pass, without retaining a descriptor per child. Pin proc
+   directories and check PPid and start time around pidfd acquisition. On EMFILE release four
+   reserved descriptors; if a pidfd still cannot be obtained, re-check the pinned identity
+   and kill by PID while the reaper lock prevents child reaping and PID reuse. Every reap is
+   nonblocking; an incomplete sweep never enters a blocking wait. Repeat discovery and
+   bounded passes until authoritative ECHILD. WNOWAIT keeps the leader reserved until group
+   forwarding is disabled. Socket state uses at most a quarter of the fd limit (max 4,096)
+   and notification workers at most 32, leaving room for cleanup.
+8. **Probe the complete policy before dropping reviews.** The real launcher probe writes
+   inside its workspace, cannot write beside it, reaches a stand-in proxy and cannot open
+   UDP. All filter, device, metadata and IPC policy setup is mandatory on that path. Status
+   exposes files, network, signals, syscalls, devices, ipc and landlock_abi. `contains()`
+   requires all six fields contained and ABI >=3. Missing setup reports partial with a
+   plain reason. Landlock alone reports files partial too, because metadata remains exposed;
+   network is partial at ABI 4+ or none below, signals contained only at ABI 6+, and commands
+   retain reviews. No Landlock means no sandbox. The policy is retried on every run.
+9. **Apps and remaining visibility.** The desktop bus and display sockets lie outside the
+   workspace or in the refused abstract namespace. The environment omits their variables,
+   so xdg-open, gio, notify-send and systemd-run --user cannot reach desktop apps. There is
+   no bus/display grant yet. Proc remains readable (host process names/status on ABI 6+,
+   only the private namespace below); Landlock blocks other processes' memory, environment,
+   file descriptors and cwd. A credential hard-linked inside a directory granted whole is
+   still that directory's file, as on macOS. Runtime needs libseccomp.so.2; builds need its
+   development headers.
+
+### Verification
+
+Real-kernel regression tests cover another same-user PTY, metadata variants with path/fd and
+symlink races, SysV IPC, host POSIX shm, an unlisted syscall, compatibility-ABI refusal and
+160 detached children under a 64-fd limit, including forced EMFILE in the actual reaper.
+Sandbox, security and effects suites and the six-step proxy smoke run on Linux 6.8 / ABI 4
+and 6.12 / ABI 6 in Debian 12 containers as a non-root user with all capabilities dropped,
+seccomp unconfined and proc system-path masking disabled. The x86_64 verification uses a full
+QEMU VM with a real x86_64 kernel, rather than user-mode syscall translation. The syscall
+inventory records observations and release reproduction commands.

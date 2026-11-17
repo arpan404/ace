@@ -21,6 +21,7 @@ pub fn run(args: &[OsString]) -> Result<ExitCode, String> {
             "--user",
             "--map-current-user",
             "--pid",
+            "--ipc",
             "--fork",
             "--mount-proc",
             "--kill-child",

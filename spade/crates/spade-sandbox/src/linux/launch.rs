@@ -113,7 +113,8 @@ fn run(
     args: &[OsString],
     ending: Option<std::fs::File>,
 ) -> Result<ExitCode, String> {
-    let ruleset = ruleset(plan).map_err(|e| format!("the sandbox could not be applied: {e}"))?;
+    let (ruleset, metadata) =
+        ruleset(plan).map_err(|e| format!("the sandbox could not be applied: {e}"))?;
     limit().map_err(|e| format!("the sandbox's limits could not be set: {e}"))?;
     // What the command leaves running stays the launcher's, so the supervisor may still reach
     // its sockets (`pidfd_getfd` needs a descendant where Yama is on).
@@ -131,6 +132,7 @@ fn run(
     let network = plan.network;
     let (program, args) = (program.to_owned(), args.to_vec());
     std::thread::spawn(move || confined(ruleset, network, &program, &args, &send));
+    let metadata = std::sync::Arc::new(metadata);
     let mut child = None;
     for message in started {
         match message {
@@ -139,7 +141,8 @@ fn run(
                     proxy_port: plan.proxy_port,
                     sockets: plan.sockets.clone(),
                 };
-                std::thread::spawn(move || supervise::serve(listener, rules));
+                let metadata = std::sync::Arc::clone(&metadata);
+                std::thread::spawn(move || supervise::serve(listener, rules, metadata));
             }
             Started::Child(started) => child = Some(started),
             Started::Failed(why) => return Err(why),
@@ -168,8 +171,8 @@ fn confined(
     };
     if network == Network::Filtered {
         let loaded = seccomp::filter(abi >= 3).and_then(|filter| {
-            filter.load()?;
-            filter.get_notify_fd()
+            filter.load().map_err(|e| e.to_string())?;
+            filter.get_notify_fd().map_err(|e| e.to_string())
         });
         match loaded {
             Ok(listener) => {
@@ -221,14 +224,19 @@ fn effective(status: &LandlockStatus) -> u8 {
 
 /// The plan as a Landlock ruleset, its roots carved and opened now: the descriptors carving
 /// opened are the ones the rules hold.
-fn ruleset(plan: &Plan) -> Result<RulesetCreated, landlock::RulesetError> {
+fn ruleset(plan: &Plan) -> Result<(RulesetCreated, super::metadata_access::Grants), String> {
     // Every TCP connect is handled, so with no port in the plan none is allowed. Signals and
     // abstract Unix sockets stay inside the sandbox where the kernel scopes them (ABI 6).
+    let mut metadata = super::metadata_access::Grants::default();
     let mut created = Ruleset::default()
-        .handle_access(AccessFs::from_all(ABI_WANTED))?
-        .handle_access(AccessNet::ConnectTcp)?
-        .scope(Scope::from_all(ABI_WANTED))?
-        .create()?;
+        .handle_access(AccessFs::from_all(ABI_WANTED))
+        .map_err(|e| e.to_string())?
+        .handle_access(AccessNet::ConnectTcp)
+        .map_err(|e| e.to_string())?
+        .scope(Scope::from_all(ABI_WANTED))
+        .map_err(|e| e.to_string())?
+        .create()
+        .map_err(|e| e.to_string())?;
     for root in &plan.roots {
         let access = if root.write {
             AccessFs::from_all(ABI_WANTED)
@@ -236,13 +244,25 @@ fn ruleset(plan: &Plan) -> Result<RulesetCreated, landlock::RulesetError> {
             AccessFs::from_read(ABI_WANTED)
         };
         for (_, fd) in carve(&RealFs, root) {
-            created = created.add_rule(PathBeneath::new(fd, access))?;
+            if root.write {
+                metadata.add(&fd).map_err(|e| e.to_string())?;
+            }
+            created = created
+                .add_rule(PathBeneath::new(fd, access))
+                .map_err(|e| e.to_string())?;
         }
     }
-    if let Some(port) = plan.proxy_port {
-        created = created.add_rule(NetPort::new(port, AccessNet::ConnectTcp))?;
+    for fd in super::devices::inherited() {
+        created = created
+            .add_rule(PathBeneath::new(fd, AccessFs::from_all(ABI_WANTED)))
+            .map_err(|e| e.to_string())?;
     }
-    Ok(created)
+    if let Some(port) = plan.proxy_port {
+        created = created
+            .add_rule(NetPort::new(port, AccessNet::ConnectTcp))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok((created, metadata))
 }
 
 /// Lowers the open-file limit to [`MAX_FILES`] and the task limit to what runs now plus

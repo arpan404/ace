@@ -20,8 +20,7 @@ Spade probes the sandbox once at start (`Runner::probe`). On macOS: the real pro
 throwaway folder running `/usr/bin/true`. On Linux: a real sandbox through the launcher on a
 throwaway folder, whose check (`spade sandbox-check`) writes in its workspace and not beside it,
 reaches a listener standing in for the proxy and can't open a UDP socket (see
-[Linux](#linux)). `SPADE_SANDBOX=off` turns it off. Without a sandbox that holds files, signals and
-network, and the proxy listening, nothing about reviews changes.
+[Linux](#linux)). `SPADE_SANDBOX=off` turns it off. Without all required sandbox boundaries and the proxy listening, reviews stay in place.
 
 ## What a sandboxed run may touch
 
@@ -32,24 +31,24 @@ shell in the bot's terminal is not sandboxed. A run is confined when its home is
 started: the shell answers `the sandbox could not start: …`, and a plugin server keeps that as its
 problem.
 
-| Place                                                                                                                               | Access                                           |
-| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| The bot's workspace, `.spade/tmp` in it (`TMPDIR`)                                                                                  | read-write                                       |
-| Folders granted with `write: true`                                                                                                  | read-write                                       |
-| A terminal's state files (Spade's `terminal/<bot>`)                                                                                 | read-write                                       |
-| The system's folders (below)                                                                                                        | read-only                                        |
-| Confirmed toolchains, folders granted for reading                                                                                   | read-only                                        |
-| A plugin's own folder (its hooks and servers only)                                                                                  | read-only                                        |
-| Everything else: home folders, `/Users/Shared`, `/Volumes`, the person's temporary storage (`/private/var/folders`, `/private/tmp`) | none (ancestors of an opened place: `stat` only) |
-| Spade's data (other bots' workspaces, database, keys), ace's data                                                                   | none                                             |
-| The credential deny-list                                                                                                            | none, whatever else allows it                    |
-| `/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom`, ttys, `/dev/fd`                                                            | read-write                                       |
+| Place                                                                                                                               | Access                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| The bot's workspace, `.spade/tmp` in it (`TMPDIR`)                                                                                  | read-write                                                                                                 |
+| Folders granted with `write: true`                                                                                                  | read-write                                                                                                 |
+| A terminal's state files (Spade's `terminal/<bot>`)                                                                                 | read-write                                                                                                 |
+| The system's folders (below)                                                                                                        | read-only                                                                                                  |
+| Confirmed toolchains, folders granted for reading                                                                                   | read-only                                                                                                  |
+| A plugin's own folder (its hooks and servers only)                                                                                  | read-only                                                                                                  |
+| Everything else: home folders, `/Users/Shared`, `/Volumes`, the person's temporary storage (`/private/var/folders`, `/private/tmp`) | none (ancestors of an opened place: `stat` only)                                                           |
+| Spade's data (other bots' workspaces, database, keys), ace's data                                                                   | none                                                                                                       |
+| The credential deny-list                                                                                                            | none, whatever else allows it                                                                              |
+| Devices                                                                                                                             | macOS: null/zero/random/urandom, ttys, fd; Linux: only the precise minimal devices and inherited PTY below |
 
 The system's folders on macOS: `/System`, `/usr`, `/bin`, `/sbin`, `/Library`, `/opt`, `/nix`,
 `/private/etc`, `/private/var/db/timezone`, `/private/var/select`,
 `/private/var/db/xcode_select_link`, `/Applications/Xcode.app`, and the listing of `/` (the loader
 reads it). On Linux: `/usr`, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/etc`, `/opt`, `/nix`,
-`/snap`, `/var/lib`, `/proc`, `/sys`, `/dev`. Nothing is readable by default and then hidden: every
+`/snap`, `/var/lib`, `/proc`, `/sys`. Nothing is readable by default and then hidden: every
 read rule names what it opens.
 
 Network: TCP to the egress proxy on `127.0.0.1` and nothing else, no DNS. Listening on loopback
@@ -97,108 +96,112 @@ command, which inherits both. It starts the command in a new session through `/u
 the command did: its code, or the same signal. A run that can't be confined answers 126 with
 `spade sandbox-exec: …` on stderr.
 
-**Landlock.** The highest ABI the kernel offers (asked at 9, used at what the kernel has),
-best effort, with `restrict_self` refused if nothing is enforced. Files as in the table above;
-TCP connects to the proxy's port only (ABI 4); signals and abstract Unix sockets scoped to the
-sandbox (ABI 6). File containment requires ABI 3 or newer. The status carries
-`landlock_abi` and `signals`; `contains()` requires files, network and signals to be contained.
+**Files and metadata.** Landlock uses the highest available ABI (this build asks through
+ABI 9). File containment requires ABI 3's truncate right and the metadata supervisor.
+Read/write roots are as above. Landlock cannot restrict chmod, chown, xattrs or timestamps,
+so every native mutation variant is notified. The supervisor copies arguments, opens a
+no-follow pinned target with openat2, and checks the actual write-grant objects installed in
+Landlock. It performs the mutation itself on that pinned object, never continuing the
+caller's path or fd operation. FD targets are duplicated and their reopened identity must
+match. Symlink ancestors, deleted/unresolvable fd paths and device metadata are refused;
+explicit no-follow ownership/timestamp calls can change an owned symlink itself. This includes
+fchmodat2 even when the system libseccomp does not know its name.
 
-**The seccomp filter** (`linux/seccomp.rs`, libseccomp, this machine's architecture only; a call
-through another one kills the process). `EPERM` for:
+**Default-deny seccomp.** Only explicitly reviewed native x86_64/aarch64 syscalls are admitted.
+Everything else returns EPERM; unknown numbers in 0 to 511 and clone3 return ENOSYS for libc
+fallback. Higher unknown numbers remain EPERM. A foreign ABI kills the process. Other
+architectures fail the filtered probe and keep reviews. The list comes from traced real
+shell, git clone through the proxy, Cargo build/test, npm install, Python venv and make
+workloads plus the sandbox/security/effects suites and reviewed ABI equivalents. It admits
+210 native numbers on x86_64 and 177 on aarch64, including conditional and supervised calls.
+See [the syscall inventory](linux-syscalls.md) for names, conditions and reproduction.
 
-| What                     | Calls                                                                                                                                                                                                                                              |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Sockets                  | `socket` of any family but `AF_UNIX`, `AF_INET`, `AF_INET6`; TCP only as `SOCK_STREAM` with protocol 0 or `IPPROTO_TCP`; Unix only stream or seqpacket (`socketpair` too); `MSG_FASTOPEN` on the send calls                                        |
-| Other processes          | `ptrace`, `process_vm_readv`, `process_vm_writev`, `pidfd_getfd`, `process_madvise`, `process_mrelease`, `migrate_pages`, `move_pages`                                                                                                                                                                           |
-| The kernel               | `bpf`, `perf_event_open`, `userfaultfd`, `keyctl`, `add_key`, `request_key`, `io_uring_*`, modules, `kexec_*`, `reboot`, `swapon`, `swapoff`, `acct`, `syslog`, `quotactl`, `iopl`, `ioperm`, `modify_ldt`                                         |
-| File systems, namespaces | `mount`, `umount2`, `move_mount`, `open_tree`, `fsopen`, `fsconfig`, `fsmount`, `fspick`, `mount_setattr`, `pivot_root`, `chroot`, `unshare`, `setns`, `clone` with a `CLONE_NEW*` flag, `open_by_handle_at`, `name_to_handle_at`, `fanotify_init` |
-| The terminal             | `ioctl` `TIOCSTI` and `TIOCLINUX`                                                                                                                                                                                                                  |
-| The filter itself        | `seccomp` with `SECCOMP_FILTER_FLAG_NEW_LISTENER`                                                                                                                                                                                                  |
-| Below Landlock ABI 3     | `truncate`                                                                                                                                                                                                                                         |
+The direct list covers Landlock-checked file data/namespace operations, process/thread
+runtime, memory, polling, timers and read-only queries. Socket creation, send flags, clone
+flags, ioctl requests, prctl options and UID/GID restoration are conditional. io_uring,
+namespace changes, kernel administration, arbitrary ioctl, nested seccomp and cross-process
+memory effects are unlisted. no_new_privs is set. Open files are capped at 65,536; tasks at
+the machine's current count plus 4,096.
 
-`clone3` answers `ENOSYS` (its flags are behind a pointer), so the C library falls back to
-`clone`. `connect`, `bind` and `listen` go to the supervisor.
+**Socket and task supervision.** Connect, bind and listen are performed by the supervisor,
+using copied addresses and duplicated sockets. TCP connects reach only loopback at the
+proxy's port. Binds are loopback only; Unix stream/seqpacket sockets stay in the workspace,
+resolved without symlinks. AF_UNSPEC is refused. A lock keyed by socket device/inode spans
+check and operation; listen requires a successful supervised bind and fresh getsockname
+check under that lock. Retained descriptors prevent inode reuse. UDP, DNS, raw/packet/netlink
+sockets, Unix datagrams, abstract addresses and MSG_FASTOPEN are refused. A dead supervisor
+leaves notified calls failing ENOSYS.
 
-**The supervisor** (`linux/supervise.rs`, decisions in `linux/net.rs`, pure). For each call it
-opens the caller's process (`pidfd_open`), checks the notification is still pending (so the
-number wasn't reused), reads the address from `/proc/<tid>/mem`, decides, takes the caller's
-socket with `pidfd_getfd` and makes the call itself:
+PID/TID-targeted resource and scheduling writes, including sched_setattr, allow only self
+or the notifying TID, and zero only where defined. Priority selectors must name processes.
+Both kcmp targets must be positive self IDs. pidfd_open accepts a positive process ID, or
+the notifying TID with PIDFD_THREAD, optionally NONBLOCK; zero/unknown flags are refused.
+Older kernels may return EINVAL for THREAD. process_madvise/mrelease, NUMA migration,
+process_vm, ptrace and pidfd_getfd are unlisted. Read-only scheduling queries are allowed;
+wait/setpgid retain the kernel's child/session restrictions. setrlimit is self-only already.
+Socket retention is capped at a quarter of the fd limit (max 4,096), workers at 32; excess
+requests return EAGAIN.
 
-| Call      | Allowed                                                                                                         | Done as                                                                                         |
-| --------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `connect` | `127.0.0.1:<proxy>`, `[::1]:<proxy>`, `[::ffff:127.0.0.1]:<proxy>`; a Unix socket in the workspace | `127.0.0.1:<proxy>` (`::ffff:127.0.0.1` on IPv6); the opened socket file's `/proc/self/fd` name |
-| `bind`    | `127.0.0.0/8`, `::1`, mapped loopback, any port; a new Unix socket in the workspace                             | the judged address; `/proc/self/fd/<folder>/<name>`                                             |
-| `listen`  | a socket bound on loopback at a port, or a Unix socket                                                          | `listen` on that socket                                                                         |
+**Devices and IPC.** There is no blanket /dev or /dev/pts grant, even under broad folder
+consent. Only /dev/null, zero, full, random, urandom, tty and verified inherited stdio PTY
+inodes are granted. Another terminal of the same user cannot be opened. A separate session
+means /dev/tty refers only to the command's own acquired controlling terminal. The launcher
+uses precise Landlock device rules on every ABI, without retaining mount privileges for
+private devpts. /dev/ptmx and /dev/shm are unavailable. POSIX shared memory and new PTY
+allocation are consequently unsupported. Every SysV IPC syscall is refused, including
+creation, attach, control and semaphore/message operations. Below ABI 6 the signal namespace
+also requests a private IPC namespace; ABI 6+ needs no namespace because IPC is refused.
 
-The supervisor refuses AF_UNSPEC connects and serializes each check and operation by the
-duplicated socket's inode. Listening requires a successful bind by this supervisor and a
-fresh address check under that lock. Descriptor retention prevents inode reuse from granting
-permission. Retained sockets are capped at one quarter of the fd limit (at most 4,096),
-and concurrent workers are bounded against that limit (at most 32), preserving descriptors
-for shutdown. Excess calls return EAGAIN. PID-targeted resource and scheduling calls permit only
-zero, the caller's process ID or its notifying TID, with process selectors only. This includes
-`sched_setattr`. Both `kcmp` targets must be positive self IDs. Sibling TIDs are refused.
-`pidfd_open` requires the caller's positive process ID, or the notifying TID with PIDFD_THREAD; NONBLOCK
-is optional, and zero and unknown flags are refused. On older kernels a permitted THREAD
-request may return EINVAL. The fd-targeted `process_madvise` and `process_mrelease`, and the
-PID-targeted NUMA migration calls, are refused entirely. Read-only scheduling and priority
-queries remain allowed; wait and setpgid retain the kernel's child/session restrictions.
+**Signals and cleanup.** Below ABI 6, util-linux unshare starts with
+`--user --map-current-user --pid --ipc --fork --mount-proc --kill-child` before restrictions.
+Namespace PID 1 must call setsid and sends its own pidfd through an authenticated private
+handshake to the outer launcher. The outer launcher forwards INT/QUIT/TERM/HUP directly to
+init, bypassing unshare's waiting parent; TERM/HUP escalates to killing init after 500 ms.
+ABI 6+ uses Landlock signal scoping. On every ABI the command starts in its own session
+through /usr/bin/setsid, and terminal signals are forwarded to its private process group.
+A failed namespace, session or handshake starts no filtered command.
 
-Everything else is `EPERM`: other hosts and ports (the proxy's port at another address
-included), other loopback ports, DNS over TCP, Unix sockets outside the workspace or reached
-through a link, abstract and unnamed Unix sockets, `bind` with `AF_UNSPEC` (every interface),
-`listen` on an unbound socket (the kernel would bind every interface). The command's own call is
-never continued, so a thread that rewrites the address after it was read changes nothing. A
-supervisor that dies leaves every such call failing (`ENOSYS`).
+TERM/HUP escalates after 250 ms via the pre-opened leader pidfd and owned-child kills.
+Normal command exit also drains adopted descendants, including detached sessions. One
+reaper lock serializes shutdown and SIGCHLD reaping. Kill/reap passes handle at most 32
+children, retain no per-child fd collection and use only nonblocking waits. Pinned proc
+identity checks include PPid and start time. EMFILE releases four emergency descriptors;
+if pidfd acquisition still fails, a rechecked pinned identity permits a PID kill while the
+lock prevents child reaping/PID reuse. An incomplete sweep never enters a blocking wait;
+cleanup repeats bounded passes until ECHILD. The leader remains unreaped until group
+forwarding is disabled. Interrupts do not escalate. The unlinked status file preserves
+termination signals separately from intentional exit codes such as 143.
 
-**Limits.** `no_new_privs`; open files at most 65,536; tasks at what the machine runs now
-(`/proc/loadavg`) plus 4,096, since `RLIMIT_NPROC` counts all of the person's.
+**Coverage and fallbacks.** Status exposes files, network, signals, syscalls, devices, ipc
+and landlock_abi. `contains()` requires all six boundaries contained and Linux ABI >=3.
+Default-deny filtering, minimal devices, metadata supervision and IPC isolation/refusal are
+mandatory parts of the filtered launch. Missing setup reports partial with a plain reason.
 
-**Apps.** The session bus (`$XDG_RUNTIME_DIR/bus`, or an abstract address), Wayland
-(`$XDG_RUNTIME_DIR/wayland-0`) and X11 (`/tmp/.X11-unix/X0`, `@/tmp/.X11-unix/X0`, or TCP 6000)
-are all sockets outside the workspace or in the abstract namespace, so they are refused, and the
-environment carries no `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY` or
-`XDG_RUNTIME_DIR`. `xdg-open`, `gio open`, `notify-send`, `systemd-run --user` and any app a
-command starts can't reach the desktop. There is no grant for them yet.
+| Kernel/ABI and setup                                                                                      | Coverage and reviews                                                                                                   |
+| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| ABI 1 to 2                                                                                                | Files partial: no truncate right. Reviews stay.                                                                        |
+| ABI 3 to 5, full policy and private signal/IPC namespace                                                  | All six contained; reviews may drop. ABI 4+ adds Landlock TCP-port defense.                                            |
+| ABI 6+, full policy                                                                                       | All six contained using Landlock signal scoping; no user namespace required.                                           |
+| Landlock alone: unsupported architecture, filter/listener failure, Yama 2 to 3, or failed namespace setup | Files/syscalls/devices/IPC partial; network partial at ABI 4+ or none; signals contained only at ABI 6+. Reviews stay. |
+| No Landlock                                                                                               | No sandbox; reviews stay.                                                                                              |
 
-**Signals on older kernels.** Below ABI 6 the launcher first starts util-linux `unshare`
-with `--user --map-current-user --pid --fork --mount-proc --kill-child`, before installing
-restrictions. An unlinked status file lets the outer launcher preserve termination signals
-while distinguishing them from exit codes such as 143. The launcher is the new namespace's
-init and must successfully call `setsid` before command startup, separating it from the
-inherited host process group. Init sends its own pidfd over a private, authenticated Unix
-handshake before any confined command starts. The outer launcher forwards signals through
-that pidfd, bypassing unshare's waiting parent. TERM or HUP escalates to killing init after
-500 ms, ending the whole namespace.
-If this setup fails, the filtered probe fails: signals are partial and commands keep reviews.
-ABI 6 and newer use Landlock's signal scoping, with the command still in a new session.
-On every ABI, TERM and HUP reach the command group and escalate after 250 ms through a
-pre-opened leader pidfd and owned-child pidfds. The subreaper kills and reaps adopted
-children until ECHILD, including detached sessions, before reporting the run done. A normal
-command exit also cleans up descendants. Interrupts are forwarded without escalation.
-Pinned proc directories and PPid checks protect child discovery against PID reuse; the
-leader stays unreaped until group forwarding is disabled. The unlinked status file preserves
-termination signals while distinguishing an intentional exit code such as 143.
+A real launcher probe checks workspace writes, denied outside writes, the proxy and refused
+UDP. Every setup step must succeed before filtered coverage is reported, and is repeated on
+every run. When the probe falls back to Landlock alone, metadata remains exposed, so files
+are partial even on ABI 3+. The [ADR amendment](../../docs/adr/0167-spade-security-boundaries.md#amendment-1-linuxs-sandbox-as-built-2026-11-17)
+records the choice and its limits.
 
-**Fallbacks.** The probe tries the filter, then Landlock alone. ABI 1 and 2 always report
-`files: partial` because they cannot contain truncation and commands keep reviews:
+**Apps and visibility.** Session bus, Wayland and X11 sockets are outside the workspace or
+abstract, so commands cannot reach desktop apps. Their environment omits
+DBUS_SESSION_BUS_ADDRESS, DISPLAY, WAYLAND_DISPLAY and XDG_RUNTIME_DIR. There is no desktop
+bus/display grant yet. Proc exposes other processes' names/status on ABI 6+ (only the private
+namespace below); Landlock blocks their memory, environment, fds and cwd. A credential
+hard-linked inside a directory granted whole remains that directory's file, as on macOS.
 
-| The machine                                                           | Status                                                    | Runs                    |
-| --------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------- |
-| Landlock ABI 3+, the filter and signal isolation hold | `files: contained`, `network: contained`, `signals: contained` | Landlock and the filter |
-| Landlock holds, the filter doesn't (no libseccomp listener, Yama 2–3) | `files: contained`, `network: partial` (ABI 4+) or `none` | Landlock alone          |
-| No Landlock (not built or not enabled, as Docker Desktop's kernel)    | `mechanism: none`                                         | as before, reviewed     |
-
-**Not held.** `/proc` stays readable, so other processes' command lines and status are visible
-(not their memory, environment, files or folders: Landlock refuses ptrace access outside the
-sandbox). Below ABI 6, contained runs require a private PID namespace before confinement. A hard link to a
-credential put inside a folder granted whole reads as that folder's file, as on macOS. Listing
-another process's `/proc/<pid>/fd` shows numbers, not targets.
-
-**Building.** On Debian 12 (the release image) or Ubuntu: `build-essential`, `pkg-config` and
-`libseccomp-dev` (2.5 or later), then `cargo build -p spade-server`. aws-lc and SQLite build
-with the C compiler alone; neither `cmake` nor `clang` is needed. Running needs
-`libseccomp.so.2`, which Ubuntu, Debian, Fedora and Arch install with systemd.
+**Building.** Debian 12/Ubuntu need build-essential, pkg-config and libseccomp-dev (2.5+),
+then `cargo build -p spade-server`. Runtime needs libseccomp.so.2 and util-linux setsid;
+older kernels also need unshare and unprivileged user namespaces. See the
+[syscall inventory](linux-syscalls.md) for the real-kernel verification procedure.
 
 ## The egress proxy
 
@@ -337,25 +340,25 @@ where their content still matches the trust record.
 
 Under `/v1`, with the bearer token. Only the person's API writes any of this; no bot tool does.
 
-| Method and path                             | Body                                   | Answer                                                                                                                                                                                                                                                                         |
-| ------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /security`                             |                                        | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network, signals: contained\|partial\|none, landlock_abi, reason}, proxy: {running, problem}, contained, defaults: [host], bots: {commands, network: Policy, plugin_network: Policy}, toolchains_found: [path]}`     |
-| `PUT /security/commands`                    | `{commands: sandboxed\|outside}`       | The machine's view; what bots without their own inherit                                                                                                                                                                                                                        |
-| `PUT /security/network`                     | `{mode, allow?, dropped?}`             | The machine's view; `400` as for a bot's                                                                                                                                                                                                                                       |
-| `PUT /security/plugin-network`              | `{mode, allow?, dropped?}`             | As above, for plugins                                                                                                                                                                                                                                                          |
-| `GET /agents/{id}/security`                 |                                        | `{contained, commands, network: Policy, plugin_network: Policy, own: {commands, network, plugin_network}, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}` (what holds, and whether each is the bot's own); `404` unknown bot |
-| `PUT /agents/{id}/security/commands`        | `{commands: sandboxed\|outside\|null}` | The bot's view; `null` follows the machine                                                                                                                                                                                                                                     |
-| `DELETE /agents/{id}/security/network`      |                                        | The bot's view, its commands following the machine's rule again (`/plugin-network` likewise)                                                                                                                                                                                   |
-| `PUT /agents/{id}/security/network`         | `{mode, allow?, dropped?}`             | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                                                                                |
-| `PUT /agents/{id}/security/plugin-network`  | `{mode, allow?, dropped?}`             | As above, for its plugins' hooks and servers                                                                                                                                                                                                                                   |
-| `PUT /agents/{id}/security/toolchains`      | `{toolchains: [path]}`                 | The bot's view; `400` for a path that isn't an absolute folder or holds sign-ins or data                                                                                                                                                                                       |
-| `GET /agents/{id}/security/egress`          | `?limit=` (1–5,000, default 200)       | `{entries: [Entry]}`, oldest first                                                                                                                                                                                                                                             |
-| `GET /agents/{id}/grants`                   |                                        | `{grants: [Grant], effective: [Grant]}`                                                                                                                                                                                                                                        |
-| `POST /agents/{id}/grants`                  | `{kind, …scope}`                       | `201 {grant}`; `400` refused (why); `404` unknown bot                                                                                                                                                                                                                          |
-| `DELETE /agents/{id}/grants/{grant}`        |                                        | `204`; `404` no such grant                                                                                                                                                                                                                                                     |
-| `GET /agents/{id}/checkpoints`              |                                        | `{checkpoints: [{id, at, reason}], keep: 20, longest_days: 7, every_seconds: 60}`, newest first                                                                                                                                                                                |
-| `POST /agents/{id}/checkpoints`             |                                        | `201 {checkpoint}`; `400` when the workspace doesn't exist yet                                                                                                                                                                                                                 |
-| `POST /agents/{id}/checkpoints/{c}/restore` |                                        | `200 {restored, saved}` (`saved`: the checkpoint taken just before); `404` no such checkpoint; `409` the bot is working                                                                                                                                                        |
+| Method and path                             | Body                                   | Answer                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /security`                             |                                        | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network, signals, syscalls, devices, ipc: contained\|partial\|none, landlock_abi, reason}, proxy: {running, problem}, contained, defaults: [host], bots: {commands, network: Policy, plugin_network: Policy}, toolchains_found: [path]}` |
+| `PUT /security/commands`                    | `{commands: sandboxed\|outside}`       | The machine's view; what bots without their own inherit                                                                                                                                                                                                                                                                   |
+| `PUT /security/network`                     | `{mode, allow?, dropped?}`             | The machine's view; `400` as for a bot's                                                                                                                                                                                                                                                                                  |
+| `PUT /security/plugin-network`              | `{mode, allow?, dropped?}`             | As above, for plugins                                                                                                                                                                                                                                                                                                     |
+| `GET /agents/{id}/security`                 |                                        | `{contained, commands, network: Policy, plugin_network: Policy, own: {commands, network, plugin_network}, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}` (what holds, and whether each is the bot's own); `404` unknown bot                                            |
+| `PUT /agents/{id}/security/commands`        | `{commands: sandboxed\|outside\|null}` | The bot's view; `null` follows the machine                                                                                                                                                                                                                                                                                |
+| `DELETE /agents/{id}/security/network`      |                                        | The bot's view, its commands following the machine's rule again (`/plugin-network` likewise)                                                                                                                                                                                                                              |
+| `PUT /agents/{id}/security/network`         | `{mode, allow?, dropped?}`             | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                                                                                                                           |
+| `PUT /agents/{id}/security/plugin-network`  | `{mode, allow?, dropped?}`             | As above, for its plugins' hooks and servers                                                                                                                                                                                                                                                                              |
+| `PUT /agents/{id}/security/toolchains`      | `{toolchains: [path]}`                 | The bot's view; `400` for a path that isn't an absolute folder or holds sign-ins or data                                                                                                                                                                                                                                  |
+| `GET /agents/{id}/security/egress`          | `?limit=` (1 to 5,000, default 200)    | `{entries: [Entry]}`, oldest first                                                                                                                                                                                                                                                                                        |
+| `GET /agents/{id}/grants`                   |                                        | `{grants: [Grant], effective: [Grant]}`                                                                                                                                                                                                                                                                                   |
+| `POST /agents/{id}/grants`                  | `{kind, …scope}`                       | `201 {grant}`; `400` refused (why); `404` unknown bot                                                                                                                                                                                                                                                                     |
+| `DELETE /agents/{id}/grants/{grant}`        |                                        | `204`; `404` no such grant                                                                                                                                                                                                                                                                                                |
+| `GET /agents/{id}/checkpoints`              |                                        | `{checkpoints: [{id, at, reason}], keep: 20, longest_days: 7, every_seconds: 60}`, newest first                                                                                                                                                                                                                           |
+| `POST /agents/{id}/checkpoints`             |                                        | `201 {checkpoint}`; `400` when the workspace doesn't exist yet                                                                                                                                                                                                                                                            |
+| `POST /agents/{id}/checkpoints/{c}/restore` |                                        | `200 {restored, saved}` (`saved`: the checkpoint taken just before); `404` no such checkpoint; `409` the bot is working                                                                                                                                                                                                   |
 
 Settings are one stored setting per bot, `security:<bot id>`, and the machine's defaults,
 `security.machine`; a value that doesn't parse reads as the defaults. A bot's own value wins; a

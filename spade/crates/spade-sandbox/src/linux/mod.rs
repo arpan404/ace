@@ -20,11 +20,19 @@ pub mod carve;
 pub mod net;
 
 #[cfg(all(target_os = "linux", feature = "landlock"))]
+mod allowlist;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
 mod children;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
+mod devices;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod launch;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod lifecycle;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
+mod metadata;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
+mod metadata_access;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod namespace;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
@@ -56,11 +64,18 @@ pub const CHECK_ARG: &str = "sandbox-check";
 /// `/srv`, `/run`, `/tmp` and the rest of `/var` are not among them, so they stay hidden.
 const SYSTEM: &[&str] = &[
     "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/etc", "/opt", "/nix", "/snap",
-    "/var/lib", "/proc", "/sys", "/dev",
+    "/var/lib", "/proc", "/sys",
 ];
 
 /// Device nodes a command may write.
-const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/tty", "/dev/pts"];
+const DEVICES: &[&str] = &[
+    "/dev/null",
+    "/dev/zero",
+    "/dev/full",
+    "/dev/random",
+    "/dev/urandom",
+    "/dev/tty",
+];
 
 /// One place to open, with what may not be reached inside it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,7 +137,18 @@ pub fn plan(policy: &Policy, network: Network) -> Plan {
         &inside,
     );
     add(&mut policy.scratch.iter().cloned(), true, &policy.secrets);
-    add(&mut DEVICES.iter().map(PathBuf::from), true, &[]);
+    // Even an overly broad consented root cannot reopen host devices or shared memory.
+    for root in &mut roots {
+        root.deny.push(PathBuf::from("/dev"));
+    }
+    let mut add = |paths: &mut dyn Iterator<Item = PathBuf>| {
+        roots.extend(paths.map(|path| Root {
+            path,
+            write: true,
+            deny: Vec::new(),
+        }));
+    };
+    add(&mut DEVICES.iter().map(PathBuf::from));
     Plan {
         roots,
         proxy_port: policy.proxy_port,
@@ -200,17 +226,25 @@ mod tests {
                 Path::new("/h/spade/terminal/b1"),
                 Path::new("/dev/null"),
                 Path::new("/dev/zero"),
+                Path::new("/dev/full"),
+                Path::new("/dev/random"),
+                Path::new("/dev/urandom"),
                 Path::new("/dev/tty"),
-                Path::new("/dev/pts"),
             ]
         );
         let workspace = plan
             .roots
             .iter()
             .find(|r| r.path == Path::new("/h/spade/workspace/b1"));
-        assert_eq!(workspace.map(|r| r.deny.len()), Some(0));
+        assert_eq!(
+            workspace.map(|r| r.deny.clone()),
+            Some(vec![PathBuf::from("/dev")])
+        );
         let cargo = plan.roots.iter().find(|r| r.path == Path::new("/h/.cargo"));
-        assert_eq!(cargo.map(|r| r.deny.clone()), Some(policy.deny.clone()));
+        assert_eq!(
+            cargo.map(|r| r.deny.clone()),
+            Some([policy.deny.clone(), vec![PathBuf::from("/dev")]].concat())
+        );
         assert_eq!(plan.proxy_port, Some(4100));
         // Unix sockets only in the workspace.
         assert_eq!(plan.sockets, Path::new("/h/spade/workspace/b1"));

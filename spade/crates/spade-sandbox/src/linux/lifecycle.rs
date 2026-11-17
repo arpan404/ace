@@ -1,6 +1,6 @@
 //! Signals and reaping for a command in its own session, on every Linux ABI.
 use super::children;
-use rustix::process::{Pid, Signal, WaitId, WaitIdOptions, WaitOptions};
+use rustix::process::{Pid, Signal, WaitId, WaitIdOptions};
 use std::fs::File;
 use std::io::Write;
 use std::process::{Child, ExitCode};
@@ -14,12 +14,14 @@ pub fn wait(
     let pid = Pid::from_child(&child);
     let fd = rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty())
         .map_err(|e| e.to_string())?;
+    let reaper = Arc::new(children::Reaper::new(pid).map_err(|e| e.to_string())?);
+    let signals_reaper = Arc::clone(&reaper);
     let active = Arc::new(Mutex::new(true));
     let forwarding = Arc::clone(&active);
     std::thread::spawn(move || {
         for signal in signals.forever() {
             if signal == signal_hook::consts::SIGCHLD {
-                children::reap_orphans(pid);
+                signals_reaper.reap_orphans();
                 continue;
             }
             let signal = match signal {
@@ -45,7 +47,7 @@ pub fn wait(
             if matches!(signal, Signal::TERM | Signal::HUP) {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 let _ = rustix::process::pidfd_send_signal(&fd, Signal::KILL);
-                let _ = children::kill();
+                let _ = signals_reaper.kill();
             }
         }
     });
@@ -63,12 +65,10 @@ pub fn wait(
     let status = {
         let mut running = active.lock().map_err(|_| "the signal lock failed")?;
         *running = false;
-        rustix::process::waitpid(Some(pid), WaitOptions::empty())
-            .map_err(|e| e.to_string())?
-            .ok_or("the command's status was missing")?
-            .1
+        reaper.root_status().map_err(|e| e.to_string())?
     };
-    children::finish()
+    reaper
+        .finish()
         .map_err(|e| format!("the command's descendants could not be stopped: {e}"))?;
     if let Some(code) = status.exit_status() {
         return Ok(ExitCode::from(u8::try_from(code & 0xff).unwrap_or(1)));

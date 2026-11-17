@@ -21,7 +21,7 @@ use rustix::net::{SocketAddrAny, SocketAddrUnix};
 use super::net::{self, Call, MAX_ADDRESS, Rules, Verdict};
 
 /// Answers notifications on `listener` until it closes.
-pub fn serve(listener: RawFd, rules: Rules) {
+pub fn serve(listener: RawFd, rules: Rules, metadata: Arc<super::metadata_access::Grants>) {
     let names = Names::new();
     let sockets = Arc::new(Mutex::new(HashMap::new()));
     // Leave descriptors for pidfds, proc directories and status files during shutdown, even
@@ -54,11 +54,29 @@ pub fn serve(listener: RawFd, rules: Rules) {
         }
         let permit = Work(Arc::clone(&active));
         let rules = rules.clone();
+        let metadata = Arc::clone(&metadata);
         let sockets = Arc::clone(&sockets);
         // A blocking connect to a Unix socket can wait; the next call isn't held behind it.
         // Past the process limit no thread starts and the call is refused.
         let handled = std::thread::Builder::new().spawn(move || {
             let _permit = permit;
+            let syscall = request.data.syscall;
+            let operation = super::metadata::CALLS
+                .iter()
+                .find(|n| ScmpSyscall::from_name(n).ok() == Some(syscall));
+            let operation = if syscall == ScmpSyscall::from(452) {
+                Some("fchmodat2")
+            } else {
+                operation.copied()
+            };
+            if let Some(name) = operation {
+                respond(
+                    listener,
+                    request.id,
+                    super::metadata::handle(listener, &request, name, &metadata),
+                );
+                return;
+            }
             if let Some(allowed) = self_target(&request) {
                 let response = if allowed {
                     // Only scalar process ids are checked here, never pointers or fd numbers.
@@ -158,7 +176,7 @@ fn respond(listener: RawFd, id: u64, answer: Result<(), Errno>) {
 }
 
 /// The thread that made the call, held while its call is judged.
-struct Caller {
+pub(super) struct Caller {
     process: OwnedFd,
     tid: u32,
 }
@@ -166,7 +184,10 @@ struct Caller {
 impl Caller {
     /// Opens the calling thread's process. The notification must still be pending afterwards, so
     /// the number wasn't reused by another process in between.
-    fn open(listener: RawFd, request: &ScmpNotifReq) -> Result<(Self, Option<File>), Errno> {
+    pub(super) fn open(
+        listener: RawFd,
+        request: &ScmpNotifReq,
+    ) -> Result<(Self, Option<File>), Errno> {
         let tid = request.pid;
         let tgid = thread_group(tid).ok_or(Errno::PERM)?;
         let pid = rustix::process::Pid::from_raw(tgid).ok_or(Errno::PERM)?;
@@ -177,17 +198,24 @@ impl Caller {
     }
 
     /// The caller's socket `fd`, shared with it.
-    fn socket(&self, fd: u64) -> Result<OwnedFd, Errno> {
+    pub(super) fn duplicate(&self, fd: u64) -> Result<OwnedFd, Errno> {
         let fd = RawFd::try_from(fd).map_err(|_| Errno::BADF)?;
         rustix::process::pidfd_getfd(&self.process, fd, rustix::process::PidfdGetfdFlags::empty())
     }
 
+    pub(super) fn directory(&self) -> Result<OwnedFd, Errno> {
+        rustix::fs::open(
+            format!("/proc/{}/cwd", self.tid),
+            rustix::fs::OFlags::PATH | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+    }
     fn cwd(&self) -> PathBuf {
         std::fs::read_link(format!("/proc/{}/cwd", self.tid)).unwrap_or_default()
     }
 }
 
-fn valid(listener: RawFd, id: u64) -> Result<(), Errno> {
+pub(super) fn valid(listener: RawFd, id: u64) -> Result<(), Errno> {
     notify_id_valid(listener, id).map_err(|_| Errno::SRCH)
 }
 
@@ -211,7 +239,7 @@ fn handle(
     let args = request.data.args;
     let call = Some(request.data.syscall);
     let (caller, memory) = Caller::open(listener, request)?;
-    let duplicate = caller.socket(args[0])?;
+    let duplicate = caller.duplicate(args[0])?;
     let stat = rustix::fs::fstat(&duplicate)?;
     #[allow(clippy::unnecessary_cast)]
     let key = (stat.st_dev as u64, stat.st_ino as u64);

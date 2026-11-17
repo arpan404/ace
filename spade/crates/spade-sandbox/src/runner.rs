@@ -38,6 +38,10 @@ pub struct Status {
     pub network: Coverage,
     /// Whether signals are isolated from processes outside this sandbox.
     pub signals: Coverage,
+    /// Linux: an explicitly permitted syscall surface, minimal devices, and IPC isolation.
+    pub syscalls: Coverage,
+    pub devices: Coverage,
+    pub ipc: Coverage,
     /// Linux: the Landlock ABI the kernel enforces.
     pub landlock_abi: Option<u8>,
     /// Why a boundary isn't held, in a sentence the person reads.
@@ -45,12 +49,14 @@ pub struct Status {
 }
 
 impl Status {
-    /// Files, network and signals held: a run is contained and the reviews ADR 0167 decision 8 drops
-    /// may go.
+    /// Every required boundary holds; ADR 0167 decision 8 may drop command reviews.
     pub fn contains(&self) -> bool {
         self.files == Coverage::Contained
             && self.network == Coverage::Contained
             && self.signals == Coverage::Contained
+            && self.syscalls == Coverage::Contained
+            && self.devices == Coverage::Contained
+            && self.ipc == Coverage::Contained
             && (self.platform != "linux" || self.landlock_abi.is_some_and(|abi| abi >= 3))
     }
 
@@ -66,6 +72,9 @@ impl Status {
             files: Coverage::None,
             network: Coverage::None,
             signals: Coverage::None,
+            syscalls: Coverage::None,
+            devices: Coverage::None,
+            ipc: Coverage::None,
             landlock_abi: None,
             reason: Some(reason.to_owned()),
         }
@@ -175,6 +184,9 @@ mod platform {
                 files: Coverage::Contained,
                 network: Coverage::Contained,
                 signals: Coverage::Contained,
+                syscalls: Coverage::Contained,
+                devices: Coverage::Contained,
+                ipc: Coverage::Contained,
                 landlock_abi: None,
                 reason: None,
             },
@@ -245,12 +257,12 @@ mod platform {
                     Coverage::None
                 },
                 Some(format!(
-                    "Spade's network filter or signal isolation could not start here ({why}), \
+                    "Spade's default-deny syscall, device, IPC or signal policy could not start here ({why}), \
                      so commands are reviewed as before."
                 )),
             ),
         };
-        let files = if probed.abi >= 3 {
+        let files = if probed.abi >= 3 && probed.filtered.is_ok() {
             Coverage::Contained
         } else {
             Coverage::Partial
@@ -266,6 +278,21 @@ mod platform {
             files,
             network,
             signals: if probed.abi >= 6 || probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            syscalls: if probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            devices: if probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            ipc: if probed.filtered.is_ok() {
                 Coverage::Contained
             } else {
                 Coverage::Partial
@@ -321,6 +348,9 @@ mod platform {
             files: Coverage::None,
             network: Coverage::None,
             signals: Coverage::None,
+            syscalls: Coverage::None,
+            devices: Coverage::None,
+            ipc: Coverage::None,
             landlock_abi: None,
             reason: Some(
                 "Spade's Windows sandbox (AppContainer) isn't built yet, so commands are \
@@ -388,6 +418,9 @@ mod tests {
             files: Coverage::Contained,
             network: Coverage::Partial,
             signals: Coverage::Contained,
+            syscalls: Coverage::Contained,
+            devices: Coverage::Contained,
+            ipc: Coverage::Contained,
             landlock_abi: Some(4),
             reason: None,
         };
@@ -396,12 +429,30 @@ mod tests {
         assert!(status.contains());
         status.signals = Coverage::Partial;
         assert!(!status.contains());
+        status.signals = Coverage::Contained;
+        status.syscalls = Coverage::Partial;
+        assert!(!status.contains());
+        status.syscalls = Coverage::Contained;
+        status.devices = Coverage::Partial;
+        assert!(!status.contains());
+        status.devices = Coverage::Contained;
+        status.ipc = Coverage::Partial;
+        assert!(!status.contains());
     }
 }
 
 #[cfg(all(test, target_os = "linux", feature = "landlock"))]
 mod linux_status_tests {
     use super::*;
+    #[test]
+    fn without_metadata_supervision_landlock_alone_is_only_partial_file_coverage() {
+        let status = platform::status(&crate::linux::Probed {
+            abi: 6,
+            filtered: Err("filter unavailable".to_owned()),
+        });
+        assert_eq!(status.files, Coverage::Partial);
+        assert!(!status.contains());
+    }
     #[test]
     fn old_abis_keep_reviews_until_files_network_and_signals_are_held() {
         for abi in 1..=9 {
@@ -415,7 +466,10 @@ mod linux_status_tests {
                     abi >= 3 && filtered.is_ok(),
                     "{status:?}"
                 );
-                assert_eq!(status.files == Coverage::Contained, abi >= 3);
+                assert_eq!(
+                    status.files == Coverage::Contained,
+                    abi >= 3 && filtered.is_ok()
+                );
                 assert_eq!(
                     status.signals == Coverage::Contained,
                     abi >= 6 || filtered.is_ok()
