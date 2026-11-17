@@ -3,7 +3,7 @@ import type { MarketPictureKind, MarketResult } from "@ace/protocol/marketplace"
 import type { MarketHttp } from "./http.ts";
 
 /*
- * Listing pictures and avatars (ADR 0173 §3, §5) for the app's cards: fetched from the market by
+ * Listing pictures and avatars (ADR 0174 §3, §5) for the app's cards: fetched from the market by
  * sha256, kept only when the bytes hash to the name asked for and start like a PNG, JPEG or WebP,
  * and held in a small memory cache so a page of cards costs one fetch per picture.
  */

@@ -12,6 +12,7 @@ import { remoteRelays } from "./remote-relays.ts";
 import { startRelayTransport } from "./services/transports.ts";
 import { remoteNetworksStatus } from "./remote-status.ts";
 import type { ReachFacts } from "./external-mcp/reach.ts";
+import { shutdownDeadline } from "./shutdown.ts";
 import {
   addedDirect,
   remotePlan,
@@ -26,6 +27,12 @@ const keys = [...remotePreferenceKeys, "remote.transport"] as const;
 const pairingCertificateWaitMs = 15_000;
 /** How often the address remote access listens on is checked against the network's. */
 export const addressCheckMs = 30_000;
+/**
+ * How long closing waits for remote access's queued work (a settings change, a check) and then
+ * for the relays to stop. Registrations under way are aborted first, so this is only a backstop:
+ * shutdown never waits on the network (ADR 0170).
+ */
+export const remoteCloseWaitMs = 2_000;
 const Stored = SettingsValues.pick({
   "remote.enabled": true,
   "remote.lan": true,
@@ -61,6 +68,7 @@ export function remoteRuntime(
   let stopAccount: (() => void) | undefined;
   let reconciling = false;
   let dirty = false;
+  let closing: Promise<void> | undefined;
   const serialize = (run: () => Promise<void>) => {
     if (queued >= 64)
       return Promise.reject(new SettingsError("limit", "Remote access is busy. Try again."));
@@ -129,6 +137,7 @@ export function remoteRuntime(
     if (closed) return;
     preferences = next;
     await direct.commit(resolution);
+    if (closed) return;
     await relays.apply(wanted.relays, retryRefused);
     if (refuseFrom) {
       const before = plan(refuseFrom);
@@ -173,6 +182,77 @@ export function remoteRuntime(
     const parsed = Stored.safeParse(next);
     return parsed.success ? parsed.data : base;
   };
+  /** Reads the saved choice, brings the networks to it, then follows settings and the account. */
+  const begin = async () => {
+    preferences = await read(preferences);
+    await serialize(() => apply(preferences)).catch(recover);
+    const reconcile = () => {
+      dirty = true;
+      if (reconciling || closed) return;
+      reconciling = true;
+      void serialize(async () => {
+        while (dirty) {
+          if (closed) break;
+          dirty = false;
+          await apply(await read(preferences));
+        }
+      })
+        .catch(recover)
+        .finally(() => {
+          reconciling = false;
+          if (dirty && !closed) reconcile();
+        });
+    };
+    if (closed) return;
+    const unsubscribe = await options.settings?.subscribe(
+      { keys: [...keys], scope: {} },
+      (event) => {
+        if (event.type === "changed") reconcile();
+      },
+    );
+    // Closed while subscribing: nothing is left listening.
+    if (closed) {
+      unsubscribe?.();
+      return;
+    }
+    stop = unsubscribe;
+    // Signing in, out or to another account changes ace's relay registration; a refusal
+    // waiting for a sign-in is tried again.
+    stopAccount = options.machineAccount?.onChange(() => {
+      if (closed) return;
+      retry?.();
+      retry = undefined;
+      void serialize(() => apply(preferences, undefined, true)).catch(recover);
+    });
+    if (!closed)
+      stopWatch = every(() => {
+        if (direct.open() && !closed) void serialize(() => apply(preferences)).catch(recover);
+      }, addressCheckMs);
+  };
+  /** Waits on `task` while closing, at most `remoteCloseWaitMs`; overrunning is logged. */
+  const bounded = (name: string, task: Promise<unknown>) =>
+    shutdownDeadline(name, task, delay, remoteCloseWaitMs).catch((error: unknown) =>
+      options.log?.(error instanceof Error ? error : new Error(String(error))),
+    );
+  /** Stops remote access within a bounded time; a second call waits on the first. */
+  const close = (): Promise<void> =>
+    (closing ??= (async () => {
+      closed = true;
+      stopAccount?.();
+      stopWatch?.();
+      stopWatch = undefined;
+      retry?.();
+      retry = undefined;
+      stop?.();
+      // Relays first: a registration the relay never answers is given up now, so the queued
+      // work waiting on it ends, instead of shutdown waiting out its deadline. The relay expires
+      // a registration that never finished; the next start registers afresh.
+      const relaysClosed = relays.close(false);
+      await bounded("Remote access queue", tail);
+      await bounded("Remote relays", relaysClosed);
+      await direct.close();
+    })());
+  const giveUp = () => void close();
   return {
     /**
      * What a pairing link names: the direct address while LAN or Tailscale serves, else the
@@ -203,40 +283,15 @@ export function remoteRuntime(
     },
     async start() {
       if (!options.remoteConfig) return;
-      preferences = await read(preferences);
-      await serialize(() => apply(preferences)).catch(recover);
-      const reconcile = () => {
-        dirty = true;
-        if (reconciling || closed) return;
-        reconciling = true;
-        void serialize(async () => {
-          while (dirty) {
-            if (closed) break;
-            dirty = false;
-            await apply(await read(preferences));
-          }
-        })
-          .catch(recover)
-          .finally(() => {
-            reconciling = false;
-            if (dirty && !closed) reconcile();
-          });
-      };
-      stop = await options.settings?.subscribe({ keys: [...keys], scope: {} }, (event) => {
-        if (event.type === "changed") reconcile();
-      });
-      // Signing in, out or to another account changes ace's relay registration; a refusal
-      // waiting for a sign-in is tried again.
-      stopAccount = options.machineAccount?.onChange(() => {
-        if (closed) return;
-        retry?.();
-        retry = undefined;
-        void serialize(() => apply(preferences, undefined, true)).catch(recover);
-      });
-      if (!closed)
-        stopWatch = every(() => {
-          if (direct.open() && !closed) void serialize(() => apply(preferences)).catch(recover);
-        }, addressCheckMs);
+      // A stop while starting closes now: what waits on the network is given up, not awaited.
+      const lifetime = options.lifetime;
+      lifetime?.addEventListener("abort", giveUp, { once: true });
+      try {
+        if (lifetime?.aborted) await close();
+        else await begin();
+      } finally {
+        lifetime?.removeEventListener("abort", giveUp);
+      }
     },
     get relayHostId() {
       return relays.relayHostId();
@@ -287,17 +342,6 @@ export function remoteRuntime(
         if (JSON.stringify(saved) !== JSON.stringify(preferences)) await apply(saved);
       });
     },
-    async close() {
-      closed = true;
-      stopAccount?.();
-      stopWatch?.();
-      stopWatch = undefined;
-      retry?.();
-      retry = undefined;
-      stop?.();
-      await tail;
-      await relays.close(false);
-      await direct.close();
-    },
+    close,
   };
 }

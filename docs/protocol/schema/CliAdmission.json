@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliAdmission.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commandId": {
+      "type": "string"
+    },
+    "idempotencyKey": {
+      "type": "string"
+    },
+    "ok": {
+      "const": true,
+      "type": "boolean"
+    },
+    "status": {
+      "const": "accepted",
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "admission",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "ok",
+    "status",
+    "commandId",
+    "idempotencyKey",
+    "threadId"
+  ],
+  "type": "object"
+}

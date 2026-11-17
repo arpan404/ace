@@ -15,7 +15,7 @@ import { listVersion, versionForSigning } from "./store/signer.ts";
 
 /*
  * Races between a request's read and its write in the signer's routes, the signed lists and
- * drafts (ADR 0173 §5, §8, §13): each case leaves D1 and R2 as the other request would have and
+ * drafts (ADR 0174 §5, §8, §13): each case leaves D1 and R2 as the other request would have and
  * then lets the first one finish.
  */
 

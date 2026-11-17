@@ -152,10 +152,12 @@ export class PictureChannel {
         });
       return false;
     }
-    void this.#run(pieces, guard).then(
-      () => this.#flush(),
-      (error: unknown) => this.#ports.failed(error),
-    );
+    void this.#run(pieces, guard)
+      .then(
+        () => this.#flush(),
+        (error: unknown) => this.#ports.failed(error),
+      )
+      .catch(() => {});
     return true;
   }
   #flush(): void {

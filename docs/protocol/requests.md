@@ -23,9 +23,7 @@ Example:
 ```json
 {
   "operation": {
-    "name": "example",
-    "op": "mcp.enroll",
-    "ttlMs": 4
+    "op": "mcp.list"
   },
   "requestId": "example",
   "type": "cli.request"
@@ -1476,14 +1474,14 @@ Example:
 | type | yes | `"marketplace.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":80} |
 | operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
+| thread | no | [ThreadId.json](schema/ThreadId.json) |  |
 
 Example:
 
 ```json
 {
   "operation": {
-    "id": "6WCk3EU673FnXxIICoaHdbgC2pzPFHSgjB3nJMF3PRqxXElx1hrDmolXSD-MDWdqikSx0vkBaZ-",
-    "op": "cancel"
+    "op": "discover"
   },
   "requestId": "example",
   "type": "marketplace.request"
@@ -1581,7 +1579,7 @@ Example:
 
 ```json
 {
-  "key": "worktree.preparationTimeoutMs",
+  "key": "threads.useWorktree",
   "requestId": "example",
   "scope": {
     "threadId": "example"

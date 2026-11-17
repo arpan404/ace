@@ -4,7 +4,7 @@ import { writeArchive } from "@ace/marketplace";
 import { readSeed, seedRoot } from "../src/seed/folders.ts";
 
 /*
- * Publishes the seed to a market as `ace` (ADR 0173 §14): `node scripts/seed.ts
+ * Publishes the seed to a market as `ace` (ADR 0174 §14): `node scripts/seed.ts
  * https://market.acehq.dev`, with a market publishing grant in ACE_MARKET_GRANT (it lasts five
  * minutes) for an ace account on the signed official list, which acts as the `ace` publisher.
  * Put the account there first with `ace market official add ACCOUNT --key KEY_FILE`. Every

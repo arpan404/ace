@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus.ts";
 
 /*
- * Inert samples for the round-4 snippet fix (ADR 0173 §8, fail closed): instruction snippets the
+ * Inert samples for the round-4 snippet fix (ADR 0174 §8, fail closed): instruction snippets the
  * shell reader can't read for sure, and benign instructions that must stay clean. Every host is
  * `.invalid` and nothing here runs; each is a string written for the tests.
  */

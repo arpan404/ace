@@ -14,8 +14,8 @@ import {
 } from "./route-keys.ts";
 
 /*
- * The publisher's paths under `/v1/me/…` (ADR 0173 §4, §5, §13) and the signer's under
- * `/v1/signer/…` (ADR 0168 §6, ADR 0173 §9, §10). Each takes the path's segments after its
+ * The publisher's paths under `/v1/me/…` (ADR 0174 §4, §5, §13) and the signer's under
+ * `/v1/signer/…` (ADR 0168 §6, ADR 0174 §9, §10). Each takes the path's segments after its
  * prefix.
  */
 

@@ -263,6 +263,7 @@ for folders and links). **Proposal** = `{"id", "agent", "call_id", "name", "desc
 
 | `GET /skills` | | `{"skills": [{"id", "name", "description", "origin", "manual", "files", "updated_at", "written_by", "used_by"}], "ace": bool}`; `ace` is whether Spade is connected now. `written_by`: the bots whose saved proposals wrote or changed a skill of that name; `used_by`: the bots that have loaded it (`skill_load`); bot ids, sorted. A bot's Library lists the skills naming it |
 | `POST /skills/{id}/add-to-ace` | | `200 {"skill_id"}`; `404` unknown; `422` not a `spade` skill; `409` ace has the name; `503` ace away |
+| `GET /skills/{id}/files` | | `200 {"name", "files": [{"path", "executable", "content"}]}`, `SKILL.md` first, content as base64, for publishing to ace's marketplace. Every folder and file is opened without following a link; SKILL.md is at most 1 MB, each file 4 MB, all of them 16 MB and 512 files. `404` unknown; `422` not a `spade` skill, a link, a special file or past a limit |
 
 Workspace errors: `404` for an unknown agent or a missing path, `400` for a path that is absolute,
 uses `..` or leads outside, `422` for a folder where a file is wanted and similar. The app places

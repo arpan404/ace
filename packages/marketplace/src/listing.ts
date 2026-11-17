@@ -64,7 +64,8 @@ export function frontmatter(markdown: string): {
   return { data, heading, body };
 }
 
-const pluginManifests = [
+/** Where a plugin keeps its manifest, in the order they are read. */
+export const pluginManifests = [
   "ace-plugin.json",
   "plugin.json",
   ".claude-plugin/plugin.json",

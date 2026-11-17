@@ -5,6 +5,7 @@ import { organizerSchedule, type OrganizerSchedule } from "./thread-organizer.ts
 import { HeadWatch, headStamp } from "./workspace-head-watch.ts";
 import { deadlineOf, type Deadline } from "./workspace-refresh-deadline.ts";
 import { followsLivePullRequest, followsPullRequest } from "./pull-request-follow.ts";
+import { HeldWrites } from "./held-writes.ts";
 
 /** Quiet threads nobody is viewing still notice outside edits and commits, at a slow cadence. */
 const settledCadenceMs = 600_000;
@@ -38,6 +39,8 @@ export class WorkspaceRefresh {
   private cancelHeads: (() => void) | undefined;
   private pending: Promise<void> | undefined;
   private closed = false;
+  /** Due marks a failed write (a full disk) kept off disk; each sweep writes them first. */
+  private held: HeldWrites;
   constructor(
     privateStore: Store,
     runtime: WorkspaceRuntime,
@@ -67,17 +70,23 @@ export class WorkspaceRefresh {
       CREATE INDEX IF NOT EXISTS workspace_refresh_due ON workspace_refresh(due);
       INSERT OR IGNORE INTO workspace_refresh SELECT id,0 FROM threads WHERE json_extract(client,'$.deletedAt') IS NULL AND (archived_at IS NULL OR id IN (SELECT thread_id FROM forge_links));`),
     );
+    this.held = new HeldWrites(report);
     // A changed thread is due now, behind every thread that was due before it. A sweep takes
     // the oldest due first, so threads that keep changing cannot hold the front of the queue
-    // and starve the rest.
-    const dirty = (id: string) =>
-      privateStore.atomic((db) =>
-        db
-          .prepare(
-            "INSERT INTO workspace_refresh VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET due=MIN(due,excluded.due)",
-          )
-          .run(id, now()),
+    // and starve the rest. A mark the disk refuses is held and written later, still as due
+    // from when the change happened.
+    const dirty = (id: string) => {
+      const at = now();
+      this.held.run(id, () =>
+        privateStore.atomic((db) =>
+          db
+            .prepare(
+              "INSERT INTO workspace_refresh VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET due=MIN(due,excluded.due)",
+            )
+            .run(id, at),
+        ),
       );
+    };
     this.stop = privateStore.subscribe((events) => {
       for (const event of events) {
         const p = event.payload;
@@ -125,6 +134,7 @@ export class WorkspaceRefresh {
       this.cancel = schedule(60_000, sweepAndArm);
     };
     const sweep = async () => {
+      this.held.flush();
       const viewed = privateStore.viewedThreads();
       const ids = privateStore.atomic((db) => {
         // A thread someone is looking at is read at the active cadence, whatever its state.
@@ -199,6 +209,10 @@ export class WorkspaceRefresh {
       });
     };
     watch();
+  }
+  /** Space is back (ADR 0176): write the due marks a full disk held back. */
+  resume(): void {
+    if (!this.closed) this.held.flush();
   }
   async close(): Promise<void> {
     this.closed = true;

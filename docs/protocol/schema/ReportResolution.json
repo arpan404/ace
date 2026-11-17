@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReportResolution.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "note": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "dismissed",
+        "kept",
+        "withdrawn",
+        "blocked"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

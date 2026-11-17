@@ -274,12 +274,23 @@ impl Drop for Ticket {
 impl Ticket {
     /// The proxy's address with this run's credential, as `HTTP_PROXY` names it.
     pub fn url(&self) -> String {
-        format!("http://spade:{}@127.0.0.1:{}", self.token, self.port)
+        self.url_on(self.port)
+    }
+
+    /// The run's credential at `127.0.0.1:port`: the proxy's own port, or (Windows) the
+    /// in-container egress bridge's, which forwards to the proxy.
+    pub fn url_on(&self, port: u16) -> String {
+        format!("http://spade:{}@127.0.0.1:{port}", self.token)
     }
 
     /// The variables that send a run's traffic through the proxy.
     pub fn env(&self) -> Vec<(String, String)> {
-        let url = self.url();
+        self.env_on(self.port)
+    }
+
+    /// [`Ticket::env`] with the proxy reached at `port` (the bridge's, on Windows).
+    pub fn env_on(&self, port: u16) -> Vec<(String, String)> {
+        let url = self.url_on(port);
         let mut vars: Vec<(String, String)> = [
             "HTTP_PROXY",
             "HTTPS_PROXY",

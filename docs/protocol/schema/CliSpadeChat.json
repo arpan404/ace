@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliSpadeChat.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bot": {
+      "type": "string"
+    },
+    "conversation": {
+      "type": "string"
+    },
+    "reply": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bot",
+    "conversation"
+  ],
+  "type": "object"
+}

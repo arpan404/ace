@@ -119,7 +119,8 @@ export async function extractZip(
       };
       const abort = () => fail(new Error("Archive cancelled"));
       signal.addEventListener("abort", abort, { once: true });
-      zip.once("error", fail);
+      // Every error is heard: a read stream can report another after fail() closes the archive.
+      zip.on("error", fail);
       zip.once("end", () => {
         signal.removeEventListener("abort", abort);
         resolve();

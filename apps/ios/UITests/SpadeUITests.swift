@@ -96,8 +96,8 @@ import XCTest
         try await stage("off")
 
         XCTAssertTrue(tab.waitForNonExistence(timeout: 15))
-        // Back on Threads, the place it left for.
-        XCTAssertTrue(app.tabBars.buttons["Threads"].isSelected)
+        // Back on Projects, the place it left for.
+        XCTAssertTrue(app.tabBars.buttons["Projects"].isSelected)
         screenshot("spade-6-tab-off")
         try await stage("on")
     }

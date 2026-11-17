@@ -6,6 +6,7 @@ import {
   MarketHash,
   MarketPublisherName,
   MarketVersion,
+  trimmedText,
 } from "./marketplace-base.ts";
 import {
   MarketCollectionId,
@@ -31,11 +32,20 @@ import {
   MarketVisibility,
   MarketEntryRef,
 } from "./marketplace-publisher.ts";
+import {
+  MarketDraftCheck,
+  MarketDraftChecked,
+  marketPickedSources,
+  marketPickOperations,
+  marketPickResults,
+  marketPrivacyOperations,
+  marketPrivacyResults,
+} from "./marketplace-publish-pick.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 import { SuitId } from "./suits.ts";
 
 /*
- * Publishing and Discover through the daemon (ADR 0173 §2, §11): what `marketplace.request`
+ * Publishing and Discover through the daemon (ADR 0174 §2, §11): what `marketplace.request`
  * carries for the app. `publish` needs the admin scope and mints a market grant through the
  * machine's signed-in ace account for each request; signed out, it answers `signed_out`.
  * `discover` and `publisher` are reads. Schema only.
@@ -46,13 +56,17 @@ const versionKey = { ...entry, version: MarketVersion };
 /** A picture as base64, at most 1 MiB of bytes. */
 const Image = z.string().max(1_400_000);
 
-/** Where a draft's files come from: a folder on this machine, or an archive the app made. */
+/**
+ * Where a draft's files come from: a folder on this machine, an archive the app made, one of the
+ * person's Suits, or something they picked (a bot, a skill or a plugin), read by the daemon.
+ */
 export const MarketDraftSource = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("folder"), path: z.string().min(1).max(4096) }),
   /** Base64 of the folder's tar archive, at most 6 MB. */
   z.strictObject({ kind: z.literal("archive"), archive: z.string().max(8_000_000) }),
   /** One of the person's own Suits, by id: the daemon reads its folder. */
   z.strictObject({ kind: z.literal("suit"), id: SuitId }),
+  ...marketPickedSources,
 ]);
 export type MarketDraftSource = z.infer<typeof MarketDraftSource>;
 
@@ -69,7 +83,11 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     ...versionKey,
     source: MarketDraftSource,
     changelog: z.string().max(4000).optional(),
+    /** The person's confirmation of `draftCheck`; required for a picked thing or a folder. */
+    checked: MarketDraftChecked.optional(),
   }),
+  /** What a draft from `source` would upload, checked here first; nothing leaves the machine. */
+  z.strictObject({ action: z.literal("draftCheck"), ...entry, source: MarketDraftSource }),
   z.strictObject({ action: z.literal("draftRead"), id: MarketDraftId }),
   z.strictObject({
     action: z.literal("draftUpdate"),
@@ -78,6 +96,7 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     changelog: z.string().max(4000).optional(),
     /** New files for the draft, scanned again. */
     source: MarketDraftSource.optional(),
+    checked: MarketDraftChecked.optional(),
   }),
   z.strictObject({ action: z.literal("draftDelete"), id: MarketDraftId }),
   z.strictObject({ action: z.literal("draftPublish"), id: MarketDraftId }),
@@ -98,14 +117,14 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     action: z.literal("deprecate"),
     ...versionKey,
     /** Null clears the deprecation. */
-    note: z.string().trim().min(1).max(500).nullable(),
+    note: trimmedText(1, 500).nullable(),
   }),
   z.strictObject({
     action: z.literal("withdraw"),
     ...entry,
     /** Absent withdraws every live version of the entry. */
     version: MarketVersion.optional(),
-    reason: z.string().trim().min(1).max(500),
+    reason: trimmedText(1, 500),
   }),
   z.strictObject({ action: z.literal("deleteEntry"), ...entry }),
   z.strictObject({ action: z.literal("visibility"), ...entry, visibility: MarketVisibility }),
@@ -134,6 +153,7 @@ export const MarketPublishAnswer = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("entry"), entry: MarketOwnEntry }),
   z.strictObject({ kind: z.literal("profile"), profile: MarketProfile }),
   z.strictObject({ kind: z.literal("draft"), draft: MarketDraft }),
+  z.strictObject({ kind: z.literal("checked"), check: MarketDraftCheck }),
   z.strictObject({ kind: z.literal("signals"), signals: MarketSignals }),
   z.strictObject({ kind: z.literal("verification"), verification: MarketVerificationStatus }),
   /** A version stored and waiting; `held` when a maintainer must look first. */
@@ -195,12 +215,12 @@ export const MarketPublisherPage = z.strictObject({
   pinned: z.array(MarketEntrySummary).max(6),
   entries: z.array(MarketEntrySummary).max(500),
   downloads: z.number().int().nonnegative(),
-  /** ace's own publisher, by the signed official list (ADR 0173 §14). */
+  /** ace's own publisher, by the signed official list (ADR 0174 §14). */
   official: z.boolean().optional(),
 });
 export type MarketPublisherPage = z.infer<typeof MarketPublisherPage>;
 
-/** The ops `marketplace.request` gains (ADR 0173 §11). */
+/** The ops `marketplace.request` gains (ADR 0174 §11). */
 export const marketPublishOperations = [
   z.strictObject({ op: z.literal("discover") }),
   z.strictObject({ op: z.literal("publisher"), handle: MarketPublisherName }),
@@ -214,6 +234,8 @@ export const marketPublishOperations = [
     reason: MarketReportReason,
     note: z.string().max(1000).default(""),
   }),
+  ...marketPickOperations,
+  ...marketPrivacyOperations,
 ] as const;
 
 export const marketPublishResults = [
@@ -226,4 +248,6 @@ export const marketPublishResults = [
     data: z.string().max(1_400_000),
   }),
   z.strictObject({ op: z.literal("publish"), answer: MarketPublishAnswer }),
+  ...marketPickResults,
+  ...marketPrivacyResults,
 ] as const;

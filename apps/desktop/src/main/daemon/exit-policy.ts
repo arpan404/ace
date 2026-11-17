@@ -36,12 +36,26 @@ function exitCause(code: number | null): DaemonStatus["cause"] {
   return code === exitCodes["address-in-use"] ? "port-in-use" : undefined;
 }
 
+/**
+ * Said while the app restarts a daemon that kept stopping as it started, and while that
+ * daemon runs: what was left off, and how to get it back.
+ */
+export const safeModeRestartMessage =
+  "ace kept stopping as it started, so it is starting again without the part it was stuck on.";
+export const safeModeMessage =
+  "ace is running without the part that kept it from starting; restart ace to turn it back on.";
+
 export interface UnexpectedExit {
   code: number | null;
   signal: string | null;
-  /** Restarts in a row so far, after any reset for a stable run. */
+  /** Restarts in a row so far, after any reset for a stable run: each a fast failure. */
   crashes: number;
   maxRestarts: number;
+  /**
+   * Fast failures in a row after which the next start is in safe mode: the daemon leaves off
+   * the services its last start never finished (ADR 0175).
+   */
+  safeModeAfter: number;
 }
 
 /** What to do after the daemon this app started exited without being asked to. */
@@ -50,7 +64,13 @@ export type ExitDecision =
   | { kind: "incompatible-data" }
   | { kind: "lock-held" }
   | { kind: "give-up"; reason: string; cause: DaemonStatus["cause"] }
-  | { kind: "restart"; reason: string; cause: DaemonStatus["cause"]; delayMs: number };
+  | {
+      kind: "restart";
+      reason: string;
+      cause: DaemonStatus["cause"];
+      delayMs: number;
+      safeMode: boolean;
+    };
 
 /**
  * Restart with backoff until `maxRestarts` in a row, except for an exit that says a restart
@@ -64,5 +84,13 @@ export function exitDecision(exit: UnexpectedExit): ExitDecision {
   const reason = `The daemon exited (${exit.signal ?? `code ${exit.code}`})`;
   const cause = exitCause(exit.code);
   if (exit.crashes >= exit.maxRestarts) return { kind: "give-up", reason, cause };
-  return { kind: "restart", reason, cause, delayMs: restartDelay(exit.crashes) };
+  return {
+    kind: "restart",
+    reason,
+    cause,
+    delayMs: restartDelay(exit.crashes),
+    // This exit is failure number `crashes + 1` in a row. Leaving services off cannot free
+    // a port another program holds, so a port conflict never starts one.
+    safeMode: cause === undefined && exit.crashes + 1 >= exit.safeModeAfter,
+  };
 }

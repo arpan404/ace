@@ -61,6 +61,31 @@ pub enum Known {
     /// The person changed which plugins the bot may use. Its rules are stored again before the
     /// next model call.
     PluginsChanged {},
+    /// A plugin's local server or hook can't be sealed off in this machine's sandbox (on Windows,
+    /// one with network, or run from a folder Spade doesn't own), so it would run outside it:
+    /// Spade asks the person before it starts, and it doesn't start until they allow it. `key`
+    /// is what the answer is bound to: a digest of the bot, the plugin, its version and content
+    /// hash, what runs (server or hook), its command and its environment.
+    PluginOutsideAsked {
+        id: String,
+        plugin: String,
+        version: String,
+        /// The accepted install's content hash.
+        hash: String,
+        /// What would run: `server <name>` or `hook <event>`.
+        what: String,
+        /// The request's sentence.
+        line: String,
+        key: String,
+    },
+    /// The person's answer to a [`Known::PluginOutsideAsked`]: `always` keeps it for this plugin
+    /// version (and the same command and environment); otherwise it covers one start.
+    PluginOutsideAnswered {
+        id: String,
+        allowed: bool,
+        #[serde(default)]
+        always: bool,
+    },
     /// What the person's plugin hooks answered at one of Spade's events (ADR 0151), stored once
     /// so a rebuilt prompt is the same and a restart never runs them again for it. `target` names
     /// what they answered: a call id, a message's or step's event index.

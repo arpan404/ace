@@ -19,7 +19,7 @@ import { MarketHttpError, type MarketHttp } from "./http.ts";
 import { Refused } from "./prepare.ts";
 
 /*
- * Publishing through the daemon (ADR 0173 §2, §11): a thin proxy from each `publish` action to
+ * Publishing through the daemon (ADR 0174 §2, §11): a thin proxy from each `publish` action to
  * its Worker route under `/v1/me`, every answer parsed with the protocol's schema and every
  * Worker error mapped to a `MarketErrorCode`. A market grant is minted for each action through
  * the machine's signed-in ace account and goes only as `Authorization` to the market's origin;
@@ -155,7 +155,10 @@ export function workerError(status: number, body: unknown): ErrorResult {
 }
 
 /** The Worker requests one action makes, in order; the last one's answer is the action's. */
-async function callsOf(action: MarketPublishAction): Promise<Call[]> {
+async function callsOf(
+  action: MarketPublishAction,
+  archive: Uint8Array | undefined,
+): Promise<Call[]> {
   switch (action.action) {
     case "me":
       return [{ method: "GET", path: "/v1/me", answer: "me" }];
@@ -204,7 +207,10 @@ async function callsOf(action: MarketPublishAction): Promise<Call[]> {
         {
           method: "POST",
           path: `/v1/me/drafts?${query}`,
-          bytes: { body: await draftArchive(action.source), type: "application/x-tar" },
+          bytes: {
+            body: archive ?? (await draftArchive(action.source)),
+            type: "application/x-tar",
+          },
           answer: "draft",
         },
       ];
@@ -226,7 +232,10 @@ async function callsOf(action: MarketPublishAction): Promise<Call[]> {
         calls.push({
           method: "PUT",
           path,
-          bytes: { body: await draftArchive(action.source), type: "application/x-tar" },
+          bytes: {
+            body: archive ?? (await draftArchive(action.source)),
+            type: "application/x-tar",
+          },
           answer: "draft",
         });
       if (action.version !== undefined || action.changelog !== undefined)
@@ -241,6 +250,9 @@ async function callsOf(action: MarketPublishAction): Promise<Call[]> {
         });
       return calls.length ? calls : [{ method: "GET", path, answer: "draft" }];
     }
+    case "draftCheck":
+      // Answered on this machine (`check.ts`); nothing about it goes to the market.
+      throw new Refused("A draft is checked on this machine, not by the market");
     case "draftDelete":
       return [{ method: "DELETE", path: `/v1/me/drafts/${action.id}`, answer: "done" }];
     case "draftPublish":
@@ -375,7 +387,12 @@ async function callsOf(action: MarketPublishAction): Promise<Call[]> {
 
 /** One `publish` action, its grant minted for it alone. */
 export async function publishAction(
-  ports: { http: MarketHttp | undefined; grant: MarketGrantPort | undefined },
+  ports: {
+    http: MarketHttp | undefined;
+    grant: MarketGrantPort | undefined;
+    /** A draft's archive already read and checked on this machine (`check.ts`). */
+    archive?: Uint8Array | undefined;
+  },
   action: MarketPublishAction,
 ): Promise<MarketResult> {
   const http = ports.http;
@@ -383,7 +400,7 @@ export async function publishAction(
   let calls: Call[];
   try {
     // Files are read first, so a folder that can't be published asks for no grant.
-    calls = await callsOf(action);
+    calls = await callsOf(action, ports.archive);
   } catch (error) {
     if (error instanceof Refused) return failure(error.code, error.message);
     throw error;

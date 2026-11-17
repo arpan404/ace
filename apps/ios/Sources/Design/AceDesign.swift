@@ -289,6 +289,8 @@ extension AceDesign.Size {
     static let pageCursor: CGFloat = 22
     /// The person's avatar inside its bar button: the system draws the 44pt glass around it.
     static let barAvatar: CGFloat = 32
+    /// The person's avatar at the top of Profile, as an iOS account page draws it.
+    static let profileAvatar: CGFloat = 80
     /// A grouped list's row (More, Settings), its glyph, chevron and corners.
     static let settingsRow: CGFloat = 48
     static let groupGlyph: CGFloat = 18

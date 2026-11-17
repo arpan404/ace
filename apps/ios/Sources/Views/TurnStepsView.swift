@@ -17,6 +17,8 @@ struct DaemonSteps: View {
     let blockId: String
     let links: StepsLinks
     let thread: ThreadModel
+    /// The head's moments, which the log's `moment` rows place among the steps.
+    var moments: [BlockRow.Moment]? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
     var body: some View {
         let steps = links.screen.steps[ordinal]
@@ -38,7 +40,7 @@ struct DaemonSteps: View {
             } else {
                 let source = LogSource(thread: thread, fetched: Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 }),
                                        ace: header?.aceSteps, background: header?.background, retried: header?.retried,
-                                       thoughts: header?.thoughts, openMessage: openMessage)
+                                       thoughts: header?.thoughts, moments: moments, openMessage: openMessage)
                 VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                     StepRail { WorkLogRows(rows: header?.log ?? rows.map { BlockRow.LogRow(kind: "step", id: $0.id) }, source: source) }
                         .onAppear { DisclosureTrace.shared.shown(blockId) }

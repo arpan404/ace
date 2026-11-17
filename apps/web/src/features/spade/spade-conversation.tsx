@@ -215,6 +215,11 @@ export function Conversation(props: {
                 .answer(callId, answer !== "deny", answer === "always")
                 .then(() => true, failed(`Couldn't answer ${bot.name}`))
             }
+            onAnswerOutside={(id, answer) =>
+              conversation
+                .answerOutside(id, answer !== "deny", answer === "always")
+                .then(() => true, failed(`Couldn't answer ${bot.name}`))
+            }
             onQuestion={(callId, reply) =>
               conversation.question(callId, reply).then(
                 () => undefined,

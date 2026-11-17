@@ -1,9 +1,7 @@
 import { resolve, isAbsolute } from "node:path";
-import { ProjectName, WorkspaceId } from "@ace/protocol";
+import { WorkspaceId } from "@ace/protocol";
 import type { Client } from "@ace/client";
-import { option, validateArgs, type Args } from "./args.ts";
-import { command, key } from "./mutations.ts";
-import { mutationResult, result } from "./io.ts";
+import { command } from "./mutations.ts";
 import { CliFailure } from "./output.ts";
 
 export function projectPath(value: string | undefined, remote: boolean, cwd: string): string {
@@ -53,72 +51,4 @@ export async function remoteWorkProject(
       "Remote work requires --project WORKSPACE_ID from ace project list; paths are not accepted",
     );
   return (await getProject(client, value, signal)).id;
-}
-export async function projectCommand(
-  args: Args,
-  client: Client,
-  signal: AbortSignal,
-  remote: boolean,
-) {
-  const alias = args.words[0] === "add";
-  const verb = alias ? "add" : args.words[1];
-  const position = alias ? 1 : 2;
-  if (verb === "add") {
-    validateArgs(args, ["idempotency-key"], position, position + 1);
-    return mutationResult(
-      args,
-      await addProject(
-        client,
-        projectPath(args.words[position], remote, process.cwd()),
-        key(args),
-        signal,
-      ),
-    );
-  }
-  if (verb === "list") {
-    validateArgs(args, ["after", "limit"], 2);
-    const value = option(args, "limit") ?? "50";
-    if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 100)
-      throw new CliFailure("refused", "Project list limit must be 1-100");
-    const response = await client.request(
-      {
-        type: "projects.request",
-        operation: {
-          op: "workspace.list",
-          after: option(args, "after") ? WorkspaceId.parse(option(args, "after")) : undefined,
-          limit: Number(value),
-        },
-      },
-      { signal },
-    );
-    if (response.result.kind !== "projects")
-      throw new CliFailure(
-        "refused",
-        response.result.kind === "error" ? response.result.code : "Project list unavailable",
-      );
-    return result(args, response.result);
-  }
-  if (verb === "rename" || verb === "remove") {
-    validateArgs(args, ["idempotency-key", "stop-threads"], verb === "rename" ? 4 : 3);
-    return mutationResult(
-      args,
-      await command(
-        client,
-        verb === "rename"
-          ? {
-              type: "workspace.rename",
-              workspaceId: WorkspaceId.parse(args.words[2]),
-              name: ProjectName.parse(args.words[3]),
-            }
-          : {
-              type: "workspace.remove",
-              workspaceId: WorkspaceId.parse(args.words[2]),
-              stopRunning: !!args.flags["stop-threads"],
-            },
-        key(args),
-        signal,
-      ),
-    );
-  }
-  throw new CliFailure("refused", "Usage: ace project add|list|rename|remove|open");
 }

@@ -55,6 +55,100 @@ import XCTest
         }
     }
 
+    /// Runs against the fixture's fake account backend (`scripts/spike-account.ts`), which logs
+    /// every Forget and Sign out it receives.
+    func testProfileSendsForgetAndSignOutOnlyWhenConfirmed() async throws {
+        try await accountFixture("/account/reset", method: "POST")
+        let app = launch(["--spike-account"])
+        app.openBrowseDestination("inbox.settings")
+        let profile = app.buttons["settings.account"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        profile.tap()
+        let person = app.descendants(matching: .any)["account.person"].firstMatch
+        XCTAssertTrue(person.waitForExistence(timeout: 10))
+        XCTAssertTrue(person.label.contains("Ada Lovelace") && person.label.contains("ada@example.com"), person.label)
+        let studio = String(repeating: "S", count: 52)
+        let machine = app.descendants(matching: .any)["account.machine.\(studio)"].firstMatch
+        XCTAssertTrue(machine.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Machines on your account"].exists)
+        screenshot("profile-signed-in")
+
+        askToForget(app, machine)
+        screenshot("profile-forget")
+        dismissDialog(app)
+        XCTAssertTrue(app.buttons["account.machine.forget.confirm"].waitForNonExistence(timeout: 5), "Cancel closes the question")
+        let afterCancelledForget = try await accountRequests(settling: [])
+        XCTAssertEqual(afterCancelledForget, [], "cancelling Forget sends nothing")
+        XCTAssertTrue(machine.exists, "the machine stays until Forget is confirmed")
+
+        askToForget(app, machine)
+        // iOS 26 lists a popover's button twice, one inside the other, with one frame.
+        app.buttons["account.machine.forget.confirm"].firstMatch.tap()
+        let forgot = ["kind": "forget", "hostId": studio]
+        let afterForget = try await accountRequests(settling: [forgot])
+        XCTAssertEqual(afterForget, [forgot], "Forget sends one request, for studio")
+        XCTAssertTrue(machine.waitForNonExistence(timeout: 10), "studio leaves the list")
+        XCTAssertTrue(app.descendants(matching: .any)["account.machine.\(String(repeating: "L", count: 52))"].exists)
+
+        let signOut = app.buttons["account.signOut"]
+        for _ in 0..<8 where !signOut.isHittable { app.swipeUp() }
+        signOut.tap()
+        XCTAssertTrue(app.staticTexts["Your threads and drafts stay on this device."].waitForExistence(timeout: 5))
+        screenshot("profile-sign-out")
+        dismissDialog(app)
+        XCTAssertTrue(app.buttons["account.signOut.confirm"].waitForNonExistence(timeout: 5), "Cancel closes the question")
+        let afterCancelledSignOut = try await accountRequests(settling: [forgot])
+        XCTAssertEqual(afterCancelledSignOut, [forgot], "cancelling Sign out sends nothing")
+        XCTAssertTrue(signOut.exists, "still signed in until Sign out is confirmed")
+
+        signOut.tap()
+        let confirm = app.buttons["account.signOut.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        let signedOut = [forgot, ["kind": "signOut"]]
+        let afterSignOut = try await accountRequests(settling: signedOut)
+        XCTAssertEqual(afterSignOut, signedOut, "Sign out sends one request")
+        let signIn = app.buttons["account.signIn"]
+        for _ in 0..<8 where !signIn.exists { app.swipeDown() }
+        XCTAssertTrue(signIn.waitForExistence(timeout: 10), "Profile offers Sign in again")
+    }
+
+    /// Swipes `machine` and taps Forget, leaving its question up.
+    private func askToForget(_ app: XCUIApplication, _ machine: XCUIElement) {
+        machine.swipeLeft()
+        // A swipe action's button keeps its label, not its identifier.
+        let forget = app.buttons["Forget"].firstMatch
+        XCTAssertTrue(forget.waitForExistence(timeout: 5), "swiping the row offers Forget")
+        forget.tap()
+        XCTAssertTrue(app.staticTexts["Forget studio?"].waitForExistence(timeout: 5))
+    }
+
+    /// Closes a confirmation dialog without choosing: its Cancel on a phone's action sheet, else a
+    /// tap outside the popover.
+    private func dismissDialog(_ app: XCUIApplication) {
+        let cancel = app.buttons["Cancel"]
+        if cancel.exists && cancel.isHittable { cancel.tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap() }
+    }
+
+    /// The Forget and Sign out requests the fake account backend has logged, read once they
+    /// match `expected` or after 3 seconds, so a request still in flight is counted too.
+    private func accountRequests(settling expected: [[String: String]]) async throws -> [[String: String]] {
+        var logged: [[String: String]] = []
+        for _ in 0..<15 {
+            let data = try await accountFixture("/account/requests", method: "GET")
+            logged = try JSONDecoder().decode([String: [[String: String]]].self, from: data)["requests"] ?? []
+            if logged == expected && !expected.isEmpty { return logged }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        return logged
+    }
+    @discardableResult private func accountFixture(_ path: String, method: String) async throws -> Data {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)\(path)")))
+        request.httpMethod = method
+        return try await URLSession.shared.data(for: request).0
+    }
+
     /// Safari came forward, and its address bar, read without tapping, names `page`. At rest
     /// the bar may show only the domain; then the domain is checked. When no address can be
     /// read, coming forward is all this can see.
@@ -279,9 +373,9 @@ import XCTest
 
     // MARK: Helpers
 
-    private func launch() -> XCUIApplication {
+    private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", port]
+        app.launchArguments = ["--spike", "--spike-port", port] + extra
         if let size = ProcessInfo.processInfo.environment["ACE_IOS_TEXT_SIZE"] {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", size]
         }

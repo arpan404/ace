@@ -5,172 +5,20 @@
 
 mod support;
 
-use std::collections::BTreeSet;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use spade_ace::plugins::{Installed, SpadePlugin};
+use spade_ace::plugins::SpadePlugin;
 use spade_core::tools::Risk;
-use spade_server::plugins::{BoxFuture, Daemon};
 use spade_server::tools::{PluginTools, Tool, ToolSource};
 use spade_store::Store;
 use spade_testkit::Script;
+use support::plugins::{
+    FakeAce, answer_outside, bot, cant_seal, hook, of_type, options, outside_asks, plugin, wait,
+};
 use support::{FakeTool, Options, Result, Spade, types};
-
-/// Stands in for ace's daemon: accepted plugins, and which are turned off in ace.
-#[derive(Default)]
-struct FakeAce {
-    plugins: Mutex<Vec<SpadePlugin>>,
-    off: Mutex<BTreeSet<String>>,
-    /// The accepted plugins' files, by `<plugin>/<path>`.
-    files: Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
-}
-
-impl FakeAce {
-    fn with(plugins: Vec<SpadePlugin>) -> Arc<Self> {
-        Arc::new(Self {
-            plugins: Mutex::new(plugins),
-            ..Self::default()
-        })
-    }
-
-    fn with_file(self: Arc<Self>, plugin: &str, path: &str, bytes: &[u8]) -> Arc<Self> {
-        self.files
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(format!("{plugin}/{path}"), bytes.to_vec());
-        self
-    }
-
-    fn turn_off(&self, name: &str) {
-        self.off
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(name.to_owned());
-    }
-
-    fn replace(&self, plugin: SpadePlugin) {
-        let mut plugins = self.plugins.lock().unwrap_or_else(|p| p.into_inner());
-        plugins.retain(|p| p.install.name != plugin.install.name);
-        plugins.push(plugin);
-    }
-
-    fn enabled(&self, name: &str) -> bool {
-        !self
-            .off
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .contains(name)
-    }
-}
-
-impl Daemon for FakeAce {
-    fn installed(&self) -> BoxFuture<'_, std::result::Result<Vec<Installed>, String>> {
-        let plugins = self
-            .plugins
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
-        Box::pin(async move {
-            Ok(plugins
-                .into_iter()
-                .map(|p| Installed {
-                    enabled: self.enabled(&p.install.name),
-                    install: p.install,
-                })
-                .collect())
-        })
-    }
-
-    fn plugin<'a>(
-        &'a self,
-        name: &'a str,
-    ) -> BoxFuture<'a, std::result::Result<SpadePlugin, String>> {
-        let found = self
-            .plugins
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .find(|p| p.install.name == name)
-            .cloned();
-        Box::pin(async move {
-            let mut plugin = found.ok_or("Plugin not installed")?;
-            plugin.enabled = self.enabled(name);
-            Ok(plugin)
-        })
-    }
-
-    fn file<'a>(
-        &'a self,
-        name: &'a str,
-        path: &'a str,
-    ) -> BoxFuture<'a, std::result::Result<Vec<u8>, String>> {
-        let found = self
-            .files
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(&format!("{name}/{path}"))
-            .cloned();
-        Box::pin(
-            async move { found.ok_or_else(|| "Not a file of this plugin's skills".to_owned()) },
-        )
-    }
-}
-
-/// A plugin as ace answers `plugins.spade`, its folder `root`.
-fn plugin(name: &str, hash: &str, root: &str, components: Value, executions: Value) -> SpadePlugin {
-    let value = json!({
-        "install": { "name": name, "version": "1.0", "commit": "c".repeat(40), "hash": hash,
-                     "acceptedAt": 1 },
-        "enabled": true, "root": root, "components": components, "executions": executions,
-        "unsupported": [],
-    });
-    serde_json::from_value(value).unwrap_or_else(|e| panic!("{e}"))
-}
-
-fn hook(event: &str, command: &str, matcher: Option<&str>) -> Value {
-    let mut hook = json!({ "kind": "hook", "event": event, "command": command });
-    if let Some(matcher) = matcher {
-        hook["matcher"] = json!(matcher);
-    }
-    hook
-}
-
-fn options(ace: Arc<FakeAce>) -> Options {
-    Options {
-        plugins: Some(ace),
-        ..Options::default()
-    }
-}
-
-/// A bot the person allowed `plugins`; its id and conversation.
-async fn bot(spade: &Spade, name: &str, plugins: &[&str]) -> Result<(String, String)> {
-    let agent = spade.new_agent(name, "").await?;
-    let id = agent["id"].as_str().unwrap_or_default().to_owned();
-    let conversation = agent["conversation"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let (status, body) = spade
-        .put(
-            &format!("/v1/agents/{id}/plugins"),
-            json!({ "plugins": plugins }),
-        )
-        .await?;
-    assert_eq!(status, 200, "{body}");
-    Ok((id, conversation))
-}
-
-fn of_type<'a>(events: &'a [Value], kind: &str) -> Vec<&'a Value> {
-    events.iter().filter(|e| e["type"] == kind).collect()
-}
-
-/// Waits for `count` events of `kind` with no deadline shorter than the hooks need.
-async fn wait(spade: &Spade, id: &str, kind: &str, count: usize) -> Result<Vec<Value>> {
-    spade.wait_for_count(id, kind, count).await
-}
 
 #[tokio::test]
 async fn a_plugin_turned_on_for_one_bot_offers_its_server_tools_to_that_bot_only() -> Result {
@@ -1090,5 +938,121 @@ async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plu
         refused.contains("no helper profile named reviewer"),
         "{refused}"
     );
+    Ok(())
+}
+
+// ---- A plugin the sandbox can't seal off runs only once the person allows it (ADR 0167) ----
+
+fn lint_server(hash: &str, version: &str, root: &Path) -> SpadePlugin {
+    let mut lint = plugin(
+        "lint",
+        hash,
+        &root.to_string_lossy(),
+        json!([]),
+        json!([{ "kind": "stdio", "name": "checks", "command": "/bin/sh",
+                 "args": ["${PLUGIN_ROOT}/server.sh"] }]),
+    );
+    lint.install.version = version.to_owned();
+    lint
+}
+
+#[tokio::test]
+async fn a_server_the_sandbox_cant_seal_off_waits_for_the_person_and_an_update_asks_again() -> Result
+{
+    let root = tempfile::tempdir()?;
+    let script =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../spade-mcp/tests/fake_stdio_server.sh");
+    std::fs::copy(script, root.path().join("server.sh"))?;
+    let ace = FakeAce::with(vec![lint_server(&"a".repeat(64), "1.0", root.path())]);
+    let spade = Spade::start_with(
+        vec![
+            // After it is allowed: a write through the plugin's server, which keeps its review.
+            Script::reply("").call("c1", "lint__crash", json!({})),
+            Script::reply("Okay."),
+        ],
+        Vec::new(),
+        cant_seal(ace.clone()),
+    )
+    .await?;
+    let (bot_id, chat) = bot(&spade, "Linter", &["lint"]).await?;
+    let plugins = spade.engine.plugins().cloned().ok_or("no plugins")?;
+    let source = PluginTools::new(plugins.clone(), Store::open(&spade.database())?);
+    let page = format!("/v1/agents/{bot_id}/plugins");
+
+    // Before the person answers: not started, no tools, one request — asked once however often
+    // the server is wanted.
+    plugins.start_servers(&bot_id).await;
+    plugins.start_servers(&bot_id).await;
+    assert!(
+        source.tools_for(&chat).is_empty(),
+        "started before it was allowed"
+    );
+    let events = spade.events(&chat).await?;
+    let asks = outside_asks(&events);
+    assert_eq!(asks.len(), 1, "{:?}", types(&events));
+    assert_eq!(
+        asks[0]["line"],
+        "lint needs the network, and Windows can't seal that off yet. Run it outside the sandbox?"
+    );
+    assert_eq!(asks[0]["what"], "server checks");
+    let (_, view) = spade.get(&page).await?;
+    assert_eq!(
+        view["plugins"][0]["servers"][0]["state"], "waiting_for_you",
+        "{view}"
+    );
+    assert_eq!(view["plugins"][0]["outside_sandbox"], false, "{view}");
+
+    // Always for this plugin version: it starts, outside the sandbox, and says so.
+    let id = asks[0]["id"].as_str().unwrap_or_default().to_owned();
+    assert_eq!(answer_outside(&spade, &chat, &id, true).await?, 202);
+    assert_eq!(
+        answer_outside(&spade, &chat, &id, true).await?,
+        409,
+        "answered twice"
+    );
+    plugins.start_servers(&bot_id).await;
+    let tools = source.tools_for(&chat);
+    assert_eq!(tools.len(), 3, "it should run once allowed");
+    let (_, view) = spade.get(&page).await?;
+    assert_eq!(
+        view["plugins"][0]["servers"][0]["state"], "running",
+        "{view}"
+    );
+    assert_eq!(
+        view["plugins"][0]["servers"][0]["outside_sandbox"], true,
+        "{view}"
+    );
+    assert_eq!(view["plugins"][0]["outside_sandbox"], true, "{view}");
+    // Running outside the sandbox is never `contained`: its tools aren't the sandbox's to decide.
+    assert!(
+        tools
+            .iter()
+            .all(|tool| tool.classed("k", &json!({})).runs != spade_core::autonomy::Runs::Sandbox)
+    );
+
+    // Its write call still goes to the person, as any call outside the sandbox does.
+    spade.say(&chat, "Check it").await?;
+    let events = spade.wait_for(&chat, "approval_requested").await?;
+    let asked = of_type(&events, "approval_requested");
+    assert_eq!(asked[0]["call_id"], "c1", "{:?}", types(&events));
+    assert!(
+        of_type(&events, "tool_finished").is_empty(),
+        "it ran unreviewed"
+    );
+
+    // An update to the plugin needs a new answer: not started, and asked again.
+    ace.replace(lint_server(&"d".repeat(64), "1.1", root.path()));
+    plugins.refresh_now().await;
+    plugins.start_servers(&bot_id).await;
+    assert!(
+        source.tools_for(&chat).is_empty(),
+        "an update ran on the old answer"
+    );
+    let events = spade.events(&chat).await?;
+    let asks = outside_asks(&events);
+    assert_eq!(asks.len(), 1, "{:?}", types(&events));
+    assert_eq!(asks[0]["version"], "1.1");
+    let (_, view) = spade.get(&page).await?;
+    assert_eq!(view["plugins"][0]["outside_sandbox"], false, "{view}");
     Ok(())
 }

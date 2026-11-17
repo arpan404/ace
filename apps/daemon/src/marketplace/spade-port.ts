@@ -42,7 +42,8 @@ const safeJson = (text: string): unknown => {
 
 const maxBytes = 1024 * 1024;
 
-async function call(
+/** One request to Spade over the daemon's link, its JSON answer, or why Spade refused. */
+export async function spadeCall(
   connection: SpadeConnection,
   method: string,
   path: string,
@@ -80,7 +81,7 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
     async createBot(input): Promise<MadeBot> {
       const { recipe } = input;
       const made = Made.parse(
-        await call(live(), "POST", "/v1/agents", {
+        await spadeCall(live(), "POST", "/v1/agents", {
           recipe: {
             format: recipe.format,
             version: recipe.version,
@@ -103,24 +104,24 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
     },
     async pluginsOf(bot) {
       const path = `/v1/agents/${encodeURIComponent(bot)}/plugins`;
-      const current = BotPlugins.parse(await call(live(), "GET", path));
+      const current = BotPlugins.parse(await spadeCall(live(), "GET", path));
       return current.plugins
         .filter((item) => item.allowed)
         .map((item) => item.name)
         .toSorted();
     },
     async setPlugins(bot, plugins) {
-      await call(live(), "PUT", `/v1/agents/${encodeURIComponent(bot)}/plugins`, {
+      await spadeCall(live(), "PUT", `/v1/agents/${encodeURIComponent(bot)}/plugins`, {
         plugins: [...new Set(plugins)].toSorted(),
       });
     },
     async findBot(transaction) {
-      const listed = Agents.parse(await call(live(), "GET", "/v1/agents"));
+      const listed = Agents.parse(await spadeCall(live(), "GET", "/v1/agents"));
       return listed.agents.find((agent) => agent.from_recipe?.transaction === transaction)?.id;
     },
     async deleteBot(id) {
       // Workers it made in the moments it existed stop with it.
-      await call(live(), "DELETE", `/v1/agents/${encodeURIComponent(id)}?workers=stop`);
+      await spadeCall(live(), "DELETE", `/v1/agents/${encodeURIComponent(id)}?workers=stop`);
     },
   };
 }

@@ -9,7 +9,7 @@ struct SpadeTab: View {
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
     /// The system tab bar is this page's (a phone): it shows over the list and steps away for a
-    /// conversation, as Threads' does for a page.
+    /// conversation, as Projects' does for a page.
     let tabBar: Bool
     @State private var machine: String?
     @State private var path: [String] = []

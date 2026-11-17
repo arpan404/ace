@@ -127,13 +127,13 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
     });
     const revoked = await cli(home, ["mcp", "revoke", lease.id]);
     expect(revoked.code, revoked.stderr).toBe(0);
-    expect(revoked.stdout).toBe(`Revoked MCP enrollment ${lease.id}\n`);
+    expect(revoked.stdout).toBe(`Revoked ${lease.id}.\n`);
     await expect(stat(lease.credentialFile)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(client.listTools()).rejects.toThrow();
     // Revoking it again says there's nothing by that id, rather than claiming success.
     const again = await cli(home, ["mcp", "revoke", lease.id, "--json"]);
     expect(again.code).toBe(4);
-    expect(again.stdout + again.stderr).toContain(`No MCP enrollment ${lease.id}`);
+    expect(again.stdout + again.stderr).toContain(`No grant ${lease.id}`);
   } finally {
     await client.close();
     await f.daemon.close();

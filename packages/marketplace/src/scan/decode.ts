@@ -1,5 +1,5 @@
 /*
- * How the scanner turns a file's bytes into text (ADR 0173 §8). UTF-8 first; then UTF-16 when the
+ * How the scanner turns a file's bytes into text (ADR 0174 §8). UTF-8 first; then UTF-16 when the
  * file opens with its byte-order mark; then, for anything else without a NUL byte, a lossless
  * single-byte reading (each byte its own code point), so Latin-1 or Windows-1252 source can't
  * escape the script rules by failing UTF-8. A file with NUL bytes and no UTF-16 mark is binary:

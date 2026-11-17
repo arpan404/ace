@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/EntryBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "description": {
+      "maxLength": 8192,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "entry": {},
+    "links": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketLink.json"
+      },
+      "maxItems": 5,
+      "type": "array",
+      "x-ace-constraint": "Items that don't parse are dropped; a value that isn't a list reads as none."
+    },
+    "previews": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+      },
+      "maxItems": 4,
+      "type": "array",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "unlisted": {
+      "default": false,
+      "type": "boolean",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "versions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntryVersion.json"
+      },
+      "maxItems": 200,
+      "type": "array",
+      "x-ace-constraint": "Items that don't parse are dropped; a value that isn't a list reads as none."
+    }
+  },
+  "required": [
+    "entry",
+    "description",
+    "versions"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,228 @@
+//! A dedicated terminal per command (ADR 0167 amendment 1, decision 4): the person's terminal is
+//! a real same-user pty here, handed to the launcher as stdio the way a shell would.
+#![cfg(all(target_os = "linux", feature = "landlock"))]
+mod linux;
+
+use std::process::Output;
+
+/// Runs `parent` (Python) with `ARGS`, the launcher's command line for `python3 -c <inside>`.
+fn drive(inside: &str, parent: &str) -> Output {
+    let w = linux::world();
+    let launch = linux::runner()
+        .wrap(
+            &linux::policy(&w, None),
+            std::path::Path::new("/usr/bin/python3"),
+            &["-c".into(), inside.into()],
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+    let args: Vec<String> = std::iter::once(launch.program.to_string_lossy().into_owned())
+        .chain(launch.args.iter().map(|a| a.to_string_lossy().into_owned()))
+        .collect();
+    let json = serde_json::to_string(&serde_json::to_string(&args).unwrap_or_default())
+        .unwrap_or_default();
+    let prelude = format!(
+        r#"import errno,fcntl,json,os,pty,select,struct,subprocess,termios,time
+ARGS=json.loads({json})
+def size(fd): return struct.unpack("HHHH",fcntl.ioctl(fd,termios.TIOCGWINSZ,b"\0"*8))[:2]
+def terminal():
+ m,s=pty.openpty(); fcntl.ioctl(s,termios.TIOCSWINSZ,struct.pack("HHHH",24,80,0,0)); return m,s
+def collect(m,p,answer=None):
+ out=b""; deadline=time.time()+20
+ while time.time()<deadline:
+  r,_,_=select.select([m],[],[],0.1)
+  if r:
+   try: out+=os.read(m,4096)
+   except OSError: break
+   if answer and answer[0] in out: os.write(m,answer[1]); answer=None
+  elif p.poll() is not None: break
+ p.wait(timeout=5); return out.decode(errors="replace")
+"#
+    );
+    let out = std::process::Command::new("python3")
+        .args(["-c", &format!("{prelude}{parent}")])
+        .current_dir(&w.workspace)
+        .output()
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out
+}
+
+#[test]
+fn terminal_changes_land_on_the_commands_own_pty_and_never_on_the_persons() {
+    let inside = r#"import fcntl,os,struct,sys,termios
+person=os.stat(sys.argv[1]).st_rdev if len(sys.argv)>1 else None
+fcntl.ioctl(0,termios.TIOCSWINSZ,struct.pack("HHHH",50,100,0,0))
+size=struct.unpack("HHHH",fcntl.ioctl(0,termios.TIOCGWINSZ,b"\0"*8))[:2]
+t=termios.tcgetattr(0); t[3]&=~termios.ECHO; termios.tcsetattr(0,termios.TCSANOW,t)
+echo=bool(termios.tcgetattr(0)[3]&termios.ECHO)
+held=[os.fstat(i).st_rdev for i in range(3)]
+print("dedicated",os.ttyname(0),size,echo,os.tcgetpgrp(0)==os.getpgrp(),person in held,flush=True)
+"#;
+    let parent = r#"
+m,s=terminal(); before=termios.tcgetattr(s)
+p=subprocess.Popen(ARGS+[os.ttyname(s)],stdin=s,stdout=s,stderr=s)
+text=collect(m,p)
+assert p.returncode==0,(p.returncode,text)
+assert "dedicated /dev/pts/" in text and os.ttyname(s)+" " not in text,text
+assert "(50, 100) False True False" in text,text
+# The person's terminal: its size and modes as they were, raw mode undone.
+assert size(s)==(24,80),size(s)
+assert termios.tcgetattr(s)==before
+"#;
+    drive(inside, parent);
+}
+
+#[test]
+fn a_terminal_that_isnt_the_dedicated_pty_can_be_read_but_not_changed() {
+    // The person's terminal leaks to the command as descriptor 9, beside its own stdio.
+    let inside = r#"import errno,fcntl,struct,termios
+fcntl.ioctl(9,termios.TIOCGWINSZ,b"\0"*8); termios.tcgetattr(9)
+for change in (lambda: fcntl.ioctl(9,termios.TIOCSWINSZ,struct.pack("HHHH",9,9,0,0)),
+               lambda: termios.tcsetattr(9,termios.TCSANOW,termios.tcgetattr(9))):
+ try: change()
+ except (OSError,termios.error) as e: assert e.args[0]==errno.EPERM,e
+ else: raise SystemExit("changed a terminal that isn't the dedicated pty")
+print("refused",flush=True)
+"#;
+    let parent = r#"
+m,s=terminal(); before=termios.tcgetattr(s)
+os.dup2(s,9)
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s,pass_fds=(9,))
+text=collect(m,p)
+assert p.returncode==0 and "refused" in text,(p.returncode,text)
+assert size(s)==(24,80) and termios.tcgetattr(s)==before
+"#;
+    drive(inside, parent);
+}
+
+#[test]
+fn keystrokes_reach_the_command_through_its_own_controlling_terminal() {
+    let inside = r#"import os
+line=input("ready> ")
+os.close(os.open("/dev/tty",os.O_RDWR))
+# Only a controlling terminal answers its foreground group.
+print("got",line[::-1],os.tcgetpgrp(0)==os.getpgrp(),flush=True)
+"#;
+    let parent = r#"
+m,s=terminal()
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s)
+text=collect(m,p,(b"ready> ",b"olleh\r"))
+assert p.returncode==0 and "got hello True" in text,(p.returncode,text)
+"#;
+    drive(inside, parent);
+}
+
+#[test]
+fn without_a_terminal_on_stdio_the_command_keeps_its_pipes() {
+    let inside = r#"import os,sys
+print([os.isatty(i) for i in range(3)],flush=True)
+sys.stderr.write("to the pipe\n")
+"#;
+    let parent = r#"
+r=subprocess.run(ARGS,stdin=subprocess.DEVNULL,capture_output=True,text=True)
+assert r.returncode==0 and r.stdout.strip()=="[False, False, False]",r
+assert r.stderr=="to the pipe\n",r
+"#;
+    drive(inside, parent);
+}
+
+#[test]
+fn control_sequences_that_reach_past_the_screen_never_reach_the_persons_terminal() {
+    // Written in pieces, some split inside a sequence, so the relay sees them across reads.
+    let inside = r#"import os,time
+pieces=[b"plain text\r\n\x1b[1;3", b"1mred\x1b[0m\r\n",
+ b"\x1b]52;c;c2VjcmV0\x07", b"\x1b]5", b"2;c;?\x1b\\", b"\x1b]0;title\x07\x1b]2;tit", b"le\x1b\\",
+ b"\x1b[18t\x1b[8;5;5t\x1b[6", b"n\x1b[c\x1b[>c\x05", b"\x1bP+q544e\x1b\\\x1b_Gf=1;AAAA\x1b\\",
+ b"\x1b^private\x1b\\\x1bXsos\x1b\\", "\u009b6n\u009d52;c;?\u009c".encode(), b"\x1b[?1049;1000h",
+ b"after\r\n"]
+for piece in pieces:
+ os.write(1,piece); time.sleep(0.03)
+"#;
+    let parent = r#"
+m,s=terminal()
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s)
+text=collect(m,p)
+assert p.returncode==0,(p.returncode,text)
+assert "plain text" in text and "\x1b[1;31mred\x1b[0m" in text and "after" in text,repr(text)
+for leak in ["]52","]5","]0;","]2;","title","[18t","[8;5;5t","[6n","[c","[>c","\x05","\x1bP","+q",
+             "\x1b_","AAAA","\x1b^","private","\x1bX","sos","\u009b","\u009d","1000"]:
+ assert leak not in text,(leak,repr(text))
+# The alternate screen a full-screen tool asks for passes, and is left first at the end.
+assert "\x1b[?1049h" in text and "after\r\r\n\x1b[?1049l\x1b[?1047l" in text,repr(text)
+"#;
+    drive(inside, parent);
+}
+
+#[test]
+fn full_screen_tools_still_render_through_the_relay() {
+    if !linux::has("less") || !linux::has("top") {
+        return;
+    }
+    let inside = r#"import os,subprocess
+os.environ["TERM"]="xterm-256color"
+open("notes.txt","w").write("".join("line %d of the notes\n" % i for i in range(200)))
+subprocess.run(["less","notes.txt"],check=True)
+print("less done",flush=True)
+subprocess.run(["top","-n","1"],check=True)
+print("top done",flush=True)
+"#;
+    let parent = r#"
+m,s=terminal()
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s)
+text=collect(m,p,(b"line 20 of the notes",b"q"))
+assert p.returncode==0,(p.returncode,repr(text[-2000:]))
+assert "\x1b[?1049h" in text and "line 0 of the notes" in text and "less done" in text,repr(text[:2000])
+assert "PID" in text and "\x1b[H" in text and "top done" in text,repr(text[-3000:])
+"#;
+    drive(inside, parent);
+}
+
+/// The bytes every finished relay ends with (`linux/screen.rs`), as Python sees them.
+const RESTORE: &str =
+    r#"b"\x1b[?1047l\x1b[0m\x1b(B\x1b)B\x0f\x1b[?7h\x1b[4l\x1b7\x1b[r\x1b8\x1b[?25h\x1b[?1l\x1b>""#;
+
+#[test]
+fn a_command_on_a_terminal_ends_well_within_the_drain_timeout() {
+    let parent = format!(
+        r#"
+m,s=terminal(); start=time.time()
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s)
+text=collect(m,p); took=time.time()-start
+assert p.returncode==0,(p.returncode,text)
+assert took<1.0,("the launcher waited out its drain timeout",took)
+assert text.encode().endswith({RESTORE}),repr(text)
+"#
+    );
+    drive("print('done')", &parent);
+}
+
+#[test]
+fn a_slow_reader_still_gets_the_restore_sequence() {
+    // 200 kB read at about 40 kB/s: what is still buffered when the command ends takes the
+    // reader longer than the two-second drain.
+    let inside = r#"import os
+os.write(1,b"\x1b[?25l\x1b[?7l\x1b[8m")
+line=b"x"*1023+b"\n"
+for _ in range(200): os.write(1,line)
+"#;
+    let parent = format!(
+        r#"
+m,s=terminal()
+p=subprocess.Popen(ARGS,stdin=subprocess.DEVNULL,stdout=s,stderr=s)
+out=b""; quiet=0
+while quiet<10:
+ r,_,_=select.select([m],[],[],0.1)
+ if r:
+  out+=os.read(m,4096); quiet=0; time.sleep(0.1)
+ elif p.poll() is not None: quiet+=1
+assert p.returncode==0,p.returncode
+assert out.endswith({RESTORE}),repr(out[-300:])
+"#
+    );
+    drive(inside, &parent);
+}

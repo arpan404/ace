@@ -1,0 +1,446 @@
+//! Starting a command inside its AppContainer and job (ADR 0167 decision 1). The daemon can't put
+//! a `SECURITY_CAPABILITIES` attribute on a `std`/`tokio` child, and an AppContainer is set only
+//! at creation (unlike Landlock, which a process applies to itself). So, as on Linux, the daemon
+//! spawns Spade's own binary as a launcher with the command's stdio piped; the launcher calls
+//! [`run`], which creates the command in the container, holds it in a job and waits.
+//!
+//! When the run has network, the launcher also starts the in-container egress bridge
+//! (`spade sandbox-net-bridge`) in the same job, so a loopback endpoint the command can reach
+//! lives inside the container; the bridge forwards to the daemon over a named pipe. Both die when
+//! the job closes.
+
+use std::ffi::{OsStr, OsString};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+
+use windows::Win32::Foundation::{HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation};
+use windows::Win32::Security::{SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES};
+use windows::Win32::System::Console::{
+    GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+};
+use windows::Win32::System::Threading::{
+    CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
+    DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, INFINITE,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+    PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
+    PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, ResumeThread,
+    STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForSingleObject,
+};
+/// Value of `PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT` (stable in `ProcessThreadsApi.h`):
+/// the AppContainer opts out of the ALL APPLICATION PACKAGES SID, becoming a Less Privileged
+/// AppContainer. Defined here because the `windows` crate gates it behind a feature module we don't
+/// otherwise use.
+const ALL_APPLICATION_PACKAGES_OPT_OUT: u32 = 1;
+/// Value of `SE_GROUP_ENABLED` (`winnt.h`): a capability the token holds is enabled. Defined here
+/// for the same reason.
+const SE_GROUP_ENABLED: u32 = 4;
+use windows::core::{PCWSTR, PWSTR};
+
+use crate::job::{Job, Limits};
+use crate::profile;
+use crate::sid::Sid;
+
+/// The token a run's processes get: a Less Privileged AppContainer or a plain one, and the
+/// capability SIDs it holds (none by default). A capability reaches only what an ACE names it on.
+#[derive(Debug, Clone, Default)]
+pub struct Token {
+    pub lpac: bool,
+    pub capabilities: Vec<Sid>,
+}
+
+impl Token {
+    /// A Less Privileged AppContainer holding no capability.
+    pub fn lpac() -> Self {
+        Self {
+            lpac: true,
+            capabilities: Vec::new(),
+        }
+    }
+
+    /// A plain AppContainer holding no capability.
+    pub fn plain() -> Self {
+        Self::default()
+    }
+}
+
+/// The in-container egress bridge: the loopback port the command's proxy points at, and the named
+/// pipe it forwards to.
+pub struct Bridge {
+    pub pipe: String,
+    pub port: u16,
+}
+
+/// Creates the AppContainer profile named `name` (if missing) and runs `program args` in it, held
+/// in a job with `limits`. When `bridge` is set, the egress bridge runs in the same job first.
+/// Returns the command's exit code. The command inherits this process's standard handles.
+pub fn run(
+    name: &str,
+    display: &str,
+    limits: Limits,
+    bridge: Option<Bridge>,
+    program: &OsStr,
+    args: &[OsString],
+) -> std::io::Result<u32> {
+    run_with(name, display, limits, bridge, None, program, args)
+}
+
+/// [`run`], with the program that hosts the egress bridge named explicitly (`bridge_exe`); `None`
+/// uses Spade's own binary (`current_exe`). Tests pass a helper here.
+pub fn run_with(
+    name: &str,
+    display: &str,
+    limits: Limits,
+    bridge: Option<Bridge>,
+    bridge_exe: Option<&std::path::Path>,
+    program: &OsStr,
+    args: &[OsString],
+) -> std::io::Result<u32> {
+    // A run with no network is a Less Privileged AppContainer; a networked run is not.
+    let token = if bridge.is_none() {
+        Token::lpac()
+    } else {
+        Token::plain()
+    };
+    run_in(
+        &token, name, display, limits, bridge, bridge_exe, program, args,
+    )
+}
+
+/// [`run_with`], with the token chosen explicitly (`token`): LPAC or plain, and its capabilities.
+/// Production goes through [`run`]/[`run_with`]; tests use this to check a boundary under each.
+#[allow(clippy::too_many_arguments)]
+pub fn run_in(
+    token: &Token,
+    name: &str,
+    display: &str,
+    limits: Limits,
+    bridge: Option<Bridge>,
+    bridge_exe: Option<&std::path::Path>,
+    program: &OsStr,
+    args: &[OsString],
+) -> std::io::Result<u32> {
+    let sid = profile::ensure(name, display)?;
+    // Why `run_with` ties the token to network: the in-container egress bridge (and any networked
+    // command) must call `WSAStartup`, which fails under LPAC — the Winsock catalog is reachable by
+    // `ALL APPLICATION PACKAGES` but not by the restricted group an LPAC keeps — and the only
+    // capability that would fix it (a network capability) would also let the container reach the
+    // network directly, past the proxy. So a networked run can only be a plain no-capability
+    // AppContainer, which keeps ambient app-package read access; Spade therefore never reports such
+    // a run `contained` (it keeps the review path), and only LPAC runs are. See ADR 0167.
+    let mut caps = Capabilities::new(&sid, token)?;
+    let job = Job::create(limits)?;
+
+    // The bridge first, so its loopback endpoint is up before the command runs. No inherited
+    // handles: it must not touch the command's stdio.
+    let _bridge = match bridge {
+        Some(bridge) => Some(spawn_bridge(&mut caps, &job, bridge_exe, &bridge)?),
+        None => None,
+    };
+
+    // The command is created suspended and put in the job *before* it is resumed, so the job holds
+    // it from its first instruction. If it can't be put in the job, or can't be resumed, it is
+    // killed and waited for, never left to run unheld: the run fails closed.
+    let (process, thread) = create(&mut caps, program, args, true)?;
+    let process_handle = HANDLE(process.as_raw_handle());
+    if let Err(error) = job.assign(process.as_raw_handle()) {
+        kill_and_wait(process_handle);
+        return Err(error);
+    }
+    // Resuming the one suspended thread is the command's start. `(u32::MAX)` means it failed.
+    // SAFETY: a live thread handle.
+    if unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) } == u32::MAX {
+        kill_and_wait(process_handle);
+        return Err(std::io::Error::other("the command could not be started"));
+    }
+    drop(thread);
+
+    // SAFETY: a live process handle; waits for the command to exit.
+    unsafe { WaitForSingleObject(process_handle, INFINITE) };
+    let mut code = 0u32;
+    // SAFETY: `code` is a live local the call fills.
+    unsafe { GetExitCodeProcess(process_handle, &mut code) }.map_err(crate::io)?;
+    drop(job);
+    Ok(code)
+}
+
+/// Terminates `process` and waits for it, so a failed setup leaves nothing suspended behind.
+fn kill_and_wait(process: HANDLE) {
+    // SAFETY: a live process handle; terminate then wait for it to be gone.
+    unsafe {
+        let _ = TerminateProcess(process, 1);
+        WaitForSingleObject(process, 5000);
+    }
+}
+
+/// `run`, for the bridge: `spade sandbox-net-bridge <pipe> <port> <ready-event>`. The bridge is
+/// put in the job, resumed, and then **must acknowledge that it bound its loopback port** by
+/// signalling the readiness event before the command is allowed to start. If it can't be held in
+/// the job, or doesn't bind in time, it is terminated and waited for and the run fails closed.
+fn spawn_bridge(
+    caps: &mut Capabilities,
+    job: &Job,
+    bridge_exe: Option<&std::path::Path>,
+    bridge: &Bridge,
+) -> std::io::Result<OwnedHandle> {
+    let exe = match bridge_exe {
+        Some(exe) => exe.to_path_buf(),
+        None => std::env::current_exe()?,
+    };
+    let ready = crate::event::Ready::new()?;
+    let args = [
+        OsString::from("sandbox-net-bridge"),
+        OsString::from(&bridge.pipe),
+        OsString::from(bridge.port.to_string()),
+        OsString::from(ready.raw_value().to_string()),
+    ];
+    let (process, thread) = create(caps, exe.as_os_str(), &args, false)?;
+    let process_handle = HANDLE(process.as_raw_handle());
+    if let Err(error) = job.assign(process.as_raw_handle()) {
+        kill_and_wait(process_handle);
+        return Err(error);
+    }
+    // SAFETY: a live thread handle; resuming the bridge's one suspended thread.
+    if unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) } == u32::MAX {
+        kill_and_wait(process_handle);
+        return Err(std::io::Error::other(
+            "the egress bridge could not be started",
+        ));
+    }
+    drop(thread);
+    if !ready.wait(5000) {
+        kill_and_wait(process_handle);
+        return Err(std::io::Error::other(
+            "the egress bridge did not bind its loopback port",
+        ));
+    }
+    Ok(process)
+}
+
+/// One proc-thread attribute list carrying a container SID with no capabilities, and — for a run
+/// with no network — the Less Privileged AppContainer (LPAC) policy. Held so the SID and the policy
+/// word outlive every process creation that reads them.
+///
+/// LPAC (the `ALL_APPLICATION_PACKAGES_POLICY` attribute set to opt out) drops the ALL APPLICATION
+/// PACKAGES SID from the token, so files, registry keys and COM objects that are only readable by
+/// *every* app package are not reachable by default. Core system binaries (the loader, the DLLs in
+/// `System32`) carry the restricted ALL RESTRICTED APPLICATION PACKAGES ACE that an LPAC keeps, so
+/// they still load; a run reaches only its own granted folders (the container SID ACEs Spade writes
+/// under its data directory) and the egress pipe (granted the container SID), nothing wider.
+///
+/// It is **not** applied to a networked run: `WSAStartup` needs Winsock catalog resources reachable
+/// by `ALL APPLICATION PACKAGES` but not by the restricted group, so sockets fail under LPAC, and
+/// the only capability that would restore them would also let the container reach the network past
+/// the proxy. A networked run is therefore a plain no-capability AppContainer (`policy` is `None`),
+/// and Spade does not report it `contained`.
+struct Capabilities {
+    _sid: Sid,
+    /// The capability SIDs and their attribute entries, held while the list points at them.
+    _held: Vec<Sid>,
+    _entries: Box<[SID_AND_ATTRIBUTES]>,
+    caps: Box<SECURITY_CAPABILITIES>,
+    policy: Option<Box<u32>>,
+    buffer: Vec<u8>,
+}
+
+impl Capabilities {
+    fn new(sid: &Sid, token: &Token) -> std::io::Result<Self> {
+        let held = token.capabilities.clone();
+        let mut entries: Box<[SID_AND_ATTRIBUTES]> = held
+            .iter()
+            .map(|cap| SID_AND_ATTRIBUTES {
+                Sid: cap.as_psid(),
+                Attributes: SE_GROUP_ENABLED,
+            })
+            .collect();
+        let count = u32::try_from(entries.len())
+            .map_err(|_| std::io::Error::other("too many capabilities"))?;
+        let caps = Box::new(SECURITY_CAPABILITIES {
+            AppContainerSid: sid.as_psid(),
+            Capabilities: if entries.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                entries.as_mut_ptr()
+            },
+            CapabilityCount: count,
+            Reserved: 0,
+        });
+        let policy = token
+            .lpac
+            .then(|| Box::new(ALL_APPLICATION_PACKAGES_OPT_OUT));
+        // One attribute for the SID, plus the LPAC policy when this run has no network.
+        let count = 1 + u32::from(policy.is_some());
+        let mut size = 0usize;
+        // SAFETY: the documented two-call pattern; the first fails on purpose to size the list.
+        let _ = unsafe { InitializeProcThreadAttributeList(None, count, None, &mut size) };
+        let mut buffer = vec![0u8; size];
+        let list = LPPROC_THREAD_ATTRIBUTE_LIST(buffer.as_mut_ptr().cast());
+        // SAFETY: `list` has `size` bytes; `count` attributes are declared.
+        unsafe { InitializeProcThreadAttributeList(Some(list), count, None, &mut size) }
+            .map_err(crate::io)?;
+        // SAFETY: `caps` is boxed, so its address is stable while this struct lives.
+        unsafe {
+            UpdateProcThreadAttribute(
+                list,
+                0,
+                PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize,
+                Some(std::ptr::from_ref(caps.as_ref()).cast()),
+                std::mem::size_of::<SECURITY_CAPABILITIES>(),
+                None,
+                None,
+            )
+        }
+        .map_err(crate::io)?;
+        if let Some(policy) = policy.as_ref() {
+            // SAFETY: `policy` is boxed, so its address is stable while this struct lives. This turns
+            // the AppContainer into an LPAC: without it, every app package can read system-wide files.
+            unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY as usize,
+                    Some(std::ptr::from_ref(policy.as_ref()).cast()),
+                    std::mem::size_of::<u32>(),
+                    None,
+                    None,
+                )
+            }
+            .map_err(crate::io)?;
+        }
+        Ok(Self {
+            _sid: sid.clone(),
+            _held: held,
+            _entries: entries,
+            caps,
+            policy,
+            buffer,
+        })
+    }
+
+    fn list(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
+        LPPROC_THREAD_ATTRIBUTE_LIST(self.buffer.as_mut_ptr().cast())
+    }
+}
+
+impl Drop for Capabilities {
+    fn drop(&mut self) {
+        // SAFETY: the list was initialized in `new`; the boxed caps and policy outlive this.
+        unsafe { DeleteProcThreadAttributeList(self.list()) };
+        let _ = (&self.caps, &self.policy);
+    }
+}
+
+/// Creates `program args` suspended in the container. When `inherit_std`, the command inherits
+/// this process's standard handles (so the daemon streams it); otherwise it gets none.
+fn create(
+    caps: &mut Capabilities,
+    program: &OsStr,
+    args: &[OsString],
+    inherit_std: bool,
+) -> std::io::Result<(OwnedHandle, OwnedHandle)> {
+    let mut info = STARTUPINFOEXW::default();
+    info.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+    info.lpAttributeList = caps.list();
+    info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    if inherit_std {
+        let (stdin, stdout, stderr) = std_handles()?;
+        for handle in [stdin, stdout, stderr] {
+            // SAFETY: a live standard handle; making it inheritable so the child receives it.
+            let _ =
+                unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT) };
+        }
+        info.StartupInfo.hStdInput = stdin;
+        info.StartupInfo.hStdOutput = stdout;
+        info.StartupInfo.hStdError = stderr;
+    } else {
+        // The bridge gets no standard handles (so its output can't reach the command's streams),
+        // but it still inherits handles — its readiness event among them.
+        info.StartupInfo.hStdInput = HANDLE::default();
+        info.StartupInfo.hStdOutput = HANDLE::default();
+        info.StartupInfo.hStdError = HANDLE::default();
+    }
+
+    let mut line = command_line(program, args);
+    let mut pi = PROCESS_INFORMATION::default();
+    // SAFETY: `line` is a writable NUL-terminated wide buffer; `info`/`pi` are live locals; the
+    // attribute list and its SID live until after this returns. `binherithandles` is true so the
+    // command inherits its standard handles, or the bridge its readiness event.
+    unsafe {
+        CreateProcessW(
+            PCWSTR::null(),
+            Some(PWSTR(line.as_mut_ptr())),
+            None,
+            None,
+            true,
+            EXTENDED_STARTUPINFO_PRESENT
+                | CREATE_SUSPENDED
+                | CREATE_NEW_PROCESS_GROUP
+                | CREATE_UNICODE_ENVIRONMENT,
+            None,
+            PCWSTR::null(),
+            &info.StartupInfo,
+            &mut pi,
+        )
+    }
+    .map_err(crate::io)?;
+    // SAFETY: fresh handles the call returned; owning them closes them on drop.
+    let process = unsafe { OwnedHandle::from_raw_handle(pi.hProcess.0) };
+    // SAFETY: as above, the thread handle.
+    let thread = unsafe { OwnedHandle::from_raw_handle(pi.hThread.0) };
+    Ok((process, thread))
+}
+
+fn std_handles() -> std::io::Result<(HANDLE, HANDLE, HANDLE)> {
+    // SAFETY: each returns this process's standard handle, or an error.
+    let get = |which| unsafe { GetStdHandle(which) }.map_err(crate::io);
+    Ok((
+        get(STD_INPUT_HANDLE)?,
+        get(STD_OUTPUT_HANDLE)?,
+        get(STD_ERROR_HANDLE)?,
+    ))
+}
+
+/// `program args` as one command line, each part quoted by the rules `CommandLineToArgvW` reads.
+fn command_line(program: &OsStr, args: &[OsString]) -> Vec<u16> {
+    let mut line: Vec<u16> = Vec::new();
+    quote(program, &mut line);
+    for arg in args {
+        line.push(u16::from(b' '));
+        quote(arg, &mut line);
+    }
+    line.push(0);
+    line
+}
+
+/// Appends `arg` to `line`, wrapping it in quotes and escaping as `CommandLineToArgvW` expects.
+fn quote(arg: &OsStr, line: &mut Vec<u16>) {
+    use std::os::windows::ffi::OsStrExt;
+    let units: Vec<u16> = arg.encode_wide().collect();
+    let needs = units.is_empty()
+        || units
+            .iter()
+            .any(|&u| u == u16::from(b' ') || u == u16::from(b'\t') || u == u16::from(b'"'));
+    if !needs {
+        line.extend_from_slice(&units);
+        return;
+    }
+    line.push(u16::from(b'"'));
+    let mut backslashes = 0usize;
+    for &unit in &units {
+        if unit == u16::from(b'\\') {
+            backslashes += 1;
+            line.push(unit);
+            continue;
+        }
+        if unit == u16::from(b'"') {
+            for _ in 0..=backslashes {
+                line.push(u16::from(b'\\'));
+            }
+        }
+        backslashes = 0;
+        line.push(unit);
+    }
+    for _ in 0..backslashes {
+        line.push(u16::from(b'\\'));
+    }
+    line.push(u16::from(b'"'));
+}

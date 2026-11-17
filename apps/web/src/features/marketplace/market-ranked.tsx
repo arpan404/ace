@@ -8,7 +8,7 @@ import { useMarketPicture } from "./market-publishing.ts";
 import { Stage } from "./market-stage.tsx";
 
 /*
- * Discover's ranked sections (ADR 0173 §6): Trending this week as two columns of five, New and
+ * Discover's ranked sections (ADR 0174 §6): Trending this week as two columns of five, New and
  * notable, collections as a mosaic of what's inside, and the top publishers. Each renders only
  * when its list has something in it.
  */

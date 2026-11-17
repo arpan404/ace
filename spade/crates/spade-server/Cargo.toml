@@ -32,7 +32,7 @@ spade-connect = { path = "../spade-connect" }
 spade-mcp = { path = "../spade-mcp" }
 spade-fetch = { path = "../spade-fetch" }
 spade-docs = { path = "../spade-docs" }
-spade-sandbox = { path = "../spade-sandbox" }
+spade-sandbox = { path = "../spade-sandbox", default-features = false }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
 thiserror.workspace = true
@@ -51,7 +51,9 @@ regex = "1"
 reqwest.workspace = true
 
 [features]
-# Linux's sandbox (ADR 0167), off until its network boundary is complete.
+default = ["landlock"]
+# Linux's sandbox (ADR 0167): Landlock and the seccomp network filter. On by default; does
+# nothing on other systems.
 landlock = ["spade-sandbox/landlock"]
 # Timing hooks only tests may use (`Shell::with_end_delay`, `Terminals::with_end_deadline`); off
 # in every release build.
@@ -93,3 +95,4 @@ libproc = "0.14"
 
 [target."cfg(windows)".dependencies]
 win32job = "2.1.0"
+spade-sandbox-windows = { path = "../spade-sandbox-windows" }

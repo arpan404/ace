@@ -1,19 +1,21 @@
 //! Spade's security boundaries through the server (ADR 0167): a bot's shell commands in the
-//! macOS sandbox run without a review and can't reach outside it; without the sandbox, or for
+//! sandbox (macOS's, and Linux's where Landlock and its filter hold) run without a review and can't reach outside it; without the sandbox, or for
 //! what could leave through it, they are reviewed as before; grants and network policies set
 //! over the API take effect on the next command. Process tests: each starts real shells.
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 
 mod support;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::json;
 use spade_server::tools::Tool;
+use spade_server::workspace::shell::{Confine, Confinement, Kind};
 use spade_store::Store;
 use spade_testkit::Script;
-use support::sandbox::{World, asked, output, quoted, shell, world, world_in};
+use support::sandbox::{World, asked, output, quoted, shell, world, world_in, wrapped_world};
 use support::{Result, types};
 
 #[tokio::test]
@@ -38,9 +40,14 @@ async fn a_sandboxed_command_runs_without_a_review_and_cannot_reach_outside_its_
     assert!(asked(&events).is_empty(), "{:?}", types(&events));
     let text = output(&events, "c1");
     assert!(text.contains("built") && text.contains("end"), "{text}");
-    assert!(text.contains("Operation not permitted"), "{text}");
+    // Seatbelt refuses with EPERM, Landlock with EACCES.
+    let refusal = if cfg!(target_os = "linux") {
+        "Permission denied"
+    } else {
+        "Operation not permitted"
+    };
     assert!(!text.contains("TAX-SECRET"), "{text}");
-    assert_eq!(text.matches("Operation not permitted").count(), 2, "{text}");
+    assert_eq!(text.matches(refusal).count(), 2, "{text}");
     assert!(
         !w.home
             .parent()
@@ -170,10 +177,11 @@ async fn a_folder_the_person_grants_is_writable_until_the_grant_is_taken_back() 
         .spade
         .wait_for_count(&w.conversation, "reply_finished", 2)
         .await?;
+    // Refused: `sh` answers 1 on macOS, 2 where it is dash.
+    let refused = output(&events, "c2");
     assert!(
-        output(&events, "c2").contains("rc=1"),
-        "{}",
-        output(&events, "c2")
+        refused.contains("rc=") && !refused.contains("rc=0"),
+        "{refused}"
     );
     assert!(!app.join("b.txt").exists());
     Ok(())
@@ -615,5 +623,94 @@ async fn a_turn_waits_while_the_workspace_is_reserved_for_a_restore() -> Result 
     drop(reserved);
     w.spade.wait_for(&w.conversation, "reply_finished").await?;
     assert!(workspace_of(&w).join("a.txt").exists());
+    Ok(())
+}
+
+/// A sandbox that holds the bot's commands while the gate decides on them, then stops holding them
+/// before the launch — as when the person adds a consented folder in between (on Windows such a
+/// run can't be contained and needs review). `held` counts the containment answers still "yes".
+struct Lapses {
+    inner: Arc<dyn Confine>,
+    held: Arc<AtomicUsize>,
+}
+
+impl Confine for Lapses {
+    fn confine(&self, home: &Path, kind: &Kind) -> std::result::Result<Confinement, String> {
+        if self.held.load(Ordering::SeqCst) == 0 {
+            return Ok(Confinement::NeedsReview(
+                "it needs folders outside Spade's own".to_owned(),
+            ));
+        }
+        self.inner.confine(home, kind)
+    }
+
+    fn contains(&self, home: &Path) -> bool {
+        let mut left = self.held.load(Ordering::SeqCst);
+        loop {
+            if left == 0 {
+                return false;
+            }
+            match self
+                .held
+                .compare_exchange(left, left - 1, Ordering::SeqCst, Ordering::SeqCst)
+            {
+                Ok(_) => return self.inner.contains(home),
+                Err(now) => left = now,
+            }
+        }
+    }
+
+    fn outside(&self, home: &Path) -> bool {
+        self.inner.outside(home)
+    }
+
+    fn before(
+        &self,
+        home: &Path,
+        kind: &Kind,
+    ) -> Option<Box<dyn FnOnce() -> std::result::Result<(), String> + Send>> {
+        self.inner.before(home, kind)
+    }
+}
+
+#[tokio::test]
+async fn a_command_cleared_as_contained_is_refused_when_the_sandbox_lapses_before_launch() -> Result
+{
+    // The gate asks once whether the sandbox holds the command, and it does; by the launch it no
+    // longer does. The command skipped review on the strength of the sandbox, so it must not
+    // launch plainly: it is refused, and asking again goes back through the gate.
+    let held = Arc::new(AtomicUsize::new(1));
+    let counter = held.clone();
+    let w = wrapped_world(
+        move |inner| {
+            Arc::new(Lapses {
+                inner,
+                held: counter,
+            })
+        },
+        |at| {
+            vec![
+                shell(
+                    "c1",
+                    format!("echo ran > {}", quoted(&at.root.join("ran.txt"))),
+                ),
+                Script::reply("Done."),
+            ]
+        },
+    )
+    .await?;
+    w.spade.say(&w.conversation, "Build it").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    // The gate saw it contained: nothing was asked, and its one containment answer was used.
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    assert_eq!(held.load(Ordering::SeqCst), 0);
+    // At launch the sandbox no longer held it: refused, never run plainly.
+    let text = output(&events, "c1");
+    assert!(text.contains("no longer holds it"), "{text}");
+    let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
+    assert!(
+        !root.join("ran.txt").exists(),
+        "the command ran uncontained"
+    );
     Ok(())
 }

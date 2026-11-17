@@ -414,3 +414,14 @@ test("a skill's file is never read through a link, a hidden folder or a plugin",
     code: "read_only",
   });
 });
+
+test("only personal skills the person wrote are publishable, each with its real folder", async () => {
+  const { home, library } = await fixture();
+  const publishable = await library.publishable();
+  const research = publishable.find((each) => each.entry.name === "research");
+  expect(research?.folder).toBe(join(home, ".agents/skills/research"));
+  const names = publishable.map((each) => each.entry.name);
+  // A builtin, a project's and one linked in from outside the agents' folders aren't publishable.
+  for (const not of ["visualize", "release", "elsewhere"]) expect(names).not.toContain(not);
+  expect(publishable.every((each) => each.entry.scope === "personal")).toBe(true);
+});

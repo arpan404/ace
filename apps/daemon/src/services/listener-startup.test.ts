@@ -132,10 +132,17 @@ test("a failed listener service still degrades and skips the services that requi
   ]);
   await services.listening(server);
   expect(services.status().filter((entry) => entry.name !== "engine")).toEqual([
-    { name: "context", state: "degraded", error: "Service context: index unreadable" },
+    // Both are degraded with retries left on the default backoff, so status promises another try.
+    {
+      name: "context",
+      state: "degraded",
+      error: "Service context: index unreadable",
+      retrying: true,
+    },
     {
       name: "storage",
       state: "degraded",
+      retrying: true,
       error: "Service storage: Dependency context is unavailable",
     },
     { name: "review", state: "ready" },

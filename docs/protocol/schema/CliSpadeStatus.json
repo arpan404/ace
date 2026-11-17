@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliSpadeStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "beta": {
+      "type": "boolean"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "live": {
+      "type": "boolean"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatus.json"
+    }
+  },
+  "required": [
+    "beta",
+    "enabled",
+    "live"
+  ],
+  "type": "object"
+}

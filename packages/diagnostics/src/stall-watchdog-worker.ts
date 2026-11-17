@@ -61,7 +61,11 @@ function persist(next: StallReport): void {
 function finish(): void {
   if (!report) return;
   port?.postMessage(report);
-  rmSync(input.reportPath, { force: true });
+  try {
+    rmSync(input.reportPath, { force: true });
+  } catch {
+    // Still held (EBUSY/EPERM on Windows): the next report replaces it. Watching goes on.
+  }
   report = undefined;
   finishWhenAnswered = false;
 }

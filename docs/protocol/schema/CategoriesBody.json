@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/CategoriesBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "categories": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketCategory.json"
+      },
+      "maxItems": 64,
+      "type": "array",
+      "x-ace-constraint": "Items that don't parse are dropped; a value that isn't a list reads as none."
+    }
+  },
+  "required": [
+    "categories"
+  ],
+  "type": "object"
+}

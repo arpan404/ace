@@ -23,6 +23,7 @@ struct QuietRow<Content: View>: View {
 /// approval steps aside: the request is the composer's.
 struct StepRow: View {
     @Environment(\.openStep) private var openStep
+    @Environment(\.aceReduceMotion) private var reduceMotion
     let step: StepLine
     /// The item it reads, which keeps its open state through regrouping.
     var id = ""
@@ -68,7 +69,9 @@ struct StepRow: View {
             StepGlyph(step: step, failed: failed)
         } title: {
             HStack(spacing: AceDesign.Space.related) {
-                if !step.verb.isEmpty { Text(step.verb).layoutPriority(1) }
+                if !step.verb.isEmpty {
+                    Text(step.verb).layoutPriority(1).stepShimmer(StepInFlight(step: step).shimmers(reduceMotion: reduceMotion))
+                }
                 if !step.target.isEmpty { TargetChip(target: step.target) }
             }
         } meta: {
@@ -83,6 +86,7 @@ struct StepRow: View {
                 if !step.note.isEmpty, !retried {
                     Text(step.note).foregroundStyle(failed ? AceTheme.StatusText.failed : AceTheme.Colours.subtleForeground)
                 }
+                StepElapsed(inFlight: StepInFlight(step: step))
             }
         }
         .accessibilityElement(children: .combine)
@@ -284,7 +288,7 @@ struct WorkBlockView: View {
             if expanded {
                 Group {
                     if let ordinal = row.ordinal, let steps {
-                        DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps, thread: thread, openMessage: openMessage)
+                        DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps, thread: thread, moments: row.moments, openMessage: openMessage)
                     } else if let log = row.log, !log.isEmpty {
                         StepRail { WorkLogRows(rows: log, source: source) }.onAppear { DisclosureTrace.shared.shown(blockId) }
                     } else {

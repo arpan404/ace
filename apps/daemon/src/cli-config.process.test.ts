@@ -85,7 +85,8 @@ test("ace config set retention-days applies to the running daemon at once and ke
     for (const kept of [working, recent]) expect(f.deleted(kept)).toBe(false);
 
     const refused = await invoke(f.home, ["config", "set", "retention-days", "0", "--json"]);
-    expect(refused.code).toBe(4);
+    // A value the setting doesn't take is a wrong command line (ADR 0176 §4).
+    expect(refused.code).toBe(64);
     expect(JSON.parse(refused.stdout).error).toContain("retention-days must be");
   } finally {
     await f.close();
@@ -141,16 +142,21 @@ test("with no daemon running, ace config set saves the value for the next start"
     const set = await invoke(home, ["config", "set", "retention-days", "45", "--json"]);
     expect(set.code, set.stderr).toBe(0);
     expect(JSON.parse(set.stdout)).toMatchObject({ value: 45, source: "saved", live: false });
+    // Bare `config get`, the first CLI's list, now lists every setting by its key.
     const get = await invoke(home, ["config", "get", "--json"]);
-    expect(JSON.parse(get.stdout)).toEqual([
-      expect.objectContaining({ setting: "retention-days", value: 45 }),
-      expect.objectContaining({ setting: "log-cap", value: 1024 ** 3, source: "default" }),
-      expect.objectContaining({
-        setting: "preparation-timeout",
-        value: 10 * 60 * 1000,
-        source: "default",
-      }),
-    ]);
+    const listed = JSON.parse(get.stdout);
+    expect(listed).toEqual(JSON.parse((await invoke(home, ["config", "list", "--json"])).stdout));
+    expect(listed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "storage.retentionDays", value: 45, source: "saved" }),
+        expect.objectContaining({ key: "logs.maxBytes", value: 1024 ** 3, source: "default" }),
+        expect.objectContaining({
+          key: "worktree.preparationTimeoutMs",
+          value: 10 * 60 * 1000,
+          source: "default",
+        }),
+      ]),
+    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }

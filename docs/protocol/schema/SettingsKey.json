@@ -47,6 +47,7 @@
     "spade.enabled",
     "beta.spade",
     "beta.marketplace",
+    "market.askBeforeAgentPublish",
     "devices.emulatorWindow",
     "media.encode",
     "media.delivery",

@@ -33,6 +33,7 @@ import {
 import { spikePoster } from "./spike-poster.ts";
 import { spikeMedia, type PhoneMain, type SpikeSocketData } from "./spike-media.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
+import { SpikeAccount } from "./spike-account.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
@@ -365,6 +366,8 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
   });
 }
 const lostReceipt = new LostReceipt();
+// The account backend `--spike-account` signs in to, on this same port.
+const spikeAccount = new SpikeAccount(() => Date.now());
 const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,
@@ -499,6 +502,8 @@ const server = Bun.serve<SpikeSocketData>({
     if (posterReply) return posterReply;
     const browserReply = await browserControl(daemon, request);
     if (browserReply) return browserReply;
+    const accountReply = await spikeAccount.handle(request);
+    if (accountReply) return accountReply;
     const devicesReply = devicesControl(daemon, request);
     if (devicesReply) return devicesReply;
     if (path === "/health")

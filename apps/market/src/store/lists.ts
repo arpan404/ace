@@ -5,7 +5,7 @@ import type { Databases } from "./databases.ts";
 import { signedOf } from "./rows.ts";
 
 /*
- * The signed lists besides the withdrawn one (ADR 0173 §8, §13, §14): the blocklist (in the
+ * The signed lists besides the withdrawn one (ADR 0174 §8, §13, §14): the blocklist (in the
  * moderation database), the verified publishers and the official list (in the publishers
  * database, beside the rows they mark). Each keeps only its newest `issued`, and stores an edit
  * only while the list it was based on is still the stored one; any other upload changes nothing.
@@ -14,7 +14,7 @@ import { signedOf } from "./rows.ts";
 
 export type ListTable = "blocklist" | "verified" | "official";
 
-/** The database a signed list is kept in (ADR 0173 §16). */
+/** The database a signed list is kept in (ADR 0174 §16). */
 export function listDb(dbs: Databases, table: SignedTable): D1Database {
   switch (table) {
     case "blocklist":

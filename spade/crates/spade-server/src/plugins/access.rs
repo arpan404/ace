@@ -8,13 +8,13 @@ use spade_store::Store;
 const KEY: &str = "plugins.access";
 
 pub struct Access {
-    store: Store,
+    store: std::sync::Arc<Store>,
     /// Held across reading and writing the list, so changes never overwrite each other.
     lock: std::sync::Mutex<()>,
 }
 
 impl Access {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: std::sync::Arc<Store>) -> Self {
         Self {
             store,
             lock: std::sync::Mutex::new(()),

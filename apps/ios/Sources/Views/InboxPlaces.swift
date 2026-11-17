@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The places at the foot of the iPad sidebar, where a regular window (iPad, the unfolded iPhone
-/// Duo, a large iPhone turned) keeps them instead of the tab bar, in the web rail's order: Threads,
+/// Duo, a large iPhone turned) keeps them instead of the tab bar, in the web rail's order: Projects,
 /// Chats (and Spade, while a machine shows it) and Search switch the place, then a short hairline, then Code review (a place of its own,
 /// as the rail's), then Automations, Skills, More (Usage, History and Archived) and Settings,
 /// which open over it. Bare glyphs on one glass capsule; the place showing

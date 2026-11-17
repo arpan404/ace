@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/PublishRefused.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "const": "refused",
+      "type": "string"
+    },
+    "problems": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketProblem.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    }
+  },
+  "required": [
+    "error",
+    "problems"
+  ],
+  "type": "object"
+}

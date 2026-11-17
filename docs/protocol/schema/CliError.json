@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliError.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "admission": {},
+    "argument": {
+      "type": "string"
+    },
+    "code": {
+      "$ref": "https://ace.local/protocol/v1/CliErrorCode.json"
+    },
+    "command": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "hint": {
+      "type": "string"
+    },
+    "ok": {
+      "const": false,
+      "type": "boolean"
+    },
+    "problems": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliProblem.json"
+      },
+      "type": "array"
+    },
+    "request": {
+      "type": "string"
+    },
+    "retry": {
+      "properties": {
+        "idempotencyKey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "idempotencyKey"
+      ],
+      "type": "object"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/CliOutcome.json"
+    },
+    "suggestion": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "status",
+    "code",
+    "error"
+  ],
+  "type": "object"
+}

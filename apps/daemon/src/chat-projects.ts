@@ -61,7 +61,12 @@ export class ChatProjects {
     this.newId = newId;
     this.stop = store.subscribe((events) => {
       // After the committing transaction, never inside it.
-      if (events.some(endsChatThread)) void Promise.resolve().then(() => this.sweep());
+      // A pass that fails (the store unreadable, a folder that won't go) is left for the next
+      // sweep or start, as `Projects` treats its own sweep; it never ends the daemon.
+      if (events.some(endsChatThread))
+        void Promise.resolve()
+          .then(() => this.sweep())
+          .catch(() => undefined);
     });
   }
   async create(): Promise<Project> {

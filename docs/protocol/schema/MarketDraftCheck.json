@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketDraftCheck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bot": {
+      "$ref": "https://ace.local/protocol/v1/MarketBotReview.json"
+    },
+    "excluded": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketDraftLeftOut.json"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketDraftFile.json"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketDraftFinding.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "files",
+    "excluded",
+    "findings",
+    "hash"
+  ],
+  "type": "object"
+}

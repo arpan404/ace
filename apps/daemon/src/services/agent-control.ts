@@ -19,8 +19,22 @@ export function startAgentControl(context: ServiceContext): void {
   const { services, store, options, now, id, log, resources, onListen } = context;
   const engine = services.engine;
   if (!engine || !services.models) return;
-  let maintenance: { admit(): boolean } | undefined = context.maintenance;
+  type Gate = Pick<import("@ace/service").MaintenanceGate, "admit" | "held" | "onChange">;
+  let maintenance: Gate | undefined = context.maintenance;
+  // Queued children say they wait for disk space while the storage hold lasts (ADR 0176).
+  let storageHeld = false;
+  let stopWatching: (() => void) | undefined;
+  const follow = (gate: Gate | undefined) => {
+    stopWatching?.();
+    stopWatching = gate?.onChange(() => {
+      const held = gate.held("storage");
+      if (held === storageHeld) return;
+      storageHeld = held;
+      delegations.storageChanged();
+    });
+  };
   onListen.push((server) => {
+    if (server.maintenance !== maintenance) follow(server.maintenance);
     maintenance = server.maintenance;
   });
   const delegations = new DelegationService({
@@ -55,6 +69,7 @@ export function startAgentControl(context: ServiceContext): void {
     ...(options.agentControl?.policy ? { policy: options.agentControl.policy } : {}),
     maxRunningChildren: () => services.childLimit?.current(),
     admitsWork: () => maintenance?.admit() ?? false,
+    storageFull: () => maintenance?.held("storage") ?? false,
     refreshProvider: providerFacts({
       ensureProvider: (provider) => engine.ensureProvider(provider),
       async acpLogin(instanceId, signal) {
@@ -81,6 +96,8 @@ export function startAgentControl(context: ServiceContext): void {
     onError: (error) => log.log("error", "Agent control failure", logError(error)),
   });
   resources.own(() => delegations.close());
+  follow(maintenance);
+  resources.own(() => stopWatching?.());
   const stopFollowing = services.childLimit?.onChange(() => delegations.limitChanged());
   if (stopFollowing) resources.own(stopFollowing);
   resources.onShutdown(() => delegations.close());

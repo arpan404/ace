@@ -40,7 +40,15 @@ import { isStoreRetry } from "./store-busy.ts";
 import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } from "./daemon-log.ts";
 import { logHomeBackup } from "./home-backup-log.ts";
 import { lineageFile } from "./sequence-lineage.ts";
-import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
+import {
+  freeBytesOf,
+  openAtStart,
+  sqliteFailureDetails,
+  systemDiskSpace,
+} from "./sqlite-failure.ts";
+import { StorageWatch, systemStorageDelay } from "./storage-watch.ts";
+import { storageReserve } from "./storage-reserve.ts";
+import { storageLevels } from "./storage-levels.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
 import { watchStalls } from "./stall-log.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
@@ -58,6 +66,9 @@ import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
 import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
 import { ServiceStartup, systemStartup } from "./services/startup.ts";
+import { attemptFile, safeModeSkips, startupAttempts } from "./startup-attempts.ts";
+import { crashRecord, installCrashAttribution, repeatedCrashes } from "./service-crashes.ts";
+import { ServiceScope } from "./services/service-scope.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
@@ -142,6 +153,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   const diskSpace = options.diskSpace ?? systemDiskSpace;
+  // A disk already full: ace's reserve goes before anything else opens, so the log, the stores
+  // and their first writes have room (ADR 0176). The storage watch holds new work from here.
+  const reserve = storageReserve(config.dataDir);
+  const free = freeBytesOf(config.dataDir, diskSpace);
+  if (free !== null && free < (options.storageWatch?.levels ?? storageLevels).pauseBelow)
+    reserve.release();
   let log: Awaited<ReturnType<typeof openDaemonLog>>;
   try {
     log = await openDaemonLog(config, context, now);
@@ -151,6 +168,16 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const resources = new Resources();
   resources.own(() => log.close(), "daemon log");
+  // A full disk holds new work and heals on its own once space is back (ADR 0176).
+  const storage = new StorageWatch({
+    home: config.dataDir,
+    diskSpace,
+    log,
+    delay: systemStorageDelay,
+    reserve,
+    ...options.storageWatch,
+  });
+  resources.own(() => storage.close(), "storage watch");
   if (prepared.state === "fresh") {
     const followUp = new AbortController();
     resources.own(() => followUp.abort(), "home backup log");
@@ -170,7 +197,28 @@ export async function startDaemon(options: DaemonOptions = {}) {
       sqliteFailureDetails(error, config.dataDir, diskSpace),
     ),
   );
-  resources.own(installRejectionGuard(process, log, isStoreRetry));
+  // A full disk is entered as a condition and heals on its own, like contention.
+  resources.own(
+    installRejectionGuard(
+      process,
+      log,
+      (reason) => storage.observe(reason) || isStoreRetry(reason),
+    ),
+  );
+  // A fatal error is charged to the service whose code raised it, for safe mode (ADR 0175).
+  const scope = new ServiceScope();
+  const crashes = crashRecord(attemptFile(join(config.dataDir, "service-crashes.json")));
+  resources.own(
+    installCrashAttribution(
+      process,
+      () => scope.current(),
+      (service) => {
+        crashes.record(service, now());
+        log.log("error", "Fatal error in service", logFields([["service", service]]));
+        log.flushSync();
+      },
+    ),
+  );
   let stopping: Stopping | undefined;
   const stopRecord = stopRecorder({ run: () => run, log, now, pid: process.pid });
   // Disposers run in reverse: this record is the last line before the log closes.
@@ -199,7 +247,25 @@ export async function startDaemon(options: DaemonOptions = {}) {
       ),
   });
   resources.own(() => loop.close(), "event loop monitor");
-  const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
+  const pauseBelow = (options.storageWatch?.levels ?? storageLevels).pauseBelow;
+  let inventory: ProcessInventory;
+  try {
+    inventory = openAtStart(
+      () =>
+        new ProcessInventory(join(config.dataDir, "processes.sqlite"), undefined, (error) => {
+          if (!storage.observe(error))
+            log.log("warn", "Process inventory write failed; retrying", logError(error));
+        }),
+      config.dataDir,
+      diskSpace,
+      pauseBelow,
+    );
+  } catch (error) {
+    loop.close();
+    await log.close();
+    unlock();
+    throw error;
+  }
   try {
     inventory.recover();
     if (process.platform === "win32") {
@@ -223,7 +289,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   const stopInventory = observeProcessGroups(inventory);
+  const stopRetrying = storage.onRoom(() => inventory.retryRemovals());
   resources.own(() => {
+    stopRetrying();
     stopInventory();
     inventory.close();
   }, "process inventory");
@@ -337,18 +405,27 @@ export async function startDaemon(options: DaemonOptions = {}) {
   try {
     const logDirectory = daemonLogDirectory(config);
     lifetime.signal.throwIfAborted();
-    const eventStore = new Store(
-      join(config.dataDir, "events.sqlite"),
-      (error) => log.log("error", "Event subscriber failed", logError(error)),
-      // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
-      {
-        now,
-        lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
-        storedTrustBuild: storedTrustBuild(
-          process.env.ACE_VERSION,
-          process.argv[1] === undefined ? undefined : runningBuildId(dirname(process.argv[1])),
+    const eventStore = openAtStart(
+      () =>
+        new Store(
+          join(config.dataDir, "events.sqlite"),
+          (error) => {
+            storage.observe(error);
+            log.log("error", "Event subscriber failed", logError(error));
+          },
+          // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
+          {
+            now,
+            lineage: lineageFile(join(config.dataDir, "sequence-mark.json")),
+            storedTrustBuild: storedTrustBuild(
+              process.env.ACE_VERSION,
+              process.argv[1] === undefined ? undefined : runningBuildId(dirname(process.argv[1])),
+            ),
+          },
         ),
-      },
+      config.dataDir,
+      diskSpace,
+      pauseBelow,
     );
     // One admission gate for the server and the engine, closed before any service starts when
     // maintenance was asked for, so startup recovery honours it too (ADR 0041).
@@ -363,6 +440,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     resources.own(stopKeepingPause, "pause marker");
     // A restart in the middle of an update keeps the update's hold (ADR 0041).
     if (process.env.ACE_MAINTENANCE === "1") maintenance.enter("update");
+    resources.own(storage.attach(maintenance), "storage hold");
+    storage.start();
     const serviceContext: ServiceContext = {
       signal: lifetime.signal,
       config,
@@ -378,6 +457,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       onListen: [],
       maintenance,
+      diskFull: storage,
       store: eventStore,
     };
     const store = serviceContext.store;
@@ -401,7 +481,23 @@ export async function startDaemon(options: DaemonOptions = {}) {
       streaming: () => store.streamingMetrics(),
     });
     resources.own(() => health.close(), "health monitor");
-    const startup = new ServiceStartup(serviceContext, { ...systemStartup, ...options.startup });
+    // Safe mode leaves off what the last run was stuck starting (ADR 0175).
+    const attempts = startupAttempts(attemptFile(join(config.dataDir, "startup-attempts.json")));
+    const skip = config.safeMode
+      ? safeModeSkips(attempts.previous, serviceFactories, repeatedCrashes(crashes.previous, now()))
+      : [];
+    if (config.safeMode)
+      log.log("warn", "Daemon starting in safe mode", logFields([["services", skip]]));
+    const startup = new ServiceStartup(
+      serviceContext,
+      {
+        ...systemStartup,
+        onAttempt: attempts.onAttempt,
+        inService: (name, work) => scope.run(name, work),
+        ...options.startup,
+      },
+      skip,
+    );
     await startup.start(serviceFactories);
     const services = serviceContext.services;
     readyServices(services);
@@ -423,11 +519,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
       log: (error) => log.log("warn", "ace account", logError(error)),
     });
     await account.load();
+    services.marketAgent?.bindAccount(account, hostId);
     resources.own(() => account.close(), "ace account");
 
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
+      lifetime: lifetime.signal,
       shutdown: shutdownControl(config.dataDir, {
         id: randomUUID,
         now,
@@ -449,6 +547,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       handler,
       serviceStatus: startup.status,
+      serviceChanges: startup.onChange,
       eventLoop: loop.status,
       ready: socketReady.promise,
       remoteConfig: config,
