@@ -14,6 +14,7 @@ const scan = (verdict: "pass" | "block"): MarketScanReport => ({
   format: "ace-market-scan",
   scanner: 1,
   verdict,
+  runnable: false,
   checks: [
     {
       id: "scripts",
