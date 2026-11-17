@@ -1,7 +1,7 @@
 import type { MarketScanCheckId, MarketScanFinding } from "@ace/protocol/marketplace";
 
 /*
- * The scanner fails closed (ADR 0173 §8): anything executable or instructional it can't fully
+ * The scanner fails closed (ADR 0174 §8): anything executable or instructional it can't fully
  * resolve is held, never passed. This module gives the two findings every check reaches for, so
  * the levels are the same everywhere:
  *

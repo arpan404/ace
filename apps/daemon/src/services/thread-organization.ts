@@ -3,10 +3,23 @@ import { organizeThread, organizationCommands } from "../thread-organization.ts"
 import { ThreadOrganizer } from "../thread-organizer.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { backgroundFailure } from "./background.ts";
 
-export function startThreadOrganization({ store, services, resources, now }: ServiceContext): void {
-  const organizer = new ThreadOrganizer(store, services.settings, now);
-  resources.own(() => organizer.close());
+export function startThreadOrganization(context: ServiceContext): void {
+  const { store, services, resources, now } = context;
+  const organizer = new ThreadOrganizer(
+    store,
+    services.settings,
+    now,
+    undefined,
+    backgroundFailure(context, "Thread organizer could not queue a thread; retrying"),
+  );
+  // A mark a full disk held back is written as soon as space is back (ADR 0176).
+  const stopResuming = context.diskFull?.onRoom(() => organizer.resume());
+  resources.own(() => {
+    stopResuming?.();
+    return organizer.close();
+  });
 }
 export function createThreadOrganizationSession({
   options,

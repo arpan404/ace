@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { createWriteStream } from "node:fs";
 import { unlink } from "node:fs/promises";
 import { finished } from "node:stream/promises";
@@ -104,6 +105,13 @@ export async function fetchMedia(
   }
   const hash = createHash("sha256");
   const file = createWriteStream(temporary, { mode: 0o600 });
+  // A file that can't be opened or written (its folder gone, the disk failing) emits `error`
+  // whenever it happens; unheard, that would end the daemon. It ends this fetch instead.
+  let writeFailed: unknown;
+  file.on("error", (error) => {
+    writeFailed ??= error;
+    response.destroy();
+  });
   const head: Buffer[] = [];
   let headBytes = 0;
   let total = 0;
@@ -122,8 +130,10 @@ export async function fetchMedia(
         headBytes += Math.min(part.length, sniffBytes - headBytes);
       }
       hash.update(part);
-      if (!file.write(part)) await new Promise((resolve) => file.once("drain", resolve));
+      if (writeFailed !== undefined) throw writeFailed;
+      if (!file.write(part)) await once(file, "drain");
     }
+    if (writeFailed !== undefined) throw writeFailed;
     file.end();
     await finished(file);
   } catch {

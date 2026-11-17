@@ -19,12 +19,8 @@ export function DeviceGlyph(props: { name: string }) {
   return <Glyph aria-hidden size={15} />;
 }
 
-/** Where a device is paired, in words: "Every machine" when it's on all of them. */
-function machinesLine(device: FleetDevice, fleet: Fleet): string {
-  if (fleet.machines.length > 1 && device.on.length === fleet.machines.length)
-    return "Every machine";
-  return listNames(device.on.map((entry) => fleet.byId(entry.machine)?.name ?? "A machine"));
-}
+/** The row's access words as a sentence: "View and act". Each machine's page lists its devices. */
+const sentence = (words: string) => words.charAt(0).toUpperCase() + words.slice(1);
 
 /** Its access in the row's words, or that it differs, since each machine holds its own grant. */
 export function accessWords(labels: readonly string[]): string {
@@ -113,8 +109,7 @@ export function FleetDevices(props: { fleet: Fleet }) {
           title={device.name}
           tag={device.self ? "this device" : undefined}
           sub={[
-            machinesLine(device, fleet),
-            accessWords(device.on.map((entry) => deviceScopeLabels(entry.device.scopes))),
+            sentence(accessWords(device.on.map((entry) => deviceScopeLabels(entry.device.scopes)))),
             expiryLine(device.expiresAt, now),
           ]
             .filter(Boolean)

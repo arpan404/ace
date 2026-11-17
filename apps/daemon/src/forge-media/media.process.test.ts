@@ -254,3 +254,19 @@ test("only the forge's own media hosts are fetched", () => {
   expect(mediaHostAllowed("https://media.ghe.corp/u/1", "ghe.corp")).toBe(true);
   expect(mediaHostAllowed("https://ghe.corp.evil/u/1", "ghe.corp")).toBe(false);
 });
+
+test("a media file that can't be written fails its fetch and the next fetch still works", async () => {
+  // The body arrives in two parts, so the file's failure lands while bytes are still coming.
+  const host = await localMediaHost((_request, response) => {
+    response.writeHead(200, { "content-type": "image/png" });
+    response.write(png);
+    setTimeout(() => response.end(Buffer.alloc(64, 7)), 100);
+  }, cleanups);
+  const root = await mkdtemp(join(tmpdir(), "ace-forge-media-write-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const url = `https://private-user-images.githubusercontent.com/1/2-${asset}.png`;
+
+  // The folder the temporary file goes in is gone, so the file never opens.
+  expect(await host.fetch(url, join(root, "gone", "media.part"))).toEqual({ kind: "failed" });
+  expect(await host.fetch(url, join(root, "media.part"))).toMatchObject({ kind: "ok" });
+});

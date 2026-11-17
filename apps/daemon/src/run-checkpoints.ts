@@ -92,7 +92,14 @@ export class RunCheckpoints {
       .catch(() => {})
       .finally(() => {
         this.flights.delete(id);
-        if (completed) this.drainPending();
+        // Due rows stay stored and the next finished thread drains them: an unreadable store
+        // here must not reject this flight, which nothing awaits.
+        if (completed)
+          try {
+            this.drainPending();
+          } catch {
+            // Left for the next drain.
+          }
       });
     this.flights.set(id, task);
     return task;

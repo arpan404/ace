@@ -20,7 +20,8 @@ function ended(row: LoginRow, status: AceSignInReturnStatus, shown: Response): R
 }
 
 export const LOGIN_LIFETIME_MS = 10 * 60_000;
-export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60_000;
+/** How long a session lasts unused: each read renews it for this long (`session.ts`). */
+export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60_000;
 /** Pending sign-ins across the whole service; beyond this, new ones are refused as busy. */
 const MAX_PENDING_LOGINS = 1024;
 

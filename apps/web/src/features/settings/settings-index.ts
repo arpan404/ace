@@ -32,7 +32,10 @@ export interface SettingEntry {
   /** Other words people use for it ("dark mode" for Theme). */
   readonly keywords?: readonly string[];
   /** Where it opens when that's a view inside its page (Fleet's Map, this computer), not the page itself. */
-  readonly route?: "/settings/remote/map" | "/settings/remote/primary";
+  readonly route?:
+    | "/settings/remote/map"
+    | "/settings/remote/primary"
+    | "/settings/remote/every-machine";
 }
 
 /** Where a setting opens, as link props: its view inside the page when it has one, else the page. */
@@ -372,6 +375,7 @@ const entries = [
   {
     id: "daemon.connection",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Computer connection",
     keywords: ["connection", "server", "url", "disconnect", "reconnect", "window", "daemon"],
   },
@@ -522,48 +526,56 @@ const entries = [
   {
     id: "remote.enabled",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Remote access",
     keywords: ["lan", "tailscale", "relay", "fleet", "network", "turn off", "disconnect"],
   },
   {
     id: "account.reach",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "ace account on this computer",
     keywords: ["sign in", "sign out", "relay", "anywhere", "reach", "network"],
   },
   {
     id: "remote.lan",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Local network",
     keywords: ["lan", "wifi", "network", "transport"],
   },
   {
     id: "remote.tailscale",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Tailscale",
     keywords: ["tailscale", "tailnet", "vpn", "network", "transport"],
   },
   {
     id: "remote.relay",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Your own relay",
     keywords: ["relay", "self-hosted", "anywhere", "network", "transport"],
   },
   {
     id: "remote.hostedPairingLink",
     page: "/settings/remote",
+    route: "/settings/remote/primary",
     title: "Pairing links open app.acehq.dev",
     keywords: ["app.acehq.dev", "web", "browser", "pair", "phone", "hosted"],
   },
   {
     id: "remote.agentAccess",
     page: "/settings/remote",
+    route: "/settings/remote/every-machine",
     title: "Other machines' agents",
     keywords: ["machines", "delegate", "cross-device", "mcp", "agents", "fleet"],
   },
   {
     id: "fleet.grants",
     page: "/settings/remote",
+    route: "/settings/remote/every-machine",
     title: "What other machines' agents may use",
     keywords: [
       "permissions",
@@ -578,6 +590,7 @@ const entries = [
   {
     id: "remote.agentTransfers",
     page: "/settings/remote",
+    route: "/settings/remote/every-machine",
     title: "Move threads between machines",
     keywords: [
       "transfer",
@@ -754,6 +767,12 @@ const entries = [
     page: "/settings/beta",
     title: betaSwitches.marketplace.title,
     keywords: ["store", "suits", "plugins", "skills", "install", "experimental", "preview"],
+  },
+  {
+    id: "market.askBeforeAgentPublish",
+    page: "/settings/beta",
+    title: "Ask me before agents publish",
+    keywords: ["marketplace", "publish", "agents", "approve", "permission"],
   },
 ] as const satisfies readonly SettingEntry[];
 

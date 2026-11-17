@@ -128,6 +128,7 @@ export function renderChat(state: ChatRenderState, record: ChatRecord): string {
               failed: "Work failed or was cancelled",
               "needs-human": "Needs human input",
               uncertain: "Work state is uncertain",
+              usage: "The command line was wrong",
               timeout: "Observation timed out",
               refused: "Operation refused",
               "address-in-use": "Another process is using the daemon's port",

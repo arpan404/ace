@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketProfileCreate.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bio": {
+      "$ref": "https://ace.local/protocol/v1/MarketBio.json",
+      "default": ""
+    },
+    "displayName": {
+      "$ref": "https://ace.local/protocol/v1/MarketDisplayName.json"
+    },
+    "handle": {
+      "$ref": "https://ace.local/protocol/v1/MarketHandle.json"
+    },
+    "links": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketLink.json"
+      },
+      "maxItems": 5,
+      "type": "array"
+    }
+  },
+  "required": [
+    "handle",
+    "displayName"
+  ],
+  "type": "object"
+}

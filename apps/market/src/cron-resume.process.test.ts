@@ -12,7 +12,7 @@ import { recordSizes } from "./store/sizes.ts";
 import { reconcileUsage } from "./store/usage.ts";
 
 /*
- * The cron's cross-database work (ADR 0173 §16) when a step is cut off or a backlog is large:
+ * The cron's cross-database work (ADR 0174 §16) when a step is cut off or a backlog is large:
  * work left between two databases is finished by a later run, pages stay bounded, and nothing a
  * slower run read can undo what a faster one wrote.
  */

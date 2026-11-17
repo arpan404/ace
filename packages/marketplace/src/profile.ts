@@ -2,7 +2,7 @@ import type { MarketLink, MarketProblem } from "@ace/protocol/marketplace";
 import { hasBidi, hasInvisible, mixedScriptWord, skeleton } from "./scan/text.ts";
 
 /*
- * A publisher's profile rules (ADR 0173 §3, §14), shared by the Worker, the CLI and the device:
+ * A publisher's profile rules (ADR 0174 §3, §14), shared by the Worker, the CLI and the device:
  * handles (reserved words, lookalikes by confusable skeleton, the official `ace`), display names
  * and links. Pure.
  */
@@ -10,7 +10,7 @@ import { hasBidi, hasInvisible, mixedScriptWord, skeleton } from "./scan/text.ts
 export { skeleton };
 
 /**
- * Reserved handles (ADR 0173 §3): words no publisher may take, and words that, beside `ace` in a
+ * Reserved handles (ADR 0174 §3): words no publisher may take, and words that, beside `ace` in a
  * skeleton, read as official ace. Only an account on the signed official list may take `ace` or a
  * handle whose skeleton is `ace` or holds `ace` next to one of these.
  */
@@ -142,7 +142,7 @@ export function displayNameProblem(
 }
 
 /**
- * Why a link can't be on a profile or listing (ADR 0173 §3): `https:` only, no credentials in the
+ * Why a link can't be on a profile or listing (ADR 0174 §3): `https:` only, no credentials in the
  * authority, no IP-literal host, no `localhost` or private-suffix host, at most 2048 characters.
  */
 export function linkProblem(link: MarketLink): MarketProblem | undefined {

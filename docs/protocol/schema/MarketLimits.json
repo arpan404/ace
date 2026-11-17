@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketLimits.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "draftLimit": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "drafts": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "quotaBytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "storedBytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "uploadsPerDay": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "uploadsToday": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "uploadsToday",
+    "uploadsPerDay",
+    "storedBytes",
+    "quotaBytes",
+    "drafts",
+    "draftLimit"
+  ],
+  "type": "object"
+}

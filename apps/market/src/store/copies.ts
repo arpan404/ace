@@ -2,7 +2,7 @@ import { eachCatalogue, type Databases } from "./databases.ts";
 import { refreshEntry, stampValue, takeStamp } from "./entries.ts";
 
 /*
- * Each catalogue's copy of the publishers it names (ADR 0173 §16). An entry's row depends on
+ * Each catalogue's copy of the publishers it names (ADR 0174 §16). An entry's row depends on
  * its publisher's handle, state and verified mark, which the publishers database owns. That
  * database moves a publisher's `revision` in the statement that changes any of them (a trigger)
  * and keeps `synced`, the revision every catalogue has applied. Applying a copy writes it only

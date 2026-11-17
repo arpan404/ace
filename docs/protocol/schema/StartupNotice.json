@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/StartupNotice.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "failing": {
+      "items": {
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "retrying": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "retrying"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "without": {
+      "items": {
+        "maxLength": 64,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "required": [
+    "without",
+    "failing"
+  ],
+  "type": "object"
+}

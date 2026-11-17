@@ -76,6 +76,8 @@ export async function startSimulatorDigitizer(options: {
         if (stopped) void next?.stop({ graceMs: 0 }).catch(() => {});
         else if (next) adopt(next);
       })
+      // A helper that could not start leaves touches off; the next touch tries again.
+      .catch(() => {})
       .finally(() => {
         restarting = false;
       });

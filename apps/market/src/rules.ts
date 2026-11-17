@@ -13,7 +13,7 @@ import type {
  * - A version is public once the signer signed its manifest.
  * - An entry's latest is the live version its publisher picked, else its newest signed version
  *   that isn't withdrawn; its review and place in the index come from that version, its words
- *   from an approved listing edit over that version's own (ADR 0173 §5). With no live version
+ *   from an approved listing edit over that version's own (ADR 0174 §5). With no live version
  *   it leaves the index (a withdrawn version stays fetchable by hash, so whoever installed it
  *   can reinstall).
  * - The index lists an entry only with a live version, listed visibility, not archived and its
@@ -33,7 +33,7 @@ export interface StoredVersion {
   reviewed: boolean;
   byAce: boolean;
   downloads: number;
-  /** Its way through the scan and the signer: pending, held, blocked or listed (ADR 0173 §9). */
+  /** Its way through the scan and the signer: pending, held, blocked or listed (ADR 0174 §9). */
   state?: VersionState | undefined;
   blockReason?: string | undefined;
   deprecated?: string | undefined;
@@ -42,7 +42,7 @@ export interface StoredVersion {
 
 export type VersionState = "pending" | "held" | "blocked" | "listed";
 
-/** What a publisher set on an entry, and its publisher's standing (ADR 0173 §5). */
+/** What a publisher set on an entry, and its publisher's standing (ADR 0174 §5). */
 export interface EntryManagement {
   visibility: "listed" | "unlisted";
   archived: boolean;
@@ -134,7 +134,7 @@ export function entryState(
   };
 }
 
-/** A version's status on its publisher's page (ADR 0173 §4). */
+/** A version's status on its publisher's page (ADR 0174 §4). */
 export function versionStatus(version: StoredVersion): {
   status: MarketVersionStatus;
   held: boolean;
@@ -173,13 +173,13 @@ export function currentListing(
   };
 }
 
-/** Whether a publisher is new, with stricter thresholds (ADR 0173 §9). */
+/** Whether a publisher is new, with stricter thresholds (ADR 0174 §9). */
 export const newPublisherDays = 30;
 export function isNewPublisher(publisher: { created: number; liveVersions: number }, now: number) {
   return now - publisher.created < newPublisherDays * 86_400_000 || publisher.liveVersions < 3;
 }
 
-/** A publisher's limits (ADR 0173 §9): uploads a day, stored bytes, drafts. */
+/** A publisher's limits (ADR 0174 §9): uploads a day, stored bytes, drafts. */
 const MiB = 1024 * 1024;
 export type LimitTier = "new" | "established" | "official";
 const tierLimits = {

@@ -1,6 +1,6 @@
 import type { ClientCore } from "@ace/client";
 import { Admission } from "@ace/protocol";
-import { admissionWords } from "@ace/ui-core/host-care";
+import { admissionWords, startupWords } from "@ace/ui-core/host-care";
 import { z } from "zod";
 import { host } from "./host.ts";
 import { HostProblem } from "./host-problem.ts";
@@ -29,6 +29,8 @@ export type AdmissionPatch = {
   action: string;
   /** False while an update, kill-all or stop holds admission and the person's pause can't end. */
   canChange: boolean;
+  /** "ace started in safe mode without Commands after repeated crashes.", or null. */
+  startup: string | null;
 };
 
 export function admissionPatch(admission: Admission | undefined): AdmissionPatch {
@@ -40,8 +42,14 @@ export function admissionPatch(admission: Admission | undefined): AdmissionPatch
       line: null,
       action: "",
       canChange: false,
+      startup: null,
     };
-  return { type: "machine.admission", known: true, ...admissionWords(admission) };
+  return {
+    type: "machine.admission",
+    known: true,
+    ...admissionWords(admission),
+    startup: startupWords(admission.startup),
+  };
 }
 
 export class MachineAdmission {

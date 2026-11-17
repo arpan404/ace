@@ -79,9 +79,6 @@ describe("routing", () => {
     ],
     ["GET", "/v1/signer/publishers/tester", { kind: "signer-publisher-read", handle: "tester" }],
     ["PUT", "/v1/signer/verified", { kind: "signer-verified" }],
-    ["GET", "/", { kind: "page-home" }],
-    ["GET", "/search", { kind: "page-search" }],
-    ["GET", "/suit/tarn", { kind: "page-entry", type: "suit", name: "tarn" }],
   ])("%s %s names its route", (method, path, route) => {
     expect(matchRoute(method, path)).toEqual({ route });
   });
@@ -93,7 +90,7 @@ describe("routing", () => {
     ["a short hash", "/v1/objects/abc"],
     ["an encoded path", "/v1/entries/suit/..%2Fsecret"],
     ["a trailing segment", "/v1/index/more"],
-    ["an unknown page", "/suit/tarn/extra"],
+    ["a page path", "/suit/tarn"],
     ["a draft id of the wrong shape", "/v1/me/drafts/../../x"],
     ["a fifth listing picture", "/v1/me/entries/suit/tarn/previews/4"],
     ["an unknown action on a version", "/v1/me/entries/suit/tarn/versions/1.0.0/delete"],

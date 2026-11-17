@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { admissionWords, appUpdateWords } from "./host-checks.ts";
+import { admissionWords, appUpdateWords, startupWords } from "./host-checks.ts";
 
 const open = { holds: [], busy: 0, waiting: 0 };
 
@@ -77,4 +77,44 @@ test("the desktop app's update reads as its version and one line, loud only for 
       report: { ...report, available: "1.4.2", downloaded: true, restartRequired: true },
     }),
   ).toEqual({ version: "1.4.1", line: "Restart to finish updating", needsYou: true });
+});
+
+test("safe mode names what it left off; a failing service is said to be retried", () => {
+  expect(startupWords({ without: ["Commands"], failing: [] })).toBe(
+    "ace started in safe mode without Commands after repeated crashes.",
+  );
+  const retrying = { retrying: true };
+  const spent = { retrying: false };
+  expect(startupWords({ without: [], failing: [{ name: "Commands", ...retrying }] })).toBe(
+    "Commands isn't working right now; ace is retrying.",
+  );
+  expect(
+    startupWords({
+      without: [],
+      failing: [
+        { name: "Commands", ...retrying },
+        { name: "Relay", ...retrying },
+      ],
+    }),
+  ).toBe("Commands and Relay aren't working right now; ace is retrying.");
+  // Retries used up: never promise another.
+  expect(startupWords({ without: [], failing: [{ name: "Commands", ...spent }] })).toBe(
+    "Commands isn't working; restart ace to try again.",
+  );
+  expect(
+    startupWords({
+      without: [],
+      failing: [
+        { name: "Commands", ...retrying },
+        { name: "Relay", ...spent },
+      ],
+    }),
+  ).toBe("Relay isn't working; restart ace to try again.");
+  expect(startupWords(undefined)).toBeNull();
+});
+
+test("a disk too full for new work says so and that it resumes on its own", () => {
+  expect(admissionWords({ holds: ["storage"], busy: 1, waiting: 0 }).line).toBe(
+    "The disk is full · new work resumes once space is freed",
+  );
 });

@@ -2,7 +2,8 @@ import { SettingsKey } from "@ace/protocol";
 import { ProviderConfigurationsState } from "../provider-configurations.ts";
 import { RoleSettingsState } from "../role-settings.ts";
 import { ChildLimitSetting } from "../child-limit-setting.ts";
-import { SettingsService } from "@ace/settings";
+import { SettingsError, SettingsService } from "@ace/settings";
+import { isAgentDevice, settingWriteRefusal } from "../answer-gate.ts";
 import type { ServiceContext } from "./types.ts";
 import { downloadsHost, systemDownloadsFolder, usableFolder } from "../download-folder.ts";
 export async function startSettings(context: ServiceContext): Promise<void> {
@@ -61,6 +62,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
           (!key.startsWith("media.") || authorize("admin")) &&
           (!key.startsWith("beta.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
+          // A reset would turn the ask off; over the host token only `config set` changes it.
+          (key !== "market.askBeforeAgentPublish" || context.hostCredential?.() !== true) &&
           ((key !== "computer.blockedApps" &&
             key !== "providers.codex.toolSource" &&
             key !== "providers.claude.chrome" &&
@@ -69,6 +72,13 @@ export function createSettingsSession(context: SocketContext): SocketService {
             authorize("admin")),
       ),
     set: async (key, value, commit) => {
+      const market = options.marketAgent;
+      const refused = await settingWriteRefusal(key, {
+        device: context.device(),
+        hostCredential: context.hostCredential?.() === true,
+        fresh: () => market?.freshSignIn() ?? Promise.resolve(false),
+      });
+      if (refused) throw new SettingsError(refused.code, refused.message);
       const write = async () => {
         if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
         else await commit();
@@ -85,7 +95,9 @@ export function createSettingsSession(context: SocketContext): SocketService {
         );
       return request.type === "settings.set"
         ? allowedWrite(request.key, request.layer.kind, authorize)
-        : authorize(request.type === "settings.reset" ? "operate" : "read");
+        : request.type === "settings.reset"
+          ? authorize("operate") && !isAgentDevice(context.device())
+          : authorize("read");
     },
   });
   return {

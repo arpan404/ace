@@ -11,10 +11,9 @@ import { encodeBase64url } from "@ace/account-grant";
 import type { Context, IdPrefix } from "./context.ts";
 import type { Env } from "./env.ts";
 import { configuredKeys, defaultKeysUrl, fetchedKeys, type KeySource } from "./grant-keys.ts";
-import { failure, notFound, tooMany } from "./http.ts";
+import { failure, json, notFound, tooMany } from "./http.ts";
 import { databases } from "./store/databases.ts";
 import { aggregateDownloads } from "./store/downloads.ts";
-import { missingPage404, pageRoute } from "./pages/serve.ts";
 import { matchRoute, routeClass, type Route } from "./routes.ts";
 
 /*
@@ -72,7 +71,6 @@ async function dispatch(
         (await maintainerRoute(request, route, context)) ??
         (await discoverRoute(request, url, route, context)) ??
         (await readRoute(request, url, route, context)) ??
-        (await pageRoute(url, route, context)) ??
         notFound()
       );
   }
@@ -81,10 +79,12 @@ async function dispatch(
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD"))
+      return json({ name: "ace market", api: "/v1" });
     const matched = matchRoute(request.method, url.pathname);
     if ("refused" in matched) {
       if (matched.refused === 405) return failure(405, "method", "That method isn't allowed here.");
-      return url.pathname.startsWith("/v1/") ? notFound() : missingPage404();
+      return notFound();
     }
     const { route } = matched;
     // The signer is one maintainer's tool behind a long secret; it isn't limited.
@@ -111,7 +111,7 @@ export default {
     return dispatch(request, url, route, context);
   },
   /**
-   * The cron, every quarter hour, each step bounded (ADR 0173 §1, §16): download totals into the
+   * The cron, every quarter hour, each step bounded (ADR 0174 §1, §16): download totals into the
    * catalogues, then the publishers' work (the cross-database protocols' resumption, scan jobs,
    * drafts, transfers, verification re-checks, pictures, stamps, sizes) and Discover's (download
    * buckets, trending, top publishers).

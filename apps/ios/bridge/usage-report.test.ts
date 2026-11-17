@@ -217,3 +217,39 @@ test("the part arrives through the native service bridge, and a refusing machine
   await until(() => failed.read("service:part"));
   expect(failed.read("service:part")).toMatchObject({ ok: false, value: null });
 });
+
+test("a machine still counting older history gets one sentence beside the figures, naming it among several", async () => {
+  const counting = doubledWeek("ios-mac");
+  counting.services.usage.filling = { through: 1_000, head: 90_000 };
+  const mac = await connect(counting, "ios-mac");
+  const studio = await connect(doubledWeek("ios-studio"), "ios-studio");
+  const lead = await readUsagePart(mac, { type: "usage.part", days: 7 }, signal());
+  const other = await readUsagePart(
+    studio,
+    { type: "usage.part", days: 7, from: lead.from, to: lead.to },
+    signal(),
+  );
+  const both = combineUsage({
+    type: "usage.combine",
+    days: 7,
+    machines: [
+      { id: "mac", name: "Mac", reach: "counted", part: lead },
+      { id: "studio", name: "Studio", reach: "counted", part: other },
+    ],
+  });
+  expect(both.filling).toBe("Usage on Mac is still being counted; totals will grow.");
+
+  const alone = combineUsage({
+    type: "usage.combine",
+    days: 7,
+    machines: [{ id: "mac", name: "Mac", reach: "counted", part: lead }],
+  });
+  expect(alone.filling).toBe("Usage is still being counted; totals will grow.");
+  // Once counted, the sentence goes.
+  const counted = combineUsage({
+    type: "usage.combine",
+    days: 7,
+    machines: [{ id: "studio", name: "Studio", reach: "counted", part: other }],
+  });
+  expect(counted.filling).toBeNull();
+});

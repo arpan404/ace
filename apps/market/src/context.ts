@@ -5,7 +5,7 @@ import type { Databases } from "./store/databases.ts";
 /** What a handler gets besides the request: bindings, and what the shell injects. */
 export interface Context {
   env: Env;
-  /** The D1 databases, by entry type or domain (ADR 0173 §16). */
+  /** The D1 databases, by entry type or domain (ADR 0174 §16). */
   dbs: Databases;
   /** The request's time, from the shell's clock. */
   now: number;
@@ -15,9 +15,9 @@ export interface Context {
   grantKeys: KeySource;
   /** A fresh id with its prefix (`pub`, `drf`, `trf`, `apl`, `rpt`): 24 random hex digits. */
   newId(prefix: IdPrefix): string;
-  /** A fresh proof token (ADR 0173 §13): 32 random bytes as base64url. */
+  /** A fresh proof token (ADR 0174 §13): 32 random bytes as base64url. */
   newToken(): string;
-  /** Fetch for proof checks (ADR 0173 §13) only; everything else is a binding. */
+  /** Fetch for proof checks (ADR 0174 §13) only; everything else is a binding. */
   fetch(url: string, init: RequestInit): Promise<Response>;
 }
 
@@ -34,7 +34,7 @@ export const draftPrefix = (id: string) => `drafts/${id}/`;
 /** Pictures, by the sha256 of their stripped bytes. */
 export const avatarKey = (sha256: string) => `avatars/${sha256}`;
 export const previewKey = (sha256: string) => `previews/${sha256}`;
-/** Scan reports (ADR 0173 §8). */
+/** Scan reports (ADR 0174 §8). */
 export const draftReportKey = (id: string, hash: string) =>
   `${draftReportPrefix(id)}${hash || "none"}.json`;
 export const draftReportPrefix = (id: string) => `reports/drafts/${id}/`;

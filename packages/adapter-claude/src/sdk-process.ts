@@ -75,8 +75,15 @@ export function spawnSdkProcess(
       ].includes(type)
     )
       hooks.onWire("recv", data);
+    // Exit can resolve while lines still wait behind backpressure; the SDK's stream has ended
+    // by then. Writing would raise an error event nobody hears, so the line is kept as wire data.
+    if (stdout.writableEnded) {
+      hooks.onWire("recv", { type: "late_stdout", line });
+      return;
+    }
     if (!stdout.write(`${line}\n`)) process.stdout.pause();
   });
+  stdout.on("error", () => {});
   stdout.on("drain", () => process.stdout.resume());
   process.stderr.on("line", hooks.onStderr);
   let outbound = "";

@@ -1,4 +1,5 @@
 import type { Admission, AdmissionRequest } from "@ace/protocol";
+import { startupNotice } from "./startup-notice.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /**
@@ -21,7 +22,13 @@ export function createAdmissionSession({
   let recounting = false;
   const admission = (): Admission => {
     const status = maintenance.status();
-    return { holds: status.holds, busy: status.blockers, waiting: status.waiting };
+    const startup = startupNotice(options.serviceStatus?.() ?? []);
+    return {
+      holds: status.holds,
+      busy: status.blockers,
+      waiting: status.waiting,
+      ...(startup ? { startup } : {}),
+    };
   };
   /** Sends the state when it differs from what this socket last heard. */
   const tell = () => {
@@ -48,7 +55,9 @@ export function createAdmissionSession({
         tell();
       });
     });
+    const stopServices = options.serviceChanges?.(tell);
     stopWatching = () => {
+      stopServices?.();
       stopGate();
       stopStore();
     };

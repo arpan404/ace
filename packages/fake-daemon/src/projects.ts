@@ -42,6 +42,8 @@ const trimRoot = (path: string) => path.replace(/\/+$/, "") || "/";
 
 export class FakeProjects {
   private context: FakeServiceContext;
+  /** While set, `workspace.chat.create` is refused with this readable detail (tests). */
+  refuseChats: string | undefined;
   private hasOwnedWork: (id: string) => boolean;
   private projects = new Map<string, Project>();
   private nextProject = 0;
@@ -437,6 +439,8 @@ export class FakeProjects {
         return this.register(path, p.name, p.icon);
       }
       if (p.type === "workspace.chat.create") {
+        if (this.refuseChats !== undefined)
+          return { ok: false, error: "project_failed", detail: this.refuseChats };
         const id = this.allocateId();
         const path = `/fake/chats/${id}`;
         this.directories.set(path, {

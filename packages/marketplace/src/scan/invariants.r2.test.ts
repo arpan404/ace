@@ -12,7 +12,7 @@ import {
 } from "./index.ts";
 
 /*
- * Invariants a review asked to pin down (ADR 0173 §8): a scan the device and the Worker run on the
+ * Invariants a review asked to pin down (ADR 0174 §8): a scan the device and the Worker run on the
  * same bytes agrees, and a scan that didn't finish reading every file is never a pass.
  */
 

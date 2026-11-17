@@ -1,0 +1,73 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketOwnEntrySummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "archived": {
+      "type": "boolean"
+    },
+    "downloads": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "line": {
+      "maxLength": 300,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "openReports": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "pendingListing": {
+      "type": "boolean"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "reviewed": {
+      "type": "boolean"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersionStatus.json"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    },
+    "versions": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "visibility": {
+      "$ref": "https://ace.local/protocol/v1/MarketVisibility.json"
+    }
+  },
+  "required": [
+    "type",
+    "name",
+    "title",
+    "line",
+    "versions",
+    "visibility",
+    "archived",
+    "pinned",
+    "reviewed",
+    "downloads",
+    "pendingListing",
+    "openReports"
+  ],
+  "type": "object"
+}

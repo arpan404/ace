@@ -72,6 +72,8 @@ export function setup(
   });
   const frames = scriptFrames();
   let admitting = true;
+  /** The machine's `storage` hold (ADR 0176): its disk too full for new work. */
+  let storageFull = false;
   let nativeSequence = 0;
   const nativeHistories = new Map<string, string[]>();
   const inputs = new Map<ThreadId, string[]>();
@@ -257,6 +259,7 @@ export function setup(
     ...(providerEnabled ? { providerEnabled } : {}),
     ...(refreshProvider ? { refreshProvider } : {}),
     admitsWork: () => admitting,
+    storageFull: () => storageFull,
     onError: (error) => errors.push(error),
   });
   const events: Event[] = [];
@@ -348,6 +351,12 @@ export function setup(
     openAdmission: () => {
       admitting = true;
     },
+    /** The disk fills or frees, as the storage hold enters and leaves admission. */
+    setStorageFull(full: boolean) {
+      storageFull = full;
+      admitting = !full;
+      service.storageChanged();
+    },
     registry,
     catalog,
     frames,
@@ -381,6 +390,7 @@ export function setup(
         ...(providerEnabled ? { providerEnabled } : {}),
         ...(refreshProvider ? { refreshProvider } : {}),
         admitsWork: () => admitting,
+        storageFull: () => storageFull,
         onError: (error) => errors.push(error),
       });
     },

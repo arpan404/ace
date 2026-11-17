@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketApiErrorCode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "unauthorized",
+    "reauth",
+    "email_unverified",
+    "suspended",
+    "forbidden",
+    "not_found",
+    "invalid",
+    "refused",
+    "blocked",
+    "conflict",
+    "too_large",
+    "quota",
+    "busy",
+    "unavailable",
+    "method"
+  ],
+  "type": "string"
+}

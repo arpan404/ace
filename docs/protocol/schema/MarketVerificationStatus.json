@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketVerificationStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "challenges": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketVerificationChallenge.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
+    "flagged": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "proofs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketVerificationProof.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "reason": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "none",
+        "applied",
+        "verified",
+        "revoked"
+      ],
+      "type": "string"
+    },
+    "verified": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "verified",
+    "proofs",
+    "state",
+    "challenges"
+  ],
+  "type": "object"
+}

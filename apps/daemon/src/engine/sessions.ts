@@ -1,4 +1,5 @@
 import { interruptedNotice } from "./thread-liveness.ts";
+import { homeWaitText } from "@ace/accounts/home-wait";
 import { spadeBotAceTools } from "../spade/brain-tools.ts";
 import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
@@ -11,6 +12,7 @@ import { PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
+import { agentSessionEnv } from "./agent-env.ts";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
@@ -65,6 +67,8 @@ interface SessionDependencies {
     threadId: ThreadId,
     signal: AbortSignal,
   ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
+  /** The daemon's data dir, given to the agent's shell as `ACE_HOME`. */
+  agentHome?: string;
 }
 export class Sessions {
   private dependencies: SessionDependencies;
@@ -254,6 +258,25 @@ export class Sessions {
           : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),
+        // A notice while the account's folder hasn't answered: the turn is waiting, not lost.
+        onAccountWait: (accounts) =>
+          actor.enqueue(() => {
+            if (generation !== actor.generation || lifetime.signal.aborted) return;
+            actor.apply([
+              {
+                type: "item.upsert",
+                agent: rootKey,
+                item: `account-wait:${this.dependencies.clock.now()}`,
+                draft: {
+                  type: "notice",
+                  level: "info",
+                  code: "account_home_waiting",
+                  text: homeWaitText(accounts),
+                  complete: true,
+                },
+              },
+            ]);
+          }),
         onCapabilities: (effectiveCapabilities, acpSupport) => {
           if (generation !== actor.generation) return;
           actor.effectiveCapabilities = effectiveCapabilities;
@@ -276,6 +299,7 @@ export class Sessions {
           );
         },
         threadId: actor.id,
+        agentEnv: agentSessionEnv({ threadId: actor.id, home: this.dependencies.agentHome }),
         rootKey,
         cwd: metadata.cwd,
         ...(transition.fork && metadata.nativeSessionId === undefined

@@ -18,6 +18,7 @@ mod library;
 mod market;
 mod mirror;
 mod plugin_rows;
+mod published;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -33,6 +34,7 @@ use crate::tools::{AceLibrary, SkillLibrary, WriteError};
 pub use market::Synced;
 pub use mirror::Mirrored;
 pub use plugin_rows::{PluginAccess, PluginFiles, PluginSkill};
+pub use published::{PublishError, PublishedFile, PublishedSkill};
 
 /// Where ace's library is, while Spade is connected to it.
 pub trait Upstream: Send + Sync {
