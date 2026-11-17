@@ -205,6 +205,8 @@ struct AceAccountView: View {
                 InsetRow(systemImage: Self.symbol(machine.platform), title: Self.name(machine), subtitle: subtitle(machine)) { EmptyView() }
                     .swipeActions(edge: .trailing) { forget(machine) }
                     .contextMenu { forget(machine) }
+                    // One element per machine ("studio, Seen 3 days ago"), not one per glyph and line.
+                    .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("account.machine.\(machine.hostId)")
             }
         } header: {
