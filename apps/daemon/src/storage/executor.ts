@@ -3,7 +3,7 @@ import { executeWorktreeCleanup } from "./worktree-executor.ts";
 import { CommandId, ThreadId } from "@ace/protocol";
 import type { StorageOwner, ReviewedStorageItem } from "./types.ts";
 import type { StorageInventory } from "./inventory.ts";
-import { purgeThread, retireThread } from "../thread-gone.ts";
+import { IDLE_PURGE, purgeThread, retireThread } from "../thread-gone.ts";
 import { hasTable, storageMembers, storageProtections } from "./ownership.ts";
 
 /** The journal commits "running" and admission fences before this shell performs effects. */
@@ -51,7 +51,9 @@ export async function executeStorageItem(
       await services.context.uploads.releaseThread(id);
       if (!allowed()) throw new Error("storage_forbidden");
       await store.writable();
-      purgeThread(store, id, now());
+      // A batch at a time, never one long write; a stop here is finished after it.
+      if (!(await purgeThread(store, id, now(), { ...IDLE_PURGE, going: allowed })))
+        throw new Error("storage_forbidden");
       services.engine?.forgetPurged(id);
       return;
     }

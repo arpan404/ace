@@ -110,8 +110,7 @@ export async function transcriptBytes(
   return bytes;
 }
 
-/** Caller has committed a tombstone and stopped the idle engine owner before entering SQLite. */
-export function purgeTranscript(db: DatabaseSync, id: ThreadId): void {
+function requireDeleted(db: DatabaseSync, id: ThreadId): void {
   if (
     !db
       .prepare(
@@ -120,15 +119,75 @@ export function purgeTranscript(db: DatabaseSync, id: ThreadId): void {
       .get(id)
   )
     throw new Error("thread_not_deleted");
-  // Delete referencing rows before their parent records, using the existing FK cascades for chunks.
+}
+
+/** One table a purge empties, and the key its batches select rows by. */
+export interface PurgeStep {
+  table: string;
+  key: string;
+}
+
+/**
+ * The tables a purge empties, in order: referencing rows before the records they name (chunks go
+ * with their items through the existing FK cascades), then the events. Read once per purge.
+ */
+export function transcriptPurgePlan(db: DatabaseSync): PurgeStep[] {
   const selected = tables(db);
-  for (const table of selected.filter(
-    (name) => name !== "items" && name !== "ace_results" && name !== "ace_tools",
-  ))
+  const records = ["items", "ace_results", "ace_tools"];
+  return [
+    ...selected.filter((name) => !records.includes(name)),
+    ...records.filter((name) => selected.includes(name)),
+    "events",
+  ].map((table) => ({ table, key: rowKey(db, table) }));
+}
+/** `rowid`, or the primary key's columns for a table without one. */
+function rowKey(db: DatabaseSync, table: string): string {
+  const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table);
+  if (!String(sql?.sql ?? "").includes("WITHOUT ROWID")) return "rowid";
+  const columns = db
+    .prepare(`PRAGMA table_info("${table}")`)
+    .all()
+    .filter((column) => Number(column.pk) > 0)
+    .toSorted((a, b) => Number(a.pk) - Number(b.pk))
+    .map((column) => `"${String(column.name)}"`);
+  return `(${columns.join(",")})`;
+}
+
+/**
+ * Deletes at most `limit` of a deleted thread's transcript rows, from the first table in `plan`
+ * that still has any, through its `thread_id` index; 0 once none are left. Each call is one short
+ * write, so a large thread is purged a batch at a time (ADR 0170, 0177).
+ */
+export function purgeTranscriptBatch(
+  db: DatabaseSync,
+  id: ThreadId,
+  plan: readonly PurgeStep[],
+  limit: number,
+): number {
+  requireDeleted(db, id);
+  for (const { table, key } of plan) {
+    const columns = key === "rowid" ? key : key.slice(1, -1);
+    const deleted = Number(
+      db
+        .prepare(
+          `DELETE FROM "${table}" WHERE ${key} IN (SELECT ${columns} FROM "${table}" WHERE thread_id=? LIMIT ?)`,
+        )
+        .run(id, limit).changes,
+    );
+    if (deleted > 0) return deleted;
+  }
+  return 0;
+}
+
+/**
+ * The purge's last, small step: whatever is left of the transcript (nothing, after the batches),
+ * the thread's finished intents, its engine state and the engine's own rows. Caller has
+ * committed a tombstone and stopped the idle engine owner before entering SQLite.
+ */
+export function purgeTranscript(db: DatabaseSync, id: ThreadId): void {
+  requireDeleted(db, id);
+  for (const { table } of transcriptPurgePlan(db))
     db.prepare(`DELETE FROM "${table}" WHERE thread_id=?`).run(id);
-  for (const table of ["items", "ace_results", "ace_tools"])
-    if (selected.includes(table)) db.prepare(`DELETE FROM "${table}" WHERE thread_id=?`).run(id);
-  db.prepare("DELETE FROM events WHERE thread_id=?").run(id);
   if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='intents'").get()) {
     db.prepare(
       "DELETE FROM intents WHERE thread_id=? AND status IN ('done','failed') AND awaiting=0 AND uncertain=0",

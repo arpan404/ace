@@ -196,7 +196,7 @@ it("a parent retired through every deletion path and purged leaves every service
       const built = await tree(f, daemon, `tree-${index}`);
       await path.retire(f, built);
       await daemon.engine?.stopForDeletion(built.caller.threadId);
-      purgeThread(daemon.store, built.caller.threadId, f.h.clock.now());
+      await purgeThread(daemon.store, built.caller.threadId, f.h.clock.now());
       daemon.engine?.forgetPurged(built.caller.threadId);
       trees.push(built);
     }
