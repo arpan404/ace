@@ -33,7 +33,8 @@ export interface Unanswered {
 export interface ChildLivenessDeps {
   store: Store;
   ledger: ChildLedger;
-  engine(): Engine | undefined;
+  /** The engine, for a child whose parent is still there to show it; undefined once it is gone. */
+  engine(parent: ThreadId): Engine | undefined;
   now(): number;
   schedule(ms: number, run: () => void): () => void;
   /** Sends one cancel to the child's machine. A failure is only logged: the stop goes on. */
@@ -335,7 +336,7 @@ export class ChildLiveness {
   ): void {
     const saved = savedView(row);
     const working = { state: "working" as const, agents: 1 };
-    this.deps.engine()?.machineChild(
+    this.deps.engine(row.parent_thread)?.machineChild(
       {
         id: row.id,
         parentId: row.parent_thread,

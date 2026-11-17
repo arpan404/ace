@@ -53,6 +53,7 @@ import { LostChildren } from "./child-lost.ts";
 import { RetryBackoff } from "./retry-backoff.ts";
 import { ChildLiveness, type ChildLivenessDeps, type Unanswered } from "./child-liveness.ts";
 import { refusedNotFound } from "./transport.ts";
+import { parentGone } from "../agent-control/parent-gone.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -162,14 +163,18 @@ export class MachineChildren implements RemoteChildren {
     this.schedule = defaultScheduleConfig(deps.pollMs, deps.now());
     this.reach = new RetryBackoff(deps.pollMs, UNREACHABLE_RETRY_CAP_MS);
     this.results = new ChildResults({ ...deps, ledger: this.ledger });
+    // Nothing about a child reaches a parent that is gone (deleted, or its state purged).
+    const engine = (parent: ThreadId) => this.engineFor(parent);
     this.lost = new LostChildren({
       ...deps,
+      engine,
       ledger: this.ledger,
       results: this.results,
       emit: (ids) => this.emit(ids),
     });
     this.liveness = new ChildLiveness({
       ...deps,
+      engine,
       ledger: this.ledger,
       results: this.results,
       cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
@@ -247,7 +252,7 @@ export class MachineChildren implements RemoteChildren {
       : undefined;
     this.deps.store.atomic(() => {
       this.ledger.insert({ ...child, createdAt: this.deps.now(), view, device: child.device });
-      this.deps.engine()?.machineChild(
+      this.engineFor(child.parentThreadId)?.machineChild(
         {
           id: child.id,
           parentId: child.parentThreadId,
@@ -355,7 +360,7 @@ export class MachineChildren implements RemoteChildren {
       this.ledger.markReopened(id);
       // New work the parent sent: a stop before it no longer applies.
       this.ledger.clearStop(id);
-      this.deps.engine()?.machineChild(
+      this.engineFor(row.parent_thread)?.machineChild(
         {
           id,
           parentId: row.parent_thread,
@@ -581,7 +586,12 @@ export class MachineChildren implements RemoteChildren {
         paired: !lost(row),
       });
     };
-    for (const row of this.ledger.unsettledOf(machine)) {
+    for (let row of this.ledger.unsettledOf(machine)) {
+      // Its parent is gone: it is stopped, as deleting the parent stops its children.
+      if (row.stop_started_at === null && this.gone(row.parent_thread)) {
+        this.liveness.stop(row.id);
+        row = this.ledger.row(row.id) ?? row;
+      }
       if (lost(row)) {
         this.lost.keep(row);
         continue;
@@ -592,8 +602,24 @@ export class MachineChildren implements RemoteChildren {
         this.lost.silent(row, row.silent_since);
       add(row);
     }
-    for (const row of this.ledger.recheckRows(machine)) add(row);
+    for (const row of this.ledger.recheckRows(machine)) {
+      // Nothing it does there can reach a parent that is gone: it leaves the re-check. A stop
+      // never confirmed keeps its cancel going out, at the slow pace, until its machine confirms.
+      if (this.gone(row.parent_thread)) {
+        if (row.settled_at !== null) this.ledger.endWatch(row.id);
+        if (row.stopped_unconfirmed === 0) continue;
+      }
+      add(row);
+    }
     return { children, rows };
+  }
+  /** The parent is deleted, or the engine holds no state for it (its data was purged). */
+  private gone(parent: ThreadId): boolean {
+    return parentGone((id) => this.deps.store.getThread(id), this.deps.engine(), parent);
+  }
+  /** The engine, for a child whose parent is still there to show it. */
+  private engineFor(parent: ThreadId): Engine | undefined {
+    return this.gone(parent) ? undefined : this.deps.engine();
   }
   /** The scheduler's records for a machine; a child saved as asked alone starts so after a restart. */
   private recordsOf(machine: string, children: readonly ScheduleChild[]) {
@@ -792,14 +818,23 @@ export class MachineChildren implements RemoteChildren {
       if (text !== row.view) this.ledger.writeView(row.id, text, false, this.deps.now());
       return;
     }
-    this.deps.mirror.sync(`child:${row.id}`, row.parent_thread, row.machine, name, view.requests, {
-      agent: childAgentKey(row.id),
-    });
+    if (this.gone(row.parent_thread)) this.deps.mirror.release(`child:${row.id}`);
+    else
+      this.deps.mirror.sync(
+        `child:${row.id}`,
+        row.parent_thread,
+        row.machine,
+        name,
+        view.requests,
+        {
+          agent: childAgentKey(row.id),
+        },
+      );
     if (text === row.view && !settled) return;
     this.deps.store.atomic(() => {
       // Each settle starts the window in which work started there is still noticed.
       this.ledger.writeView(row.id, text, settled, this.deps.now());
-      this.deps.engine()?.machineChild(
+      this.engineFor(row.parent_thread)?.machineChild(
         {
           id: row.id,
           parentId: row.parent_thread,
