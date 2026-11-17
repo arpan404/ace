@@ -1,5 +1,5 @@
+import { agentEnvPluginDirectory, sessionShellEnvironment } from "./agent-env.ts";
 import { aceConfigEnvironment } from "./mcp-ready.ts";
-import { sessionShellEnvironment } from "./agent-env.ts";
 import { metadataFailure } from "./metadata-failure.ts";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
@@ -128,8 +128,8 @@ export class OpenCodeServer {
   private inherited: NodeJS.ProcessEnv | undefined;
   /**
    * The environment one session's shell commands run with, carrying its thread's variables
-   * (agent-env.ts). Undefined for an attached server: ace didn't start it and doesn't know what
-   * its shells inherit, so it never replaces their environment.
+   * (agent-env.ts). Undefined for an attached server: ace didn't start it, doesn't know what its
+   * shells inherit and installed no gate in it, so it never replaces their environment.
    */
   shellEnvironment(agentEnv: Readonly<Record<string, string>>): Record<string, string> | undefined {
     return this.inherited && sessionShellEnvironment(this.inherited, agentEnv);
@@ -243,14 +243,19 @@ export class OpenCodeServer {
         ];
         this.controller.signal.throwIfAborted();
         const providerEnv = this.options.discovery?.env;
-        const env =
-          this.options.mcpReadyPlugin || this.options.skillDirectories?.length
-            ? aceConfigEnvironment(
-                providerEnv,
-                providerEnv?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? "{}",
-                { plugin: this.options.mcpReadyPlugin, skills: this.options.skillDirectories },
-              )
-            : providerEnv;
+        // The environment gate is always there: no session's command may run before ace has
+        // given that session its thread's variables (agent-env.ts).
+        const env = aceConfigEnvironment(
+          providerEnv,
+          providerEnv?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? "{}",
+          {
+            plugins: [
+              agentEnvPluginDirectory(),
+              ...(this.options.mcpReadyPlugin ? [this.options.mcpReadyPlugin] : []),
+            ],
+            skills: this.options.skillDirectories,
+          },
+        );
         // The spawn merges its environment over ace's own the same way.
         this.inherited = { ...process.env, ...env };
         const proc = spawnOwnedServer({

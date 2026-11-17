@@ -18,13 +18,14 @@ export function ownClose(adapter: ReturnType<typeof createOpenCodeAdapter>): voi
   if (index !== -1) owners.splice(index, 1);
 }
 /**
- * What one local shell command sees when the fake server at `origin` runs it for `sessionID`,
- * read back from the real child process it spawned.
+ * One local shell command the fake server at `origin` runs for `sessionID`, as OpenCode runs a
+ * tool: after every plugin's `tool.execute.before`. What the real child process it spawned
+ * saw, or the refusal that kept it from running.
  */
-export async function shellEnvironment(
+export async function shellOutcome(
   transport: { url: string; authorization: string },
   sessionID: string,
-): Promise<Record<string, string>> {
+): Promise<{ env: Record<string, string> } | { refused: string }> {
   const directory = await mkdtemp(join(tmpdir(), "ace-opencode-shell-"));
   try {
     const file = join(directory, "env.json");
@@ -34,15 +35,28 @@ export async function shellEnvironment(
       body: JSON.stringify({ sessionID, file }),
     });
     if (!response.ok) throw new Error("The fake shell did not run");
+    const refused = object(await response.json()).refused;
+    if (typeof refused === "string") return { refused };
     const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
-    return Object.fromEntries(
-      Object.entries(object(parsed)).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
+    return {
+      env: Object.fromEntries(
+        Object.entries(object(parsed)).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
       ),
-    );
+    };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+/** What one local shell command sees; throws when the gate refused it. */
+export async function shellEnvironment(
+  transport: { url: string; authorization: string },
+  sessionID: string,
+): Promise<Record<string, string>> {
+  const outcome = await shellOutcome(transport, sessionID);
+  if ("refused" in outcome) throw new Error(`The shell was refused: ${outcome.refused}`);
+  return outcome.env;
 }
 export function deferred<T>() {
   return Promise.withResolvers<T>();

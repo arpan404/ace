@@ -520,13 +520,31 @@ What the build found (2026-11-17). The daemon hands each session its variables a
   to the tree, since OpenCode doesn't pass a session's environment on to its subagents. OpenCode
   keeps it in the server's memory only (a location rebuild keeps it), so a resume on a restarted
   daemon, which starts a new server, sets it again. Spares start as before, so the open stays
-  fast, and the body is never recorded in the thread's frames. Limits: a subagent's commands see
-  the variables once ace has seen it created, about 3 s before its first tool call in the
-  recorded subagent run, and a command that beat it would get the server's environment, which
-  names no thread; an externally attached server's shells are left alone. Rejected: a plugin
-  hook (`shell.create.before` isn't told the session), a server per thread (no fast open), a
-  wrapper shell (replaces the person's shell) and a later handshake (the same subagent window
-  and a second channel).
+  fast, and the body is never recorded in the thread's frames.
+
+  A subagent's session is created and prompted before ace hears of it, so on its own a command
+  could beat its setup, or run after a failed one, with the server's own environment. Two
+  things close that (review follow-up, 2026-11-17):
+  - **Ordered and fail-closed.** Every server ace owns loads ace's gate plugin
+    (`adapter-opencode/src/agent-env-plugin`). Its `tool.execute.before` hook, which OpenCode
+    2.x runs before every tool and lets a throw refuse, holds each session's tools until ace
+    settles that session over the plugin's `ace.agent.environment` RPC: set (after the `PUT`
+    lands), or failed. A failed or unconfirmed session (30 s) has every tool refused; ace also
+    interrupts the subagent and records a warning saying why. The root's setup, gate included, is
+    awaited at open, so a server whose gate never loads fails the open instead of running
+    ungated. Verdicts live as long as the server process, across location rebuilds. Every
+    session ace opens gets an explicit environment, with or without ace's variables.
+  - **Nothing to fall back to.** `serve --stdio` takes its password only from the environment
+    (no flag or file in 2.3.0) but deletes `OPENCODE_PASSWORD` and `OPENCODE_SERVER_PASSWORD`
+    from its own environment once read, and ace starts the server without its own credentials
+    (MCP bearer, daemon token, grant, signer and account keys), which no session environment
+    carries either.
+
+  An externally attached server's shells are left alone: ace didn't start it and installs no
+  plugin in it. Rejected: `shell.create.before` (isn't told the session), permission rules
+  (a subagent inherits its parent's, and saved "always allow" rules outrank them), a server
+  per thread (no fast open), a wrapper shell (replaces the person's shell) and a later
+  handshake (the same window and a second channel).
 
 `ace help agents` is the page for them: use `--json` to parse and human text to read (it is
 shorter and costs fewer tokens), check the exit code before the output, retry uncertain mutations

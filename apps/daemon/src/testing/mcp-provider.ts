@@ -180,6 +180,9 @@ if (provider === "opencode") {
       req.resume();
       res.writeHead(204).end();
       return;
+    } else if (path === "/api/rpc/ace.agent.environment/settle") {
+      // ace's environment gate hears the session is set; this double runs no tool to hold.
+      result = { output: {} };
     } else if (path.endsWith("/interrupt")) result = { interrupted: true };
     else {
       // Older providers may not offer optional metadata APIs such as command.list.
