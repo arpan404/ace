@@ -115,7 +115,7 @@ impl Rules {
             format!("{}/{name}", self.dir)
         };
         let abs = self.abs.join(name);
-        if holds_git(&abs) {
+        if holds_git(&abs, root) {
             return Rules::build(&dir, &abs, root);
         }
 
@@ -204,8 +204,8 @@ impl Rules {
 }
 
 /// Whether `abs` holds a `.git` entry, which makes it the top of its own repository.
-fn holds_git(abs: &Path) -> bool {
-    std::fs::symlink_metadata(abs.join(".git")).is_ok()
+fn holds_git(abs: &Path, root: &Root) -> bool {
+    FileStamp::of(&abs.join(".git"), root).is_some()
 }
 
 /// Whether `name`, directly inside the folder named by `segments`, is ignored.
