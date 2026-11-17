@@ -76,7 +76,7 @@ export function AccountMachineRow(props: {
               ? { tone: "warn" as const, words: "Asks for its machine code" }
               : {
                   tone: "off" as const,
-                  words: `On your ace account · ${accountMachineLine(machine, now)}`,
+                  words: accountMachineLine(machine, now),
                 };
   const canOpen =
     (props.onOpen || connector) && !opening && (state === undefined || state.kind === "failed");

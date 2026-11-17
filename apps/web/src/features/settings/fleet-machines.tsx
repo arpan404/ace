@@ -97,7 +97,6 @@ export function FleetMachines(props: {
                 machine={row.machine}
                 fleet={fleet}
                 ownLine={props.ownLine}
-                onAccount={account.alsoOnAccount.has(row.id)}
                 onLink={linkAll}
               />
             ),
@@ -131,7 +130,7 @@ function useAutoLink(
 }
 
 /** What a paired machine's row says: its state, then what's in the way of its links. */
-function statusLine(machine: Machine, fleet: Fleet, onAccount: boolean) {
+function statusLine(machine: Machine, fleet: Fleet) {
   const state = machineState(machine.status, !!machine.failed);
   const links = fleet.links.get(machine.id);
   const self = fleet.facts.find((entry) => entry.id === machine.id);
@@ -141,7 +140,6 @@ function statusLine(machine: Machine, fleet: Fleet, onAccount: boolean) {
     fleet.facts.some((other) => other.id !== machine.id && reach(other, self).kind === "closed");
   const extra = [
     machine.status === "online" ? pathWordsFor(machine.path) : undefined,
-    onAccount ? "ace account" : undefined,
     machine.status === "online" && links?.isError ? fleetProblem(links.error) : undefined,
     closed ? "other machines' agents are off there" : undefined,
   ].filter(Boolean);
@@ -174,14 +172,11 @@ function MachineRow(props: {
   machine: Machine;
   fleet: Fleet;
   ownLine: string;
-  onAccount: boolean;
   onLink(gaps: readonly LinkGap[]): void;
 }) {
   const { machine, fleet } = props;
   const missing = unlinkedWith(machine.id, fleet.gaps);
   const gaps = fleet.gaps.filter((gap) => gap.from === machine.id || gap.to === machine.id);
-  const online = fleet.machines.filter((entry) => entry.client).length;
-  const known = fleet.links.get(machine.id)?.isSuccess;
   const update = fleet.update.line(machine.id);
   const toggle = useMachineSwitch(machine);
   return (
@@ -207,12 +202,11 @@ function MachineRow(props: {
       tag={machine.primary ? "this computer" : undefined}
       sub={
         <>
-          {machine.primary ? props.ownLine : statusLine(machine, fleet, props.onAccount)}
+          {machine.primary ? props.ownLine : statusLine(machine, fleet)}
           {missing.length > 0 && <span className="block">{gapLine(machine.id, fleet)}</span>}
           {update && <UpdateWords line={update} />}
         </>
       }
-      meta={missing.length === 0 && known && online > 1 && !machine.primary ? "Linked" : undefined}
       actions={
         (missing.length > 0 || update?.action || toggle) && (
           <>
