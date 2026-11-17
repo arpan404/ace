@@ -84,7 +84,12 @@ descriptors carving opened are the ones the rules are installed on. The word lis
 `spade-sandbox::windows` holds the policy and the launch; `spade-server` wires it in. **Each run**
 gets its own AppContainer profile with **no capabilities** (derived from the bot and the run id),
 so it starts with no access to anything and holds only its own grants — a plugin's extra folders
-can't be reached by the bot's other running commands. The profile is deleted when the run ends.
+can't be reached by the bot's other running commands. The profile is deleted when the run ends. It
+is a **Less Privileged AppContainer (LPAC)**: the process opts out of the `ALL APPLICATION PACKAGES`
+SID (the `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute), so files, registry keys and COM
+objects that any app package may read system-wide are *not* reachable — only what the run's own
+container SID is granted, plus the core system binaries that carry the restricted `ALL RESTRICTED
+APPLICATION PACKAGES` ACE the loader needs.
 
 **Spade only ever edits ACLs on folders it owns** (under its own data directory), because changing
 ACLs on the person's folders touches other principals' inheritance and descendant identities.
@@ -93,17 +98,37 @@ So a run is `contained` only when its grants are Spade-owned:
 - an inheritable *Modify* ACE (read, write, execute, delete — but not `WRITE_DAC`/`WRITE_OWNER`) on
   the workspace, its `.spade/tmp` (`TEMP`/`TMP`), the terminal scratch, and a plugin folder that
   lives under Spade's data;
-- toolchains are **read without any ACL change**: they are already readable by `ALL APPLICATION
-  PACKAGES` (`Program Files`, `Windows`) or are copies Spade controls;
+- toolchains are **read without any ACL change**: a toolchain Spade installs under its own data is
+  granted the container SID like any owned folder, and `System32` binaries (`curl`, and the system
+  DLLs) stay reachable under LPAC because they carry the restricted ACE. A toolchain under
+  `Program Files` that is readable only by `ALL APPLICATION PACKAGES` is **not** reachable under
+  LPAC — such a run is not contained unless the toolchain is a Spade-owned copy, and Spade never
+  adds an ACE to the system's or the person's folders to make it work;
 - nothing else, so the home folder, other users' folders, other bots' workspaces, and Spade's and
   ace's data are unreachable by default. The AppContainer can't reach the person's folders at all,
   so there is no deny to apply — the credential deny-list needs no ACEs here; the word list still
   refuses a call naming a credential place first.
 
+Whether a run is containable is **proven by file identity, not by string prefixes**: each place it
+needs is opened relative to a pinned handle and its identity (volume serial + file index) compared,
+so a workspace, scratch folder or toolchain on another drive, behind a UNC path, or reached through
+a junction does not pass, and a required place that is missing fails closed. Toolchains pass only
+when they resolve inside Spade's data or inside a known system root (`%SystemRoot%`, `Program Files`,
+`Program Files (x86)`), verified the same way. Deciding to confine returns an **explicit** result —
+contained, needs-review, or no-sandbox — never an absent value a caller could read as "just launch
+it": a plugin hook or local server that needs review does not start, a service never launches
+unconfined, and the shell tool refuses a needs-review run unless it was already reviewed.
+
 A run that needs any of the person's own folders (a consented project, a toolchain under
 `%USERPROFILE%`) is **not** contained: it keeps the review path with the line "This needs your
 folders, so Spade asks first", and Spade changes no ACLs. A brokered file-access path for the
 person's folders is future work.
+
+**Hard links can't smuggle a file in.** A contained run can't give one of the person's files a second
+name inside its granted workspace and then reach the file's data through that name: both the Win32
+`CreateHardLink` path and the native `NtSetInformationFile(FileLinkInformation)` path must open the
+source file first, and a run with no access to it is refused there — measured on the VM, both fail
+and the person's file keeps its single name.
 
 The grants are set on **open handles opened by walking the path one component at a time** — each
 opened relative to its parent's pinned handle and refused if it is a reparse point, so no component
@@ -137,9 +162,14 @@ folder is still found; an object counts as gone only when the id lookup reports 
 ambiguous stays pending), the profile is deleted, and the journal is removed **last**, so a crash
 between them keeps the bot gated. A revocation that can't be confirmed is kept pending, reported
 (not swallowed), and the **bot's next run is refused until it clears**; a corrupt or unreadable
-journal is itself a blocking error that gates every bot until a person clears it. The old
-`{container, paths}` journal format is migrated forward. On start the daemon recovers every run's
-pending revocations. Deleting a bot takes back every run's grants and deletes its profiles.
+journal is itself a blocking error that gates every bot until a person clears it. Journal formats are
+**explicit** — a version field, with the legacy `{container, paths}` form accepted (and migrated
+forward) only when it carries `paths` and none of the new fields, and anything unparseable blocking
+rather than read as empty. Each journal is marked **active, incomplete-setup or incomplete-cleanup**;
+reconcile owns its own rollback, and any non-active journal that isn't resolved blocks the bot. A
+failure to even enumerate the journals blocks too, except when the directory simply doesn't exist. On
+start the daemon recovers every run's pending revocations. Deleting a bot takes back every run's
+grants and deletes its profiles.
 
 **Network (the egress bridge).** An AppContainer with no capabilities has no DNS and can't open a
 loopback connection to a process outside the container, so it can't reach the proxy directly, and

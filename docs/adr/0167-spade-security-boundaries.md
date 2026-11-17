@@ -354,3 +354,51 @@ mechanism above (`deny_node` and all deny ACEs are removed).
   assigns the command to its job and resumes it (checking the resume), and on any failure
   terminates and waits for the suspended process. A missing acknowledgement fails the run closed,
   so `contained` for a run rests on the layers that actually came up, not only the start-up probe.
+
+### Closing the fail-open paths (2026-11-17)
+
+A fourth review found places that would quietly launch a command unconfined, or read a damaged
+journal as empty, or judge a path by its spelling. All are now closed, test-first.
+
+- **Confinement is an explicit result.** Deciding to confine returns `Contained(run)`,
+  `NeedsReview(reason)` or `None` (no sandbox applies) — never an `Option` whose `None` a caller
+  could read as "just launch it". Every caller routes `NeedsReview` to the review path or refuses:
+  the shell tool refuses unless the run was already reviewed, a plugin hook or local server that
+  needs review does not start, and a service never launches unconfined. If containment is decided
+  after review was skipped, the launch re-enters review rather than running plainly.
+- **Journal formats are explicit, and lifecycle is tracked.** A journal carries a version; the
+  legacy `{container, paths}` form is accepted only when it has `paths` and none of the new fields,
+  and anything unparseable blocks the bot rather than falling back to an empty set. Each journal is
+  marked active, incomplete-setup or incomplete-cleanup; reconcile owns its own rollback, and every
+  non-active journal that isn't resolved blocks. Enumeration errors propagate and block, except a
+  directory that truly doesn't exist (which is simply "no journals").
+- **Containability is proven by file identity, not string prefixes.** A run is containable only when
+  every place it needs is proven — by opening it relative to a pinned handle and comparing file
+  identity (volume serial + file index) — to be inside Spade's data directory, except toolchains,
+  which may instead be inside a known system root (`%SystemRoot%`, `Program Files`,
+  `Program Files (x86)`), verified the same way. A toolchain on another drive, a UNC path, or one
+  reached through a junction does not pass; the workspace and scratch are checked too, not just
+  consented folders; and a required place that is missing fails closed. String prefixes are gone.
+- **Less Privileged AppContainer (LPAC).** Each run's AppContainer sets the
+  `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute to opt out, so the token does not carry
+  the `ALL APPLICATION PACKAGES` SID. A plain AppContainer can read anything granted to that SID
+  system-wide; an LPAC cannot. A run then reaches only what its own container SID is granted (the
+  folders Spade ACLs under its data directory, and the egress pipe) plus the core system binaries
+  that carry the restricted `ALL RESTRICTED APPLICATION PACKAGES` ACE the loader needs. **Measured
+  behaviour:** commands shipped in `System32` (for example `curl`) and programs Spade installs under
+  its own data directory run under LPAC unchanged, because the first keep the restricted ACE and the
+  second are granted the container SID directly; no extra LPAC *capability* was needed for them. A
+  toolchain installed under `Program Files` that is readable only by `ALL APPLICATION PACKAGES`
+  (not the restricted SID) is **not** reachable under LPAC — the narrowing already keeps such a run
+  out of `contained` unless the toolchain is a copy Spade owns under its data directory, so no ACE
+  on the person's or the system's folders is ever added to make it work. This supersedes the earlier
+  note that toolchains are "already readable by `ALL APPLICATION PACKAGES`": under LPAC that is no
+  longer true, and the containable toolchains are the Spade-owned ones (granted the container SID)
+  and `System32` binaries (restricted ACE).
+- **Hard links cannot smuggle a file in.** A contained run could have asked for a second name, inside
+  its granted workspace, for one of the person's files, then reached the file's data through the
+  name it controls. **Measured behaviour:** both the Win32 `CreateHardLink` path and the native
+  `NtSetInformationFile(FileLinkInformation)` path fail, because creating a hard link must open the
+  source file first and the run has no access to it; the person's file keeps its single name. No run
+  whose workspace could host such a link is allowed — the open gate makes the attempt fail closed,
+  so no extra refusal in `containable` is needed.
