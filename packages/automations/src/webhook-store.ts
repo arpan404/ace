@@ -1,6 +1,9 @@
 import type { DatabaseSync, StatementSync } from "@ace/provider-kit/sqlite";
 import type { SecretBox } from "./webhook-secret-box.ts";
 
+/** Expired receipts dropped per delivery: each delivery adds one, so any backlog shrinks. */
+const expiredBatch = 64;
+
 /**
  * Each webhook automation's hook id and secret (ADR 0173, decisions 2 and 5), in their own table
  * of `automations.sqlite`, never inside a definition's JSON, so nothing that reads definitions,
@@ -44,11 +47,15 @@ export class WebhookKeys {
     return row ? String(row.run_id) : undefined;
   }
   /**
-   * Notes a delivery's run, in the transaction that admits it, until `expires`; drops receipts
-   * that have expired by `now`.
+   * Notes a delivery's run, in the transaction that admits it, until `expires`, and drops a
+   * bounded batch of receipts expired by `now` (ADR 0170): a backlog left by downtime drains over
+   * the next deliveries instead of stalling one. An expired receipt that lingers is harmless, since
+   * a timestamp that old is refused before any receipt is looked up.
    */
   deliver(automationId: string, eventKey: string, runId: string, expires: number, now: number) {
-    this.sql("DELETE FROM automation_webhook_deliveries WHERE expires < ?").run(now);
+    this.sql(
+      `DELETE FROM automation_webhook_deliveries WHERE rowid IN (SELECT rowid FROM automation_webhook_deliveries WHERE expires < ? ORDER BY expires LIMIT ${expiredBatch})`,
+    ).run(now);
     this.sql("INSERT OR IGNORE INTO automation_webhook_deliveries VALUES(?,?,?,?)").run(
       automationId,
       eventKey,

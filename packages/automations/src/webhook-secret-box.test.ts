@@ -83,3 +83,21 @@ describe("webhook secrets at rest", () => {
     }
   });
 });
+
+describe("delivery receipts", () => {
+  it("each delivery clears a bounded batch of expired receipts, so a backlog never stalls one", () => {
+    const h = harness();
+    const keys = h.store.webhooks;
+    const old = Array.from({ length: 200 }, (_, i) => `webhook:old${i}`);
+    for (const key of old) keys.deliver("deploy", key, `run-${key}`, 1000, 0);
+    const left = () => old.filter((key) => keys.delivered("deploy", key) !== undefined).length;
+    keys.deliver("deploy", "webhook:new-1", "run-new-1", 100_000, 5000);
+    expect(left()).toBeGreaterThan(0);
+    expect(left()).toBeLessThan(old.length);
+    for (let i = 2; i <= 10; i++)
+      keys.deliver("deploy", `webhook:new-${i}`, `run-new-${i}`, 100_000, 5000);
+    expect(left()).toBe(0);
+    // Receipts not yet expired stay.
+    expect(keys.delivered("deploy", "webhook:new-1")).toBe("run-new-1");
+  });
+});
