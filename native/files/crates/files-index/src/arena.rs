@@ -110,6 +110,6 @@ impl PathArena {
 
     /// Bytes the arena occupies, for the build report and bench.
     pub fn bytes_used(&self) -> usize {
-        self.bytes.len() + self.ends.capacity() * size_of::<u32>() + self.live.capacity()
+        self.bytes.capacity() + self.ends.capacity() * size_of::<u32>() + self.live.capacity()
     }
 }

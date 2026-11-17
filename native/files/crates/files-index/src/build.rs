@@ -22,7 +22,7 @@ pub(crate) fn build(
             "max_files must be at least 1".to_owned(),
         ));
     }
-    let filters = Filters::new(&options.hide, options.include_ignored)?;
+    let filters = Filters::new(root, &options.hide, options.include_ignored)?;
     let collected = walk::collect(root, &filters, options.max_files, cancel, root.path())?;
     let bytes = collected.paths.iter().map(String::len).sum();
     let mut arena = PathArena::with_capacity(collected.paths.len(), bytes);

@@ -26,6 +26,47 @@ fn respects_gitignore() {
 }
 
 #[test]
+fn skips_dot_git() {
+    let (_dir, root) = checkout(&[".git/config", "src/.git/HEAD", "src/main.rs"]);
+    let index = build_index(&root, &IndexOptions::default());
+    assert_eq!(index.len(), 1);
+    assert!(index.search("config", 5).is_empty());
+    assert!(index.search("head", 5).is_empty());
+    assert_eq!(paths(&index.search("mainrs", 5)), ["src/main.rs"]);
+}
+
+#[test]
+fn parent_gitignore_inside_the_repo_applies() {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(repo.join(".git")).expect("git store");
+    support::write(dir.path(), ".gitignore", "*.md\n");
+    support::write(&repo, ".gitignore", "*.log\n");
+    support::write(&repo, ".git/info/exclude", "scratch.txt\n");
+    support::write(&repo, "sub/a.log", "");
+    support::write(&repo, "sub/keep.rs", "");
+    support::write(&repo, "sub/readme.md", "");
+    support::write(&repo, "sub/scratch.txt", "");
+
+    let root = files_safe::Root::open(&repo.join("sub")).expect("a checkout root");
+    let index = build_index(&root, &IndexOptions::default());
+    assert!(
+        index.search("a.log", 5).is_empty(),
+        "the repository's own .gitignore applies to a root below it"
+    );
+    assert!(
+        index.search("scratch", 5).is_empty(),
+        "the repository's .git/info/exclude applies too"
+    );
+    assert_eq!(paths(&index.search("keep.rs", 5)), ["keep.rs"]);
+    assert_eq!(
+        paths(&index.search("readme.md", 5)),
+        ["readme.md"],
+        "a .gitignore above the repository top does not apply"
+    );
+}
+
+#[test]
 fn includes_dotfiles_but_never_the_git_directory() {
     let (_dir, root) = checkout(&[".env", ".github/workflows/ci.yml", ".git/config"]);
     let index = build_index(&root, &IndexOptions::default());

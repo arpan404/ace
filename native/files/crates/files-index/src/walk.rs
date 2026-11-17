@@ -14,16 +14,25 @@ use crate::error::Error;
 
 /// What the walk must leave out: git-ignore rules unless asked otherwise, and glob patterns that
 /// never list.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct Filters {
-    pub hide: Vec<String>,
-    pub include_ignored: bool,
+    include_ignored: bool,
+    matcher: Override,
+}
+
+impl Default for Filters {
+    fn default() -> Filters {
+        Filters {
+            include_ignored: false,
+            matcher: Override::empty(),
+        }
+    }
 }
 
 impl Filters {
     /// Validate the hide patterns once, so a bad glob fails the build instead of silently hiding
     /// nothing.
-    pub fn new(hide: &[String], include_ignored: bool) -> Result<Filters, Error> {
+    pub fn new(root: &Root, hide: &[String], include_ignored: bool) -> Result<Filters, Error> {
         let mut cleaned = Vec::with_capacity(hide.len());
         for pattern in hide {
             let pattern = pattern.trim();
@@ -38,9 +47,17 @@ impl Filters {
             cleaned.push(pattern.to_owned());
         }
         Ok(Filters {
-            hide: cleaned,
+            matcher: matcher(root, &cleaned)?,
             include_ignored,
         })
+    }
+
+    /// Whether a single relative path is hidden, for paths the watcher reports directly rather than
+    /// through a walk.
+    pub fn hides(&self, root: &Root, path: &str) -> bool {
+        self.matcher
+            .matched(root.path().join(path), false)
+            .is_ignore()
     }
 }
 
@@ -52,8 +69,14 @@ pub(crate) struct Collected {
 
 /// Walk `start` under `root` and collect every file, up to `max_files`.
 ///
-/// Hidden files are included, because a person can open a dotfile; `.git` itself is always skipped,
-/// because its object store is never a quick-open target and would fill any cap on its own.
+/// Hidden files are included, because a person can open a dotfile. Nothing inside a `.git` folder is
+/// ever indexed, at any depth or as the root itself: that store is never a quick-open target and
+/// would fill any cap on its own.
+///
+/// Git's rules are applied as git applies them. A root inside a repository also sees the
+/// `.gitignore` files and `.git/info/exclude` from the repository top down, and nothing above that
+/// top. A root outside any repository applies the `.gitignore` files from itself and its parent
+/// folders, since there is no repository top to stop the chain.
 pub(crate) fn collect(
     root: &Root,
     filters: &Filters,
@@ -61,17 +84,25 @@ pub(crate) fn collect(
     cancel: &AtomicBool,
     start: &Path,
 ) -> Result<Collected, Error> {
+    if inside_git_store(root) {
+        return Ok(Collected {
+            paths: Vec::new(),
+            truncated: false,
+        });
+    }
+    let in_repo = repo_top(root.path()).is_some();
     let mut builder = WalkBuilder::new(start);
     builder
         .hidden(false)
         .follow_links(false)
-        .require_git(false)
+        .parents(true)
+        .require_git(in_repo)
         .ignore(!filters.include_ignored)
         .git_ignore(!filters.include_ignored)
         .git_global(!filters.include_ignored)
         .git_exclude(!filters.include_ignored)
         .threads(rayon::current_num_threads().max(1))
-        .overrides(overrides(root, filters)?);
+        .overrides(filters.matcher.clone());
     let shared = Shared {
         root,
         paths: Mutex::new(Vec::new()),
@@ -94,13 +125,26 @@ pub(crate) fn collect(
 }
 
 /// Hide patterns are override globs whose meaning is inverted: `!target` means "never list".
-fn overrides(root: &Root, filters: &Filters) -> Result<Override, Error> {
+fn matcher(root: &Root, hide: &[String]) -> Result<Override, Error> {
     let mut builder = OverrideBuilder::new(root.path());
     builder.add("!.git")?;
-    for pattern in &filters.hide {
+    for pattern in hide {
         builder.add(&format!("!{pattern}"))?;
     }
     Ok(builder.build()?)
+}
+
+/// The nearest folder at or above `start` that holds a `.git` entry.
+fn repo_top(start: &Path) -> Option<&Path> {
+    start.ancestors().find(|dir| dir.join(".git").exists())
+}
+
+/// A root inside the git store of a repository: every path under it lives in a `.git` folder, so
+/// none of them is ever indexed.
+fn inside_git_store(root: &Root) -> bool {
+    root.path()
+        .ancestors()
+        .any(|dir| dir.file_name().is_some_and(|name| name == ".git"))
 }
 
 struct Shared<'a> {

@@ -20,10 +20,11 @@ pub(crate) fn search(arena: &PathArena, query: &str, limit: usize) -> Vec<Hit> {
         return Vec::new();
     }
     let slots = arena.slots();
+    let config = config();
     let starts: Vec<u32> = (0..slots).step_by(CHUNK as usize).collect();
     let heaps: Vec<TopK<'_>> = starts
         .par_iter()
-        .map(|&start| search_chunk(arena, query, limit, start))
+        .map(|&start| search_chunk(arena, query, &config, limit, start))
         .collect();
     let mut merged = TopK::new(limit, arena);
     for heap in heaps {
@@ -35,7 +36,7 @@ pub(crate) fn search(arena: &PathArena, query: &str, limit: usize) -> Vec<Hit> {
     if winners.is_empty() {
         return Vec::new();
     }
-    let mut matcher = Matcher::new(query, &config());
+    let mut matcher = Matcher::new(query, &config);
     winners
         .into_iter()
         .map(|candidate| {
@@ -54,7 +55,13 @@ pub(crate) fn search(arena: &PathArena, query: &str, limit: usize) -> Vec<Hit> {
         .collect()
 }
 
-fn search_chunk<'a>(arena: &'a PathArena, query: &str, limit: usize, start: u32) -> TopK<'a> {
+fn search_chunk<'a>(
+    arena: &'a PathArena,
+    query: &str,
+    config: &Config,
+    limit: usize,
+    start: u32,
+) -> TopK<'a> {
     let end = start.saturating_add(CHUNK).min(arena.slots());
     let mut paths: Vec<&'a str> = Vec::with_capacity(usize::try_from(end - start).unwrap_or(0));
     let mut slots: Vec<u32> = Vec::with_capacity(paths.capacity());
@@ -71,7 +78,7 @@ fn search_chunk<'a>(arena: &'a PathArena, query: &str, limit: usize, start: u32)
     if paths.is_empty() {
         return top;
     }
-    let mut matcher = Matcher::new(query, &config());
+    let mut matcher = Matcher::new(query, config);
     for found in matcher.match_list_indices(&paths) {
         let Ok(index) = usize::try_from(found.index) else {
             continue;

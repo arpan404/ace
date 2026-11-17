@@ -93,6 +93,20 @@ fn created_folder_adds_its_subtree() {
 }
 
 #[test]
+fn apply_never_adds_paths_inside_dot_git() {
+    let mut fixture = indexed(&["src/main.rs"]);
+    write(fixture.dir.path(), ".git/config", "");
+    write(fixture.dir.path(), ".git/hooks/pre-commit", "");
+    fixture.index.apply(
+        &fixture.root,
+        &[created(".git", true), created(".git/config", false)],
+    );
+    assert_eq!(fixture.index.len(), 1);
+    assert!(fixture.index.search("config", 5).is_empty());
+    assert!(fixture.index.search("precommit", 5).is_empty());
+}
+
+#[test]
 fn created_folder_respects_gitignore() {
     let mut fixture = indexed(&["src/main.rs", ".gitignore"]);
     write(fixture.dir.path(), ".gitignore", "build\n");

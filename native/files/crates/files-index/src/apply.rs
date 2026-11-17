@@ -6,6 +6,7 @@ use std::sync::atomic::AtomicBool;
 
 use files_safe::Root;
 
+use crate::membership::Membership;
 use crate::walk;
 use crate::{IndexChange, PathIndex};
 
@@ -23,18 +24,35 @@ pub(crate) fn apply(index: &mut PathIndex, root: &Root, changes: &[IndexChange])
         } else if change.directory {
             add_subtree(index, root, &change.path);
         } else {
-            add_file(index, &change.path);
+            add_file(index, root, &change.path);
         }
     }
     if index.arena.dead_len() > index.arena.live_len().max(COMPACT_FLOOR) {
         index.arena.compact();
+        reindex(index);
     }
+}
+
+/// Compacting renumbers slots, so the membership map has to be rebuilt from the arena.
+fn reindex(index: &mut PathIndex) {
+    let mut members = Membership::with_capacity(index.arena.live_len());
+    for slot in 0..index.arena.slots() {
+        if index.arena.is_live(slot)
+            && let Some(path) = index.arena.get(slot)
+        {
+            members.insert(path, slot);
+        }
+    }
+    index.members = members;
 }
 
 /// A watcher reports a save as a created change, so an already indexed path is refreshed in place
 /// rather than added twice.
-fn add_file(index: &mut PathIndex, path: &str) {
-    if path.is_empty() || Root::check(path).is_err() {
+fn add_file(index: &mut PathIndex, root: &Root, path: &str) {
+    if path.is_empty() || Root::check(path).is_err() || in_git_store(path) {
+        return;
+    }
+    if index.filters.hides(root, path) {
         return;
     }
     if index.arena.live_len() >= index.max_files {
@@ -47,7 +65,7 @@ fn add_file(index: &mut PathIndex, path: &str) {
 }
 
 fn add_subtree(index: &mut PathIndex, root: &Root, dir: &str) {
-    if dir.is_empty() {
+    if dir.is_empty() || in_git_store(dir) {
         return;
     }
     let Ok(absolute) = root.resolve(dir) else {
@@ -108,4 +126,9 @@ fn remove_subtree(index: &mut PathIndex, dir: &str) {
 
 fn is_in_dir(path: &str, dir: &str) -> bool {
     path.len() > dir.len() && path.starts_with(dir) && path.as_bytes().get(dir.len()) == Some(&b'/')
+}
+
+/// Nothing inside a `.git` folder is ever indexed, whatever route it arrives by.
+fn in_git_store(path: &str) -> bool {
+    path.split('/').any(|part| part == ".git")
 }

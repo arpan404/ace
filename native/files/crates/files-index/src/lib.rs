@@ -104,6 +104,11 @@ pub struct PathIndex {
 impl PathIndex {
     /// Walk the checkout and index every file in it. `cancel` is checked as the walk proceeds; a
     /// cancelled build returns the files it saw before the flag went up.
+    ///
+    /// Git's ignore rules apply the way git applies them. A root inside a repository also sees the
+    /// `.gitignore` files and `.git/info/exclude` from the repository top down, and nothing above
+    /// that top. A root outside any repository also sees the `.gitignore` files of its parent
+    /// folders. Nothing inside a `.git` folder is indexed.
     pub fn build(
         root: &Root,
         options: &IndexOptions,
