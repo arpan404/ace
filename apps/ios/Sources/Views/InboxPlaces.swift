@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The places at the foot of the iPad sidebar, where a regular window (iPad, the unfolded iPhone
 /// Duo, a large iPhone turned) keeps them instead of the tab bar, in the web rail's order: Threads,
-/// Chats and Search switch the place, then a short hairline, then Code review (a place of its own,
+/// Chats (and Spade, while a machine shows it) and Search switch the place, then a short hairline, then Code review (a place of its own,
 /// as the rail's), then Automations, Skills, More (Usage, History and Archived) and Settings,
 /// which open over it. Bare glyphs on one glass capsule; the place showing
 /// sits on a filled capsule. A phone has the system tab bar instead.
@@ -12,6 +12,7 @@ struct SidebarPlaces: View {
     let open: (SearchPlace) -> Void
     /// Each switchable place's dot: something there needs the person while it isn't showing.
     var needsYou: (InboxTab) -> Bool = { _ in false }
+    @Environment(\.showsSpade) private var showsSpade
     @Namespace private var fill
 
     private static let others: [SearchPlace] = [.automations, .skills]
@@ -20,7 +21,7 @@ struct SidebarPlaces: View {
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
-            ForEach(HomeTabs.switchable.filter { $0 != .review }, id: \.self) { place in switchItem(place) }
+            ForEach(HomeTabs.switchable(spade: showsSpade).filter { $0 != .review }, id: \.self) { place in switchItem(place) }
             Capsule().fill(AceDesign.Ink.faint)
                 .frame(width: AceTheme.Dimensions.border, height: AceDesign.Size.icon)
                 .padding(.horizontal, AceDesign.Space.tight)
