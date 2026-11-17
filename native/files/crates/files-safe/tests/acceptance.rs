@@ -337,3 +337,23 @@ fn follows_an_absolute_link_spelled_with_the_path_the_root_was_opened_with() {
         root.path().join("real/file.txt")
     );
 }
+
+#[test]
+fn refuses_a_walk_deeper_than_the_limit() {
+    let (_temp, root) = checkout();
+    let deep = "d/".repeat(300);
+    fs::create_dir_all(root.path().join(deep.trim_end_matches('/'))).expect("folders");
+
+    let shallower = "d/".repeat(100);
+    assert_eq!(
+        root.resolve(shallower.trim_end_matches('/'))
+            .expect("100 deep"),
+        root.path().join(shallower.trim_end_matches('/'))
+    );
+
+    let error = root
+        .resolve(deep.trim_end_matches('/'))
+        .expect_err("300 deep");
+    assert!(matches!(error, Error::LimitExceeded(_)), "{error}");
+    assert_eq!(error.code(), "LIMIT_EXCEEDED");
+}
