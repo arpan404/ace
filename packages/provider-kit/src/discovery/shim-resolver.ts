@@ -76,7 +76,12 @@ export const SHIM_RESOLVE_TIMEOUT_MS = 3_000;
 export async function findInstalledExecutable(
   command: string,
   env: NodeJS.ProcessEnv,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  options: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    /** Where the shim will run: mise, asdf and proto pick a version from that project's config. */
+    cwd?: string;
+  } = {},
 ): Promise<InstalledExecutable | undefined> {
   // Undefined: nothing named `command` on PATH at all.
   const path = await findExecutable(command, env);
@@ -96,6 +101,7 @@ export async function findInstalledExecutable(
   try {
     output = await probeOffThread(launcher, query.args(tool), {
       env: { ...env, ...query.env },
+      cwd: options.cwd,
       timeoutMs: options.timeoutMs ?? SHIM_RESOLVE_TIMEOUT_MS,
       maxBytes: 64 * 1024,
       signal: options.signal,
@@ -151,7 +157,7 @@ async function managerLauncher(
 export async function launchableExecutable(
   command: string,
   env: NodeJS.ProcessEnv,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; cwd?: string } = {},
 ): Promise<string | undefined> {
   const found = await findInstalledExecutable(command, env, options);
   return found && "run" in found ? found.run : undefined;

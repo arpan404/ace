@@ -72,3 +72,21 @@ test.runIf(process.platform !== "win32")(
     expect(f.ranAsShim()).toBe(false);
   },
 );
+
+test.runIf(process.platform !== "win32")(
+  "listing models resolves the shim for the instance's own directory",
+  async () => {
+    const f = await codexThroughMise(
+      (installed) =>
+        `case "$PWD" in */project) echo "$PWD/codex" ;; *) echo '${installed}' ;; esac`,
+    );
+    const project = join(f.instance.cwd, "project");
+    await mkdir(project);
+    await writeFile(join(project, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const { discover, launched } = recordingDiscovery();
+    await expect(
+      discover({ ...f.instance, cwd: project }, new AbortController().signal),
+    ).rejects.toThrow("Launch recorded");
+    expect(launched).toEqual([join(project, "codex")]);
+  },
+);

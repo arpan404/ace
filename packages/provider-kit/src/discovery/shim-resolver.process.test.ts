@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { probeOutput } from "../process.ts";
-import { discoverProvider } from "./index.ts";
+import { discoverProvider, findInstalledExecutable } from "./index.ts";
 
 /**
  * A stand-in mise. Asked `which <tool>`, it answers as `answer` says and records the settings
@@ -101,3 +101,29 @@ test.runIf(posix)("a manager that answers with another shim is refused too", asy
   await expect(probeOutput("codex", ["--version"], { env: f.env })).rejects.toThrow("another shim");
   expect(f.ranAsShim()).toBe(false);
 });
+
+test.runIf(posix)(
+  "a shim resolves for the project it will run in, and the probe runs there",
+  async () => {
+    // mise picks a tool's version from the project's own config: each project has its own.
+    const f = await fakeMise(
+      `case "$PWD" in */project-a) echo "\${0%/*}/../project-a/codex" ;; *) echo "\${0%/*}/../.local/share/mise/installs/codex/1.0/bin/codex" ;; esac`,
+    );
+    const project = join(f.env.HOME, "project-a");
+    await mkdir(project);
+    await writeFile(join(project, "codex"), `#!/bin/sh\necho "codex-cli 0.200.0 in $PWD"\n`, {
+      mode: 0o755,
+    });
+    const resolved = await findInstalledExecutable("codex", f.env, { cwd: project });
+    expect(resolved).toEqual({ path: f.shim, run: join(project, "codex") });
+    await expect(
+      probeOutput("codex", ["--version"], { env: f.env, cwd: project }),
+    ).resolves.toMatchObject({ stdout: `codex-cli 0.200.0 in ${project}` });
+    // Elsewhere, the same shim stands for the global install.
+    expect(await findInstalledExecutable("codex", f.env, { cwd: f.env.HOME })).toEqual({
+      path: f.shim,
+      run: f.installed,
+    });
+    expect(f.ranAsShim()).toBe(false);
+  },
+);

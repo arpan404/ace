@@ -39,7 +39,8 @@ async function launchable(instance: ModelInstance, signal: AbortSignal): Promise
   const found = await findInstalledExecutable(
     instance.executable,
     { ...process.env, ...instance.env },
-    { signal },
+    // The catalog runs the CLI in the instance's directory: resolve its version there too.
+    { signal, cwd: instance.cwd },
   );
   if (!found) return instance;
   if ("refused" in found) throw found.refused;
