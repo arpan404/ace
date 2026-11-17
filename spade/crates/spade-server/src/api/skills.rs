@@ -88,7 +88,9 @@ async fn files(State(state): State<AppState>, Path(id): Path<String>) -> Respons
         Ok(Err(error)) => {
             let status = match &error {
                 PublishError::NotFound => StatusCode::NOT_FOUND,
-                PublishError::NotSpade => StatusCode::UNPROCESSABLE_ENTITY,
+                PublishError::NotSpade | PublishError::Refused(_) => {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                }
                 PublishError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             };
             problem(status, &error.to_string())

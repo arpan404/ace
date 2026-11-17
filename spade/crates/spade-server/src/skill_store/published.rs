@@ -34,10 +34,16 @@ pub enum PublishError {
     NotSpade,
     #[error("the skill can't be read: {0}")]
     Io(String),
+    /// Its files can't be published as they are: a link, a special file, or past a limit.
+    #[error("{0}")]
+    Refused(String),
 }
 
 /// A file is read back at most this large; the marketplace takes no larger file for a skill.
 const LARGEST_FILE: u64 = 4 * 1024 * 1024;
+/// All of a skill's files together, and how many, at most (the marketplace's skill limits).
+const LARGEST_TOTAL: u64 = 16 * 1024 * 1024;
+const MOST_FILES: usize = 512;
 
 impl SkillStore {
     /// The `spade` skill `id`'s files, for a draft in the marketplace.
@@ -51,16 +57,30 @@ impl SkillStore {
             return Err(PublishError::NotSpade);
         }
         let encode = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
-        let text =
-            folders::read_skill(&self.root, id).map_err(|e| PublishError::Io(e.to_string()))?;
+        let refuse = |e: std::io::Error| PublishError::Refused(e.to_string());
+        let text = folders::read_skill(&self.root, id).map_err(refuse)?;
+        let mut total = text.len() as u64;
         let mut files = vec![PublishedFile {
             path: "SKILL.md".to_owned(),
             executable: false,
             content: encode(text.as_bytes()),
         }];
-        for file in files_of(&row) {
-            let bytes = folders::read_file(&self.root, id, &file.path, LARGEST_FILE)
-                .map_err(|e| PublishError::Io(e.to_string()))?;
+        let others = files_of(&row);
+        if others.len() + 1 > MOST_FILES {
+            return Err(PublishError::Refused(format!(
+                "the skill has more than {MOST_FILES} files"
+            )));
+        }
+        for file in others {
+            let bytes =
+                folders::read_file(&self.root, id, &file.path, LARGEST_FILE).map_err(refuse)?;
+            total += bytes.len() as u64;
+            if total > LARGEST_TOTAL {
+                return Err(PublishError::Refused(format!(
+                    "the skill's files are larger than {} MB together",
+                    LARGEST_TOTAL / (1024 * 1024)
+                )));
+            }
             files.push(PublishedFile {
                 path: file.path,
                 executable: file.executable,
