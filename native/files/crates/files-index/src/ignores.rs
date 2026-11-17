@@ -88,10 +88,10 @@ impl IgnoreRules {
             if current == self.root || !current.starts_with(&self.root) {
                 break;
             }
-            if let Some(layer) = self.local(current) {
-                if let Some(decision) = decision(&layer, absolute, is_dir) {
-                    return Some(decision);
-                }
+            if let Some(layer) = self.local(current)
+                && let Some(decision) = decision(&layer, absolute, is_dir)
+            {
+                return Some(decision);
             }
             dir = current.parent();
         }
