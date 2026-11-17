@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { UpdateStatus } from "../../shared/contract.ts";
 import type { ReleaseLine } from "@ace/service/release-line";
 import {
@@ -24,6 +24,8 @@ function setup(
   let line: ReleaseLine = "stable";
   const byLine: Partial<Record<ReleaseLine, UpdateOffer | UpdateBlocked>> = {};
   let checkError: Error | undefined;
+  /** What the guard says when it runs again before a download or an install. */
+  let refusal: UpdateBlocked | undefined;
   let checkGate: Promise<void> | undefined;
   let requests = 0;
   let downloads = 0;
@@ -51,6 +53,8 @@ function setup(
       });
     },
     install: () => effects.push("install"),
+    recheck: () => (refusal ? Promise.resolve(refusal) : undefined),
+    discard: () => effects.push("discard"),
   };
   const controller = new UpdateController({
     engine,
@@ -99,6 +103,8 @@ function setup(
       await settle();
     },
     feed: (version: string | undefined) => (found = version),
+    /** The guard, run again, now refuses (or allows, with undefined) the release. */
+    refuse: (blocked: string | undefined) => (refusal = blocked ? { blocked } : undefined),
     /** What the feed answers on `name`, whatever `found` says. */
     lineFeed: (name: ReleaseLine, answer: UpdateOffer | UpdateBlocked) => (byLine[name] = answer),
     pickLine: (name: ReleaseLine) => (line = name),
@@ -455,4 +461,44 @@ it("a line change during a download keeps the download and only names the new li
   await app.controller.lineChanged();
   expect(app.now()).toMatchObject({ state: "downloading", line: "beta", version: "1.1.0" });
   expect(app.feedRequests()).toBe(1);
+});
+
+describe("a switch to an older release the guard refuses by install time", () => {
+  const why =
+    "Stable can't read this beta's data yet. You can switch once stable reaches a newer release.";
+
+  it("is dropped instead of restarting, and Settings says why", async () => {
+    const app = setup({ found: "1.1.0" });
+    await downloaded(app);
+    app.refuse(why);
+    await app.controller.install();
+    expect(app.effects).toEqual(["discard"]);
+    expect(app.now()).toMatchObject({ state: "current", version: null, blocked: why });
+  });
+
+  it("is dropped by ace update apply and by an install asked from another client", async () => {
+    for (const ask of [
+      (app: ReturnType<typeof setup>) => app.controller.apply(),
+      (app: ReturnType<typeof setup>) =>
+        app.controller.remote({ action: "install", mode: "idle", version: "1.1.0" }),
+      (app: ReturnType<typeof setup>) =>
+        app.controller.remote({ action: "install", mode: "now", version: "1.1.0" }),
+    ]) {
+      const app = setup({ found: "1.1.0", drained: true });
+      await downloaded(app);
+      app.refuse(why);
+      await ask(app);
+      expect(app.effects).toEqual(["discard"]);
+      expect(app.now()).toMatchObject({ state: "current", blocked: why });
+    }
+  });
+
+  it("is never downloaded when the guard refuses it before the download", async () => {
+    const app = setup({ found: "1.1.0" });
+    await app.controller.check("background");
+    app.refuse(why);
+    await app.controller.download();
+    expect(app.downloads()).toBe(0);
+    expect(app.now()).toMatchObject({ state: "current", blocked: why });
+  });
 });

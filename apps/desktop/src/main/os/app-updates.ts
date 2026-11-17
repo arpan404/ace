@@ -44,6 +44,8 @@ export interface AppUpdatesOptions {
   saveLine(line: ReleaseLine): Promise<void>;
   /** What the home holds, as the daemon last said; undefined until it has. */
   homeData(): HomeData | undefined;
+  /** What the home holds now, asked of the daemon; undefined when it can't say. */
+  freshHomeData(): Promise<HomeData | undefined>;
   log(level: "info" | "warn", message: string): void;
 }
 

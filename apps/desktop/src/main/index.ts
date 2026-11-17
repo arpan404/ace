@@ -26,7 +26,7 @@ import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import { healthy, reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
-import { UpdateReporter } from "./daemon/update-report.ts";
+import { appUpdateReport, UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
 import { createPageConnection } from "./daemon/page-connection.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
@@ -340,6 +340,15 @@ function main(target: DaemonTarget, crashDumps: string): void {
     chosenLine: () => settings.get().updateLine,
     saveLine: async (line) => void (await settings.update({ updateLine: line })),
     homeData: () => homeData,
+    // The guard's second look before an install: the daemon reads the home again on each report.
+    freshHomeData: async () => {
+      const reply = await reportAppUpdate(
+        await runtime.local(),
+        appUpdateReport(updates.current()),
+      ).catch(() => undefined);
+      if (reply?.homeData) homeData = reply.homeData;
+      return reply?.homeData;
+    },
     log: logger("updates"),
   });
   updateReport.status(updates.current());

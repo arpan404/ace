@@ -35,6 +35,8 @@ export type FeedResult =
       releaseUrl: string;
       /** Ranks below the installed version, and the guard allowed it. */
       older: boolean;
+      /** The release's `ace-data.json`, for an older one: the guard runs again before install. */
+      data?: ReleaseData | undefined;
       notes: { version: string; note: string }[];
     };
 
@@ -55,8 +57,9 @@ export async function checkReleaseFeed(
   if (pick.kind === "current") return pick;
   const { tag, version } = pick.release;
   const folder = `${ports.urls.download}${encodeURIComponent(tag)}/`;
+  const data = pick.older ? await releaseData(ports, folder) : undefined;
   if (pick.older) {
-    const guard = guardSwitch(await releaseData(ports, folder), input.home);
+    const guard = guardSwitch(data, input.home);
     if (!guard.ok)
       return {
         kind: "blocked",
@@ -70,6 +73,7 @@ export async function checkReleaseFeed(
     feedUrl: folder,
     releaseUrl: `${ports.urls.page}${encodeURIComponent(tag)}`,
     older: pick.older,
+    ...(data ? { data } : {}),
     notes: pick.notes,
   };
 }

@@ -28,6 +28,14 @@ export interface UpdateEngine {
   download(progress: (percent: number) => void): Promise<void>;
   /** Quits the app and starts the downloaded version. */
   install(): void;
+  /**
+   * Runs the downgrade guard again on what the home holds now, for an offer older than this
+   * version (ADR 0174): why it is now refused, or undefined when it still may install.
+   * Undefined at once (no promise) when nothing older is on offer or downloaded.
+   */
+  recheck?(): Promise<UpdateBlocked | undefined> | undefined;
+  /** Drops the offer the guard now refuses, so nothing installs it, on quit included. */
+  discard?(): void;
 }
 
 export interface UpdatePorts {
@@ -146,8 +154,12 @@ export class UpdateController {
     // A check also changes the engine's selected release. Let it settle before starting
     // the download, so neither its offer nor its error can overwrite download progress.
     if (this.checking) await this.checking;
+    if (this.status.state !== "available" || !this.status.version || !this.status.inPlace)
+      return this.status;
+    const allowed = this.stillAllowed();
+    if (allowed && !(await allowed)) return this.status;
     const offer = this.status;
-    if (offer.state !== "available" || !offer.version || !offer.inPlace) return this.status;
+    if (offer.state !== "available" || !offer.version) return this.status;
     const version = offer.version;
     this.set({ ...offer, state: "downloading", percent: 0, error: null });
     try {
@@ -190,6 +202,9 @@ export class UpdateController {
     if (this.checking) await this.checking;
     if (this.status.state !== "downloaded") return this.status;
     this.installWhenReady = false;
+    const allowed = this.stillAllowed();
+    if (allowed && !(await allowed)) return this.status;
+    if (this.status.state !== "downloaded") return this.status;
     this.set({ ...this.status, state: "installing", waiting: 0, error: null });
     return this.restart("now");
   }
@@ -200,6 +215,9 @@ export class UpdateController {
     if (this.status.state === "downloading") this.installWhenReady = true;
     if (this.status.state !== "downloaded") return this.status;
     this.installWhenReady = false;
+    const allowed = this.stillAllowed();
+    if (allowed && !(await allowed)) return this.status;
+    if (this.status.state !== "downloaded") return this.status;
     const ready = this.status;
     this.set({ ...ready, state: "installing", waiting: 0, error: null });
     let drained = false;
@@ -272,6 +290,44 @@ export class UpdateController {
     if (found.state === "available" && (await this.download()).state !== "downloaded")
       return this.status;
     return this.install();
+  }
+
+  /**
+   * The guard once more before a download or an install (ADR 0174): the home may have gained a
+   * newer format since the check (Spade started for the first time, say). A release it now
+   * refuses is dropped from the engine and from the status, which says why.
+   */
+  private stillAllowed(): Promise<boolean> | undefined {
+    // Nothing to look at again answers at once (undefined), so a download or a restart starts
+    // in step with the person's click.
+    const again = this.ports.engine.recheck?.();
+    return again ? this.heldBack(again) : undefined;
+  }
+
+  private async heldBack(again: Promise<UpdateBlocked | undefined>): Promise<boolean> {
+    let refused: UpdateBlocked | undefined;
+    try {
+      refused = await again;
+    } catch (error) {
+      refused = { blocked: `ace couldn't check this install's data: ${message(error)}` };
+    }
+    if (!refused) return true;
+    this.ports.log("warn", `Update to ${this.status.version ?? "?"} held back: ${refused.blocked}`);
+    this.ports.engine.discard?.();
+    this.installWhenReady = false;
+    this.set({
+      ...this.status,
+      state: "current",
+      version: null,
+      releaseUrl: null,
+      percent: null,
+      waiting: 0,
+      notes: [],
+      olderReleases: 0,
+      blocked: refused.blocked,
+      error: null,
+    });
+    return false;
   }
 
   private async find(before: UpdateStatus, origin: CheckOrigin): Promise<UpdateStatus> {
