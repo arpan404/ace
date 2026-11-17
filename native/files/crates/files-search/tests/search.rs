@@ -1,62 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Behaviour of content search on real temporary checkouts.
+//! What a search finds, how it reports each line and when it stops at the cap.
 
-use std::fs;
-use std::io;
-use std::path::Path;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+mod support;
 
 use files_safe::Root;
-use files_search::{Case, FileMatches, Query, Summary, search};
+use files_search::Case;
 
-type TestResult = Result<(), Box<dyn std::error::Error>>;
-
-fn write(root: &Path, path: &str, contents: impl AsRef<[u8]>) -> io::Result<()> {
-    let full = root.join(path);
-    if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(full, contents)
-}
-
-fn query(pattern: &str) -> Query {
-    Query {
-        pattern: pattern.to_owned(),
-        regex: false,
-        case: Case::Sensitive,
-        whole_word: false,
-        include: Vec::new(),
-        exclude: Vec::new(),
-        include_ignored: false,
-        max_matches: 1000,
-        max_file_bytes: 0,
-    }
-}
-
-fn run(root: &Root, query: &Query) -> Result<(Vec<FileMatches>, Summary), files_search::Error> {
-    let files = Mutex::new(Vec::new());
-    let cancel = AtomicBool::new(false);
-    let summary = search(root, query, &cancel, &|file| {
-        match files.lock() {
-            Ok(mut files) => files.push(file),
-            Err(poisoned) => poisoned.into_inner().push(file),
-        }
-        true
-    })?;
-    let files = match files.into_inner() {
-        Ok(files) => files,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    Ok((files, summary))
-}
-
-fn paths(files: &[FileMatches]) -> Vec<&str> {
-    let mut paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
-    paths.sort_unstable();
-    paths
-}
+use support::{TestResult, paths, query, run, write};
 
 #[test]
 fn finds_literal_across_files() -> TestResult {
@@ -226,98 +177,6 @@ fn stops_at_max_matches_with_limit_hit() -> TestResult {
 }
 
 #[test]
-fn sink_false_stops_search() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    for index in 0..300 {
-        write(temp.path(), &format!("many/file{index}.txt"), "needle\n")?;
-    }
-    let root = Root::open(temp.path())?;
-    let calls = AtomicUsize::new(0);
-    let cancel = AtomicBool::new(false);
-    let summary = search(&root, &query("needle"), &cancel, &|_file| {
-        calls.fetch_add(1, Ordering::SeqCst);
-        false
-    })?;
-
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        1,
-        "the sink was called again after it returned false"
-    );
-    assert_eq!(summary.files, 1);
-    assert_eq!(summary.matches, 1);
-    Ok(())
-}
-
-#[test]
-fn include_globs_do_not_unignore_gitignored_files() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    write(temp.path(), ".gitignore", "secret.txt\n")?;
-    write(temp.path(), "secret.txt", "needle\n")?;
-    write(temp.path(), "public.txt", "needle\n")?;
-    let root = Root::open(temp.path())?;
-    let mut query = query("needle");
-    query.include = vec!["**/*.txt".to_owned()];
-    let (files, summary) = run(&root, &query)?;
-
-    assert_eq!(paths(&files), ["public.txt"]);
-    assert_eq!(summary.files, 1);
-    Ok(())
-}
-
-#[test]
-fn never_searches_inside_a_dot_git_folder() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    write(temp.path(), ".git/config", "needle in git\n")?;
-    write(temp.path(), "src/a.txt", "needle\n")?;
-    let root = Root::open(temp.path())?;
-    let (files, summary) = run(&root, &query("needle"))?;
-
-    assert_eq!(paths(&files), ["src/a.txt"]);
-    assert_eq!(summary.files, 1);
-    Ok(())
-}
-
-#[test]
-fn inherits_gitignore_rules_up_to_the_repository_top() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    fs::create_dir_all(temp.path().join("repo/.git"))?;
-    write(temp.path(), "repo/.gitignore", "secret.txt\n")?;
-    write(temp.path(), "repo/sub/a.txt", "needle\n")?;
-    write(temp.path(), "repo/sub/secret.txt", "needle\n")?;
-    write(temp.path(), "repo/sub/outside.txt", "needle\n")?;
-    // Above the repository's top: a search must never reach this rule.
-    write(temp.path(), ".gitignore", "outside.txt\n")?;
-    let root = Root::open(&temp.path().join("repo/sub"))?;
-    let (files, summary) = run(&root, &query("needle"))?;
-
-    assert_eq!(paths(&files), ["a.txt", "outside.txt"]);
-    assert_eq!(summary.files, 2);
-    Ok(())
-}
-
-#[test]
-fn dropped_binary_file_returns_its_match_slots() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    // Two matches, then a NUL far beyond the first buffer, so it is only noticed late.
-    let mut blob = String::from("needle\nneedle\n");
-    blob.push_str(&"x".repeat(100_000 - blob.len()));
-    blob.push('\0');
-    blob.push_str("\nneedle\n");
-    write(temp.path(), "blob.bin", blob.as_bytes())?;
-    write(temp.path(), "text.txt", "needle\n")?;
-    let root = Root::open(temp.path())?;
-    let mut query = query("needle");
-    query.max_matches = 3;
-    let (files, summary) = run(&root, &query)?;
-
-    assert_eq!(paths(&files), ["text.txt"]);
-    assert_eq!(summary.matches, 1);
-    assert!(!summary.limit_hit);
-    Ok(())
-}
-
-#[test]
 fn long_line_preview_is_bounded() -> TestResult {
     let temp = tempfile::tempdir()?;
     let mut line = String::new();
@@ -355,19 +214,6 @@ fn long_multibyte_line_preview_is_bounded() -> TestResult {
     assert_eq!(found.ranges.len(), 1);
     let (start, end) = found.ranges[0];
     assert_eq!(&found.preview[start as usize..end as usize], "needle");
-    Ok(())
-}
-
-#[test]
-fn searches_hidden_files_and_folders() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    write(temp.path(), ".env", "needle\n")?;
-    write(temp.path(), ".config/app.txt", "needle\n")?;
-    let root = Root::open(temp.path())?;
-    let (files, summary) = run(&root, &query("needle"))?;
-
-    assert_eq!(paths(&files), [".config/app.txt", ".env"]);
-    assert_eq!(summary.matches, 2);
     Ok(())
 }
 
@@ -418,76 +264,5 @@ fn max_file_bytes_skips_large_files() -> TestResult {
 
     assert_eq!(paths(&files), ["small.txt"]);
     assert_eq!(summary.files, 1);
-    Ok(())
-}
-
-#[test]
-fn cancel_stops_search() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    write(temp.path(), "a.txt", "needle\n")?;
-    let root = Root::open(temp.path())?;
-    let cancel = AtomicBool::new(true);
-    let code = match search(&root, &query("needle"), &cancel, &|_file| true) {
-        Ok(_) => panic!("a cancelled search must not run"),
-        Err(error) => error.code(),
-    };
-    assert_eq!(code, "ABORTED");
-    Ok(())
-}
-
-#[test]
-fn cancel_from_the_sink_stops_the_search() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    // A large file with no match must stop reading as soon as the sink cancels.
-    let mut large = String::from("nothing to see here\n");
-    large.push_str(&"x".repeat(2_000_000));
-    write(temp.path(), "large.txt", large)?;
-    for index in 0..40 {
-        write(temp.path(), &format!("many/file{index}.txt"), "needle\n")?;
-    }
-    let root = Root::open(temp.path())?;
-    let cancel = AtomicBool::new(false);
-    let result = search(&root, &query("needle"), &cancel, &|_file| {
-        cancel.store(true, Ordering::SeqCst);
-        true
-    });
-    let code = match result {
-        Ok(_) => panic!("a search cancelled from the sink must not finish"),
-        Err(error) => error.code(),
-    };
-    assert_eq!(code, "ABORTED");
-    Ok(())
-}
-
-#[test]
-fn newline_in_pattern_is_an_argument_error() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    write(temp.path(), "a.txt", "one\ntwo\n")?;
-    let root = Root::open(temp.path())?;
-    let cancel = AtomicBool::new(false);
-    let mut expression = query("one\ntwo");
-    expression.regex = true;
-    for query in [expression, query("one\ntwo")] {
-        let code = match search(&root, &query, &cancel, &|_file| true) {
-            Ok(_) => panic!("a pattern with a line terminator must not search"),
-            Err(error) => error.code(),
-        };
-        assert_eq!(code, "INVALID_ARGUMENT");
-    }
-    Ok(())
-}
-
-#[test]
-fn invalid_regex_is_an_argument_error() -> TestResult {
-    let temp = tempfile::tempdir()?;
-    let root = Root::open(temp.path())?;
-    let cancel = AtomicBool::new(false);
-    let mut query = query("(");
-    query.regex = true;
-    let code = match search(&root, &query, &cancel, &|_file| true) {
-        Ok(_) => panic!("an invalid regex must not search"),
-        Err(error) => error.code(),
-    };
-    assert_eq!(code, "INVALID_ARGUMENT");
     Ok(())
 }
