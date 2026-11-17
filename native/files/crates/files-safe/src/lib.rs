@@ -9,8 +9,9 @@
 //!
 //! Reading and writing goes through handles, never through a path: [`Root::open_dir`] opens a
 //! folder and [`Root::open_parent`] opens the folder that holds a leaf, so a rename cannot
-//! redirect an operation between the check and the open. [`Root::resolve`] is for read-only
-//! walkers such as a directory lister or a content search, which take a path and only ever read.
+//! redirect an operation between the check and the open. [`Root::resolve`] is left for read-only
+//! walkers, which must walk with `follow_links(false)` and compare each opened file's identity
+//! with the entry they walked before they trust a byte of it.
 
 mod check;
 mod error;
@@ -23,7 +24,7 @@ mod windows;
 pub use crate::error::Error;
 
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// A checkout root: its canonical path plus a capability handle that reaches inside it.
 ///
@@ -34,6 +35,7 @@ pub struct Root {
     path: PathBuf,
     opened: PathBuf,
     dir: Arc<cap_std::fs::Dir>,
+    cache: Arc<Mutex<names::Cache>>,
 }
 
 impl Root {
@@ -53,7 +55,14 @@ impl Root {
             path,
             opened,
             dir: Arc::new(dir),
+            cache: Arc::new(Mutex::new(names::Cache::default())),
         })
+    }
+
+    /// Folder listings remembered for this root, so resolving many entries of one folder lists it
+    /// once.
+    pub(crate) fn cache(&self) -> &Mutex<names::Cache> {
+        &self.cache
     }
 
     /// The canonical absolute path of the root folder.
@@ -90,9 +99,12 @@ impl Root {
     /// path whose last segment does not exist yet resolves under its parent, which is what callers
     /// that are about to create a file need; a missing segment anywhere higher up is `NOT_FOUND`.
     ///
-    /// This path is for read-only walkers (a lister, the path index, a content search). Opening,
-    /// creating or deleting must go through [`Root::open_dir`] or [`Root::open_parent`]: a path can
-    /// be rewritten between this walk and the open, a handle cannot.
+    /// This path is for read-only walkers: a lister, the path index, a content search. Such a
+    /// walker must run with `follow_links(false)` and, before reading a file it opened by this
+    /// path, compare that file's identity with the identity of the entry it walked, since a name
+    /// can be replaced by a link between the two. Opening, creating or deleting must go through
+    /// [`Root::open_dir`] or [`Root::open_parent`]: a path can be rewritten between this walk and
+    /// the open, a handle cannot.
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, Error> {
         walk::resolve(self, rel)
     }
@@ -107,13 +119,14 @@ impl Root {
     }
 
     /// Opens the folder that holds the last segment of `rel` and returns it with that segment's
-    /// name, so a create, a rename or a delete can be made relative to the folder itself.
+    /// name, so a read, a create, a rename or a delete can be made relative to the folder itself.
     ///
-    /// Mutations go through the returned handle and create with `O_EXCL` and no link following, so
-    /// nothing is written outside the folder that was walked. The leaf is never followed: a link
-    /// that points nowhere, or points out of the root, is returned as a name in its folder, which
-    /// is what deleting or replacing it needs. The name is the one the folder stores, so writes
-    /// land on the entry a case-insensitive volume would match.
+    /// Every operation then names only the leaf and goes through the returned handle, which is how
+    /// a rename elsewhere cannot redirect it: readers open with no link following, and mutations
+    /// create with `O_EXCL` and no link following. The leaf itself is never followed here, so a
+    /// link that points nowhere, or points out of the root, comes back as a name in its folder,
+    /// which is what deleting or replacing it needs. The name is the one the folder stores, so the
+    /// operation lands on the entry a case-insensitive volume would match.
     pub fn open_parent(&self, rel: &str) -> Result<(cap_std::fs::Dir, String), Error> {
         walk::open_parent(self, rel)
     }

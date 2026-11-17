@@ -169,3 +169,44 @@ fn returns_the_name_the_folder_stores() {
         ),
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn stored_names_do_not_mix_up_lookalikes() {
+    // A trailing space is a legal name on Unix, and the two entries must never be confused for
+    // one another.
+    let (_temp, root) = checkout();
+    fs::write(root.path().join("readme"), b"one").expect("plain");
+    fs::write(root.path().join("readme "), b"two").expect("spaced");
+
+    assert_eq!(
+        root.resolve("readme").expect("plain"),
+        root.path().join("readme")
+    );
+    assert_eq!(
+        root.resolve("readme ").expect("spaced"),
+        root.path().join("readme ")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_hard_link_resolves_to_its_own_name() {
+    // Both names share one identity, so the answer has to come from the name that was asked for.
+    let (_temp, root) = checkout();
+    fs::write(root.path().join("first.txt"), b"x").expect("file");
+    fs::hard_link(
+        root.path().join("first.txt"),
+        root.path().join("second.txt"),
+    )
+    .expect("link");
+
+    assert_eq!(
+        root.resolve("first.txt").expect("first"),
+        root.path().join("first.txt")
+    );
+    assert_eq!(
+        root.resolve("second.txt").expect("second"),
+        root.path().join("second.txt")
+    );
+}
