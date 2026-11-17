@@ -87,7 +87,7 @@ a line-level incremental API (see "markit"); the editor never carries a second h
 
 ### files-safe
 
-Crates: `cap-std`, `thiserror`. API:
+Crates: `cap-std`, `cap-fs-ext`, `thiserror`. API:
 
 ```rust
 pub struct Root;                                     // Clone, Send, Sync
@@ -97,15 +97,37 @@ impl Root {
     pub fn dir(&self) -> &cap_std::fs::Dir;              // capability handle for I/O crates
     pub fn check(rel: &str) -> Result<&str, Error>;      // syntax only (rule 5); "" is the root
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, Error>; // absolute, symlinks resolved,
-                                                         // PATH_ESCAPE if it leaves the root
+                                                         // PATH_ESCAPE if it leaves the root;
+                                                         // read-only walkers only
+    pub fn open_dir(&self, rel: &str) -> Result<cap_std::fs::Dir, Error>; // handle to that folder
+    pub fn open_parent(&self, rel: &str)
+        -> Result<(cap_std::fs::Dir, String), Error>;    // parent handle plus the leaf name
     pub fn relative(&self, absolute: &Path) -> Option<String>;  // inverse; None outside root
 }
 ```
 
-On Windows also reject `\`, drive prefixes, reserved names (`CON`, `NUL`, ...) and trailing dots
-or spaces. Acceptance: `rejects_dot_dot_and_absolute_paths`, `rejects_symlink_that_leaves_root`,
-`follows_symlink_that_stays_inside_root`, `resolves_missing_leaf_under_existing_parent`,
-`relative_round_trips_resolve`, `root_must_be_a_directory`.
+Every lookup starts at `root.dir()` and steps down segment by segment with `symlink_metadata`,
+`read_link_contents` and `open_dir_nofollow`; no lookup is driven by a path string. An absolute
+link target is compared as text against the root (canonical and as opened) and its remainder is
+walked from the root again, so nothing outside the root is ever stat'd. `resolve` returns the
+names the disk stores, and `relative` only returns strings `check` accepts. If the folder behind
+the handle is no longer what `path()` names (the root was moved and replaced by a link), every
+call is `PATH_CHANGED`.
+
+I/O goes through handles, never through a resolved path: `open_dir` for a folder and
+`open_parent` for a leaf (which is returned as a name and never followed, so a dangling link is a
+file to delete, not a target to resolve). Mutations create with `O_EXCL`/no-follow through the
+parent handle. `resolve` is for read-only walkers such as a lister, the path index or a content
+search.
+
+On Windows also reject `\`, `:`, `~` (8.3 short names), drive prefixes, reserved device names
+(`CON`, `NUL`, `COM1`, `COM¹`, ...) and trailing dots or spaces, matching
+`packages/workspace/src/path-policy.ts`. Acceptance: `rejects_dot_dot_and_absolute_paths`,
+`rejects_symlink_that_leaves_root`, `follows_symlink_that_stays_inside_root`,
+`resolves_missing_leaf_under_existing_parent`, `relative_round_trips_resolve`,
+`root_must_be_a_directory`, `refuses_a_root_that_was_moved_and_replaced_by_a_link`,
+`refuses_an_absolute_link_that_climbs_out`, `refuses_an_inside_link_that_reaches_an_outside_link`,
+`open_parent_never_follows_the_leaf`, `returns_the_name_the_folder_stores`.
 
 ### files-list
 
@@ -272,10 +294,13 @@ Crates: `serde`, `serde_json`, `thiserror`.
 
 Framing on stdio, both directions: `u32` little-endian length of the rest, one `u8` kind, then
 the payload. Kind `1`: a UTF-8 JSON message. Kind `2`: a binary body, `u64` LE request id then the
-bytes; it belongs to the JSON message with the same id that says `"body": true`. Frames over
-16 MiB are an error. Provide `encode(&Message) -> Vec<u8>`, `encode_body(id, &[u8])`, and an
-incremental `Decoder` that takes byte chunks and yields complete frames, never panics on garbage,
-and reports oversize frames as errors.
+bytes; it belongs to the JSON message with the same id that says `"body": true`. A frame may
+declare at most 16 MiB (`MAX_FRAME_LEN`, kind byte and payload), so a body carries at most
+`MAX_BODY_LEN = MAX_FRAME_LEN - 9` bytes, and anything larger is `TOO_LARGE`. Provide
+`encode(&Message) -> Result<Vec<u8>, Error>`, `encode_body(id, &[u8]) -> Result<Vec<u8>, Error>`,
+and an incremental `Decoder` that takes byte chunks and yields complete frames, never panics on
+garbage, and reports oversize frames as errors: the declaration is refused on that call and on
+every later one, while `push` drops what still arrives so a dead decoder holds no memory.
 
 Messages (serde, `tag = "type"`, `rename_all = "camelCase"`, unknown fields ignored):
 
@@ -293,8 +318,24 @@ Messages (serde, `tag = "type"`, `rename_all = "camelCase"`, unknown fields igno
   `search { root, query… }` -> `{ subscription }`, events `matches { file }`, then
   `searchDone { summary }`.
 
-Put one golden vector per message in `native/files/vectors/*.json` (the exact JSON plus the hex of
-its frame); the Rust tests round-trip them and the TypeScript client (wave 2) tests the same files.
+Every nested value is tagged too, so a client reads the shape instead of guessing it. A response's
+`result.type` is one of `done` (`closeRoot`, `unwatch`, `createDir`, `rename`, `remove`), `root`
+(`openRoot`), `subscription` (`watch`, `search`), `page` (`list`), `entry` (`stat`), `read`,
+`version` (`write`, `createFile`) or `index` (`indexQuery`). A `read` result carries
+`"body": true` in place of the bytes: the bytes follow in a kind-2 frame with the response's id. An
+event payload's `type` is `changes`, `rescan`, `warning`, `matches` or `searchDone`. An entry's
+kind is tagged the same way: `{"type":"file"}`, `{"type":"directory"}`, `{"type":"other"}`, and
+`{"type":"symlink","target":{"type":"directory"}}`, with `target` left out when the link leaves the
+root. Optional fields are left out when absent.
+
+A kind-1 payload that does not parse still yields its request id (`Error::Message { id, source }`,
+read back with `Error::id()`), so the daemon answers that request instead of leaking it, and an
+`op` tag this build does not know is `UNSUPPORTED` rather than a broken message.
+
+Put one golden vector per message in `native/files/vectors/*.json`. A JSON vector holds `json` (the
+message, for reading), `text` (the exact payload that follows the five-byte header) and `frame`
+(hex); a body vector holds `{"id", "bytes"}` and its frame. The Rust tests round-trip them and the
+TypeScript client (wave 2) tests the same files.
 Acceptance: `every_vector_round_trips`, `decoder_handles_split_and_joined_frames`,
 `decoder_rejects_oversize_frame`, `unknown_fields_are_ignored`, `unknown_op_is_an_error_value`.
 
@@ -348,6 +389,56 @@ existing `Boundary`/`ParsedLine` logic, reused, not copied), with
 stops re-parsing once a line's boundary matches the cached one. Same colours and tokens as
 `highlight` for the same text (test that on the existing fixtures). Expose it through
 `markit-wasm` and `markit-ffi` (Swift, Kotlin) in the same shape.
+
+## Wave 2 contracts
+
+### Line model (settled for the editor, markit and editor-core)
+
+Lines split on `\n` only. A `\r` right before `\n` belongs to the line ending; a lone `\r` is
+not a separator. `"a\n"` is two lines, the last one empty. Columns are UTF-16 code units.
+
+### packages/files-native (daemon side)
+
+A TypeScript package owning the `ace-files` process for the daemon, modelled on
+`packages/media` (`media-binary.ts`, `supervisor.ts`); read those first and follow their shape.
+
+- `filesBinaryName(platform)` and a binary lookup with the same release/development modes as
+  `mediaBinaryName` (development: `ACE_FILES_PATH`, then `native/files/target/release/ace-files`,
+  then the debug build).
+- `FilesProcess`: spawns the binary with stdio pipes, sends `hello`, checks `protocol: 1`, and
+  restarts it with backoff (250 ms doubling to 10 s, reset after 60 s healthy) when it exits.
+  While it is down, requests fail at once with code `FILES_RESTARTING` (retryable); nothing
+  queues without bound. Every request has a timeout (default 30 s) and an `AbortSignal` that
+  sends `cancel`. Roots and watch subscriptions are re-opened after a restart, transparently to
+  callers.
+- `FilesClient`: typed methods for every op in the files-wire section (`openRoot`, `list`,
+  `stat`, `read` returning bytes from the body frame, `write`/`createFile` sending a body,
+  `rename`, `remove`, `watch` returning an async-disposable subscription with an `onBatch`
+  callback, `indexQuery`, `search` streaming matches). Decoding is Zod schemas in this package
+  mirroring files-wire exactly; a frame decoder in TypeScript with the same limits and
+  dead-decoder rule as the Rust one.
+- Tests: the codec round-trips every file in `native/files/vectors/` byte for byte (the
+  `text` and `frame` fields); supervisor behaviour against a small fake binary written as a Bun
+  script speaking the same frames (restart with backoff, `FILES_RESTARTING` while down,
+  timeout, cancel, re-open after restart, oversize frame kills and restarts the process).
+  The real-binary test comes with the `ace-files` crate.
+
+### Client protocol (packages/protocol)
+
+Additive; the old `list` stays for shipped clients.
+
+- `FileOperation` gains `{ op: "list.folder", path, limit (1..=5000, default 500), cursor? }`
+  returning `{ entries: FolderEntry[], nextCursor: string | null, total: number }` with
+  `FolderEntry = { name, path, kind: "file" | "directory" | "symlink" | "other",
+  target?: "file" | "directory" | "other", size, mtimeMs, ignored }`. `INVALID_CURSOR` tells the
+  client to list the folder again from the start.
+- Client message `files.watch { threadId, folders: string[] }` (at most 512 folders; each call
+  replaces that client's previous set for the thread; `[]` stops watching). The daemon pushes
+  `files.folders_changed { threadId, folders: string[], rescan: boolean }`, coalesced to at most
+  one message per 100 ms per client, naming only folders in that client's set (a change inside
+  `a/b/` names `a/b`; `rescan: true` means re-list every watched folder). Clients re-list just
+  those folders. This keeps a 3G link quiet: no per-file payloads.
+- Quick open keeps its current request shape; the daemon answers it from `indexQuery`.
 
 ## Waves and branches
 

@@ -1,0 +1,9 @@
+{
+  "json": {
+    "protocol": 1,
+    "type": "hello",
+    "version": "0.1.0"
+  },
+  "text": "{\"type\":\"hello\",\"protocol\":1,\"version\":\"0.1.0\"}",
+  "frame": "30000000017b2274797065223a2268656c6c6f222c2270726f746f636f6c223a312c2276657273696f6e223a22302e312e30227d"
+}
