@@ -1,10 +1,8 @@
-import { realpath } from "node:fs/promises";
-import { findExecutable } from "./executable.ts";
-
 /**
  * Version managers whose shims resolve a tool when they run. Running one can install or update
- * the tool (mise's `lazy` and `auto_update`, asdf's and proto's install-on-use), so ace never
- * runs one just to read a version or a login status.
+ * the tool (mise's `lazy` and `auto_update`, proto's install-on-use), so ace never runs one to
+ * read a version or a login status, or to list models: it asks the manager which installed
+ * binary the shim stands for (see `findInstalledExecutable`) and runs that.
  */
 export type VersionManager = "mise" | "asdf" | "volta" | "proto";
 
@@ -36,28 +34,28 @@ export function versionManagerShim(path: string, target: string): VersionManager
   return shimDirectories.find(([pattern]) => pattern.test(normalized))?.[1];
 }
 
-/** The manager behind `command` as `env`'s PATH resolves it, without running anything. */
-export async function findVersionManagerShim(
-  command: string,
-  env: NodeJS.ProcessEnv,
-): Promise<{ path: string; manager: VersionManager } | undefined> {
-  const path = await findExecutable(command, env);
-  if (!path) return undefined;
-  const target = await realpath(path).catch(() => path);
-  const manager = versionManagerShim(path, target);
-  return manager ? { path, manager } : undefined;
-}
-
-/** A probe ace refused to run because its executable is a version manager's shim. */
+/** A shim ace won't run: its manager couldn't name the installed binary without risking an install. */
 export class VersionManagerShimError extends Error {
   readonly path: string;
   readonly manager: VersionManager;
-  constructor(path: string, manager: VersionManager) {
+  readonly reason: string;
+  constructor(path: string, manager: VersionManager, reason: string) {
     super(
-      `${path} is a ${manager} shim. ace doesn't run it to check the CLI, because running it can install or update the tool. Set the provider's binary path to the installed executable.`,
+      `${path} is a ${manager} shim and ${reason}. ace doesn't run a shim it can't resolve, because running it can install or update the tool. Set the provider's binary path to the installed executable.`,
     );
     this.name = "VersionManagerShimError";
     this.path = path;
     this.manager = manager;
+    this.reason = reason;
+  }
+}
+
+/** A probe of a shim whose manager reports the tool isn't installed: nothing was run. */
+export class VersionManagerToolMissingError extends Error {
+  readonly path: string;
+  constructor(path: string) {
+    super(`${path} is a version manager's shim for a tool that isn't installed`);
+    this.name = "VersionManagerToolMissingError";
+    this.path = path;
   }
 }

@@ -1,15 +1,20 @@
 import { findOpenCodeExecutable } from "./opencode-executable.ts";
 export { findOpenCodeExecutable } from "./opencode-executable.ts";
-import { findExecutable } from "./executable.ts";
 import { VersionManagerShimError } from "./version-manager-shim.ts";
+import { findInstalledExecutable } from "./shim-resolver.ts";
 export { findExecutable, isPackageRunner, scriptExecutablePaths } from "./executable.ts";
 export { findWindowsExecutableSync } from "./executable.ts";
 export {
-  findVersionManagerShim,
   versionManagerShim,
   VersionManagerShimError,
+  VersionManagerToolMissingError,
   type VersionManager,
 } from "./version-manager-shim.ts";
+export {
+  findInstalledExecutable,
+  launchableExecutable,
+  type InstalledExecutable,
+} from "./shim-resolver.ts";
 import { z } from "zod";
 import { checkCli } from "../cli-requirements.ts";
 import { probeOutput } from "../process.ts";
@@ -118,11 +123,21 @@ export async function locateProvider(
     provider === "opencode"
       ? await findOpenCodeExecutable(command, { ...options, env })
       : undefined;
-  const path = provider === "opencode" ? opencode?.path : await findExecutable(command, env);
+  const found =
+    provider === "opencode"
+      ? opencode && { path: opencode.path, run: opencode.path }
+      : await findInstalledExecutable(
+          command,
+          env,
+          options.signal ? { signal: options.signal } : {},
+        );
   options.signal?.throwIfAborted();
-  if (!path) return { located: result, discovered: Promise.resolve({ ...result }) };
+  // A shim whose manager reports no installed tool is not an installed CLI.
+  if (!found || "absent" in found)
+    return { located: result, discovered: Promise.resolve({ ...result }) };
+  const path = "run" in found ? found.run : found.path;
   result.installed = true;
-  result.path = path;
+  result.path = found.path;
   const probeOptions = {
     env,
     timeoutMs: options.timeoutMs ?? 10_000,
@@ -194,7 +209,8 @@ export async function discoverAntigravity(
   options: DiscoveryOptions & { executable?: string } = {},
 ): Promise<DiscoveryResult> {
   const env = { ...process.env, ...options.env };
-  const path = await findExecutable(options.executable ?? "agy_acp_server", env);
+  const found = await findInstalledExecutable(options.executable ?? "agy_acp_server", env);
+  const path = found && !("absent" in found) ? found.path : undefined;
   const result: DiscoveryResult = {
     installed: Boolean(path),
     auth: "unknown",

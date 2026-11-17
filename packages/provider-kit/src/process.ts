@@ -20,10 +20,8 @@ import {
   type WindowsJobFactory,
 } from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
-import {
-  findVersionManagerShim,
-  VersionManagerShimError,
-} from "./discovery/version-manager-shim.ts";
+import { findInstalledExecutable } from "./discovery/shim-resolver.ts";
+import { VersionManagerToolMissingError } from "./discovery/version-manager-shim.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -386,9 +384,16 @@ export async function probeOutput(
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
-  // A probe only reads. A version manager's shim can install or update its tool when it runs.
-  const shim = await findVersionManagerShim(command, { ...process.env, ...options.env });
-  if (shim) throw new VersionManagerShimError(shim.path, shim.manager);
+  // A probe only reads. A version manager's shim can install or update its tool when it runs,
+  // so a shim is probed through the installed binary its manager names, or not at all.
+  const found = await findInstalledExecutable(
+    command,
+    { ...process.env, ...options.env },
+    options.signal ? { signal: options.signal } : {},
+  );
+  if (found && "refused" in found) throw found.refused;
+  if (found && "absent" in found) throw new VersionManagerToolMissingError(found.path);
+  const executable = found && "run" in found && found.run !== found.path ? found.run : command;
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {
@@ -397,7 +402,7 @@ export async function probeOutput(
     });
   // A spawn blocks its thread until the child starts, seconds under load: keep it off this one.
   if (!options.spawn)
-    return probeOffThread(command, args, {
+    return probeOffThread(executable, args, {
       timeoutMs: options.timeoutMs ?? 30_000,
       env: options.env ?? {},
       maxBytes,
@@ -406,7 +411,7 @@ export async function probeOutput(
       thread: options.thread,
     });
   const proc = options.spawn({
-    command,
+    command: executable,
     args,
     env: options.env ?? {},
     name: "cli-probe",
