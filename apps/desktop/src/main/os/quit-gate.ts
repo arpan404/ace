@@ -59,7 +59,11 @@ export class QuitGate {
     if (this.done) return true;
     if (!this.quitWhenDone) {
       this.quitWhenDone = true;
-      void this.shutDown().then(() => this.ports.quit());
+      void this.shutDown()
+        .then(() => this.ports.quit())
+        .catch((error: unknown) =>
+          this.ports.log("error", "Quitting after shutdown failed", { error: String(error) }),
+        );
     }
     return false;
   }
