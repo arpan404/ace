@@ -387,12 +387,15 @@ export class ModelCatalog implements ModelCatalogApi {
         state.retryAt = 0;
       }
       this.#changed(state);
+      // A refresh reports its own failures inside its flight.
       if (state.flight)
-        void state.flight.then(() => {
-          if (!this.#closed && this.#states.get(state.config.id) === state)
-            void this.#refresh(state);
-        });
-      else void this.#refresh(state);
+        void state.flight
+          .then(() => {
+            if (!this.#closed && this.#states.get(state.config.id) === state)
+              void this.#refresh(state).catch(() => {});
+          })
+          .catch(() => {});
+      else void this.#refresh(state).catch(() => {});
     }
   }
   /** Poll only CLI connection metadata. Unchanged metadata never starts catalog discovery. */
@@ -494,9 +497,11 @@ export class ModelCatalog implements ModelCatalogApi {
       state.retryAt = 0;
       state.abort?.abort();
       const refresh = () => {
-        if (!this.#closed && this.#states.get(state.config.id) === state) void this.#refresh(state);
+        // A refresh reports its own failures inside its flight.
+        if (!this.#closed && this.#states.get(state.config.id) === state)
+          void this.#refresh(state).catch(() => {});
       };
-      if (state.flight) void state.flight.then(refresh);
+      if (state.flight) void state.flight.then(refresh).catch(() => {});
       else refresh();
     }
   }
@@ -528,14 +533,16 @@ export class ModelCatalog implements ModelCatalogApi {
         : entry.identityRevision
           ? entry.identityRevision === identityRevision(config)
           : entry.revision === this.#revision(config));
-    if (entry && !compatible) void this.#deletions.remove(config.id);
+    // A failed removal stays pending for the next retry.
+    if (entry && !compatible) void this.#deletions.remove(config.id).catch(() => {});
     old?.abort?.abort();
     old?.probe?.abort.abort();
     if (old) this.#providers.get(old.config.provider)?.delete(config.id);
     if (!old && !this.#persisted.has(config.id) && this.#states.size + this.#persisted.size >= 64) {
       const evicted = this.#persisted.keys().next().value;
       if (evicted !== undefined) {
-        void this.#deletions.remove(evicted);
+        // A failed removal stays pending for the next retry.
+        void this.#deletions.remove(evicted).catch(() => {});
         this.#persisted.delete(evicted);
       }
     }
@@ -555,7 +562,8 @@ export class ModelCatalog implements ModelCatalogApi {
     const registered = this.#states.get(config.id);
     if (registered && entry && compatible && !old) {
       registered.dirty = true;
-      void this.#refresh(registered);
+      // A refresh reports its own failures inside its flight.
+      void this.#refresh(registered).catch(() => {});
     }
     if (registered) this.#changed(registered);
   }
@@ -767,7 +775,9 @@ export class ModelCatalog implements ModelCatalogApi {
   #revalidate(states: State[]): void {
     if (this.#closed) return;
     for (const state of states)
-      if (this.#stale(state) && this.#options.now() >= state.retryAt) void this.#refresh(state);
+      // A refresh reports its own failures inside its flight.
+      if (this.#stale(state) && this.#options.now() >= state.retryAt)
+        void this.#refresh(state).catch(() => {});
   }
   revalidate(): void {
     this.#revalidate(this.#select({}));
@@ -1021,11 +1031,14 @@ export class ModelCatalog implements ModelCatalogApi {
           const owned = this.#instanceDiscoveries.get(state.config.id) ?? new Set<Promise<void>>();
           owned.add(cleanup);
           this.#instanceDiscoveries.set(state.config.id, owned);
-          void cleanup.then(() => {
-            this.#discoveries.delete(cleanup);
-            owned.delete(cleanup);
-            if (!owned.size) this.#instanceDiscoveries.delete(state.config.id);
-          });
+          // cleanup absorbs the discovery failure itself.
+          void cleanup
+            .then(() => {
+              this.#discoveries.delete(cleanup);
+              owned.delete(cleanup);
+              if (!owned.size) this.#instanceDiscoveries.delete(state.config.id);
+            })
+            .catch(() => {});
           const models = await Promise.race([discovery, failure]);
           if (
             this.#states.get(state.config.id) !== state ||

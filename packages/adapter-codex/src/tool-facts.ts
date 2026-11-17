@@ -52,9 +52,12 @@ export class CodexCatalogCache {
     const existing = this.#entries.get(key);
     if (existing) return existing;
     this.#entries.set(key, catalog);
-    void catalog.then((slugs) => {
-      if (slugs === undefined && this.#entries.get(key) === catalog) this.#entries.delete(key);
-    });
+    // The caller awaits this same load, so a failure is reported there.
+    void catalog
+      .then((slugs) => {
+        if (slugs === undefined && this.#entries.get(key) === catalog) this.#entries.delete(key);
+      })
+      .catch(() => {});
     return catalog;
   }
 }

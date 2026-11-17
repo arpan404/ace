@@ -115,7 +115,8 @@ export function createProbeThread(
       }
       // Still running, perhaps unrecorded: stop it and stay its owner until the worker confirms
       // the exit (or dies), so a global stop keeps waiting for it.
-      void stop(flight);
+      // settled absorbs the probe's failure; the caller still sees it through done.
+      void stop(flight).catch(() => {});
       return;
     }
     const flight = flights.get(message.data.id);
