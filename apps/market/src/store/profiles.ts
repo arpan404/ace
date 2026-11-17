@@ -293,63 +293,115 @@ export async function sweepPictureRows(db: D1Database, now: number, limit: numbe
 /** How long a claim stands before the cron acts on it: at least one run apart. */
 export const pictureClaimMs = 10 * 60_000;
 
+/**
+ * How long a run holds a claim before another run may take it over: a run that stalls or dies
+ * past this loses the claim, and its fenced delete then finds it no longer holds it.
+ */
+export const pictureLeaseMs = pictureClaimMs;
+
+/** A claim a cron run holds: its key and the generation the run took it at. */
+export type PictureClaim = { key: string; generation: number };
+
 const unheld = (key: string) => `NOT EXISTS (SELECT 1 FROM pictures WHERE pictures.key = ${key})`;
 
 /**
  * The cron's first step on R2 objects it found past the grace period (ADR 0173 §1): each one no
- * picture row holds gets a claim, in one statement that checks. Nothing is deleted yet; an
- * upload that charges the key before the next step drops the claim.
+ * picture row holds gets a claim owned by this run, in one statement that checks. Nothing is
+ * deleted yet; an upload that charges the key before the next step drops the claim. A key
+ * already claimed keeps its claim and its owner.
  */
-export async function claimPictures(db: D1Database, keys: readonly string[], now: number) {
+export async function claimPictures(
+  db: D1Database,
+  keys: readonly string[],
+  now: number,
+  owner: string,
+) {
   if (keys.length === 0) return;
   await db
     .prepare(
-      `INSERT INTO picture_tombstones (key, claimed_at)
-        SELECT value, ?2 FROM json_each(?1) WHERE ${unheld("value")}
+      `INSERT INTO picture_tombstones (key, claimed_at, owner, generation, leased_at)
+        SELECT value, ?2, ?3, 1, ?2 FROM json_each(?1) WHERE ${unheld("value")}
         ON CONFLICT (key) DO NOTHING`,
     )
-    .bind(JSON.stringify(keys), now)
+    .bind(JSON.stringify(keys), now, owner)
     .run();
 }
 
 /**
  * The cron's second step: up to `limit` claims at least `pictureClaimMs` old whose key still no
- * row holds are marked deleting, in one statement that re-checks, and their keys returned for
- * the caller to delete from R2. A claim a row now holds is dropped, the object kept. A claim already marked
- * deleting (a run cut off before it finished) is returned again. While marked, uploads of the
- * key are refused, so no bytes land between this and the R2 delete.
+ * row holds, and that are unowned, owned by this run, or whose lease has lapsed, are taken by
+ * this run (owner stamped, generation bumped, lease renewed) and marked deleting, in one
+ * statement that re-checks. A claim a row now holds is dropped, the object kept. A claim
+ * already marked deleting by a run cut off before it finished is taken over once its lease
+ * lapses. While marked, uploads of the key are refused, so no bytes land between this and the
+ * R2 delete. Returns the claims with the generation this run holds them at.
  */
 export async function startPictureDeletes(
   db: D1Database,
   now: number,
   limit: number,
-): Promise<string[]> {
+  owner: string,
+): Promise<PictureClaim[]> {
+  const takeable = `(owner IS NULL OR owner = ?3 OR leased_at <= ?4)`;
   const due = `key IN (SELECT key FROM picture_tombstones
-    WHERE deleting = 1 OR claimed_at <= ?1 ORDER BY claimed_at LIMIT ?2)`;
-  const [, marked] = await db.batch<{ key: string }>([
+    WHERE (deleting = 1 OR claimed_at <= ?1) AND ${takeable} ORDER BY claimed_at LIMIT ?2)`;
+  const args = [now - pictureClaimMs, limit, owner, now - pictureLeaseMs, now] as const;
+  const [, marked] = await db.batch<PictureClaim>([
     db
       .prepare(
         `DELETE FROM picture_tombstones WHERE ${due} AND NOT ${unheld("picture_tombstones.key")}`,
       )
-      .bind(now - pictureClaimMs, limit),
+      .bind(...args.slice(0, 4)),
     db
       .prepare(
-        `UPDATE picture_tombstones SET deleting = 1
-          WHERE ${due} AND ${unheld("picture_tombstones.key")} RETURNING key`,
+        `UPDATE picture_tombstones
+          SET deleting = 1, owner = ?3, generation = generation + 1, leased_at = ?5
+          WHERE ${due} AND ${takeable} AND ${unheld("picture_tombstones.key")}
+          RETURNING key, generation`,
       )
-      .bind(now - pictureClaimMs, limit),
+      .bind(...args),
   ]);
-  return (marked?.results ?? []).map((row) => row.key);
+  return (marked?.results ?? []).map((row) => ({ key: row.key, generation: row.generation }));
 }
 
-/** Drops the claims of objects the cron has deleted from R2, which lets their uploads through. */
-export async function finishPictureDeletes(db: D1Database, keys: readonly string[]) {
-  if (keys.length === 0) return;
-  await db
+const heldBy = `owner = ?2 AND deleting = 1 AND EXISTS (SELECT 1 FROM json_each(?1)
+    WHERE json_extract(value, '$.key') = picture_tombstones.key
+      AND json_extract(value, '$.generation') = picture_tombstones.generation)`;
+
+/**
+ * The fence, read immediately before the R2 delete: of `claims`, the keys this run still holds
+ * at the same generation, marked deleting, that no row holds. A claim another run took over,
+ * or one an upload dropped, is left out, so a run that lost it deletes nothing.
+ */
+export async function heldPictureDeletes(
+  db: D1Database,
+  owner: string,
+  claims: readonly PictureClaim[],
+): Promise<string[]> {
+  if (claims.length === 0) return [];
+  const { results } = await db
     .prepare(
-      "DELETE FROM picture_tombstones WHERE deleting = 1 AND key IN (SELECT value FROM json_each(?1))",
+      `SELECT key FROM picture_tombstones
+        WHERE ${heldBy} AND ${unheld("picture_tombstones.key")}`,
     )
-    .bind(JSON.stringify(keys))
+    .bind(JSON.stringify(claims), owner)
+    .all<{ key: string }>();
+  return results.map((row) => row.key);
+}
+
+/**
+ * Drops the claims of objects this run has deleted from R2, which lets their uploads through.
+ * A claim another run has taken since is left to that run.
+ */
+export async function finishPictureDeletes(
+  db: D1Database,
+  owner: string,
+  claims: readonly PictureClaim[],
+) {
+  if (claims.length === 0) return;
+  await db
+    .prepare(`DELETE FROM picture_tombstones WHERE ${heldBy}`)
+    .bind(JSON.stringify(claims), owner)
     .run();
 }
 
