@@ -6,7 +6,7 @@ import { scanText } from "./decode.ts";
 import { safeBinary } from "./binary.ts";
 
 /*
- * Whether a version carries runnable content (ADR 0173 §8). Static analysis is never complete, so
+ * Whether a version carries runnable content (ADR 0174 §8). Static analysis is never complete, so
  * the scanner is a filter in front of runtime containment, not the boundary: any version with a
  * scene, a script, a hook, a server command, a binary, or instructions that run commands is held
  * for a maintainer, whatever the publisher. Only a pure data entry (a Suit with no scene, a recipe

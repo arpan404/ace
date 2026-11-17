@@ -1,7 +1,7 @@
 import { scanText } from "./decode.ts";
 
 /*
- * Licence texts a Suit may hold (ADR 0173 §8). A font's licence (OFL and the like) must ship with
+ * Licence texts a Suit may hold (ADR 0174 §8). A font's licence (OFL and the like) must ship with
  * the font, so a Suit may carry plain-text licence and notice files, at its root or under
  * `assets/`. They stay inert data: UTF-8 text, size-capped, and the scanner's hidden-content and
  * secrets checks still read them; a Suit's licence is never an instruction source. Anything that

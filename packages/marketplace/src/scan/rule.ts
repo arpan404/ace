@@ -3,7 +3,7 @@ import type { ScanInput } from "./index.ts";
 import type { ScriptView } from "./script-view.ts";
 
 /*
- * The rule framework (ADR 0173 §8) the script and whole-entry checks plug into. A `ScriptRule`
+ * The rule framework (ADR 0174 §8) the script and whole-entry checks plug into. A `ScriptRule`
  * reads one script view (a skill script, a plugin command, a hook, a recipe-bundled skill) and
  * returns a finding per match; an `EntryRule` reads the whole entry and the facts a step gathered
  * (hosts seen in code, and the like). The rule tables are separate files so each table is edited
@@ -28,7 +28,7 @@ export interface ScriptRule {
   id: string;
   check: "scripts" | "plugin" | "recipe";
   level: MarketScanLevel;
-  /** Holds a new publisher's version even as a note (ADR 0173 §9). */
+  /** Holds a new publisher's version even as a note (ADR 0174 §9). */
   strict?: boolean;
   find(view: ScriptView): RuleHit[];
 }

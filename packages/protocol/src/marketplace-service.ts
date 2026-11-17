@@ -21,7 +21,7 @@ import { MarketScanReport } from "./marketplace-scan.ts";
 import { MarketVerificationProof, Signed } from "./marketplace-signed.ts";
 
 /*
- * The market Worker's publishing and signer routes (ADR 0168 §6, §7; ADR 0173 §9, §10), shared
+ * The market Worker's publishing and signer routes (ADR 0168 §6, §7; ADR 0174 §9, §10), shared
  * by the Worker and the tools that call it (`ace marketplace publish`, `ace market …`).
  * Publisher routes under `/v1/me` are in marketplace-publisher.ts; read bodies in
  * marketplace-catalog.ts and marketplace-discover.ts. Schema only.
@@ -45,7 +45,7 @@ export const PublishAccepted = z.object({
   name: MarketEntryName,
   version: MarketVersion,
   hash: MarketHash,
-  /** Held for a maintainer rather than waiting only for the signer (ADR 0173 §9). */
+  /** Held for a maintainer rather than waiting only for the signer (ADR 0174 §9). */
   held: z.boolean().optional(),
   scan: MarketScanReport.optional(),
 });
@@ -101,7 +101,7 @@ export const SignedVersionUpload = z.object({ manifest: Signed });
 export const SignedReviewUpload = z.object({ review: Signed });
 /**
  * The `issued` of the stored list a maintainer's edit started from, absent when none was stored
- * (ADR 0173 §10). The Worker stores an edit only while that list is still the stored one, so two
+ * (ADR 0174 §10). The Worker stores an edit only while that list is still the stored one, so two
  * maintainers editing at once never undo each other.
  */
 const BasedOn = z.number().int().nonnegative().optional();
@@ -115,7 +115,7 @@ export const FeaturedUpload = z.object({
 /** `PUT /v1/signer/collections`: the whole list, in order. */
 export const CollectionsUpload = z.object({ collections: z.array(MarketCollection).max(16) });
 
-/** `PUT /v1/signer/official`: the whole signed official list (ADR 0173 §14). */
+/** `PUT /v1/signer/official`: the whole signed official list (ADR 0174 §14). */
 export const SignedOfficialUpload = z.object({ official: Signed, basedOn: BasedOn });
 
 /* ---------------------------------------------------------------- the scan's context */
@@ -138,14 +138,14 @@ export const MarketScanContextBody = z.object({
   verified: z
     .array(z.object({ handle: MarketPublisherName, displayName: z.string().max(60) }))
     .max(5_000),
-  /** Publishers with stricter thresholds (ADR 0173 §9), by handle. */
+  /** Publishers with stricter thresholds (ADR 0174 §9), by handle. */
   newPublishers: z.array(MarketPublisherName).max(50_000),
 });
 export type MarketScanContextBody = z.infer<typeof MarketScanContextBody>;
 
 /* ---------------------------------------------------------------- the maintainers' queue */
 
-/** `GET /v1/signer/queue`: what waits for a maintainer (ADR 0173 §9). */
+/** `GET /v1/signer/queue`: what waits for a maintainer (ADR 0174 §9). */
 export const MarketQueueBody = z.object({
   held: z
     .array(

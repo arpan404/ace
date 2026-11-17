@@ -28,7 +28,7 @@ import {
 import { listVersion, versionForSigning } from "./store/signer.ts";
 
 /*
- * The maintainers' routes (ADR 0173 §7, §9, §10, §13, §14) through the Worker: the signer's token
+ * The maintainers' routes (ADR 0174 §7, §9, §10, §13, §14) through the Worker: the signer's token
  * on every one, holds, blocks and approvals as the signer sees them, listing edits, anonymous
  * reports and the signed lists.
  */
@@ -86,7 +86,7 @@ it("a held version waits for a maintainer, not the signer; approving, holding an
     name: "held-skill",
     files: sampleSkill("held-skill"),
   };
-  // A new publisher's first version is held (ADR 0173 §9).
+  // A new publisher's first version is held (ADR 0174 §9).
   expect((await publish(market, upload)).status).toBe(201);
   expect(await waiting("held-skill")).toEqual([]);
   expect((await queue()).held.map((item) => item.name)).toContain("held-skill");

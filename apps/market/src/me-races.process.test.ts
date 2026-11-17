@@ -29,7 +29,7 @@ import { addWithdrawal, claimPublisher, storePending } from "./store/publish.ts"
 import { dueRechecks, recordCheck } from "./store/verification.ts";
 
 /*
- * Races on a publisher's own routes (ADR 0173 §5): a request checks ownership, then something
+ * Races on a publisher's own routes (ADR 0174 §5): a request checks ownership, then something
  * else lands before its write. Each case calls the store as the request would after its check,
  * with the state another request left, against the market's D1.
  */

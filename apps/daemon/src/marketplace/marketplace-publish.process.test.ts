@@ -10,10 +10,11 @@ import type {
   MarketPublishAction,
   MarketScanReport,
 } from "@ace/protocol/marketplace";
+import type { PickAceSkill } from "./pick.ts";
 import { fakeMarket, fakeSpade, marketplaceHarness, type Seen } from "./test-support.ts";
 
 /*
- * Publishing through the daemon (ADR 0173 §2, §6): a market grant per action, sent only as
+ * Publishing through the daemon (ADR 0174 §2, §6): a market grant per action, sent only as
  * Authorization to the market and never kept; signed out and stale sign-ins in the words the
  * app shows; a folder uploaded as its canonical archive; Discover answered offline.
  */
@@ -22,6 +23,8 @@ let market: Awaited<ReturnType<typeof fakeMarket>>;
 let spade: Awaited<ReturnType<typeof fakeSpade>>;
 let harness: Awaited<ReturnType<typeof marketplaceHarness>>;
 let uploads: Seen[];
+/** The person's own skills in ace's library, as the picker reads them. */
+let aceSkills: PickAceSkill[];
 
 const grantText = "grant-0f1e2d3c4b5a69788796a5b4c3d2e1f0";
 const grant = () => Promise.resolve(grantText);
@@ -94,7 +97,23 @@ const heldScan: MarketScanReport = {
 beforeEach(async () => {
   market = await fakeMarket();
   spade = await fakeSpade();
-  harness = await marketplaceHarness({ origin: market.origin, spade });
+  aceSkills = [];
+  harness = await marketplaceHarness({
+    origin: market.origin,
+    spade,
+    pick: {
+      spade: {
+        bots: async () => [],
+        recipe: async () => undefined,
+        skills: async () => [],
+        skillFiles: async () => [],
+      },
+      aceSkills: async () => aceSkills,
+      plugins: undefined,
+      names: async () => [],
+      installedFromMarket: () => false,
+    },
+  });
   uploads = [];
   market.route((seen, _response, answer) => {
     if (seen.method === "GET" && seen.path === "/v1/me") answer(200, me);
@@ -218,13 +237,17 @@ describe("drafts", () => {
       await mkdir(dirname(join(folder, file.path)), { recursive: true });
       await writeFile(join(folder, file.path), file.content);
     }
+    const key = { type: "spade-skill", name: "triage-mail" } as const;
+    const source = { kind: "folder", path: folder } as const;
+    const checked = await publish({ action: "draftCheck", ...key, source }, grant);
+    if (checked.op !== "publish" || checked.answer.kind !== "checked") throw new Error("no check");
     const result = await publish(
       {
         action: "draftCreate",
-        type: "spade-skill",
-        name: "triage-mail",
+        ...key,
         version: "1.0.0",
-        source: { kind: "folder", path: folder },
+        source,
+        checked: { hash: checked.answer.check.hash, binaries: [], accepted: [] },
       },
       grant,
     );
@@ -237,6 +260,46 @@ describe("drafts", () => {
     expect(contentHash(hashFiles(sent))).toBe(contentHash(hashFiles(files)));
     // Canonical: writing what was sent again gives the same bytes.
     expect(Buffer.from(writeArchive(sent)).equals(Buffer.from(body))).toBe(true);
+  });
+
+  it("upload a picked skill only after its check here was confirmed, and only what it listed", async () => {
+    const files = sampleSkill("triage-mail", { "scripts/sort.sh": "#!/bin/sh\necho sorted\n" });
+    for (const file of [...files, { path: ".env", content: "TOKEN=hunter2" }]) {
+      await mkdir(dirname(join(folder, file.path)), { recursive: true });
+      await writeFile(join(folder, file.path), file.content);
+    }
+    const id = `skl_${"d".repeat(40)}`;
+    aceSkills = [{ id, name: "triage-mail", title: undefined, description: "", folder }];
+    const key = { type: "spade-skill", name: "triage-mail" } as const;
+    const source = { kind: "ace-skill", id } as const;
+
+    // Unconfirmed, nothing is uploaded.
+    expect(
+      await publish({ action: "draftCreate", ...key, version: "1.0.0", source }, grant),
+    ).toMatchObject({ op: "error", code: "refused" });
+    expect(uploads).toHaveLength(0);
+
+    const checked = await publish({ action: "draftCheck", ...key, source }, grant);
+    if (checked.op !== "publish" || checked.answer.kind !== "checked") throw new Error("no check");
+    const { check } = checked.answer;
+    expect(check.files.map((file) => file.path)).toEqual(files.map((file) => file.path).toSorted());
+    expect(check.excluded).toEqual([{ path: ".env", reason: "hidden" }]);
+    expect(uploads).toHaveLength(0);
+
+    const result = await publish(
+      {
+        action: "draftCreate",
+        ...key,
+        version: "1.0.0",
+        source,
+        checked: { hash: check.hash, binaries: [], accepted: [] },
+      },
+      grant,
+    );
+    expect(result).toMatchObject({ op: "publish", answer: { kind: "draft" } });
+    const sent = readArchive(new Uint8Array(uploads[0]?.body ?? []), typeLimits["spade-skill"]);
+    expect(contentHash(hashFiles(sent))).toBe(contentHash(hashFiles(files)));
+    expect(Buffer.from(uploads[0]?.body ?? []).includes("hunter2")).toBe(false);
   });
 
   it("upload one of the person's Suits from its folder in their library, named by id", async () => {
@@ -261,17 +324,16 @@ describe("drafts", () => {
     expect(sent.map((file) => file.path)).toEqual(["suit.json"]);
   });
 
-  it("refuse a folder holding a link, before any grant is asked for", async () => {
+  it("refuse to check a folder holding a link, before any grant is asked for", async () => {
     await writeFile(join(folder, "SKILL.md"), "---\nname: x\ndescription: y\n---\n");
     const { symlink } = await import("node:fs/promises");
     await symlink("/etc/hosts", join(folder, "hosts"));
     let asked = false;
     const result = await publish(
       {
-        action: "draftCreate",
+        action: "draftCheck",
         type: "spade-skill",
         name: "triage-mail",
-        version: "1.0.0",
         source: { kind: "folder", path: folder },
       },
       () => {

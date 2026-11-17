@@ -4,7 +4,7 @@ import { appletLookAlikes, appletSamples, unknownWrapperSamples } from "./corpus
 
 /*
  * Multi-call applets read as the applet they run (`busybox sh x` is `sh x`), and a program the
- * reader can't resolve that is handed an interpreter or a script is held (ADR 0173 §8, fail
+ * reader can't resolve that is handed an interpreter or a script is held (ADR 0174 §8, fail
  * closed). Ordinary commands that only mention an interpreter stay clean.
  */
 

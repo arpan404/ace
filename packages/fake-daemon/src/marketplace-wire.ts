@@ -13,6 +13,7 @@ import type {
   MarketSource,
 } from "@ace/protocol/marketplace";
 import { search } from "@ace/marketplace";
+import { FakeMarketPick, type MarketPickSeed } from "./marketplace-pick.ts";
 import { FakeMarketPublishing, type MarketPublishSeed } from "./marketplace-publish.ts";
 
 /*
@@ -49,8 +50,10 @@ export interface MarketplaceSeed {
   readAt?: number;
   /** A `prepare` for these `type/name` keys is refused with this message. */
   refuse?: Record<string, string>;
-  /** Publishing, Discover and publisher pages (ADR 0173). */
+  /** Publishing, Discover and publisher pages (ADR 0174). */
   publishing?: MarketPublishSeed;
+  /** What the publish flow's picker lists, and each bot's recipe. */
+  pick?: MarketPickSeed;
   /** Listing pictures and avatars the `picture` op answers, by sha256. */
   pictures?: Record<string, { type: "image/png" | "image/jpeg" | "image/webp"; data: string }>;
 }
@@ -150,6 +153,7 @@ export class FakeMarketplaceWire {
 
   /** Publishing, Discover, publisher pages and the reports sent. */
   readonly publishing: FakeMarketPublishing;
+  readonly pick = new FakeMarketPick();
 
   constructor(now: () => number = () => 1_700_000_000_000) {
     this.#now = now;
@@ -170,6 +174,7 @@ export class FakeMarketplaceWire {
     this.#readAt = seed.readAt;
     if (seed.pictures) this.#pictures = { ...this.#pictures, ...seed.pictures };
     if (seed.publishing) this.publishing.seed(seed.publishing);
+    if (seed.pick) this.pick.seed(seed.pick);
   }
 
   /** Hears `marketplace.changed` after installs and removals. */
@@ -430,10 +435,19 @@ export class FakeMarketplaceWire {
         );
       case "publisher":
         return this.publishing.publisher(operation.handle);
-      case "publish":
-        return this.publishing.publish(operation.request);
+      case "publish": {
+        const request = operation.request;
+        if (request.action === "draftCheck") return this.pick.check(request.source);
+        return this.pick.refusal(request) ?? this.publishing.publish(request);
+      }
+      case "privacyCheck":
+        return this.pick.privacy(operation.texts);
       case "report":
         return this.publishing.report(operation);
+      case "publishables":
+        return this.pick.publishables(operation.type);
+      case "botRecipe":
+        return this.pick.botRecipe(operation.id);
       case "picture": {
         const picture = this.#pictures[operation.hash];
         return picture

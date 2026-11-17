@@ -1,4 +1,4 @@
--- Publishers and what is theirs (ADR 0173 §2, §3, §5, §9, §13, §14, §16): accounts, profiles,
+-- Publishers and what is theirs (ADR 0174 §2, §3, §5, §9, §13, §14, §16): accounts, profiles,
 -- handle reservations, verification, the official list, drafts and their scans, upload limits,
 -- the quota ledger and pictures. A publisher is an ace account's id and the handle it picked;
 -- nothing else from the account. Nothing here names a reader.

@@ -3,7 +3,7 @@ import type { ScanInput } from "./index.ts";
 import { scanText } from "./decode.ts";
 
 /*
- * The `recipe` check's rules (ADR 0173 §8): what an entry tells a bot to do. A recipe's needs
+ * The `recipe` check's rules (ADR 0174 §8): what an entry tells a bot to do. A recipe's needs
  * must fit its task; nothing in a recipe or a skill's instructions may turn the bot against the
  * person (prompt injection), and none may send the person's data to an address the task doesn't
  * name.
@@ -22,7 +22,7 @@ interface Instruction {
 }
 
 /**
- * The most of one file the rules read: the scanner's per-file cap (ADR 0173 §8). Past it the
+ * The most of one file the rules read: the scanner's per-file cap (ADR 0174 §8). Past it the
  * `scripts` check already warns that the file is too long to read fully.
  */
 const MAX_FILE_CHARS = 1024 * 1024;

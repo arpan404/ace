@@ -15,7 +15,7 @@ import { HELD_LEVEL, TRUNCATED_LEVEL } from "./fail-closed.ts";
 import type { ScriptView } from "./script-view.ts";
 
 /*
- * Following sensitive data to the network (ADR 0173 §8). A real entry that logs in with a single
+ * Following sensitive data to the network (ADR 0174 §8). A real entry that logs in with a single
  * named key (`process.env.API_KEY` in a header) is ordinary; what no entry should do is send the
  * whole environment, a credential file, the home folder or a keychain out. So the rule reads the
  * severity of what reaches a network sink:
@@ -332,7 +332,7 @@ const runtimeMethod = (node: JsNode, scope: FlowScope): string | undefined => {
 };
 
 /**
- * The severity of a read through a runtime global (ADR 0173 §8, fails closed): its whole
+ * The severity of a read through a runtime global (ADR 0174 §8, fails closed): its whole
  * environment is severe, one named value mild, a computed one or a file read at a path the
  * scanner can't resolve unproven.
  */
@@ -436,7 +436,7 @@ const heldHit = (message: string, line?: number): FlowHit => ({
 });
 
 /**
- * The finding for an analysis a cap cut short (ADR 0173 §8, fails closed): the code it didn't read
+ * The finding for an analysis a cap cut short (ADR 0174 §8, fails closed): the code it didn't read
  * could run, so the entry is blocked, the `scan-truncated` level, until it can be read whole.
  */
 export const cutShort = (path: string): FlowHit => ({

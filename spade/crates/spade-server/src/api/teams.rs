@@ -30,6 +30,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/templates", get(templates))
         .route("/agents/{id}/duplicate", post(duplicate))
         .route("/agents/{id}/export", get(export))
+        .route("/agents/{id}/recipe", get(export_recipe))
         .route(
             "/agents/import",
             post(import).layer(DefaultBodyLimit::max(AGENT_BODY)),
@@ -318,6 +319,23 @@ async fn export(State(state): State<AppState>, Path(id): Path<String>) -> Respon
             Err(error) => portable_problem(&error),
         },
     )
+    .await
+}
+
+/// `GET /v1/agents/{id}/recipe`: the bot as a version 2 recipe for the marketplace (ADR 0168 §5),
+/// with what a recipe can't carry. The daemon reads it to publish the bot.
+async fn export_recipe(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    off_thread(move || {
+        let sources = teams::RecipeSources {
+            connectors: state.connectors.as_deref(),
+            plugins: state.engine.plugins().map(|p| &**p),
+            skills: state.skill_store.as_deref(),
+        };
+        match teams::export_recipe(&state.engine, sources, &id) {
+            Ok(exported) => Json(exported).into_response(),
+            Err(error) => portable_problem(&error),
+        }
+    })
     .await
 }
 

@@ -134,7 +134,7 @@ export class MarketHttp {
 
   /** The signed withdrawn list, or undefined before the market has one. */
   withdrawn = () => this.#signed("/v1/withdrawn");
-  /** The signed blocklist, verified list and official list (ADR 0173 §8, §13, §14). */
+  /** The signed blocklist, verified list and official list (ADR 0174 §8, §13, §14). */
   blocklist = () => this.#signed("/v1/blocklist");
   verified = () => this.#signed("/v1/verified");
   official = () => this.#signed("/v1/official");

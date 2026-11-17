@@ -9,7 +9,7 @@ import {
 } from "./marketplace-base.ts";
 
 /*
- * What the market's signer vouches for (ADR 0168 §6, ADR 0173 §8): a version's manifest, a
+ * What the market's signer vouches for (ADR 0168 §6, ADR 0174 §8): a version's manifest, a
  * review mark, the withdrawn list and the blocklist, each signed with Ed25519 by a market key
  * that never sits on the Worker. Schema only; signing and verifying live in `@ace/marketplace`.
  */
@@ -98,7 +98,7 @@ export const MarketBlockedPattern = z.strictObject({
 export type MarketBlockedPattern = z.infer<typeof MarketBlockedPattern>;
 
 /**
- * The maintainers' known-bad list (ADR 0173 §8): whole versions by content hash, single files by
+ * The maintainers' known-bad list (ADR 0174 §8): whole versions by content hash, single files by
  * their sha256, and patterns. Signed with the withdrawn list and served at `/v1/blocklist`.
  */
 export const MarketBlocklist = z.strictObject({
@@ -115,7 +115,7 @@ export type MarketBlocklist = z.infer<typeof MarketBlocklist>;
 export const Signed = z.strictObject({ body: z.unknown(), signature: Signature });
 export type Signed = z.infer<typeof Signed>;
 
-/** One proof a verified publisher passed (ADR 0173 §13). */
+/** One proof a verified publisher passed (ADR 0174 §13). */
 export const MarketVerificationProof = z.discriminatedUnion("kind", [
   /** An authenticated ace account with a verified email; every verified publisher has it. */
   z.strictObject({ kind: z.literal("account") }),
@@ -137,7 +137,7 @@ export const MarketVerificationProof = z.discriminatedUnion("kind", [
 export type MarketVerificationProof = z.infer<typeof MarketVerificationProof>;
 
 /**
- * The verified publishers (ADR 0173 §13), signed by the signer like the withdrawn list and
+ * The verified publishers (ADR 0174 §13), signed by the signer like the withdrawn list and
  * served at `/v1/verified`. A device shows "Verified" only for a publisher on a list it verified.
  */
 export const MarketVerifiedList = z.strictObject({
@@ -158,7 +158,7 @@ export const MarketVerifiedList = z.strictObject({
 export type MarketVerifiedList = z.infer<typeof MarketVerifiedList>;
 
 /**
- * The official publisher (ADR 0173 §14): the `ace` publisher's id and the ace accounts that may
+ * The official publisher (ADR 0174 §14): the `ace` publisher's id and the ace accounts that may
  * publish as it, signed by the signer and served at `/v1/official`. "By ace" on a device means a
  * manifest's publisher is this id, on a list the device verified.
  */

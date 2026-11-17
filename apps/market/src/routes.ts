@@ -14,7 +14,7 @@ import { meRoutes, signerRoutes } from "./routes-more.ts";
 export type { EntryKey, Matched, Methods, Route, VersionKey } from "./route-keys.ts";
 
 /*
- * Which route a request names (ADR 0168 §3, §7; ADR 0173 §11; the contracts are in
+ * Which route a request names (ADR 0168 §3, §7; ADR 0174 §11; the contracts are in
  * @ace/protocol/marketplace). Pure: a method and a path in, a route or a refusal out. A path
  * segment that isn't a valid type, name, version, hash, handle or id names nothing.
  */
