@@ -1,11 +1,13 @@
-//! Only terminals already inherited as standard I/O may be reopened by path.
+//! The command's dedicated pty, as the namespace init received it among the command's stdio,
+//! opened by its `/dev/pts` path for its Landlock rule.
 use rustix::fs::{FileType, Mode, OFlags};
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 
-pub fn inherited() -> Vec<OwnedFd> {
-    (0..=2)
-        .filter_map(|number| {
-            let link = format!("/proc/self/fd/{number}");
+/// The `/dev/pts` nodes of the terminals among `fds`, each checked to be the same object.
+pub fn terminals(fds: &[OwnedFd]) -> Vec<OwnedFd> {
+    fds.iter()
+        .filter_map(|fd| {
+            let link = format!("/proc/self/fd/{}", fd.as_raw_fd());
             let path = std::fs::read_link(&link).ok()?;
             let name = path.strip_prefix("/dev/pts").ok()?.to_str()?;
             if name.is_empty() || !name.bytes().all(|b| b.is_ascii_digit()) {

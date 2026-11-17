@@ -130,3 +130,54 @@ assert r.stderr=="to the pipe\n",r
 "#;
     drive(inside, parent);
 }
+
+#[test]
+fn control_sequences_that_reach_past_the_screen_never_reach_the_persons_terminal() {
+    // Written in pieces, some split inside a sequence, so the relay sees them across reads.
+    let inside = r#"import os,time
+pieces=[b"plain text\r\n\x1b[1;3", b"1mred\x1b[0m\r\n",
+ b"\x1b]52;c;c2VjcmV0\x07", b"\x1b]5", b"2;c;?\x1b\\", b"\x1b]0;title\x07\x1b]2;tit", b"le\x1b\\",
+ b"\x1b[18t\x1b[8;5;5t\x1b[6", b"n\x1b[c\x1b[>c\x05", b"\x1bP+q544e\x1b\\\x1b_Gf=1;AAAA\x1b\\",
+ b"\x1b^private\x1b\\\x1bXsos\x1b\\", "\u009b6n\u009d52;c;?\u009c".encode(), b"\x1b[?1049;1000h",
+ b"after\r\n"]
+for piece in pieces:
+ os.write(1,piece); time.sleep(0.03)
+"#;
+    let parent = r#"
+m,s=terminal()
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s)
+text=collect(m,p)
+assert p.returncode==0,(p.returncode,text)
+assert "plain text" in text and "\x1b[1;31mred\x1b[0m" in text and "after" in text,repr(text)
+for leak in ["]52","]5","]0;","]2;","title","[18t","[8;5;5t","[6n","[c","[>c","\x05","\x1bP","+q",
+             "\x1b_","AAAA","\x1b^","private","\x1bX","sos","\u009b","\u009d","1000"]:
+ assert leak not in text,(leak,repr(text))
+# The alternate screen a full-screen tool asks for passes, and is left again at the end.
+assert "\x1b[?1049h" in text and text.rstrip().endswith("\x1b[?1049l"),repr(text)
+"#;
+    drive(inside, parent);
+}
+
+#[test]
+fn full_screen_tools_still_render_through_the_relay() {
+    if !linux::has("less") || !linux::has("top") {
+        return;
+    }
+    let inside = r#"import os,subprocess
+os.environ["TERM"]="xterm-256color"
+open("notes.txt","w").write("".join("line %d of the notes\n" % i for i in range(200)))
+subprocess.run(["less","notes.txt"],check=True)
+print("less done",flush=True)
+subprocess.run(["top","-n","1"],check=True)
+print("top done",flush=True)
+"#;
+    let parent = r#"
+m,s=terminal()
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s)
+text=collect(m,p,(b"line 20 of the notes",b"q"))
+assert p.returncode==0,(p.returncode,repr(text[-2000:]))
+assert "\x1b[?1049h" in text and "line 0 of the notes" in text and "less done" in text,repr(text[:2000])
+assert "PID" in text and "\x1b[H" in text and "top done" in text,repr(text[-3000:])
+"#;
+    drive(inside, parent);
+}

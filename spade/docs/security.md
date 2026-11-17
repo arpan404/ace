@@ -170,7 +170,23 @@ caller's terminal in raw mode so the line discipline runs once, in the pty; SIGW
 caller's new size to the pty. When the command's whole tree has ended it drains the last output
 (two seconds at most) and restores the caller's modes before exiting as the command did.
 Only the dedicated pty is granted to Landlock, so the command never holds the person's terminal
-through its stdio.
+through its stdio. Raw mode is held by a guard from the moment it is set: finishing, an error,
+a relay thread that can't start (they start through `thread::Builder`) or an unwind all give
+the terminal back. A relay that can't start starts no command.
+
+The command's output reaches the person's terminal only through an allowlist filter
+(`linux/screen.rs`), a state machine that keeps its place across reads, so a sequence split
+between reads is judged whole. Kept: UTF-8 text, newline, carriage return, tab, backspace,
+bell; SGR colours and attributes; cursor movement, saving and restoring; erasing, inserting,
+deleting, scrolling regions and repeat; DEC line drawing and SO/SI; keypad, cursor-key and
+autowrap modes, cursor visibility, the alternate screens and ANSI insert mode. Dropped: every
+OSC (clipboard, title, hyperlinks, colours), DCS, APC, PM and SOS string; `CSI … t` window
+controls; queries whose answers would come back as input (`CSI n`, `CSI c`, ENQ, `ESC Z`,
+DECRQM and the like); mouse, focus and paste modes and other private modes; sequences with a
+private marker or intermediates; resets and tab stops; other C0 controls; 8-bit C1 controls,
+raw or UTF-8 encoded, and overlong or surrogate encodings. When the output ends, what kept
+sequences left on (alternate screen, hidden cursor, application keys, line drawing, colours)
+is undone. Tools that wait on a terminal query time out and fall back.
 
 As a second layer, the ioctl allowlist admits only read-only terminal requests directly on any
 descriptor (TCGETS, TCGETS2, TIOCGWINSZ, TIOCGPGRP, TIOCGSID, TIOCGPTN, FIONREAD). Mode and
@@ -187,8 +203,14 @@ stop; within the command's own pty that is the only difference.
 `--user --map-current-user --pid --ipc --fork --mount-proc --kill-child` before restrictions.
 The fresh `/proc` lists only the command's namespace, so no other process's command line,
 status or folder can be read; the launcher grants that mount whole. Namespace PID 1 must call
-setsid and sends its own pidfd through an authenticated private handshake to the outer
-launcher. The outer launcher forwards INT/QUIT/TERM/HUP directly to init, bypassing unshare's
+setsid. Its control channel is a Unix seqpacket pair the outer launcher makes before any
+restriction and gives unshare as stdin; init takes it from descriptor 0 and points 0 at
+/dev/null. Over it the outer launcher sends the command's stdin, stdout and stderr, init sends
+its own pidfd (checked to name unshare's child, then answered) before the command starts, and
+init reports an ending signal as its last message. No launcher state lives at a pathname: an
+earlier status file under TMPDIR (the workspace) and socket under /tmp could be swapped for a
+link a contained process planted, and init wrote through it. The launchers open paths only in
+/proc, /dev and the grant objects carving opens without following links. The outer launcher forwards INT/QUIT/TERM/HUP directly to init, bypassing unshare's
 waiting parent; TERM/HUP escalates to killing init after 500 ms. ABI 6+ adds Landlock signal
 scoping. On every ABI the command starts in its own session through /usr/bin/setsid, and
 terminal signals are forwarded to its private process group. A failed namespace, session or
@@ -210,8 +232,8 @@ identity checks include PPid and start time. EMFILE releases four emergency desc
 if pidfd acquisition still fails, a rechecked pinned identity permits a PID kill while the
 lock prevents child reaping/PID reuse. An incomplete sweep never enters a blocking wait;
 cleanup repeats bounded passes until ECHILD. The leader remains unreaped until group
-forwarding is disabled. Interrupts do not escalate. The unlinked status file preserves
-termination signals separately from intentional exit codes such as 143.
+forwarding is disabled. Interrupts do not escalate. Init's signal report on the control
+channel preserves termination signals separately from intentional exit codes such as 143.
 
 **Coverage and fallbacks.** Status exposes files, network, signals, syscalls, devices, ipc,
 processes and landlock_abi. `contains()` requires all seven boundaries contained and Linux

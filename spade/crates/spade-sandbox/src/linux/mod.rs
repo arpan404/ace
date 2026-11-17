@@ -47,6 +47,8 @@ mod probe;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod pty;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
+mod screen;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
 mod seccomp;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod supervise;

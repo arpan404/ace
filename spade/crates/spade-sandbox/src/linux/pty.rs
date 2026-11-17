@@ -6,13 +6,17 @@
 //!
 //! What goes where is [`layout`] (pure); [`Dedicated`] opens the pty and [`Relay`] copies bytes,
 //! window sizes and, while it relays input, holds the caller's terminal in raw mode so the line
-//! discipline runs once, in the dedicated pty.
+//! discipline runs once, in the dedicated pty. The command's output reaches the caller only
+//! through [`Screen`], which drops every control sequence that reaches past the screen. Raw mode
+//! is held by a guard from the moment it is set: every path out, an error or an unwind included,
+//! gives the caller its terminal back.
 
 use std::io::Write;
-use std::os::fd::{BorrowedFd, OwnedFd};
-use std::process::Stdio;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::mpsc;
 use std::time::Duration;
+
+use super::screen::Screen;
 
 use rustix::fs::{Mode, OFlags};
 use rustix::pty::OpenptFlags;
@@ -68,37 +72,57 @@ pub fn layout(terminals: [bool; 3], foreground: bool) -> Option<Layout> {
     })
 }
 
+/// Which of the caller's terminals the pty copies its modes and size from.
+fn model_of(layout: &Layout) -> usize {
+    match layout.sink {
+        Sink::Inherited(index) if !layout.replaced[0] => index,
+        _ => 0,
+    }
+}
+
 /// A pty opened for one command.
 pub struct Dedicated {
     master: OwnedFd,
     slave: OwnedFd,
     layout: Layout,
+    /// The caller's stdin, stdout and stderr.
+    caller: [OwnedFd; 3],
 }
 
-fn stdio(index: usize) -> BorrowedFd<'static> {
-    match index {
-        0 => rustix::stdio::stdin(),
-        1 => rustix::stdio::stdout(),
-        _ => rustix::stdio::stderr(),
-    }
+/// Starts one of the relay's threads. Injected so a failure to start one can be tested.
+pub type Spawn<'a> = &'a dyn Fn(&'static str, Box<dyn FnOnce() + Send>) -> std::io::Result<()>;
+
+/// Starts a named thread, reporting a failure to start it instead of panicking.
+pub fn threads(name: &'static str, work: Box<dyn FnOnce() + Send>) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name(name.to_owned())
+        .spawn(work)
+        .map(drop)
 }
 
-/// The caller's terminal the pty copies its modes and size from.
-fn model(layout: &Layout) -> BorrowedFd<'static> {
-    match layout.sink {
-        Sink::Inherited(index) if !layout.replaced[0] => stdio(index),
-        _ => stdio(0),
-    }
+/// The launcher's own stdin, stdout and stderr, as descriptors it holds.
+pub fn caller() -> Result<[OwnedFd; 3], String> {
+    let one = |fd| rustix::io::fcntl_dupfd_cloexec(fd, 3).map_err(|e| format!("stdio: {e}"));
+    Ok([
+        one(rustix::stdio::stdin())?,
+        one(rustix::stdio::stdout())?,
+        one(rustix::stdio::stderr())?,
+    ])
 }
 
 impl Dedicated {
     /// A pty for this launcher's stdio, or `None` when no stdio is a terminal.
     pub fn open() -> Result<Option<Self>, String> {
-        let terminals = [0, 1, 2].map(|i| rustix::termios::isatty(stdio(i)));
+        Self::open_for(caller()?)
+    }
+
+    /// A pty for a caller whose stdin, stdout and stderr are `caller`.
+    pub fn open_for(caller: [OwnedFd; 3]) -> Result<Option<Self>, String> {
+        let terminals = [0, 1, 2].map(|i| rustix::termios::isatty(&caller[i]));
         // Only a controlling terminal stops a background reader. One that isn't the launcher's
         // (`tcgetpgrp` refuses it) is read freely.
         let foreground = terminals[0]
-            && rustix::termios::tcgetpgrp(stdio(0))
+            && rustix::termios::tcgetpgrp(&caller[0])
                 .map_or(true, |group| group == rustix::process::getpgrp());
         let Some(layout) = layout(terminals, foreground) else {
             return Ok(None);
@@ -110,17 +134,18 @@ impl Dedicated {
         rustix::pty::unlockpt(&master).map_err(failed)?;
         // Through the master, never by a path someone could swap.
         let slave = rustix::pty::ioctl_tiocgptpeer(&master, flags).map_err(failed)?;
-        let caller = model(&layout);
-        if let Ok(modes) = rustix::termios::tcgetattr(caller) {
+        let model = &caller[model_of(&layout)];
+        if let Ok(modes) = rustix::termios::tcgetattr(model) {
             rustix::termios::tcsetattr(&slave, OptionalActions::Now, &modes).map_err(failed)?;
         }
-        if let Ok(size) = rustix::termios::tcgetwinsize(caller) {
+        if let Ok(size) = rustix::termios::tcgetwinsize(model) {
             rustix::termios::tcsetwinsize(&master, size).map_err(failed)?;
         }
         Ok(Some(Self {
             master,
             slave,
             layout,
+            caller,
         }))
     }
 
@@ -148,85 +173,129 @@ impl Dedicated {
         Ok(node)
     }
 
-    /// The command's stdin, stdout and stderr: the pty where the caller's was a terminal.
-    pub fn stdio(&self) -> Result<[Stdio; 3], String> {
-        let one = |index: usize| -> Result<Stdio, String> {
-            if self.layout.replaced[index] {
-                let copy =
-                    rustix::io::fcntl_dupfd_cloexec(&self.slave, 3).map_err(|e| e.to_string())?;
-                Ok(Stdio::from(copy))
+    /// The command's stdin, stdout and stderr: the pty where the caller's was a terminal, the
+    /// caller's own elsewhere.
+    pub fn fds(&self) -> Result<[OwnedFd; 3], String> {
+        let one = |index: usize| {
+            let from = if self.layout.replaced[index] {
+                &self.slave
             } else {
-                Ok(Stdio::inherit())
-            }
+                &self.caller[index]
+            };
+            rustix::io::fcntl_dupfd_cloexec(from, 3).map_err(|e| e.to_string())
         };
         Ok([one(0)?, one(1)?, one(2)?])
     }
 
     /// Starts relaying. The launcher's own handle on the pty's command side is closed here, so
     /// the relay ends once the command and everything it started have let go of it.
-    pub fn relay(self) -> Relay {
+    pub fn relay(self) -> Result<Relay, String> {
+        self.relay_with(&threads)
+    }
+
+    fn relay_with(self, spawn: Spawn<'_>) -> Result<Relay, String> {
         let Self {
             master,
             slave,
             layout,
+            caller,
         } = self;
         drop(slave);
-        let saved = if layout.raw { raw(stdio(0)) } else { None };
-        let resize = master.try_clone().ok();
-        if let Some(resize) = resize {
-            std::thread::spawn(move || follow_size(&resize, model(&layout)));
-        }
-        if layout.input
-            && let Ok(input) = master.try_clone()
-        {
-            std::thread::spawn(move || forward(stdio(0), std::fs::File::from(input)));
-        }
-        let (done, drained) = mpsc::channel();
+        let failed =
+            |e: std::io::Error| format!("the command's terminal could not be relayed: {e}");
+        let copy = |fd: &OwnedFd| fd.try_clone().map_err(failed);
         let sink = match layout.sink {
-            Sink::Inherited(index) => rustix::io::dup(stdio(index)).ok(),
+            Sink::Inherited(index) => copy(&caller[index]).ok(),
             Sink::Stdin => rustix::fs::open(
-                "/proc/self/fd/0",
+                format!("/proc/self/fd/{}", caller[0].as_raw_fd()),
                 OFlags::WRONLY | OFlags::NOCTTY | OFlags::CLOEXEC,
                 Mode::empty(),
             )
             .ok(),
         };
-        std::thread::spawn(move || {
-            drain(&master, sink.map(std::fs::File::from));
-            let _ = done.send(());
-        });
-        Relay { drained, saved }
+        let (input, size) = (copy(&master)?, copy(&master)?);
+        let (keys, model) = (copy(&caller[0])?, copy(&caller[model_of(&layout)])?);
+        let (done, drained) = mpsc::channel();
+        // From here on the guard in `relay` gives the caller's terminal back on every way out.
+        let relay = Relay {
+            drained,
+            raw: if layout.raw {
+                RawMode::set(&caller[0])
+            } else {
+                None
+            },
+        };
+        spawn(
+            "spade-pty-output",
+            Box::new(move || {
+                drain(&master, sink.map(std::fs::File::from));
+                let _ = done.send(());
+            }),
+        )
+        .map_err(failed)?;
+        if layout.input {
+            spawn(
+                "spade-pty-input",
+                Box::new(move || forward(&keys, std::fs::File::from(input))),
+            )
+            .map_err(failed)?;
+        }
+        spawn(
+            "spade-pty-size",
+            Box::new(move || follow_size(&size, &model)),
+        )
+        .map_err(failed)?;
+        Ok(relay)
     }
 }
 
-/// A running relay.
+/// The caller's terminal in raw mode, given back as it was when this is dropped.
+struct RawMode {
+    terminal: OwnedFd,
+    saved: Termios,
+}
+
+impl RawMode {
+    fn set(terminal: &OwnedFd) -> Option<Self> {
+        let terminal = terminal.try_clone().ok()?;
+        let saved = rustix::termios::tcgetattr(&terminal).ok()?;
+        let mut modes = saved.clone();
+        modes.make_raw();
+        // The guard exists before the change, so even a partly applied change is undone.
+        let guard = Self { terminal, saved };
+        rustix::termios::tcsetattr(&guard.terminal, OptionalActions::Now, &modes).ok()?;
+        Some(guard)
+    }
+}
+
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        let _ = rustix::termios::tcsetattr(&self.terminal, OptionalActions::Now, &self.saved);
+    }
+}
+
+/// A running relay. Dropping it, finished or not, gives the caller its terminal back.
 pub struct Relay {
     drained: mpsc::Receiver<()>,
-    saved: Option<Termios>,
+    raw: Option<RawMode>,
 }
 
 impl Relay {
-    /// After the command's whole tree has ended: shows what it last wrote and gives the caller
-    /// its terminal back as it was.
+    /// After the command's whole tree has ended: shows what it last wrote, then (on drop) gives
+    /// the caller its terminal back as it was.
     pub fn finish(self) {
         let _ = self.drained.recv_timeout(DRAIN);
-        if let Some(saved) = &self.saved {
-            let _ = rustix::termios::tcsetattr(stdio(0), OptionalActions::Drain, saved);
-        }
     }
 }
 
-/// Puts `terminal` in raw mode and answers how it was.
-fn raw(terminal: BorrowedFd<'_>) -> Option<Termios> {
-    let saved = rustix::termios::tcgetattr(terminal).ok()?;
-    let mut modes = saved.clone();
-    modes.make_raw();
-    rustix::termios::tcsetattr(terminal, OptionalActions::Now, &modes).ok()?;
-    Some(saved)
+impl Drop for Relay {
+    fn drop(&mut self) {
+        drop(self.raw.take());
+    }
 }
 
 /// Copies the caller's keystrokes into the pty until either side ends.
-fn forward(from: BorrowedFd<'_>, mut to: std::fs::File) {
+fn forward(from: &OwnedFd, mut to: std::fs::File) {
     let mut buffer = [0u8; 4096];
     loop {
         match rustix::io::read(from, &mut buffer) {
@@ -242,29 +311,37 @@ fn forward(from: BorrowedFd<'_>, mut to: std::fs::File) {
     }
 }
 
-/// Copies what the command writes to `sink` until the pty ends (its master reads `EIO` once the
-/// last command-side descriptor closes). Without a sink, or once it fails, the output is still
-/// read, so the command never blocks on a full pty.
+/// Copies what the command writes, through [`Screen`], to `sink` until the pty ends (its master
+/// reads `EIO` once the last command-side descriptor closes), then undoes what the command left
+/// switched on. Without a sink, or once it fails, the output is still read, so the command never
+/// blocks on a full pty.
 fn drain(master: &OwnedFd, mut sink: Option<std::fs::File>) {
     let mut buffer = [0u8; 16 * 1024];
+    let mut screen = Screen::default();
+    let mut shown = Vec::with_capacity(buffer.len());
     loop {
         match rustix::io::read(master, &mut buffer) {
-            Ok(0) => return,
+            Ok(0) => break,
             Ok(n) => {
+                shown.clear();
+                screen.feed(&buffer[..n], &mut shown);
                 if let Some(out) = sink.as_mut()
-                    && out.write_all(&buffer[..n]).is_err()
+                    && out.write_all(&shown).is_err()
                 {
                     sink = None;
                 }
             }
             Err(rustix::io::Errno::INTR) => {}
-            Err(_) => return,
+            Err(_) => break,
         }
+    }
+    if let Some(out) = sink.as_mut() {
+        let _ = out.write_all(&screen.restore());
     }
 }
 
 /// Gives the pty the caller's window size each time the caller's terminal is resized.
-fn follow_size(master: &OwnedFd, caller: BorrowedFd<'static>) {
+fn follow_size(master: &OwnedFd, caller: &OwnedFd) {
     let Ok(mut signals) = signal_hook::iterator::Signals::new([signal_hook::consts::SIGWINCH])
     else {
         return;
@@ -319,5 +396,81 @@ mod tests {
         assert_eq!(sink([true, true, true]), Some(Sink::Inherited(1)));
         assert_eq!(sink([true, false, true]), Some(Sink::Inherited(2)));
         assert_eq!(sink([true, false, false]), Some(Sink::Stdin));
+    }
+
+    /// A same-user pty standing in for the person's terminal: its master and the terminal.
+    fn person() -> (OwnedFd, OwnedFd) {
+        let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC;
+        let master = rustix::pty::openpt(flags).unwrap_or_else(|e| panic!("{e}"));
+        rustix::pty::unlockpt(&master).unwrap_or_else(|e| panic!("{e}"));
+        let terminal =
+            rustix::pty::ioctl_tiocgptpeer(&master, flags).unwrap_or_else(|e| panic!("{e}"));
+        (master, terminal)
+    }
+
+    fn modes(terminal: &OwnedFd) -> (u32, u32, u32) {
+        let t = rustix::termios::tcgetattr(terminal).unwrap_or_else(|e| panic!("{e}"));
+        (
+            t.input_modes.bits(),
+            t.output_modes.bits(),
+            t.local_modes.bits(),
+        )
+    }
+
+    fn dedicated_for(terminal: &OwnedFd) -> Dedicated {
+        let copy = || terminal.try_clone().unwrap_or_else(|e| panic!("{e}"));
+        Dedicated::open_for([copy(), copy(), copy()])
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("a terminal on stdio gets a dedicated pty"))
+    }
+
+    #[test]
+    fn a_failure_after_raw_mode_gives_the_person_their_terminal_back() {
+        let (_master, terminal) = person();
+        let before = modes(&terminal);
+        let dedicated = dedicated_for(&terminal);
+        assert!(dedicated.layout().raw);
+        let started = std::sync::atomic::AtomicUsize::new(0);
+        let raw_when_failing = std::sync::Mutex::new(None);
+        // The first thread starts; the second can't, as when the process is out of threads.
+        let spawn = |name: &'static str, work: Box<dyn FnOnce() + Send>| {
+            if started.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                return threads(name, work);
+            }
+            *raw_when_failing.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(modes(&terminal) != before);
+            Err(std::io::Error::from_raw_os_error(11))
+        };
+        let relayed = dedicated.relay_with(&spawn);
+        assert!(relayed.is_err());
+        assert_eq!(
+            *raw_when_failing.lock().unwrap_or_else(|e| e.into_inner()),
+            Some(true),
+            "the failure came after raw mode was set"
+        );
+        assert_eq!(modes(&terminal), before);
+    }
+
+    #[test]
+    fn a_relay_dropped_without_finishing_gives_the_terminal_back() {
+        let (_master, terminal) = person();
+        let before = modes(&terminal);
+        let relay = dedicated_for(&terminal)
+            .relay()
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_ne!(modes(&terminal), before, "raw while relaying");
+        drop(relay);
+        assert_eq!(modes(&terminal), before);
+    }
+
+    #[test]
+    fn a_finished_relay_gives_the_terminal_back() {
+        let (_master, terminal) = person();
+        let before = modes(&terminal);
+        let relay = dedicated_for(&terminal)
+            .relay()
+            .unwrap_or_else(|e| panic!("{e}"));
+        relay.finish();
+        assert_eq!(modes(&terminal), before);
     }
 }

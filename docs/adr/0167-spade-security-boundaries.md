@@ -304,6 +304,29 @@ no reviewer) apply there as on macOS.
    did. The Landlock rule names that pty's node, verified against the opened pty by device and
    inode, so the command never holds the person's terminal through stdio.
 
+   A dedicated pty alone still let the command's output drive the person's terminal: OSC 52
+   clipboard writes and reads, titles, window and size controls, queries answered back as
+   keystrokes, and persistent emulator settings. The relay therefore passes output through an
+   allowlist filter, a byte-at-a-time state machine that keeps its place across reads, so a
+   sequence split between reads is judged whole. It keeps UTF-8 text, newline, carriage
+   return, tab, backspace and bell; SGR; cursor movement, saving and restoring; erasing,
+   inserting, deleting, scrolling regions and repeat; the DEC line-drawing set and SO/SI;
+   keypad and cursor-key modes, autowrap, cursor visibility and the alternate screens
+   (`?47`, `?1047`, `?1048`, `?1049`); and ANSI insert mode. It drops every OSC, DCS, APC, PM and
+   SOS string whole, `CSI … t`, every query (`CSI n`, `CSI c`, ENQ, `ESC Z`, DECRQM, XTVERSION),
+   mouse, focus and paste modes, other private modes, sequences with a private marker or
+   intermediates (cursor style, soft reset, key modifiers), resets, tab-stop changes, other C0
+   controls, and 8-bit C1 controls, raw or UTF-8 encoded, with overlong and surrogate encodings
+   refused. A string left open ends at the next ESC, as on a terminal. When the output ends the
+   relay undoes what kept sequences left on: the main screen, cursor, keys, character set and
+   plain text. The accepted cost: tools that wait on a query (a cursor-position report) time
+   out and fall back.
+
+   Raw mode is held by a guard set before the change is applied and dropped on every way out:
+   finishing, an error, a failed thread start (every relay thread starts through
+   `thread::Builder`, and a failure stops the run) or an unwind. A relay that can't start
+   starts no command.
+
    Use this precise Landlock policy rather than retaining mount privileges or depending on
    private devpts support. The unprivileged launcher after exec has no mount capabilities;
    signal namespaces do not give its command those privileges. No `/dev/ptmx` or `/dev/shm`
@@ -355,10 +378,21 @@ no reviewer) apply there as on macOS.
    On every Landlock ABI, util-linux unshare creates a private user, PID, IPC and mount
    namespace with a fresh proc before confinement; the launcher grants that `/proc` whole. It
    lists only the command's own processes. Before, ABI 6+ shared the host's PID namespace and
-   `/proc` was readable whole, so a command could list every process's command line. Namespace PID 1 must successfully call setsid. It sends its own pidfd over
-   a private authenticated Unix handshake to the outer launcher before command startup.
-   The outer launcher verifies the peer is unshare's child and that the pidfd names it,
-   then unlinks the socket. Signals go directly through this handle, bypassing unshare's
+   `/proc` was readable whole, so a command could list every process's command line.
+   Namespace PID 1 must successfully call setsid.
+
+   The launchers keep no state at any pathname. Init used to report the command's ending signal
+   through a temporary file under `TMPDIR`, which is inside the sandbox's writable workspace, and
+   to meet the outer launcher at a socket path under `/tmp`, which a person may grant. A
+   contained process could swap either for a link before the unrestricted init opened it, and
+   a test showed init then wrote through the link to a file outside. Now the outer launcher makes
+   a Unix seqpacket pair before anything is restricted and gives one end to unshare as stdin;
+   init takes it from descriptor 0 and points 0 at `/dev/null`. Over it the outer launcher sends
+   the command's stdin, stdout and stderr (`SCM_RIGHTS`), init sends its own pidfd, the outer
+   launcher checks that the pidfd names unshare's child and answers, and only then does init
+   start the command. If the command ends by a signal, init's last message says which. The
+   launchers open paths only in `/proc`, `/dev` and the device and grant objects carving
+   opens without following links. Signals go directly through init's pidfd, bypassing unshare's
    waiting parent. TERM/HUP escalates to killing namespace init after 500 ms, ending all
    descendants. This contains queued/thread signals without emulating their semantics.
    ABI 6+ also uses Landlock signal and abstract-socket scoping.
@@ -375,7 +409,7 @@ no reviewer) apply there as on macOS.
    On every ABI the freshly spawned child runs through `/usr/bin/setsid` before exec.
    This creates a private session/group without an unsafe Rust pre_exec hook. Failure
    starts no command. INT, QUIT, TERM and HUP are forwarded to that private group; interrupts
-   do not escalate. A failed old-kernel namespace or pidfd handshake fails the filtered probe
+   do not escalate. A failed old-kernel namespace or init handshake fails the filtered probe
    and leaves signals partial. A filtered launch repeats setup and fails closed on each run.
 
 7. **Serialize and bound shutdown work.** TERM/HUP escalates after 250 ms through a
@@ -414,6 +448,9 @@ no reviewer) apply there as on macOS.
 
 Real-kernel regression tests cover the person's terminal and another same-user PTY (only the
 dedicated pty opens; size and mode changes land only on it, even through a leaked descriptor),
+clipboard, title, window and query sequences split across reads never reaching it while `less`
+and `top` still render, raw mode undone after a failure that follows it, a contained process
+planting links where launcher state used to live while 40 runs end by a signal,
 another process's command line under both `/proc` plans, metadata variants with path/fd and
 symlink races, SysV IPC, host POSIX shm, an unlisted syscall, compatibility-ABI refusal and
 160 detached children under a 64-fd limit, including forced EMFILE in the actual reaper.

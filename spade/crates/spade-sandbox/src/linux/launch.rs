@@ -11,9 +11,7 @@
 //! supervisor may reach) and end with the command's own exit.
 
 use std::ffi::{OsStr, OsString};
-use std::io::Write;
 use std::os::fd::{OwnedFd, RawFd};
-use std::path::Path;
 use std::process::ExitCode;
 use std::process::Stdio;
 use std::sync::mpsc;
@@ -25,10 +23,13 @@ use landlock::{
 use rustix::process::{Resource, Rlimit};
 
 use super::lifecycle::Ended;
+use super::namespace_handle::Init;
 use super::net::Rules;
 use super::pty::{Dedicated, Relay};
 use super::{Network, Plan, Processes, RealFs, carve, seccomp, supervise};
 
+/// The first argument of the launcher started again as a namespace's init.
+pub(super) const INIT_ARG: &str = "--private-pid-init";
 /// The highest ABI this build asks for; the kernel's own is used where it is lower.
 pub(super) const ABI_WANTED: ABI = ABI::V9;
 /// Open files per process.
@@ -38,11 +39,9 @@ const MORE_TASKS: u64 = 4_096;
 
 /// Applies `plan` around `program args` and answers its exit.
 pub fn main(args: &[OsString]) -> ExitCode {
-    let namespaced = args.first().is_some_and(|a| a == "--private-pid-init");
-    let marker = if namespaced { args.get(1) } else { None };
-    let handle = if namespaced { args.get(2) } else { None };
+    let namespaced = args.first().is_some_and(|a| a == INIT_ARG);
     let args = if namespaced {
-        args.get(3..).unwrap_or_default()
+        args.get(1..).unwrap_or_default()
     } else {
         args
     };
@@ -67,13 +66,20 @@ pub fn main(args: &[OsString]) -> ExitCode {
             "the namespace init could not create its session: {error}"
         ));
     }
-    if let Some(path) = handle
-        && let Err(error) = super::namespace_handle::send(Path::new(path))
-    {
-        return refused(&format!(
-            "the namespace init could not send its handle: {error}"
-        ));
-    }
+    // Init's state goes over the control channel on its stdin, never through a pathname.
+    let init = if namespaced {
+        let adopted = Init::adopt().and_then(|init| {
+            let stdio = init.stdio()?;
+            init.send_handle()?;
+            Ok((init, stdio))
+        });
+        match adopted {
+            Ok(init) => Some(init),
+            Err(why) => return refused(&format!("the namespace init could not start: {why}")),
+        }
+    } else {
+        None
+    };
     // Detect ABI on a disposable thread, so the launcher itself remains unrestricted.
     let abi = std::thread::spawn(|| {
         Ruleset::default()
@@ -106,31 +112,27 @@ pub fn main(args: &[OsString]) -> ExitCode {
         // threads or installs restrictions. Its init is the supervisor, which reaps children.
         return super::namespace::run(args, terminal).unwrap_or_else(|why| refused(&why));
     }
-    let ending = if let Some(path) = marker {
-        let file = std::fs::OpenOptions::new().write(true).open(path);
-        if let Err(e) = std::fs::remove_file(path) {
-            return refused(&e.to_string());
-        }
-        match file {
-            Ok(file) => Some(file),
-            Err(e) => return refused(&e.to_string()),
-        }
-    } else {
-        None
+    let io = match init {
+        Some((init, stdio)) => Io::Init(init, stdio),
+        None => Io::Direct(terminal),
     };
-    match run(&plan, program, &args[2..], ending, terminal) {
+    match run(&plan, program, &args[2..], io) {
         Ok(code) => code,
         Err(why) => refused(&why),
     }
 }
 
+/// The command's stdio, as this launcher holds it.
+enum Io {
+    /// The outermost launcher: its own stdio, or the dedicated pty in place of its terminals.
+    Direct(Option<Dedicated>),
+    /// A namespace init: the command's stdio as the outer launcher sent it.
+    Init(Init, [OwnedFd; 3]),
+}
+
 /// Ends as the command did, once the caller has its terminal back: with its code, or (a
-/// namespace init writing it down for the outer launcher) its signal.
-fn exit(
-    ended: Ended,
-    ending: Option<std::fs::File>,
-    relay: Option<Relay>,
-) -> Result<ExitCode, String> {
+/// namespace init reporting it to the outer launcher) its signal.
+fn exit(ended: Ended, init: Option<Init>, relay: Option<Relay>) -> Result<ExitCode, String> {
     if let Some(relay) = relay {
         relay.finish();
     }
@@ -138,9 +140,9 @@ fn exit(
         Ended::Code(code) => return Ok(ExitCode::from(code)),
         Ended::Signal(signal) => signal,
     };
-    if let Some(mut file) = ending {
+    if let Some(init) = init {
         // Namespace init cannot restore its own default fatal signal; the outer launcher can.
-        writeln!(file, "{signal}").map_err(|e| e.to_string())?;
+        init.ended_by(signal)?;
     } else {
         let _ = signal_hook::low_level::emulate_default_handler(signal);
     }
@@ -153,28 +155,35 @@ enum Started {
     Failed(String),
 }
 
-fn run(
-    plan: &Plan,
-    program: &OsStr,
-    args: &[OsString],
-    ending: Option<std::fs::File>,
-    terminal: Option<Dedicated>,
-) -> Result<ExitCode, String> {
+fn run(plan: &Plan, program: &OsStr, args: &[OsString], io: Io) -> Result<ExitCode, String> {
     // The only terminal the command may open: its dedicated pty, as this launcher made it or
     // (namespace init) as the outer launcher passed it on.
-    let nodes = match &terminal {
-        Some(terminal) => vec![terminal.node()?],
-        None => super::devices::inherited(),
+    let (nodes, stdio, controlling, terminal, init) = match io {
+        Io::Direct(Some(terminal)) => (
+            vec![terminal.node()?],
+            Some(terminal.fds()?.map(Stdio::from)),
+            terminal.layout().controlling,
+            Some(terminal),
+            None,
+        ),
+        Io::Direct(None) => (Vec::new(), None, false, None, None),
+        Io::Init(init, fds) => {
+            let nodes = super::devices::terminals(&fds);
+            let controlling = rustix::termios::isatty(&fds[0]);
+            (
+                nodes,
+                Some(fds.map(Stdio::from)),
+                controlling,
+                None,
+                Some(init),
+            )
+        }
     };
     let dedicated = nodes.first().and_then(|node| {
         let stat = rustix::fs::fstat(node).ok()?;
         #[allow(clippy::unnecessary_cast)]
         Some((stat.st_dev as u64, stat.st_ino as u64))
     });
-    let (stdio, controlling) = match &terminal {
-        Some(terminal) => (Some(terminal.stdio()?), terminal.layout().controlling),
-        None => (None, rustix::termios::isatty(std::io::stdin())),
-    };
     let (ruleset, metadata) =
         ruleset(plan, nodes).map_err(|e| format!("the sandbox could not be applied: {e}"))?;
     limit().map_err(|e| format!("the sandbox's limits could not be set: {e}"))?;
@@ -190,6 +199,9 @@ fn run(
         signal_hook::consts::SIGCHLD,
     ])
     .map_err(|e| format!("the launcher could not hold its signals: {e}"))?;
+    // Relaying starts before the command does: a relay that can't start starts no command, and
+    // a command that can't start drops the relay, which gives the caller its terminal back.
+    let relay = terminal.map(Dedicated::relay).transpose()?;
     let (send, started) = mpsc::channel();
     let network = plan.network;
     let (program, args) = (program.to_owned(), args.to_vec());
@@ -225,17 +237,8 @@ fn run(
         }
     }
     let child = child.ok_or("the command could not start")?;
-    let relay = terminal.map(Dedicated::relay);
-    let ended = super::lifecycle::wait(child, signals);
-    match ended {
-        Ok(ended) => exit(ended, ending, relay),
-        Err(why) => {
-            if let Some(relay) = relay {
-                relay.finish();
-            }
-            Err(why)
-        }
-    }
+    let ended = super::lifecycle::wait(child, signals)?;
+    exit(ended, init, relay)
 }
 
 /// The command as the sandbox thread starts it.
