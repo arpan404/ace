@@ -5,7 +5,7 @@ import { spadeProof } from "@ace/service/spade";
 import { spadeStartGraceMs, type SpadeServiceState } from "./rules.ts";
 
 /** A machine with a service manager, Spade's files and a clock, all under the test's control. */
-function machine() {
+function machine(report?: (error: unknown) => void) {
   const files = new Map<string, string>();
   const world = {
     service: "absent" as SpadeServiceState,
@@ -60,6 +60,7 @@ function machine() {
         return () => {};
       },
     },
+    ...(report ? { report } : {}),
   });
   const seen: SpadeStatus[] = [];
   link.subscribe((status) => seen.push(status));
@@ -287,4 +288,21 @@ test("a Spade that stays down is looked at less and less, up to a minute, and it
   await link.refresh();
   expect(link.status().state).toBe("ready");
   expect(world.waits.at(-1)).toBe(5000);
+});
+
+test("a listener that throws while Spade is looked at is reported, and the link keeps looking", async () => {
+  const reported: unknown[] = [];
+  const { link, world, spadeStarts } = machine((error) => reported.push(error));
+  link.onReady(() => {
+    throw new Error("listener broke");
+  });
+  world.service = "running";
+  spadeStarts(41, 4100);
+  // Turning on looks once, and that look's listener throws; the look asked for meanwhile runs.
+  link.setEnabled(true);
+  await link.refresh();
+  expect(reported).toEqual([new Error("listener broke")]);
+  // The failed look still scheduled the next (a second), and the next found Spade ready.
+  expect(world.waits).toEqual([1000, 5000]);
+  expect(link.status().state).toBe("ready");
 });

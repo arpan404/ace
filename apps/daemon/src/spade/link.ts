@@ -46,6 +46,8 @@ export interface SpadeLinkOptions {
    */
   pollMs?: { waiting: number; ready: number; idle?: number };
   healthTimeoutMs?: number;
+  /** A look that failed (a listener threw): reported, and the next look is still scheduled. */
+  report?: (error: unknown) => void;
 }
 export interface SpadeReady {
   connection: SpadeConnection;
@@ -187,9 +189,11 @@ export class SpadeLink {
       });
       return this.next;
     }
-    this.running = this.look().finally(() => {
-      this.running = undefined;
-    });
+    this.running = this.look()
+      .catch((error: unknown) => this.lookFailed(error))
+      .finally(() => {
+        this.running = undefined;
+      });
     return this.running;
   }
   async close(): Promise<void> {
@@ -272,6 +276,16 @@ export class SpadeLink {
       : Math.min(poll.waiting * 2 ** Math.max(0, this.misses - 1), poll.idle);
     this.cancelTimer?.();
     this.cancelTimer = runtime.after(wait, () => {
+      void this.refresh();
+    });
+  }
+  /** A failed look never ends the daemon or the polling: it is reported and tried again. */
+  private lookFailed(error: unknown): void {
+    this.options.report?.(error);
+    if (this.closed || !this.facts.enabled) return;
+    const poll = { ...defaultPoll, ...this.options.pollMs };
+    this.cancelTimer?.();
+    this.cancelTimer = this.options.runtime.after(poll.waiting, () => {
       void this.refresh();
     });
   }
