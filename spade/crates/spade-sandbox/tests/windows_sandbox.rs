@@ -133,6 +133,34 @@ fn other_users_and_the_home_folder_cannot_be_read() {
 }
 
 #[test]
+fn an_lpac_run_does_not_reach_a_file_granted_only_to_all_application_packages() {
+    // A folder and file readable by ALL APPLICATION PACKAGES but never by the run's own container
+    // SID. An ordinary AppContainer carries the ALL APPLICATION PACKAGES SID and would read it; a
+    // Less Privileged AppContainer opts that SID out, so granting it buys the run nothing. This is
+    // the LPAC guarantee that keeps system-wide, app-package-readable files out of reach — a
+    // stronger statement than the ungranted-folder case, because here the folder *is* granted.
+    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let secret = dir.path().join("secret.txt");
+    std::fs::write(&secret, b"top secret").unwrap_or_else(|_| std::process::abort());
+    // S-1-15-2-1 is ALL APPLICATION PACKAGES.
+    let all_packages = Sid::parse("S-1-15-2-1").unwrap_or_else(|_| std::process::abort());
+    for path in [dir.path(), secret.as_path()] {
+        let object = Object::open(path).unwrap_or_else(|_| std::process::abort());
+        acl::grant(&object, &all_packages, Access::Read).unwrap_or_else(|_| std::process::abort());
+    }
+
+    let (container, _profile) = container();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
+    // The container SID is granted nothing on the secret; only ALL APPLICATION PACKAGES is.
+    assert_eq!(
+        run_helper(&container, &sid, &["read", &secret.to_string_lossy()]),
+        2,
+        "a Less Privileged AppContainer must not read an ALL APPLICATION PACKAGES file"
+    );
+}
+
+#[test]
 fn a_job_kills_its_tree_when_it_is_dropped() {
     let job = Job::create(limits()).unwrap_or_else(|_| std::process::abort());
     // A process that would run for ~30s if left alone.
@@ -829,5 +857,53 @@ fn only_spade_owned_and_system_toolchains_are_containable() {
     assert!(
         !spec(&workspace, owned_scratch, &[], from_ref(&junc)),
         "a toolchain behind a junction into Spade's data is not containable"
+    );
+}
+
+// ---- Group G: hard links can't give the person's files a second name in a granted folder ----
+
+#[test]
+fn a_contained_run_cannot_hard_link_a_file_it_cannot_open() {
+    // The workspace is granted; a sibling folder, standing in for the person's, is not. A file in
+    // the person's folder is the target. A hard link would be a second name for that file's data,
+    // and the new name would land in the granted workspace — so if either the Win32 CreateHardLink
+    // path or the native NtSetInformationFile path succeeded, the run could read and write the
+    // person's file through the workspace. Both must fail, because creating the link must first
+    // open the source, which the run has no access to.
+    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let workspace = dir.path().join("ws");
+    let persons = dir.path().join("persons");
+    std::fs::create_dir_all(&workspace).unwrap_or_else(|_| std::process::abort());
+    std::fs::create_dir_all(&persons).unwrap_or_else(|_| std::process::abort());
+    let secret = persons.join("secret.txt");
+    std::fs::write(&secret, b"the person's bytes").unwrap_or_else(|_| std::process::abort());
+
+    let (container, _profile) = container();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
+    // The workspace is writable to the run; the person's folder is granted nothing.
+    grant(&workspace, &sid, Access::Write);
+
+    let secret_arg = secret.to_string_lossy();
+    for (how, link_name) in [("hardlink", "win32.txt"), ("hardlink-nt", "native.txt")] {
+        let link = workspace.join(link_name);
+        assert_eq!(
+            run_helper(
+                &container,
+                &sid,
+                &[how, &secret_arg, &link.to_string_lossy()]
+            ),
+            2,
+            "a contained run must not hard-link the person's file via {how}"
+        );
+        assert!(
+            !link.exists(),
+            "no second name for the person's file may appear in the workspace ({how})"
+        );
+    }
+    // The person's file is untouched: still one name, original bytes.
+    assert_eq!(
+        std::fs::read(&secret).unwrap_or_else(|_| std::process::abort()),
+        b"the person's bytes"
     );
 }

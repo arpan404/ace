@@ -49,6 +49,23 @@ mod windows {
                 }
                 Err(_) => 2,
             },
+            // `hardlink <existing> <link>`: the Win32 CreateHardLink path (via std).
+            Some("hardlink") => {
+                match std::fs::hard_link(rest.first().unwrap_or(&""), rest.get(1).unwrap_or(&"")) {
+                    Ok(()) => 0,
+                    Err(_) => 2,
+                }
+            }
+            // `hardlink-nt <existing> <link>`: the native NtSetInformationFile path.
+            Some("hardlink-nt") => {
+                match spade_sandbox::windows::hard_link_via_nt(
+                    std::path::Path::new(rest.first().unwrap_or(&"")),
+                    std::path::Path::new(rest.get(1).unwrap_or(&"")),
+                ) {
+                    Ok(()) => 0,
+                    Err(_) => 2,
+                }
+            }
             _ => 3,
         }
     }

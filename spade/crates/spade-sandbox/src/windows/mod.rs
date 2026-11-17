@@ -128,6 +128,11 @@ pub fn grants(policy: &Policy, spade_data: &std::path::Path) -> Vec<Grant> {
     grants
 }
 
+/// The native hard-link attempt, re-exported so the test helper (in this crate) can reach it
+/// without depending on the platform crate directly.
+#[cfg(windows)]
+pub use spade_sandbox_windows::fs::hard_link_via_nt;
+
 /// What a run would touch, for deciding whether it can be contained on Windows.
 #[cfg(windows)]
 pub struct Containability<'a> {

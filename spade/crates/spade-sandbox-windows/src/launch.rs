@@ -21,10 +21,16 @@ use windows::Win32::System::Threading::{
     CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+    PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
     PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, ResumeThread,
     STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
     WaitForSingleObject,
 };
+/// Value of `PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT` (stable in `ProcessThreadsApi.h`):
+/// the AppContainer opts out of the ALL APPLICATION PACKAGES SID, becoming a Less Privileged
+/// AppContainer. Defined here because the `windows` crate gates it behind a feature module we don't
+/// otherwise use.
+const ALL_APPLICATION_PACKAGES_OPT_OUT: u32 = 1;
 use windows::core::{PCWSTR, PWSTR};
 
 use crate::job::{Job, Limits};
@@ -153,11 +159,20 @@ fn spawn_bridge(
     Ok(process)
 }
 
-/// One proc-thread attribute list carrying a container SID with no capabilities. Held so the SID
-/// outlives every process creation that reads it.
+/// One proc-thread attribute list carrying a container SID with no capabilities, plus the Less
+/// Privileged AppContainer (LPAC) policy. Held so the SID and the policy word outlive every process
+/// creation that reads them.
+///
+/// LPAC (the `ALL_APPLICATION_PACKAGES_POLICY` attribute set to opt out) drops the ALL APPLICATION
+/// PACKAGES SID from the token, so files, registry keys and COM objects that are only readable by
+/// *every* app package are not reachable by default. Core system binaries (the loader, the DLLs in
+/// `System32`) carry the restricted ALL RESTRICTED APPLICATION PACKAGES ACE that an LPAC keeps, so
+/// they still load; a run reaches only its own granted folders (the container SID ACEs Spade writes
+/// under its data directory) and the egress pipe (granted the container SID), nothing wider.
 struct Capabilities {
     _sid: Sid,
     caps: Box<SECURITY_CAPABILITIES>,
+    policy: Box<u32>,
     buffer: Vec<u8>,
 }
 
@@ -169,13 +184,14 @@ impl Capabilities {
             CapabilityCount: 0,
             Reserved: 0,
         });
+        let policy = Box::new(ALL_APPLICATION_PACKAGES_OPT_OUT);
         let mut size = 0usize;
         // SAFETY: the documented two-call pattern; the first fails on purpose to size the list.
-        let _ = unsafe { InitializeProcThreadAttributeList(None, 1, None, &mut size) };
+        let _ = unsafe { InitializeProcThreadAttributeList(None, 2, None, &mut size) };
         let mut buffer = vec![0u8; size];
         let list = LPPROC_THREAD_ATTRIBUTE_LIST(buffer.as_mut_ptr().cast());
-        // SAFETY: `list` has `size` bytes; one attribute is declared.
-        unsafe { InitializeProcThreadAttributeList(Some(list), 1, None, &mut size) }
+        // SAFETY: `list` has `size` bytes; two attributes are declared.
+        unsafe { InitializeProcThreadAttributeList(Some(list), 2, None, &mut size) }
             .map_err(crate::io)?;
         // SAFETY: `caps` is boxed, so its address is stable while this struct lives.
         unsafe {
@@ -190,9 +206,24 @@ impl Capabilities {
             )
         }
         .map_err(crate::io)?;
+        // SAFETY: `policy` is boxed, so its address is stable while this struct lives. This turns
+        // the AppContainer into an LPAC: without it, every app package can read system-wide files.
+        unsafe {
+            UpdateProcThreadAttribute(
+                list,
+                0,
+                PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY as usize,
+                Some(std::ptr::from_ref(policy.as_ref()).cast()),
+                std::mem::size_of::<u32>(),
+                None,
+                None,
+            )
+        }
+        .map_err(crate::io)?;
         Ok(Self {
             _sid: sid.clone(),
             caps,
+            policy,
             buffer,
         })
     }
@@ -204,9 +235,9 @@ impl Capabilities {
 
 impl Drop for Capabilities {
     fn drop(&mut self) {
-        // SAFETY: the list was initialized in `new`; the boxed caps outlive this.
+        // SAFETY: the list was initialized in `new`; the boxed caps and policy outlive this.
         unsafe { DeleteProcThreadAttributeList(self.list()) };
-        let _ = &self.caps;
+        let _ = (&self.caps, &self.policy);
     }
 }
 
