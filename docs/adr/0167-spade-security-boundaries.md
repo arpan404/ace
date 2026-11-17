@@ -313,3 +313,44 @@ Two security reviews of the Windows build asked for six changes before it may re
   closed when the bridge can't come up rather than running it silently without network; the
   launcher puts the command in its job before resuming it (killing it if it can't), and always
   creates it in the AppContainer, so a run that bypasses review is contained or it does not run.
+
+### Narrowing to Spade-owned folders (2026-11-17)
+
+A third review found that editing ACLs on the person's own folders is hard to do safely — it
+touches other principals' inheritance and descendant identities. So the design narrowed: **Spade
+never edits ACLs on folders it doesn't own**, and this supersedes the "Correct inheritance" deny
+mechanism above (`deny_node` and all deny ACEs are removed).
+
+- **Contained means Spade-owned.** Windows reports `contained` only for runs whose writable and
+  readable grants are folders Spade owns under its own data directory — the workspace, its temp
+  folder, the terminal scratch, and a plugin folder that lives there. Toolchains are read without
+  any ACL change: they are already readable by `ALL APPLICATION PACKAGES` (`Program Files`,
+  `Windows`) or are copies Spade controls. A run that needs any of the person's own folders (a
+  consented project, a toolchain under `%USERPROFILE%`) is **not** contained: it keeps the review
+  path, with a plain status line ("This needs your folders, so Spade asks first"), and Spade
+  changes no ACLs. The AppContainer has no access to the person's folders by default, so there is
+  nothing to deny — the credential deny-list needs no ACEs here. A brokered file-access path for
+  the person's folders is future work.
+- **Revocation within owned trees is complete.** Only the owned roots are granted, inheritably;
+  descendants are covered by inheritance, never by explicit ACEs (the container has no `WRITE_DAC`
+  to add any). Revocation takes back each root by its file id, and cleanup restores the folder
+  exactly — its protection and inheritance are never changed, since denies and protection are gone.
+  An object counts as deleted only when the id lookup reports not-found; anything ambiguous stays
+  pending.
+- **Minimal traversal access.** The pinned walk opens `C:\` and the other ancestors with traverse
+  and read-attributes access only, never `WRITE_DAC` (which a standard user lacks there); the ACL
+  rights are asked for only on the final owned object — verified by a test run as a standard,
+  non-admin user.
+- **A durable, honest journal.** The journal is flushed to disk (`FlushFileBuffers`) before any ACL
+  change; a corrupt or unreadable journal is a blocking error that gates every bot until a person
+  clears it, never silently dropped; the earlier `{container, paths}` format migrates forward.
+- **Rollback owned from the start.** The journal (naming the profile to be created) is written
+  before the profile is created and before the bridge starts, and a guard is armed right after the
+  grants, so a failure anywhere below takes the grants and the profile back. Cleanup revokes the
+  grants and deletes the profile before removing the journal **last**, so a crash between them keeps
+  the bot gated until a clean pass; failed setup gates the bot's next run.
+- **Per-run acknowledgements.** The in-container bridge signals an inherited event once it has bound
+  its loopback port, and the launcher waits for that before it lets the command start; the launcher
+  assigns the command to its job and resumes it (checking the resume), and on any failure
+  terminates and waits for the suspended process. A missing acknowledgement fails the run closed,
+  so `contained` for a run rests on the layers that actually came up, not only the start-up probe.
