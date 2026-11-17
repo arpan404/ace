@@ -61,11 +61,14 @@ export async function electronUpdateEngine(
   return {
     canInstall: await canReplaceItself(options),
     async check() {
+      const line = options.line();
+      // The packaged launch check waits for this line (`launch-verdict.ts`).
+      options.log("info", `updater: Checking for updates on the ${line} line`);
       // The person hears back even when the network hangs.
       const found = await within(
         checkReleaseFeed(
           { fetch: options.fetch ?? globalThis.fetch, urls: githubReleases },
-          { installed: options.version, line: options.line(), home: options.homeData() },
+          { installed: options.version, line, home: options.homeData() },
         ),
         updateCheckTimeoutMs,
         "The update check timed out.",
