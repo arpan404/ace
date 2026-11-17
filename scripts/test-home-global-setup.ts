@@ -8,17 +8,19 @@ import {
   verifyEnclosingRepository,
   type EnclosingRepository,
 } from "./enclosing-repository-guard.ts";
+import { prepareTestToolPath } from "./test-tool-path.ts";
 
 declare module "vitest" {
   export interface ProvidedContext {
     testHomeRoot: string;
     testRealHome: string;
+    testToolPath: string;
     enclosingRepository: EnclosingRepository | null;
   }
 }
 export type TestHomeContext = Pick<
   import("vitest").ProvidedContext,
-  "testHomeRoot" | "testRealHome" | "enclosingRepository"
+  "testHomeRoot" | "testRealHome" | "testToolPath" | "enclosingRepository"
 >;
 
 export default async function setup(project: TestProject) {
@@ -32,7 +34,10 @@ export default async function setup(project: TestProject) {
   // Workers re-check this snapshot after every test file; teardown checks it once more.
   const repository = captureEnclosingRepository(project.config.root);
   const root = await mkdtemp(join(base, "ace-test-homes-"));
+  // Test processes find only these tools on PATH: never an agent CLI or a version-manager shim.
+  const toolPath = await prepareTestToolPath(join(root, "tools"), process.env);
   project.provide("testHomeRoot", root);
+  project.provide("testToolPath", toolPath);
   project.provide("testRealHome", realHome);
   project.provide("enclosingRepository", repository ?? null);
   return async () => {

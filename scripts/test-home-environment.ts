@@ -9,9 +9,16 @@ export function testHomeEnvironment(
   realHome: string,
   ambient: NodeJS.ProcessEnv = process.env,
   gitCeilings: readonly string[] = [],
+  toolPath?: string,
 ): NodeJS.ProcessEnv {
   assertTestHomeIsolation(home, realHome);
-  const env = isolatedTestEnvironment(parseTestEnvironment(ambient), home, realHome, gitCeilings);
+  const env = isolatedTestEnvironment(
+    parseTestEnvironment(ambient),
+    home,
+    realHome,
+    gitCeilings,
+    toolPath,
+  );
   for (const name of [
     "HOME",
     "ACE_HOME",
