@@ -5,8 +5,9 @@
 //! A frame starts with a `u32` little-endian length: the byte count of everything after it, that
 //! is the kind byte plus the payload. Kind `1` is a UTF-8 JSON [`Message`]. Kind `2` is a binary
 //! body: a `u64` little-endian id followed by raw bytes, belonging to the JSON message with that
-//! id whose result says `"body": true` (a `read` response). No frame may declare more than
-//! [`MAX_FRAME_LEN`] bytes; a longer one is an error, never a truncated frame.
+//! id whose result says `"body": true` (a `read` response) and holding at most [`MAX_BODY_LEN`]
+//! bytes. No frame may declare more than [`MAX_FRAME_LEN`] bytes; a longer one is an error, never a
+//! truncated frame.
 //!
 //! ```
 //! use files_wire::{Decoder, Frame, Message, Op, encode};
@@ -26,7 +27,13 @@
 //! offsets, line numbers and byte counts are `u64` for the same reason.
 //!
 //! Optional fields are left out of the JSON when they are absent. Unknown fields in incoming JSON
-//! are ignored, so either side can add one without a protocol bump.
+//! are ignored, so either side can add one without a protocol bump. Every nested value is tagged
+//! too: a response's `result.type` says which op it answers, an event payload's `type` says which
+//! event it is, and a listed entry's `kind.type` is `file`, `directory`, `symlink` or `other`.
+//!
+//! A kind-1 payload that does not parse still yields its request `id` through [`Error::id`], and
+//! an op tag this build does not know comes back as `UNSUPPORTED`, so an older binary answers the
+//! request instead of hanging on it.
 
 mod error;
 mod event;
@@ -42,7 +49,7 @@ pub use files::{
     Case, Entry, FileMatches, Hit, IndexResult, Kind, LineMatch, Page, ReadMeta, SearchQuery,
     Summary,
 };
-pub use frame::{Decoder, Frame, MAX_FRAME_LEN, encode, encode_body};
+pub use frame::{Decoder, Frame, MAX_BODY_LEN, MAX_FRAME_LEN, encode, encode_body};
 pub use message::{Message, PROTOCOL};
 pub use op::Op;
 pub use reply::Reply;

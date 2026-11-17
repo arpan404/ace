@@ -2,12 +2,20 @@
 
 //! Frame encoding and the incremental decoder.
 
-use crate::error::Error;
+use serde::Deserialize;
+use serde::de::Error as _;
+use serde_json::Value;
+
+use crate::error::{Error, UNKNOWN_OP};
 use crate::message::Message;
+use crate::op;
 
 /// The largest length a frame may declare: the kind byte plus the payload. A bigger declaration is
 /// an error, so a corrupt stream cannot make either side allocate without bound.
 pub const MAX_FRAME_LEN: u32 = 16 * 1024 * 1024;
+
+/// The largest body a kind-2 frame can carry: [`MAX_FRAME_LEN`] less the kind byte and the id.
+pub const MAX_BODY_LEN: u32 = MAX_FRAME_LEN - 9;
 
 /// Kind byte of a UTF-8 JSON [`Message`].
 const JSON_KIND: u8 = 1;
@@ -44,7 +52,8 @@ pub enum Frame {
 /// `TOO_LARGE` when the message does not fit in [`MAX_FRAME_LEN`], and `INVALID_ARGUMENT` when it
 /// cannot be serialized.
 pub fn encode(message: &Message) -> Result<Vec<u8>, Error> {
-    let payload = serde_json::to_vec(message)?;
+    let payload =
+        serde_json::to_vec(message).map_err(|source| Error::Message { id: None, source })?;
     frame(JSON_KIND, &payload)
 }
 
@@ -52,15 +61,19 @@ pub fn encode(message: &Message) -> Result<Vec<u8>, Error> {
 ///
 /// # Errors
 ///
-/// `TOO_LARGE` when the bytes do not fit in [`MAX_FRAME_LEN`].
+/// `TOO_LARGE` when the bytes do not fit in [`MAX_BODY_LEN`].
 pub fn encode_body(id: u64, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    if bytes.len() as u64 > u64::from(MAX_BODY_LEN) {
+        let length = ID_LEN as u64 + KIND_LEN as u64 + bytes.len() as u64;
+        return Err(Error::FrameTooLarge { length });
+    }
     let mut payload = Vec::with_capacity(ID_LEN + bytes.len());
     payload.extend_from_slice(&id.to_le_bytes());
     payload.extend_from_slice(bytes);
     frame(BODY_KIND, &payload)
 }
 
-/// Start a frame of `payload_len` bytes after the kind byte, or refuse it as too large.
+/// Prefix `payload` with its length and kind byte, refusing frames over the limit.
 fn frame(kind: u8, payload: &[u8]) -> Result<Vec<u8>, Error> {
     let length = payload.len() as u64 + KIND_LEN as u64;
     if length > u64::from(MAX_FRAME_LEN) {
@@ -78,14 +91,15 @@ fn frame(kind: u8, payload: &[u8]) -> Result<Vec<u8>, Error> {
 /// frames, or one and a half.
 ///
 /// A message that fails to parse does not lose the stream: the frame boundary was known, so the
-/// next call reads the next frame. Only a frame that declares more than [`MAX_FRAME_LEN`] stops the
-/// decoder, because the rest of the stream can no longer be trusted to start where it says.
+/// next call reads the next frame. A frame that declares more than [`MAX_FRAME_LEN`] is the one
+/// case that ends the stream, because nothing after it can be trusted to start where it says.
 #[derive(Debug, Default)]
 pub struct Decoder {
     buffer: Vec<u8>,
     /// Bytes before this have already been decoded.
     offset: usize,
-    poisoned: bool,
+    /// The length of the declaration that ended the stream, once one did.
+    dead: Option<u64>,
 }
 
 impl Decoder {
@@ -94,25 +108,36 @@ impl Decoder {
         Decoder::default()
     }
 
-    /// Hand the next chunk in. Chunks may split or join frames at any byte.
+    /// Hand the next chunk in. Chunks may split or join frames at any byte. A dead decoder drops
+    /// the chunk instead of holding it, so a broken stream costs no memory while it is being shut
+    /// down.
     pub fn push(&mut self, chunk: &[u8]) {
+        if self.dead.is_some() {
+            return;
+        }
         self.buffer.extend_from_slice(chunk);
+    }
+
+    /// How many bytes are held for frames not yet decoded.
+    pub fn buffered_bytes(&self) -> usize {
+        self.buffer.len() - self.offset
     }
 
     /// Take the next complete frame out of the buffer.
     ///
     /// Returns `Ok(None)` when the buffered bytes do not hold a whole frame yet. A frame whose
     /// JSON does not parse is reported once and the decoder carries on with the next frame, since
-    /// the frame boundary was known. Only a declaration over [`MAX_FRAME_LEN`] ends the stream: the
-    /// error is reported once and every later call returns `Ok(None)`.
+    /// the frame boundary was known. Only a declaration over [`MAX_FRAME_LEN`] ends the stream: it
+    /// is reported on this call and on every later one, while `push` discards what still arrives.
     ///
     /// # Errors
     ///
-    /// `TOO_LARGE` for an oversize or overlong declaration, `INVALID_ARGUMENT` for a zero-length
-    /// frame, a truncated body or an unparseable message, and `UNSUPPORTED` for an unknown kind.
+    /// `TOO_LARGE` for an oversize declaration, `INVALID_ARGUMENT` for a zero-length frame, a
+    /// truncated body or an unreadable message, and `UNSUPPORTED` for an unknown kind or an op
+    /// this build does not know.
     pub fn poll(&mut self) -> Result<Option<Frame>, Error> {
-        if self.poisoned {
-            return Ok(None);
+        if let Some(length) = self.dead {
+            return Err(Error::FrameTooLarge { length });
         }
         let buffered = &self.buffer[self.offset..];
         if buffered.len() < HEADER_LEN {
@@ -120,12 +145,11 @@ impl Decoder {
         }
         let length = u32::from_le_bytes([buffered[0], buffered[1], buffered[2], buffered[3]]);
         if length > MAX_FRAME_LEN {
-            self.poisoned = true;
-            self.buffer.clear();
+            let length = u64::from(length);
+            self.dead = Some(length);
+            self.buffer = Vec::new();
             self.offset = 0;
-            return Err(Error::FrameTooLarge {
-                length: u64::from(length),
-            });
+            return Err(Error::FrameTooLarge { length });
         }
         if length == 0 {
             self.offset += HEADER_LEN;
@@ -139,9 +163,7 @@ impl Decoder {
         let kind = self.buffer[self.offset + HEADER_LEN];
         let payload = &self.buffer[self.offset + HEADER_LEN + KIND_LEN..end];
         let decoded = match kind {
-            JSON_KIND => serde_json::from_slice::<Message>(payload)
-                .map(Frame::Message)
-                .map_err(Error::Json),
+            JSON_KIND => message(payload),
             BODY_KIND => body(payload),
             other => Err(Error::UnknownKind(other)),
         };
@@ -160,6 +182,56 @@ impl Decoder {
             self.offset = 0;
         }
     }
+}
+
+/// Parse one JSON message, keeping the request id the payload carried even when it is broken.
+fn message(payload: &[u8]) -> Result<Frame, Error> {
+    match serde_json::from_slice::<Message>(payload) {
+        Ok(message) => Ok(Frame::Message(message)),
+        Err(source) => Err(Error::Message {
+            id: request_id(payload),
+            source: classify(payload, source),
+        }),
+    }
+}
+
+/// The little a broken payload must still carry for its request to be answered.
+#[derive(Deserialize)]
+struct RequestId {
+    #[serde(default)]
+    id: Option<u64>,
+}
+
+/// The id a payload still exposes, when it has one at all.
+fn request_id(payload: &[u8]) -> Option<u64> {
+    serde_json::from_slice::<RequestId>(payload)
+        .ok()
+        .and_then(|probe| probe.id)
+}
+
+/// Mark an op this build does not know, so [`Error::code`] reports it as a version difference
+/// rather than a broken message.
+fn classify(payload: &[u8], source: serde_json::Error) -> serde_json::Error {
+    if unknown_op(payload) {
+        serde_json::Error::custom(format!("{UNKNOWN_OP}: {source}"))
+    } else {
+        source
+    }
+}
+
+/// True when the payload is a request whose op tag this build does not know. Any other failure is
+/// a message that does not add up, which is not a newer op.
+fn unknown_op(payload: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<Value>(payload) else {
+        return false;
+    };
+    value.get("type").and_then(Value::as_str) == Some("request")
+        && value
+            .get("op")
+            .and_then(Value::as_object)
+            .and_then(|op| op.get("op"))
+            .and_then(Value::as_str)
+            .is_some_and(|tag| !op::knows(tag))
 }
 
 /// Split a body payload into its request id and its bytes.

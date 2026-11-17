@@ -3,7 +3,8 @@
 // Test-only code: panicking on a broken fixture or frame is the point.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-//! Message parsing: what a lenient reader accepts and what it must refuse.
+//! Message parsing: what a lenient reader accepts, what it refuses, and what it keeps from a
+//! message it cannot read.
 
 use files_wire::{Decoder, Error, Frame, Message, Op, PROTOCOL};
 
@@ -51,16 +52,25 @@ fn unknown_fields_are_ignored() {
 
 #[test]
 fn unknown_op_is_an_error_value() {
-    let error = decode(r#"{"type":"request","id":1,"op":{"op":"frobnicate"}}"#)
+    let error = decode(r#"{"type":"request","id":7,"op":{"op":"frobnicate"}}"#)
         .expect_err("an unknown op is refused");
-    assert!(matches!(error, Error::Json(_)));
-    assert_eq!(error.code(), "INVALID_ARGUMENT");
+    assert!(matches!(error, Error::Message { .. }));
+    assert_eq!(error.code(), "UNSUPPORTED");
+    assert_eq!(error.id(), Some(7), "the request can still be answered");
 }
 
 #[test]
 fn unknown_message_type_is_an_error_value() {
     let error = decode(r#"{"type":"telepathy","id":1}"#).expect_err("an unknown type is refused");
+    assert!(matches!(error, Error::Message { .. }));
     assert_eq!(error.code(), "INVALID_ARGUMENT");
+    assert_eq!(error.id(), Some(1));
+}
+
+#[test]
+fn a_broken_message_without_an_id_reports_none() {
+    let error = decode(r#"{"type":"request","op":{}}"#).expect_err("a request without an id");
+    assert_eq!(error.id(), None);
 }
 
 #[test]

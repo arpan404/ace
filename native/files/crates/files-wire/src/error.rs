@@ -2,6 +2,10 @@
 
 //! Framing and decoding failures.
 
+/// The opening of the message an unknown op produces. It is how [`Error::code`] tells a newer
+/// op apart from a message that is simply broken.
+pub(crate) const UNKNOWN_OP: &str = "unknown op";
+
 /// Something the wire cannot carry or cannot read.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -23,9 +27,17 @@ pub enum Error {
         /// Payload bytes after the kind byte.
         length: u64,
     },
-    /// The JSON message is malformed, has an unknown message type or an unknown op.
-    #[error("invalid message: {0}")]
-    Json(#[from] serde_json::Error),
+    /// A message that could not be read, or one that could not be written.
+    ///
+    /// The id is recovered from the bytes even when the rest of the message makes no sense, so the
+    /// daemon can fail the request it asked about instead of leaving it hanging.
+    #[error("invalid message: {source}")]
+    Message {
+        /// The request id the payload still carried, when it carried a readable one.
+        id: Option<u64>,
+        /// What serde said about the payload.
+        source: serde_json::Error,
+    },
 }
 
 impl Error {
@@ -34,7 +46,23 @@ impl Error {
         match self {
             Error::FrameTooLarge { .. } => "TOO_LARGE",
             Error::UnknownKind(_) => "UNSUPPORTED",
-            Error::EmptyFrame | Error::TruncatedBody { .. } | Error::Json(_) => "INVALID_ARGUMENT",
+            Error::Message { source, .. } if source.to_string().starts_with(UNKNOWN_OP) => {
+                "UNSUPPORTED"
+            }
+            Error::EmptyFrame | Error::TruncatedBody { .. } | Error::Message { .. } => {
+                "INVALID_ARGUMENT"
+            }
+        }
+    }
+
+    /// The request id a failed message still carried, so the daemon can answer that request.
+    pub fn id(&self) -> Option<u64> {
+        match self {
+            Error::Message { id, .. } => *id,
+            Error::FrameTooLarge { .. }
+            | Error::EmptyFrame
+            | Error::UnknownKind(_)
+            | Error::TruncatedBody { .. } => None,
         }
     }
 }

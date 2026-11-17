@@ -6,7 +6,8 @@
 //! Framing behaviour: what goes in comes out, however the bytes are chopped up.
 
 use files_wire::{
-    Decoder, Error, EventPayload, Frame, MAX_FRAME_LEN, Message, Op, Reply, encode, encode_body,
+    Decoder, Error, EventPayload, Frame, MAX_BODY_LEN, MAX_FRAME_LEN, Message, Op, Reply, encode,
+    encode_body,
 };
 
 fn request() -> Message {
@@ -58,6 +59,13 @@ fn drain(decoder: &mut Decoder) -> Vec<Frame> {
     out
 }
 
+/// The length a frame declares, which is everything after the four length bytes.
+fn declared_length(frame: &[u8]) -> u32 {
+    let mut header = [0u8; 4];
+    header.copy_from_slice(&frame[..4]);
+    u32::from_le_bytes(header)
+}
+
 #[test]
 fn decoder_handles_split_and_joined_frames() {
     let messages = vec![request(), response(), event()];
@@ -86,7 +94,7 @@ fn decoder_handles_split_and_joined_frames() {
 }
 
 #[test]
-fn decoder_rejects_oversize_frame() {
+fn decoder_rejects_oversize_frame_and_stays_dead() {
     let mut decoder = Decoder::new();
     decoder.push(&(MAX_FRAME_LEN + 1).to_le_bytes());
 
@@ -94,15 +102,29 @@ fn decoder_rejects_oversize_frame() {
     assert!(matches!(error, Error::FrameTooLarge { .. }));
     assert_eq!(error.code(), "TOO_LARGE");
 
+    decoder.push(&vec![0u8; 1024 * 1024]);
+    assert_eq!(decoder.buffered_bytes(), 0, "a dead decoder holds nothing");
+    let error = decoder.poll().expect_err("a dead decoder keeps failing");
+    assert!(matches!(error, Error::FrameTooLarge { .. }));
+    assert_eq!(error.code(), "TOO_LARGE");
+
     decoder.push(&encode(&request()).expect("fits"));
-    assert_eq!(decoder.poll().expect("no frame error"), None);
+    assert!(decoder.poll().is_err(), "not even a valid frame revives it");
+    assert_eq!(decoder.buffered_bytes(), 0);
 }
 
 #[test]
-fn decoder_reports_a_zero_length_frame() {
+fn decoder_reads_on_after_a_zero_length_frame() {
     let mut decoder = Decoder::new();
     decoder.push(&0u32.to_le_bytes());
     assert!(matches!(decoder.poll(), Err(Error::EmptyFrame)));
+    assert_eq!(decoder.poll().expect("no frame error"), None);
+
+    decoder.push(&encode(&request()).expect("fits"));
+    assert_eq!(
+        decoder.poll().expect("no frame error"),
+        Some(Frame::Message(request()))
+    );
 }
 
 #[test]
@@ -154,10 +176,34 @@ fn body_frame_carries_request_id_and_bytes() {
 }
 
 #[test]
-fn encoder_refuses_a_body_over_the_frame_limit() {
-    let bytes = vec![0u8; MAX_FRAME_LEN as usize];
-    let error = encode_body(1, &bytes).expect_err("a body that big is refused");
-    assert!(matches!(error, Error::FrameTooLarge { .. }));
+fn frames_of_exactly_the_limit_are_accepted() {
+    let body = vec![7u8; MAX_BODY_LEN as usize];
+    let bytes = encode_body(9, &body).expect("the limit is inclusive");
+    assert_eq!(declared_length(&bytes), MAX_FRAME_LEN);
+
+    let mut decoder = Decoder::new();
+    decoder.push(&bytes);
+    assert_eq!(
+        decoder.poll().expect("no frame error"),
+        Some(Frame::Body { id: 9, bytes: body })
+    );
+}
+
+#[test]
+fn one_byte_past_the_limit_is_refused() {
+    let body = vec![7u8; MAX_BODY_LEN as usize + 1];
+    let error = encode_body(9, &body).expect_err("one byte past the limit is refused");
+    assert!(matches!(
+        error,
+        Error::FrameTooLarge { length } if length == u64::from(MAX_FRAME_LEN) + 1
+    ));
+
+    let mut decoder = Decoder::new();
+    decoder.push(&(MAX_FRAME_LEN + 1).to_le_bytes());
+    assert!(matches!(
+        decoder.poll(),
+        Err(Error::FrameTooLarge { length }) if length == u64::from(MAX_FRAME_LEN) + 1
+    ));
 }
 
 #[test]
@@ -170,9 +216,36 @@ fn a_malformed_message_does_not_lose_the_next_frame() {
 
     let mut decoder = Decoder::new();
     decoder.push(&bytes);
-    assert!(matches!(decoder.poll(), Err(Error::Json(_))));
+    assert!(matches!(decoder.poll(), Err(Error::Message { .. })));
     assert_eq!(
         decoder.poll().expect("no frame error"),
         Some(Frame::Message(event()))
     );
+}
+
+#[test]
+fn a_fixed_pseudo_random_stream_never_panics() {
+    let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+    let mut decoder = Decoder::new();
+    for _ in 0..64 {
+        let mut chunk = Vec::with_capacity(64);
+        for _ in 0..64 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            chunk.push((state >> 33) as u8);
+        }
+        decoder.push(&chunk);
+        loop {
+            match decoder.poll() {
+                Ok(Some(_)) => {}
+                Ok(None) => break,
+                Err(error) => {
+                    assert!(!error.to_string().is_empty());
+                    break;
+                }
+            }
+        }
+    }
+    assert!(decoder.buffered_bytes() <= MAX_FRAME_LEN as usize);
 }

@@ -6,6 +6,30 @@ use serde::{Deserialize, Serialize};
 
 use crate::files::SearchQuery;
 
+/// The op tags this build understands, in the order of the variants. Kept beside the enum so the
+/// decoder can tell an op a newer daemon sends (`UNSUPPORTED`) from a message that is broken.
+pub(crate) const TAGS: &[&str] = &[
+    "openRoot",
+    "closeRoot",
+    "list",
+    "stat",
+    "read",
+    "write",
+    "createFile",
+    "createDir",
+    "rename",
+    "remove",
+    "watch",
+    "unwatch",
+    "indexQuery",
+    "search",
+];
+
+/// True when this build knows the op tag.
+pub(crate) fn knows(tag: &str) -> bool {
+    TAGS.contains(&tag)
+}
+
 /// One request. `root` is the number `openRoot` handed out, not a path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -124,4 +148,99 @@ pub enum Op {
         #[serde(flatten)]
         query: SearchQuery,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::files::Case;
+
+    fn every_op() -> Vec<Op> {
+        let query = SearchQuery {
+            pattern: String::new(),
+            regex: false,
+            case: Case::Smart,
+            whole_word: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            include_ignored: false,
+            max_matches: 0,
+            max_file_bytes: 0,
+        };
+        vec![
+            Op::OpenRoot {
+                path: String::new(),
+            },
+            Op::CloseRoot { root: 0 },
+            Op::List {
+                root: 0,
+                dir: String::new(),
+                limit: 1,
+                cursor: None,
+                hide: Vec::new(),
+            },
+            Op::Stat {
+                root: 0,
+                path: String::new(),
+            },
+            Op::Read {
+                root: 0,
+                path: String::new(),
+                offset: 0,
+                length: 0,
+                max_size: None,
+            },
+            Op::Write {
+                root: 0,
+                path: String::new(),
+                expected: None,
+            },
+            Op::CreateFile {
+                root: 0,
+                path: String::new(),
+            },
+            Op::CreateDir {
+                root: 0,
+                path: String::new(),
+            },
+            Op::Rename {
+                root: 0,
+                from: String::new(),
+                to: String::new(),
+                overwrite: false,
+            },
+            Op::Remove {
+                root: 0,
+                path: String::new(),
+            },
+            Op::Watch { root: 0 },
+            Op::Unwatch { subscription: 0 },
+            Op::IndexQuery {
+                root: 0,
+                query: String::new(),
+                limit: 0,
+            },
+            Op::Search { root: 0, query },
+        ]
+    }
+
+    #[test]
+    fn the_tag_list_matches_the_ops() {
+        let mut tags = Vec::new();
+        for op in every_op() {
+            let value = serde_json::to_value(&op).expect("an op serializes");
+            let tag = value
+                .get("op")
+                .and_then(|tag| tag.as_str())
+                .expect("an op tag")
+                .to_owned();
+            assert!(knows(&tag), "{tag} is missing from TAGS");
+            tags.push(tag);
+        }
+        tags.sort();
+        tags.dedup();
+        let mut known = TAGS.to_vec();
+        known.sort();
+        assert_eq!(tags, known, "TAGS lists exactly the ops this build knows");
+    }
 }
