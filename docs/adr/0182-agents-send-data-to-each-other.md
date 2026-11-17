@@ -155,7 +155,10 @@ TLS certificate proves nothing. Inside the stream:
 - ace's hosted relay admits a client only with a `device` grant on the host's own account
   (ADR 0111). The caller asks its ace account for one (`machineAccount.deviceGrant`, a new
   `kind: "device"` request of the existing `POST /v1/grants`), naming its paired device id.
-  Not signed in, that route is skipped. The person's own relay needs no grant.
+  The grant goes only to the hosted relay this machine itself is configured with: a relay
+  address a paired machine names never receives one, since it could replay it against the
+  person's other machines. Not signed in, or another address, that route is skipped. The
+  person's own relay needs no grant.
 
 ### Reliability and bounds
 
@@ -163,19 +166,28 @@ TLS certificate proves nothing. Inside the stream:
   no new work, ADR 0170) hold every parcel's state. The bytes held on the receiving side are
   read from disk after a restart (`heldAfterRestart`), never more than recorded.
 - **Retries.** Pushes retry with doubling waits from 1 s up to 60 s. The wait resets whenever
-  the machine answers. A push that hasn't reached its machine within a day fails, and so does a
+  the machine answers. A push waiting out its retry holds no send slot: a wake makes it due. A push that hasn't reached its machine within a day fails, and so does a
   parcel a parent hasn't collected within a day.
 - **Restarts.** Recovery after the engine is ready reports settled results not yet handed over,
-  tells receivers of arrivals not yet told, and resumes pushes.
+  tells receivers of arrivals not yet told, resumes pushes, and copies again to threads here
+  any parcel a restart cut off. A result that can't reach its thread after 20 tries still ends
+  its hold, so it never blocks later ones.
 - **Concurrency.** At most four pushes run at once. Writes to one arriving parcel are
   serialised.
-- **Quota and retention.** Staged and received parcels share an 8 GiB quota. Received parcels
-  are kept 7 days, swept in batches of 32.
+- **Quota and retention.** Staged and received parcels share an 8 GiB quota. An arriving
+  parcel counts the bytes it holds, checked per chunk, so an offer alone reserves nothing.
+  Arrivals their sender abandoned are dropped after a day; received parcels are kept 7 days.
+  Both are swept in batches of 32, on a loop of their own.
 - **Chunks.** Chunks are 192 KiB, base64 in the machine call, which fits the call's 320 KiB body
   limit. Chunk, read and outbox calls are routine in the target's log (ADR 0105), so a parcel
   logs its offer and commit, not every chunk. Names and contents never reach logs.
-- **Collection.** An unreachable machine rests (doubling waits) before the parent's machine asks
-  it again, with a 5 s limit on asking.
+- **Collection.** An unreachable machine rests (doubling waits, at most 10 s, counted in polls)
+  before the parent's machine asks it again, with a 5 s limit on asking. A parcel that can't
+  fit, or whose bytes fail their digest three times, is refused, so it doesn't sit in the
+  outbox for a day.
+- **Files.** A source file is opened without blocking, so a named pipe is refused at once.
+  `saveAs` makes folders one at a time, each resolved inside the project before the next, and
+  treats `.git` in any case as off limits.
 
 ## Rejected
 
