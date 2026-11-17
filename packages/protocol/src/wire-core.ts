@@ -323,8 +323,9 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * sent once in `provider.capabilities`), `spade-hidden` (accepts the hidden Spade
        * error code and live-end reason), `raw-on-demand` (items whose raw payloads clients
        * only show, in snapshots, pages, turn steps and live item events, come without them and
-       * marked `rawOmitted`; `item.raw` reads them). Unknown names are ignored; without a name
-       * the daemon sends the full shape.
+       * marked `rawOmitted`; `item.raw` reads them), `storage-hold` (accepts the `storage`
+       * admission hold; without it the daemon sends that hold as `user`, ADR 0174). Unknown
+       * names are ignored; without a name the daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
       /**

@@ -1,4 +1,11 @@
-import type { Item, ServerMessage, Thread, ThreadListEntry } from "@ace/protocol";
+import type {
+  Admission,
+  Item,
+  MaintenanceHold,
+  ServerMessage,
+  Thread,
+  ThreadListEntry,
+} from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import type { SuitServerMessage } from "@ace/protocol/suits";
 import type { MarketServerMessage } from "@ace/protocol/marketplace";
@@ -28,6 +35,8 @@ export const wireTrims = {
    * raw-frames view reads them with `item.raw`.
    */
   rawOnDemand: "raw-on-demand",
+  /** Accepts the `storage` admission hold, a disk too full for new work (ADR 0174). */
+  storageHold: "storage-hold",
 } as const;
 /** Every trim this build can undo; what a client lists in its hello. */
 export const supportedWireTrims: readonly string[] = Object.values(wireTrims);
@@ -94,18 +103,34 @@ function mapRecord<T>(record: Record<string, T>, change: (value: T) => T): Recor
   return Object.fromEntries(Object.entries(record).map(([id, value]) => [id, change(value)]));
 }
 
+/**
+ * Admission as a client that predates the `storage` hold can read it. Such a client rejects the
+ * whole message for the unknown value and would show no pause at all, so the hold reads as the
+ * person's own pause, the one such clients show as "new work paused" (their Resume changes
+ * nothing while the disk stays full).
+ */
+export function olderAdmission(admission: Admission): Admission {
+  if (!admission.holds.includes("storage")) return admission;
+  const holds = new Set<MaintenanceHold>(
+    admission.holds.map((hold) => (hold === "storage" ? "user" : hold)),
+  );
+  return { ...admission, holds: [...holds] };
+}
+
 /** What the daemon sends one connection, given the trims its hello asked for. */
 export class WireTrimmer {
   readonly #hidden: boolean;
   readonly #items: boolean;
   readonly #capabilities: boolean;
   readonly #raw: boolean;
+  readonly #storage: boolean;
   readonly #keys = new Map<string, string>();
   constructor(trims: readonly string[] | undefined) {
     this.#hidden = trims?.includes(wireTrims.spadeHidden) === true;
     this.#items = trims?.includes(wireTrims.itemDefaults) === true;
     this.#capabilities = trims?.includes(wireTrims.providerCapabilities) === true;
     this.#raw = trims?.includes(wireTrims.rawOnDemand) === true;
+    this.#storage = trims?.includes(wireTrims.storageHold) === true;
   }
   /** An item as this connection receives it. */
   #item = (item: Item): Item => {
@@ -123,6 +148,12 @@ export class WireTrimmer {
         message.result.code === "hidden"
       )
         message = { ...message, result: { ...message.result, code: "unavailable" } };
+    }
+    if (!this.#storage) {
+      if (message.type === "admission.changed")
+        message = { ...message, admission: olderAdmission(message.admission) };
+      else if (message.type === "admission.result" && message.admission)
+        message = { ...message, admission: olderAdmission(message.admission) };
     }
     if (!this.#items && !this.#capabilities && !this.#raw) return [message];
     const before: Outgoing[] = [];

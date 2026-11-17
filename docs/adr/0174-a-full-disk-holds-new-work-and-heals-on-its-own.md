@@ -38,7 +38,13 @@ A full disk is a daemon-wide condition, `storage`, that ace enters and leaves by
   and so do the other writers that already retried on a busy store.
 - **Best-effort bookkeeping keeps its intent.** A process inventory delete that fails is kept in
   memory and retried. If the daemon dies first, recovery at the next start finds the process
-  gone and removes the row, as it does today.
+  gone and removes the row, as it does today. The thread organizer's and workspace refresh's
+  "look at this thread again" marks work the same way (`held-writes.ts`): a refused mark is
+  written first on the owner's next pass, and again as soon as space is back. Their start-up
+  passes mark every thread, so a crash loses none.
+- **A child waits, it does not fail.** A delegated child whose start the full disk rolls back
+  stays queued, as when the engine has no room, and starts on the next retry once space is back.
+  Its parent keeps showing it waiting.
 - **Unhandled rejections.** A disk-full rejection that nobody caught is logged and the daemon
   keeps running, as with store contention. The failed operation's transaction has already rolled
   back, and with new work held nothing builds on it. Crashing instead only restarts into the same
@@ -48,8 +54,13 @@ A full disk is a daemon-wide condition, `storage`, that ace enters and leaves by
 
 - A person who runs out of space sees why new work waits, and ace carries on once they free
   space. No restart or button is needed.
-- `MaintenanceHold` gains `storage`, so `holds` may have five entries. Clients older than this
-  change reject an admission message carrying it and show no admission state while it lasts.
+- `MaintenanceHold` gains `storage`, so `holds` may have five entries. Builds older than this
+  change reject any message carrying it, so only a client whose hello lists the `storage-hold`
+  trim is sent it. Other clients hear it as `user`, the person's pause: old builds still show
+  that new work is paused, and their Resume changes nothing until space is freed. The host
+  token's HTTP answers (`/v1/status`, `/v1/maintenance`) leave the hold out and still read
+  `draining`: the local app's main process only asks whether the person paused, and an older one
+  would read the daemon as unhealthy instead.
 - Running turns' output waits while the disk is full: the pinned batch stays in memory and new
   batches are turned back for their writers to retry, as under contention. Nothing is dropped.
 - Free space read through `statfs` does not see per-user quotas, so on EDQUOT the hold can lift
