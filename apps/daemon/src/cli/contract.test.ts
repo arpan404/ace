@@ -51,6 +51,7 @@ describe("exit codes", () => {
     [clientError("auth"), "refused", "refused"],
     [clientError("protocol"), "uncertain", "uncertain"],
     [zodError(), "usage", "bad_argument"],
+    [Object.assign(new Error("EEXIST"), { code: "EEXIST", path: "/tmp/a" }), "refused", "conflict"],
     [new TypeError("x is undefined"), "failed", "internal"],
   ] as const)("%o reports as %s / %s", (error, status, code) => {
     const reported = CliError.parse(toCliError(error));

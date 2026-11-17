@@ -774,6 +774,8 @@ does.
 5. **`ace chat` stays** as the shortcut for `ace thread attach`.
 6. **Deprecation:** an old spelling prints a notice for two minor releases after its replacement
    ships, then is a usage error naming the new command for one release, then is removed. While ace
-   is versioned `0.0.N`, each release counts as a minor release. The machine entry points of §8
-   never retire.
+   is versioned `0.0.N`, each release counts as a minor release. The new grammar ships in 0.0.24,
+   so its old spellings print a notice through 0.0.26 (on a terminal only), are a usage error in
+   0.0.27 and are gone from 0.0.28 (`apps/daemon/src/cli/deprecation.ts`). The machine entry points
+   of §8 never retire.
 7. **Maintainer tools live under the hidden `ace market maintainer …`** in the same binary.

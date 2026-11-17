@@ -104,6 +104,7 @@ test("cloud submission passes prompt bytes to the installed CLI and retries its 
       "cloud",
       "codex",
       "exec",
+      "-",
       "--env",
       "synthetic-env",
       "--idempotency-key",
