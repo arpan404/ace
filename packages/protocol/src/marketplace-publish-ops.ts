@@ -6,6 +6,7 @@ import {
   MarketHash,
   MarketPublisherName,
   MarketVersion,
+  trimmedText,
 } from "./marketplace-base.ts";
 import {
   MarketCollectionId,
@@ -98,14 +99,14 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     action: z.literal("deprecate"),
     ...versionKey,
     /** Null clears the deprecation. */
-    note: z.string().trim().min(1).max(500).nullable(),
+    note: trimmedText(1, 500).nullable(),
   }),
   z.strictObject({
     action: z.literal("withdraw"),
     ...entry,
     /** Absent withdraws every live version of the entry. */
     version: MarketVersion.optional(),
-    reason: z.string().trim().min(1).max(500),
+    reason: trimmedText(1, 500),
   }),
   z.strictObject({ action: z.literal("deleteEntry"), ...entry }),
   z.strictObject({ action: z.literal("visibility"), ...entry, visibility: MarketVisibility }),
