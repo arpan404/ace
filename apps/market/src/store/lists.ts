@@ -141,7 +141,7 @@ export async function setVerified(
   const outcome = await listOutcome(db, "verified", stored);
   if (outcome !== "stored") return outcome;
   // Bounded: what is still behind after this, the cron applies.
-  for (let round = 0; round < 10 && (await syncDue(dbs, now, 100)) === 100; round++);
+  await syncDue(dbs, now, { publishers: 100, entries: 1_000 });
   return outcome;
 }
 

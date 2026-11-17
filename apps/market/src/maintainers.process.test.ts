@@ -422,6 +422,13 @@ describe("the signed lists", () => {
     await market.dbs.publishers
       .prepare("UPDATE publishers SET synced = 0 WHERE name = 'repaired-folk'")
       .run();
+    // The copy's batch had recorded the refresh it owed.
+    await catalogueOf(market, "spade-skill")
+      .prepare(
+        "INSERT INTO copy_refreshes (publisher, revision) SELECT id, revision FROM publisher_copies WHERE id = ?1",
+      )
+      .bind(id)
+      .run();
     expect((await put(market, "/v1/signer/verified", upload)).status).toBe(200);
     const entry = await catalogueOf(market, "spade-skill")
       .prepare("SELECT verified FROM entries WHERE name = 'repaired-skill'")

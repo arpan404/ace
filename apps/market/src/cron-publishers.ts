@@ -46,10 +46,11 @@ const batch = {
   rechecks: 20,
   pictureRows: 200,
   pictureObjects: 200,
-  copies: 50,
+  copies: { publishers: 50, entries: 500 },
   claims: 20,
   usageMarked: 20,
   usageSweep: 5,
+  usageVersions: 2_000,
 } as const;
 const picturePrefixes = ["avatars/", "previews/"] as const;
 
@@ -63,7 +64,11 @@ export async function publisherCron(
   await syncDue(dbs, now, batch.copies);
   await resumeClaims(dbs, env.OBJECTS, now);
   await applyWithdrawnDue(dbs, now);
-  await reconcileDue(dbs, now, { marked: batch.usageMarked, sweep: batch.usageSweep });
+  await reconcileDue(dbs, now, {
+    marked: batch.usageMarked,
+    sweep: batch.usageSweep,
+    versions: batch.usageVersions,
+  });
   await scanJobs(env, dbs, now);
   await staleDrafts(env, dbs, now);
   await expire(dbs, now);

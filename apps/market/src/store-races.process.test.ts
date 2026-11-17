@@ -174,6 +174,13 @@ describe("the verified list", () => {
       .prepare("UPDATE publishers SET synced = 0 WHERE id = ?1")
       .bind(id)
       .run();
+    // The copy's batch had recorded the refresh it owed.
+    await catalogueOf(market, "spade-skill")
+      .prepare(
+        "INSERT INTO copy_refreshes (publisher, revision) SELECT id, revision FROM publisher_copies WHERE id = ?1",
+      )
+      .bind(id)
+      .run();
     const again = await put(market, "/v1/signer/verified", reordered(upload));
     expect(again.status).toBe(200);
     expect(
