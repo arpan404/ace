@@ -124,6 +124,10 @@ export class ServiceStartup {
   private readonly inflight = new Map<string, number>();
   private readonly retriesUsed = new Map<string, number>();
   private readonly retryTimers = new Map<string, () => void>();
+  /** A running service's warmup that can safely run again, and its own retry budget and timer. */
+  private readonly reruns = new Map<string, () => Promise<void>>();
+  private readonly warmupUsed = new Map<string, number>();
+  private readonly warmupTimers = new Map<string, () => void>();
   /** Set once the daemon listens; retries start after that. */
   private server: Server | undefined;
   /** One budget for every service's cleanup at shutdown, started by the first to close. */
@@ -144,8 +148,9 @@ export class ServiceStartup {
     this.skip = new Set(skip);
     validateRuntime(runtime);
     privateContext.resources.onShutdown(() => {
-      for (const cancel of this.retryTimers.values()) cancel();
+      for (const cancel of [...this.retryTimers.values(), ...this.warmupTimers.values()]) cancel();
       this.retryTimers.clear();
+      this.warmupTimers.clear();
     });
   }
   private readonly context: ServiceContext;
@@ -334,10 +339,14 @@ export class ServiceStartup {
                 services,
                 onListen,
                 signal: controller.signal,
-                readiness: (read) => {
+                readiness: (read, rerun) => {
                   this.readiness.set(name, read);
+                  if (rerun) this.reruns.set(name, rerun);
+                  else this.reruns.delete(name);
+                  if (this.readiness.get(name)?.().state === "ready") this.warmupUsed.delete(name);
                   this.report(name);
                   this.changed();
+                  this.rerunLater(name);
                 },
               }),
             ),
@@ -417,13 +426,50 @@ export class ServiceStartup {
     if (!definition || failurePolicy(definition, this.critical) !== "degrade-and-retry")
       return false;
     if (this.skip.has(name) || this.context.signal.aborted) return false;
-    if (this.statuses.get(name)?.state !== "degraded") return false;
+    // A warmup that failed after a good start repeats on its own schedule or not at all.
+    if (this.statuses.get(name)?.state !== "degraded")
+      return this.warmupTimers.has(name) || this.canRerun(name);
     if (this.retryTimers.has(name)) return true;
     const own = (this.retriesUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0);
     const required = definition.requires.filter(
       (dependency) => this.statuses.get(dependency)?.state === "degraded",
     );
     return required.length ? required.every((d) => this.willRetry(d)) : own;
+  }
+  private canRerun(name: string): boolean {
+    return (
+      this.reruns.has(name) &&
+      !this.context.signal.aborted &&
+      (this.warmupUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0)
+    );
+  }
+  /**
+   * A warmup that failed after the service started runs again on the same backoff as a failed
+   * start, without closing or restarting the service. Each failure schedules the next.
+   */
+  private rerunLater(name: string): void {
+    if (this.readiness.get(name)?.().state !== "degraded") return;
+    if (this.warmupTimers.has(name) || !this.canRerun(name)) return;
+    const used = this.warmupUsed.get(name) ?? 0;
+    const delay = this.runtime.retryDelaysMs?.[used];
+    const rerun = this.reruns.get(name);
+    if (delay === undefined || !rerun) return;
+    this.warmupUsed.set(name, used + 1);
+    const cancel = this.runtime.schedule(
+      `rerun ${name}`,
+      () => {
+        this.warmupTimers.delete(name);
+        this.changed();
+        this.context.log.log("info", "Retrying service warmup", logFields([["service", name]]));
+        void rerun().catch((error: unknown) => {
+          if (!this.context.signal.aborted)
+            this.context.log.log("error", "Service warmup retry failed", logError(error));
+        });
+      },
+      delay,
+    );
+    this.warmupTimers.set(name, cancel);
+    this.changed();
   }
   /** Degraded, not essential, with every required service ready, and retries left. */
   private retriable(definition: ServiceDefinition): boolean {

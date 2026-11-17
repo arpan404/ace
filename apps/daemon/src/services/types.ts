@@ -180,7 +180,14 @@ export interface Services {
 }
 export interface ServiceContext {
   signal: AbortSignal;
-  readiness?(read: () => { state: "starting" | "ready" | "degraded"; error?: string }): void;
+  /**
+   * Reports the service's own state after its start returned. `rerun`, when the work can safely
+   * run again, lets startup repeat it on the retry schedule without restarting the service.
+   */
+  readiness?(
+    read: () => { state: "starting" | "ready" | "degraded"; error?: string },
+    rerun?: () => Promise<void>,
+  ): void;
   config: Config;
   options: DaemonOptions;
   store: Store;

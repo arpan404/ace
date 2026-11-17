@@ -6,6 +6,7 @@ import type { startServer } from "../server.ts";
 import { startupAttempts, safeModeSkips } from "../startup-attempts.ts";
 import { ServiceScope } from "./service-scope.ts";
 import { Resources } from "./resources.ts";
+import { repeatableWarmup, warmup } from "./warmup.ts";
 import { serviceOrder } from "./service-order.ts";
 import {
   EssentialServiceError,
@@ -464,12 +465,14 @@ test("a readiness change after a good start is published to listeners", async ()
   expect(state(subject, "commands")).toBe("degraded");
 });
 
-test("a warmup that failed after a good start is not promised a retry that never comes", async () => {
+test("a warmup that cannot repeat is not promised a retry that never comes", async () => {
   const clock = fakeClock();
   const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
   await subject.start([
-    service("commands", (context) => {
-      context.readiness?.(() => ({ name: "commands", state: "degraded", error: "warmup failed" }));
+    service("commands", async (context) => {
+      await warmup(context, "commands", async () => {
+        throw new Error("warmup failed");
+      });
     }),
   ]);
   await subject.listening(server);
@@ -496,4 +499,48 @@ test("the last retry's stuck cleanup does not keep promising another, and listen
   expect(retryingOf(subject, "suits")).toBe(false);
   expect(heard.at(-1)).toBe(false);
   stuck.resolve();
+});
+
+test("a repeatable warmup that fails once runs again and ends ready, with no restart of the service", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  let starts = 0;
+  let runs = 0;
+  const heard: (boolean | undefined)[] = [];
+  subject.onChange(() => heard.push(retryingOf(subject, "usage")));
+  await subject.start([
+    service("usage", async (context) => {
+      starts++;
+      await repeatableWarmup(context, "usage", async () => {
+        if (++runs === 1) throw new Error("ledger busy");
+      });
+    }),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "usage")).toBe("degraded");
+  expect(retryingOf(subject, "usage")).toBe(true);
+  await clock.advance(10);
+  expect(state(subject, "usage")).toBe("ready");
+  expect(runs).toBe(2);
+  expect(starts).toBe(1);
+  expect(heard.at(-1)).toBeUndefined();
+});
+
+test("a repeatable warmup that keeps failing stops promising retries once its budget is spent", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  let runs = 0;
+  await subject.start([
+    service("usage", async (context) => {
+      await repeatableWarmup(context, "usage", async () => {
+        runs++;
+        throw new Error("ledger busy");
+      });
+    }),
+  ]);
+  await subject.listening(server);
+  for (let step = 0; step < 5; step++) await clock.advance(1_000);
+  expect(runs).toBe(3);
+  expect(state(subject, "usage")).toBe("degraded");
+  expect(retryingOf(subject, "usage")).toBe(false);
 });

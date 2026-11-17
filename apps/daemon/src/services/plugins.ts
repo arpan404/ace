@@ -1,4 +1,4 @@
-import { warmup } from "./warmup.ts";
+import { repeatableWarmup } from "./warmup.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -17,7 +17,7 @@ export async function startPlugins(context: ServiceContext): Promise<void> {
     now,
     id,
   });
-  const maintenance = warmup(context, "plugins", () => plugins.maintain(context.signal));
+  const maintenance = repeatableWarmup(context, "plugins", () => plugins.maintain(context.signal));
   const service = new PluginService(plugins);
   resources.onShutdown(() => service.stopAdmission());
   resources.own(async () => {

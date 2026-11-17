@@ -2,7 +2,7 @@ import { logFields } from "@ace/diagnostics";
 import { ProviderAccountsRequest } from "@ace/protocol";
 import { providerAccounts } from "../provider-accounts.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
-import { warmup } from "./warmup.ts";
+import { repeatableWarmup } from "./warmup.ts";
 import { AccountManagementRequest, type AccountsResponse } from "@ace/protocol/accounts";
 import type { ProviderLoginSessions } from "@ace/accounts";
 import { AccountManagement, freshLimitsWaitMs, limitsRefreshMs } from "../account-management.ts";
@@ -130,7 +130,7 @@ export function startAccountManagement(context: ServiceContext): void {
     },
   });
   services.accountManagement = management;
-  const initialized = warmup(context, "accountManagement", () => management.initialize());
+  const initialized = repeatableWarmup(context, "accountManagement", () => management.initialize());
   // Re-read limits well within the staleness window while they matter (a held thread, working
   // agents, a client reading them), so an account that reset or bought more lets its held
   // threads go without anyone asking; otherwise only once a known reset has passed.
