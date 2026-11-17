@@ -15,3 +15,6 @@ workspace = true
 [dependencies]
 cap-std = "3"
 thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
