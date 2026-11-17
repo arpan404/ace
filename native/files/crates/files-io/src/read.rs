@@ -58,7 +58,7 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
     let eof = !oversized && range.offset.saturating_add(bytes.len() as u64) >= metadata.len();
     Ok(Read {
         size: metadata.len(),
-        version: version_of(&metadata),
+        version: version_of(&absolute, &metadata)?,
         bytes,
         binary: detection.binary,
         encoding: detection.encoding,

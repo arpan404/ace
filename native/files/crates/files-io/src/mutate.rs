@@ -37,7 +37,7 @@ pub fn rename(root: &Root, from: &str, to: &str, overwrite: bool) -> Result<(), 
             Ok(metadata) => {
                 return Err(Error::Conflict {
                     path: to.to_owned(),
-                    current: Some(version_of(&metadata)),
+                    current: Some(version_of(&destination, &metadata)?),
                 });
             }
             Err(error) if error.kind() == ErrorKind::NotFound => {}

@@ -32,7 +32,7 @@ pub fn write(
     let _ = guard(&absolute, path, expected)?;
     temp.persist(&absolute)
         .map_err(|error| Error::Io(error.error))?;
-    Ok(version_of(&std::fs::metadata(&absolute)?))
+    version_of(&absolute, &std::fs::metadata(&absolute)?)
 }
 
 /// Creates a file that must not exist yet and returns its version.
@@ -49,7 +49,7 @@ fn guard(absolute: &Path, path: &str, expected: Option<&str>) -> Result<Option<M
     };
     match (expected, found) {
         (Some(expected), Some(metadata)) => {
-            let current = version_of(&metadata);
+            let current = version_of(absolute, &metadata)?;
             if current != expected {
                 return Err(Error::Conflict {
                     path: path.to_owned(),
@@ -67,7 +67,7 @@ fn guard(absolute: &Path, path: &str, expected: Option<&str>) -> Result<Option<M
         }),
         (None, Some(metadata)) => Err(Error::Conflict {
             path: path.to_owned(),
-            current: Some(version_of(&metadata)),
+            current: Some(version_of(absolute, &metadata)?),
         }),
         (None, None) => Ok(None),
     }

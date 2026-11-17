@@ -4,6 +4,7 @@
 
 use std::fs::Metadata;
 use std::io::ErrorKind;
+use std::path::Path;
 
 use files_safe::Root;
 
@@ -21,7 +22,7 @@ pub fn stat_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
         Err(error) => return Err(error.into()),
     };
     match std::fs::symlink_metadata(&absolute) {
-        Ok(metadata) => Ok(Some(version_of(&metadata))),
+        Ok(metadata) => Ok(Some(version_of(&absolute, &metadata)?)),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
@@ -29,17 +30,17 @@ pub fn stat_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
 
 /// `{dev}:{ino}:{size}:{mtimeMs}:{ctimeMs}`, with every number printed the way JavaScript prints
 /// it, because the daemon may compare a version this process printed with one it printed itself.
-pub(crate) fn version_of(metadata: &Metadata) -> String {
-    let (dev, ino) = identity(metadata);
+pub(crate) fn version_of(absolute: &Path, metadata: &Metadata) -> Result<String, Error> {
+    let (dev, ino) = identity(absolute, metadata)?;
     let (mtime, ctime) = times(metadata);
-    format!(
+    Ok(format!(
         "{}:{}:{}:{}:{}",
         js_number(dev as f64),
         js_number(ino as f64),
         js_number(metadata.len() as f64),
         js_number(mtime),
         js_number(ctime)
-    )
+    ))
 }
 
 /// A JavaScript number in string form.
@@ -65,9 +66,9 @@ fn js_number(value: f64) -> String {
 }
 
 #[cfg(unix)]
-fn identity(metadata: &Metadata) -> (u64, u64) {
+fn identity(_absolute: &Path, metadata: &Metadata) -> Result<(u64, u64), Error> {
     use std::os::unix::fs::MetadataExt;
-    (metadata.dev(), metadata.ino())
+    Ok((metadata.dev(), metadata.ino()))
 }
 
 #[cfg(unix)]
@@ -79,13 +80,27 @@ fn times(metadata: &Metadata) -> (f64, f64) {
     )
 }
 
+/// Windows has no `dev`/`ino`: the volume serial and the file index stand in for them, and only
+/// a handle can report them.
 #[cfg(windows)]
-fn identity(metadata: &Metadata) -> (u64, u64) {
-    use std::os::windows::fs::MetadataExt;
-    (
-        metadata.volume_serial_number().map_or(0, u64::from),
-        metadata.file_index().unwrap_or(0),
-    )
+fn identity(absolute: &Path, _metadata: &Metadata) -> Result<(u64, u64), Error> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    /// `FILE_FLAG_BACKUP_SEMANTICS`: a folder opens as a handle, which a plain open refuses.
+    const BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    /// `FILE_FLAG_OPEN_REPARSE_POINT`: a link reports its own identity, like the metadata
+    /// beside it.
+    const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    /// `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`: never block another writer.
+    const SHARE_ALL: u32 = 0x0000_0007;
+
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(SHARE_ALL)
+        .custom_flags(BACKUP_SEMANTICS | OPEN_REPARSE_POINT)
+        .open(absolute)?;
+    let information = winapi_util::file::information(&file)?;
+    Ok((information.volume_serial_number(), information.file_index()))
 }
 
 #[cfg(windows)]
