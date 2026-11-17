@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "entries": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+    },
+    "kind": {
+      "enum": [
+        "market",
+        "git"
+      ],
+      "type": "string"
+    },
+    "problem": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "readAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "address",
+    "enabled",
+    "entries"
+  ],
+  "type": "object"
+}

@@ -12,14 +12,14 @@
       "type": "integer"
     },
     "hash": {
-      "$ref": "https://ace.local/protocol/v1/PluginHash.json"
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
     },
     "id": {
       "pattern": "^[a-zA-Z0-9-]{1,80}$",
       "type": "string"
     },
     "name": {
-      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
     },
     "unsupportedCount": {
       "maximum": 512,

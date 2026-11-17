@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isLocalAddress, linkDestination } from "./web-links.ts";
+import { linkDestination } from "./web-links.ts";
 
 const plain = { button: 0, metaKey: false, ctrlKey: false };
 const cmd = { ...plain, metaKey: true };
@@ -31,11 +31,12 @@ describe("where a followed link opens", () => {
     );
   });
 
-  test("a local address opens in ace's browser even with ⌘ or Ctrl held", () => {
+  test("a local address opens in the system's browser with ⌘, Ctrl or a middle click", () => {
     for (const url of ["http://localhost:5173/", "http://127.0.0.1:3000", "http://[::1]:8080/"]) {
-      expect(linkDestination({ url, click: cmd, apple: true, inApp: true })).toBe("app");
-      expect(linkDestination({ url, click: ctrl, apple: false, inApp: true })).toBe("app");
-      expect(linkDestination({ url, click: middle, apple: true, inApp: true })).toBe("app");
+      expect(linkDestination({ url, click: cmd, apple: true, inApp: true })).toBe("system");
+      expect(linkDestination({ url, click: ctrl, apple: false, inApp: true })).toBe("system");
+      expect(linkDestination({ url, click: middle, apple: true, inApp: true })).toBe("system");
+      expect(linkDestination({ url, click: plain, apple: true, inApp: true })).toBe("app");
     }
   });
 
@@ -46,38 +47,5 @@ describe("where a followed link opens", () => {
     expect(
       linkDestination({ url: "http://localhost:3000", click: plain, apple: true, inApp: false }),
     ).toBe("system");
-  });
-});
-
-describe("local addresses", () => {
-  test.each([
-    "http://localhost:3000",
-    "http://app.localhost/",
-    "http://printer.local/",
-    "http://127.0.0.1/",
-    "http://127.4.5.6/",
-    "http://0.0.0.0:8000/",
-    "http://10.0.0.8/",
-    "http://172.16.0.1/",
-    "http://172.31.255.255/",
-    "http://192.168.1.20:8080/",
-    "http://169.254.1.1/",
-    "http://[::1]:5173/",
-    "http://[fd12:3456::1]/",
-    "http://[fe80::1]/",
-  ])("%s is on this computer or its network", (url) => {
-    expect(isLocalAddress(url)).toBe(true);
-  });
-
-  test.each([
-    "https://github.com/",
-    "http://172.32.0.1/",
-    "http://11.0.0.1/",
-    "http://localhost.example.com/",
-    "http://[2001:db8::1]/",
-    "mailto:someone@localhost",
-    "not a url",
-  ])("%s is not", (url) => {
-    expect(isLocalAddress(url)).toBe(false);
   });
 });

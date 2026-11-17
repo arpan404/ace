@@ -49,6 +49,14 @@ export interface Services {
   previewClient?: import("../preview-client.ts").PreviewClient;
   previewSuggestions?: import("../preview-suggestions/tracker.ts").SuggestionTracker;
   automations?: import("@ace/automations").AutomationService;
+  /** Agents' automations: their own store and scheduler, and whether an owner thread is live. */
+  agentAutomations?: {
+    store: import("@ace/automations").AutomationStore;
+    service: import("@ace/automations").AutomationService;
+    live(automationId: string): boolean;
+  };
+  /** Webhook automations' URLs, secrets and relayed requests (ADR 0173). */
+  automationWebhooks?: import("../automation-webhooks.ts").AutomationWebhookService;
   /** Automations agents made from threads, for the person's own controls. */
   threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;
   activityReads?: import("../activity-reads.ts").ActivityReads;

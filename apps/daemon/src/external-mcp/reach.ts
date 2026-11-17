@@ -71,7 +71,7 @@ export function loopbackBase(
     return outsideBase("local", `http://${named}`);
   return undefined;
 }
-function tailnetUrl(facts: { name: string; port: number }): string {
+export function tailnetUrl(facts: { name: string; port: number }): string {
   return facts.port === 443 ? `https://${facts.name}` : `https://${facts.name}:${facts.port}`;
 }
 /**

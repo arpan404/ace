@@ -40,6 +40,7 @@ function entry(
     triggerError: undefined,
     lastRun: undefined,
     owner: undefined,
+    webhook: undefined,
     ...facts,
   };
 }

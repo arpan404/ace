@@ -58,6 +58,9 @@
           },
           "triggerError": {
             "$ref": "https://ace.local/protocol/v1/AutomationTriggerError.json"
+          },
+          "webhook": {
+            "$ref": "https://ace.local/protocol/v1/AutomationWebhookState.json"
           }
         },
         "required": [
@@ -100,6 +103,9 @@
           },
           "triggerError": {
             "$ref": "https://ace.local/protocol/v1/AutomationTriggerError.json"
+          },
+          "webhook": {
+            "$ref": "https://ace.local/protocol/v1/AutomationWebhookState.json"
           }
         },
         "required": [

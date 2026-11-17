@@ -166,6 +166,31 @@ it("an agent saves a schedule by its rule alone, sees when it runs next, and pau
   expect((await listed())?.nextRunAt).toBeGreaterThan(0);
 });
 
+it("an agent saves a webhook automation but never gets a secret, and can't also schedule it", async () => {
+  world = await evalWorld({ browser: false });
+  const { agent } = await world.agent({});
+  const saved = await agent.call("automation_put", {
+    id: "deploy-hook",
+    title: "Deploy hook",
+    prompt: "Check the {{body.env}} deploy",
+    webhook: true,
+  });
+  expect(saved.failed, saved.text).toBe(false);
+  expect(data(saved)).toMatchObject({
+    automation: { id: "deploy-hook", trigger: { kind: "webhook" } },
+  });
+  // The secret and its URL are the person's to make, in Automations; the agent's answer has neither.
+  expect(saved.text).not.toMatch(/whsec_|\/hooks\//);
+  const both = await agent.call("automation_put", {
+    id: "both",
+    title: "Both",
+    prompt: "Anything",
+    webhook: true,
+    schedule: { kind: "rrule", expression: "FREQ=DAILY" },
+  });
+  expect(both.failed).toBe(true);
+});
+
 it("guide returns its family's schemas inline only to a client whose list never grows", async () => {
   world = await evalWorld({ browser: false });
   const { agent: full, connection } = await world.agent({});

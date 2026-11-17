@@ -1,4 +1,5 @@
 import { logError } from "@ace/diagnostics";
+import { webhookSecrets } from "../automation-webhook-key.ts";
 import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
@@ -37,7 +38,9 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
         .get(automationId);
       return row ? owner.parse(row) : undefined;
     });
-  const automationStore = new AutomationStore(join(config.dataDir, "agent-automations.sqlite"));
+  const automationStore = new AutomationStore(join(config.dataDir, "agent-automations.sqlite"), {
+    webhookSecrets: webhookSecrets(config.dataDir),
+  });
   resources.own(() => automationStore.close());
   const clock = context.options.engine?.clock;
   const automations = new AutomationService(automationStore, {
@@ -71,6 +74,12 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
     return thread && thread.deletedAt === undefined ? thread.id : undefined;
   };
   const threadAutomations = createThreadAutomations(automations, live);
+  // Webhook automations agents make get their secret from the person, in this store (ADR 0173).
+  context.services.agentAutomations = {
+    store: automationStore,
+    service: automations,
+    live: (automationId) => live(automationId) !== undefined,
+  };
   const previews = new AgentPreviews();
   const handoffs = createHandoffs(context, delegations);
   return {
@@ -197,7 +206,7 @@ export function completeTrigger(
   now: number,
   localZone: string,
 ): Automation["trigger"] {
-  if (trigger.kind === "manual") return trigger;
+  if (trigger.kind === "manual" || trigger.kind === "webhook") return trigger;
   const { schedule } = trigger;
   return {
     kind: "schedule",
