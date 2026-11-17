@@ -405,7 +405,7 @@ export class Engine {
         await options.providersActivated;
         await recovery.prepare();
         for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
-        models.migrateCachedDefaults();
+        models.migrateCachedDefaults(unreadable);
         if (!this.closing) recover();
         this.readyState = true;
         for (const id of this.pendingSettles) this.stopSettled(id);

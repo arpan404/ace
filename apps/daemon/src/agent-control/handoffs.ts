@@ -101,14 +101,21 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     delegations.releaseReservation(reservation);
   }
   // Interrupted filesystem work is never launched at startup. Cleanup precedes new handoff admission.
+  // Each reservation is cleaned on its own: one whose worktree ace may not remove (the person
+  // committed there, its repository is gone) keeps its rows for the next start and is logged,
+  // and never holds back every handoff after it.
   const recovery = Promise.all(
     delegations.journal
       .reservations()
       .filter((reservation) => reservation.record.resultDelivery !== "owner")
-      .map((reservation) => cleanup(reservation)),
-  );
-  void recovery.catch((error) =>
-    log.log("error", "Handoff recovery requires cleanup", logError(error)),
+      .map((reservation) =>
+        cleanup(reservation).catch((error: unknown) =>
+          log.log("error", "Handoff recovery requires cleanup", {
+            childId: reservation.record.childId,
+            ...logError(error),
+          }),
+        ),
+      ),
   );
   resources.onShutdown(async () => {
     for (const entry of pending.values()) entry.cancel();

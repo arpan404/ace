@@ -28,6 +28,7 @@ export const RecoveryRecord = QueueState.extend({
 });
 export type RecoveryRecord = z.infer<typeof RecoveryRecord>;
 export const maxMessages = 256;
+const withState = "thread_id IN (SELECT thread_id FROM thread_state)";
 /**
  * Whether a hold reads as the provider dying on its own. It only describes a restart hold: any
  * other hold, or none, clears it, and a restart hold set anew (a real restart) clears it unless
@@ -401,25 +402,39 @@ export class QueueStore {
   uncertain(id: number): void {
     this.sql("UPDATE intents SET uncertain=1 WHERE id=?").run(id);
   }
+  /**
+   * Deadlines of threads that still have engine state. A deleted thread whose state was purged
+   * keeps its queue row; it has nothing left to resume, and must not hold up the threads after it.
+   */
   nextDeadline(): number | undefined {
     const row = this.sql(
-      "SELECT resume_at FROM engine_queue WHERE resume_at IS NOT NULL ORDER BY resume_at LIMIT 1",
+      `SELECT resume_at FROM engine_queue WHERE resume_at IS NOT NULL AND ${withState}
+      ORDER BY resume_at LIMIT 1`,
     ).get();
     return row ? z.number().int().nonnegative().parse(row.resume_at) : undefined;
   }
   /** Threads a usage limit holds, for an account reading that may let them go. */
   limited(): ThreadId[] {
     return this.sql(
-      "SELECT thread_id FROM engine_queue WHERE limited=1 AND paused=1 AND reason='limit' LIMIT 256",
+      `SELECT thread_id FROM engine_queue WHERE limited=1 AND paused=1 AND reason='limit'
+      AND ${withState} LIMIT 256`,
     )
       .all()
       .map((row) => QueueSnapshot.shape.threadId.parse(row.thread_id));
   }
   due(now: number): ThreadId[] {
     return this.sql(
-      "SELECT thread_id FROM engine_queue WHERE resume_at<=? ORDER BY resume_at LIMIT 64",
+      `SELECT thread_id FROM engine_queue WHERE resume_at<=? AND ${withState}
+      ORDER BY resume_at LIMIT 64`,
     )
       .all(now)
       .map((row) => QueueSnapshot.shape.threadId.parse(row.thread_id));
+  }
+  /** Moves a deadline that could not be acted on to `at`, keeping everything else it holds. */
+  defer(id: ThreadId, at: number): void {
+    this.sql("UPDATE engine_queue SET resume_at=? WHERE thread_id=? AND resume_at IS NOT NULL").run(
+      at,
+      id,
+    );
   }
 }

@@ -11,6 +11,7 @@ import {
 import { scriptFrames, start, end } from "./test-support.ts";
 import type { Fact } from "@ace/core";
 import { InputRejected } from "@ace/engine-api";
+import { createDevThread } from "../commands.ts";
 
 afterEach(cleanupRecovery);
 const limited: Fact = {
@@ -219,6 +220,63 @@ test("snooze reaches its deadline without spending quota and leaves the queue av
   expect(resume(h, h.engine, id).ok).toBe(true);
   await h.engine.flush();
   expect(sends(replacement)).toHaveLength(3);
+});
+
+test("a deadline this build can't read is put off on its own, and another thread's deadline still fires", async () => {
+  const failures: unknown[] = [];
+  const { h, id, replacement } = await limitedThread({
+    preferences: { limitPolicy: "snooze_until_reset" },
+    recovery: { resetAt: () => 5000, onError: (error) => failures.push(error) },
+  });
+  // Another thread whose earlier deadline names an action a newer build wrote.
+  const other = createDevThread(h.store, h.workspace).id;
+  h.store.atomic((db) => {
+    db.prepare(
+      "INSERT INTO thread_state(thread_id,state,seq) SELECT ?,state,seq FROM thread_state WHERE thread_id=?",
+    ).run(other, id);
+    db.prepare(
+      "INSERT OR REPLACE INTO engine_queue(thread_id,paused,reason,resume_at,timer_action) VALUES (?,1,'snooze',4000,'rewind')",
+    ).run(other);
+  });
+  h.clock.advance(5000);
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "manual", resumeAt: null });
+  const deadline = () =>
+    h.store.atomic((db) =>
+      db.prepare("SELECT resume_at FROM engine_queue WHERE thread_id=?").get(other),
+    )?.resume_at;
+  expect(failures).toHaveLength(1);
+  expect(deadline()).toBe(6000);
+  // Still unreadable: tried again later and later, never every second.
+  h.clock.advance(6000);
+  expect(failures).toHaveLength(2);
+  expect(deadline()).toBe(8000);
+  h.clock.advance(7999);
+  expect(failures).toHaveLength(2);
+});
+
+test("a queued message whose trigger a newer build wrote is skipped at start, never stopping the engine", async () => {
+  const { h, id } = await limitedThread();
+  h.store.atomic((db) =>
+    db
+      .prepare(
+        "UPDATE intents SET trigger='future_trigger' WHERE thread_id=? AND status IN ('pending','queued')",
+      )
+      .run(id),
+  );
+  const failures: unknown[] = [];
+  const recovered = await restart(h, { onError: (error) => failures.push(error) });
+  await expect(recovered.ready()).resolves.toBeUndefined();
+  expect(failures.map(String).join("\n")).toContain(id);
+  // Its rows stay for a build that reads them.
+  expect(
+    h.store.atomic((db) =>
+      db
+        .prepare("SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND trigger='future_trigger'")
+        .get(id),
+    )?.n,
+  ).toBeGreaterThan(0);
 });
 
 test("a resetless limit refuses a timed action, and the person's next message is sent, not held", async () => {

@@ -125,7 +125,14 @@ export class IntentStore {
     const row = this.sql("SELECT status FROM intents WHERE command_id=? LIMIT 1").get(commandId);
     return row ? Header.shape.status.parse(row.status) : undefined;
   }
-  *headers(id?: ThreadId): Iterable<IntentHeader> {
+  /**
+   * Live intents. With `unreadable`, one whose row this build can't read (a trigger or delivery
+   * another build wrote, say) is told to it, by its thread, and passed over; without, it throws.
+   */
+  *headers(
+    id?: ThreadId,
+    unreadable?: (thread: unknown, error: unknown) => void,
+  ): Iterable<IntentHeader> {
     let after = 0;
     for (;;) {
       const rows =
@@ -138,8 +145,15 @@ export class IntentStore {
             ).all(id, after);
       if (!rows.length) return;
       for (const row of rows) {
-        const value = header(row);
-        after = value.id;
+        after = Number(row.id);
+        let value: IntentHeader;
+        try {
+          value = header(row);
+        } catch (error) {
+          if (!unreadable) throw error;
+          unreadable(row.thread_id, error);
+          continue;
+        }
         yield value;
       }
     }

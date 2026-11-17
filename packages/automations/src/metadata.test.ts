@@ -37,7 +37,8 @@ it("a reopened catalog reads names without validating unrelated prompt and polli
   }
   const reopened = new AutomationStore(h.storePath);
   try {
-    expect(() => reopened.list()).toThrow();
+    // The automation itself no longer reads; it is passed over, its name still listed.
+    expect(reopened.list()).toEqual([]);
     expect(reopened.catalog(auto.provider, auto.workspace)).toEqual([
       { id: auto.id, title: auto.title },
     ]);
@@ -95,4 +96,40 @@ it("preserves legacy inline cursors across migration and subsequent restarts", (
   const second = new AutomationStore(h.storePath);
   expect(second.readState(auto.id)).toEqual({ pages: [] });
   second.close();
+});
+it("an automation another build wrote is kept and passed over: the rest start, list and run", async () => {
+  const h = harness();
+  const kept = definition();
+  const newer = definition({ id: "newer" });
+  h.service.put(kept);
+  h.service.put(newer);
+  const db = new DatabaseSync(h.storePath);
+  try {
+    db.prepare(
+      "UPDATE automation_jobs SET body=json_set(body,'$.trigger',json('{\"kind\":\"lunar\"}')) WHERE id=?",
+    ).run(newer.id);
+  } finally {
+    db.close();
+  }
+  expect(() => h.restart()).not.toThrow();
+  expect(h.errors.some((error) => String(error).includes("newer"))).toBe(true);
+  expect(h.service.list()).toEqual([kept]);
+  expect(h.service.catalog(kept.provider, kept.workspace)).toContainEqual({
+    id: kept.id,
+    title: kept.title,
+  });
+  expect(h.service.handle({ type: "automation.list", requestId: "listed" })).toMatchObject({
+    ok: true,
+  });
+  expect(
+    h.service.trigger(kept.id, { key: "manual:kept", variables: { subject: "issues" } }).status,
+  ).toBe("running");
+  await h.finish();
+  // Still stored, for a build that reads it.
+  const check = new DatabaseSync(h.storePath);
+  try {
+    expect(check.prepare("SELECT 1 FROM automation_jobs WHERE id=?").get(newer.id)).toBeDefined();
+  } finally {
+    check.close();
+  }
 });

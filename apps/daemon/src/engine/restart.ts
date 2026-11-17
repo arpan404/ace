@@ -2,7 +2,7 @@ import { interruptedNotice } from "./thread-liveness.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
-import type { ThreadId } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
 import {
   settleOrphanedTasks,
@@ -228,7 +228,12 @@ export function recoverEngine(
         if (lost.length) repo.apply(id, lost, clock.now());
       }),
     );
-  for (const intent of repo.pending.headers()) {
+  const unreadableIntent = (thread: unknown, error: unknown) => {
+    const id = ThreadId.safeParse(thread);
+    if (!id.success || !skippableAtStartup(error)) throw error;
+    skip(id.data, error);
+  };
+  for (const intent of repo.pending.headers(undefined, unreadableIntent)) {
     isolated(intent.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(intent.threadId)) {

@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { Command, ThreadId, type MachineThreadView } from "@ace/protocol";
 import { setup } from "../agent-control/test-support.ts";
+import { REMOTE_STOP, stopBound } from "../liveness/stop.ts";
 import { RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS } from "./child-recheck.ts";
 import { STOP_TRACKING } from "./child-lost.ts";
 import { MachineChildren } from "./children.ts";
@@ -330,4 +331,25 @@ it("with only its own timers, a pairing back from outside this daemon is noticed
   h.studio.paired = true;
   await onTimers(h, RECHECK_SLOWEST_POLLS * 1_000 + 20_000, 10_000);
   expect(h.state("child-a")).toBe("working");
+});
+
+it("a stop that runs out on a child whose parent was deleted and purged ends it without stopping the poll", async () => {
+  const h = await parentWith(["child-a"]);
+  await h.pass(2_000);
+  expect(h.ledger.stop(ThreadId.parse("child-a"))).toBe(true);
+  // The person deletes the parent while the stop is still going out, and storage purges it.
+  await h.f.engine.stopForDeletion(h.parent.threadId);
+  h.f.store.appendEvents(
+    h.parent.threadId,
+    [{ type: "thread.client.updated", changes: { deletedAt: h.f.clock.now() } }],
+    h.f.clock.now(),
+  );
+  h.f.store.atomic(() => h.f.store.purgeThreadData(h.parent.threadId));
+  h.f.engine.forgetPurged(h.parent.threadId);
+  // Its machine never confirms, then is unpaired: the stop gives up, then can't be confirmed.
+  await h.pass(stopBound(REMOTE_STOP) + 60_000);
+  expect(h.state("child-a")).toBe("cancelled");
+  h.studio.paired = false;
+  await h.pass(2 * 60_000);
+  expect(h.ledger.watched(ThreadId.parse("child-a"))?.view).toMatchObject({ state: "cancelled" });
 });
