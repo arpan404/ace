@@ -1,5 +1,12 @@
 import { ProviderKind } from "@ace/protocol";
-import { dayRange, previousSpan, providerNames, usageCoverage, usageReport } from "@ace/ui-core";
+import {
+  dayRange,
+  previousSpan,
+  providerNames,
+  usageCoverage,
+  usageFillingLine,
+  usageReport,
+} from "@ace/ui-core";
 import { z } from "zod";
 import { UsagePart } from "./usage-part.ts";
 import { usageMetricView, type UsageMetricView } from "./usage-report-view.ts";
@@ -41,6 +48,8 @@ export interface UsageReportReply {
   /** The providers that have usage on any counted machine, for the provider filter. */
   providers: { id: string; name: string }[];
   coverage: UsageCoverageView;
+  /** "Usage is still being counted; totals will grow." while a counted machine is; else null. */
+  filling: string | null;
   tokens: UsageMetricView;
   cost: UsageMetricView;
 }
@@ -89,6 +98,10 @@ export function combineUsage(request: UsageCombineRequest): UsageReportReply {
     to: span.to,
     providers: listed.map((id) => ({ id, name: providerName(id) })),
     coverage: { line: coverage.line, complete: coverage.complete },
+    filling: usageFillingLine(
+      reaches.flatMap(({ machine, part }) => (part?.filling ? [machine.name] : [])),
+      request.machines.length,
+    ),
     tokens: usageMetricView(report, previous, request.days, "tokens", names),
     cost: usageMetricView(report, previous, request.days, "cost", names),
   };

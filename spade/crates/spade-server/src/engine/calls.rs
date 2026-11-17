@@ -25,6 +25,7 @@ use super::Engine;
 use super::autonomy::Reviewed;
 use super::classify::Screened;
 use crate::tools::{ToolOutput, TurnFacts};
+use crate::workspace::shell::Launch;
 
 const DECLINED: &str = "The person declined this action.";
 
@@ -259,8 +260,6 @@ pub(super) async fn handle_calls(
                         checkpointed: held && classed.runs == Runs::Host,
                         target: target.as_deref(),
                     });
-                    // A command the gate sends outside the sandbox runs there, and only it.
-                    let outside = classed.runs == Runs::Outside;
                     let mut ask = None;
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;
@@ -426,9 +425,9 @@ pub(super) async fn handle_calls(
                             if let Some(scope) = &scope {
                                 engine.allow_scope(&key, scope);
                             }
-                            if outside {
-                                engine.mark_outside(&key);
-                            }
+                            // What the gate decided, carried to the launch unchanged: a call it
+                            // decided in the sandbox's light may only launch contained.
+                            engine.mark_launch(&key, launch_for(classed.runs));
                             runnable.push((pending.call, name, arguments));
                         }
                         Decision::Ask => {
@@ -469,16 +468,16 @@ pub(super) async fn handle_calls(
                 }
                 // The person allowed it outside the sandbox: asked so, or asked while the bot's
                 // commands ran outside it and still do.
-                let runs_outside = asked_outside(events, &pending.call.id) || {
+                let launch = if asked_outside(events, &pending.call.id) {
+                    Launch::Outside
+                } else {
                     let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await
                     else {
                         return Handled::Stopped;
                     };
-                    now.runs == Runs::Outside
+                    launch_for(now.runs)
                 };
-                if runs_outside {
-                    engine.mark_outside(&key);
-                }
+                engine.mark_launch(&key, launch);
                 // A command allowed outside the sandbox runs only while the files it runs are
                 // as they were when the person was asked.
                 if asked_outside(events, &pending.call.id) {
@@ -797,6 +796,17 @@ async fn classify(
             _ => Class::Sensitive(Sensitive::Unclear).into(),
         }),
         _ = stop.wait_for(|stopped| *stopped) => None,
+    }
+}
+
+/// What the gate authorizes for a call that runs where `runs` says: outside the sandbox, or
+/// contained only when it was decided in the sandbox's light (whether unreviewed because the
+/// sandbox held it or reviewed as a sandboxed command), else reviewed to run as it is.
+fn launch_for(runs: Runs) -> Launch {
+    match runs {
+        Runs::Outside => Launch::Outside,
+        Runs::Sandbox => Launch::Contained,
+        Runs::Host | Runs::AsksOutside => Launch::Reviewed,
     }
 }
 

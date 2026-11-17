@@ -11,8 +11,11 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/MaintenanceHold.json"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "type": "array"
+    },
+    "startup": {
+      "$ref": "https://ace.local/protocol/v1/StartupNotice.json"
     },
     "waiting": {
       "maximum": 9007199254740991,

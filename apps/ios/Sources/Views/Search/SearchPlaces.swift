@@ -56,41 +56,60 @@ enum SearchPlace: String, CaseIterable, Identifiable {
     }
 }
 
-/// The places as capsules that wrap to the next line: words only (design language §2.3), Pull
-/// requests with how many are open in the project it opens on, in the subtle ink.
-struct SearchPlaceCapsules: View {
+/// The places as a grid of tiles, each ace's own glyph (the iPad sidebar's) over its name, and
+/// Pull requests with how many are open in the project it opens on, in the subtle ink. Three
+/// across, two at the accessibility text sizes so every name stays whole.
+struct SearchPlaceGrid: View {
     let places: [SearchPlace]
     /// Open pull requests in the project Pull requests opens on; nil until read.
     let openPulls: Int?
     let open: (SearchPlace) -> Void
-    @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: AceDesign.Space.related, alignment: .top),
+              count: typeSize.isAccessibilitySize ? 2 : 3)
+    }
 
     var body: some View {
-        ChipFlow(spacing: AceDesign.Space.related, scale: displayScale) {
+        LazyVGrid(columns: columns, spacing: AceDesign.Space.related) {
             ForEach(places) { place in
-                Button { open(place) } label: { capsule(place) }
+                Button { open(place) } label: { tile(place) }
                     .buttonStyle(.plain)
                     .accessibilityLabel(label(place))
                     .accessibilityIdentifier("search.place.\(place.rawValue)")
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func capsule(_ place: SearchPlace) -> some View {
-        HStack(spacing: AceDesign.Space.related) {
-            Text(place.title).lineLimit(1)
-            if place == .pulls, let openPulls, openPulls > 0 {
-                Text(openPulls.formatted()).monospacedDigit()
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+    private func tile(_ place: SearchPlace) -> some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+            HStack(alignment: .center) {
+                AceIcon(place.icon, size: AceDesign.Size.barIcon, relativeTo: .body)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                Spacer(minLength: AceDesign.Space.tight)
+                if let count = count(place) {
+                    Text(count.formatted()).monospacedDigit()
+                        .aceFont(AceDesign.TextRole.meta)
+                        .foregroundStyle(AceDesign.Ink.subtle)
+                }
             }
+            Text(place.title)
+                .aceFont(AceDesign.TextRole.action)
+                .foregroundStyle(AceDesign.Ink.primary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .aceFont(AceDesign.TextRole.action)
-        .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceDesign.Space.margin)
-        .frame(minHeight: AceDesign.Size.tap)
-        .background(AceDesign.Surface.fill, in: AceShape.capsule)
-        .contentShape(AceShape.capsule)
+        .padding(AceDesign.Space.row)
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowThread, alignment: .topLeading)
+        .background(AceDesign.Surface.fill, in: AceShape.group)
+        .contentShape(AceShape.group)
+    }
+
+    /// Only Pull requests carries a count, and only once there is one to show.
+    private func count(_ place: SearchPlace) -> Int? {
+        guard place == .pulls, let openPulls, openPulls > 0 else { return nil }
+        return openPulls
     }
 
     private func label(_ place: SearchPlace) -> String {

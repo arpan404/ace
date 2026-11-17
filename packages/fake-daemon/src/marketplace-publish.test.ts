@@ -4,7 +4,7 @@ import { MarketResult as MarketResultSchema } from "@ace/protocol/marketplace";
 import { marketPublishFixture } from "./marketplace-publish-fixture.ts";
 import { FakeMarketplaceWire } from "./marketplace-wire.ts";
 
-/* The fake daemon's publishing, Discover and publisher pages (ADR 0173), from seeded state. */
+/* The fake daemon's publishing, Discover and publisher pages (ADR 0174), from seeded state. */
 
 function wire(signedOut = false) {
   const fake = new FakeMarketplaceWire(() => 5_000);

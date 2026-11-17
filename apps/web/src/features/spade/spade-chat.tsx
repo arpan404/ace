@@ -28,6 +28,7 @@ import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spa
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
+import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
@@ -75,6 +76,11 @@ export function SpadeChat(props: {
   task?: SpadeTaskLine | undefined;
   /** Answer a request: allow once, allow always, or deny. */
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
+  /**
+   * Answer a plugin asking to run outside the sandbox (ADR 0167): allow once, always for this
+   * plugin version, or deny.
+   */
+  onAnswerOutside?(id: string, answer: RequestAnswer): Promise<boolean>;
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   /** A file chip: open that file of the bot's workspace. */
@@ -144,6 +150,7 @@ export function SpadeChat(props: {
     endpointName: props.endpointName,
     onProposal: props.onProposal,
     onAnswer: props.onAnswer,
+    onAnswerOutside: props.onAnswerOutside,
     onQuestion: props.onQuestion,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
@@ -217,6 +224,7 @@ interface Handlers {
   endpointName: ((id: string) => string | undefined) | undefined;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
+  onAnswerOutside: ((id: string, answer: RequestAnswer) => Promise<boolean>) | undefined;
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onOpenFile(path: string): void;
@@ -410,6 +418,15 @@ function RunItem(props: {
           onAnswer={handlers.onAnswer}
         />
       );
+    case "plugin-outside": {
+      const answer = handlers.onAnswerOutside;
+      return (
+        <SpadeOutsideBubble
+          item={item}
+          onAnswer={(id, choice) => (answer ? answer(id, choice) : Promise.resolve(false))}
+        />
+      );
+    }
     case "digest":
       return <SpadeDigestBubble digest={item.digest} when={props.when} face={handlers.face} />;
     case "skill": {

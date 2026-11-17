@@ -8,7 +8,7 @@ export interface NamedAccount {
   provider: ProviderKind;
 }
 
-/** Every registered account, or none while account homes are still being validated. */
+/** Every registered account, or none when the account index can't be read. */
 export function registeredAccounts(registry: AccountRegistry | undefined): NamedAccount[] {
   try {
     return (registry?.list() ?? []).map((entry) => ({

@@ -114,7 +114,10 @@
     "tool-icon",
     "composer-strip",
     "queue-strip",
-    "queue-item"
+    "queue-item",
+    "market-stage",
+    "market-hero",
+    "market-try"
   ],
   "type": "string"
 }

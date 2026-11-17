@@ -78,6 +78,8 @@ export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
     removed: step.removed ?? (step.added !== undefined ? 0 : null),
     /** An agent opened a page in the thread's browser: the row opens the browser. */
     browser: opensAgentPage(item),
+    /** A call still in flight: when it started, which its row counts up from. */
+    startedAt: item.type === "tool_call" && !step.settled ? (item.call.startedAt ?? null) : null,
   };
 }
 

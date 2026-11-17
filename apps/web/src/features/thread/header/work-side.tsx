@@ -117,7 +117,8 @@ export function WorkSide(props: { threadId: string }) {
   useEffect(() => {
     const element = card.current;
     if (!shown || !element || !store) return;
-    element.focus({ preventScroll: true });
+    // Only an open the person asked for moves focus; a remembered or synced card leaves it.
+    if (store.takeFocus()) element.focus({ preventScroll: true });
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target;

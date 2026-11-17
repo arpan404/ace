@@ -1,4 +1,4 @@
-import { useClient } from "@ace/client-react";
+import { useClient, useConnectionGeneration } from "@ace/client-react";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -30,12 +30,14 @@ export function forgetChatProject(storage: KeyValueStorage | undefined, id: stri
 export type ChatProject =
   | { state: "idle" | "making" }
   | { state: "ready"; project: string }
-  | { state: "failed"; retry(): void };
+  | { state: "failed"; reason: string | undefined; retry(): void };
 
 /**
  * The hidden project a chat from New thread starts in, while `wanted`. The one made earlier is
  * reused while the daemon still lists it and nothing started in it; otherwise the daemon makes
  * a fresh one. Opening New thread and leaving makes at most one, which the daemon removes later.
+ * A failure keeps the daemon's reason, and a reconnect tries again on its own: a request lost to
+ * a dropped socket is not the person's to retry.
  */
 export function useChatProject(wanted: boolean, storage: KeyValueStorage | undefined): ChatProject {
   const client = useClient();
@@ -43,7 +45,8 @@ export function useChatProject(wanted: boolean, storage: KeyValueStorage | undef
   const directory = useProjectDirectory();
   const started = useThreadProjects();
   const [made, setMade] = useState<string>();
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<{ reason: string | undefined }>();
+  const generation = useConnectionGeneration();
   const making = useRef(false);
   const saved = made ?? unused(storage);
   const reusable =
@@ -51,13 +54,18 @@ export function useChatProject(wanted: boolean, storage: KeyValueStorage | undef
   const make = useCallback(() => {
     if (making.current) return;
     making.current = true;
-    setFailed(false);
+    setFailed(undefined);
     client.projects.chat().then(
       (receipt) => {
         making.current = false;
         const project = receipt.ok ? receipt.workspace : undefined;
         if (!project) {
-          setFailed(true);
+          setFailed({
+            reason:
+              receipt.detail ??
+              receipt.title ??
+              (receipt.error ? `The machine answered ${receipt.error}.` : undefined),
+          });
           return;
         }
         rememberProject(queries, project);
@@ -68,9 +76,9 @@ export function useChatProject(wanted: boolean, storage: KeyValueStorage | undef
         }
         setMade(project.id);
       },
-      () => {
+      (error: unknown) => {
         making.current = false;
-        setFailed(true);
+        setFailed({ reason: error instanceof Error ? error.message : undefined });
       },
     );
   }, [client, queries, storage]);
@@ -78,8 +86,15 @@ export function useChatProject(wanted: boolean, storage: KeyValueStorage | undef
   useEffect(() => {
     if (needed) make();
   }, [needed, make]);
+  // A new socket: a chat that failed on the old one is asked for again.
+  const seen = useRef(generation);
+  useEffect(() => {
+    if (seen.current === generation) return;
+    seen.current = generation;
+    if (failed && wanted) make();
+  }, [generation, failed, wanted, make]);
   if (!wanted) return { state: "idle" };
   if (reusable) return { state: "ready", project: reusable };
-  if (failed) return { state: "failed", retry: make };
+  if (failed) return { state: "failed", reason: failed.reason, retry: make };
   return { state: "making" };
 }

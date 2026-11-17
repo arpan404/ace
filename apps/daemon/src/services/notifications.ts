@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { logError } from "@ace/diagnostics";
 import { notificationsRetained } from "@ace/notify";
-import { warmup } from "./warmup.ts";
+import { repeatableWarmup } from "./warmup.ts";
 import { loadNotificationChannels } from "../notification-config.ts";
 import { createDaemonNotifications } from "../notifications.ts";
 import type { ServiceContext } from "./types.ts";
@@ -46,7 +46,9 @@ export async function startNotifications(context: ServiceContext): Promise<void>
     // Clients can connect through the endpoint before feature startup completes.
     for (const device of server.notificationDevices())
       await notifications.service.connectDevice(device);
-    void warmup(context, "notifications", async () => {
+    // Repeatable: `ready()` wakes the worker again after a failure, and `activate()` does
+    // nothing the second time, so a run after a failure resumes rather than starts twice.
+    void repeatableWarmup(context, "notifications", async () => {
       if (retained) await notifications.ready();
       notifications.activate();
     });

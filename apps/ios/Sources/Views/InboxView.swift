@@ -4,7 +4,7 @@ import SwiftUI
 /// Snoozed and Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside
 /// the lists and search everything) and compose: the tab bar's prominent button on iOS 27, a round
 /// header button on Threads and Chats before it (`HomeTabs.composeTab`). Code review is a tab in a
-/// regular window and opens over Threads from its top bar on a phone. Spade's tab waits behind
+/// regular window and opens over Projects from its top bar on a phone. Spade's tab waits behind
 /// `HomeTabs.showsSpade`. Grouping and wording come from each machine's runtime. A row and its
 /// thread belong to their machine.
 struct InboxView: View {
@@ -34,7 +34,7 @@ struct InboxView: View {
     @State private var place: PlaceSheet?
     /// Code review's machine, project and list, shared by the iPad's place and the phone's sheet.
     @State private var reviewScope = CodeReviewScope()
-    /// Code review open over Threads on a phone, from the top bar.
+    /// Code review open over Projects on a phone, from the top bar.
     @State private var reviewing = false
     @State private var placeSerial = 0
     @State private var pairing = false
@@ -54,6 +54,8 @@ struct InboxView: View {
     @State private var settles = 0
     /// Search's field, kept while the person moves between tabs.
     @State private var searchQuery = ""
+    /// Bumped by a tap on the Search tab while it shows: its field takes focus.
+    @State private var searchFocusAsks = 0
     /// Bumped by Search's Select threads: the Threads list starts picking.
     @State private var selectAsks = 0
     /// Holds off row taps just after a row action, so the row sliding into its place stays shut.
@@ -125,7 +127,7 @@ struct InboxView: View {
     }
 
     private var tabs: some View {
-        TabView(selection: $tab) {
+        TabView(selection: tabChoice) {
             Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
                 stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
             }
@@ -140,7 +142,7 @@ struct InboxView: View {
                     SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
                 }
             }
-            // A phone opens Code review from Threads' top bar instead (`reviewing`).
+            // A phone opens Code review from the Projects list's top bar instead (`reviewing`).
             if sizeClass == .regular {
                 Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
                     .accessibilityIdentifier("tab.review")
@@ -168,7 +170,7 @@ struct InboxView: View {
             compose(chat: tab == .chats)
         }
         // Code review showing as the iPad's place when the window narrows to a phone's goes on
-        // showing, over Threads.
+        // showing, over Projects.
         .onChange(of: sizeClass) { _, now in
             guard now != .regular, tab == .review else { return }
             tab = .threads
@@ -196,12 +198,23 @@ struct InboxView: View {
         .animation(.default, value: organize.undo?.serial)
     }
 
+    /// The tab bar's choice, and the sidebar's at the foot of Search and Code review. Tapping
+    /// Search while it shows asks for its field, as a second tap on a tab acts on the page it
+    /// already shows. The thread lists keep `$tab`: Search never shows beside them, and a binding
+    /// made afresh each render would redraw them on every change here.
+    private var tabChoice: Binding<InboxTab> {
+        Binding(get: { tab }, set: { chosen in
+            if chosen == .search && tab == .search { searchFocusAsks += 1 }
+            tab = chosen
+        })
+    }
+
     /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
     /// at its foot so the person can go back to the lists.
     private var search: some View {
-        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery)
+        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
@@ -212,7 +225,7 @@ struct InboxView: View {
         CodeReviewTab(inbox: inbox, scope: $reviewScope, openThread: { openThread($0) }, startThread: { startThread() },
                       openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
@@ -222,7 +235,7 @@ struct InboxView: View {
             .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
                         places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
                                            openUnlisted: { openThread($0, listed: false) }))
-            // A phone's Code review, over Threads: a thread or New thread asked from it opens
+            // A phone's Code review, over Projects: a thread or New thread asked from it opens
             // on the home screen as it closes.
             .sheet(isPresented: $reviewing) {
                 CodeReviewTab(inbox: inbox, scope: $reviewScope,

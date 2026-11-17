@@ -14,7 +14,7 @@ struct CodeReviewScope: Equatable {
 
 /// Home's Code review, the web rail's place for pull requests and issues: Pull requests, Issues
 /// and Notifications on one page (`ForgeHome`), a pull request or issue pushed on it. A place of
-/// its own in a regular window; on a phone it opens over Threads from the top bar, with Close.
+/// its own in a regular window; on a phone it opens over Projects from the top bar, with Close.
 struct CodeReviewTab: View {
     @Bindable var inbox: MachineInbox
     @Binding var scope: CodeReviewScope

@@ -13,7 +13,10 @@ type Entry = {
   env: NodeJS.ProcessEnv | undefined;
   users: number;
   scoped: boolean;
-  closing?: Promise<void>;
+  /** The stop in flight. Cleared when it settles, so a failed one never pins the entry. */
+  closing?: Promise<void> | undefined;
+  /** Its last stop could not confirm the server ended. It serves no one until a stop does. */
+  stopFailed?: unknown;
 };
 /** A started server no session has used yet, waiting for the next one with its configuration. */
 type Spare = { server: OpenCodeServer; env: NodeJS.ProcessEnv | undefined };
@@ -85,9 +88,22 @@ export class ServerPool {
     };
     key = selectGeneration();
     // A last-user release owns shutdown. Reopening the same account waits for confirmed
-    // exit, so it cannot borrow a closing server or accumulate retired native processes.
-    while (this.entries.get(key)?.closing) {
-      await this.entries.get(key)?.closing;
+    // exit, so it cannot borrow a closing server or accumulate retired native processes. A
+    // server whose stop failed is stopped again first: once that confirms it ended, a fresh
+    // server starts; while it still runs, this open fails and the next one tries again.
+    for (;;) {
+      const current = this.entries.get(key);
+      if (current?.stopFailed !== undefined && !current.closing && current.users === 0)
+        this.stopEntry(key, current);
+      if (!current?.closing) break;
+      try {
+        await current.closing;
+      } catch (error) {
+        throw new Error(
+          "The previous OpenCode server for this account is still running and could not be stopped. Try again once it has exited.",
+          { cause: error },
+        );
+      }
       this.assertOpen();
       key = selectGeneration();
     }
@@ -164,12 +180,38 @@ export class ServerPool {
           left = connection ? this.leave(configuration) : Promise.resolve();
         }
         if (acquired.users > 0) return left;
-        acquired.closing ??= acquired.server.close().then(() => {
-          if (this.entries.get(key) === acquired) this.entries.delete(key);
-        });
-        return Promise.all([acquired.closing, left]).then(() => {});
+        // Every caller of this release waits for the one stop and sees whether it confirmed.
+        if (!acquired.closing && acquired.stopFailed === undefined) this.stopEntry(key, acquired);
+        const stopping = acquired.closing ?? Promise.reject(acquired.stopFailed);
+        return Promise.all([stopping, left]).then(() => {});
       },
     };
+  }
+  /**
+   * Stops an entry nobody holds. Confirmed, the entry goes; failed, it stays marked so the next
+   * open for its key stops it again before anything starts there.
+   */
+  private stopEntry(key: string, entry: Entry): void {
+    const closing = entry.server.close().then(
+      () => {
+        entry.stopFailed = undefined;
+        if (this.entries.get(key) === entry) this.entries.delete(key);
+      },
+      (error: unknown) => {
+        entry.stopFailed = error;
+        throw error;
+      },
+    );
+    entry.closing = closing;
+    // Waiters see the outcome through closing; this branch only clears it once settled.
+    void closing.then(
+      () => {
+        if (entry.closing === closing) entry.closing = undefined;
+      },
+      () => {
+        if (entry.closing === closing) entry.closing = undefined;
+      },
+    );
   }
   async close(): Promise<void> {
     this.closed = true;

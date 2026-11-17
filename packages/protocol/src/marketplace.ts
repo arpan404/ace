@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ThreadId } from "./ids.ts";
 import { PluginExecution, PluginName } from "./plugins.ts";
 import {
   MarketCategory,
@@ -18,6 +19,7 @@ import { marketPublishOperations, marketPublishResults } from "./marketplace-pub
 import { MarketScanReport } from "./marketplace-scan.ts";
 
 export * from "./marketplace-base.ts";
+export * from "./marketplace-publish-pick.ts";
 export * from "./marketplace-catalog.ts";
 export * from "./marketplace-discover.ts";
 export * from "./marketplace-publish-ops.ts";
@@ -36,7 +38,7 @@ export * from "./marketplace-signed.ts";
 const words = z.string().max(8192);
 
 /** What turned an installed entry off. A withdrawn entry stays off until the person turns it on. */
-/** `blocked`: its bytes match the signed blocklist (ADR 0173 §8); off until removed. */
+/** `blocked`: its bytes match the signed blocklist (ADR 0174 §8); off until removed. */
 export const MarketInstallState = z.enum(["on", "withdrawn", "blocked", "off"]);
 export const MarketInstalled = z.strictObject({
   source: MarketSourceId,
@@ -179,7 +181,7 @@ export const MarketReview = z.strictObject({
   body: MarketReviewBody,
   /** No install is possible: a Suit that fails ace's checks, Spade not running for a recipe. */
   blocked: z.string().max(500).optional(),
-  /** The device's own scan of these bytes (ADR 0173 §8): every finding, as sentences. */
+  /** The device's own scan of these bytes (ADR 0174 §8): every finding, as sentences. */
   scan: MarketScanReport.optional(),
   /** Its publisher deprecated this version, with this note. */
   deprecated: z.string().max(500).optional(),
@@ -333,6 +335,11 @@ export const MarketErrorCode = z.enum([
   "expired",
   "busy",
   "failed",
+  /**
+   * An agent asked for an action that is the person's (ADR 0176 §12.5): ace opened a request in
+   * the asking thread's strip, named by `request`, that only a person's device answers.
+   */
+  "person_only",
 ]);
 
 export const MarketResult = z.discriminatedUnion("op", [
@@ -375,6 +382,8 @@ export const MarketResult = z.discriminatedUnion("op", [
     message: z.string().max(2000),
     problems: z.array(MarketProblem).max(200).optional(),
     scan: MarketScanReport.optional(),
+    /** The person's request ace opened, for `person_only`. */
+    request: z.string().max(200).optional(),
   }),
 ]);
 export type MarketResult = z.infer<typeof MarketResult>;
@@ -383,6 +392,11 @@ export const MarketClientMessage = z.strictObject({
   type: z.literal("marketplace.request"),
   requestId: z.string().min(1).max(80),
   operation: MarketOperation,
+  /**
+   * The thread of the agent asking (`ACE_THREAD_ID` in its shell, ADR 0176 §10): the daemon
+   * turns a person-only action into a request in that thread instead of running it.
+   */
+  thread: ThreadId.optional(),
 });
 export type MarketClientMessage = z.infer<typeof MarketClientMessage>;
 

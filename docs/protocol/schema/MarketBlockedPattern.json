@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketBlockedPattern.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 200,
+      "minLength": 6,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "text",
+    "reason"
+  ],
+  "type": "object"
+}

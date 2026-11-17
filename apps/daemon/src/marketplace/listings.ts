@@ -26,7 +26,7 @@ import type { Badges, Trust } from "./trust.ts";
 /*
  * Reading each source's listing into the daemon's copy (ADR 0168 §3, §9): the market's index as
  * a delta since the last read, its categories, featured list, its signed withdrawn list and
- * the signed blocklist, verified and official lists (ADR 0173, `trust.ts`); a git
+ * the signed blocklist, verified and official lists (ADR 0174, `trust.ts`); a git
  * catalog's entries at its current commit. A read that fails keeps the last listing and says when
  * it was read.
  */

@@ -51,6 +51,10 @@ pub struct Job<'a> {
     pub kind: Kind,
     /// Run with no sandbox: the gate decided this one call runs outside it (ADR 0171).
     pub outside: bool,
+    /// Whether this call is allowed to run uncontained — because it was reviewed (or approved to
+    /// run outside), not because the gate skipped its review expecting containment. When a bot run
+    /// turns out to need review and this is `false`, it is refused rather than run plainly.
+    pub may_run_uncontained: bool,
 }
 
 /// Whose a sandboxed run is (ADR 0167): its network policy and what else it may read follow.
@@ -67,12 +71,80 @@ pub enum Kind {
     Plugin { root: PathBuf },
 }
 
+/// What confining a run decided (ADR 0167). Never `Ok(None)` for a bot run that can't be held:
+/// the ambiguity between "no sandbox applies" and "needs review" was a fail-open, so the two are
+/// now distinct and a caller must route [`Confinement::NeedsReview`] to review or refuse it.
+pub enum Confinement {
+    /// No sandbox applies — not a bot's workspace, or this machine has none. Runs as today.
+    None,
+    /// Held in the OS sandbox.
+    Contained(Box<Confined>),
+    /// A bot run that can't be contained here (on Windows, it would need ACL changes on the
+    /// person's own folders). It must be reviewed, or refused — never launched plainly.
+    NeedsReview(String),
+}
+
+/// What the gate authorized when it decided on a command, carried unchanged to the launch so
+/// containment is never decided again there (ADR 0167, Windows hardening). A command the gate let
+/// skip review because the sandbox held it may only ever launch contained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// The gate sent it outside the sandbox (reviewed or approved so).
+    Outside,
+    /// The gate decided it in the sandbox's light (unreviewed because the sandbox held it, or
+    /// reviewed as a sandboxed command): it may launch only contained.
+    Contained,
+    /// Reviewed or approved without relying on the sandbox: contained when the sandbox holds it at
+    /// launch, plainly when it doesn't.
+    Reviewed,
+}
+
+/// How a command launches, from its [`Launch`] and whether the sandbox holds it now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LaunchPlan {
+    pub outside: bool,
+    /// Whether the run is expected to be held by the sandbox.
+    pub sandboxed: bool,
+    /// Whether a run the sandbox turns out not to hold may still launch plainly.
+    pub may_run_uncontained: bool,
+}
+
+/// Why a command cleared to run contained didn't run once the sandbox no longer held it.
+pub const NO_LONGER_CONTAINED: &str = "The command wasn't run: it was cleared to run in Spade's \
+     sandbox, but the sandbox no longer holds it. Run it again and Spade will ask first.";
+
+impl Launch {
+    /// The launch for this authorization when the sandbox does (`contains_now`) or doesn't hold the
+    /// command now. A command cleared as contained is refused, never launched plainly, once the
+    /// sandbox stops holding it; running it again goes back through the gate and its review.
+    pub fn plan(self, contains_now: bool) -> Result<LaunchPlan, String> {
+        match self {
+            Self::Outside => Ok(LaunchPlan {
+                outside: true,
+                sandboxed: false,
+                may_run_uncontained: true,
+            }),
+            Self::Contained if contains_now => Ok(LaunchPlan {
+                outside: false,
+                sandboxed: true,
+                may_run_uncontained: false,
+            }),
+            Self::Contained => Err(NO_LONGER_CONTAINED.to_owned()),
+            Self::Reviewed => Ok(LaunchPlan {
+                outside: false,
+                sandboxed: contains_now,
+                may_run_uncontained: true,
+            }),
+        }
+    }
+}
+
 /// The OS sandbox a bot's runs go through (ADR 0167), set by the server.
 pub trait Confine: Send + Sync {
-    /// How to run a command whose home is `home`: `Ok(None)` when no sandbox applies (not a bot's
-    /// workspace, or none on this machine), `Err` when one should but can't, so it never runs
-    /// unconfined.
-    fn confine(&self, home: &Path, kind: &Kind) -> Result<Option<Confined>, String>;
+    /// How to run a command whose home is `home`. `Err` means a sandbox should hold it but can't,
+    /// so it never runs unconfined; `Ok(Confinement::NeedsReview)` means it can't be contained by
+    /// design and must be reviewed or refused.
+    fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String>;
 
     /// Whether a bot command with home `home` runs contained (files and network) on this machine.
     fn contains(&self, home: &Path) -> bool;
@@ -81,6 +153,13 @@ pub trait Confine: Send + Sync {
     /// setting, else the machine's; ADR 0171).
     fn outside(&self, _home: &Path) -> bool {
         false
+    }
+
+    /// Why a run of `kind` with home `home` can't be contained here and would need review, as the
+    /// person reads it, or `None` when it can be (or no sandbox applies). Answered without side
+    /// effects, so a plugin can ask the person before it starts; `confine` decides the same way.
+    fn review(&self, _home: &Path, _kind: &Kind) -> Option<String> {
+        None
     }
 
     /// Blocking work to do before a run of `kind` with home `home` starts (a checkpoint of the
@@ -206,10 +285,10 @@ impl Shell {
 
     /// How a run of `kind` with home `home` is confined, for a process this shell doesn't start
     /// itself (a plugin's server): as [`Confine::confine`].
-    pub fn confine(&self, home: &Path, kind: &Kind) -> Result<Option<Confined>, String> {
+    pub fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         match &self.confine {
             Some(confine) => confine.confine(home, kind),
-            None => Ok(None),
+            None => Ok(Confinement::None),
         }
     }
 
@@ -218,6 +297,13 @@ impl Shell {
         self.confine
             .as_ref()
             .is_some_and(|confine| confine.contains(home))
+    }
+
+    /// Why a run of `kind` with home `home` would need review here: as [`Confine::review`].
+    pub fn review(&self, home: &Path, kind: &Kind) -> Option<String> {
+        self.confine
+            .as_ref()
+            .and_then(|confine| confine.review(home, kind))
     }
 
     /// Whether the bot with home `home` runs its commands outside the sandbox.
@@ -280,6 +366,8 @@ impl Shell {
             stdin: None,
             kind: Kind::Command,
             outside: false,
+            // Spade's own internal command: always expected to be containable.
+            may_run_uncontained: false,
         })
         .await
     }
@@ -296,7 +384,7 @@ impl Shell {
         let mark = uuid::Uuid::new_v4().simple().to_string();
         // Before it starts, so everything of its group started after this.
         let spawned_us = platform::now_us();
-        let confined = match &self.confine {
+        let confined: Option<Confined> = match &self.confine {
             // Outside the sandbox: no checkpoint, no proxy, the person's machine as it is.
             Some(_) if job.outside => None,
             Some(confine) => {
@@ -309,7 +397,20 @@ impl Shell {
                         }
                     }
                 }
-                confine.confine(home, &job.kind)?
+                match confine.confine(home, &job.kind)? {
+                    Confinement::None => None,
+                    Confinement::Contained(confined) => Some(*confined),
+                    // A bot run that can't be contained. If it was reviewed (or approved to run
+                    // outside) it may run plainly; otherwise the gate skipped its review expecting
+                    // containment, and it must not launch — it fails closed and is re-reviewed.
+                    Confinement::NeedsReview(reason) => {
+                        if job.may_run_uncontained {
+                            None
+                        } else {
+                            return Err(format!("The command wasn't run. {reason}"));
+                        }
+                    }
+                }
             }
             None => None,
         };

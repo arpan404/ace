@@ -121,6 +121,11 @@ export const UsageResult = z.object({
   rows: z.array(UsageRow).max(1000),
   truncated: z.boolean(),
   burn: z.array(UsageBurn).max(20).optional(),
+  /**
+   * Present while the daemon is still counting older history into these figures (after an
+   * upgrade or a rebuild): rows cover events through `through` of `head`, and totals will grow.
+   */
+  filling: z.object({ through: tokens, head: tokens }).optional(),
 });
 export type UsageResult = z.infer<typeof UsageResult>;
 export const UsageSummary = z.object({

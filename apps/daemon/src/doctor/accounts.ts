@@ -21,6 +21,7 @@ const folderWords: Record<NonNullable<AccountFact["homeUnavailable"]>, string> =
   home_unreadable: "its folder can't be read",
   foreign_home: "its folder belongs to another ace installation",
   home_conflict: "its folder is shared with another account",
+  home_checking: "its folder hasn't answered yet",
 };
 const maxListed = 8;
 const foldersFix =

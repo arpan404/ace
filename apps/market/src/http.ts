@@ -21,20 +21,6 @@ export const notFound = () => failure(404, "not_found", "Nothing is here.");
 export const tooMany = () =>
   failure(429, "busy", "Too many requests; try again shortly.", { "retry-after": "10" });
 
-export function html(body: string, status = 200): Response {
-  return new Response(body, {
-    status,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "public, max-age=60",
-      "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-      "x-content-type-options": "nosniff",
-      "referrer-policy": "no-referrer",
-    },
-  });
-}
-
 /** A request body read up to `limit` bytes; undefined when it is longer. */
 export async function readCapped(request: Request, limit: number): Promise<Uint8Array | undefined> {
   const declared = request.headers.get("content-length");

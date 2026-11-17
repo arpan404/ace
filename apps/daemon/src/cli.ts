@@ -1,25 +1,11 @@
 #!/usr/bin/env node
-import { parseArgs } from "./cli/args.ts";
-import { rescueCommands, rescueMain } from "./cli/rescue.ts";
 import { withoutBenchWorkerPreload } from "@ace/provider-kit/worker";
 
 // A person's daemon runs this entry; a benchmark's worker preload must never reach it.
 withoutBenchWorkerPreload(process.env);
 
-const input = process.argv.slice(2);
-// Triage and doctor must work when the rest of ace is broken, so they never load the
-// full command table.
-if (rescueCommands.has(firstWord(input))) await rescueMain(input);
-else {
-  const { main } = await import("./cli/main.ts");
-  await main(input);
-}
-
-function firstWord(words: string[]): string {
-  try {
-    return parseArgs(words).words[0] ?? "";
-  } catch {
-    // main reports malformed arguments with its usual exit code.
-    return "";
-  }
-}
+// The command table and parser are plain data and pure code. Each command's module loads only
+// when it runs, so triage, doctor, help, version and completion work when the rest of ace is
+// broken (ADR 0092), and `ace start` carries no other command's code.
+const { main } = await import("./cli/main.ts");
+await main(process.argv.slice(2));

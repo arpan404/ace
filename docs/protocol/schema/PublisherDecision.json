@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/PublisherDecision.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reason": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisherState.json"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

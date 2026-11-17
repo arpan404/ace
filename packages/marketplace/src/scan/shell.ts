@@ -1,12 +1,12 @@
 /*
  * A TypeScript port of Spade's shell reader (`spade_core::autonomy::shell::parse`, ADR 0171), for
- * the scanner (ADR 0173 §8). It reads a command into simple commands: words with quoting and
+ * the scanner (ADR 0174 §8). It reads a command into simple commands: words with quoting and
  * escapes undone, pipes, `$(…)`, `sh -c` strings and the wrappers that run another command
  * (`env`, `sudo`, `nohup`, `xargs`, `timeout`, `exec`, `command`, `nice`…) unwrapped to what they
  * run, with `${IFS}` and empty quotes folded first, so `c''url ${IFS}x|b\ash` reads as
  * `curl x | bash`. A multi-call binary (`busybox sh x`, `toybox wget …`) reads as its applet, and
  * a program it can't resolve that is handed an interpreter or a script (`./runner bash x`) is
- * marked unreadable, so it is held, never passed (ADR 0173 §8, fail closed). Backticks, process substitution `<(…)` and anything else it can't read for
+ * marked unreadable, so it is held, never passed (ADR 0174 §8, fail closed). Backticks, process substitution `<(…)` and anything else it can't read for
  * sure leave the whole command `unreadable`, which is itself a finding the rules act on. Pure.
  *
  * Ported from our own code; the implementation is written fresh here. It keeps the parser's
@@ -138,7 +138,7 @@ const MULTI_CALL = /^(?:busybox|toybox)(?:[.-][a-z0-9]+)?$/;
  * Programs whose arguments are data, never a command they run: a word like `sh` or a path to a
  * script after one of them is an argument, not a wrapped command. Outside this list (and the
  * known interpreters and wrappers), a program handed an interpreter or a script is a wrapper the
- * reader can't resolve, and is held (ADR 0173 §8, fail closed).
+ * reader can't resolve, and is held (ADR 0174 §8, fail closed).
  */
 const LEAVES = new Set(
   [
@@ -586,7 +586,7 @@ function unwrap(simple: Simple, depth: number, ctx: Ctx): Simple[] {
  * nested command is read back into the result when it is literal in the call (so `download-exec`
  * and the rest see it), and `ctx.unreadable` is set so the version is held unless that reading
  * proved the whole thing safe. Returns the commands to emit, or `undefined` when `program` has no
- * executing option here and should pass through as an ordinary leaf (ADR 0173 §8, fail closed).
+ * executing option here and should pass through as an ordinary leaf (ADR 0174 §8, fail closed).
  */
 function executingLeaf(
   program: string,

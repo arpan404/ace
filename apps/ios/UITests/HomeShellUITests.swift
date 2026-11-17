@@ -11,7 +11,7 @@ import XCTest
     func testTheTabBarHoldsThreadsChatsAndSearchAndNoSpade() {
         let app = launch()
         let bar = app.tabBars.firstMatch
-        XCTAssertTrue(bar.buttons["Threads"].waitForExistence(timeout: 30))
+        XCTAssertTrue(bar.buttons["Projects"].waitForExistence(timeout: 30))
         XCTAssertTrue(bar.buttons["Chats"].exists)
         XCTAssertTrue(app.buttons["Search"].exists)
         XCTAssertFalse(app.buttons["Spade"].exists)
@@ -31,7 +31,7 @@ import XCTest
         select.tap()
         XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
         // Picking hides the tab bar for the selection's own bar.
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
     }
 
     func testComposeOnChatsStartsAChatAndOnThreadsAThread() {
@@ -66,6 +66,27 @@ import XCTest
         for _ in 0..<4 where !app.buttons["library.projects"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["library.projects"].exists)
         capture("settings")
+    }
+
+    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() {
+        let app = launch()
+        app.openSearch()
+        // No pull-down: the field is there as the tab opens.
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(field.isHittable, "Search's field is hidden until the list is pulled down")
+        capture("search-field")
+        // Where Search is a plain tab (iOS 27, compose detached), the first tap shows Search and
+        // tapping it again focuses the field. On iOS 26 the system's own search tab turns into
+        // the field, which takes the tap.
+        let tab = app.tabBars.firstMatch.buttons["Search"]
+        if tab.exists && tab.isHittable {
+            XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
+            tab.tap()
+        } else {
+            field.tap()
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
     }
 
     func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
@@ -204,7 +225,7 @@ import XCTest
         latest.tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         // A thread page hides the tab bar.
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
     }
 
     func testTheInboxLinkClosesTheOpenThreadAndShowsThreadsInbox() {
@@ -220,7 +241,7 @@ import XCTest
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["threads.tab.inbox"].isSelected)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
-        XCTAssertTrue(app.tabBars.firstMatch.buttons["Threads"].isSelected)
+        XCTAssertTrue(app.tabBars.firstMatch.buttons["Projects"].isSelected)
     }
 
     func testTheIPadSidebarFootCarriesThePlacesInTheWebRailsOrder() throws {
@@ -237,7 +258,7 @@ import XCTest
         let xs = places.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
         XCTAssertFalse(app.buttons["sidebar.spade"].exists)
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
         capture("ipad-sidebar")
         // Code review is a place of its own: pull requests and issues, the list beside them kept.
         app.buttons["sidebar.review"].tap()
@@ -247,12 +268,32 @@ import XCTest
         XCTAssertTrue(app.buttons["settings.machines"].waitForExistence(timeout: 10))
     }
 
-    func testCodeReviewOpensFromTheThreadsTopBarNotTheTabBar() throws {
+    func testASecondTapOnSearchInTheIPadSidebarFocusesItsField() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launch()
+        let row = app.buttons["thread.ios-form"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        let search = app.buttons["sidebar.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        XCTAssertFalse(field.focused, "the first tap shows Search without focusing its field")
+        // Search's own page carries the sidebar's places too; Search again asks for the field.
+        XCTAssertTrue(search.waitForHittable(timeout: 10))
+        search.tap()
+        XCTAssertTrue(field.waitFor({ $0.focused }, timeout: 5), "a second tap on Search focuses its field")
+        capture("ipad-search-focused")
+    }
+
+    func testCodeReviewOpensFromTheProjectsTopBarNotTheTabBar() throws {
         guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
         let app = launch()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         let bar = app.tabBars.firstMatch
-        XCTAssertTrue(bar.buttons["Threads"].exists)
+        XCTAssertTrue(bar.buttons["Projects"].exists)
         XCTAssertTrue(bar.buttons["Chats"].exists)
         XCTAssertFalse(bar.buttons["Code review"].exists)
         let review = app.buttons["inbox.review"]
@@ -345,5 +386,20 @@ import XCTest
             let scheme = ProcessInfo.processInfo.environment["ACE_SHOT_APPEARANCE"] ?? "dark"
             try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name)-\(scheme).png"))
         }
+    }
+}
+
+private extension XCUIElement {
+    /// Holds the keyboard's focus. An iPad with a hardware keyboard shows no on-screen one.
+    var focused: Bool { (value(forKey: "hasKeyboardFocus") as? Bool) ?? false }
+    var reachable: Bool { exists && isHittable }
+    func waitForHittable(timeout: TimeInterval) -> Bool { waitFor({ $0.reachable }, timeout: timeout) }
+    func waitFor(_ condition: (XCUIElement) -> Bool, timeout: TimeInterval) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition(self) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return condition(self)
     }
 }

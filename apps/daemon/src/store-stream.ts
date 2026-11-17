@@ -3,6 +3,7 @@ import { canonicalEvent } from "./canonical-event.ts";
 import type { StreamSequences } from "./stream-sequences.ts";
 import type { EventEncodings } from "./event-encodings.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
+import { isDiskFull } from "./sqlite-failure.ts";
 import { liveWriteRetry } from "./live-write-retry.ts";
 import {
   compactDeltas,
@@ -34,7 +35,8 @@ export class StoreStream {
   // would duplicate its rows, so it waits for that transaction's outcome.
   private sealed = false;
   private cause: unknown;
-  // Consecutive failures that were not contention; only these lead to quarantine.
+  // Consecutive failures that were neither contention nor a full disk; only these lead to
+  // quarantine. Both of those are the store's state, not the rows': the batch waits them out.
   private strikes = 0;
   resyncs = 0;
   constructor(privateOptions: {
@@ -172,7 +174,7 @@ export class StoreStream {
       // Nothing left pinned: no retry to wait for.
       if (!this.buffer.size) throw error;
       this.cause = error;
-      if (!isStoreBusy(error)) this.strikes++;
+      if (!waitsForStore(error)) this.strikes++;
       const ms = this.buffer.retry();
       this.options.report(new Error(`Live writes failed; retrying in ${ms} ms`, { cause: error }));
       throw this.waiting();
@@ -186,8 +188,8 @@ export class StoreStream {
     try {
       this.write(thread, true);
     } catch (error) {
-      // Contention says nothing about the rows; the whole batch retries on the backoff.
-      if (isStoreBusy(error)) throw error;
+      // Contention or a full disk says nothing about the rows; the whole batch retries.
+      if (waitsForStore(error)) throw error;
       this.buffer.discard(thread);
       quarantined.push([
         thread,
@@ -253,4 +255,9 @@ export class StoreStream {
     this.publishedThrough = this.buffer.head ?? this.publishedThrough;
     this.options.publish(events);
   }
+}
+
+/** A failure that clears on its own (contention, or space freed on a full disk). */
+function waitsForStore(error: unknown): boolean {
+  return isStoreBusy(error) || isDiskFull(error);
 }

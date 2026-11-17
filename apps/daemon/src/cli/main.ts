@@ -1,263 +1,169 @@
-import { readConfig } from "../config.ts";
-import { option, parseArgs, type Args } from "./args.ts";
-import { CliFailure } from "./output.ts";
+import { readConfig, type Config } from "../config.ts";
+import type { Args } from "./args.ts";
+import { commandTable } from "./commands/table.ts";
+import type { ArgSpec, CommandSpec } from "./commands/spec.ts";
+import { aliasOutcome } from "./deprecation.ts";
 import { reportFailure } from "./failure.ts";
-import { print, validateOutput } from "./io.ts";
-// Each command's module loads when that command runs: `ace start` is the daemon, and it should
-// not hold every other command's code (and the client library they use) for its whole life.
-const help = `ace run [PROMPT|-] [--provider codex|claude] [--project ID|PATH] [--worktree] [--model MODEL]
-ace threads list [--project ID]
-ace thread read|send|steer|approve|deny|cancel|interrupt ID [TEXT]
-ace thread wait ID... [--any|--all] [--tree]
-ace task spawn [PROMPT|-] --parent ID [--provider PROVIDER] [--model MODEL]
-ace task status|cancel ID
-ace task wait ID... [--any|--all]
-ace start|status|token|devices list|revoke ID
-ace version|--version|-v
-ace pair [SCOPES] [--label NAME] [--ttl 5m|1h|24h|7d] [--device-ttl 1d|7d|30d]
-ace service install|uninstall|start|stop|status
-ace accounts add|list|status|discover
-ace triage [--provider claude|codex|cursor|opencode] [--print]
-ace doctor [--fix] [--dry-run] [--provider claude|codex|cursor|opencode]
-ace support-bundle PATH
-ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
-ace mcp enroll --scope read|operate|--allow SCOPE,... --ttl 30m|12h|30d|never [--project ID,...] [--name NAME]
-ace mcp list|revoke ID
-ace capabilities|providers status|login codex|claude
-ace login [--origin URL]|logout   (this machine's ace account)
-ace machine-code set [CODE|-]|clear
-ace serve|service install --linger
-ace remote add NAME HTTPS_ORIGIN --fingerprint PIN --device ID --token-file PATH
-ace remote list|use|remove NAME
-ace pair redeem [URL|-] --profile NAME
-ace cloud codex exec|list|status|diff|apply [PROMPT|TASK_ID]
-ace logs [-f]
-ace browser shot|record THREAD [--url URL] [--output PATH]
-ace sim list|start|stop|ui|act|screenshot|logs [SIM …] --thread ID (ace sim --help)
-ace automation list|run ID
-ace add [PATH]|project add|list|rename|remove|open
-ace open [PATH] [--web]
-ace chat [--project ID|PATH] [--provider PROVIDER] [--thread ID] [--model MODEL]
-ace storage [usage]|storage plan [--kinds logs,artifacts] [--older-than 30d]
-ace clean [--dry-run] [--threads] [--worktrees] [--artifacts] [--logs] [--attachments] [--caches] [--older-than 30d] [--yes]
-ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
-ace clean --compact [--abandon COMPACTION_ID]
-ace config get [retention-days|log-cap]|config set retention-days DAYS|config set log-cap SIZE
-ace spade on|off
-ace features [on|off spade|marketplace]
-ace marketplace check PATH --type TYPE [--name NAME]
-ace market keygen KEY_FILE [--id ID]|market sign --key KEY_FILE [--url URL]
-ace market review [TYPE/NAME@VERSION --show|--approve|--block REASON]|market feature TYPE/NAME ...
-ace market review TYPE/NAME@VERSION --key KEY_FILE [--by-ace] [--not-reviewed]
-ace market revoke HASH --reason TEXT --key KEY_FILE
-ace market reports [resolve ID --state dismissed|kept|withdrawn|blocked --note TEXT]
-ace market collection list|put ID --title TEXT --line TEXT TYPE/NAME ...|remove ID
-ace market publisher HANDLE --suspend REASON|--restore|--withdraw-all REASON --key KEY_FILE
-ace market block HASH|block-file SHA256|block-pattern TEXT --reason TEXT --key KEY_FILE
-ace market appeals|appeal ID --answer TEXT --approve|--keep
-ace market verify|unverify HANDLE --reason TEXT --key KEY_FILE|market official add|remove ACCOUNT --key KEY_FILE
+import { nounPage } from "./help/pages.ts";
+import { canPrompt, outputMode, type Surroundings } from "./input-mode.ts";
+import { emit, validateOutput } from "./io.ts";
+import { CliFailure, usageFailure } from "./output.ts";
+import { parseCommandLine, type Parsed } from "./parse.ts";
+import { agentShell, marketPersonOnly, personOnlyRefusal } from "./person-gate.ts";
+import type { CommandContext } from "./run/context.ts";
+import { handlers } from "./run/index.ts";
 
-All commands: --json, --jq EXPR, --timeout DURATION
-Mutations: --idempotency-key KEY. Waits: --tree, --any or --all (default) for several IDs; --timeout DURATION. Run: --stream jsonl.
-Remote run/chat: --project WORKSPACE_ID from ace project list; paths are refused.
-Exit: 0 ok, 1 failed, 2 needs-human, 3 timeout, 4 refused, 5 uncertain, 6 port in use.
-`;
-export async function main(input: string[]): Promise<void> {
-  let args: Args = { words: [], flags: input.includes("--json") ? { json: true } : {} };
+/** The terminal and environment a run sees; tests pass their own. */
+export interface Terminal extends Surroundings {
+  readonly stderrTTY: boolean;
+}
+
+export function processTerminal(flags: Readonly<Record<string, string | true>>): Terminal {
+  return {
+    flags,
+    env: process.env,
+    stdinTTY: process.stdin.isTTY === true,
+    stdoutTTY: process.stdout.isTTY === true,
+    stderrTTY: process.stderr.isTTY === true,
+  };
+}
+
+/**
+ * One run of `ace` (ADR 0176): read the line against the command table, then run the one
+ * command it names. Every failure leaves through `reportFailure`, with its exit code.
+ */
+export async function main(input: readonly string[]): Promise<void> {
+  const table = commandTable();
+  const parsed = parseCommandLine(table, input);
+  // A line that didn't parse still answers in JSON when --json was anywhere on it.
+  let args: Args = {
+    words: [],
+    flags: { ...parsed.flags, ...(input.includes("--json") ? { json: true as const } : {}) },
+  };
+  let command: CommandSpec | undefined;
   try {
-    args = parseArgs(input);
-    await validateOutput(args);
-    if (
-      args.flags.version ||
-      args.flags.v ||
-      (args.words[0] === "version" && args.words.length === 1)
-    ) {
-      const { cliVersion } = await import("../doctor/install.ts");
-      const version = await cliVersion(process.env, process.argv[1]);
-      await print(args, args.flags.json || args.flags.jq ? { version } : version);
-      return;
-    }
-    if (args.flags.help) {
-      const text =
-        args.words[0] === "sim" ? (await import("./sim-args.ts")).simHelp : help.trimEnd();
-      await print(args, args.flags.json || args.flags.jq ? { help: text } : text);
-      return;
-    }
-    const command = args.words[0] ?? "start";
-    const config = readConfig();
-    if (command === "chat") {
-      const { chatCommand } = await import("./chat.ts");
-      return await chatCommand(args, config);
-    }
-    if (command === "open" || (command === "project" && args.words[1] === "open"))
-      return await (await import("./open.ts")).openCommand(args, config);
-    if (command === "accounts") {
-      const { runAccountsCommand } = await import("@ace/accounts");
-      const lines: string[] = [];
-      await runAccountsCommand([...args.words, ...(args.flags.console ? ["--console"] : [])], {
-        write: (value) => lines.push(value),
-        progress: (value) =>
-          (args.flags.json || args.flags.jq ? process.stderr : process.stdout).write(value),
-        loginOutput: args.flags.json || args.flags.jq ? "stderr" : "stdout",
+    if (parsed.kind === "usage")
+      throw usageFailure(parsed.message, {
+        code: parsed.code,
+        ...(parsed.hint ? { hint: parsed.hint } : {}),
+        ...(parsed.argument ? { argument: parsed.argument } : {}),
       });
-      const output = lines.flatMap((line) => line.trim().split("\n")).filter(Boolean);
-      if (args.flags.json || args.flags.jq) {
-        const values = output.map((line): unknown => {
-          try {
-            return JSON.parse(line);
-          } catch {
-            return { message: line };
-          }
-        });
-        await print(args, values.length === 1 ? values[0] : values);
-      } else process.stdout.write(lines.join(""));
-      return;
+    if (parsed.kind === "noun") {
+      if (parsed.flags.help || outputMode(parsed.flags) !== "json")
+        return await emit(args, nounPage(table, parsed.words));
+      return await emit(args, { help: nounPage(table, parsed.words) });
     }
-    if (command === "support-bundle") {
-      const { diagnosticsCli } = await import("../diagnostics-cli.ts");
-      const output: string[] = [];
-      await diagnosticsCli(
-        [...args.words, ...(args.flags["include-threads"] ? ["--include-threads"] : [])],
-        config,
-        (text) => output.push(text),
+    command = parsed.command;
+    const terminal = processTerminal(parsed.flags);
+    args = {
+      words: [...parsed.words],
+      flags: { ...parsed.flags },
+      lists: parsed.lists,
+      interactive: canPrompt(terminal),
+    };
+    const helpOrVersion = earlyAnswer(parsed);
+    if (helpOrVersion) command = table.byId.get(helpOrVersion.id) ?? command;
+    else await checkAlias(parsed, terminal);
+    // The person's alone: refused in an agent's shell, and an answer needs a terminal.
+    // A market action that is the person's, from an agent's shell with no thread to ask in.
+    const kind =
+      command.personOnly ??
+      (marketPersonOnly(command.id) && !process.env.ACE_THREAD_ID?.trim() ? "market" : undefined);
+    if (kind && !helpOrVersion) {
+      const refused = personOnlyRefusal(kind, {
+        agent: agentShell(process.env),
+        interactive: args.interactive === true,
+      });
+      if (refused) throw refused;
+    }
+    await validateOutput(args);
+    if (!helpOrVersion && parsed.missing.length)
+      args = { ...args, words: await fillMissing(parsed, args) };
+    const context: CommandContext = {
+      command,
+      parsed,
+      args: helpOrVersion ? { ...args, words: helpOrVersion.words } : args,
+      mode: outputMode(args.flags),
+      env: process.env,
+      table,
+      config: () => readConfigOnce(),
+    };
+    const handler = handlers[command.id];
+    if (!handler)
+      throw new CliFailure(
+        "refused",
+        `ace ${command.words.join(" ")} isn't built yet.`,
+        undefined,
+        {
+          code: "not_found",
+          hint: "See what works today with ace help.",
+        },
       );
-      if (args.flags.json || args.flags.jq) await print(args, { path: args.words[1] });
-      else process.stdout.write(output.join(""));
-      return;
-    }
-    // These write into the home without a daemon, so its format is settled first (ADR 0081).
-    if (
-      ["remote", "config", "cloud", "spade", "features"].includes(command) ||
-      (command === "pair" && args.words[1] === "redeem")
-    )
-      await prepareHome(config.dataDir);
-    if (command === "remote")
-      return await (await import("./remote.ts")).remoteCommand(args, config.dataDir);
-    if (command === "pair" && args.words[1] === "redeem")
-      return await (await import("./remote.ts")).redeemCommand(args, config.dataDir);
-    if (command === "logs")
-      return await (await import("./logs.ts")).logsCommand(args, config.dataDir);
-    if (command === "config")
-      return await (await import("./config.ts")).configCommand(args, config.dataDir);
-    if (command === "cloud")
-      return await (await import("./cloud.ts")).cloudCommand(args, config.dataDir);
-    if (command === "spade")
-      return await (await import("./spade.ts")).spadeCommand(args, config.dataDir);
-    // Maintainer tools for ace's marketplace (ADR 0168); they never touch ace's home.
-    if (command === "market") return await (await import("./market.ts")).marketCommand(args);
-    if (command === "marketplace")
-      return await (await import("./market.ts")).marketplaceCommand(args);
-    if (command === "features")
-      return await (await import("./features.ts")).featuresCommand(args, config.dataDir);
-    if (command === "stop")
-      return await (await import("./control.ts")).stopCommand(args, config.dataDir);
-    if (["start", "serve", "service"].includes(command))
-      return await (await import("./runtime.ts")).runtimeCommand(args, config);
-    // A bare `ace login` is the ace account; `ace login PROVIDER` signs a provider CLI in.
-    if (
-      (command === "login" && args.words.length === 1) ||
-      command === "logout" ||
-      command === "machine-code"
-    )
-      return await (await import("./ace-account.ts")).aceAccountCommand(args, config.dataDir);
-    if (["status", "token", "pair", "devices"].includes(command))
-      return await (await import("./access.ts")).accessCommand(args, config.dataDir);
-    if (
-      ![
-        "run",
-        "threads",
-        "thread",
-        "task",
-        "kill-all",
-        "mcp",
-        "capabilities",
-        "providers",
-        "login",
-        "browser",
-        "sim",
-        "automation",
-        "add",
-        "project",
-        "storage",
-        "clean",
-      ].includes(command)
-    )
-      throw new CliFailure("refused", "Unknown command. See ace --help.");
-    const session = await (await import("./connection.ts")).connectCli(config.dataDir, args);
-    try {
-      if (command === "storage" || command === "clean")
-        await (
-          await import("./retention.ts")
-        ).retentionCommand(args, session.client, session.signal);
-      else if (command === "add" || command === "project")
-        await (
-          await import("./projects.ts")
-        ).projectCommand(args, session.client, session.signal, session.remote);
-      else if (command === "browser")
-        await (await import("./browser.ts")).browserCommand(args, session.client, session.signal);
-      else if (command === "sim")
-        await (await import("./sim.ts")).simCommand(args, session.client, session.signal);
-      else if (command === "automation")
-        await (
-          await import("./automations.ts")
-        ).automationCommand(args, session.client, session.signal);
-      else if (command === "kill-all" || command === "mcp")
-        await (await import("./control.ts")).controlCommand(args, session.client, session.signal);
-      else if (command === "capabilities" || command === "providers")
-        await (
-          await import("./providers.ts")
-        ).providersCommand(args, session.client, session.signal);
-      else if (command === "login")
-        await (await import("./providers.ts")).loginCommand(args, session.client, session.signal);
-      else if (command === "run") {
-        const project = session.remote
-          ? await (
-              await import("./projects.ts")
-            ).remoteWorkProject(option(args, "project"), session.client, session.signal)
-          : option(args, "project");
-        const id = await (
-          await import("./work.ts")
-        ).runCommand(args, session.client, session.signal, project);
-        if (args.flags.stream === "jsonl")
-          await (
-            await import("./threads.ts")
-          ).waitThread(
-            { ...args, flags: { ...args.flags, tree: true } },
-            session.client,
-            id,
-            session.signal,
-          );
-      } else if (command === "threads")
-        await (await import("./threads.ts")).listThreads(args, session.client, session.signal);
-      else if (command === "thread")
-        await (await import("./threads.ts")).threadCommand(args, session.client, session.signal);
-      else await (await import("./tasks.ts")).taskCommand(args, session.client, session.signal);
-    } finally {
-      await session.close();
-    }
+    await handler(context);
   } catch (error) {
-    const { ClientError } = await import("@ace/client");
-    const outcome =
-      error instanceof CliFailure
-        ? error.outcome
-        : error instanceof ClientError
-          ? error.code === "timeout"
-            ? "timeout"
-            : error.code === "auth" || error.code === "not_dispatched"
-              ? "refused"
-              : "uncertain"
-          : "refused";
-    await reportFailure(args, error, outcome);
+    await reportFailure(args, error, command?.id);
   }
 }
 
-/** Settles the home's format for a command that writes there; newer data keeps its exit code. */
-async function prepareHome(dataDir: string): Promise<void> {
-  const { NewerDataError, prepareDaemonHome } = await import("@ace/service");
-  try {
-    prepareDaemonHome(dataDir);
-  } catch (error) {
-    if (error instanceof NewerDataError) throw new CliFailure("newer-data", error.message);
-    throw error;
-  }
+/** `--help` and `--version` answer before anything runs, whatever command they follow. */
+function earlyAnswer(parsed: Parsed): { id: string; words: string[] } | undefined {
+  // `ace thread --help` is the noun's page, not its default command's (ADR 0176 §5).
+  if (parsed.flags.help && parsed.command.id !== "help")
+    return {
+      id: "help",
+      words: [
+        ...(parsed.typed.length < parsed.command.words.length && !parsed.alias
+          ? parsed.typed
+          : parsed.command.words),
+      ],
+    };
+  if ((parsed.flags.version || parsed.flags.V) && parsed.command.id === "home")
+    return { id: "version", words: [] };
+  return undefined;
+}
+
+async function checkAlias(parsed: Parsed, terminal: Terminal): Promise<void> {
+  if (!parsed.alias?.deprecatedSince) return;
+  const { versionOf } = await import("./run/basics.ts");
+  const outcome = aliasOutcome(
+    parsed.alias,
+    parsed.typed,
+    parsed.command,
+    await versionOf(terminal.env),
+    {
+      human: outputMode(parsed.flags) === "human",
+      stderrTTY: terminal.stderrTTY,
+    },
+  );
+  if (outcome.kind === "notice") process.stderr.write(`${outcome.text}\n`);
+  if (outcome.kind === "refuse")
+    throw usageFailure(outcome.text, { code: outcome.code, hint: outcome.hint });
+}
+
+/**
+ * Asks a person for a missing argument; anywhere else it is a usage error naming it, so
+ * nothing ever waits for input nobody can give (ADR 0176 §9).
+ */
+async function fillMissing(parsed: Parsed, args: Args): Promise<string[]> {
+  const usage = `ace ${parsed.command.words.join(" ")}`;
+  const first: ArgSpec | undefined = parsed.missing[0];
+  if (!args.interactive || !first)
+    throw usageFailure(`${usage} needs ${parsed.missing.map((arg) => arg.name).join(" and ")}.`, {
+      code: "missing_argument",
+      argument: first?.name ?? "",
+      hint: `${first?.summary ?? "Pass it"}: ${usage} ${parsed.missing.map((arg) => arg.name).join(" ")}.`,
+    });
+  const { askText } = await import("./ask.ts");
+  const words = [...args.words];
+  const all = parsed.command.args ?? [];
+  for (const [index, arg] of all.entries())
+    if (words[index] === undefined && arg.required)
+      words[index] = await askText(arg.summary, `Or pass it: ${usage} ${arg.name}`);
+  return words;
+}
+
+let config: Config | undefined;
+function readConfigOnce(): Config {
+  config ??= readConfig();
+  return config;
 }

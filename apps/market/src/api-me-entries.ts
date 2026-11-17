@@ -41,7 +41,7 @@ import { versionsOf } from "./store/read.ts";
 import { entryManagement } from "./store/rows.ts";
 
 /*
- * A publisher's actions on one of their entries (ADR 0173 §5), under `/v1/me/entries/{type}/
+ * A publisher's actions on one of their entries (ADR 0174 §5), under `/v1/me/entries/{type}/
  * {name}/…`. Each checks, on every request, that the entry's publisher is the account's.
  * Published bytes are never changed: withdrawal is the only removal of a published version.
  */
@@ -192,7 +192,7 @@ export async function meEntryRoute(
 }
 
 /**
- * Stores a profile or listing picture (ADR 0173 §3, §9): charged to the publisher's quota
+ * Stores a profile or listing picture (ADR 0174 §3, §9): charged to the publisher's quota
  * before its bytes are written, and named by the caller only after, so a cut-off upload leaves
  * nothing named that is missing, and the cron collects what nothing names. Answers the refusal
  * when it doesn't fit.
@@ -236,7 +236,7 @@ async function reservePictureFor(
 }
 
 /**
- * A listing edit (ADR 0173 §5): scanned; a block refuses it; an entry with ace's review mark gets
+ * A listing edit (ADR 0174 §5): scanned; a block refuses it; an entry with ace's review mark gets
  * it only after a maintainer approves, and so does any edit the scan warns about; the rest apply
  * at once.
  */

@@ -30,6 +30,19 @@ test("the Marketplace switch on Settings › Beta saves the setting and hides or
   expect(await within(rail()).findByRole("button", { name: "Marketplace" })).toBeTruthy();
 });
 
+test("Ask me before agents publish starts off and saves the person's choice", async () => {
+  const app = harness();
+  await app.open("/settings/beta");
+  const toggle = await screen.findByRole("switch", { name: "Ask me before agents publish" });
+  await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("false"));
+
+  await userEvent.click(toggle);
+
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("market.askBeforeAgentPublish")).toBe(true),
+  );
+});
+
 test("the Spade switch on Settings › Beta saves the setting and swaps Spade's place for its coming-soon mark", async () => {
   const app = harness();
   await app.open("/settings/beta");

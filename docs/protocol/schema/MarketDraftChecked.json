@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketDraftChecked.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accepted": {
+      "items": {
+        "maxLength": 2000,
+        "type": "string"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "binaries": {
+      "items": {
+        "maxLength": 512,
+        "type": "string"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "recipe": {
+      "additionalProperties": false,
+      "properties": {
+        "routines": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "instruction": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string",
+                "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+              },
+              "name": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string",
+                "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+              },
+              "schedule": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string",
+                "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+              }
+            },
+            "required": [
+              "name",
+              "instruction",
+              "schedule"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "task": {
+          "maxLength": 4000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "task",
+        "routines"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "hash",
+    "binaries",
+    "accepted"
+  ],
+  "type": "object"
+}

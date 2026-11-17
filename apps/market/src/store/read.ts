@@ -5,7 +5,7 @@ import { entryRow, signedOf, storedVersion, type EntryJoined, type VersionTable 
 
 /*
  * What the read routes and pages need from D1. An entry's own reads take its type's catalogue;
- * reads over every entry fan out to each catalogue in parallel (ADR 0173 §16).
+ * reads over every entry fan out to each catalogue in parallel (ADR 0174 §16).
  */
 
 // Listings show totals as last folded into the index (`counted`, store/downloads.ts), so what a
@@ -25,7 +25,7 @@ export async function currentStamp(db: D1Database): Promise<number> {
 
 /**
  * Raises the catalogue's stamp to at least `to`, in one statement, and answers it: the catalogue's
- * next change then takes a stamp above `to` (ADR 0173 §16).
+ * next change then takes a stamp above `to` (ADR 0174 §16).
  */
 export async function raiseStamp(db: D1Database, to: number): Promise<number> {
   const row = await db
@@ -38,7 +38,7 @@ export async function raiseStamp(db: D1Database, to: number): Promise<number> {
 /**
  * Entries in the index, or those changed after `since`: `listed` means a live version, listed
  * visibility, not archived and an active publisher, so unlisted and archived entries never
- * appear here (ADR 0173 §5).
+ * appear here (ADR 0174 §5).
  */
 export async function listedEntries(db: D1Database, since?: number): Promise<EntryRow[]> {
   const statement =

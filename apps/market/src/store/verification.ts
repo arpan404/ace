@@ -2,7 +2,7 @@ import type { MarketVerificationProof, MarketVerificationStatus } from "@ace/pro
 import { proofsOf, type PublisherTable } from "./profiles.ts";
 
 /*
- * Publisher verification in D1 (ADR 0173 §13): proof tokens (random, single use, 48 hours),
+ * Publisher verification in D1 (ADR 0174 §13): proof tokens (random, single use, 48 hours),
  * passed proofs on the publisher, and the state maintainers act on through the signer's routes.
  */
 
@@ -34,7 +34,7 @@ const subjectPath = "CASE ?2 WHEN 'domain' THEN '$.domain' ELSE '$.login' END";
 
 /**
  * Whether a challenge's subject is one of the proofs the publisher's mark was granted on: the
- * signed verified list stores those as the publisher's `approved_proofs` (ADR 0173 §13).
+ * signed verified list stores those as the publisher's `approved_proofs` (ADR 0174 §13).
  */
 const approvedSubject = (subject: string) =>
   `EXISTS (SELECT 1 FROM publishers p, json_each(p.approved_proofs) j WHERE p.id = ?1

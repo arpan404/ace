@@ -45,7 +45,7 @@ import {
 import { checkDomain, checkGithub } from "./verify-proofs.ts";
 
 /*
- * The publisher's own routes under `/v1/me` (ADR 0173 §2 to §5, §13): profile, handle, avatar,
+ * The publisher's own routes under `/v1/me` (ADR 0174 §2 to §5, §13): profile, handle, avatar,
  * pins, drafts, publications, transfers, signals, appeals and verification. Every one needs a
  * market grant through `authenticate`; sensitive ones a recent sign-in; entry routes check the
  * entry's publisher is the account's on every request.
@@ -72,7 +72,7 @@ export const noProfile = () =>
 const invalid = (message: string) => failure(400, "invalid", message);
 const done = () => json({ status: "done" });
 
-/** A verified profile's edits need a recent sign-in (ADR 0173 §2). */
+/** A verified profile's edits need a recent sign-in (ADR 0174 §2). */
 const staleForVerified = (authed: Authed, context: Context) =>
   authed.publisher?.verified === true && !(context.now - authed.claims.authAt <= reauthMs)
     ? failure(401, "reauth", "Sign in again to do this.")

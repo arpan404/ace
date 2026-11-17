@@ -36,6 +36,8 @@ import * as forgeCapabilities from "@ace/protocol/forge-capabilities";
 import * as forge from "@ace/protocol/forge";
 import * as suits from "@ace/protocol/suits";
 import * as suitParts from "@ace/protocol/suit-parts";
+import * as cliOutput from "@ace/protocol/cli-output";
+import * as cliOutputs from "@ace/protocol/cli-outputs";
 import {
   htmlToolCatalog,
   imageToolCatalog,
@@ -92,6 +94,8 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./workspace-actions", workspaceActions],
   ["./suits", suits],
   ["./suit-parts", suitParts],
+  ["./cli-output", cliOutput],
+  ["./cli-outputs", cliOutputs],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {

@@ -14,6 +14,7 @@ import {
   usageDay,
   usageLimits,
   usageMoney,
+  usageFillingLine,
   usageReport,
   type AccountLimits,
   type LedgerGroup,
@@ -108,6 +109,7 @@ export function UsagePage() {
     ready: zone.ready,
   };
   const usage = useEnvironmentUsage(environments, span, noFilters);
+  const fillingLine = usageFillingLine(usage.filling, machines.length);
   const refresh = useRefreshUsage(online);
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
@@ -275,6 +277,11 @@ export function UsagePage() {
               className="mt-2 text-xs text-foreground"
             >
               {usage.coverage.line}
+            </p>
+          )}
+          {fillingLine && (
+            <p aria-live="polite" className="mt-2 text-xs text-foreground">
+              {fillingLine}
             </p>
           )}
           {accountsLoaded && !accountsFailed && (

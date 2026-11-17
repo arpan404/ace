@@ -29,7 +29,7 @@ import { dueRechecks, recordRecheck } from "./store/verification.ts";
 import { checkDomain, type ProofFetch } from "./verify-proofs.ts";
 
 /*
- * The publishers' cron steps (ADR 0173 §5, §8, §13, §16), each bounded: the cross-database
+ * The publishers' cron steps (ADR 0174 §5, §8, §13, §16), each bounded: the cross-database
  * protocols' resumption first (publisher copies behind, publishes cut off after claiming their
  * draft, catalogues behind the withdrawn list, the quota ledger's reconcile), then scan jobs that
  * didn't fit a request, drafts untouched for 30 days (with their bytes), expired transfers and
@@ -79,7 +79,7 @@ export async function publisherCron(
 }
 
 /**
- * Publishes cut off after claiming their draft (ADR 0173 §16): a claim older than the charge
+ * Publishes cut off after claiming their draft (ADR 0174 §16): a claim older than the charge
  * grace whose version its catalogue stored with the draft's bytes is finished (the draft goes);
  * any other is released, so the draft can be published again. Either way the publisher's
  * charges are reconciled.
@@ -97,7 +97,7 @@ export async function resumeClaims(dbs: Databases, bucket: R2Bucket, now: number
 }
 
 /**
- * Pictures nothing names (ADR 0173 §1): rows past the grace period that no profile or listing
+ * Pictures nothing names (ADR 0174 §1): rows past the grace period that no profile or listing
  * names are dropped; objects claimed on an earlier run that still no row holds are deleted
  * under their claim; then one page of each R2 prefix is walked and objects past the grace
  * period that no row holds are claimed for a later run. An upload writes its row, dropping any

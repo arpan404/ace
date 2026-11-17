@@ -25,6 +25,8 @@ const payloadTables = new Set([
   "engine_input_echoes",
   "engine_input_messages",
   "engine_admitted_attachments",
+  // Messages from other machines held while admission was closed (`machines/held-messages.ts`).
+  "machine_held_messages",
 ]);
 function tables(db: DatabaseSync): string[] {
   return db

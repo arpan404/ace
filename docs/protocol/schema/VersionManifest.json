@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/VersionManifest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ManifestFile.json"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "format": {
+      "const": "ace-market-manifest",
+      "type": "string"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "published": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "publisher": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    }
+  },
+  "required": [
+    "format",
+    "type",
+    "name",
+    "version",
+    "publisher",
+    "hash",
+    "files",
+    "size",
+    "published",
+    "key"
+  ],
+  "type": "object"
+}

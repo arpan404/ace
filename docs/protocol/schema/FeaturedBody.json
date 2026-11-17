@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/FeaturedBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "type": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "required": [
+    "entries"
+  ],
+  "type": "object"
+}

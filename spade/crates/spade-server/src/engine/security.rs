@@ -9,6 +9,7 @@ use spade_core::grant::Action;
 
 use super::Engine;
 use crate::security::Security;
+use crate::workspace::shell::Launch;
 
 impl Engine {
     /// Sets the security service, once.
@@ -84,21 +85,22 @@ impl Engine {
         }
     }
 
-    /// Marks the call `key` to run outside the sandbox: the gate decided so.
-    pub(super) fn mark_outside(&self, key: &str) {
-        self.outside_calls
+    /// Records what the gate authorized for the call `key`, for its launch.
+    pub(super) fn mark_launch(&self, key: &str, launch: Launch) {
+        self.launches
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .insert(key.to_owned());
+            .insert(key.to_owned(), launch);
     }
 
-    /// Whether the call `key` runs outside the sandbox, taken (each call runs once). A call the
-    /// gate didn't mark runs sandboxed, whatever changed since.
-    pub(crate) fn runs_outside(&self, key: &str) -> bool {
-        self.outside_calls
+    /// What the gate authorized for the call `key`, taken (each call runs once). A call the gate
+    /// didn't mark may only launch contained, whatever changed since: never plainly.
+    pub(crate) fn take_launch(&self, key: &str) -> Launch {
+        self.launches
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(key)
+            .unwrap_or(Launch::Contained)
     }
 
     /// What one of `conversation`'s tools declares it does, for a grant being made.

@@ -1,4 +1,4 @@
--- One entry type's catalogue (ADR 0168, ADR 0173 §16): its entries, versions, listing edits,
+-- One entry type's catalogue (ADR 0168, ADR 0174 §16): its entries, versions, listing edits,
 -- removals, pending withdrawals and transfer offers. Every catalogue database (suits, skills,
 -- plugins, bots) has this schema. Every change a reader can see moves this database's `stamp`
 -- forward in the batch that makes it, so `/v1/index?since=` never misses one.
@@ -11,7 +11,7 @@ CREATE TABLE meta (
 INSERT INTO meta (key, value) VALUES ('stamp', 0);
 
 -- A copy of each publisher this catalogue names, kept by the publishers database's sync
--- (ADR 0173 §16): written only when `revision` is newer, and in the same batch the publisher's
+-- (ADR 0174 §16): written only when `revision` is newer, and in the same batch the publisher's
 -- entries move their generation. `applied_stamp` is the stamp of the batch that wrote it.
 -- `live_versions` is this catalogue's own count of the publisher's versions that went live
 -- (§9); a copy never overwrites it.
@@ -116,7 +116,7 @@ CREATE TABLE pending_withdrawals (
 );
 
 -- The newest signed list (by `issued`) this catalogue marked its versions by: `withdrawn`
--- (ADR 0173 §16). The list itself is in the lists database; marking it here is one batch.
+-- (ADR 0174 §16). The list itself is in the lists database; marking it here is one batch.
 CREATE TABLE applied_lists (
   name TEXT PRIMARY KEY,
   issued INTEGER NOT NULL

@@ -41,7 +41,7 @@ async function enabledListings(store: MarketStore) {
   );
 }
 
-/** Search, each publisher's tier from the signed lists (ADR 0173 §15). */
+/** Search, each publisher's tier from the signed lists (ADR 0174 §15). */
 export async function searchListings(
   store: MarketStore,
   operation: Extract<MarketOperation, { op: "search" }>,

@@ -23,7 +23,8 @@ pub enum Mechanism {
 #[serde(rename_all = "snake_case")]
 pub enum Coverage {
     Contained,
-    /// Some of it: Linux's Landlock holds TCP but not UDP, raw or Unix sockets.
+    /// Some of it: Linux's Landlock alone (where its network filter can't run) holds TCP ports
+    /// but not addresses, UDP, raw or Unix sockets.
     Partial,
     None,
 }
@@ -35,15 +36,33 @@ pub struct Status {
     pub mechanism: Mechanism,
     pub files: Coverage,
     pub network: Coverage,
+    /// Whether signals are isolated from processes outside this sandbox.
+    pub signals: Coverage,
+    /// Linux: an explicitly permitted syscall surface, minimal devices, and IPC isolation.
+    pub syscalls: Coverage,
+    pub devices: Coverage,
+    pub ipc: Coverage,
+    /// Whether other processes are hidden: Linux's own PID namespace and `/proc` per command
+    /// (partial where unprivileged user namespaces aren't allowed and `/proc`'s process folders
+    /// are closed instead), macOS's same-sandbox `process-info`.
+    pub processes: Coverage,
+    /// Linux: the Landlock ABI the kernel enforces.
+    pub landlock_abi: Option<u8>,
     /// Why a boundary isn't held, in a sentence the person reads.
     pub reason: Option<String>,
 }
 
 impl Status {
-    /// Files and network both held: a run is contained and the reviews ADR 0167 decision 8 drops
-    /// may go.
+    /// Every required boundary holds; ADR 0167 decision 8 may drop command reviews.
     pub fn contains(&self) -> bool {
-        self.files == Coverage::Contained && self.network == Coverage::Contained
+        self.files == Coverage::Contained
+            && self.network == Coverage::Contained
+            && self.signals == Coverage::Contained
+            && self.syscalls == Coverage::Contained
+            && self.devices == Coverage::Contained
+            && self.ipc == Coverage::Contained
+            && self.processes == Coverage::Contained
+            && (self.platform != "linux" || self.landlock_abi.is_some_and(|abi| abi >= 3))
     }
 
     /// Commands can be started under a policy at all (perhaps only partly held).
@@ -57,6 +76,12 @@ impl Status {
             mechanism: Mechanism::None,
             files: Coverage::None,
             network: Coverage::None,
+            signals: Coverage::None,
+            syscalls: Coverage::None,
+            devices: Coverage::None,
+            ipc: Coverage::None,
+            processes: Coverage::None,
+            landlock_abi: None,
             reason: Some(reason.to_owned()),
         }
     }
@@ -104,6 +129,11 @@ impl Runner {
         &self.status
     }
 
+    /// Spade's own binary, used as the sandbox launcher (Linux and Windows).
+    pub fn launcher(&self) -> Option<&Path> {
+        self.launcher.as_deref()
+    }
+
     /// `program args` started under `policy`.
     pub fn wrap(
         &self,
@@ -119,7 +149,13 @@ impl Runner {
                     .unwrap_or_else(|| "this machine has no sandbox".to_owned()),
             ));
         }
-        platform::wrap(self.launcher.as_deref(), policy, program, args)
+        platform::wrap(
+            &self.status,
+            self.launcher.as_deref(),
+            policy,
+            program,
+            args,
+        )
     }
 }
 
@@ -158,6 +194,12 @@ mod platform {
                 mechanism: Mechanism::Seatbelt,
                 files: Coverage::Contained,
                 network: Coverage::Contained,
+                signals: Coverage::Contained,
+                syscalls: Coverage::Contained,
+                devices: Coverage::Contained,
+                ipc: Coverage::Contained,
+                processes: Coverage::Contained,
+                landlock_abi: None,
                 reason: None,
             },
             _ => Status::none("macOS refused Spade's sandbox profile on this Mac."),
@@ -172,6 +214,7 @@ mod platform {
     }
 
     pub(super) fn wrap(
+        _status: &Status,
         _launcher: Option<&Path>,
         policy: &Policy,
         program: &Path,
@@ -190,31 +233,103 @@ mod platform {
 #[cfg(target_os = "linux")]
 mod platform {
     use super::*;
+    use crate::linux::{Network, Processes};
 
     #[cfg(feature = "landlock")]
     pub(super) fn probe(launcher: Option<&Path>) -> Status {
-        if launcher.is_none() {
+        let Some(launcher) = launcher else {
             return Status::none("Spade's own program could not be found to start the sandbox.");
+        };
+        if !crate::linux::landlock_supported() {
+            return Status::none(
+                "This Linux kernel doesn't enforce Landlock, so commands are reviewed as before.",
+            );
         }
-        match crate::linux::supported() {
-            (true, network) => Status {
-                platform: "linux",
-                mechanism: Mechanism::Landlock,
-                files: Coverage::Contained,
-                // Landlock holds TCP connects (ABI 4) but not UDP, raw or Unix sockets: until
-                // a seccomp filter closes those, the network is only partly held.
-                network: if network {
+        match crate::linux::probe(launcher) {
+            Ok(probed) => status(&probed),
+            Err(why) => Status::none(&format!(
+                "Spade's Linux sandbox could not start here ({why}), so commands are reviewed \
+                 as before."
+            )),
+        }
+    }
+
+    /// What a probe that ran found: files held by Landlock, the network by the filter or (only
+    /// in part) by Landlock's TCP rules.
+    #[cfg(feature = "landlock")]
+    pub(super) fn status(probed: &crate::linux::Probed) -> Status {
+        let (network, reason) = match &probed.filtered {
+            // Below ABI 6 the filtered probe can succeed only inside a private PID namespace.
+            Ok(()) => (Coverage::Contained, None),
+            Err(why) => (
+                // TCP ports are held from ABI 4.
+                if probed.abi >= 4 {
                     Coverage::Partial
                 } else {
                     Coverage::None
                 },
-                reason: Some(
-                    "Linux holds files; the network is held only in part until Spade filters \
-                     UDP and Unix sockets."
-                        .to_owned(),
-                ),
+                Some(format!(
+                    "Spade's default-deny syscall, device, IPC or signal policy could not start here ({why}), \
+                     so commands are reviewed as before."
+                )),
+            ),
+        };
+        let files = if probed.abi >= 3 && probed.filtered.is_ok() {
+            Coverage::Contained
+        } else {
+            Coverage::Partial
+        };
+        let reason = if probed.abi < 3 {
+            Some("Linux's Landlock ABI is below 3 and cannot contain file truncation, so commands keep reviews.".to_owned())
+        } else {
+            reason
+        };
+        let reason = match (&probed.processes, reason) {
+            (Ok(()), reason) => reason,
+            (Err(why), reason) => Some(
+                // What failed, on one line.
+                reason.map(|r| format!("{r} ")).unwrap_or_default()
+                    + &format!(
+                        "Commands can't have their own process list here ({}): this machine \
+                         doesn't allow unprivileged user namespaces, so Spade keeps every \
+                         process's /proc folder closed instead, and commands are reviewed as \
+                         before.",
+                        why.lines().collect::<Vec<_>>().join("; ")
+                    ),
+            ),
+        };
+        Status {
+            platform: "linux",
+            mechanism: Mechanism::Landlock,
+            files,
+            network,
+            signals: if probed.abi >= 6 || probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
             },
-            (false, _) => Status::none("This Linux kernel doesn't enforce Landlock."),
+            syscalls: if probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            devices: if probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            ipc: if probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            processes: if probed.processes.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            landlock_abi: Some(probed.abi),
+            reason,
         }
     }
 
@@ -224,6 +339,7 @@ mod platform {
     }
 
     pub(super) fn wrap(
+        status: &Status,
         launcher: Option<&Path>,
         policy: &Policy,
         program: &Path,
@@ -231,7 +347,19 @@ mod platform {
     ) -> Result<Launch, Unavailable> {
         let launcher =
             launcher.ok_or_else(|| Unavailable("Spade's own program is unknown".to_owned()))?;
-        let plan = crate::linux::plan(policy);
+        // The filter where the probe found it holds; Landlock alone where it couldn't run.
+        let network = if status.network == Coverage::Contained {
+            Network::Filtered
+        } else {
+            Network::Landlock
+        };
+        // Its own process namespace where the probe found one starts.
+        let processes = if status.processes == Coverage::Contained {
+            Processes::Private
+        } else {
+            Processes::Hidden
+        };
+        let plan = crate::linux::plan(policy, network, processes);
         let plan = serde_json::to_string(&plan)
             .map_err(|error| Unavailable(format!("the sandbox plan: {error}")))?;
         let mut all: Vec<OsString> = vec![crate::linux::LAUNCHER_ARG.into(), plan.into()];
@@ -247,32 +375,79 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use super::*;
+    use crate::windows::{self, Container};
 
-    /// Designed (ADR 0167 decision 1: an AppContainer per bot, ACLs on its folders, the job
-    /// object Spade already uses), not built: commands keep today's reviews.
-    pub(super) fn probe(_launcher: Option<&Path>) -> Status {
-        Status {
-            platform: "windows",
-            mechanism: Mechanism::None,
-            files: Coverage::None,
-            network: Coverage::None,
-            reason: Some(
-                "Spade's Windows sandbox (AppContainer) isn't built yet, so commands are \
-                 reviewed as before."
-                    .to_owned(),
-            ),
+    /// AppContainer per run (ADR 0167 decision 1): the profile is created per run and its SID is
+    /// ACL'd onto the folders Spade owns by the daemon, a job holds the tree, and a run with no
+    /// network is a Less Privileged AppContainer. Probing makes and deletes a throwaway profile: if
+    /// that fails (AppContainers disabled), there is no sandbox and commands keep today's reviews.
+    /// Whether a given run is contained is decided per run by the daemon (`confine`: no network,
+    /// Spade-owned folders); this says what the mechanism holds when it applies.
+    pub(super) fn probe(launcher: Option<&Path>) -> Status {
+        if launcher.is_none() {
+            return Status::none("Spade's own program could not be found to start the sandbox.");
+        }
+        let probe = Container {
+            name: format!("spade.probe.{}", uuid::Uuid::new_v4().simple()),
+            display: "Spade sandbox probe".to_owned(),
+        };
+        match spade_sandbox_windows::profile::ensure(&probe.name, &probe.display) {
+            Ok(_) => {
+                let _ = spade_sandbox_windows::profile::delete(&probe.name);
+                Status {
+                    platform: "windows",
+                    mechanism: Mechanism::AppContainer,
+                    files: Coverage::Contained,
+                    // The daemon reports `contained` only while the proxy also listens, and only
+                    // for a run with no network (a networked run keeps the review path).
+                    network: Coverage::Contained,
+                    // Measured in the VM (`windows_sandbox.rs`, group H), under the LPAC token and
+                    // a plain AppContainer one: a contained run can't see or end a process of the
+                    // person's outside it, open their named objects, or open a device they can.
+                    signals: Coverage::Contained,
+                    devices: Coverage::Contained,
+                    ipc: Coverage::Contained,
+                    processes: Coverage::Contained,
+                    // Windows has no syscall allowlist like Linux's seccomp filter; as with macOS's
+                    // Seatbelt, the boundary is the operation, not the call: every kernel object a
+                    // run opens is checked against its container token (LPAC for a contained run),
+                    // and the job bars the desktop, clipboard and global atoms.
+                    syscalls: Coverage::Contained,
+                    landlock_abi: None,
+                    reason: None,
+                }
+            }
+            Err(error) => Status::none(&format!(
+                "Windows wouldn't make an AppContainer profile on this machine: {error}."
+            )),
         }
     }
 
     pub(super) fn wrap(
-        _launcher: Option<&Path>,
-        _policy: &Policy,
-        _program: &Path,
-        _args: &[OsString],
+        _status: &Status,
+        launcher: Option<&Path>,
+        policy: &Policy,
+        program: &Path,
+        args: &[OsString],
     ) -> Result<Launch, Unavailable> {
-        Err(Unavailable(
-            "Spade's Windows sandbox isn't built yet".to_owned(),
-        ))
+        let launcher =
+            launcher.ok_or_else(|| Unavailable("Spade's own program is unknown".to_owned()))?;
+        let bot = policy
+            .workspace
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| Unavailable("the bot's workspace has no name".to_owned()))?;
+        // No bridge here: the daemon builds the networked plan in `confine`, where the per-run
+        // bridge is set up. This path (a run with no network) is the plain fallback.
+        let plan = windows::plan(
+            Container::for_bot(bot),
+            windows::run::DEFAULT_ACTIVE_PROCESSES,
+            windows::run::DEFAULT_MEMORY_BYTES,
+            None,
+        );
+        let (program, args) =
+            windows::run::wrap(launcher, &plan, program, args).map_err(Unavailable)?;
+        Ok(Launch { program, args })
     }
 }
 
@@ -285,6 +460,7 @@ mod platform {
     }
 
     pub(super) fn wrap(
+        _status: &Status,
         _launcher: Option<&Path>,
         _policy: &Policy,
         _program: &Path,
@@ -313,16 +489,120 @@ mod tests {
     }
 
     #[test]
-    fn only_both_boundaries_held_count_as_contained() {
+    fn only_all_boundaries_held_count_as_contained() {
         let mut status = Status {
             platform: "linux",
             mechanism: Mechanism::Landlock,
             files: Coverage::Contained,
             network: Coverage::Partial,
+            signals: Coverage::Contained,
+            syscalls: Coverage::Contained,
+            devices: Coverage::Contained,
+            ipc: Coverage::Contained,
+            processes: Coverage::Contained,
+            landlock_abi: Some(4),
             reason: None,
         };
         assert!(status.usable() && !status.contains());
         status.network = Coverage::Contained;
         assert!(status.contains());
+        status.signals = Coverage::Partial;
+        assert!(!status.contains());
+        status.signals = Coverage::Contained;
+        status.syscalls = Coverage::Partial;
+        assert!(!status.contains());
+        status.syscalls = Coverage::Contained;
+        status.devices = Coverage::Partial;
+        assert!(!status.contains());
+        status.devices = Coverage::Contained;
+        status.ipc = Coverage::Partial;
+        assert!(!status.contains());
+        status.ipc = Coverage::Contained;
+        status.processes = Coverage::Partial;
+        assert!(!status.contains());
+    }
+}
+
+#[cfg(all(test, target_os = "linux", feature = "landlock"))]
+mod linux_status_tests {
+    use super::*;
+    #[test]
+    fn without_metadata_supervision_landlock_alone_is_only_partial_file_coverage() {
+        let status = platform::status(&crate::linux::Probed {
+            abi: 6,
+            filtered: Err("filter unavailable".to_owned()),
+            processes: Ok(()),
+        });
+        assert_eq!(status.files, Coverage::Partial);
+        assert!(!status.contains());
+    }
+    #[test]
+    fn old_abis_keep_reviews_until_files_network_and_signals_are_held() {
+        for abi in 1..=9 {
+            for filtered in [Ok(()), Err("unavailable".to_owned())] {
+                let status = platform::status(&crate::linux::Probed {
+                    abi,
+                    filtered: filtered.clone(),
+                    processes: Ok(()),
+                });
+                assert_eq!(
+                    status.contains(),
+                    abi >= 3 && filtered.is_ok(),
+                    "{status:?}"
+                );
+                assert_eq!(
+                    status.files == Coverage::Contained,
+                    abi >= 3 && filtered.is_ok()
+                );
+                assert_eq!(
+                    status.signals == Coverage::Contained,
+                    abi >= 6 || filtered.is_ok()
+                );
+                if abi < 3 {
+                    assert!(
+                        status
+                            .reason
+                            .as_deref()
+                            .is_some_and(|s| s.contains("truncation"))
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn without_user_namespaces_processes_are_partial_and_reviews_stay_with_a_reason() {
+        let status = platform::status(&crate::linux::Probed {
+            abi: 6,
+            filtered: Ok(()),
+            processes: Err("unshare: Operation not permitted".to_owned()),
+        });
+        assert_eq!(status.processes, Coverage::Partial);
+        assert_eq!(status.files, Coverage::Contained);
+        assert!(status.usable() && !status.contains());
+        assert!(
+            status
+                .reason
+                .as_deref()
+                .is_some_and(|r| r.contains("user namespaces") && r.contains("/proc")),
+            "{status:?}"
+        );
+        // Wrapped runs ask the launcher for closed process folders, not a namespace.
+        let runner = Runner {
+            status,
+            launcher: Some(PathBuf::from("/usr/bin/spade")),
+        };
+        let policy = Policy::build(&crate::policy::Facts::default());
+        let launch = runner
+            .wrap(&policy, Path::new("/bin/sh"), &[])
+            .unwrap_or_else(|e| panic!("{e}"));
+        let plan: crate::linux::Plan = serde_json::from_str(
+            launch
+                .args
+                .get(1)
+                .and_then(|a| a.to_str())
+                .unwrap_or_default(),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(plan.processes, crate::linux::Processes::Hidden);
     }
 }
