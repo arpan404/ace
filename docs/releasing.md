@@ -67,11 +67,14 @@ prerelease tagged `ace-beta-<YYYY-MM-DD>-<X.Y.Z>-<N>` and never marked latest
 ```sh
 bun run release:doctor                 # a beta is always signed and notarized
 bun run release:beta build             # works out the tag; stages dist/releases/<tag>
+                                       # --version 0.1.0 previews a later version
 bun run release:beta publish <tag> --notes-file notes.md
 ```
 
 `build` refuses another platform or architecture, a dirty tree and a commit not on
-`origin/main`. It builds the app as `X.Y.Z-beta.<YYYYMMDD>.<N>` without touching
+`origin/main`. A beta previews the next version: the patch after `apps/desktop/package.json`
+(0.0.23 → 0.0.24), or a later `--version`. It builds the app as `X.Y.Z-beta.<YYYYMMDD>.<N>`
+(`0.0.24-beta.20261116.1`) without touching
 `package.json`, with a BETA band on the Dock icon. `publish` uploads a draft prerelease, then
 publishes it.
 
