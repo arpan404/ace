@@ -158,3 +158,47 @@ test("with a limit of four, a batch of eight tasks creates every child: four sta
   for (const id of threadIds) expect(h.contexts.has(id)).toBe(true);
   expect(h.errors).toEqual([]);
 });
+
+test("a queued child whose start meets a full disk stays queued, keeps its parent open, and starts once space is back", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const parent = await h.parent();
+  const first = h.delegate(parent, "first");
+  const second = h.delegate(parent, "second");
+  await h.engine.flush();
+  // The disk boundary: the store's connection may not grow the file, and the slack left in it
+  // is filled, so the next write fails with SQLITE_FULL as on a full volume.
+  const disk = h.store.atomic((db) => db);
+  disk.exec("CREATE TABLE IF NOT EXISTS filler (x BLOB)");
+  const fill = () => {
+    disk.exec(
+      `PRAGMA max_page_count=${Number(disk.prepare("PRAGMA page_count").get()?.page_count)}`,
+    );
+    try {
+      for (;;) disk.prepare("INSERT INTO filler VALUES (randomblob(1024))").run();
+    } catch {
+      /* Full: what a full disk leaves. */
+    }
+  };
+  // No pump runs while admission is closed, so the slot is freed before the disk fills.
+  h.closeAdmission();
+  await h.complete(first.childId, "first done");
+  fill();
+  h.openAdmission();
+  // The retry timer drains the queue. Nothing awaits the engine here: its own writes wait for
+  // space, as running turns do while the disk is full.
+  h.clock.advance(1050);
+
+  expect(h.contexts.has(second.childId)).toBe(false);
+  const shown = () =>
+    Object.values(h.store.snapshotThread(parent.threadId).agents).find(
+      (agent) => agent.childThreadId === second.childId,
+    );
+  expect(shown()?.status).toMatchObject({ on: "queue" });
+  expect(h.store.getThread(parent.threadId)?.status.state).not.toBe("done");
+
+  disk.exec("PRAGMA max_page_count=1073741823");
+  h.clock.advance(1050);
+  await h.engine.flush();
+  expect(h.store.getThread(second.childId)?.status.state).toBe("working");
+  expect(h.inputs.get(second.childId)?.join("\n")).toContain("Implement safely");
+});
