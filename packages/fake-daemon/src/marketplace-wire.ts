@@ -8,10 +8,12 @@ import type {
   MarketResult,
   MarketReview,
   MarketReviewItem,
+  MarketScanReport,
   MarketServerMessage,
   MarketSource,
 } from "@ace/protocol/marketplace";
 import { search } from "@ace/marketplace";
+import { FakeMarketPublishing, type MarketPublishSeed } from "./marketplace-publish.ts";
 
 /*
  * The marketplace (ADR 0168) as the fake daemon answers it: seeded listings searched on the
@@ -27,6 +29,8 @@ export interface FakeMarketEntry {
   items?: MarketReviewItem[];
   /** Its listed version was withdrawn, for this reason; `prepare` refuses it. */
   withdrawn?: string;
+  /** The device's scan blocks its bytes: `prepare` answers `blocked` with this report. */
+  blocked?: MarketScanReport;
 }
 
 /** An install the person accepted: the review's bytes and the choices sent with Install. */
@@ -45,6 +49,10 @@ export interface MarketplaceSeed {
   readAt?: number;
   /** A `prepare` for these `type/name` keys is refused with this message. */
   refuse?: Record<string, string>;
+  /** Publishing, Discover and publisher pages (ADR 0173). */
+  publishing?: MarketPublishSeed;
+  /** Listing pictures and avatars the `picture` op answers, by sha256. */
+  pictures?: Record<string, { type: "image/png" | "image/jpeg" | "image/webp"; data: string }>;
 }
 
 const hash = (seed: string) =>
@@ -130,6 +138,7 @@ export class FakeMarketplaceWire {
   ];
   #reviews = new Map<string, { review: MarketReview; items: MarketReviewItem[] }>();
   #refuse: Record<string, string> = {};
+  #pictures: NonNullable<MarketplaceSeed["pictures"]> = {};
   #readAt: number | undefined;
   #counter = 0;
   readonly #now: () => number;
@@ -139,8 +148,12 @@ export class FakeMarketplaceWire {
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
+  /** Publishing, Discover, publisher pages and the reports sent. */
+  readonly publishing: FakeMarketPublishing;
+
   constructor(now: () => number = () => 1_700_000_000_000) {
     this.#now = now;
+    this.publishing = new FakeMarketPublishing(now);
   }
 
   seed(seed: MarketplaceSeed): void {
@@ -155,6 +168,8 @@ export class FakeMarketplaceWire {
     if (seed.sources) this.#sources = seed.sources;
     this.#refuse = seed.refuse ?? this.#refuse;
     this.#readAt = seed.readAt;
+    if (seed.pictures) this.#pictures = { ...this.#pictures, ...seed.pictures };
+    if (seed.publishing) this.publishing.seed(seed.publishing);
   }
 
   /** Hears `marketplace.changed` after installs and removals. */
@@ -307,6 +322,13 @@ export class FakeMarketplaceWire {
             message: `${operation.type}/${operation.name} isn't listed`,
           };
         if (entry.withdrawn) return { op: "error", code: "refused", message: entry.withdrawn };
+        if (entry.blocked)
+          return {
+            op: "error",
+            code: "blocked",
+            message: `${operation.type}/${operation.name} was refused by ace's scan on this device`,
+            scan: entry.blocked,
+          };
         const replaces =
           operation.op === "prepareUpdate"
             ? this.#installed.get(key(operation.type, operation.name))?.version
@@ -402,6 +424,22 @@ export class FakeMarketplaceWire {
         };
       case "spadeSkillFiles":
         return { op: "spadeSkillFiles", files: [] };
+      case "discover":
+        return this.publishing.discover(
+          this.#summaries().filter((summary) => summary.source === "market"),
+        );
+      case "publisher":
+        return this.publishing.publisher(operation.handle);
+      case "publish":
+        return this.publishing.publish(operation.request);
+      case "report":
+        return this.publishing.report(operation);
+      case "picture": {
+        const picture = this.#pictures[operation.hash];
+        return picture
+          ? { op: "picture", ...picture }
+          : { op: "error", code: "not_found", message: "There is no such picture" };
+      }
     }
   }
 }

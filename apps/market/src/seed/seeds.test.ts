@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { writeArchive } from "@ace/marketplace";
-import { checkArchive } from "@ace/marketplace/checks";
+import { checkArchive, checkFiles } from "@ace/marketplace/checks";
+import { scanEntry } from "@ace/marketplace/scan";
 import { readSeed, templatesPath } from "./folders.ts";
 import { recipeOf, TemplatesFile } from "./recipes.ts";
 
@@ -22,6 +23,24 @@ describe("the market's seed", () => {
       const checked = checkArchive(seed.type, seed.name, writeArchive(seed.files));
       expect(checked.problems).toEqual([]);
       expect(checked.listing.line).not.toBe("");
+    },
+  );
+
+  it.each(seeds.map((seed) => [`${seed.type}/${seed.name}`, seed] as const))(
+    "%s is not blocked by the full scan",
+    (_key, seed) => {
+      const checked = checkFiles(seed.type, seed.name, seed.files);
+      const report = scanEntry({
+        type: seed.type,
+        name: seed.name,
+        files: seed.files,
+        listing: checked.listing,
+        inspection: checked.inspection,
+        context: { entries: [], verified: [] },
+      });
+      const blocks = report.findings.filter((finding) => finding.level === "block");
+      expect(blocks, blocks.map((f) => `${f.rule}: ${f.message}`).join("; ")).toEqual([]);
+      expect(report.verdict).not.toBe("block");
     },
   );
 

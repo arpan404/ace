@@ -2,6 +2,7 @@ import type { SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { themeIds, themes, type Scheme } from "@ace/themes";
 import { PlusIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
+import { useOpenMarket } from "@/lib/open-market.ts";
 import { videoSizeLabel } from "@ace/suits";
 import { onRadioKeys } from "@/components/ui/radio-keys.ts";
 import { part } from "@/lib/suit-part.ts";
@@ -131,6 +132,7 @@ function MakeYourOwn() {
 }
 
 export function LookPicker() {
+  const openMarket = useOpenMarket();
   const { appearance, resolved, suitsOff } = useTheme();
   const { summaries, failed } = useSuitLibrary();
   const look = useLook();
@@ -176,14 +178,14 @@ export function LookPicker() {
         <MakeYourOwn />
       </div>
       {marketplace && (
-        <Link
-          to="/marketplace"
-          search={{ type: "suit" }}
+        <button
+          type="button"
+          onClick={() => openMarket("looks")}
           {...part("link")}
           className="self-start rounded-sm text-ui text-foreground hover:underline focus-ring"
         >
           More Suits
-        </Link>
+        </button>
       )}
       {look.note && <p className="text-xs text-muted-foreground">{look.note}</p>}
       {summaries?.length === 0 && failed && (

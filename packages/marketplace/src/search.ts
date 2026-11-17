@@ -1,7 +1,10 @@
+import { tiered, type RankingTier } from "./ranking.ts";
+
 /*
  * Search on the device (ADR 0168 §11): name, then title, then one line and keywords, rarer words
- * counting more, a typo forgiven. Pure, and run on the daemon's own copy of the index, so a
- * query never leaves the machine.
+ * counting more, a typo forgiven, the publisher's tier a bounded multiplier (ADR 0173 §15). Pure,
+ * and run on the daemon's own copy of the index, so a query never leaves the machine; the Worker
+ * runs the same for its web page.
  */
 
 export interface Searchable {
@@ -14,6 +17,8 @@ export interface Searchable {
   categories: readonly string[];
   reviewed: boolean;
   downloads: number;
+  /** The publisher's ranking tier; absent is everyone else. */
+  tier?: RankingTier | undefined;
 }
 
 export interface SearchQuery {
@@ -96,10 +101,11 @@ function indexOf(item: Searchable): Indexed {
 const best = (term: string, list: readonly string[]) =>
   list.reduce((top, word) => Math.max(top, match(term, word)), 0);
 
-/** Reviewed first, then by downloads, then by name: the order with nothing searched. */
+/** Reviewed first, then by downloads with the tier's multiplier, then by name: the order with nothing searched. */
 function byStanding(a: Searchable, b: Searchable): number {
   if (a.reviewed !== b.reviewed) return a.reviewed ? -1 : 1;
-  if (a.downloads !== b.downloads) return b.downloads - a.downloads;
+  const [left, right] = [tiered(a.downloads, a.tier), tiered(b.downloads, b.tier)];
+  if (left !== right) return right - left;
   return a.name < b.name ? -1 : a.name > b.name ? 1 : a.type < b.type ? -1 : 1;
 }
 
@@ -139,7 +145,7 @@ export function search<T extends Searchable>(items: readonly T[], query: SearchQ
     }
     if (!all) continue;
     if (entry.item.name === whole || entry.item.title.toLowerCase() === whole) score *= 1.5;
-    scored.push({ item: entry.item as T, score });
+    scored.push({ item: entry.item as T, score: tiered(score, entry.item.tier) });
   }
   return scored
     .toSorted((a, b) => (b.score !== a.score ? b.score - a.score : byStanding(a.item, b.item)))

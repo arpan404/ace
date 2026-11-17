@@ -28,6 +28,7 @@ it("the account backend signs a cloud credential that cannot authorize a relay h
           ? {
               account: { id: "alice", email: "alice@example.com", name: "Alice" },
               expiresAt: 999999,
+              signedInAt: 900,
             }
           : undefined,
       revoke: unused,
@@ -93,14 +94,15 @@ it("the account backend signs a cloud credential that cannot authorize a relay h
   expect((await routes.grant(request("other-service"))).status).toBe(400);
 });
 
-it("the account backend signs a market publishing grant for a device that only the market accepts", async () => {
+async function marketGrantFor(emailVerified: boolean) {
   const signingKey = { id: "cloud-test", privateKey: new Uint8Array(32).fill(7) };
   const keys = { keys: [grantPublicKey(signingKey)] };
   const routes = directoryRoutes({
     sessions: {
       read: async () => ({
-        account: { id: "alice", email: "alice@example.com", name: "Alice" },
+        account: { id: "alice", email: "alice@example.com", name: "Alice", emailVerified },
         expiresAt: 999999,
+        signedInAt: 900,
       }),
       revoke: unused,
     },
@@ -116,11 +118,25 @@ it("the account backend signs a market publishing grant for a device that only t
       body: JSON.stringify({ kind: "device", subject: "laptop", purpose: "market-publish" }),
     }),
   );
+  return { response, keys };
+}
+
+it("the account backend signs a market publishing grant for a device that only the market accepts", async () => {
+  const { response, keys } = await marketGrantFor(true);
   expect(response.status).toBe(200);
   const { token } = AceGrantResponse.parse(await response.json());
   expect(verifyMarketGrant(token, keys, 2000)).toMatchObject({
     account: "alice",
     aud: "market.acehq.dev",
+    iss: "cloud.acehq.dev",
+    emailVerified: true,
+    authAt: 900,
   });
   expect(() => verifyGrant(token, keys, 2000, "device")).toThrow();
+});
+
+it("the account backend refuses a market publishing grant to an account whose email isn't verified", async () => {
+  const { response } = await marketGrantFor(false);
+  expect(response.status).toBe(403);
+  expect(await response.json()).toMatchObject({ error: "email_unverified" });
 });

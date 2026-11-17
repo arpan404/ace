@@ -124,7 +124,7 @@ export function ThemeProvider(props: { environment: Environment; children: React
   const [appearance, setAppearance] = useState(() => loadAppearance(storage));
   const system = useSystemPreferences(matchMedia, softwareRendering);
   const suitsOff = props.environment.suitsOff ?? false;
-  const { applied, reportSuits } = useAppliedSuit(storage, appearance.suit, suitsOff);
+  const { applied, trying, reportSuits } = useAppliedSuit(storage, appearance.suit, suitsOff);
   // A Suit shows once its bundled fonts have loaded, so a switch never flashes a fallback face.
   const [fontLoader] = useState(() => browserFontLoader(root?.ownerDocument));
   const suit = useSuitFontsReady(applied, fontLoader);
@@ -215,9 +215,11 @@ export function ThemeProvider(props: { environment: Environment; children: React
     return startLiquidGlass(root.ownerDocument);
   }, [root, liquid]);
 
+  // A Suit only being tried on never becomes the look the next launch boots in.
   useEffect(() => {
+    if (trying) return;
     writeJson(storage, bootAppearanceKey, bootAppearance(appearance, suit, softwareRendering));
-  }, [storage, appearance, suit, softwareRendering]);
+  }, [storage, appearance, suit, softwareRendering, trying]);
 
   const { windowBackground } = props.environment;
   useEffect(() => {

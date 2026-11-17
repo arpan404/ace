@@ -7,24 +7,71 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
-  // Publishers, entries, versions, review marks, categories, featured, withdrawals and download
-  // totals. Replace database_id with the id `wrangler d1 create ace-market` prints; see
-  // docs/market/deploy.md.
+  // ADR 0173 §16: one database per entry type (the catalogues share `migrations/catalogue`) and
+  // one per shared domain. The ids here are for development and tests only; see
+  // docs/market/deploy.md for production.
   "d1_databases": [
     {
-      "binding": "MARKET",
-      "database_name": "ace-market",
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "migrations_dir": "migrations",
+      "binding": "MARKET_SUITS",
+      "database_name": "ace-market-suits",
+      "database_id": "00000000-0000-4000-8000-000000000001",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_SKILLS",
+      "database_name": "ace-market-skills",
+      "database_id": "00000000-0000-4000-8000-000000000002",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_PLUGINS",
+      "database_name": "ace-market-plugins",
+      "database_id": "00000000-0000-4000-8000-000000000003",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_BOTS",
+      "database_name": "ace-market-bots",
+      "database_id": "00000000-0000-4000-8000-000000000004",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_PUBLISHERS",
+      "database_name": "ace-market-publishers",
+      "database_id": "00000000-0000-4000-8000-000000000005",
+      "migrations_dir": "migrations/publishers",
+    },
+    {
+      "binding": "MARKET_COUNTS",
+      "database_name": "ace-market-counts",
+      "database_id": "00000000-0000-4000-8000-000000000006",
+      "migrations_dir": "migrations/counts",
+    },
+    {
+      "binding": "MARKET_MODERATION",
+      "database_name": "ace-market-moderation",
+      "database_id": "00000000-0000-4000-8000-000000000007",
+      "migrations_dir": "migrations/moderation",
+    },
+    {
+      "binding": "MARKET_LISTS",
+      "database_name": "ace-market-lists",
+      "database_id": "00000000-0000-4000-8000-000000000008",
+      "migrations_dir": "migrations/lists",
     },
   ],
   // Each version's archive, at objects/<content hash>, written once.
   "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],
-  // Per caller address, counted in memory only: reads (API and pages), then publishing and
-  // withdrawing. The signer's routes, behind their secret, aren't limited.
+  // Per caller address, counted in memory only: reads (API and pages), publishing writes,
+  // counted downloads and abuse reports. The signer's routes, behind their secret, aren't
+  // limited. Nothing stores an address.
   "ratelimits": [
     { "name": "READS", "namespace_id": "2001", "simple": { "limit": 600, "period": 60 } },
     { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
+    // One counted download per address and hash a minute: past it a fetch is served, not counted.
+    { "name": "DOWNLOADS", "namespace_id": "2003", "simple": { "limit": 1, "period": 60 } },
+    // Anonymous abuse reports per address (ADR 0173 §7).
+    { "name": "REPORTS", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
   ],
   // No request logs: nothing records who read or searched what (ADR 0168 §10).
   "observability": { "enabled": false },
@@ -39,18 +86,63 @@
         // ACE_GRANT_KEYS is unset here, so publishing grants are checked against these.
         "ACE_ACCOUNT_KEYS_URL": "https://cloud.acehq.dev/v1/keys",
       },
+      // The production databases (docs/market/deploy.md).
       "d1_databases": [
         {
-          "binding": "MARKET",
-          "database_name": "ace-market",
-          "database_id": "00000000-0000-0000-0000-000000000000",
-          "migrations_dir": "migrations",
+          "binding": "MARKET_SUITS",
+          "database_name": "ace-market-suits",
+          "database_id": "7fb489b0-4719-406f-a6db-f02f453c1c86",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_SKILLS",
+          "database_name": "ace-market-skills",
+          "database_id": "693a944a-1121-45c3-acee-efac3abc7bfc",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_PLUGINS",
+          "database_name": "ace-market-plugins",
+          "database_id": "5b86569b-0e0e-49f6-9b8d-f60f57240e24",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_BOTS",
+          "database_name": "ace-market-bots",
+          "database_id": "29543087-c33e-43e9-87f6-d7b425ddbb43",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_PUBLISHERS",
+          "database_name": "ace-market-publishers",
+          "database_id": "8ba0a218-1234-4dae-8ade-743a83549d7b",
+          "migrations_dir": "migrations/publishers",
+        },
+        {
+          "binding": "MARKET_COUNTS",
+          "database_name": "ace-market-counts",
+          "database_id": "d144c5d5-58f8-4171-8b96-54b45c6aee95",
+          "migrations_dir": "migrations/counts",
+        },
+        {
+          "binding": "MARKET_MODERATION",
+          "database_name": "ace-market-moderation",
+          "database_id": "f67c4e06-1f55-4f6d-afc1-b6af18530e32",
+          "migrations_dir": "migrations/moderation",
+        },
+        {
+          "binding": "MARKET_LISTS",
+          "database_name": "ace-market-lists",
+          "database_id": "de6592b1-26ae-447d-84f9-cba09f4fe58a",
+          "migrations_dir": "migrations/lists",
         },
       ],
       "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],
       "ratelimits": [
         { "name": "READS", "namespace_id": "2001", "simple": { "limit": 600, "period": 60 } },
         { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
+        { "name": "DOWNLOADS", "namespace_id": "2003", "simple": { "limit": 1, "period": 60 } },
+        { "name": "REPORTS", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
       ],
       "observability": { "enabled": false },
       "triggers": { "crons": ["*/15 * * * *"] },

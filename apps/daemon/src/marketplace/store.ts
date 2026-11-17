@@ -60,6 +60,12 @@ export interface StoredListing {
     | undefined;
 }
 
+const verifiedLimit = 2048;
+
+/** The verified-publisher cache's key for one entry version. */
+export const verifiedKey = (entry: { type: string; name: string; version: string }) =>
+  `${entry.type}/${entry.name}@${entry.version}`;
+
 export class MarketStore {
   readonly #db: DatabaseSync;
   readonly #root: string;
@@ -77,7 +83,8 @@ export class MarketStore {
       CREATE TABLE IF NOT EXISTS sources (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS installs (type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (type, name));
       CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS journal (id TEXT PRIMARY KEY, data TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS journal (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS verified_publishers (key TEXT PRIMARY KEY, publisher TEXT NOT NULL);`);
     return new MarketStore(root, db);
   }
 
@@ -175,6 +182,32 @@ export class MarketStore {
 
   setMeta(key: string, value: string): void {
     this.#db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(key, value);
+  }
+
+  /**
+   * Who a signed manifest this device verified names as an entry version's publisher, by
+   * `type/name@version` (`verifiedKey`). Only these ids earn a row "By ace" or "Verified".
+   */
+  verifiedPublishers(): Map<string, string> {
+    return new Map(
+      this.#db
+        .prepare("SELECT key, publisher FROM verified_publishers")
+        .all()
+        .map((row) => [String(row["key"]), String(row["publisher"])] as const),
+    );
+  }
+
+  /** Records a verified manifest's publisher; the cache keeps the newest `verifiedLimit`. */
+  saveVerifiedPublisher(key: string, publisher: string): void {
+    this.#db.prepare("DELETE FROM verified_publishers WHERE key = ?").run(key);
+    this.#db
+      .prepare("INSERT INTO verified_publishers (key, publisher) VALUES (?, ?)")
+      .run(key, publisher);
+    this.#db
+      .prepare(
+        "DELETE FROM verified_publishers WHERE rowid <= (SELECT MAX(rowid) FROM verified_publishers) - ?",
+      )
+      .run(verifiedLimit);
   }
 
   #objectPath(hash: string): string {

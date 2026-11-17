@@ -34,6 +34,13 @@ interface Library {
   keepPreview(): void;
   /** Ends the preview on this device, as an agent's revert does: the setting shows again. */
   revertPreview(): void;
+  /**
+   * A Suit the person is trying on (the Marketplace's Try it): it shows over the setting and
+   * any agent's preview until `endTrial`. Undefined when none is being tried.
+   */
+  trial: SuitDetail | undefined;
+  tryOn(detail: SuitDetail): void;
+  endTrial(): void;
   /** The daemon channel, for the live check's `suitCheck` and `suitReport`. */
   transport: SuitTransport | undefined;
 }
@@ -64,6 +71,7 @@ export function SuitLibraryProvider(props: {
   const { transport } = props;
   const { appearance, update, reportSuits } = useTheme();
   const [preview, setPreview] = useState<SuitId | null | undefined>(undefined);
+  const [trial, setTrial] = useState<SuitDetail | undefined>(undefined);
   const [heard, setHeard] = useState<readonly SuitSummary[] | undefined>(undefined);
   // With no channel to the daemon there are no Suits, and the theme shows.
   const summaries = transport ? heard : noSuits;
@@ -134,6 +142,8 @@ export function SuitLibraryProvider(props: {
     setPreview(undefined);
   }, [preview, update]);
   const revertPreview = useCallback(() => setPreview(undefined), []);
+  const tryOn = useCallback((detail: SuitDetail) => setTrial(detail), []);
+  const endTrial = useCallback(() => setTrial(undefined), []);
 
   // The wanted Suit is always read; Settings asks for the rest to draw their swatches.
   const wantedId = wantedSuit(appearance.suit, preview);
@@ -176,8 +186,8 @@ export function SuitLibraryProvider(props: {
   // Until a detail is read again over a new socket, the older read keeps the look on screen.
   const pickedDetail = pickedKey ? details.get(pickedKey)?.detail : undefined;
   useEffect(() => {
-    reportSuits({ summaries, detail: pickedDetail, preview });
-  }, [reportSuits, summaries, pickedDetail, preview]);
+    reportSuits({ summaries, detail: pickedDetail, preview, trial });
+  }, [reportSuits, summaries, pickedDetail, preview, trial]);
 
   const value = useMemo<Library>(
     () => ({
@@ -188,9 +198,24 @@ export function SuitLibraryProvider(props: {
       preview,
       keepPreview,
       revertPreview,
+      trial,
+      tryOn,
+      endTrial,
       transport,
     }),
-    [summaries, failed, details, want, preview, keepPreview, revertPreview, transport],
+    [
+      summaries,
+      failed,
+      details,
+      want,
+      preview,
+      keepPreview,
+      revertPreview,
+      trial,
+      tryOn,
+      endTrial,
+      transport,
+    ],
   );
   return <LibraryContext.Provider value={value}>{props.children}</LibraryContext.Provider>;
 }
@@ -204,6 +229,9 @@ const noLibrary: Library = {
   preview: undefined,
   keepPreview: () => {},
   revertPreview: () => {},
+  trial: undefined,
+  tryOn: () => {},
+  endTrial: () => {},
   transport: undefined,
 };
 
