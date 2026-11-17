@@ -41,10 +41,7 @@ export async function until<T>(read: () => T | undefined): Promise<T> {
  * The emulator side, played by a real local TCP server standing in for the adb-forwarded socket:
  * dummy byte on the first connection, device name once control connects, then video.
  */
-export async function fakeDevice(
-  cleanup: Cleanup,
-  options: { resetAtControl?: boolean } = {},
-) {
+export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: boolean } = {}) {
   const sockets: Socket[] = [];
   let control = Buffer.alloc(0);
   const server: Server = createServer((socket) => {

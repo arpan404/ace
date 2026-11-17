@@ -241,7 +241,10 @@ export class ProviderLoginSessions {
       job.done = Promise.resolve()
         .then(() => this.run(job))
         .catch((error: unknown) =>
-          this.options.report?.(error, { provider: job.progress.provider, action: job.progress.action }),
+          this.options.report?.(error, {
+            provider: job.progress.provider,
+            action: job.progress.action,
+          }),
         );
       return reply(job);
     }
@@ -327,7 +330,10 @@ export class ProviderLoginSessions {
       try {
         listener(job.owner, ProviderLoginProgress.parse(job.progress));
       } catch (error) {
-        this.options.report?.(error, { provider: job.progress.provider, action: job.progress.action });
+        this.options.report?.(error, {
+          provider: job.progress.provider,
+          action: job.progress.action,
+        });
       }
     }
   }

@@ -66,7 +66,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   });
   const pid = child.pid;
   // Never throws: it runs in the child's exit listener.
-  const destroy = (pid: number) => signalTree(pid, true, windows, killTree, child);
+  const destroy = (leader: number) => signalTree(leader, true, windows, killTree, child);
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
