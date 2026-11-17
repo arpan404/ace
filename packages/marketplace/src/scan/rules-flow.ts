@@ -1,4 +1,5 @@
 import { dataflow, type FlowHit } from "./dataflow.ts";
+import { TRUNCATED_LEVEL } from "./fail-closed.ts";
 import type { EntryRule, ScriptRule } from "./rule.ts";
 import type { ScriptView } from "./script-view.ts";
 
@@ -30,13 +31,27 @@ const flowAt = (level: "block" | "warn"): ScriptRule => ({
   ...(level === "warn" ? { strict: true } : {}),
   find: (view) =>
     hitsFor(view)
-      .filter((hit) => hit.level === level)
+      .filter((hit) => hit.level === level && !hit.truncated)
       .map((hit) =>
         hit.line ? { line: hit.line, message: hit.message } : { message: hit.message },
       ),
 });
 
-export const flowRules: ScriptRule[] = [flowAt("block"), flowAt("warn")];
+/** Code a cap cut the flow analysis short of: blocked as `scan-truncated` (fail-closed.ts). */
+const flowTruncated: ScriptRule = {
+  kind: "script",
+  id: "scan-truncated",
+  check: "scripts",
+  level: TRUNCATED_LEVEL,
+  find: (view) =>
+    hitsFor(view)
+      .filter((hit) => hit.truncated)
+      .map((hit) =>
+        hit.line ? { line: hit.line, message: hit.message } : { message: hit.message },
+      ),
+};
+
+export const flowRules: ScriptRule[] = [flowAt("block"), flowAt("warn"), flowTruncated];
 
 /** Hosts that never count as "reaching the internet". */
 const local =

@@ -60,6 +60,14 @@ export const MarketScanReport = z.strictObject({
   verdict: MarketScanVerdict,
   checks: z.array(MarketScanCheck).max(16),
   findings: z.array(MarketScanFinding).max(500),
+  /**
+   * The version carries runnable content: a scene, a script, a hook, a server command, a binary,
+   * or instructions that run commands (ADR 0173 §8). A runnable version is held for a maintainer
+   * on scan pass alone, whatever the publisher; only pure data lists without review.
+   */
+  runnable: z.boolean(),
+  /** One sentence naming why it is runnable, for the maintainer queue and the publisher. */
+  runnableReason: z.string().max(300).optional(),
   /** More findings than a report keeps; the verdict counts them all. */
   truncated: z.boolean(),
   /** How much was read, for the sentence "Read 12 files, 40 KB of text." */

@@ -199,6 +199,7 @@ describe("the signer's re-scan", () => {
     // The hold carries the signer's own scan, which a maintainer reads in the queue.
     expect(bodyOf<{ scan?: { format: string; hash?: string } }>(held.puts).scan).toMatchObject({
       format: "ace-market-scan",
+      runnable: false,
     });
     const approved = market({
       "/v1/signer/pending": pendingOf({ official: officialOf() }, { approved: true }),

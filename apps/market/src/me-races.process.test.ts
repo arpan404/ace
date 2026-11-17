@@ -107,6 +107,7 @@ describe("a former owner's request that lands after a transfer", () => {
           listing,
           scan: {
             format: "ace-market-scan",
+            runnable: false,
             scanner: 1,
             verdict: "pass",
             checks: [],

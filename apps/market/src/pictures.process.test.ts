@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { sampleSkill } from "@ace/marketplace/testing";
 import { sweepPictures } from "./cron-publishers.ts";
-import { pictureGraceMs } from "./store/profiles.ts";
+import {
+  pictureClaimMs,
+  pictureGraceMs,
+  pictureLeaseMs,
+  reservePicture,
+} from "./store/profiles.ts";
 import { startMarket, type Market } from "./testing/harness.ts";
 import {
   asAccount,
@@ -19,7 +24,8 @@ const writeArchiveSize = (files: Parameters<typeof writeArchive>[0]) =>
 /*
  * Avatars and listing pictures (ADR 0173 §3, §5, §9) against the market's D1 and R2: their bytes
  * count against the publisher's quota, a bad picture slot writes nothing, and the cron collects
- * pictures nothing names once the grace period has passed.
+ * pictures nothing names once the grace period has passed, never one an upload charged again
+ * while the cron was on its way to deleting it.
  */
 
 let market: Market;
@@ -34,7 +40,8 @@ const avatarOf = async (response: Parameters<typeof jsonOf>[0]) =>
   (await jsonOf<{ avatar: string }>(response)).avatar;
 const keys = async (prefix: string) =>
   (await market.objects.list({ prefix })).objects.map((object) => object.key);
-const sweep = (now: number) => sweepPictures({ MARKET: market.db, OBJECTS: market.objects }, now);
+const sweep = (now: number, owner: string = crypto.randomUUID()) =>
+  sweepPictures({ MARKET: market.db, OBJECTS: market.objects }, now, owner);
 
 it("an avatar that doesn't fit the publisher's quota is refused and stores nothing", async () => {
   const crowded = await establishedPublisher(market, "acct_crowded", "crowded");
@@ -67,7 +74,11 @@ it("a replaced avatar's bytes are collected once the grace period has passed, th
   await sweep(Date.now());
   expect(await keys("avatars/")).toEqual(expect.arrayContaining([`avatars/${first}`]));
 
-  await sweep(Date.now() + pictureGraceMs + 60_000);
+  // Past it the cron first claims the object and deletes it only on a later run.
+  const past = Date.now() + pictureGraceMs + 60_000;
+  await sweep(past);
+  expect(await keys("avatars/")).toContain(`avatars/${first}`);
+  await sweep(past + pictureClaimMs + 60_000);
   const left = await keys("avatars/");
   expect(left).not.toContain(`avatars/${first}`);
   expect(left).toContain(`avatars/${second}`);
@@ -119,4 +130,196 @@ it("a stored avatar counts against a later archive upload's quota", async () => 
   });
   expect(response.status).toBe(429);
   expect((await jsonOf<{ error: string }>(response)).error).toBe("quota");
+});
+
+const reserve = (publisher: string, key: string, now: number) =>
+  reservePicture(market.db, { publisher, key, size: 100, quotaBytes: 1024 * 1024 * 1024, now });
+const tombstone = (key: string) =>
+  market.db.prepare("SELECT key FROM picture_tombstones WHERE key = ?1").bind(key).first();
+
+it("an orphaned avatar the cron has claimed is kept when an upload charges that key again before the delete", async () => {
+  const racer = await establishedPublisher(market, "acct_racer", "racer");
+  const old = await avatarOf(
+    await asAccount(market, "acct_racer", "PUT", "/v1/me/avatar", testPng(112, 112)),
+  );
+  await asAccount(market, "acct_racer", "PUT", "/v1/me/avatar", testPng(128, 128));
+  const key = `avatars/${old}`;
+
+  // The old avatar's row is dropped and its object claimed, not yet deleted.
+  const past = Date.now() + pictureGraceMs + 60_000;
+  await sweep(past);
+  expect(await keys("avatars/")).toContain(key);
+
+  // An upload of those very bytes charges the key (its bytes are already there) before the
+  // cron's next run.
+  expect(await reserve(racer.id, key, past + 1_000)).toBe("stored");
+  expect(await tombstone(key)).toBeNull();
+
+  await sweep(past + pictureClaimMs + 60_000);
+  expect(await keys("avatars/")).toContain(key);
+  const row = await market.db
+    .prepare("SELECT publisher FROM pictures WHERE key = ?1")
+    .bind(key)
+    .first<{ publisher: string }>();
+  expect(row?.publisher).toBe(racer.id);
+});
+
+it("an upload that lands while the cron deletes its object is refused until the delete is done", async () => {
+  const late = await establishedPublisher(market, "acct_late", "late");
+  const old = await avatarOf(
+    await asAccount(market, "acct_late", "PUT", "/v1/me/avatar", testPng(144, 144)),
+  );
+  await asAccount(market, "acct_late", "PUT", "/v1/me/avatar", testPng(160, 160));
+  const key = `avatars/${old}`;
+  const past = Date.now() + pictureGraceMs + 60_000;
+  await sweep(past);
+  expect(await keys("avatars/")).toContain(key);
+
+  // An upload of the same bytes arrives in the moment between the cron's last check and its
+  // delete from R2: it must not be charged, or it would name bytes about to vanish.
+  const during: string[] = [];
+  const objects = new Proxy(market.objects, {
+    get(target, name, receiver) {
+      if (name !== "delete") return Reflect.get(target, name, receiver);
+      return async (deleting: string | string[]) => {
+        if ([deleting].flat().includes(key)) during.push(await reserve(late.id, key, past + 2));
+        return target.delete(deleting);
+      };
+    },
+  });
+  await sweepPictures(
+    { MARKET: market.db, OBJECTS: objects },
+    past + pictureClaimMs + 60_000,
+    crypto.randomUUID(),
+  );
+  expect(during).toEqual(["deleting"]);
+  expect(await keys("avatars/")).not.toContain(key);
+  expect(await tombstone(key)).toBeNull();
+  // Once the delete is done, the retried upload is charged.
+  expect(await reserve(late.id, key, past + 3)).toBe("stored");
+});
+
+/** An orphaned avatar of a new publisher, its row dropped and its object claimed by one run. */
+async function claimedOrphan(account: string, handle: string, side: number) {
+  const publisher = await establishedPublisher(market, account, handle);
+  const old = await avatarOf(
+    await asAccount(market, account, "PUT", "/v1/me/avatar", testPng(side, side)),
+  );
+  await asAccount(market, account, "PUT", "/v1/me/avatar", testPng(side + 8, side + 8));
+  const past = Date.now() + pictureGraceMs + 60_000;
+  await sweep(past);
+  const key = `avatars/${old}`;
+  expect(await keys("avatars/")).toContain(key);
+  return { publisher, key, due: past + pictureClaimMs + 60_000 };
+}
+
+/**
+ * A sweep whose run stalls right after it marks `key` deleting: `meanwhile` runs there, then the
+ * sweep goes on. Resolves to the keys this sweep asked R2 to delete.
+ */
+async function stalledSweep(key: string, now: number, meanwhile: () => Promise<void>) {
+  const deleted: string[] = [];
+  let stalled = false;
+  const db = new Proxy(market.db, {
+    get(target, name, receiver) {
+      if (name !== "batch") return Reflect.get(target, name, receiver);
+      return async (statements: D1PreparedStatement[]) => {
+        const results = await target.batch(statements);
+        const marks = results.some((result) =>
+          (result.results as { key?: unknown }[]).some((row) => row.key === key),
+        );
+        if (marks && !stalled) {
+          stalled = true;
+          await meanwhile();
+        }
+        return results;
+      };
+    },
+  });
+  const objects = new Proxy(market.objects, {
+    get(target, name, receiver) {
+      if (name !== "delete") return Reflect.get(target, name, receiver);
+      return async (deleting: string | string[]) => {
+        deleted.push(...[deleting].flat());
+        return target.delete(deleting);
+      };
+    },
+  });
+  await sweepPictures({ MARKET: db, OBJECTS: objects }, now, crypto.randomUUID());
+  expect(stalled).toBe(true);
+  return deleted;
+}
+
+/** A plain sweep that records the keys it asked R2 to delete. */
+async function watchedSweep(now: number) {
+  const deleted: string[] = [];
+  const objects = new Proxy(market.objects, {
+    get(target, name, receiver) {
+      if (name !== "delete") return Reflect.get(target, name, receiver);
+      return async (deleting: string | string[]) => {
+        deleted.push(...[deleting].flat());
+        return target.delete(deleting);
+      };
+    },
+  });
+  await sweepPictures({ MARKET: market.db, OBJECTS: objects }, now, crypto.randomUUID());
+  return deleted;
+}
+
+it("a second sweep that runs while another holds a claim leaves that object to the holder", async () => {
+  const { key, due } = await claimedOrphan("acct_twin", "twin", 176);
+  let second: string[] = [];
+  const first = await stalledSweep(key, due, async () => {
+    second = await watchedSweep(due + 1_000);
+  });
+  expect(second).not.toContain(key);
+  expect(first).toContain(key);
+  expect(await keys("avatars/")).not.toContain(key);
+  expect(await tombstone(key)).toBeNull();
+});
+
+it("a stalled sweep whose claim a later sweep took over deletes nothing when it resumes", async () => {
+  const { key, due } = await claimedOrphan("acct_stall", "stall", 192);
+  let later: string[] = [];
+  const stale = await stalledSweep(key, due, async () => {
+    later = await watchedSweep(due + pictureLeaseMs + 60_000);
+  });
+  expect(later).toContain(key);
+  expect(stale).toEqual([]);
+  expect(await keys("avatars/")).not.toContain(key);
+  expect(await tombstone(key)).toBeNull();
+});
+
+it("bytes uploaded again after a later sweep took over and finished survive the stalled sweep", async () => {
+  const { publisher, key, due } = await claimedOrphan("acct_again", "again", 208);
+  const stale = await stalledSweep(key, due, async () => {
+    expect(await watchedSweep(due + pictureLeaseMs + 60_000)).toContain(key);
+    // The claim is gone, so an upload of the same key is charged and writes its bytes.
+    expect(await reserve(publisher.id, key, due + pictureLeaseMs + 61_000)).toBe("stored");
+    await market.objects.put(key, testPng(208, 208));
+  });
+  expect(stale).toEqual([]);
+  expect(await keys("avatars/")).toContain(key);
+});
+
+it("an object a sweep died holding is collected by a later sweep once its lease lapses", async () => {
+  const { key, due } = await claimedOrphan("acct_dead", "dead", 224);
+  // The holder marks the key deleting and never gets further.
+  const holder = new Proxy(market.objects, {
+    get(target, name, receiver) {
+      if (name !== "delete") return Reflect.get(target, name, receiver);
+      return async () => {
+        throw new Error("the run died");
+      };
+    },
+  });
+  await expect(
+    sweepPictures({ MARKET: market.db, OBJECTS: holder }, due, crypto.randomUUID()),
+  ).rejects.toThrow("the run died");
+  expect(await keys("avatars/")).toContain(key);
+  // Within the lease no other run touches it; past it the next run takes it and deletes it.
+  expect(await watchedSweep(due + 1_000)).not.toContain(key);
+  expect(await watchedSweep(due + pictureLeaseMs + 60_000)).toContain(key);
+  expect(await keys("avatars/")).not.toContain(key);
+  expect(await tombstone(key)).toBeNull();
 });

@@ -4,7 +4,7 @@ import type { ScanInput } from "./index.ts";
 import { readShell, type Simple } from "./shell.ts";
 import { normaliseText } from "./text.ts";
 import { scanText } from "./decode.ts";
-import { instructionScripts } from "./instructions.ts";
+import { instructionScripts, type InstructionScript } from "./instructions.ts";
 
 /*
  * One script the scanner reads (ADR 0173 §8), the unit the `scripts`, `plugin` and `recipe` rules
@@ -107,10 +107,27 @@ export function viewOf(path: string, source: string, language?: ScriptLanguage):
   let unreadable = false;
   if (chosen === "shell" || chosen === "text") {
     const read = readShell(normal);
-    unreadable = chosen === "shell" && read.unreadable;
+    unreadable =
+      chosen === "shell" &&
+      (read.unreadable || read.commands.some((command) => evalsUnknown(command, normal)));
     commands = withPipeTargets(read.commands);
   }
   return { path, language: chosen, text: normal, lines, commands, unreadable };
+}
+
+/**
+ * Whether a command is `eval` of text the reader can't see: a variable in its arguments
+ * (`eval "$UNKNOWN"`). `eval "$(brew shellenv)"` is read, since the reader reads the command
+ * inside `$(…)` as one the view holds; it writes each substitution as `$SUB`, so that word only
+ * counts as one when the command's source line has a `$(` (else it is a variable named `SUB`).
+ */
+function evalsUnknown(command: Simple, source: string): boolean {
+  if (programName(command.words[0]) !== "eval") return false;
+  const line = source.split("\n")[command.line - 1] ?? "";
+  const substituted = line.includes("$(");
+  return command.words
+    .slice(1)
+    .some((word) => (substituted ? word.replaceAll("$SUB", "") : word).includes("$"));
 }
 
 /** Adds each command's `pipedInto` (the program the next command, when piped, receives). */
@@ -191,6 +208,8 @@ const INTERPRETER_LANGUAGE: ReadonlyMap<string, ScriptLanguage> = new Map<string
   ["bash", "shell"],
   ["zsh", "shell"],
   ["dash", "shell"],
+  ["ash", "shell"],
+  ["mksh", "shell"],
   ["ksh", "shell"],
   ["source", "shell"],
   [".", "shell"],
@@ -362,9 +381,50 @@ export function commandViews(input: ScanInput): ScriptView[] {
 export function instructionViews(input: ScanInput): ScriptView[] {
   const readWhole = (path: string, source: string) =>
     fileScriptView(input.type, path, source) !== undefined;
-  return instructionScripts(input, readWhole).map((script) =>
+  const views = instructionScripts(input, readWhole).map((script) =>
     viewOf(script.path, script.text, script.language),
   );
+  // Fail closed (§8): an executable snippet the reader can't read holds its source. Read with
+  // every block extracted, so a fence in a file the rules read whole (a skill's README.md, a
+  // `text` view whose flag prose would clear) is held too.
+  for (const script of instructionScripts(input, () => false)) {
+    if (!snippetUnreadable(script)) continue;
+    const ofPath = views.filter((view) => view.path === script.path);
+    if (ofPath.some((view) => view.unreadable)) continue;
+    const view = ofPath[0];
+    if (view) view.unreadable = true;
+    else views.push({ ...viewOf(script.path, ""), unreadable: true });
+  }
+  return views;
+}
+
+/** A program-like first word: a name or a path, as a command line starts. */
+const programStart = /^(?:\.{0,2}\/|~\/)?[A-Za-z_][\w.+-]*(?:\/[\w.+-]+)*(?:\s|$)/;
+
+/**
+ * Whether one masked instruction script holds an executable snippet the reader can't read for
+ * sure. A shell snippet is read whole. A `text` snippet (an untagged fence, an indented block,
+ * an inline command, a command line) is read line by line, and only a line that starts like a
+ * command counts, with apostrophes inside words (`don't`) taken out first, since prose is full
+ * of them; a prose line, or one a lone apostrophe alone made unreadable, stays clean. Other
+ * languages have no shell reading to lose.
+ */
+function snippetUnreadable(script: InstructionScript): boolean {
+  if (script.language === "shell") {
+    const text = normaliseText(script.text);
+    const read = readShell(text);
+    return read.unreadable || read.commands.some((command) => evalsUnknown(command, text));
+  }
+  if (script.language !== "text") return false;
+  for (const raw of normaliseText(script.text).split("\n")) {
+    const line = raw.trim().replace(/^\$\s+/, "");
+    if (!programStart.test(line)) continue;
+    const command = line.replaceAll(/(?<=\p{L})'(?=\p{L})/gu, "");
+    const read = readShell(command);
+    if (read.unreadable || read.commands.some((simple) => evalsUnknown(simple, command)))
+      return true;
+  }
+  return false;
 }
 
 /**

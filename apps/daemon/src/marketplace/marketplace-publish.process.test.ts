@@ -75,6 +75,7 @@ const discoverBody = {
 /** A listing edit's scan as the Worker reports one it holds. */
 const heldScan: MarketScanReport = {
   format: "ace-market-scan",
+  runnable: false,
   scanner: 1,
   verdict: "warn",
   checks: [],

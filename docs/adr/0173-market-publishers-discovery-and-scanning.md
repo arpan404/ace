@@ -236,9 +236,47 @@ level (`note`, `warn`, `block`), a path and line when it has one, and one plain 
 publisher and the person read ("scripts/setup.sh line 4 downloads a script and runs it"). A
 `note` is shown and never holds, except for new publishers (decision 9).
 
+**The scanner fails closed.** Chasing spellings loses; the scanner's standing rule is that
+anything **executable or instructional it can't fully resolve is held for a maintainer, never
+passed**. Concretely, in executable or instructional content (a script, a plugin command, a
+scene, an instruction file, a recipe's text):
+
+- **Unresolved means held.** Code or a command the scanner can't resolve to something it
+  understands — a file it can't parse, a shell word it can't read, an unknown program that takes a
+  command, a reflective or dynamic read of a sensitive module, execution intent in prose it can't
+  tie to a known-safe command — produces a `warn`, which holds the version. A rule proves a thing
+  is safe, not that it is dangerous.
+- **Truncation means blocked or resumed, never silent.** No cap in the scanner may drop executable
+  or instructional content without surfacing it. A cap either resumes across steps (as the
+  file budget does) or produces a `scan-truncated` **block**: the entry can't be listed until it is
+  read whole. This joins the invariant that a scan which didn't read every file blocks.
+
+A data file that is neither executable nor instructional is exempt: not reading all of a large
+image or data blob isn't a gap in what could run. A file the scanner can't decode as text and
+whose bytes aren't a recognised inert data format (an image, a font, an audio or video container)
+is itself held — the scanner never reads safety from unrecognised magic, so an "unknown binary"
+in a skill or plugin holds by default. The fail-closed rules are tested, and the adversarial
+corpus carries a sample for each.
+
+**The scanner is a filter, not the boundary.** Static analysis can never be complete, so the real
+boundary is runtime containment: a bot runs under the Spade sandbox ([ADR 0167](0167-spade-security-boundaries.md))
+with no credentials and the network only through the proxy, and a Suit's scene runs in a
+sandboxed, out-of-process iframe under a strict CSP (ADR 0150). The scanner sits in front of that:
+it **blocks the clearly malicious** and **triages the rest for the maintainer queue**.
+
+**The policy layer: runnable content is held.** Because no static check catches everything, any
+version that carries runnable content — a Suit scene, a script, a plugin hook or MCP server
+command, a binary, or instructions that tell an agent to run commands — is **held for a
+maintainer**, whatever the publisher, verified and `ace` included, even when every check passes.
+Only a **pure data entry** lists on a scan pass alone: a Suit with no scene, or a recipe or skill
+with nothing runnable (prose and data, no scripts, hooks, binaries or command instructions). The
+scan report carries a `runnable` flag that says which it is; `disposition` holds a runnable
+version just as a `warn` holds it, and a maintainer's approval (or a `block`) still decides the
+rest. A publisher sees "Held for review: it runs its own code" with the reason.
+
 | Check       | What it reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `files`     | Native binaries by their bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a plugin, compiled AppleScript, archives inside the archive (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg), executable bits where the type has none, and files a type doesn't take. A Suit holds only `suit.json`, `suit.css`, its scene JS, ornaments, `market.json` and images, fonts and videos under `assets/`; nothing executable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `files`     | Native binaries by their bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a plugin, compiled AppleScript, archives inside the archive (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg), executable bits where the type has none, and files a type doesn't take. A file that can't be decoded as text and isn't a recognised inert data format (image, font, audio, video) is held as an unknown binary. A Suit holds only `suit.json`, `suit.css`, its scene JS, ornaments, `market.json` and images, fonts and videos under `assets/`; nothing executable.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `scripts`   | Skill scripts, plugin hook and server commands and their files, recipe-bundled skills, **and the commands an entry's instruction files hand an agent** — code blocks (fenced, indented or inline) and command lines in `SKILL.md`, a plugin's README, a recipe's task, notes and routines; no instruction file is exempt. Download-and-run, decode-and-run (the script a shell or interpreter runs is found past its options, so `sh -eu <fetched>` and `bash <(curl …)` are caught), persistence, credential access, **exfiltration followed as data flow** (the whole environment, a credential file, the home folder or a keychain reaching a network sink, through a real parse for JavaScript and TypeScript and by proximity for Python and shell; a source and a sink that can't be ruled apart is held, never passed), mining, reverse shells, privilege escalation, disabling security tools, self-modifying and obfuscated code. A skill that reaches a host carries the same note a plugin's undeclared hosts do. |
 | `scene`     | A Suit's scene JS, read by a real parser and held to a capability allowlist (ADR 0150's drawing and animation APIs): a global off the allowlist, computed access on a global that isn't a constant on it, `constructor`/`__proto__`/`prototype` traversal to a callable, `eval`, `Function`, dynamic `import`, `importScripts`, workers and shared memory, `WebAssembly`, string timers, the network APIs, reaching the parent frame, and remote `url()`/`@import` in CSS or scripts in SVG — however they are spelled. The iframe sandbox and CSP stay as independent runtime enforcement.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `plugin`    | Declared commands and hosts against what the files do: a server or hook running a file the plugin doesn't hold, installing from an unpinned remote source at runtime (`npx pkg`, `@latest`, `pip install`, `uvx` without a version, `git clone`, `curl`), install scripts (`preinstall`, `install`, `postinstall`, `prepare`, `binding.gyp`), plain-http remotes, and hosts in code its manifest doesn't declare.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -291,7 +329,9 @@ reason), never silently run and never deleted, as withdrawals are.
 
 ### 9. Reputation, holds and limits
 
-- **A block refuses** listing, with the reasons. **A warn holds** the version for a maintainer.
+- **A block refuses** listing, with the reasons. **A warn holds** the version for a maintainer, and
+  so does any **runnable** version on a pass alone (decision 8's policy layer), whatever the
+  publisher. Only a pure data version lists without review.
 - **New publishers** (profile under 30 days old, or fewer than 3 versions that went live) get
   stricter thresholds: their first version is always held, and `note` findings marked `strict`
   (scripts present, plugin executions, network hosts, recipe connectors) hold too.
@@ -460,10 +500,14 @@ rest. They never touch scanning, holds, blocks or the review before install.
   ranges), whose measured detection is reported in the scanner's README. The adversarial corpus
   covers the bypasses a review found: commands hidden in instruction files, a script run past an
   interpreter's options, exfiltration flowing across lines, and scene capabilities spelled around a
-  literal match. On 140 malicious samples the scanner catches 100% (every one blocked or held) and
-  blocks none of 55 benign and look-alike samples. Two invariants are pinned: a scan that didn't
-  read every file is never a pass, and the device and the Worker reach the same verdict on the same
-  bytes.
+  literal match, a second review's fail-closed bypasses (indirect module reads, truncation and
+  prose intent, multi-call applets, unproven-`this` frame access), and a third's (sources the
+  scanner can't prove harmless, executing "safe" leaves like `find -exec` and `sed e`, unreadable
+  instruction snippets, document-wide intent, unknown binaries). On 203 malicious samples the
+  scanner catches 100% (every one blocked or held) and blocks none of 95 benign and look-alike
+  samples; with the policy layer, 23 of those (pure data) list and 72 (runnable) are held for a
+  maintainer. Two invariants are pinned: a scan that didn't read every file is never a pass, and
+  the device and the Worker reach the same verdict on the same bytes.
 - **Trending** ranking, caps, bursts, decay and movement; **the verified boost**: a verified
   entry with clearly fewer downloads never passes an unverified one with many more, and among
   equals the verified one ranks first, in trending, search and top publishers; **verification**

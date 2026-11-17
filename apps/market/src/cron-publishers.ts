@@ -3,9 +3,12 @@ import { continueDraftScan } from "./api-publish.ts";
 import type { Env } from "./env.ts";
 import { deleteDraft, type DraftTable } from "./store/drafts.ts";
 import {
-  heldPictures,
+  claimPictures,
+  finishPictureDeletes,
+  heldPictureDeletes,
   pictureGraceMs,
   setSweepCursor,
+  startPictureDeletes,
   sweepCursor,
   sweepPictureRows,
 } from "./store/profiles.ts";
@@ -37,17 +40,38 @@ export async function publisherCron(env: Env, now: number, fetch: ProofFetch): P
   await expire(env.MARKET, now);
   await rechecks(env.MARKET, now, fetch);
   await fillSkeletons(env.MARKET);
-  await sweepPictures(env, now);
+  await sweepPictures(env, now, crypto.randomUUID());
 }
 
 /**
  * Pictures nothing names (ADR 0173 §1): rows past the grace period that no profile or listing
- * names are dropped, then one page of each R2 prefix is walked and objects past the grace
- * period that no row holds are deleted. An upload writes its row before its bytes and names
- * them after, so a cut-off one leaves only what this collects.
+ * names are dropped; objects claimed on an earlier run that still no row holds are deleted
+ * under their claim; then one page of each R2 prefix is walked and objects past the grace
+ * period that no row holds are claimed for a later run. An upload writes its row, dropping any
+ * claim, before its bytes and names them after, so a cut-off one leaves only what this collects
+ * and one that charges a claimed key keeps it.
+ *
+ * `owner` is this run's own id. A run takes a claim only while no other run holds it (or that
+ * run's lease has lapsed) and re-checks just before the R2 delete that it still holds it at the
+ * generation it took, so two runs at once never both act on one key, and a slow run that lost
+ * its claim to a later one, or to an upload, deletes nothing.
  */
-export async function sweepPictures(env: Pick<Env, "MARKET" | "OBJECTS">, now: number) {
+export async function sweepPictures(
+  env: Pick<Env, "MARKET" | "OBJECTS">,
+  now: number,
+  owner: string,
+) {
   await sweepPictureRows(env.MARKET, now, batch.pictureRows);
+  const claims = await startPictureDeletes(env.MARKET, now, batch.pictureObjects, owner);
+  const doomed = await heldPictureDeletes(env.MARKET, owner, claims);
+  if (doomed.length > 0) {
+    await env.OBJECTS.delete(doomed);
+    await finishPictureDeletes(
+      env.MARKET,
+      owner,
+      claims.filter((claim) => doomed.includes(claim.key)),
+    );
+  }
   for (const prefix of picturePrefixes) {
     const after = await sweepCursor(env.MARKET, prefix);
     const page = await env.OBJECTS.list({
@@ -58,11 +82,7 @@ export async function sweepPictures(env: Pick<Env, "MARKET" | "OBJECTS">, now: n
     const old = page.objects
       .filter((object) => object.uploaded.getTime() < now - pictureGraceMs)
       .map((object) => object.key);
-    if (old.length > 0) {
-      const held = await heldPictures(env.MARKET, old);
-      const orphans = old.filter((key) => !held.has(key));
-      if (orphans.length > 0) await env.OBJECTS.delete(orphans);
-    }
+    await claimPictures(env.MARKET, old, now, owner);
     await setSweepCursor(env.MARKET, prefix, page.truncated ? page.objects.at(-1)?.key : undefined);
   }
 }

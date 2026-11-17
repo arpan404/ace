@@ -111,7 +111,17 @@ const NAMED: ReadonlyMap<string, [rule: string, message: string]> = new Map([
   ["parent", ["scene-parent-frame", "reaches its parent frame"]],
   ["top", ["scene-parent-frame", "reaches its parent frame"]],
   ["opener", ["scene-parent-frame", "reaches its parent frame"]],
+  ["postMessage", ["scene-parent-frame", "posts a message to another frame"]],
 ]);
+
+/**
+ * The names that reach another frame. Reading one as a member of anything is a block, since an
+ * event's `view` or an alias can hold the global object; as a plain string it isn't. `top` is the
+ * exception: it's a block off the global object or an unproven `this` (through `NAMED`), but a
+ * scene's own data may name it (an outfit's `top` colour), and from `top` a scene still needs
+ * `postMessage`, which is blocked everywhere, or a navigation the sandbox refuses.
+ */
+const FRAME_MEMBERS = new Set(["parent", "opener", "frames", "postMessage"]);
 
 /**
  * Member names that are a block on any object: reflective paths to a callable, the global object,
@@ -137,7 +147,8 @@ const DENIED_MEMBERS = new Set([
   "insertAdjacentHTML",
   "srcdoc",
   "createElementNS",
-  ...[...NAMED.keys()].filter((name) => !["parent", "top", "opener"].includes(name)),
+  ...[...NAMED.keys()].filter((name) => name !== "top"),
+  ...FRAME_MEMBERS,
 ]);
 
 /** Calls whose result is a string built at run time. */
@@ -395,7 +406,7 @@ class SceneReader {
   private strings(node: JsNode, value: string | undefined): void {
     if (value === undefined) return;
     if (REMOTE_URL.test(value)) this.report("scene-remote-url", node, "names a remote URL");
-    if (DENIED_MEMBERS.has(value) || GLOBAL_OBJECTS.has(value))
+    if ((DENIED_MEMBERS.has(value) && !FRAME_MEMBERS.has(value)) || GLOBAL_OBJECTS.has(value))
       this.report("scene-reflection", node, `names \`${value}\` as a string`);
   }
 
@@ -499,7 +510,14 @@ class SceneReader {
       this.declare(scope, patternNames(child(node, "id"), []), false);
     const params = children(node, "params");
     for (const param of params) this.declare(scope, patternNames(param, []), false);
-    const thisBound = node.type === "ArrowFunctionExpression" ? outerThis : true;
+    // `this` is proven only where the language fixes it: an arrow keeps its outer `this`, and a
+    // class constructor's is the new instance (a class can't be called without `new`). Any other
+    // function can be handed to a timer or a listener, which runs it with `this` as the global
+    // object or an element, so its `this` is read as the global object (fail closed).
+    const thisBound =
+      node.type === "ArrowFunctionExpression"
+        ? outerThis
+        : node.type === "ClassMethod" && node["kind"] === "constructor";
     for (const param of params) this.visitPattern(param, scope, thisBound, depth);
     const body = child(node, "body");
     if (body?.type === "BlockStatement") {
@@ -527,7 +545,11 @@ class SceneReader {
       if (object?.type === "ThisExpression")
         this.report("scene-computed-global", node, "reads `this[…]` by a computed name");
     }
-    if (objectGlobal && objectName !== undefined) {
+    if (object?.type === "ThisExpression" && !thisBound) {
+      // An unproven `this` is the global object: `this.x` is held to the allowlist as
+      // `globalThis.x` is.
+      if (member !== undefined) this.global(member, node);
+    } else if (objectGlobal && objectName !== undefined) {
       if (member !== undefined || !computed) this.global(objectName, node, member);
       else if (!GLOBALS.has(objectName)) this.global(objectName, node);
     } else this.visit(object, scope, thisBound, depth);
@@ -596,7 +618,12 @@ class SceneReader {
         if (node["operator"] === "+") this.strings(node, this.fold(node, scope));
         return this.visitChildren(node, scope, thisBound, next);
       case "ThisExpression":
-        if (!thisBound) this.report("scene-global-object", node, "reads `this` at the top level");
+        if (!thisBound)
+          this.report(
+            "scene-global-object",
+            node,
+            "reads `this` where it may be the global object",
+          );
         return;
       case "MemberExpression":
       case "OptionalMemberExpression":

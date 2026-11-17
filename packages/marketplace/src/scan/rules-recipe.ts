@@ -135,8 +135,10 @@ const promptInjection: EntryRule = {
   },
 };
 
+// An email needs an alphabetic top-level label, so a package spec like `report-cli@2.4.1` or
+// `pkg@latest` (a numeric or dotless host) isn't read as an address.
 const sendTo =
-  /\b(?:send|forward|post|upload|cc|bcc|copy|report|sync|mirror)\b[^.\n]{0,120}?((?:[\w.+-]+@[\w-]+(?:\.[\w-]+)+)|https?:\/\/[^\s)"'<>]+)/gi;
+  /\b(?:send|forward|post|upload|cc|bcc|copy|report|sync|mirror)\b[^.\n]{0,120}?((?:[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,})|https?:\/\/[^\s)"'<>]+)/gi;
 
 const outsideAddress: EntryRule = {
   kind: "entry",
