@@ -32,6 +32,7 @@ test("piped prompts create one provider run when the public CLI retries an idemp
   try {
     const args = [
       "run",
+      "-",
       "--provider",
       "codex",
       "--project",
@@ -126,10 +127,10 @@ test("whole-tree CLI wait times out while a delegated child remains working", as
     await f.daemon.close();
   }
 });
-test("machine-readable invalid invocations are refused without contacting a daemon", async () => {
+test("machine-readable invalid invocations are usage errors without contacting a daemon", async () => {
   const output = await invoke("/unused-synthetic-home", ["unknown", "--json"]);
-  expect(output.code).toBe(4);
-  expect(JSON.parse(output.stdout)).toMatchObject({ ok: false, status: "refused" });
+  expect(output.code).toBe(64);
+  expect(JSON.parse(output.stdout)).toMatchObject({ ok: false, status: "usage" });
 });
 
 test("CLI tree waits hand back control for a descendant approval instead of reporting completion", async () => {
