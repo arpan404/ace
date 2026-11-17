@@ -18,9 +18,12 @@ type Block = {
 };
 const blocks = () => rows("thread.block") as Block[];
 const log = () => blocks().find((row) => row.kind === "work")?.log;
+const stepOf = (id: string | undefined) =>
+  rows("thread.item").find((item) => item.id === id)?.step as { startedAt?: number } | undefined;
 
 test("a step in flight is a row of its own after the one that ran, and folds into it once done", async () => {
-  const fake = fixture();
+  const startedAt = Date.UTC(2026, 10, 16, 9, 30);
+  const fake = fixture(() => startedAt);
   fake.createThread({ id: "parallel", workspaceId: "ace", title: "Parallel", provider: "claude" });
   fake.apply("parallel", [
     facts.rootAgent("claude"),
@@ -52,6 +55,9 @@ test("a step in flight is a row of its own after the one that ran, and folds int
   // The command that finished keeps its row; the one in flight follows it as a row of its own.
   expect(ran?.kind).toBe("step");
   expect(running?.kind).toBe("step");
+  // Its line carries when it started, which the phone counts up from; the finished one's doesn't.
+  expect(stepOf(running?.id)?.startedAt).toBe(startedAt);
+  expect(stepOf(ran?.id)?.startedAt).toBeNull();
 
   fake.apply("parallel", [facts.toolDone("root", "slow")]);
   const settled = await until(
@@ -62,6 +68,7 @@ test("a step in flight is a row of its own after the one that ran, and folds int
   // Folded together, the steps read in the order they started.
   expect(settled.items).toEqual([running?.id, ran?.id]);
   expect(log()).toHaveLength(2);
+  expect(stepOf(running?.id)?.startedAt).toBeNull();
 });
 
 test("background commands started back to back are one group, ended ones only inside it", async () => {
