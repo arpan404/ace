@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub mod gated;
+pub mod plugins;
 #[cfg(target_os = "macos")]
 pub mod sandbox;
 
