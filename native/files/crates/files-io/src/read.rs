@@ -10,7 +10,7 @@ use files_safe::Root;
 
 use crate::Error;
 use crate::encoding::{self, SAMPLE_BYTES};
-use crate::version::version_of;
+use crate::version::{version_of, version_of_handle};
 
 /// The slice of a file to return: `length` bytes starting at `offset`.
 #[derive(Debug, Clone, Copy)]
@@ -53,7 +53,7 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
     let mut file = File::open(&absolute)?;
     let opened = file.metadata()?;
     let size = opened.len();
-    let version = version_of(&absolute, &opened)?;
+    let version = version_of_handle(&file, &opened)?;
     let head = head(&mut file)?;
     let detection = encoding::detect(&head, size > head.len() as u64);
     let oversized = range.max_size.is_some_and(|max| size > max);
@@ -65,8 +65,8 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
     } else {
         slice(&mut file, size, range)?
     };
-    let after = file.metadata()?;
-    if version_of(&absolute, &after)? != version {
+    let after = version_of_handle(&file, &file.metadata()?)?;
+    if after != version {
         return Err(conflict(path, Some(version)));
     }
     let current = match std::fs::symlink_metadata(&absolute) {

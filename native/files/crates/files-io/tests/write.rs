@@ -115,3 +115,22 @@ fn create_refuses_existing_file() {
     assert_eq!(fixture.read("fresh.txt"), b"new file\n");
     assert_eq!(version, fixture.version("fresh.txt"));
 }
+
+#[cfg(unix)]
+#[test]
+fn writing_through_a_symlink_keeps_the_link() {
+    let fixture = Fixture::new();
+    fixture.write("target.md", b"one\n");
+    std::os::unix::fs::symlink("target.md", fixture.path("link.md")).expect("symlink");
+    let version = fixture.version("link.md");
+
+    write(fixture.root(), "link.md", b"two\n", Some(&version)).expect("save through the link");
+
+    let link = std::fs::symlink_metadata(fixture.path("link.md")).expect("stat the link");
+    assert!(link.file_type().is_symlink(), "the link is still a link");
+    assert_eq!(
+        std::fs::read_link(fixture.path("link.md")).expect("read the link"),
+        std::path::Path::new("target.md")
+    );
+    assert_eq!(fixture.read("target.md"), b"two\n");
+}

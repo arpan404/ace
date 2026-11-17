@@ -47,15 +47,27 @@ pub(crate) fn entry_version(
 /// `{dev}:{ino}:{size}:{mtimeMs}:{ctimeMs}`, with every number printed the way JavaScript prints
 /// it, because the daemon may compare a version this process printed with one it printed itself.
 pub(crate) fn version_of(absolute: &Path, metadata: &Metadata) -> Result<String, Error> {
-    let facts = facts(absolute, metadata)?;
-    Ok(format!(
+    Ok(text(metadata, facts(absolute, metadata)?))
+}
+
+/// The version of bytes read through an open file. Its own handle, not the path, decides the
+/// identity and times, so a file swapped at the path cannot lend its version to older bytes.
+pub(crate) fn version_of_handle(
+    file: &std::fs::File,
+    metadata: &Metadata,
+) -> Result<String, Error> {
+    Ok(text(metadata, facts_of_handle(file, metadata)?))
+}
+
+fn text(metadata: &Metadata, facts: Facts) -> String {
+    format!(
         "{}:{}:{}:{}:{}",
         js_number(facts.dev as f64),
         js_number(facts.ino as f64),
         js_number(metadata.len() as f64),
         js_number(facts.mtime),
         js_number(facts.ctime)
-    ))
+    )
 }
 
 /// Whether two paths name the same entry. A case-only rename on a case-insensitive volume finds
@@ -103,13 +115,23 @@ fn js_number(value: f64) -> String {
 
 #[cfg(unix)]
 fn facts(_absolute: &Path, metadata: &Metadata) -> Result<Facts, Error> {
+    Ok(facts_of_metadata(metadata))
+}
+
+#[cfg(unix)]
+fn facts_of_handle(_file: &std::fs::File, metadata: &Metadata) -> Result<Facts, Error> {
+    Ok(facts_of_metadata(metadata))
+}
+
+#[cfg(unix)]
+fn facts_of_metadata(metadata: &Metadata) -> Facts {
     use std::os::unix::fs::MetadataExt;
-    Ok(Facts {
+    Facts {
         dev: metadata.dev(),
         ino: metadata.ino(),
         mtime: unix_millis(metadata.mtime(), metadata.mtime_nsec()),
         ctime: unix_millis(metadata.ctime(), metadata.ctime_nsec()),
-    })
+    }
 }
 
 /// Windows has no `dev`/`ino`: the volume serial and the file index stand in for them, and only
@@ -117,10 +139,14 @@ fn facts(_absolute: &Path, metadata: &Metadata) -> Result<Facts, Error> {
 /// in `ctimeMs`; the write time comes from the metadata beside it.
 #[cfg(windows)]
 fn facts(absolute: &Path, metadata: &Metadata) -> Result<Facts, Error> {
+    facts_of_handle(&open_attributes(absolute)?, metadata)
+}
+
+#[cfg(windows)]
+fn facts_of_handle(file: &std::fs::File, metadata: &Metadata) -> Result<Facts, Error> {
     use std::os::windows::fs::MetadataExt;
 
-    let file = open_attributes(absolute)?;
-    let (dev, ino, change) = handle_facts(&file)?;
+    let (dev, ino, change) = windows::handle_facts(file)?;
     Ok(Facts {
         dev,
         ino,
@@ -150,11 +176,6 @@ fn open_attributes(absolute: &Path) -> Result<std::fs::File, Error> {
         .share_mode(SHARE_ALL)
         .custom_flags(BACKUP_SEMANTICS | OPEN_REPARSE_POINT)
         .open(absolute)?)
-}
-
-#[cfg(windows)]
-fn handle_facts(file: &std::fs::File) -> Result<(u64, u64, i64), Error> {
-    Ok(windows::handle_facts(file)?)
 }
 
 /// The two calls that read a handle's identity and change time.

@@ -137,3 +137,22 @@ fn remove_deletes_a_symlink_not_its_target() {
     assert!(!fixture.exists("link.txt"));
     assert_eq!(std::fs::read(&target).expect("read outside"), b"keep me\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn remove_folder_keeps_what_its_links_point_at_outside_the_root() {
+    let fixture = Fixture::new();
+    let outside = tempfile::tempdir().expect("outside dir");
+    let target = outside.path().join("secret.txt");
+    std::fs::write(&target, b"not ours\n").expect("outside file");
+    fixture.write("folder/inside.txt", b"inside\n");
+    std::os::unix::fs::symlink(outside.path(), fixture.path("folder/link")).expect("symlink");
+
+    files_io::remove(fixture.root(), "folder").expect("remove the folder");
+
+    assert!(!fixture.exists("folder"));
+    assert_eq!(
+        std::fs::read(&target).expect("the outside file survives"),
+        b"not ours\n"
+    );
+}

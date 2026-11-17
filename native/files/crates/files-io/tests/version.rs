@@ -8,12 +8,11 @@ use common::Fixture;
 
 /// The daemon prints versions with JavaScript's number rules, and stored drafts are compared
 /// against them, so both timestamps must print exactly as `node` prints them.
+///
+/// This needs `node` on PATH and fails rather than skipping without it: a skipped parity test
+/// proves nothing.
 #[test]
 fn version_matches_javascript_format() {
-    if !node_available() {
-        eprintln!("node is not on PATH; skipping version_matches_javascript_format");
-        return;
-    }
     let fixture = Fixture::new();
     fixture.write("fraction.md", b"a draft the editor saves many times\n");
     fixture.write("whole.md", b"a draft saved in a whole second\n");
@@ -52,11 +51,27 @@ fn stat_version_is_none_when_nothing_is_there() {
     );
 }
 
-fn node_available() -> bool {
-    std::process::Command::new("node")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
+#[test]
+fn a_pre_1970_mtime_prints_negative_milliseconds() {
+    let fixture = Fixture::new();
+    fixture.write("old.txt", b"older than the epoch\n");
+    filetime::set_file_mtime(
+        fixture.path("old.txt"),
+        filetime::FileTime::from_unix_time(-315_619_200, 123_456_789),
+    )
+    .expect("set a 1960 modification time");
+
+    let version = fixture.version("old.txt");
+    assert_eq!(
+        version,
+        javascript_version(&fixture.path("old.txt")),
+        "a pre-1970 time must print as node prints it"
+    );
+    let mtime = version.split(':').nth(3).expect("an mtime field");
+    assert!(
+        mtime.starts_with('-'),
+        "a pre-1970 time stays negative: {mtime}"
+    );
 }
 
 #[allow(clippy::expect_used)]
@@ -70,7 +85,7 @@ fn javascript_version(path: &Path) -> String {
         .arg(script)
         .arg(path)
         .output()
-        .expect("run node");
+        .expect("node is required to check version formatting");
     assert!(
         output.status.success(),
         "node failed: {}",
