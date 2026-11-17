@@ -64,4 +64,36 @@ import Testing
         #expect(shown.speed?.selected == "standard")
         #expect(shown.effort?.reason == nil)
     }
+
+    private func model(_ efforts: [String], defaultEffort: String? = nil, speeds: [String] = []) -> ComposeAgent.Model {
+        ComposeAgent.Model(key: "opencode\u{0}flash", label: "DeepSeek V4.1 Flash", account: "personal",
+                           efforts: efforts.map { .init(id: $0, label: $0 == "medium" ? "Medium" : $0.capitalized) },
+                           defaultEffort: defaultEffort, speeds: speeds.map { .init(speed: $0, label: $0.capitalized) },
+                           defaultSpeed: nil)
+    }
+
+    @Test func aNewThreadModelWithOneLevelShowsItFixed() {
+        let shown = TuneChoices.model(model(["high"]), effort: nil, speed: nil)
+        #expect(shown.effort?.levels.map(\.label) == ["High"])
+        #expect(shown.effort?.selected == "high")
+        #expect(shown.effort?.reason == "The only level this model has")
+        #expect(shown.speed == nil)
+    }
+
+    @Test func aNewThreadModelWithNoLevelsSaysSoInsteadOfHidingEffort() {
+        let shown = TuneChoices.model(model([]), effort: nil, speed: nil)
+        #expect(shown.effort?.levels.isEmpty == true)
+        #expect(shown.effort?.reason == "This model has no effort levels")
+        #expect(!shown.isEmpty)
+    }
+
+    @Test func theModelPillNamesTheEffortTheThreadStartsWith() {
+        #expect(TuneChoices.brief(sonnet, effort: nil, speed: nil) == "Low")
+        #expect(TuneChoices.brief(model(["low", "medium", "high"], defaultEffort: "medium"), effort: nil, speed: nil) == "Med")
+        #expect(TuneChoices.brief(model(["low", "medium", "high"], defaultEffort: "medium"), effort: "high", speed: nil) == "High")
+        // A single level, with no default named, is still the one it runs at.
+        #expect(TuneChoices.brief(model(["high"]), effort: nil, speed: nil) == "High")
+        #expect(TuneChoices.brief(sonnet, effort: "max", speed: "fast") == "Max · Fast")
+        #expect(TuneChoices.brief(model([]), effort: nil, speed: nil) == nil)
+    }
 }

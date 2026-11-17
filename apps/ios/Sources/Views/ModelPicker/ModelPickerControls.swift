@@ -65,7 +65,10 @@ struct OptionChoiceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
             Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-            GlassChoice(items: items, selection: selection, idPrefix: idPrefix, disabled: disabled, select: select)
+            // A row with nothing to choose says why in its note alone.
+            if !items.isEmpty {
+                GlassChoice(items: items, selection: selection, idPrefix: idPrefix, disabled: disabled, select: select)
+            }
             if let note, !note.isEmpty {
                 Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
