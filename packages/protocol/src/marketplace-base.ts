@@ -6,6 +6,17 @@ import { PluginHash, PluginName } from "./plugins.ts";
  * publishers and categories, shared by every marketplace contract. Schema only.
  */
 
+/**
+ * Text a person typed: surrounding whitespace is removed, then the length limits apply. The
+ * rule is declared for the protocol reference, which can't state a normalization in JSON Schema.
+ */
+export function trimmedText(min: number, max: number) {
+  return z.string().trim().min(min).max(max).meta({
+    "x-ace-constraint":
+      "Leading and trailing whitespace is removed before the length limits apply.",
+  });
+}
+
 /** The entry types this build knows. Others are kept as their raw string and never installed. */
 export const MarketEntryType = z.enum([
   "suit",

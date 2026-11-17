@@ -8,6 +8,10 @@
       "minimum": 0,
       "type": "integer"
     },
+    "deprecated": {
+      "maxLength": 500,
+      "type": "string"
+    },
     "hash": {
       "$ref": "https://ace.local/protocol/v1/MarketHash.json"
     },

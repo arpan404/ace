@@ -1,0 +1,73 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketVerificationProof.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "account",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "domain": {
+          "maxLength": 253,
+          "minLength": 3,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "domain",
+          "type": "string"
+        },
+        "via": {
+          "enum": [
+            "dns",
+            "well-known"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "domain",
+        "via"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "github",
+          "type": "string"
+        },
+        "login": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$",
+          "type": "string"
+        },
+        "via": {
+          "enum": [
+            "gist",
+            "repository"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "login",
+        "via"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import {
   MarketHash,
   MarketPublisher,
   MarketVersion,
+  trimmedText,
 } from "./marketplace-base.ts";
 import { Signed } from "./marketplace-signed.ts";
 
@@ -27,6 +28,24 @@ export const MarketWireType = z
   .max(40)
   .regex(/^[a-z][a-z0-9-]*$/);
 
+// The reference documents what a well-formed file holds (`x-ace-json-input`) and says in words
+// how the reader treats a value that isn't, since JSON Schema can't state a fallback.
+/** A value read leniently: one that doesn't parse reads as `fallback`. */
+function orElse<T extends z.ZodType>(schema: T, fallback: z.output<T>) {
+  return schema.catch(fallback).meta({
+    "x-ace-json-input": schema,
+    "x-ace-constraint": "A value that doesn't parse is read as its default.",
+  });
+}
+/** A list read leniently: the reader keeps the items that parse and drops the rest. */
+function keptItems<T extends z.ZodType>(lenient: T, items: z.ZodType) {
+  return lenient.meta({
+    "x-ace-json-input": items,
+    "x-ace-constraint":
+      "Items that don't parse are dropped; a value that isn't a list reads as none.",
+  });
+}
+
 const displayKeywords = z
   .array(z.unknown())
   .catch([])
@@ -37,34 +56,38 @@ const displayKeywords = z
       )
       .slice(0, 16),
   );
+const keywordList = z.array(z.string().min(1).max(40)).max(16);
 
 /** One `/v1/index` entry read leniently: display values that don't parse fall back. */
 export const MarketFeedEntryWire = z.object({
   type: MarketWireType,
   name: MarketEntryName,
-  title: z.string().trim().min(1).max(120).optional().catch(undefined),
-  line: z.string().max(300).catch(""),
-  publisher: MarketPublisher.optional().catch(undefined),
-  categories: z
-    .array(z.unknown())
-    .catch([])
-    .transform((items) =>
-      items
-        .flatMap((item) => (MarketCategoryId.safeParse(item).success ? [item as string] : []))
-        .slice(0, 3),
-    ),
-  keywords: displayKeywords,
-  version: MarketVersion.optional().catch(undefined),
-  reviewed: z.boolean().catch(false),
-  byAce: z.boolean().catch(false),
-  updated: z.number().int().nonnegative().catch(0),
-  downloads: z.number().int().nonnegative().catch(0),
+  title: orElse(trimmedText(1, 120).optional(), undefined),
+  line: orElse(z.string().max(300), ""),
+  publisher: orElse(MarketPublisher.optional(), undefined),
+  categories: keptItems(
+    z
+      .array(z.unknown())
+      .catch([])
+      .transform((items) =>
+        items
+          .flatMap((item) => (MarketCategoryId.safeParse(item).success ? [item as string] : []))
+          .slice(0, 3),
+      ),
+    z.array(MarketCategoryId).max(3),
+  ),
+  keywords: keptItems(displayKeywords, keywordList),
+  version: orElse(MarketVersion.optional(), undefined),
+  reviewed: orElse(z.boolean(), false),
+  byAce: orElse(z.boolean(), false),
+  updated: orElse(z.number().int().nonnegative(), 0),
+  downloads: orElse(z.number().int().nonnegative(), 0),
   /** The publisher carries ace's verified mark (ADR 0173 §3). */
-  verified: z.boolean().catch(false),
+  verified: orElse(z.boolean(), false),
   /** The publisher's note on the latest version, when they deprecated it. */
-  deprecated: z.string().max(500).optional().catch(undefined),
+  deprecated: orElse(z.string().max(500).optional(), undefined),
   /** The listing pictures by sha256 (ADR 0173 §5), served at `/v1/previews/{sha256}`. */
-  previews: z.array(MarketHash).max(4).optional().catch(undefined),
+  previews: orElse(z.array(MarketHash).max(4).optional(), undefined),
 });
 
 /** The index fields the Worker writes, all known to this build. */
@@ -108,7 +131,10 @@ const parsedOnly =
     });
 
 export const CategoriesBody = z.object({
-  categories: z.array(z.unknown()).max(64).transform(parsedOnly(MarketCategory)),
+  categories: keptItems(
+    z.array(z.unknown()).max(64).transform(parsedOnly(MarketCategory)),
+    z.array(MarketCategory).max(64),
+  ),
 });
 export const FeaturedBody = z.object({
   entries: z.array(z.object({ type: z.string().max(40), name: z.string().max(64) })).max(64),
@@ -116,7 +142,7 @@ export const FeaturedBody = z.object({
 
 /** A link on a listing or a profile: https only, with a short label. */
 export const MarketLink = z.strictObject({
-  label: z.string().trim().min(1).max(40),
+  label: trimmedText(1, 40),
   url: z
     .string()
     .max(2048)
@@ -127,12 +153,18 @@ export type MarketLink = z.infer<typeof MarketLink>;
 /** `/v1/entries/{type}/{name}`. Links and pictures are ADR 0173's listing edits. */
 export const EntryBody = z.object({
   entry: z.unknown(),
-  description: z.string().max(8192).catch(""),
-  versions: z.array(z.unknown()).max(200).transform(parsedOnly(MarketEntryVersion)),
-  links: z.array(z.unknown()).max(5).transform(parsedOnly(MarketLink)).catch([]).default([]),
-  previews: z.array(MarketHash).max(4).catch([]).default([]),
+  description: orElse(z.string().max(8192), ""),
+  versions: keptItems(
+    z.array(z.unknown()).max(200).transform(parsedOnly(MarketEntryVersion)),
+    z.array(MarketEntryVersion).max(200),
+  ),
+  links: keptItems(
+    z.array(z.unknown()).max(5).transform(parsedOnly(MarketLink)).catch([]),
+    z.array(MarketLink).max(5),
+  ).default([]),
+  previews: orElse(z.array(MarketHash).max(4), []).default([]),
   /** The entry is unlisted: found by link, never by search (ADR 0173 §5). */
-  unlisted: z.boolean().catch(false).default(false),
+  unlisted: orElse(z.boolean(), false).default(false),
 });
 export type EntryBody = z.infer<typeof EntryBody>;
 
@@ -153,39 +185,42 @@ export const SearchBody = z.object({
 
 /** `market.json`: the listing's words beside an entry's own files. */
 export const MarketListingFile = z.strictObject({
-  title: z.string().trim().min(1).max(120).optional(),
-  line: z.string().trim().max(300).optional(),
+  title: trimmedText(1, 120).optional(),
+  line: trimmedText(0, 300).optional(),
   description: z.string().max(8192).optional(),
   categories: z.array(MarketCategoryId).max(3).optional(),
-  keywords: z.array(z.string().trim().min(1).max(40)).max(16).optional(),
+  keywords: z.array(trimmedText(1, 40)).max(16).optional(),
 });
 export type MarketListingFile = z.infer<typeof MarketListingFile>;
 
 /** A file's text field that names the entry, read leniently from suit.json, a manifest, bot.json. */
 export const MarketNamedFile = z.looseObject({
-  name: z.string().max(200).optional().catch(undefined),
-  description: z.string().max(8192).optional().catch(undefined),
-  blurb: z.string().max(300).optional().catch(undefined),
+  name: orElse(z.string().max(200).optional(), undefined),
+  description: orElse(z.string().max(8192).optional(), undefined),
+  blurb: orElse(z.string().max(300).optional(), undefined),
 });
 
 /* ---------------------------------------------------------------- git catalogs */
 
 const CatalogSource = z.union([ContainedPath, z.literal("."), z.literal("./")]);
 const catalogDisplay = {
-  title: z.string().trim().min(1).max(120).optional().catch(undefined),
-  description: z.string().max(8192).optional().catch(undefined),
-  version: MarketVersion.optional().catch(undefined),
-  keywords: z
-    .array(z.unknown())
-    .optional()
-    .catch(undefined)
-    .transform((items) =>
-      (items ?? [])
-        .flatMap((item) =>
-          typeof item === "string" && item.length > 0 && item.length <= 40 ? [item] : [],
-        )
-        .slice(0, 16),
-    ),
+  title: orElse(trimmedText(1, 120).optional(), undefined),
+  description: orElse(z.string().max(8192).optional(), undefined),
+  version: orElse(MarketVersion.optional(), undefined),
+  keywords: keptItems(
+    z
+      .array(z.unknown())
+      .optional()
+      .catch(undefined)
+      .transform((items) =>
+        (items ?? [])
+          .flatMap((item) =>
+            typeof item === "string" && item.length > 0 && item.length <= 40 ? [item] : [],
+          )
+          .slice(0, 16),
+      ),
+    keywordList.optional(),
+  ),
 };
 /** One typed entry of a git catalog's `entries` (ADR 0168 §4). */
 export const MarketCatalogItem = z.object({
@@ -203,7 +238,7 @@ export const MarketCatalogPlugin = z.object({
   ...catalogDisplay,
 });
 export const MarketCatalogFile = z.object({
-  name: z.string().max(64).optional().catch(undefined),
+  name: orElse(z.string().max(64).optional(), undefined),
   plugins: z.array(z.unknown()).max(256).default([]),
   entries: z.array(z.unknown()).max(1024).default([]),
 });
@@ -230,25 +265,29 @@ export const RecipePluginRef = z.string().regex(/^spade-plugin\/[a-z0-9](?:[a-z0
 const HttpsUrl = z
   .url()
   .max(2048)
-  .refine((value) => value.startsWith("https://"), "A server is named by its https address");
-const why = z.string().trim().min(1).max(500);
+  .refine((value) => value.startsWith("https://"), "A server is named by its https address")
+  .meta({
+    "x-ace-json-input": z.url().max(2048),
+    "x-ace-constraint": "The URL's scheme must be https.",
+  });
+const why = trimmedText(1, 500);
 const ConnectorNeed = z.union([
   z.strictObject({ id: RecipeConnectorId, why, required: z.boolean().default(false) }),
   z.strictObject({ url: HttpsUrl, why, required: z.boolean().default(false) }),
 ]);
 const ToolName = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
 const RecipeRoutine = z.strictObject({
-  name: z.string().trim().min(1).max(120),
-  instruction: z.string().trim().min(1).max(4000),
+  name: trimmedText(1, 120),
+  instruction: trimmedText(1, 4000),
   /** A phrase or cron expression Spade's routines read (`weekdays at 8:00`). */
-  schedule: z.string().trim().min(1).max(200),
+  schedule: trimmedText(1, 200),
 });
 
 /** A bot recipe: ADR 0132's bot file at version 2, which asks rather than grants (0168 §5). */
 export const Recipe = z.object({
   format: z.literal("spade-bot"),
   version: z.literal(2),
-  name: z.string().trim().min(1).max(80),
+  name: trimmedText(1, 80),
   blurb: z.string().max(300).default(""),
   task: z.string().max(recipeTaskChars).default(""),
   /** The eight stored fields of Spade's face; Spade repairs an unknown value by its rules. */
@@ -272,7 +311,7 @@ export type Recipe = z.infer<typeof Recipe> & { extra?: Record<string, unknown> 
 export const BotFileV1 = z.object({
   format: z.literal("spade-bot"),
   version: z.literal(1),
-  name: z.string().trim().min(1).max(80),
+  name: trimmedText(1, 80),
   task: z.string().max(recipeTaskChars).default(""),
   avatar: z.unknown().optional(),
   model: z.string().max(200).nullish(),

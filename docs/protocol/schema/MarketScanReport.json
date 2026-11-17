@@ -1,0 +1,77 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketScanReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketScanCheck.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketScanFinding.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "format": {
+      "const": "ace-market-scan",
+      "type": "string"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "read": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "textBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "files",
+        "textBytes"
+      ],
+      "type": "object"
+    },
+    "runnable": {
+      "type": "boolean"
+    },
+    "runnableReason": {
+      "maxLength": 300,
+      "type": "string"
+    },
+    "scanner": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "verdict": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanVerdict.json"
+    }
+  },
+  "required": [
+    "format",
+    "scanner",
+    "verdict",
+    "checks",
+    "findings",
+    "runnable",
+    "truncated",
+    "read"
+  ],
+  "type": "object"
+}

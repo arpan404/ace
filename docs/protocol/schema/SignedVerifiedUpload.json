@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/SignedVerifiedUpload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "basedOn": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "revoked": {
+      "default": [],
+      "items": {
+        "properties": {
+          "handle": {
+            "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+          }
+        },
+        "required": [
+          "handle",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "verified": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    }
+  },
+  "required": [
+    "verified"
+  ],
+  "type": "object"
+}

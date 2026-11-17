@@ -1,0 +1,50 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketTransfer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "direction": {
+      "enum": [
+        "incoming",
+        "outgoing"
+      ],
+      "type": "string"
+    },
+    "expiresAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "from": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/MarketTransferId.json"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "to": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "name",
+    "from",
+    "to",
+    "at",
+    "expiresAt",
+    "direction"
+  ],
+  "type": "object"
+}

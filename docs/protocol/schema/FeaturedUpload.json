@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/FeaturedUpload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "properties": {
+          "name": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+          },
+          "type": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "type": "object"
+      },
+      "maxItems": 24,
+      "type": "array"
+    }
+  },
+  "required": [
+    "entries"
+  ],
+  "type": "object"
+}
