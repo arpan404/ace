@@ -14,7 +14,7 @@
     {
       "binding": "MARKET",
       "database_name": "ace-market",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "bec04c16-5c86-4ab3-af7f-6e5863734a9c",
       "migrations_dir": "migrations",
     },
   ],
@@ -48,7 +48,7 @@
         {
           "binding": "MARKET",
           "database_name": "ace-market",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "bec04c16-5c86-4ab3-af7f-6e5863734a9c",
           "migrations_dir": "migrations",
         },
       ],
