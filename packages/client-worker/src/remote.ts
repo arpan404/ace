@@ -731,18 +731,23 @@ export class RemoteClient implements ClientApi {
     }
     // The lost worker allocated this submitNew's id and the tab recorded it: whatever that
     // worker saved or sent went under this id, so it goes again as a command with it.
-    void allocated.recorded.then((ok) => {
-      if (this.pending.get(call) !== pending || generation !== this.link.generation) return;
-      if (pending.sentTo === generation) return;
-      if (!ok) {
-        this.pending.delete(call);
-        pending.reject(new ClientError("storage"));
-        return;
-      }
-      const [payload, options] = durable.args;
-      if (this.post({ t: "call", call, method: "command", args: [payload, options, allocated.id] }))
-        pending.sentTo = generation;
-    });
+    // recorded answers false when the tab could not record it; it never rejects.
+    void allocated.recorded
+      .then((ok) => {
+        if (this.pending.get(call) !== pending || generation !== this.link.generation) return;
+        if (pending.sentTo === generation) return;
+        if (!ok) {
+          this.pending.delete(call);
+          pending.reject(new ClientError("storage"));
+          return;
+        }
+        const [payload, options] = durable.args;
+        if (
+          this.post({ t: "call", call, method: "command", args: [payload, options, allocated.id] })
+        )
+          pending.sentTo = generation;
+      })
+      .catch(() => {});
   }
   private hold<T extends MirrorThread | MirrorSidebar>(
     key: string,
@@ -955,11 +960,14 @@ export class RemoteClient implements ClientApi {
             () => false,
           );
         pending.allocated = { id: message.commandId, recorded };
-        void recorded.then((ok) => {
-          // A worker lost meanwhile never hears it; its successor gets the command instead.
-          if (this.pending.get(message.call) === pending && generation === this.link.generation)
-            this.post({ t: "command.recorded", call: message.call, ok });
-        });
+        // recorded answers false when the tab could not record it; it never rejects.
+        void recorded
+          .then((ok) => {
+            // A worker lost meanwhile never hears it; its successor gets the command instead.
+            if (this.pending.get(message.call) === pending && generation === this.link.generation)
+              this.post({ t: "command.recorded", call: message.call, ok });
+          })
+          .catch(() => {});
         return;
       }
       case "diagnostic":

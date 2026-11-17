@@ -135,7 +135,7 @@ export function poolWorld(options: { threadCount?: number; outboxRoot?: string }
         },
         config: {},
         terminate() {
-          void worker.terminate();
+          void worker.terminate().catch(() => {});
         },
         port: {
           postMessage(value) {

@@ -171,6 +171,7 @@ export function relayNativeHost(options: HostRelayOptions): Promise<void> {
   options.input.on("end", stop);
   options.input.on("close", stop);
   options.input.on("error", stop);
-  void connect();
+  // connect() reports a failed attempt through retry(); a throw of its own is logged here.
+  void connect().catch((error: unknown) => options.log(String(error)));
   return done;
 }
