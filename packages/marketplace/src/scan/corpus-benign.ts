@@ -430,6 +430,24 @@ const suits: CorpusSample[] = [
     },
   },
   {
+    id: "suit-licensed-fonts",
+    type: "suit",
+    name: "licensed-fonts",
+    category: "benign-suit",
+    files: {
+      "suit.json": suitJson(
+        "licensed-fonts",
+        "Licensed fonts",
+        "Type that ships with its licence.",
+      ),
+      "market.json": marketJson("Type that ships with its licence.", ["type"]),
+      LICENSE: "Apache License 2.0 applies to this Suit.\n",
+      "assets/fonts/Face-OFL.txt":
+        "Copyright 2024 The Authors. Licensed under the SIL Open Font Licence 1.1.\n",
+      "assets/fonts/Face.woff2": new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0, 1, 0, 0]),
+    },
+  },
+  {
     id: "suit-morning-paper",
     type: "suit",
     name: "morning-paper",
