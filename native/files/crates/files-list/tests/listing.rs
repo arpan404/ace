@@ -190,3 +190,22 @@ fn folders_report_no_size() {
 
     assert_eq!(support::entry(&listing.entries, "sub").size, 0);
 }
+
+#[test]
+fn lists_sizes_and_times_inside_a_subfolder() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    support::write(root, "sub/alpha.txt", "12345");
+    support::write(root, "sub/deeper/beta.txt", "12");
+
+    let lister = lister(root);
+    let inner = first_page(&lister, "sub", &options(100));
+    let alpha = support::entry(&inner.entries, "sub/alpha.txt");
+    assert_eq!(alpha.size, 5);
+    assert!(alpha.mtime_ms > 0, "a subfolder entry keeps its time");
+
+    let deeper = first_page(&lister, "sub/deeper", &options(100));
+    let beta = support::entry(&deeper.entries, "sub/deeper/beta.txt");
+    assert_eq!(beta.size, 2);
+    assert!(beta.mtime_ms > 0);
+}

@@ -57,7 +57,7 @@ impl Snapshot {
     }
 
     fn entry(&self, item: &Item) -> Entry {
-        let metadata = std::fs::symlink_metadata(self.abs.join(&item.path)).ok();
+        let metadata = std::fs::symlink_metadata(self.abs.join(&item.name)).ok();
         let size = metadata
             .as_ref()
             .map_or(0, |metadata| size_of(metadata, &item.kind));
