@@ -290,7 +290,9 @@ import XCTest
         row.tap()
         let header = app.descendants(matching: .any)["forge.pull.header"].firstMatch
         XCTAssertTrue(header.waitForExistence(timeout: 20))
-        app.buttons["review.close"].tap()
+        // A pushed page shows Back, not Close: the sheet is dragged down from its top.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         // Opened again on the pull request the person had open, with the search behind it.
         app.buttons["inbox.review"].tap()
