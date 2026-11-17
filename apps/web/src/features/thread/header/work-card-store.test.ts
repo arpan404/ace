@@ -32,7 +32,10 @@ test("below the minimum the card leaves the side for the header popover", () => 
 
 function memory(open: boolean) {
   const saved = { open };
-  return { saved, memory: { open, remember: (next: boolean) => void (saved.open = next) } };
+  return {
+    saved,
+    memory: { open: () => saved.open, remember: (next: boolean) => void (saved.open = next) },
+  };
 }
 
 test("a card left open comes back docked on the next thread screen", () => {

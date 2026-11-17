@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // ace's marketplace (ADR 0168): the catalog API, publishing, the signer's routes and the
-  // public web page, at market.acehq.dev. Separate from ace cloud so a market deploy or fault
+  // ace's marketplace (ADR 0168): the catalog API, publishing, and the signer's routes
+  // (the API only, no web page), at market.acehq.dev. Separate from ace cloud so a market deploy or fault
   // never touches sign-in or the relay.
   "name": "ace-market",
   "main": "src/worker.ts",

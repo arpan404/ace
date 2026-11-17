@@ -94,11 +94,7 @@ export type Route =
   | { kind: "signer-official" }
   | { kind: "signer-reports" }
   | { kind: "signer-report"; id: string }
-  | { kind: "signer-appeal"; id: string }
-  // The public web page.
-  | { kind: "page-home" }
-  | { kind: "page-search" }
-  | ({ kind: "page-entry" } & EntryKey);
+  | { kind: "signer-appeal"; id: string };
 
 export type Matched = { route: Route } | { refused: 404 | 405 };
 /** The routes one path names, by method. */
