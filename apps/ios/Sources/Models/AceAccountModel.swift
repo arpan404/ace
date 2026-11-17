@@ -48,7 +48,8 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     private(set) var login: AceAccountLogin?
     private(set) var busy = false
     private(set) var error: String?
-    private let origin: URL?
+    /// Set once at launch; a `--spike-account` fixture launch points it at the fixture.
+    private var origin: URL?
     private let secrets: any SecretStore
     private let now: () -> Double
     private let http = URLSession(configuration: .ephemeral, delegate: AccountRedirects(), delegateQueue: nil)
@@ -87,8 +88,16 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     }
 
     #if ACE_FIXTURE
-    /// `--spike-account`: a signed-in account without a backend.
-    func showFixtureAccount() { account = AceAccountIdentity(id: "fixture", email: "ada@example.com", name: "Ada Lovelace") }
+    /// `--spike-account`: signed in to the spike fixture's fake account backend
+    /// (`scripts/spike-account.ts`), with the session read from it, so Sign out reaches it.
+    func signInToSpike(origin: URL, token: String) async {
+        self.origin = origin
+        self.token = token
+        do {
+            let session: AccountSession = try await call("session", token: token)
+            account = session.account
+        } catch { self.error = "Couldn't verify your account. Try again." }
+    }
     #endif
 
     deinit { http.invalidateAndCancel() }

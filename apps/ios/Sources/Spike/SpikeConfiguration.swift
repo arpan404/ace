@@ -30,14 +30,15 @@ enum SpikeConfiguration {
     /// `--spike-unpaired`: a fresh install with no computer paired, connecting to no fixture, so
     /// home and Code review offer pairing.
     static var unpaired: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-unpaired") }
-    /// `--spike-account`: Profile shows a signed-in ace account and its machines, with no
-    /// backend, so the signed-in page can be checked and screenshotted.
-    static var account: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-account") }
-    /// The account machines `--spike-account` lists, last seen a few minutes and days before `now`.
-    static func accountMachines(now: Double) -> [AceMachine] {
-        [AceMachine(hostId: "ios-spike-host", name: "arpan-mbp", platform: "darwin", lastSeenAt: now - 4 * 60_000),
-         AceMachine(hostId: "fixture-studio", name: "studio", platform: "linux", lastSeenAt: now - 3 * 86_400_000)]
+    /// `--spike-account`: the app signs in to the fixture's fake account backend
+    /// (`scripts/spike-account.ts`) on the fixture's port, so Profile's signed-in half runs
+    /// against requests a test can read back. Nil without the flag.
+    static var accountOrigin: URL? {
+        guard enabled, ProcessInfo.processInfo.arguments.contains("--spike-account") else { return nil }
+        return URL(string: "http://127.0.0.1:\(port)")
     }
+    /// The session token the fake account backend accepts (`spikeAccountToken`).
+    static let accountToken = "ios-spike-account-session"
     /// `--spike-view-only`: the phone may only view the fixture machine, as a view-only pairing.
     static var viewOnly: Bool { ProcessInfo.processInfo.arguments.contains("--spike-view-only") }
     /// The thread `--spike-open ID` asks to open at launch.
@@ -57,10 +58,13 @@ enum SpikeConfiguration {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.firstIndex(of: "--spike-focus").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
     }
-    static func target() -> ConnectionTarget? {
-        // `--spike-port N` lets parallel fixtures share one Mac; loopback only.
+    /// `--spike-port N` lets parallel fixtures share one Mac; loopback only.
+    private static var port: Int {
         let arguments = ProcessInfo.processInfo.arguments
-        let port = arguments.firstIndex(of: "--spike-port").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 9841
+        return arguments.firstIndex(of: "--spike-port").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil } ?? 9841
+    }
+    static func target() -> ConnectionTarget? {
+        let port = port
         guard enabled, (1024...65535).contains(port), let url = URL(string: "ws://127.0.0.1:\(port)") else { return nil }
         return ConnectionTarget(endpoint: url, hostId: "ios-spike-host", deviceId: "ios-spike-device", pin: nil,
                                 credential: { "{\"token\":\"ios-spike-token\"}" })

@@ -11,6 +11,8 @@ struct AceAccountView: View {
     /// The app's account (the header's avatar shows the same), else this page's own.
     @Environment(AceAccountModel.self) private var shared: AceAccountModel?
     @State private var own = AceAccountModel()
+    /// `--spike-account`'s machines, where there is no machines model (the fixture).
+    @State private var spikeMachines = SpikeAccountMachines.make()
     private var model: AceAccountModel { shared ?? own }
     @State private var forgetting: AceMachine?
     @State private var signingOut = false
@@ -28,10 +30,12 @@ struct AceAccountView: View {
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.restore() }
+        .task { await spikeMachines?.load() }
         // Again on Retry, and when a machine attaches, connects or drops.
         .task(id: activityKey) { await readActivity() }
         .refreshable {
             await machines?.refreshAccount()
+            await spikeMachines?.load()
             await readActivity()
         }
         // Signing in or out changes which machines this phone reaches through the account.
@@ -182,8 +186,11 @@ struct AceAccountView: View {
     }
 
     /// The account's machines; `--spike-account`'s when there is no machines model (the fixture).
-    private var listed: [AceMachine]? {
-        machines?.accountMachines ?? (SpikeConfiguration.account ? SpikeConfiguration.accountMachines(now: Date().timeIntervalSince1970 * 1000) : nil)
+    private var listed: [AceMachine]? { machines?.accountMachines ?? spikeMachines?.machines }
+
+    private func forgetMachine(_ hostId: String) async -> ProblemNotice? {
+        if let machines { return await machines.forgetAccountMachine(hostId) }
+        return await spikeMachines?.forget(hostId)
     }
 
     /// Web's "Machines on your account". Forget is the row's swipe and long-press action.
@@ -204,7 +211,7 @@ struct AceAccountView: View {
                     .accessibilityIdentifier("account.machine.\(machine.hostId)")
                     .confirmationDialog("Forget \(Self.name(machine))?", isPresented: forgetQuestion(machine), titleVisibility: .visible) {
                         Button("Forget", role: .destructive) {
-                            Task { notice = await machines?.forgetAccountMachine(machine.hostId) }
+                            Task { notice = await forgetMachine(machine.hostId) }
                         }.accessibilityIdentifier("account.machine.forget.confirm")
                     } message: { Text("It comes back when it signs in again.") }
             }
