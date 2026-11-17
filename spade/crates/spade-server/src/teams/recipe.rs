@@ -107,10 +107,8 @@ fn invalid(message: impl Into<String>) -> PortableError {
 /// Every place in `value` that holds a field named like a secret or a string shaped like one.
 fn secret_problems(value: &Value, path: &str, out: &mut Vec<String>) {
     match value {
-        Value::String(text) => {
-            if spade_core::redact::text(text) != *text {
-                out.push(format!("{path} holds something shaped like a secret"));
-            }
+        Value::String(text) if spade_core::redact::text(text) != *text => {
+            out.push(format!("{path} holds something shaped like a secret"));
         }
         Value::Array(items) => {
             for (i, item) in items.iter().enumerate() {

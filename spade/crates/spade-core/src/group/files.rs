@@ -50,10 +50,10 @@ pub fn made_for<'a>(group: &str, events: impl IntoIterator<Item = Stored<'a>>) -
             Known::ReplyFinished { reply, .. }
             | Known::ReplyStopped { reply, .. }
             | Known::ReplyFailed { reply, .. }
-            | Known::ReplyInterrupted { reply, .. } => {
-                if open.as_ref() == Some(reply) {
-                    open = None;
-                }
+            | Known::ReplyInterrupted { reply, .. }
+                if open.as_ref() == Some(reply) =>
+            {
+                open = None;
             }
             Known::StepFinished { reply, calls, .. } if theirs.contains(reply) => {
                 for call in calls {
