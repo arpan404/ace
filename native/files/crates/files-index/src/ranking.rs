@@ -64,7 +64,12 @@ pub(crate) fn score(path: &str, positions: &[u32], matcher_score: u16) -> u32 {
         | ((in_name.min(NAME_MASK)) << NAME_SHIFT)
         | ((runs.min(RUN_MASK)) << RUN_SHIFT)
         | ((boundaries.min(BOUNDARY_MASK)) << BOUNDARY_SHIFT)
-        | u32::from(matcher_score >> 8)
+        | u32::from(matcher_score.min(255))
+}
+
+/// Whether a packed score says the whole match fell inside the file name.
+pub(crate) fn in_name(score: u32) -> bool {
+    score & NAME_COMPLETE != 0
 }
 
 /// Best first: descending score, then shorter path, then byte order. `Less` means the left hit is

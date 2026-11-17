@@ -33,6 +33,23 @@ fn file_name_match_ranks_above_folder_match() {
 }
 
 #[test]
+fn file_name_slice_lifts_a_path_whose_best_alignment_is_in_a_folder() {
+    let fixture = indexed(&["domain/xmain/foo.rs", "src/main.rs"]);
+    let hits = fixture.index.search("main", 10);
+    assert_eq!(
+        hits[0].path, "src/main.rs",
+        "the file name of src/main.rs matches even though other paths have folder letters"
+    );
+}
+
+#[test]
+fn file_name_match_beats_a_scattered_name_match() {
+    let fixture = indexed(&["x/l_i_b.rs", "lib/lib.rs"]);
+    let hits = fixture.index.search("lib", 10);
+    assert_eq!(hits[0].path, "lib/lib.rs");
+}
+
+#[test]
 fn slash_query_matches_path_segments() {
     let fixture = indexed(&["crates/ace/src/lib.rs", "crates/other/ace.rs"]);
     let hits = fixture.index.search("crates/ace", 10);
@@ -41,6 +58,40 @@ fn slash_query_matches_path_segments() {
         hits[0].positions,
         (0..10).collect::<Vec<u32>>(),
         "the query matches the two segments it names"
+    );
+}
+
+#[test]
+fn whitespace_splits_the_query_into_terms() {
+    let fixture = indexed(&["src/main.rs", "src/lib.rs", "docs/main.rs"]);
+    let hits = fixture.index.search("src main", 10);
+    assert_eq!(paths(&hits), ["src/main.rs"]);
+    assert_eq!(
+        hits[0].positions,
+        [0, 1, 2, 4, 5, 6, 7],
+        "positions from both terms merge in order"
+    );
+}
+
+#[test]
+fn positions_land_on_character_boundaries() {
+    let fixture = indexed(&["docs/café.md"]);
+    let hits = fixture.index.search("é", 10);
+    assert_eq!(hits.len(), 1);
+    for position in &hits[0].positions {
+        let start = *position as usize;
+        let tail = hits[0].path.get(start..);
+        assert!(
+            tail.is_some(),
+            "position {position} is a character boundary"
+        );
+    }
+    assert!(
+        hits[0]
+            .path
+            .get(8..)
+            .is_some_and(|tail| tail.starts_with('é')),
+        "the position points at the matched character"
     );
 }
 
