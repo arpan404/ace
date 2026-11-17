@@ -1,0 +1,19 @@
+{
+  "json": {
+    "id": 19,
+    "result": {
+      "ignored": false,
+      "kind": {
+        "type": "other"
+      },
+      "mtimeMs": 1670000000123,
+      "name": "daemon.sock",
+      "path": "run/daemon.sock",
+      "size": 0,
+      "type": "entry"
+    },
+    "type": "response"
+  },
+  "text": "{\"type\":\"response\",\"id\":19,\"result\":{\"type\":\"entry\",\"path\":\"run/daemon.sock\",\"name\":\"daemon.sock\",\"kind\":{\"type\":\"other\"},\"size\":0,\"mtimeMs\":1670000000123,\"ignored\":false}}",
+  "frame": "ad000000017b2274797065223a22726573706f6e7365222c226964223a31392c22726573756c74223a7b2274797065223a22656e747279222c2270617468223a2272756e2f6461656d6f6e2e736f636b222c226e616d65223a226461656d6f6e2e736f636b222c226b696e64223a7b2274797065223a226f74686572227d2c2273697a65223a302c226d74696d654d73223a313637303030303030303132332c2269676e6f726564223a66616c73657d7d"
+}

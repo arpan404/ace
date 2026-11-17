@@ -1,0 +1,19 @@
+{
+  "json": {
+    "id": 4,
+    "result": {
+      "ignored": false,
+      "kind": {
+        "type": "file"
+      },
+      "mtimeMs": 1670000000123,
+      "name": "lib.rs",
+      "path": "crates/files-wire/src/lib.rs",
+      "size": 120,
+      "type": "entry"
+    },
+    "type": "response"
+  },
+  "text": "{\"type\":\"response\",\"id\":4,\"result\":{\"type\":\"entry\",\"path\":\"crates/files-wire/src/lib.rs\",\"name\":\"lib.rs\",\"kind\":{\"type\":\"file\"},\"size\":120,\"mtimeMs\":1670000000123,\"ignored\":false}}",
+  "frame": "b5000000017b2274797065223a22726573706f6e7365222c226964223a342c22726573756c74223a7b2274797065223a22656e747279222c2270617468223a226372617465732f66696c65732d776972652f7372632f6c69622e7273222c226e616d65223a226c69622e7273222c226b696e64223a7b2274797065223a2266696c65227d2c2273697a65223a3132302c226d74696d654d73223a313637303030303030303132332c2269676e6f726564223a66616c73657d7d"
+}
