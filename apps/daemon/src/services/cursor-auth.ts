@@ -1,3 +1,4 @@
+import { logError } from "@ace/diagnostics";
 import { CursorAuthService, cursorSdkLoginDriver, createInstance } from "@ace/accounts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { CursorAuthRequest } from "@ace/protocol";
@@ -38,7 +39,11 @@ export async function startCursorAuth(context: ServiceContext): Promise<void> {
         cwd: instance.homeDir,
         loginRevision: id(),
       });
-      void services.providerStatuses?.refresh();
+      void services.providerStatuses
+        ?.refresh()
+        .catch((error: unknown) =>
+          context.log.log("warn", "Provider status refresh failed", logError(error)),
+        );
     },
     createInstance: async (instanceId, label) =>
       createInstance({
