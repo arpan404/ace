@@ -1,0 +1,683 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketPublishAction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "me",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "entry",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "createProfile",
+          "type": "string"
+        },
+        "profile": {
+          "$ref": "https://ace.local/protocol/v1/MarketProfileCreate.json"
+        }
+      },
+      "required": [
+        "action",
+        "profile"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "editProfile",
+          "type": "string"
+        },
+        "profile": {
+          "$ref": "https://ace.local/protocol/v1/MarketProfileEdit.json"
+        }
+      },
+      "required": [
+        "action",
+        "profile"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "changeHandle",
+          "type": "string"
+        },
+        "handle": {
+          "$ref": "https://ace.local/protocol/v1/MarketHandle.json"
+        }
+      },
+      "required": [
+        "action",
+        "handle"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "setAvatar",
+          "type": "string"
+        },
+        "image": {
+          "maxLength": 1400000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "image"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "setPins",
+          "type": "string"
+        },
+        "entries": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryRef.json"
+          },
+          "maxItems": 6,
+          "type": "array"
+        }
+      },
+      "required": [
+        "action",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "draftCreate",
+          "type": "string"
+        },
+        "changelog": {
+          "maxLength": 4000,
+          "type": "string"
+        },
+        "checked": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftChecked.json"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftSource.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "version",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "draftCheck",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftSource.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "draftRead",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftId.json"
+        }
+      },
+      "required": [
+        "action",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "draftUpdate",
+          "type": "string"
+        },
+        "changelog": {
+          "maxLength": 4000,
+          "type": "string"
+        },
+        "checked": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftChecked.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftId.json"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftSource.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "action",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "draftDelete",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftId.json"
+        }
+      },
+      "required": [
+        "action",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "draftPublish",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftId.json"
+        }
+      },
+      "required": [
+        "action",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "listing",
+          "type": "string"
+        },
+        "listing": {
+          "$ref": "https://ace.local/protocol/v1/MarketListingEdit.json"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "listing"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "preview",
+          "type": "string"
+        },
+        "image": {
+          "maxLength": 1400000,
+          "type": "string"
+        },
+        "index": {
+          "maximum": 3,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "index",
+        "image"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "changelog",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "text": {
+          "maxLength": 4000,
+          "type": "string"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "version",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "latest",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "deprecate",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string",
+              "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "version",
+        "note"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "withdraw",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "deleteEntry",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "visibility",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "visibility": {
+          "$ref": "https://ace.local/protocol/v1/MarketVisibility.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "visibility"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "archive",
+          "type": "string"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "archived"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "transfer",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "to": {
+          "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "boolean"
+        },
+        "action": {
+          "const": "transferAnswer",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketTransferId.json"
+        }
+      },
+      "required": [
+        "action",
+        "id",
+        "accept"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "signals",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "verification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "applyVerification",
+          "type": "string"
+        },
+        "domain": {
+          "maxLength": 253,
+          "minLength": 3,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+          "type": "string"
+        },
+        "github": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "checkVerification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "appeal",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "note": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        },
+        "replacement": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
+        "version",
+        "note"
+      ],
+      "type": "object"
+    }
+  ]
+}

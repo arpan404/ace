@@ -1,7 +1,7 @@
 import type { Databases } from "./databases.ts";
 
 /*
- * The quota ledger's reconcile (ADR 0173 §16). A version's bytes are charged to its publisher in
+ * The quota ledger's reconcile (ADR 0174 §16). A version's bytes are charged to its publisher in
  * the publishers database before the version is stored in its catalogue, and only this corrects
  * the ledger. Per publisher it runs as a pass (`usage_passes`), a bounded page at a time: it
  * walks every catalogue's versions the publisher owns that aren't blocked, by item, writing each

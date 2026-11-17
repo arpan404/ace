@@ -8,7 +8,7 @@ import { Stage } from "./market-stage.tsx";
 
 /*
  * Cards (the visual leads, the words sit under it), result rows and the section a shelf sits in.
- * Every card and row opens its entry's page; the byline opens its publisher's page (ADR 0173).
+ * Every card and row opens its entry's page; the byline opens its publisher's page (ADR 0174).
  */
 
 /** Who published it, in a byline's words: ace, a publisher, or a git catalog. */

@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/HoldDecision.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "decision": {
+      "enum": [
+        "approve",
+        "hold"
+      ],
+      "type": "string"
+    },
+    "note": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+    }
+  },
+  "required": [
+    "decision"
+  ],
+  "type": "object"
+}

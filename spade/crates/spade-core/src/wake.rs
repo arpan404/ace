@@ -211,17 +211,15 @@ pub fn open<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<Open> {
                 due_ms,
                 condition,
                 reason,
-            } => {
-                if !open.iter().any(|o| &o.wake == wake) {
-                    open.push(Open {
-                        wake: wake.clone(),
-                        reply: reply.clone(),
-                        purpose: purpose.clone(),
-                        due_ms: *due_ms,
-                        condition: condition.clone(),
-                        reason: reason.clone(),
-                    });
-                }
+            } if !open.iter().any(|o| &o.wake == wake) => {
+                open.push(Open {
+                    wake: wake.clone(),
+                    reply: reply.clone(),
+                    purpose: purpose.clone(),
+                    due_ms: *due_ms,
+                    condition: condition.clone(),
+                    reason: reason.clone(),
+                });
             }
             Known::WakeFired { wake, .. } | Known::WakeCancelled { wake, .. } => {
                 open.retain(|o| &o.wake != wake);

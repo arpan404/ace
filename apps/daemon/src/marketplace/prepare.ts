@@ -32,7 +32,7 @@ import { TurnedOff } from "./turned-off.ts";
 /*
  * Fetching one version for review (ADR 0168 §6, §8). Everything the device decides, it decides
  * itself: the manifest's signature against the keys this build ships, the archive against the
- * manifest, the withdrawn list, the type's checks again on the bytes, then ADR 0173's scan of
+ * manifest, the withdrawn list, the type's checks again on the bytes, then ADR 0174's scan of
  * those exact bytes, whose block refuses whatever the market said. Nothing in the entry
  * runs: bytes are read into memory and checked, never executed.
  */
@@ -119,7 +119,7 @@ export async function prepareEntry(
     throw new Refused(`${name} doesn't pass ace's checks`, { problems: checked.problems });
   if (checked.hash !== fetched.hash)
     throw new Refused("The files don't match the hash they were offered under");
-  // ADR 0173 §8: the device scans the exact bytes it verified, and refuses a block even when
+  // ADR 0174 §8: the device scans the exact bytes it verified, and refuses a block even when
   // the market listed and signed them. Warns and notes go to the review.
   const scan = scanEntry({
     type: entryType,
@@ -233,7 +233,7 @@ async function fromMarket(
       throw new Refused("The review mark is for other bytes");
     reviewed = mark.reviewed;
   }
-  // "By ace" only for the official list's publisher (ADR 0173 §14); the mark's flag is display.
+  // "By ace" only for the official list's publisher (ADR 0174 §14); the mark's flag is display.
   const byAce = ports.badges.official(manifest.publisher.id);
   let files: ArchiveFile[];
   try {

@@ -655,3 +655,64 @@ test("a slow login read never holds up another provider's delegation, and stops 
     await f.close();
   }
 });
+
+test("a delegation placed by limits waits for every candidate's folder, never handing a silent account's work to another", async () => {
+  const db = new DatabaseSync(":memory:"),
+    accounts = new AccountRegistry(db);
+  const h = setup({}, undefined, false, undefined, false, accounts);
+  try {
+    for (const [id, used] of [
+      ["silent", 0],
+      ["working", 60],
+    ] as const) {
+      mkdirSync(join(h.home, id), { recursive: true });
+      await accounts.register(
+        createInstance({ id, provider: "claude", label: id, homeDir: join(h.home, id) }),
+      );
+      accounts.ingest(id, {
+        provider: "claude",
+        payload: new ProviderPayload(
+          JSON.stringify({
+            auth: "logged_in",
+            rate_limits: { five_hour: { utilization: used, resets_at: "2100-01-01T00:00:00Z" } },
+          }),
+        ),
+        observedAt: 1000,
+        timeZone: "UTC",
+      });
+      h.catalog.registerInstance(scriptedModelInstance("claude", h.home, id));
+      await h.catalog.refresh({ instance: id });
+    }
+    // Startup's check of the account with the most room hasn't answered yet.
+    const answer = Promise.withResolvers<void>();
+    void accounts.canonicalizeHomes(undefined, {
+      check: (instance, next) =>
+        instance.id === "silent" ? answer.promise.then(() => next(instance)) : next(instance),
+      patienceMs: 1,
+    });
+    const parent = await h.parent();
+    const request = {
+      requestId: "by-limits",
+      provider: "claude" as const,
+      task: "work",
+      role: "limits-pick-task",
+      wait: false,
+      estimatedLoad: 0,
+    };
+    let prepared = false;
+    const preparing = h.service.prepareModels(parent, request).then(() => (prepared = true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(prepared).toBe(false);
+    // Admission never places it elsewhere meanwhile.
+    expect(() => h.service.delegate(parent, request)).toThrow(/hasn't answered yet/);
+    expect(h.store.listThreads()).toHaveLength(1);
+    answer.resolve();
+    await preparing;
+    const child = h.service.delegate(parent, request);
+    await h.engine.flush();
+    expect(h.contexts.get(child.childId)?.instanceId).toBe("silent");
+  } finally {
+    await h.close();
+    db.close();
+  }
+});

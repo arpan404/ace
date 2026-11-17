@@ -1,0 +1,188 @@
+{
+  "$id": "https://ace.local/protocol/v1/Recipe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "blurb": {
+      "default": "",
+      "maxLength": 300,
+      "type": "string"
+    },
+    "face": {
+      "additionalProperties": {},
+      "propertyNames": {
+        "maxLength": 40,
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "format": {
+      "const": "spade-bot",
+      "type": "string"
+    },
+    "model": {
+      "default": "capable",
+      "enum": [
+        "fast",
+        "capable"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    },
+    "needs": {
+      "additionalProperties": false,
+      "default": {
+        "connectors": []
+      },
+      "properties": {
+        "connectors": {
+          "default": [],
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "$ref": "https://ace.local/protocol/v1/RecipeConnectorId.json"
+                  },
+                  "required": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "why": {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string",
+                    "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+                  }
+                },
+                "required": [
+                  "id",
+                  "why"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "required": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "url": {
+                    "format": "ace-whatwg-url",
+                    "type": "string",
+                    "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+                    "x-ace-url-maxLength": 2048
+                  },
+                  "why": {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string",
+                    "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+                  }
+                },
+                "required": [
+                  "url",
+                  "why"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "notes": {
+      "default": [],
+      "items": {
+        "maxLength": 2000,
+        "type": "string"
+      },
+      "maxItems": 50,
+      "type": "array"
+    },
+    "plugins": {
+      "default": [],
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "routines": {
+      "default": [],
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "instruction": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+          },
+          "schedule": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+          }
+        },
+        "required": [
+          "name",
+          "instruction",
+          "schedule"
+        ],
+        "type": "object"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "skills": {
+      "default": [],
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "task": {
+      "default": "",
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "version": {
+      "const": 2,
+      "type": "number"
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "name"
+  ],
+  "type": "object"
+}

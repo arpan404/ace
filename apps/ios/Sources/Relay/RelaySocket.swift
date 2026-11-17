@@ -49,10 +49,17 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private var welcomed = false
     /// This connection presented a kept grant rather than one fetched for it.
     private var presentedKept = false
+    /// What this dial offers for the first handshake message (ADR 0155); less on each retry.
+    private var offer = RelayShortcut.inUpgrade
+    /// This dial's upgrade succeeded: a failure after it says nothing of the upgrade's header.
+    private var upgraded = false
 
     private enum Phase {
         case connecting
-        case marker(NoiseXX)
+        /// The upgrade is out. The handshake's first message is written, as it may be in the request.
+        case opening(NoiseXX, first: Data)
+        /// Waiting for the readiness marker, then sending `pending` if it hasn't gone yet.
+        case marker(NoiseXX, pending: Data?)
         case responder(NoiseXX)
         case secured(RelaySession)
     }
@@ -108,8 +115,16 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         config.httpCookieStorage = nil
         let session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
         self.session = session
-        // The grant travels as a subprotocol: never in a URL, which logs would keep.
-        let task = session.webSocketTask(with: url, protocols: [RelayRoute.grantPrefix + grant])
+        let (staticKey, ephemeral) = keys()
+        var noise = NoiseXX(initiator: true, staticKey: staticKey, ephemeralKey: ephemeral,
+                            prologue: Self.prologue, pinnedFingerprint: route.hostId)
+        // `-> e`: the ephemeral public key, which may travel in the upgrade (ADR 0155, step 3).
+        guard let first = try? noise.writeMessage() else { finish(1002, cause: "handshake failed"); return }
+        phase = .opening(noise, first: first)
+        upgraded = false
+        // The grant travels as a subprotocol: never in a URL, which logs would keep. Neither it
+        // nor the upgrade entry is ever logged.
+        let task = session.webSocketTask(with: url, protocols: RelayEarly.protocols(grant: grant, first: first, offer: offer))
         task.maximumMessageSize = noiseMaxMessage
         self.task = task
         LaunchTrace.mark("relay.open", url.host ?? "")
@@ -176,9 +191,14 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     }
 
     private func write(_ frame: Data) {
-        task?.send(.data(frame)) { [weak self] error in
+        guard let task else { return }
+        task.send(.data(frame)) { [weak self] error in
             guard let error else { return }
-            self?.queue.addOperation { self?.finish(1006, cause: "send failed (\(Self.describe(error)))") }
+            self?.queue.addOperation { [weak self] in
+                // A dial this socket already replaced says nothing of the current one.
+                guard let self, task === self.task else { return }
+                self.finish(1006, cause: "send failed (\(Self.describe(error)))")
+            }
         }
     }
     /// Seal and write one fragment now: a credit, which never waits for the window.
@@ -201,13 +221,17 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         } catch { finish(1002, cause: "seal failed") }
     }
     private func receive() {
-        task?.receive { [weak self] result in
-            self?.queue.addOperation {
-                guard let self, !self.ended else { return }
+        guard let task else { return }
+        task.receive { [weak self] result in
+            self?.queue.addOperation { [weak self] in
+                guard let self, !self.ended, task === self.task else { return }
                 switch result {
                 case .success(.data(let bytes)): if self.handle(bytes) { self.receive() }
                 case .success: self.finish(1002, cause: "relay sent text") // The relay forwards binary only.
-                case .failure(let error): self.finish(1006, cause: "receive failed (\(Self.describe(error)))")
+                case .failure(let error):
+                    // A close frame ends the receive before its callback: 4020 dials again.
+                    if task.closeCode.rawValue == RelayEarly.lostClose, self.redial(closeCode: RelayEarly.lostClose) { return }
+                    self.finish(1006, cause: "receive failed (\(Self.describe(error)))")
                 }
             }
         }
@@ -216,10 +240,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private func handle(_ bytes: Data) -> Bool {
         do {
             switch phase {
-            case .connecting: finish(1002, cause: "frame before open"); return false
-            case .marker(var noise):
-                guard bytes == Data([1]) else { finish(1002, cause: "bad pairing marker"); return false }
-                write(try noise.writeMessage())
+            case .connecting, .opening: finish(1002, cause: "frame before open"); return false
+            case .marker(let noise, let pending):
+                guard RelayEarly.isMarker(bytes) else { finish(1002, cause: "bad pairing marker"); return false }
+                if let pending { write(pending) }
                 phase = .responder(noise)
             case .responder(var noise):
                 guard try noise.readMessage(bytes).isEmpty else { finish(1002, cause: "bad handshake"); return false }
@@ -310,15 +334,35 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         task = nil; session = nil
     }
 
+    /// One more dial at once, offering less, when this one's failure is one a shortcut caused:
+    /// an upgrade carrying the message that failed before it opened (a proxy's header limit), or
+    /// a held frame the hosted relay lost (4020). Never once the channel is secured. True if it dialled.
+    private func redial(closeCode: Int?) -> Bool {
+        if case .secured = phase { return false }
+        guard !ended, let grant, let next = RelayEarly.retry(after: offer, upgraded: upgraded, closeCode: closeCode) else { return false }
+        Self.log.notice("relay dials again \(next == .early ? "without the message in the upgrade" : "without sending early", privacy: .public)")
+        offer = next
+        task?.cancel(with: .goingAway, reason: nil)
+        session?.invalidateAndCancel()
+        task = nil; session = nil
+        phase = .connecting
+        connect(grant: grant)
+        return true
+    }
+
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
-        guard !ended else { return }
-        let (staticKey, ephemeral) = keys()
-        phase = .marker(NoiseXX(initiator: true, staticKey: staticKey, ephemeralKey: ephemeral,
-                                prologue: Self.prologue, pinnedFingerprint: route.hostId))
+        guard !ended, webSocketTask === task, case .opening(let noise, let first) = phase else { return }
+        upgraded = true
+        switch RelayEarly.first(echoed: `protocol`, offer: offer) {
+        case .taken: phase = .marker(noise, pending: nil)
+        case .now: write(first); phase = .marker(noise, pending: nil)
+        case .afterMarker: phase = .marker(noise, pending: first)
+        }
         receive()
     }
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                     didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        guard webSocketTask === task, !redial(closeCode: closeCode.rawValue) else { return }
         // 4403 (the machine is on another account) reaches the client as is, which reads it as
         // final. 1008 means the machine isn't connected right now: a drop to retry.
         let said = reason.map { String(decoding: $0.prefix(123), as: UTF8.self) } ?? ""
@@ -326,7 +370,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                cause: "relay closed the socket (\(closeCode.rawValue) \(said))")
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let error else { return }
+        guard let error, task === self.task else { return }
+        // Before the upgrade answer; or a close frame whose callback hasn't come yet.
+        let closed = (task as? URLSessionWebSocketTask)?.closeCode.rawValue
+        if redial(closeCode: closed == 0 ? nil : closed) { return }
         // A 403 before the upgrade is a refusal for good; 401 and 503 retry with a fresh grant.
         let status = (task.response as? HTTPURLResponse)?.statusCode
         if status == 401, let grant { route.grants.discard(grant) }

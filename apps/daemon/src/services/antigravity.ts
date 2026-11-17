@@ -145,6 +145,6 @@ export async function registerAntigravityAccount(context: ServiceContext): Promi
       ),
     );
   } catch {
-    /* No row this time (homes still being validated): the next discovery adds it. */
+    /* No row this time (the index or the home couldn't be read): the next discovery adds it. */
   }
 }

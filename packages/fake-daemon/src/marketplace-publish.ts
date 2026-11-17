@@ -1,6 +1,8 @@
 import type {
   MarketDiscover,
   MarketDraft,
+  MarketDraftChecked,
+  MarketDraftSource,
   MarketEntrySummary,
   MarketMe,
   MarketOperation,
@@ -18,7 +20,7 @@ import type {
 import { report } from "@ace/marketplace/scan";
 
 /*
- * Publishing, Discover, publisher pages and reports (ADR 0173) as the fake daemon answers them,
+ * Publishing, Discover, publisher pages and reports (ADR 0174) as the fake daemon answers them,
  * from seeded state: the publisher's page, entries with version statuses, drafts whose scan runs
  * (`scanning` on create, `done` on the next read), publishes held or blocked, signals,
  * verification and transfers. Signed out when seeded so. No market and no network.
@@ -91,6 +93,13 @@ export class FakeMarketPublishing {
   #publishers = new Map<string, MarketPublisherPage>();
   #counter = 0;
   readonly #now: () => number;
+  /** Where each draft's files came from, as the app sent them, oldest first. */
+  readonly sources: {
+    type: string;
+    name: string;
+    source: MarketDraftSource;
+    checked?: MarketDraftChecked | undefined;
+  }[] = [];
   /** Every report the person sent, oldest first. */
   readonly reports: Extract<MarketOperation, { op: "report" }>[] = [];
 
@@ -178,6 +187,12 @@ export class FakeMarketPublishing {
         return ok({ kind: "profile", profile });
       }
       case "draftCreate": {
+        this.sources.push({
+          type: action.type,
+          name: action.name,
+          source: action.source,
+          ...(action.checked ? { checked: action.checked } : {}),
+        });
         const draft: MarketDraft = {
           id: `drf_fake${String(++this.#counter).padStart(4, "0")}`,
           type: action.type,
@@ -203,7 +218,15 @@ export class FakeMarketPublishing {
         if (action.action === "draftUpdate") {
           if (action.version) draft.version = action.version;
           if (action.changelog !== undefined) draft.changelog = action.changelog;
-          if (action.source) draft.scan = { state: "scanning", read: 0, files: draft.files };
+          if (action.source) {
+            this.sources.push({
+              type: draft.type,
+              name: draft.name,
+              source: action.source,
+              ...(action.checked ? { checked: action.checked } : {}),
+            });
+            draft.scan = { state: "scanning", read: 0, files: draft.files };
+          }
           draft.updated = this.#now();
         } else if (draft.scan.state === "scanning")
           // The scan finishes by the next read, as the Worker's steps would.

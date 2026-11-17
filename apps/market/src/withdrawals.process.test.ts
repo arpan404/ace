@@ -64,7 +64,7 @@ describe("withdrawals", () => {
       publisher: "copier",
     });
     expect(copied.status).toBe(201);
-    // Each new publisher's first version is held for a maintainer (ADR 0173 §9).
+    // Each new publisher's first version is held for a maintainer (ADR 0174 §9).
     await approveHeld(market, "spade-bot", "same-bytes");
     await approveHeld(market, "spade-bot", "same-bytes-copy");
     await signPending(io(), marketKey, now, trusted);

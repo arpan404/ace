@@ -7,7 +7,7 @@ import { markUsageDirty } from "./me-limits.ts";
 import { unpinStatement } from "./profiles.ts";
 
 /*
- * Transfers between publishers, appeals and a publisher's own signals (ADR 0173 §5, §16). An
+ * Transfers between publishers, appeals and a publisher's own signals (ADR 0174 §5, §16). An
  * offer lives in its entry's catalogue, so accepting moves the owner only while the offer
  * stands, in one batch. Appeals live in the moderation database. Signals are anonymous totals
  * from the counts database's `downloads_daily`, which the download counting writes; this only
@@ -180,7 +180,7 @@ export async function deleteTransfer(db: D1Database, id: string): Promise<void> 
  * An appeal on a blocked or held version, while the entry is still `publisher`'s; one open
  * appeal per version. The appeal is filed in the moderation database, then the entry's owner is
  * read in its catalogue: an appeal whose entry moved to someone else on the way is taken back,
- * so a former owner's appeal never stands (ADR 0173 §16).
+ * so a former owner's appeal never stands (ADR 0174 §16).
  */
 export async function addAppeal(
   dbs: Pick<Databases, "moderation">,

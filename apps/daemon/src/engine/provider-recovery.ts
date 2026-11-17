@@ -87,10 +87,10 @@ export class ProviderRecovery {
         .parse(Number(this.readCursor.get(threadId)?.offset ?? 0)),
     );
   }
-  committed(threadId: ThreadId, frame: Frame): boolean {
-    if (frame.channel !== "sdk") return false;
-    const offset = Offset.parse(frame.data).boundaryOffset;
-    return offset !== undefined && offset <= this.offset(threadId);
+  /** The boundary an SDK frame commits, if it carries one. Reads nothing. */
+  boundary(frame: Frame): number | undefined {
+    if (frame.channel !== "sdk") return undefined;
+    return Offset.parse(frame.data).boundaryOffset;
   }
   commit(threadId: ThreadId, frame: Frame): void {
     if (frame.channel !== "sdk") return;

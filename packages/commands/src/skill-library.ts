@@ -1,4 +1,10 @@
-import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
+import {
+  SkillOperation,
+  type SkillAgent,
+  type SkillEntry,
+  type SkillResult,
+  type SkillUsage,
+} from "@ace/protocol";
 import { CommandFilesystemUnavailable, writeOutcomeUnknown } from "./posix-ops.ts";
 import { commandCallOwner, commandRootSettled } from "./posix.ts";
 import type { WatchSource } from "./files.ts";
@@ -232,6 +238,22 @@ export class SkillLibrary {
     return skillRoots(this.options.homes)
       .filter((root) => root.scope === "personal")
       .map((root) => root.path);
+  }
+  /**
+   * The personal skills the person wrote, with their real folders: what ace's marketplace can
+   * publish (ADR 0174 §2). Builtin, plugin, project and `skills` CLI installs aren't theirs.
+   */
+  async publishable(): Promise<{ entry: SkillEntry; folder: string }[]> {
+    if (this.closed) return [];
+    return (await this.listAll(undefined))
+      .filter(
+        (listed) =>
+          listed.entry.scope === "personal" &&
+          listed.entry.editable &&
+          !listed.entry.source &&
+          listed.place.canonical !== undefined,
+      )
+      .map((listed) => ({ entry: listed.entry, folder: listed.place.real }));
   }
   /** Sources outside the watched folders changed, such as installed plugins. */
   invalidate(): void {

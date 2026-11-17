@@ -2,7 +2,7 @@ import { logFields } from "@ace/diagnostics";
 import { ProviderAccountsRequest } from "@ace/protocol";
 import { providerAccounts } from "../provider-accounts.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
-import { warmup } from "./warmup.ts";
+import { repeatableWarmup } from "./warmup.ts";
 import { AccountManagementRequest, type AccountsResponse } from "@ace/protocol/accounts";
 import type { ProviderLoginSessions } from "@ace/accounts";
 import { AccountManagement, freshLimitsWaitMs, limitsRefreshMs } from "../account-management.ts";
@@ -13,30 +13,44 @@ import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAccounts(context: ServiceContext) {
   const { config, resources, services, now, options } = context;
+  // Only the index is opened here. Each saved home is checked after (ADR 0175): an account whose
+  // folder hasn't answered reads as checking, and work bound to it waits; nothing else does.
   const registry = await openRegistryIndex(
     process.env.ACE_ACCOUNTS_DB ?? join(config.dataDir, "accounts.sqlite"),
     context.signal,
     config.dataDir,
+    options.accounts?.homeChecks ?? {},
   );
-  const validation = registry.ready;
-  resources.own(async () => {
-    try {
-      await validation;
-    } finally {
-      registry.close();
-    }
+  // Each check commits in one synchronous transaction, so closing never cuts one short; a check
+  // still waiting on a silent folder never holds up shutdown.
+  resources.own(() => registry.close(), "account registry");
+  const reported = new Set<string>();
+  const report = (id: string) => {
+    const reason = registry.isChecking(id)
+      ? undefined
+      : registry.get(id)?.quota.blockers.homeUnavailable;
+    if (!reason || reported.has(id)) return;
+    reported.add(id);
+    context.log.log(
+      "warn",
+      "Account folder unavailable",
+      logFields([
+        ["instance", id],
+        ["reason", reason],
+      ]),
+    );
+  };
+  const stopReports = registry.subscribeQuota(report);
+  resources.own(() => stopReports());
+  void registry.firstPass.then(() => {
+    for (const account of registry.list())
+      if (registry.isChecking(account.instance.id))
+        context.log.log(
+          "warn",
+          "Account folder not answering",
+          logFields([["instance", account.instance.id]]),
+        );
   });
-  await validation;
-  for (const account of registry.summaries(now()))
-    if (account.quota.blockers.homeUnavailable)
-      context.log.log(
-        "warn",
-        "Account folder unavailable",
-        logFields([
-          ["instance", account.id],
-          ["reason", account.quota.blockers.homeUnavailable],
-        ]),
-      );
   services.accountRegistry = registry;
   services.accounts = new AccountService({
     registry,
@@ -55,6 +69,7 @@ export async function startAccounts(context: ServiceContext) {
     cursorEnv: options.engine?.cursor?.env ?? process.env,
     resolveAcpLogin: (identity, env) =>
       services.agentRegistry?.resolveLogin(identity, env) ?? Promise.resolve(undefined),
+    ...(options.accounts?.homeWait ? { homeWait: options.accounts.homeWait } : {}),
     freshen: (signal) =>
       services.accountManagement?.limits.fresh(freshLimitsWaitMs, signal) ?? Promise.resolve(),
   });
@@ -115,7 +130,7 @@ export function startAccountManagement(context: ServiceContext): void {
     },
   });
   services.accountManagement = management;
-  const initialized = warmup(context, "accountManagement", () => management.initialize());
+  const initialized = repeatableWarmup(context, "accountManagement", () => management.initialize());
   // Re-read limits well within the staleness window while they matter (a held thread, working
   // agents, a client reading them), so an account that reset or bought more lets its held
   // threads go without anyone asking; otherwise only once a known reset has passed.

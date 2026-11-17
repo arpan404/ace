@@ -42,7 +42,7 @@ export const CloudGrantClaims = GrantClaims.extend({
 });
 export type CloudGrantClaims = z.infer<typeof CloudGrantClaims>;
 /**
- * A publisher's grant for ace's marketplace (ADR 0168 §7, ADR 0173 §2), from a machine or a
+ * A publisher's grant for ace's marketplace (ADR 0168 §7, ADR 0174 §2), from a machine or a
  * device. The relay and ace cloud refuse it, and the market refuses theirs: each parser is strict
  * about its own. `iss` names the backend that minted it, `emailVerified` what WorkOS said of the
  * account's email, and `authAt` when the session behind it signed in, for actions that need a
@@ -218,6 +218,25 @@ export function grantLifetimeMs(token: string): number | undefined {
       JSON.parse(new TextDecoder().decode(decodeBase64url(body))),
     );
     return claims.exp - claims.iat;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * How long before a market grant was issued its sign-in happened (`iat - authAt`), read without
+ * checking the signature: the daemon reads it from a grant it just took from its own account
+ * backend, to apply ADR 0174 §2's ten-minute rule before a person-only action. Both times are
+ * the backend's, so this machine's clock doesn't enter into it. Undefined for any other grant or
+ * a malformed one.
+ */
+export function grantSignInAge(token: string): number | undefined {
+  try {
+    const body = token.split(".")[0] ?? "";
+    const claims = MarketGrantClaims.parse(
+      JSON.parse(new TextDecoder().decode(decodeBase64url(body))),
+    );
+    return claims.iat - claims.authAt;
   } catch {
     return undefined;
   }

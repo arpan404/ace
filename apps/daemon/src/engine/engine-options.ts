@@ -18,6 +18,11 @@ export interface EngineOptions {
    */
   previousProcessesUnverified?: boolean;
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
+  /**
+   * Settles once provider CLIs have been read. Restart recovery waits for it, so whether an
+   * interrupted turn can continue is decided against the providers actually installed.
+   */
+  providersActivated?: Promise<void>;
   onModelUnavailable?(
     provider: import("@ace/protocol").ProviderKind,
     model: string,
@@ -44,6 +49,8 @@ export interface EngineOptions {
   prepareWorkspace?(threadId: ThreadId, options: { runCommands: boolean }): Promise<string>;
   assertWorkspaceAvailable?(cwd: string, threadId: ThreadId): Promise<void>;
   machine?: { host: string; name: string };
+  /** The daemon's data dir, given to agent sessions as `ACE_HOME` (ADR 0176 §10). */
+  agentHome?: string;
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
   threadId?: () => string;

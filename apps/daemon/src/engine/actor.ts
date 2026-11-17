@@ -42,6 +42,13 @@ export const systemClock: EngineClock = {
 };
 
 /** Frame folding never waits for provider I/O. One mailbox orders frames and ticks. */
+/** A Cursor frame's journal writes: provenance, its raw chunk and the boundary cursor. */
+interface CursorJournalEntry {
+  frame: Frame;
+  /** A send on a settled thread starts a turn, which trims older provenance first. */
+  beginsTurn: boolean;
+}
+
 export class ThreadActor {
   readonly id: ThreadId;
   translator: Translator | undefined;
@@ -351,7 +358,9 @@ export class ThreadActor {
     const bytes = this.pendingBytes;
     this.pendingFrames = [];
     this.pendingBytes = 0;
-    let translatedFacts: Fact[] | undefined;
+    // Translation runs once: translators keep state. A retry after a rollback reuses these facts
+    // and writes the Cursor journal again, since that rolled back with the rest.
+    let translated: { facts: Fact[]; journal: CursorJournalEntry[] } | undefined;
     // A retried batch never streams its facts a second time.
     let streamedFacts: boolean | undefined;
     let statusBefore: ThreadState["status"] | undefined;
@@ -364,13 +373,12 @@ export class ThreadActor {
           this.repo.backend(this.id) === "cursor-sdk";
         const fold = () => {
           const before = (statusBefore ??= this.repo.requireState(this.id).status);
-          const facts = (translatedFacts ??= markYieldedEnd(
-            live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk)),
-            this.repo.requireState(this.id),
-            // A Stop the person asked for always wins over a steer sent in the same stretch.
-            // Without a steer there is nothing to yield to, so the queue isn't read.
-            this.steerYield && !this.repo.queue.get(this.id).paused ? this.steerYield : undefined,
-          ));
+          translated ??= this.translateBatch(
+            live.map((entry) => entry.frame),
+            cursorSdk,
+          );
+          this.writeCursorJournal(translated.journal);
+          const facts = translated.facts;
           const toolBoundary = facts.some(
             (fact) =>
               (fact.type === "item.upsert" && fact.draft.type === "tool_call") ||
@@ -433,26 +441,58 @@ export class ThreadActor {
       },
     );
   }
-  private translateFrame(decoded: Frame, cursorBackend: boolean): Fact[] {
-    const cursorSdk = decoded.channel === "sdk" && cursorBackend;
-    if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return [];
-    if (
-      cursorSdk &&
-      CursorSend.safeParse(decoded.data).success &&
-      this.repo.quiescent(this.repo.requireState(this.id))
-    )
-      this.repo.recovery.beginTurn(this.id);
+  /**
+   * A batch's facts and the Cursor journal writes they need, without writing anything: a write
+   * that fails rolls back, and the retry writes the journal again but must not translate again.
+   */
+  private translateBatch(
+    frames: Frame[],
+    cursorBackend: boolean,
+  ): { facts: Fact[]; journal: CursorJournalEntry[] } {
+    const journal: CursorJournalEntry[] = [];
+    // The boundary the journal will have reached at each frame: an earlier frame of the batch
+    // may commit the boundary a later duplicate carries.
+    let offset: number | undefined;
+    const facts = frames.flatMap((frame) => {
+      if (!(frame.channel === "sdk" && cursorBackend)) return this.translateFrame(frame);
+      const boundary = this.repo.recovery.boundary(frame);
+      offset ??= this.repo.recovery.offset(this.id);
+      if (boundary !== undefined && boundary <= offset) return [];
+      journal.push({
+        frame,
+        beginsTurn:
+          CursorSend.safeParse(frame.data).success &&
+          this.repo.quiescent(this.repo.requireState(this.id)),
+      });
+      if (boundary !== undefined) offset = boundary;
+      return this.translateFrame(frame);
+    });
+    return {
+      facts: markYieldedEnd(
+        facts,
+        this.repo.requireState(this.id),
+        // A Stop the person asked for always wins over a steer sent in the same stretch.
+        // Without a steer there is nothing to yield to, so the queue isn't read.
+        this.steerYield && !this.repo.queue.get(this.id).paused ? this.steerYield : undefined,
+      ),
+      journal,
+    };
+  }
+  /** The outer mailbox transaction commits provenance, offsets and facts together. */
+  private writeCursorJournal(journal: CursorJournalEntry[]): void {
+    for (const { frame, beginsTurn } of journal) {
+      if (beginsTurn) this.repo.recovery.beginTurn(this.id);
+      const body = sdkBody.safeParse(frame.data);
+      if (body.success && body.data.kind === "blob")
+        this.repo.store.appendRawChunk(this.id, body.data.body);
+      this.repo.captureFrame(this.id, frame);
+      this.repo.recovery.commit(this.id, frame);
+    }
+  }
+  private translateFrame(decoded: Frame): Fact[] {
     const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
     const raw = this.translator?.takeDiagnostics?.() ?? [];
     if (raw.length) this.diagnostic?.(this.id, raw);
-    if (cursorSdk) {
-      const body = sdkBody.safeParse(decoded.data);
-      if (body.success && body.data.kind === "blob")
-        this.repo.store.appendRawChunk(this.id, body.data.body);
-      this.repo.captureFrame(this.id, decoded);
-      // The outer mailbox transaction commits provenance, offsets and facts together.
-      this.repo.recovery.commit(this.id, decoded);
-    }
     // Only a usage fact carries the account, so the session row is read only for a frame with one.
     const accountId = facts.some((fact) => fact.type === "usage")
       ? (decoded.usageAccount?.id ?? this.repo.session(this.id).instanceId)

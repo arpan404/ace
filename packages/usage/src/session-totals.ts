@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync as Database } from "@ace/provider-kit/sqlite";
 import type { UsageUpdated } from "@ace/protocol";
+import type { UsageEvent } from "./events.ts";
 
 export { UsageSessionTotal as SessionTotal } from "@ace/protocol";
 import {
@@ -64,5 +66,36 @@ export class SessionTotals {
   }
   delete(thread: string): void {
     this.remove.run(thread);
+  }
+}
+
+/**
+ * One thread's inclusive totals folded from its own compact samples, by the rule the projection
+ * keeps (`observe` per sample, then `list`), in a database that lives for this fold. Samples are
+ * added a slice at a time, so the caller can yield between slices and nothing holds the whole
+ * thread; it writes nothing, so it can answer while the replay is behind. Close it when done.
+ */
+export class SessionTotalsFold {
+  private readonly db = new Database(":memory:");
+  private readonly totals: SessionTotals;
+  private readonly request: z.infer<typeof SessionTotalsRequest>;
+  constructor(query: unknown) {
+    this.request = SessionTotalsRequest.parse(query);
+    this.totals = new SessionTotals(this.db);
+  }
+  add(events: Iterable<UsageEvent>): void {
+    for (const { threadId, at, payload } of events)
+      if (
+        threadId === this.request.thread &&
+        payload.type === "usage.updated" &&
+        (payload.usageScope === "provider_session" || payload.usageScope === "model_session")
+      )
+        this.totals.observe(threadId, at, payload);
+  }
+  list() {
+    return this.totals.list(this.request);
+  }
+  close(): void {
+    this.db.close();
   }
 }

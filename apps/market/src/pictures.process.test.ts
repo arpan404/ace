@@ -22,7 +22,7 @@ const writeArchiveSize = (files: Parameters<typeof writeArchive>[0]) =>
   writeArchive(files).byteLength;
 
 /*
- * Avatars and listing pictures (ADR 0173 §3, §5, §9) against the market's D1 and R2: their bytes
+ * Avatars and listing pictures (ADR 0174 §3, §5, §9) against the market's D1 and R2: their bytes
  * count against the publisher's quota, a bad picture slot writes nothing, and the cron collects
  * pictures nothing names once the grace period has passed, never one an upload charged again
  * while the cron was on its way to deleting it.

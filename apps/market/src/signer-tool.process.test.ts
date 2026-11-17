@@ -67,7 +67,7 @@ it("signs what passed, lists it, and a device verifies the bytes it fetches", as
       })
     ).status,
   ).toBe(201);
-  // A new publisher's first version is held for a maintainer (ADR 0173 §9).
+  // A new publisher's first version is held for a maintainer (ADR 0174 §9).
   await approve(market, { type: "spade-skill", name: "signed-skill", files: [] });
   const report = await signPending(io, marketKey, now, keySetOf(marketKey));
   expect(report.signed).toContain("spade-skill/signed-skill@1.0.0");

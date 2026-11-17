@@ -22,7 +22,7 @@ import {
 import { addWithdrawals, type SignerIo } from "./signer-io.ts";
 
 /*
- * The maintainers' signed lists (ADR 0173 §8, §10, §13, §14): each command reads the list as
+ * The maintainers' signed lists (ADR 0174 §8, §10, §13, §14): each command reads the list as
  * last signed (checked against the trusted keys, so a rotation keeps working), changes it, signs
  * it whole with a newer `issued` and uploads it with the `issued` it read; when another
  * maintainer's edit landed in between the Worker answers 409 and the command is run again. Revoking every live version of a publisher signs

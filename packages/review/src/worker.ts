@@ -77,10 +77,14 @@ const service = new ReviewService({
 port.on("message", (input: unknown) => {
   const message = WorkerInput.parse(input);
   if (message.type === "close") {
-    void service.close().then(() => {
-      port.postMessage({ type: "closed" });
-      port.close();
-    });
+    // The main thread waits for "closed": a close that failed still answers it.
+    void service
+      .close()
+      .catch(() => {})
+      .then(() => {
+        port.postMessage({ type: "closed" });
+        port.close();
+      });
     return;
   }
   if (message.type === "execution") {

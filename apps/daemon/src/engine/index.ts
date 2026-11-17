@@ -185,6 +185,7 @@ export class Engine {
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
+      ...(options.agentHome ? { agentHome: options.agentHome } : {}),
       repo: this.repo,
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
       ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
@@ -400,8 +401,9 @@ export class Engine {
       );
     const recovery = this.recovery;
     const repo = this.repo;
-    if (options.recovery?.preferences || options.models) {
+    if (options.recovery?.preferences || options.models || options.providersActivated) {
       this.readyPromise = (async () => {
+        await options.providersActivated;
         await recovery.prepare();
         for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
         models.migrateCachedDefaults();
@@ -872,12 +874,16 @@ export class Engine {
   }
   /** A host operation failed after its command was accepted: show the error in the thread. */
   hostError(threadId: ThreadId, key: string, text: string): void {
+    this.hostNotice(threadId, key, text, "error");
+  }
+  /** What a host operation the person ran did, as a notice in the thread. */
+  hostNotice(threadId: ThreadId, key: string, text: string, level: "info" | "error"): void {
     this.actor(threadId).apply([
       {
         type: "item.upsert",
         agent: this.repo.requireState(threadId).rootKey ?? "root",
         item: key,
-        draft: { type: "notice", level: "error", text, complete: true },
+        draft: { type: "notice", level, text, complete: true },
       },
     ]);
   }

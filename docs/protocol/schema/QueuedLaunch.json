@@ -19,6 +19,12 @@
     },
     "text": {
       "type": "string"
+    },
+    "waitingFor": {
+      "enum": [
+        "storage"
+      ],
+      "type": "string"
     }
   },
   "required": [

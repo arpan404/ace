@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus-malicious.ts";
 
 /*
- * Data-flow samples for the round-3 review (ADR 0173 §8): sensitive modules reached through an
+ * Data-flow samples for the round-3 review (ADR 0174 §8): sensitive modules reached through an
  * indirection the literal `process.env` pattern missed (`require`, `import`, destructuring,
  * `Reflect.get`, `globalThis`), reads the scanner can't resolve, and executable code it can't
  * parse. Every sample is inert: small strings, hosts under the reserved `.invalid` domain, and

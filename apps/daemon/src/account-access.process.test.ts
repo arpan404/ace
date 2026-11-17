@@ -103,6 +103,8 @@ async function signedInDaemon() {
   }
   return {
     root,
+    store,
+    now,
     account,
     backend,
     host,
@@ -387,6 +389,46 @@ it("a session the backend no longer knows signs the machine out when it asks for
   await expect(daemon.account.machineGrant(daemon.host.hostId)).rejects.toThrow();
   expect(daemon.account.status().signedIn).toBe(false);
   expect(refusal((await daemon.open()).first)).toBe("unauthorized");
+});
+
+it("a running machine renews its session and stays signed in past the first expiry", async () => {
+  const daemon = await signedInDaemon();
+  const first = daemon.account.status().expiresAt ?? 0;
+  daemon.advance(23 * 60 * 60_000);
+  await daemon.account.renew();
+  daemon.advance(2 * 60 * 60_000);
+  expect(daemon.now()).toBeGreaterThan(first);
+  expect(daemon.account.status().signedIn).toBe(true);
+  await expect(daemon.account.machineGrant(daemon.host.hostId)).resolves.toBeTruthy();
+  const stored = StoredSession.parse(
+    JSON.parse(await readFile(join(daemon.root, "ace-account.json"), "utf8")),
+  );
+  expect(stored.expiresAt).toBeGreaterThan(first);
+});
+
+it("a restarted machine whose session lapsed here but lives at the backend is signed in again", async () => {
+  const daemon = await signedInDaemon();
+  // The machine was off for two days; the session was renewed elsewhere meanwhile.
+  daemon.advance(2 * 86_400_000);
+  expect(daemon.account.status().signedIn).toBe(false);
+  const restarted = machineAccount({
+    dataDir: daemon.root,
+    codes: daemon.store.machineCodes,
+    fetch: globalThis.fetch,
+    now: daemon.now,
+    randomBytes,
+    delay: () => () => {},
+  });
+  cleanup.push(() => restarted.close());
+  await restarted.load();
+  await expect.poll(() => restarted.status().signedIn).toBe(true);
+});
+
+it("a session the backend no longer knows signs a running machine out when it renews", async () => {
+  const daemon = await signedInDaemon();
+  daemon.backend.revoke(daemon.backend.token);
+  await daemon.account.renew();
+  expect(daemon.account.status().signedIn).toBe(false);
 });
 
 /** A daemon serving its own sockets, signed in to the fake backend's account. */

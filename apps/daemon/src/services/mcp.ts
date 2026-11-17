@@ -12,6 +12,7 @@ import {
   agentControlToolkit,
   knowledgeToolkit,
   guideToolkit,
+  marketToolkit,
   PublicToolError,
   SuitPreviews,
   suitToolkit,
@@ -156,6 +157,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       }),
       handoffToolkit(store),
       suitToolkit(suitPreviews),
+      // The market as the asking thread (ADR 0176 §12.5): person-only actions become requests.
+      marketToolkit({
+        async request(caller, operation) {
+          const market = services.marketAgent;
+          if (!market)
+            return { op: "error", code: "unavailable", message: "The marketplace isn't ready yet" };
+          return market.forAgent(caller.threadId, operation);
+        },
+      }),
       // The shipped skills, on demand, for every provider (Claude and Codex also get them natively).
       guideToolkit(await builtinGuides()),
       knowledgeToolkit(knowledge),

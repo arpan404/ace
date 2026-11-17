@@ -48,14 +48,14 @@ async function surfaces(
     return first?.type === "text" ? z.unknown().parse(JSON.parse(first.text)) : result.content;
   };
   const sim = async (...words: string[]) => {
-    const output = await invoke(home, ["sim", ...words, "--thread", f.caller.threadId]);
+    const output = await invoke(home, ["sim", ...words, "--thread", f.caller.threadId, "--json"]);
     return {
       code: output.code,
       stderr: output.stderr,
       json: z.unknown().parse(JSON.parse(output.stdout)),
     };
   };
-  return { ...fake, home, mcp, sim };
+  return { ...fake, home, mcp, sim, thread: f.caller.threadId };
 }
 
 it("ace sim drives a simulator with the same results, refs and leases as the sim_* tools", () =>
@@ -150,6 +150,17 @@ it("ace sim refuses without a thread and teaches refs first in its help", () =>
     expect(help.stdout).toContain("Refs first");
     expect(help.stdout).toContain("ace sim act SIM tap @e3");
     const missing = await invoke(h.home, ["sim", "list", "--json"]);
-    expect(missing.code).toBe(4);
+    expect(missing.code).toBe(64);
     expect(missing.stdout).toContain("--thread");
+  }));
+
+it("ace sim list in an agent's shell uses ACE_THREAD_ID for its thread", () =>
+  scenario(async (h) => {
+    const own = await invoke(h.home, ["sim", "list", "--json"], "", { ACE_THREAD_ID: h.thread });
+    expect(own.code, own.stderr).toBe(0);
+    expect(JSON.parse(own.stdout)).toEqual(await h.mcp("sim_list"));
+    // Words by default, for a model to read.
+    const words = await invoke(h.home, ["sim", "list"], "", { ACE_THREAD_ID: h.thread });
+    expect(words.code, words.stderr).toBe(0);
+    expect(() => JSON.parse(words.stdout)).toThrow();
   }));

@@ -25,6 +25,7 @@ import { delegationEffort, selectedDelegationModel } from "./models.ts";
 import { AgentControlError } from "./failure.ts";
 import type { DelegationDependencies } from "./delegations.ts";
 import { matchAccountName, registeredAccounts } from "./account-names.ts";
+import { assertChecked, delegationCandidates } from "./account-checks.ts";
 
 /** A refused account: code `account_unavailable`, with the reason the agent may read. */
 function unavailable(reason: string): AgentControlError {
@@ -76,7 +77,7 @@ export function namedAccountId(
       `Account ${name} does not belong to ${words}; it belongs to ${providerNames[match.account.provider]}`,
     );
   if ("account" in match) return match.account.id;
-  // Accounts whose homes are still being validated aren't listed yet; their id is checked later.
+  // An id the name list missed (it couldn't be read) is checked again at admission.
   if (deps.accounts?.get(name)) return name;
   throw unavailable(`No ${words} account has "${name}" as its id or label`);
 }
@@ -180,6 +181,9 @@ export function delegationSelection(
 ) {
   const provider = AccountProvider.safeParse(input.provider === "acp" ? undefined : input.provider);
   const accountId = namedAccountId(deps, input);
+  // A candidate still being checked is never passed over for another account.
+  if (deps.accounts)
+    assertChecked(deps.accounts, delegationCandidates(deps.accounts, input, accountId));
   const candidates = provider.success
     ? (deps.accounts
         ?.list()

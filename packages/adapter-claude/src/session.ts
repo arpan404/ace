@@ -56,7 +56,8 @@ export async function openSession(
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "turn") throw new Error("Claude requires a native message boundary");
   ctx.signal.throwIfAborted();
-  const env = { ...process.env, ...options.env, ...ctx.env };
+  // One Claude Code process per session: its Bash tool inherits the agent's variables (§10).
+  const env = { ...process.env, ...options.env, ...ctx.env, ...ctx.agentEnv };
   const executable = await findExecutable(ctx.executable ?? options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
   const version = await versions.read(executable, async () => {

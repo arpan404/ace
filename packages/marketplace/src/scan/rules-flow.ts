@@ -4,7 +4,7 @@ import type { EntryRule, ScriptRule } from "./rule.ts";
 import type { ScriptView } from "./script-view.ts";
 
 /*
- * Data-flow rules (ADR 0173 §8): sensitive sources (the environment, env files, keychains, SSH
+ * Data-flow rules (ADR 0174 §8): sensitive sources (the environment, env files, keychains, SSH
  * and cloud credentials, home files) followed through a file to a network sink (`dataflow.ts`),
  * for JavaScript and TypeScript through a real parser and for Python and shell by line patterns.
  * Code that reads a sensitive source and reaches the network, where the flow can't be ruled out,
@@ -58,7 +58,7 @@ const local =
   /^(?:localhost|127\.\d+\.\d+\.\d+|\[?::1\]?|0\.0\.0\.0)$|\.(?:invalid|example|test|localhost)$|^example\.(?:com|org|net)$/;
 
 /**
- * A skill that talks to a host (ADR 0173 §8): shown and held for a new publisher, the way a
+ * A skill that talks to a host (ADR 0174 §8): shown and held for a new publisher, the way a
  * plugin's undeclared hosts are. A skill declares no hosts, so every host it reaches is noted.
  */
 const skillHosts: EntryRule = {

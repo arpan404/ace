@@ -16,11 +16,12 @@
           "user",
           "update",
           "kill",
-          "stop"
+          "stop",
+          "storage"
         ],
         "type": "string"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "type": "array"
     },
     "waiting": {

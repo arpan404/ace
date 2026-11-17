@@ -30,6 +30,11 @@ const PreviousModel = z.object({
   variant: z.string().optional(),
 });
 const InterruptResult = z.object({ interrupted: z.boolean() });
+/** Lifecycle notes that still reach the thread after the session closed. */
+function endingNote(type: unknown): boolean {
+  return type === "exited" || type === "stop-failed";
+}
+
 export class OpenCodeSession implements ProviderSession {
   /** ace's MCP server in each location this session uses; absent without ace's tools. */
   private aceLocations: AceMcpLocations | undefined;
@@ -45,6 +50,9 @@ export class OpenCodeSession implements ProviderSession {
   private started: number;
   private opening = true;
   private closed = false;
+  /** The one close: every caller, voided or awaited, settles with its outcome. */
+  private closing: Promise<void> | undefined;
+  private stopFailureNoted = false;
   private exitReported = false;
   private recovering = false;
   private openingBuffer: unknown[] = [];
@@ -133,7 +141,7 @@ export class OpenCodeSession implements ProviderSession {
       },
     });
     this.abortListener = () => {
-      void this.close("shutdown");
+      void this.close("shutdown").catch((error: unknown) => this.noteStopFailure(error));
     };
   }
   static async open(ctx: SessionContext, server: OpenCodeServer): Promise<OpenCodeSession> {
@@ -173,7 +181,7 @@ export class OpenCodeSession implements ProviderSession {
       },
       exited: (deliberate, message) => {
         s.reportExit(deliberate, message);
-        void s.close("shutdown");
+        void s.close("shutdown").catch((error: unknown) => s.noteStopFailure(error));
       },
     });
     ctx.signal.addEventListener("abort", s.abortListener, { once: true });
@@ -251,8 +259,21 @@ export class OpenCodeSession implements ProviderSession {
       throw failure;
     }
   }
+  /**
+   * A stop nobody awaits (this session's voided close, or the adapter's server release on exit)
+   * failed: noted once per session, after close too. Awaited closes still reject with it.
+   */
+  noteStopFailure(error: unknown): void {
+    if (this.stopFailureNoted) return;
+    this.stopFailureNoted = true;
+    this.emit("note", "lifecycle", {
+      type: "stop-failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
-    if (this.closed && !(channel === "lifecycle" && object(data).type === "exited")) return;
+    // Once closed, only the session's own ending is recorded: its exit, and a stop that failed.
+    if (this.closed && !(channel === "lifecycle" && endingNote(object(data).type))) return;
     const t = Math.round(this.server.runtime.monotonic() - this.started);
     const encoded = JSON.stringify(this.server.redact(data));
     const bearer = this.ctx.aceMcp?.bearer;
@@ -504,10 +525,14 @@ export class OpenCodeSession implements ProviderSession {
     this.emit("note", "lifecycle", { type: "exited", deliberate, message });
     this.ctx.onExit({ deliberate, ...(message ? { message } : {}) });
   }
-  async close(reason: "idle" | "user" | "shutdown"): Promise<void> {
-    if (this.closed) return;
+  close(reason: "idle" | "user" | "shutdown"): Promise<void> {
+    if (this.closing) return this.closing;
     if (reason === "idle" && !this.translator.isSettled())
-      throw new Error("Cannot idle-close unsettled OpenCode session");
+      return Promise.reject(new Error("Cannot idle-close unsettled OpenCode session"));
+    this.closing = this.shutdown(reason);
+    return this.closing;
+  }
+  private async shutdown(reason: "idle" | "user" | "shutdown"): Promise<void> {
     this.closed = true;
     this.controller.abort();
     this.unsubscribe();

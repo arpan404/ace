@@ -29,6 +29,9 @@ async function queued() {
 const stillStarting = () => {
   throw controlAdmissionError("engine_starting");
 };
+const providerOff = () => {
+  throw controlAdmissionError("provider_disabled");
+};
 
 test("a child launched while the engine is still starting waits in the queue instead of being refused", async () => {
   const { queue, children } = await queued();
@@ -69,4 +72,26 @@ test("a drain while the engine is still starting leaves every child queued, and 
   if (!last) throw new Error("Missing child");
   expect(queue.has(last)).toBe(true);
   expect(failed).toEqual([]);
+});
+
+test("a start the full disk rolls back leaves every child queued, while a start refused for good still fails", async () => {
+  const { store, queue, children } = await queued();
+  const failed: ThreadId[] = [];
+  const disk = store.atomic((db) => db);
+  disk.exec(`PRAGMA max_page_count=${Number(disk.prepare("PRAGMA page_count").get()?.page_count)}`);
+  // The start writes what a launch records; the capped file has no room for it.
+  const write = () => {
+    disk.prepare("CREATE TABLE IF NOT EXISTS started (x BLOB)").run();
+    disk.prepare("INSERT INTO started VALUES (randomblob(1048576))").run();
+    return "started" as const;
+  };
+  expect(drainLaunches(store, queue, "parent", 2, write, (child) => failed.push(child))).toBe(
+    "later",
+  );
+  expect(failed).toEqual([]);
+  for (const child of children) expect(queue.has(child)).toBe(true);
+
+  disk.exec("PRAGMA max_page_count=1073741823");
+  drainLaunches(store, queue, "parent", 1, providerOff, (child) => failed.push(child));
+  expect(failed).toEqual(children);
 });

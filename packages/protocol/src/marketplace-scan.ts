@@ -2,7 +2,7 @@ import { z } from "zod";
 import { MarketHash } from "./marketplace-base.ts";
 
 /*
- * The scan report (ADR 0173 §8): what `@ace/marketplace`'s scanner says about an entry's bytes or
+ * The scan report (ADR 0174 §8): what `@ace/marketplace`'s scanner says about an entry's bytes or
  * a listing edit, on the Worker, in the signer and on the device. Each check answers pass, warn
  * or block from its findings; each finding is one plain sentence. Schema only.
  */
@@ -35,7 +35,7 @@ export const MarketScanFinding = z.strictObject({
   line: z.number().int().positive().optional(),
   /** One sentence the publisher and the person read. */
   message: z.string().min(1).max(500),
-  /** Holds a new publisher's version even as a note (ADR 0173 §9). */
+  /** Holds a new publisher's version even as a note (ADR 0174 §9). */
   strict: z.boolean().optional(),
 });
 export type MarketScanFinding = z.infer<typeof MarketScanFinding>;
@@ -62,7 +62,7 @@ export const MarketScanReport = z.strictObject({
   findings: z.array(MarketScanFinding).max(500),
   /**
    * The version carries runnable content: a scene, a script, a hook, a server command, a binary,
-   * or instructions that run commands (ADR 0173 §8). A runnable version is held for a maintainer
+   * or instructions that run commands (ADR 0174 §8). A runnable version is held for a maintainer
    * on scan pass alone, whatever the publisher; only pure data lists without review.
    */
   runnable: z.boolean(),

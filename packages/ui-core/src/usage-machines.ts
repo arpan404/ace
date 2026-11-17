@@ -55,6 +55,17 @@ export function usageCoverage(machines: readonly UsageMachine[]): UsageCoverage 
   return { counted, total, complete, line: [...head, ...said].join(" · "), missing };
 }
 
+/**
+ * One sentence while any counted machine's daemon is still counting older history into its
+ * figures (`UsageResult.filling`), so totals will grow; null when every figure is complete.
+ * Among several machines it names the ones still counting.
+ */
+export function usageFillingLine(filling: readonly string[], machines: number): string | null {
+  if (filling.length === 0) return null;
+  const which = machines > 1 ? ` on ${joinNames(filling)}` : "";
+  return `Usage${which} is still being counted; totals will grow.`;
+}
+
 /** One machine's accounts as the Usage page lists them; undefined while they load. */
 export interface MachineAccounts {
   id: string;
