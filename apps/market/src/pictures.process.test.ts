@@ -146,7 +146,7 @@ it("an orphaned avatar the cron has claimed is kept when an upload charges that 
 
   // An upload of those very bytes charges the key (its bytes are already there) before the
   // cron's next run.
-  expect(await reserve(racer.id, key, past + 1_000)).toBe(true);
+  expect(await reserve(racer.id, key, past + 1_000)).toBe("stored");
   expect(await tombstone(key)).toBeNull();
 
   await sweep(past + pictureClaimMs + 60_000);
@@ -171,7 +171,7 @@ it("an upload that lands while the cron deletes its object is refused until the 
 
   // An upload of the same bytes arrives in the moment between the cron's last check and its
   // delete from R2: it must not be charged, or it would name bytes about to vanish.
-  const during: boolean[] = [];
+  const during: string[] = [];
   const objects = new Proxy(market.objects, {
     get(target, name, receiver) {
       if (name !== "delete") return Reflect.get(target, name, receiver);
@@ -182,9 +182,9 @@ it("an upload that lands while the cron deletes its object is refused until the 
     },
   });
   await sweepPictures({ MARKET: market.db, OBJECTS: objects }, past + pictureClaimMs + 60_000);
-  expect(during).toEqual([false]);
+  expect(during).toEqual(["deleting"]);
   expect(await keys("avatars/")).not.toContain(key);
   expect(await tombstone(key)).toBeNull();
   // Once the delete is done, the retried upload is charged.
-  expect(await reserve(late.id, key, past + 3)).toBe(true);
+  expect(await reserve(late.id, key, past + 3)).toBe("stored");
 });

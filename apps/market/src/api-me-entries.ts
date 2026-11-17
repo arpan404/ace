@@ -202,7 +202,9 @@ export async function storePicture(
     quotaBytes,
     now: context.now,
   });
-  if (!charged)
+  if (charged === "deleting")
+    return failure(409, "conflict", "That picture is being cleaned up; try again in a moment.");
+  if (charged === "quota")
     return failure(
       429,
       "quota",

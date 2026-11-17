@@ -225,10 +225,12 @@ export const pictureGraceMs = 24 * 3_600_000;
  * the key, so the cron won't delete bytes a row now holds. False when it doesn't fit, or while
  * the cron is deleting that very object (a retry a moment later goes through).
  */
+export type PictureReservation = "stored" | "quota" | "deleting";
+
 export async function reservePicture(
   db: D1Database,
   input: { publisher: string; key: string; size: number; quotaBytes: number; now: number },
-): Promise<boolean> {
+): Promise<PictureReservation> {
   // storedBytesSql already counts every picture of the publisher; subtract this key's own stored
   // size (0 when it is new) so a replacement is charged only for its change.
   const fits = `${storedBytesSql("?2")}
@@ -249,7 +251,13 @@ export async function reservePicture(
       )
       .bind(input.key),
   ]);
-  return (charged?.meta.changes ?? 0) > 0;
+  if ((charged?.meta.changes ?? 0) > 0) return "stored";
+  // The write didn't land: either it didn't fit the quota, or the cron is deleting this key now.
+  const racing = await db
+    .prepare("SELECT 1 AS found FROM picture_tombstones WHERE key = ?1 AND deleting = 1")
+    .bind(input.key)
+    .first<{ found: number }>();
+  return racing ? "deleting" : "quota";
 }
 
 /**
