@@ -133,8 +133,7 @@ export class OpenCodeSession implements ProviderSession {
       },
     });
     this.abortListener = () => {
-      // Shutdown is fire-and-forget here: a server stop that fails must not reject unheard.
-      void this.close("shutdown").catch(() => {});
+      void this.close("shutdown").catch((error: unknown) => this.stopFailed(error));
     };
   }
   static async open(ctx: SessionContext, server: OpenCodeServer): Promise<OpenCodeSession> {
@@ -174,7 +173,7 @@ export class OpenCodeSession implements ProviderSession {
       },
       exited: (deliberate, message) => {
         s.reportExit(deliberate, message);
-        void s.close("shutdown").catch(() => {});
+        void s.close("shutdown").catch((error: unknown) => s.stopFailed(error));
       },
     });
     ctx.signal.addEventListener("abort", s.abortListener, { once: true });
@@ -251,6 +250,13 @@ export class OpenCodeSession implements ProviderSession {
       await s.close("shutdown").catch(() => {});
       throw failure;
     }
+  }
+  /** A close nobody awaits: its failure is noted here; an awaited close still rejects with it. */
+  private stopFailed(error: unknown): void {
+    this.emit("note", "lifecycle", {
+      type: "stop-failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
     if (this.closed && !(channel === "lifecycle" && object(data).type === "exited")) return;

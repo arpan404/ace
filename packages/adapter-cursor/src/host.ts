@@ -205,9 +205,11 @@ export class CursorHost {
   /** ace stops the host itself; the reason survives as the stop's detail. */
   private fail(reason: string): Promise<void> {
     this.stopReason ??= reason;
-    // Failing is fire-and-forget from RPC callbacks; a Windows tree that outlived its stop
-    // rejects only awaited stops (the slot pool's), never these.
-    return this.stop().catch(() => {});
+    // Failing is fire-and-forget from RPC callbacks. A Windows tree that outlived its stop still
+    // rejects every awaited stop (the slot pool's); here it is reported, not left unhandled.
+    return this.stop().catch((error: unknown) =>
+      process.emitWarning(`Cursor SDK host did not stop cleanly: ${String(error)}`),
+    );
   }
   stop(): Promise<void> {
     this.stopped ??= (async () => {

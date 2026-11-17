@@ -399,6 +399,54 @@ describe("supervised processes", () => {
       process.off("warning", warn);
     }
   });
+  it("a retained Windows tree that survives its forced stop fails the stop and stays owned", async () => {
+    const warnings: string[] = [];
+    const unhandled: unknown[] = [];
+    const warn = (warning: Error) => warnings.push(warning.message);
+    const hear = (reason: unknown) => unhandled.push(reason);
+    process.on("warning", warn);
+    process.on("unhandledRejection", hear);
+    const recorded = new Set<number>();
+    const stopObserving = observeProcessGroups({
+      add: (pid) => recorded.add(pid),
+      remove: (pid) => recorded.delete(pid),
+    });
+    let disposed = false;
+    const proc = spawnRawSupervised({
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+      env: {},
+      name: "retained",
+      killGroupOnExit: false,
+      platform: "win32",
+      // A tree whose members ignore every stop, as one with a process another user owns.
+      windowsKillTree: () => {},
+      windowsJobFactory: () => ({
+        assign: () => {},
+        running: () => true,
+        terminate: () => {},
+        dispose: () => {
+          disposed = true;
+        },
+      }),
+    });
+    try {
+      // A voided stop (an abort listener) is reported, never left unhandled.
+      void proc.stop({ graceMs: 0 });
+      await expect(proc.stop({ graceMs: 0 })).rejects.toThrow("survived its forced stop");
+      expect(proc.pid !== undefined && recorded.has(proc.pid)).toBe(true);
+      expect(disposed).toBe(false);
+      await expect.poll(() => warnings.join("\n")).toContain("survived its forced stop");
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      if (proc.pid !== undefined) process.kill(proc.pid, "SIGKILL");
+      await proc.exited;
+      stopObserving();
+      process.off("warning", warn);
+      process.off("unhandledRejection", hear);
+    }
+  }, 20_000);
   it("rejects probe output beyond the capture byte budget", async () => {
     await expect(
       probeOutput(

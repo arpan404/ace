@@ -108,6 +108,8 @@ export async function readCursorSnapshot(
     throw new Error("Snapshot workers cannot emit live frames");
   });
   const abort = () => {
+    // The finally below awaits this same stop and reports its failure; this copy must only not
+    // reject unheard.
     void host.stop().catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });

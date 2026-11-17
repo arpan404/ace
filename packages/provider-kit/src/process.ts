@@ -234,24 +234,22 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
         if (!retainedStop) {
           stopped = true;
           killAt = performance.now() + graceMs;
-          // A retained Windows tree has no group owner to release it; the stop
-          // completion releases ownership and its job handle, like the POSIX path.
-          const stopping = windows
-            ? stopRetained(pid, graceMs).finally(() => {
-                unregisterGroup(pid);
-                job?.dispose();
-              })
-            : stopRetained(pid, graceMs);
-          retainedStop = stopping.then(
-            () => exited,
-            (error: unknown) => {
-              // The group could not be stopped politely: it is killed, and the stop still ends.
-              process.emitWarning(`Could not stop process group ${pid}: ${String(error)}`);
-              destroy(pid);
-              return exited;
-            },
+          // Resolves only once the tree is confirmed gone. A retained Windows tree has no group
+          // owner to release it, so that confirmation releases ownership and its job handle.
+          // Survivors stay owned and the stop rejects: the daemon's shutdown still ends them.
+          retainedStop = stopRetained(pid, graceMs).then(() => {
+            clearTimeout(retainedKill);
+            if (windows) {
+              unregisterGroup(pid);
+              job?.dispose();
+            }
+            return exited;
+          });
+          // stop() is often voided (abort listeners, timers). Every awaiting caller still sees
+          // the failure; this only keeps it from going unheard.
+          retainedStop.catch((error: unknown) =>
+            process.emitWarning(`Could not stop process group ${pid}: ${String(error)}`),
           );
-          void retainedStop.finally(() => clearTimeout(retainedKill));
         } else if (shortens(graceMs)) {
           // The group can outlive its leader, so this deadline survives the leader's exit.
           clearTimeout(retainedKill);

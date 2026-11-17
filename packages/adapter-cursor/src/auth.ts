@@ -86,6 +86,8 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
         loginUrl,
       );
       const abort = () => {
+        // The finally below awaits this same stop and reports its failure; this copy must only
+        // not reject unheard.
         void host?.stop().catch(() => {});
       };
       signal.addEventListener("abort", abort, { once: true });
