@@ -289,7 +289,7 @@ ace cloud codex exec|list|status|diff|apply …
 ```
 
 `ace status` keeps today's JSON (the daemon's health, or `{running:false}`) and adds `account`,
-`needsYou` and `running` fields; in human mode it prints three short lines.
+`needsYou` and `working` fields (`working`, since `running` already says whether the daemon runs); in human mode it prints three short lines.
 
 New commands in this tree that need daemon work first: `thread tree` and `status` use existing
 facts (`CliTree`, the thread list); `request list|show|answer` need a cross-thread request list
