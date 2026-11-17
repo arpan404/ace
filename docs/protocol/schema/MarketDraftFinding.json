@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketDraftFinding.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "blocking": {
+      "type": "boolean"
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/MarketPrivacyKind.json"
+        },
+        {
+          "const": "hidden-text",
+          "type": "string"
+        }
+      ]
+    },
+    "line": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "path": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "sentence": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 2000,
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "kind",
+    "text",
+    "sentence",
+    "blocking"
+  ],
+  "type": "object"
+}

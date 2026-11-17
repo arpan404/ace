@@ -19,6 +19,7 @@ import {
   WorkspaceActionResult,
 } from "@ace/protocol";
 import { WorkspaceRuntime } from "../workspace-runtime.ts";
+import { backgroundFailure } from "./background.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 /**
@@ -34,6 +35,7 @@ export async function startWorkspaceActions({
   now,
   options,
   log,
+  diskFull,
 }: ServiceContext): Promise<void> {
   const explicitTimeout = options.workspaceActions?.preparationTimeoutMs;
   let configuredTimeout = explicitTimeout;
@@ -123,15 +125,18 @@ export async function startWorkspaceActions({
   // A move a restart cut off is settled at once: until then its project's other threads can't
   // send. The lease sweep, which spawns Git in every project, waits until a starting daemon has
   // served its clients; it settles again after, should a stale lease have held a move.
-  let sweep = settle();
+  // A pass that fails (the store unreadable a moment) is logged; the next pass runs as usual. An
+  // uncaught failure would end the daemon, and a rejected chain would skip every later pass.
+  const failed = backgroundFailure({ log, config, options }, "Git lock sweep failed");
+  let sweep = settle().catch(failed);
   const firstHeal = setTimeout(() => {
-    sweep = sweep.then(heal);
+    sweep = sweep.then(heal).catch(failed);
   }, startupQuietMs);
   firstHeal.unref();
   // Self-healing: a lease or Git lock whose process ended after admission last looked is
   // retired by the next sweep, and a checkout move it held is settled, without anyone asking.
   const healing = setInterval(() => {
-    sweep = sweep.then(heal);
+    sweep = sweep.then(heal).catch(failed);
   }, 60_000);
   healing.unref();
   resources.own(() => {
@@ -157,6 +162,8 @@ export async function startWorkspaceActions({
     now,
     undefined,
     (error) => {
+      // A due mark the disk refused is held and retried; the full disk itself is a condition.
+      if (diskFull?.observe(error)) return;
       const first = error instanceof RefreshTimeout && !timedOut.has(error.step);
       if (error instanceof RefreshTimeout) timedOut.add(error.step);
       log.log(
@@ -168,7 +175,11 @@ export async function startWorkspaceActions({
     undefined,
     startupQuietMs,
   );
-  resources.own(() => refresh.close(), "workspace refresh");
+  const stopResuming = diskFull?.onRoom(() => refresh.resume());
+  resources.own(() => {
+    stopResuming?.();
+    return refresh.close();
+  }, "workspace refresh");
 }
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;

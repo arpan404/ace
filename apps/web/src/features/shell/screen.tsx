@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useOptionalClient } from "@ace/client-react";
 import { PausedNotice } from "@/components/paused-notice.tsx";
 import { OutsideNotices } from "@/features/connected-apps/index.ts";
+import { SafeModeNotice } from "./safe-mode-notice.tsx";
 import { SandboxNotice } from "./sandbox-notice.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import type { WorkspaceDefinition } from "@/lib/workspace/index.ts";
@@ -89,6 +90,7 @@ export function Screen(
               <>
                 <PausedNotice />
                 {machine && <OutsideNotices />}
+                <SafeModeNotice />
                 <SandboxNotice />
               </>
             }
@@ -105,6 +107,7 @@ export function Screen(
               {props.page && <PageScene />}
               <PausedNotice />
               {machine && <OutsideNotices />}
+              <SafeModeNotice />
               <SandboxNotice />
               <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
             </div>

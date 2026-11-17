@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { AgentId, Command, CommandId, ItemId, type ServerMessage } from "@ace/protocol";
+import { z } from "zod";
+import { AgentId, Command, CommandId, DeviceId, ItemId, type ServerMessage } from "@ace/protocol";
 import { accessRequest } from "./client-access.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { MaintenanceGate } from "@ace/service";
@@ -257,4 +258,76 @@ test("while paused, a burst of deltas and title changes never recounts, and a st
   } finally {
     await f.close();
   }
+});
+
+test("a client hears what safe mode left off, and hears it clear when the service recovers", async () => {
+  let statuses: { name: string; state: "ready" | "degraded"; skipped?: true }[] = [
+    { name: "commands", state: "degraded", skipped: true },
+  ];
+  const listeners = new Set<() => void>();
+  const f = await setup({
+    serviceStatus: () => statuses,
+    serviceChanges: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  });
+  const desk = await f.connect();
+  await desk.next();
+  desk.send({ type: "admission.request", requestId: "watch", operation: "status" });
+  expect(await next(desk, "admission.result")).toMatchObject({
+    admission: { startup: { without: ["Commands"], failing: [] } },
+  });
+  statuses = [{ name: "commands", state: "ready" }];
+  for (const listener of listeners) listener();
+  const changed = await next(desk, "admission.changed");
+  expect(changed.admission.startup).toBeUndefined();
+});
+
+/** Admission as builds before the `storage` hold parse it: any other hold fails the message. */
+const olderHolds = z.array(z.enum(["user", "update", "kill", "stop"])).max(4);
+
+test("while the disk is full, a client that predates the storage hold still sees new work paused, and a newer one sees why", async () => {
+  const f = await setup();
+  const older = await f.connect();
+  await older.next();
+  const newer = await f.open();
+  newer.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("device"),
+    token,
+    trims: ["storage-hold"],
+  });
+  await newer.next();
+  for (const client of [older, newer]) {
+    client.send({ type: "admission.request", requestId: "watch", operation: "status" });
+    await next(client, "admission.result");
+  }
+
+  f.server.maintenance.enter("storage");
+  const told = (await next(older, "admission.changed")).admission.holds;
+  expect(olderHolds.parse(told)).toEqual(["user"]);
+  expect(await next(newer, "admission.changed")).toMatchObject({
+    admission: { holds: ["storage"] },
+  });
+  // Asking again answers the same way.
+  older.send({ type: "admission.request", requestId: "again", operation: "status" });
+  expect(olderHolds.parse((await next(older, "admission.result")).admission?.holds)).toEqual([
+    "user",
+  ]);
+  // The local app's health check reads admission closed, in words an older app still parses.
+  const status = z
+    .object({ admission: z.object({ draining: z.boolean(), holds: olderHolds }) })
+    .parse(await accessRequest(f.server.httpUrl, "/v1/status", { token }));
+  expect(status.admission.draining).toBe(true);
+  expect(
+    z
+      .object({ holds: olderHolds })
+      .parse(await accessRequest(f.server.httpUrl, "/v1/maintenance", { token })),
+  ).toBeTruthy();
+
+  f.server.maintenance.leave("storage");
+  expect(await next(older, "admission.changed")).toMatchObject({ admission: { holds: [] } });
+  expect(await next(newer, "admission.changed")).toMatchObject({ admission: { holds: [] } });
 });

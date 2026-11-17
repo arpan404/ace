@@ -129,6 +129,8 @@ export interface ServerOptions {
   };
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
+  /** Tells the listener when a service starts, degrades or recovers; returns how to stop. */
+  serviceChanges?: (listener: () => void) => () => void;
   /** Current and maximum event-loop delay for `/v1/status`. */
   eventLoop?: () => import("./loop-monitor.ts").LoopStatus;
   /** Socket welcomes follow finite listener setup; HTTP discovery remains immediate. */

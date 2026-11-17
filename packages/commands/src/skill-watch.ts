@@ -127,6 +127,7 @@ export class SkillWatches<T> {
     this.held.delete(key);
     held.expire?.();
     this.forget();
-    void held.files.close();
+    // A folder that stopped answering may fail its close; the hold is gone either way.
+    held.files.close().catch(() => {});
   }
 }

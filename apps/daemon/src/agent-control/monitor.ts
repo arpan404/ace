@@ -7,7 +7,6 @@ import type {
   McpAttribution,
   MonitorSnapshot,
   MonitoredChild,
-  QueueFacts,
   Thread,
   ThreadId,
   WaitMode,
@@ -21,7 +20,7 @@ import type { EngineClock } from "../engine/actor.ts";
 import type { Store } from "../store.ts";
 import type { DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
-import { queuedStep } from "./child-status.ts";
+import { diskWaitStep, queuedStep, type QueuedFacts } from "./child-status.ts";
 import { limitStep, usageLimitHold } from "./limit-hold.ts";
 import {
   checkedChild,
@@ -46,8 +45,14 @@ import {
 } from "./watch-view.ts";
 
 /** The queued step with the child's place, so a model sees why it waits. */
-function queuedStepText(queue: QueueFacts | undefined): string {
-  if (!queue) return queuedStep;
+function queuedStepText(queue: QueuedFacts | undefined): string {
+  if (queue?.waitingFor === "storage") return diskWaitStep;
+  if (
+    queue?.queuePosition === undefined ||
+    queue.slotsInUse === undefined ||
+    queue.slotLimit === undefined
+  )
+    return queuedStep;
   return (
     `queued: position ${queue.queuePosition}, ` +
     `${queue.slotsInUse} of ${queue.slotLimit} run slots in use`
@@ -70,7 +75,7 @@ export interface MonitorDependencies {
   /** A wait on these threads ended; one it didn't tell about a hold is told another way. */
   released?(ids: readonly ThreadId[]): void;
   /** Where a queued child stands: slot limit, slots in use and its queue place. */
-  queueFacts?(child: ThreadId): QueueFacts | undefined;
+  queueFacts?(child: ThreadId): QueuedFacts | undefined;
   /** A child agents_status could only partly read, for the log. */
   report?(child: ThreadId, problem: string): void;
 }

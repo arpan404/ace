@@ -39,6 +39,31 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
   }
 }
+/**
+ * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
+ * listeners and voided stop() calls. A group signal refused (EPERM when every member left runs
+ * as another user, or a Windows tree stop that cannot run) is reported, and the leader is still
+ * signalled through its own handle, which never reaches a reused pid once it has exited.
+ */
+export function signalTree(
+  pid: number,
+  force: boolean,
+  windows: boolean,
+  killTree: WindowsKillTree,
+  leader: { kill(signal: NodeJS.Signals): boolean },
+): void {
+  try {
+    if (windows) killTree(pid, force);
+    else killGroup(pid, force ? "SIGKILL" : "SIGTERM");
+  } catch (error) {
+    process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
+    try {
+      leader.kill(force ? "SIGKILL" : "SIGTERM");
+    } catch {
+      /* Already gone. */
+    }
+  }
+}
 /** A retained group's lifetime is independent of its leader and inherited pipes. */
 export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
   killGroup(pid, "SIGTERM");
@@ -100,9 +125,18 @@ export function registerGroup(
   if (ownersSize() === 0) process.on("exit", cleanup);
   owned.set(pid, { stop, destroy: end });
 }
+/**
+ * Ownership ends even when a journal cannot record it. This runs in exit listeners, where a
+ * throw would be uncaught and end the daemon (a full disk did, through the inventory's delete).
+ */
 export function unregisterGroup(pid: number): void {
   owned.delete(pid);
-  for (const journal of journals) journal.remove(pid);
+  for (const journal of journals)
+    try {
+      journal.remove(pid);
+    } catch (error) {
+      process.emitWarning(`Could not record that process ${pid} exited: ${String(error)}`);
+    }
   if (ownersSize() === 0) process.removeListener("exit", cleanup);
 }
 
@@ -214,6 +248,10 @@ export function windowsSystemExecutable(name: string): string {
 /** How long a forced Windows tree stop may take before the stop fails instead of completing. */
 const forcedTreeStopMs = 5_000;
 
+/** A Windows tree is alive while its joined job has members, else while its leader runs. */
+export function windowsTreeRunning(pid: number, job?: Pick<WindowsJob, "running">): boolean {
+  return job?.running?.() ?? leaderRunning(pid);
+}
 function leaderRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -235,7 +273,7 @@ export async function stopRetainedWindowsTree(
   killTree: WindowsKillTree = killWindowsTree,
   job?: Pick<WindowsJob, "running" | "terminate">,
 ): Promise<void> {
-  const running = () => job?.running?.() ?? leaderRunning(pid);
+  const running = () => windowsTreeRunning(pid, job);
   killTree(pid, false);
   const deadline = performance.now() + graceMs;
   while (running()) {

@@ -55,6 +55,8 @@ export function machine(options: { sharedBeat?: boolean } = {}) {
       | ((code: number | null, signal: NodeJS.Signals | null, error?: string) => void)
       | undefined;
     alive = true;
+    /** How the supervisor asked for this daemon to start. */
+    launch: { safeMode: boolean } = { safeMode: false };
     /** A process that never started: signals do nothing and no exit ever follows. */
     unstarted = false;
     kill(signal: NodeJS.Signals) {
@@ -82,8 +84,9 @@ export function machine(options: { sharedBeat?: boolean } = {}) {
     }
   }
   const ports: SupervisorPorts = {
-    spawn() {
+    spawn(launch) {
       const child = new FakeChild();
+      child.launch = launch;
       children.push(child);
       return child;
     },

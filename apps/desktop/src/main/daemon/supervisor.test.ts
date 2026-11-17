@@ -376,7 +376,7 @@ describe("daemon supervisor", () => {
 
   it("names a port conflict only for the exit that reported one", async () => {
     const m = machine();
-    const supervisor = new DaemonSupervisor(m.ports);
+    const supervisor = new DaemonSupervisor(m.ports, { safeModeAfter: 10 });
     await supervisor.start();
     m.children.at(-1)?.die(6);
     expect(supervisor.current().cause).toBe("port-in-use");
@@ -595,7 +595,7 @@ describe("daemon supervisor", () => {
     expect(m.log).toContainEqual(
       expect.objectContaining({
         level: "warn",
-        data: { code: 1, signal: null, delayMs: 500, attempt: 1, of: 5 },
+        data: { code: 1, signal: null, delayMs: 500, attempt: 1, of: 5, safeMode: false },
       }),
     );
   });

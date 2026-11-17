@@ -7,6 +7,7 @@ import {
   MarketProblem,
   MarketPublisherName,
   MarketVersion,
+  trimmedText,
 } from "./marketplace-base.ts";
 import { MarketLink } from "./marketplace-catalog.ts";
 import { MarketScanReport, MarketScanState } from "./marketplace-scan.ts";
@@ -24,7 +25,7 @@ import { MarketVerificationProof } from "./marketplace-signed.ts";
 export const MarketHandle = MarketPublisherName.refine((value) => value.length >= 3, {
   message: "A handle is at least 3 characters",
 });
-export const MarketDisplayName = z.string().trim().min(1).max(60);
+export const MarketDisplayName = trimmedText(1, 60);
 export const MarketBio = z.string().max(500);
 export const MarketPublisherState = z.enum(["active", "suspended", "deleted"]);
 export type MarketPublisherState = z.infer<typeof MarketPublisherState>;
@@ -123,11 +124,11 @@ export type MarketVisibility = z.infer<typeof MarketVisibility>;
 
 /** The words an entry is listed with, set by `market.json` or a listing edit. */
 export const MarketListingEdit = z.strictObject({
-  title: z.string().trim().min(1).max(120),
-  line: z.string().trim().max(300),
+  title: trimmedText(1, 120),
+  line: trimmedText(0, 300),
   description: z.string().max(8192),
   categories: z.array(MarketCategoryId).max(3),
-  keywords: z.array(z.string().trim().min(1).max(40)).max(16),
+  keywords: z.array(trimmedText(1, 40)).max(16),
   links: z.array(MarketLink).max(5),
   /** Listing pictures uploaded with `PUT …/previews/{n}`, by sha256. */
   previews: z.array(MarketHash).max(4),
@@ -201,13 +202,13 @@ export const MarketDraftPatch = z.strictObject({
 
 export const MarketChangelogSet = z.strictObject({ text: z.string().max(4000) });
 export const MarketLatestSet = z.strictObject({ version: MarketVersion.nullable() });
-export const MarketDeprecation = z.strictObject({ note: z.string().trim().min(1).max(500) });
-export const MarketWithdrawRequest = z.strictObject({ reason: z.string().trim().min(1).max(500) });
+export const MarketDeprecation = z.strictObject({ note: trimmedText(1, 500) });
+export const MarketWithdrawRequest = z.strictObject({ reason: trimmedText(1, 500) });
 export const MarketVisibilitySet = z.strictObject({ visibility: MarketVisibility });
 export const MarketArchivedSet = z.strictObject({ archived: z.boolean() });
 export const MarketTransferOffer = z.strictObject({ to: MarketPublisherName });
 export const MarketAppealRequest = z.strictObject({
-  note: z.string().trim().min(1).max(2000),
+  note: trimmedText(1, 2000),
   /** A newer version uploaded to answer the block or hold. */
   replacement: MarketVersion.optional(),
 });

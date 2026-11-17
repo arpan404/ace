@@ -8,6 +8,7 @@ import {
   MarketPublisher,
   MarketPublisherName,
   MarketVersion,
+  trimmedText,
 } from "./marketplace-base.ts";
 import { MarketCollection } from "./marketplace-discover.ts";
 import {
@@ -57,7 +58,7 @@ export const PublishRefused = z.object({
 });
 export type PublishRefused = z.infer<typeof PublishRefused>;
 
-export const WithdrawRequest = z.object({ reason: z.string().trim().min(1).max(500) });
+export const WithdrawRequest = z.object({ reason: trimmedText(1, 500) });
 
 /** A stored version the signer hasn't signed yet (`GET /v1/signer/pending`). */
 export const PendingVersion = z.object({
@@ -209,7 +210,7 @@ export const HoldDecision = z.object({
 });
 /** `PUT /v1/signer/blocks/{type}/{name}/{version}`: refuse a version, by scan or by hand. */
 export const BlockDecision = z.object({
-  reason: z.string().trim().min(1).max(500),
+  reason: trimmedText(1, 500),
   scan: MarketScanReport.optional(),
 });
 /** `PUT /v1/signer/listings/{type}/{name}`: a pending listing edit approved or refused. */
@@ -230,13 +231,13 @@ export const SignedVerifiedUpload = z.object({
   verified: Signed,
   basedOn: BasedOn,
   revoked: z
-    .array(z.object({ handle: MarketPublisherName, reason: z.string().trim().min(1).max(500) }))
+    .array(z.object({ handle: MarketPublisherName, reason: trimmedText(1, 500) }))
     .max(100)
     .default([]),
 });
 /** `PUT /v1/signer/appeals/{id}`. */
 export const AppealAnswer = z.object({
-  answer: z.string().trim().min(1).max(2000),
+  answer: trimmedText(1, 2000),
   decision: z.enum(["approve", "keep"]),
 });
 

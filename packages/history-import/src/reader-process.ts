@@ -161,7 +161,12 @@ export class ReaderProcess extends EventEmitter {
         ),
       onExceeded: () => {
         this.stopWatching = undefined;
-        killGroup(pid, "SIGKILL");
+        // A group kill refused (EPERM) still ends the reader itself and fails the import.
+        try {
+          killGroup(pid, "SIGKILL");
+        } catch (error) {
+          runtime.warn(`Could not stop the history reader's process group: ${String(error)}`);
+        }
         // At once on Windows too, where the group stop is an asynchronous taskkill.
         this.child.kill("SIGKILL");
         this.fail(readerMemoryError(runtime.limitBytes));

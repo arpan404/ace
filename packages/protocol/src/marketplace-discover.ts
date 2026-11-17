@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { MarketCategoryId, MarketHash, MarketPublisherName } from "./marketplace-base.ts";
+import {
+  MarketCategoryId,
+  MarketHash,
+  MarketPublisherName,
+  trimmedText,
+} from "./marketplace-base.ts";
 import { MarketDisplayName } from "./marketplace-publisher.ts";
 
 /*
@@ -29,7 +34,7 @@ export const MarketCollectionId = MarketCategoryId;
 /** A maintainers' collection as the signer uploads it. */
 export const MarketCollection = z.strictObject({
   id: MarketCollectionId,
-  title: z.string().trim().min(1).max(60),
+  title: trimmedText(1, 60),
   line: z.string().max(200),
   entries: z
     .array(

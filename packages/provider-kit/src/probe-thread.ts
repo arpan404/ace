@@ -6,6 +6,7 @@ import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
 import { z } from "zod";
 import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { requestOwner, unscoped, type RequestOwner } from "./unscoped.ts";
 
 export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;
 export interface ProbeThread {
@@ -20,7 +21,8 @@ const runtime: IdleWorkerRuntime = {
     return worker;
   },
   delay(callback, milliseconds) {
-    const timer = setTimeout(callback, milliseconds);
+    // The idle timer is the thread's own, never the caller's that last used it.
+    const timer = unscoped(() => setTimeout(callback, milliseconds));
     timer.unref();
     return () => clearTimeout(timer);
   },
@@ -50,6 +52,8 @@ type Flight = {
   /** Settles once the worker confirms the process ended, or the worker itself is gone. */
   settled: Promise<void>;
   release(): void;
+  /** The context of the caller that asked: this probe's replies are handled in it. */
+  owner: RequestOwner;
 };
 
 /**
@@ -86,7 +90,14 @@ export function createProbeThread(
       flight.done.reject(error);
     }
   };
+  // One thread serves every caller. Each reply is handled in the context of the caller whose
+  // probe it answers, never the context of whoever first started the thread.
   worker.on("message", (input: unknown) => {
+    const addressed = ProbeAddress.safeParse(input);
+    const flight = addressed.success ? flights.get(addressed.data.id) : undefined;
+    if (flight) flight.owner(() => reply(input));
+  });
+  const reply = (input: unknown) => {
     const message = ProbeReply.safeParse(input);
     if (!message.success) {
       const addressed = ProbeAddress.safeParse(input);
@@ -128,7 +139,7 @@ export function createProbeThread(
     if (flight.failure) flight.done.reject(flight.failure);
     else flight.done.resolve(exit);
     if (!flights.size) worker.idle();
-  });
+  };
   worker.on("error", (error: Error) => fail(error));
   worker.on("exit", () => fail(new Error("Probe worker stopped")));
   return {
@@ -144,6 +155,7 @@ export function createProbeThread(
           () => {},
         ),
         release: () => {},
+        owner: requestOwner(),
       };
       flight.release = admitProcess(
         () => stop(flight),
@@ -179,7 +191,8 @@ export async function probeOffThread(
     thread?: ProbeThread | undefined;
   },
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  const thread = options.thread ?? (shared ??= createProbeThread());
+  // Shared by every caller, so started in no caller's context.
+  const thread = options.thread ?? (shared ??= unscoped(() => createProbeThread()));
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries({ ...process.env, ...options.env }))
     if (value !== undefined) env[key] = value;

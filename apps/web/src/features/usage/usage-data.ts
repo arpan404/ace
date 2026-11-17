@@ -54,6 +54,8 @@ export function accountsCoverage(entries: readonly EnvironmentAccounts[]): Usage
 }
 
 const otherRefreshMs = 60_000;
+/** How often figures still being counted are read again, so the totals grow on screen. */
+const fillingRefreshMs = 5_000;
 
 /** Each environment's accounts; undefined for one still loading. */
 export function useEnvironmentAccounts(environments: readonly Machine[]): EnvironmentAccounts[] {
@@ -111,6 +113,8 @@ export interface EnvironmentRead {
   previous: readonly UsageRow[];
   /** The daemon's price table: its version ("litellm-…") and the day its prices are from. */
   prices: { priceVersion: string; priceAsOf: string | undefined };
+  /** The daemon is still counting older history into these figures: they will grow. */
+  filling: boolean;
 }
 
 /** One environment's usage over the span: per day and provider, and per model. */
@@ -131,6 +135,7 @@ async function readUsage(
     usage: { daily: daily.rows, models: models.rows, threads: [], threadsTruncated: false },
     previous: earlier.rows,
     prices: { priceVersion: daily.priceVersion, priceAsOf: daily.priceAsOf },
+    filling: [daily, models, earlier].some((result) => result.filling !== undefined),
   };
 }
 
@@ -150,6 +155,8 @@ export function useEnvironmentUsage(
       enabled: span.ready && environment.client !== undefined,
       // A new filter or range keeps the last figures on screen until the new ones arrive.
       placeholderData: (previous: EnvironmentRead | undefined) => previous,
+      refetchInterval: (query: { state: { data: EnvironmentRead | undefined } }) =>
+        query.state.data?.filling ? fillingRefreshMs : false,
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         readUsage(reachable(environment), span, filters, signal),
     })),
@@ -186,6 +193,8 @@ export function useEnvironmentUsage(
         }
       : undefined,
     coverage,
+    /** The counted machines whose daemon is still counting older history. */
+    filling: counted.filter((read) => read.filling).map((read) => read.environment.name),
     // Nothing to show only when no machine could be read and at least one failed.
     error:
       settled && counted.length === 0 ? (reads.find((read) => read.error)?.error ?? null) : null,

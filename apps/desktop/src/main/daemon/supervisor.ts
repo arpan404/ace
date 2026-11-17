@@ -4,7 +4,6 @@ import {
   terminate,
   trackChild,
   type Child,
-  type DaemonProcess,
   type StopPorts,
   type StopReason,
 } from "./child.ts";
@@ -14,6 +13,8 @@ import {
   incompatibleDataMessage,
   lockHeldMessage,
   newerDataMessage,
+  safeModeMessage,
+  safeModeRestartMessage,
 } from "./exit-policy.ts";
 import type { AdmissionFacts, LocalDaemon } from "./probe.ts";
 import { personPaused, readAdmission, waitForDaemon } from "./readiness.ts";
@@ -51,6 +52,8 @@ export class DaemonSupervisor {
   private daemon: LocalDaemon | undefined;
   private child: Child | undefined;
   private crashes = 0;
+  /** The next start, and the daemon it starts, leave off what kept failing (ADR 0175). */
+  private safeMode = false;
   private maintenanceRevision = 0;
   private draining = false;
   private runningSince = 0;
@@ -116,6 +119,7 @@ export class DaemonSupervisor {
     if (this.closed) return this.status;
     await this.transition(true, async (generation) => {
       this.crashes = 0;
+      this.safeMode = false;
       this.lockWaitSince = undefined;
       // A repair starts fresh: the last crash no longer describes what happens next.
       this.status = fresh(this.status);
@@ -296,8 +300,8 @@ export class DaemonSupervisor {
     this.update({ state: "failed", message: `The daemon could not start: ${reason}` });
   }
 
-  private spawnChild(spawn: () => DaemonProcess): Child {
-    const child = trackChild(spawn(), (exited, code, signal, error) =>
+  private spawnChild(spawn: NonNullable<SupervisorPorts["spawn"]>): Child {
+    const child = trackChild(spawn({ safeMode: this.safeMode }), (exited, code, signal, error) =>
       this.onChildExit(exited, code, signal, error),
     );
     this.child = child;
@@ -338,14 +342,17 @@ export class DaemonSupervisor {
     }
     this.daemon = undefined;
     this.clearTimer();
-    if (this.runningSince && this.ports.now() - this.runningSince >= this.options.stableMs)
+    if (this.runningSince && this.ports.now() - this.runningSince >= this.options.stableMs) {
       this.crashes = 0;
+      this.safeMode = false;
+    }
     this.runningSince = 0;
     const decision = exitDecision({
       code,
       signal,
       crashes: this.crashes,
       maxRestarts: this.options.maxRestarts,
+      safeModeAfter: this.options.safeModeAfter,
     });
     if (decision.kind === "incompatible-data") {
       this.ports.log(
@@ -385,16 +392,18 @@ export class DaemonSupervisor {
     }
     const delay = decision.delayMs;
     this.crashes++;
+    this.safeMode = decision.safeMode;
     this.ports.log("warn", `${reason}; restarting in ${delay} ms`, {
       ...exit,
       delayMs: delay,
       attempt: this.crashes,
       of: this.options.maxRestarts,
+      safeMode: decision.safeMode,
     });
     this.update({
       state: "restarting",
       restarts: this.status.restarts + 1,
-      message: reason,
+      message: decision.safeMode ? safeModeRestartMessage : reason,
       retry: { attempt: this.crashes, of: this.options.maxRestarts },
     });
     this.cancelTimer = this.ports.timers.set(delay, () => {
@@ -439,6 +448,8 @@ export class DaemonSupervisor {
       source,
       url: daemon.url,
       paused: admission.paused,
+      // Only a daemon this app started in safe mode runs without anything.
+      ...(this.safeMode && source === "app" ? { message: safeModeMessage } : {}),
     };
     this.emit();
     for (const resolve of this.waiters) resolve(daemon);

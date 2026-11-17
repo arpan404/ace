@@ -118,7 +118,7 @@ export class Store {
   readonly pairingCodes: SqlitePairingCodes;
   readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
-  private readonly usageReplay: UsageReplay;
+  readonly usageReplay: UsageReplay;
   private readonly searchReplay: SearchReplay;
   private readonly usageListeners = new Set<() => void>();
   readonly search: SearchIndex;

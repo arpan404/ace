@@ -1,0 +1,103 @@
+{
+  "$id": "https://ace.local/protocol/v1/BotFileV1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "avatar": {},
+    "connectors": {
+      "anyOf": [
+        {
+          "properties": {
+            "all": {
+              "type": "boolean"
+            },
+            "connectors": {
+              "default": [],
+              "items": {
+                "maxLength": 64,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array"
+            }
+          },
+          "required": [
+            "all"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "format": {
+      "const": "spade-bot",
+      "type": "string"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "name": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    },
+    "notes": {
+      "default": [],
+      "items": {
+        "maxLength": 2000,
+        "type": "string"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "routines": {
+      "default": [],
+      "items": {
+        "properties": {
+          "instruction": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "trigger": {}
+        },
+        "required": [
+          "name",
+          "instruction",
+          "trigger"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "task": {
+      "default": "",
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "type": "number"
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "name"
+  ],
+  "type": "object"
+}

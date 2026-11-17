@@ -200,8 +200,11 @@ export async function openPiSession(
     dialogs.clear();
     ctx.signal.removeEventListener("abort", abort);
   };
+  /** A close nobody awaits: its failure is noted here; an awaited close still rejects with it. */
+  const stopFailed = (error: unknown) =>
+    note({ event: "stop-failed", message: error instanceof Error ? error.message : String(error) });
   const fatal = () => {
-    void close("shutdown", false);
+    void close("shutdown", false).catch(stopFailed);
   };
   const rpc = new PiRpc(
     proc,
@@ -283,7 +286,7 @@ export async function openPiSession(
     return closePromise;
   }
   function abort() {
-    void close("shutdown");
+    void close("shutdown").catch(stopFailed);
   }
   ctx.signal.addEventListener("abort", abort, { once: true });
   void proc.exited.then(() => {

@@ -194,3 +194,21 @@ test("a sweep that finds the store busy is reported and the next sweep still run
     process.off("unhandledRejection", keep);
   }
 });
+
+test("an agent's edit whose due mark meets a full disk still shows by the first sweep after space is back", async () => {
+  const thread = await refreshing({ state: "done" });
+  await thread.time.advance(2 * minute);
+  expect(thread.changedFiles()).toBe(0);
+  // The disk boundary for the due row: its write fails as a full disk fails it. (A capped file
+  // cannot stand in, since the row's update fits the page it already has.)
+  thread.store.atomic((db) =>
+    db.exec(
+      "CREATE TEMP TRIGGER full_refresh BEFORE INSERT ON workspace_refresh BEGIN SELECT RAISE(FAIL, 'database or disk is full'); END",
+    ),
+  );
+  await writeFile(join(thread.root, "file.txt"), "one\ntwo\n");
+  thread.agentEdited();
+  thread.store.atomic((db) => db.exec("DROP TRIGGER temp.full_refresh"));
+  await thread.time.advance(minute);
+  expect(thread.changedFiles()).toBe(1);
+});

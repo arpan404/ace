@@ -138,3 +138,82 @@ test("a linked PR set waits for every merge and remembers settling across restar
     await f.close();
   }
 });
+
+/**
+ * The disk boundary for bookkeeping rows: inserts into `tables` fail as a full disk fails them.
+ * A capped file cannot stand in here, since a re-insert reuses the page its delete just freed.
+ */
+function fullDisk(store: import("./store.ts").Store, tables: string[]) {
+  const db = store.atomic((connection) => connection);
+  for (const table of tables)
+    db.exec(
+      `CREATE TEMP TRIGGER full_${table} BEFORE INSERT ON ${table} BEGIN SELECT RAISE(FAIL, 'database or disk is full'); END`,
+    );
+  return () => {
+    for (const table of tables) db.exec(`DROP TRIGGER temp.full_${table}`);
+  };
+}
+
+test("a thread whose settle check and requeue both meet a full disk is checked once space is back", async () => {
+  let now = 1000;
+  const f = await fixture({ now: () => now });
+  f.store.atomic((db) =>
+    db.prepare("UPDATE workspaces SET path=? WHERE id=?").run(f.home, f.workspace),
+  );
+  const settings = new SettingsService({ dataDir: f.home });
+  const organizer = new ThreadOrganizer(
+    f.store,
+    settings,
+    () => now,
+    () => () => {},
+  );
+  try {
+    await settings.set("threads.autoSettleAfter", "1w", { kind: "global" });
+    await organizer.sweep();
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }], now);
+    const lift = fullDisk(f.store, ["thread_settle_due", "thread_organizer_dirty"]);
+    await organizer.sweep().catch(() => {});
+    await organizer.sweep();
+    lift();
+    organizer.resume();
+    await organizer.sweep();
+    now += 8 * 86_400_000;
+    await organizer.sweep();
+    expect(f.store.getThread(f.thread.id)?.settledReason).toBe("inactivity");
+  } finally {
+    await organizer.close();
+    await settings.close();
+    await f.close();
+  }
+});
+
+test("a thread change whose queue mark meets a full disk is still organized once space is back", async () => {
+  let now = 1000;
+  const f = await fixture({ now: () => now });
+  f.store.atomic((db) =>
+    db.prepare("UPDATE workspaces SET path=? WHERE id=?").run(f.home, f.workspace),
+  );
+  const settings = new SettingsService({ dataDir: f.home });
+  const organizer = new ThreadOrganizer(
+    f.store,
+    settings,
+    () => now,
+    () => () => {},
+  );
+  try {
+    await settings.set("threads.autoSettleAfter", "1w", { kind: "global" });
+    await organizer.sweep();
+    const lift = fullDisk(f.store, ["thread_organizer_dirty"]);
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }], now);
+    await organizer.sweep();
+    lift();
+    await organizer.sweep();
+    now += 8 * 86_400_000;
+    await organizer.sweep();
+    expect(f.store.getThread(f.thread.id)?.settledReason).toBe("inactivity");
+  } finally {
+    await organizer.close();
+    await settings.close();
+    await f.close();
+  }
+});

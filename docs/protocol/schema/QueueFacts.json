@@ -16,6 +16,12 @@
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "waitingFor": {
+      "enum": [
+        "storage"
+      ],
+      "type": "string"
     }
   },
   "required": [

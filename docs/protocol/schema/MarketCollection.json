@@ -1,0 +1,51 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketCollection.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": {
+            "maxLength": 40,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "type": "object"
+      },
+      "maxItems": 24,
+      "type": "array"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/MarketCategoryId.json"
+    },
+    "line": {
+      "maxLength": 200,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 60,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "line",
+    "entries"
+  ],
+  "type": "object"
+}

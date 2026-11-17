@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { WorkerOptions, Transferable } from "node:worker_threads";
 import { startWorker } from "./worker.ts";
+import { unscoped } from "./unscoped.ts";
 import { nextIdleWindow, type IdleWindowPolicy } from "./idle-window.ts";
 
 /** Node watch-mode infrastructure shares the worker message channel with application RPC. */
@@ -28,7 +29,8 @@ export interface WorkerPort {
 const systemRuntime: IdleWorkerRuntime = {
   spawn: (entry, options) => startWorker(entry, options),
   delay(callback, milliseconds) {
-    const timer = setTimeout(callback, milliseconds);
+    // The idle timer belongs to the worker, never to the caller that last used it.
+    const timer = unscoped(() => setTimeout(callback, milliseconds));
     timer.unref();
     return () => clearTimeout(timer);
   },
