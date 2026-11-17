@@ -768,6 +768,12 @@ const entries = [
     title: betaSwitches.marketplace.title,
     keywords: ["store", "suits", "plugins", "skills", "install", "experimental", "preview"],
   },
+  {
+    id: "market.askBeforeAgentPublish",
+    page: "/settings/beta",
+    title: "Ask me before agents publish",
+    keywords: ["marketplace", "publish", "agents", "approve", "permission"],
+  },
 ] as const satisfies readonly SettingEntry[];
 
 export type SettingId = (typeof entries)[number]["id"];
