@@ -17,7 +17,10 @@ import { HOME_FORMAT_FILE, markerVersion } from "@ace/service/home";
 export function readHomeData(home: string): HomeData {
   return {
     home: marker(home),
-    daemon: stored(join(home, "events.sqlite"), "SELECT version AS v FROM schema_version WHERE id = 1"),
+    daemon: stored(
+      join(home, "events.sqlite"),
+      "SELECT version AS v FROM schema_version WHERE id = 1",
+    ),
     notify: stored(join(home, "notifications.sqlite"), "PRAGMA user_version"),
     spade: stored(join(home, "spade", "spade.sqlite"), "PRAGMA user_version"),
   };

@@ -32,6 +32,7 @@ import {
 import { checkAppArchive } from "../src/packaging/app-archive.ts";
 import { copyBesideApp, packagedResources } from "./beside-app.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
+import { releaseLineOf } from "@ace/service/release-line";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
@@ -67,6 +68,18 @@ if (authenticode?.kind === "incomplete")
   throw new Error(`Windows signing needs ${authenticode.missing.join(", ")} as well`);
 if (authenticode?.kind === "none")
   console.warn("[package] no Windows signing certificate is configured; building unsigned");
+// A beta wears a "BETA" band in the Dock (ADR 0174), rendered from the master for this build.
+const betaIcon =
+  process.platform === "darwin" &&
+  releaseLineOf(packagedAppVersion(process.env, appVersion())) === "beta"
+    ? join(dist, "beta-icon", "icon.icns")
+    : undefined;
+if (betaIcon)
+  execFileSync(
+    process.execPath,
+    [join(desktop, "scripts/icons.ts"), "--beta", join(dist, "beta-icon")],
+    { stdio: "inherit" },
+  );
 if (!process.argv.includes("--skip-build"))
   execFileSync(process.execPath, [join(desktop, "scripts/build.ts"), "--arch", arch], {
     stdio: "inherit",
@@ -191,8 +204,8 @@ const config: Configuration = {
   },
   mac: {
     category: "public.app-category.developer-tools",
-    // Rendered from build/icon.svg by scripts/icons.ts, as is build/icon.png.
-    icon: join(desktop, "build/icon.icns"),
+    // Rendered from build/icon.svg by scripts/icons.ts, as is build/icon.png; a beta's has a band.
+    icon: betaIcon ?? join(desktop, "build/icon.icns"),
     target: full
       ? [
           { target: "dmg", arch: [arch] },
@@ -294,11 +307,22 @@ const config: Configuration = {
     afterInstall: join(desktop, "build/linux/after-install.tpl"),
     afterRemove: join(desktop, "build/linux/after-remove.tpl"),
   },
-  // The update feed: GitHub releases tagged v<version>. Only a full package carries it, so
+  // The update feed: GitHub releases (ADR 0091, 0174). Only a full package carries it, so
   // a local build never offers updates. Nothing uploads from here (`publish: "never"`);
   // `bun run release:publish` creates the release with the GitHub CLI.
   publish: full
-    ? [{ provider: "github", owner: "arpan404", repo: "ace", releaseType: "release" }]
+    ? [
+        {
+          provider: "github",
+          owner: "arpan404",
+          repo: "ace",
+          releaseType: "release",
+          // Always `latest-*.yml`, a beta's too: electron-builder would otherwise name a beta's
+          // feed after its prerelease tag (`beta-mac.yml`), and the app reads `latest-mac.yml`
+          // from whichever release it picked (ADR 0174).
+          channel: "latest",
+        },
+      ]
     : null,
 };
 

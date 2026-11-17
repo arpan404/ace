@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ReleaseTarget } from "@ace/protocol";
+import { releaseDataFile } from "./release-data.ts";
 
 /**
  * What a desktop release publishes (ADR 0091), as pure decisions over file names and
@@ -102,7 +103,8 @@ export type StagedRelease = z.infer<typeof StagedRelease>;
 /**
  * One release from the staged folders of several hosts (this Mac, a Linux container for each
  * architecture): all must be the same version built from the same commit, none with
- * uncommitted changes, and no file may appear twice. Signed only if every part was.
+ * uncommitted changes, and no file may appear twice, except the identical `ace-data.json` each
+ * host stages. Signed only if every part was.
  */
 export function combineStaged(releases: readonly StagedRelease[]): StagedRelease {
   const [first, ...others] = releases;
@@ -117,7 +119,12 @@ export function combineStaged(releases: readonly StagedRelease[]): StagedRelease
         `Staged builds come from different commits: ${first.commit.slice(0, 12)}, ${other.commit.slice(0, 12)}`,
       );
   }
-  const files = releases.flatMap((release) => release.files);
+  // Every host stages the commit's own ace-data.json (ADR 0174): the same bytes publish once.
+  const data = new Set<string>();
+  const files = releases
+    .flatMap((release) => release.files)
+    .filter((file) => file.name !== releaseDataFile || data.size < data.add(file.sha256).size);
+  if (data.size > 1) throw new Error(`The staged builds disagree on ${releaseDataFile}`);
   const seen = new Set<string>();
   const duplicates = files.filter((file) => seen.size === seen.add(file.name).size);
   if (duplicates.length)

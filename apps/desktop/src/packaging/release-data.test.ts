@@ -24,7 +24,11 @@ const entry = (sql: string) => `    Migration {
 describe("Spade's schema version in a release's data formats", () => {
   it("is the number of migrations in the list, not the struct that defines one", () => {
     expect(spadeMigrationCount(schema([entry("CREATE TABLE a (id)")]))).toBe(1);
-    expect(spadeMigrationCount(schema(["a", "b", "c"].map((name) => entry(`CREATE TABLE ${name} (id)`))))).toBe(3);
+    expect(
+      spadeMigrationCount(
+        schema(["a", "b", "c"].map((name) => entry(`CREATE TABLE ${name} (id)`))),
+      ),
+    ).toBe(3);
   });
 
   it("doesn't count a migration's text that happens to mention one", () => {

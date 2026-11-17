@@ -24,7 +24,10 @@ function database(path: string, sql: string): DatabaseSync {
 describe("the data formats a home holds", () => {
   it("reads the marker and every database's stored version", () => {
     const root = home();
-    writeFileSync(join(root, "ace-format.json"), '{"format":"ace-v1","createdAt":"2026-11-16T00:00:00.000Z"}\n');
+    writeFileSync(
+      join(root, "ace-format.json"),
+      '{"format":"ace-v1","createdAt":"2026-11-16T00:00:00.000Z"}\n',
+    );
     database(
       join(root, "events.sqlite"),
       "CREATE TABLE schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL); INSERT INTO schema_version VALUES (1, 63);",
@@ -41,7 +44,9 @@ describe("the data formats a home holds", () => {
     mkdirSync(join(root, "spade"));
     const spade = database(join(root, "spade", "spade.sqlite"), "PRAGMA user_version = 9;");
     try {
-      spade.exec("PRAGMA wal_autocheckpoint = 0; BEGIN; CREATE TABLE later (id INTEGER); PRAGMA user_version = 10; COMMIT;");
+      spade.exec(
+        "PRAGMA wal_autocheckpoint = 0; BEGIN; CREATE TABLE later (id INTEGER); PRAGMA user_version = 10; COMMIT;",
+      );
       expect(readHomeData(root).spade).toBe(10);
     } finally {
       spade.close();

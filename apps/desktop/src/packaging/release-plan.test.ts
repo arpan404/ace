@@ -223,3 +223,20 @@ it("publishing refuses staged files whose bytes changed since the build", () => 
     "ace-1.2.0-arm64-mac.zip",
   ]);
 });
+
+it("each host's ace-data.json publishes once when they agree, and stops the release when not", () => {
+  const data = (sha: string) => ({ name: "ace-data.json", bytes: 50, sha256: sha.repeat(64) });
+  const mac = staged({
+    files: [{ name: "latest-mac.yml", bytes: 1, sha256: "1".repeat(64) }, data("a")],
+  });
+  const linux = staged({
+    files: [{ name: "latest-linux.yml", bytes: 1, sha256: "2".repeat(64) }, data("a")],
+  });
+  expect(combineStaged([mac, linux]).files.map((file) => file.name)).toEqual([
+    "ace-data.json",
+    "latest-linux.yml",
+    "latest-mac.yml",
+  ]);
+  const other = staged({ files: [data("b")] });
+  expect(() => combineStaged([mac, other])).toThrow("disagree on ace-data.json");
+});
