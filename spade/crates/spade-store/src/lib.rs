@@ -82,6 +82,12 @@ impl Store {
         })
     }
 
+    /// The schema version this build brings a database up to: the number of its migrations,
+    /// which a release publishes in `ace-data.json` (ADR 0174).
+    pub fn schema_version() -> usize {
+        schema::current_version()
+    }
+
     /// Whether this build can use the existing database at `path`: brings that file's schema up
     /// to date and checks its integrity. Run against a copy (an updater's snapshot): it writes to
     /// the file. Never creates one. The error is one line saying why not.

@@ -46,6 +46,12 @@ fn main() -> std::process::ExitCode {
         println!("{}", spade_server::home::VERSION);
         return std::process::ExitCode::SUCCESS;
     }
+    // The schema this binary migrates its database to, for the release's `ace-data.json`
+    // (ADR 0174): read from the binary that ships, never from source.
+    if args.first().is_some_and(|flag| flag == "--schema-version") {
+        println!("{}", Store::schema_version());
+        return std::process::ExitCode::SUCCESS;
+    }
     // The document reader (ADR 0134): one file on stdin, its text on stdout, then exit. Runs
     // before logging starts, so nothing else ever writes to stdout.
     if let Some(flag) = args.first()

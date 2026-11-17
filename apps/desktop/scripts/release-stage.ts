@@ -4,7 +4,9 @@ import { copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises
 import { join } from "node:path";
 import { changedFiles, checksumList, StagedRelease } from "../src/packaging/release-plan.ts";
 import { releaseDataFile, renderReleaseData } from "../src/packaging/release-data.ts";
-import { repo } from "./common.ts";
+import { ReleaseTarget } from "@ace/protocol";
+import { stagedSpade } from "@ace/release/spade";
+import { dist, repo } from "./common.ts";
 import { releaseDataAt } from "./release-data.ts";
 import { sha256 } from "./release-tools.ts";
 
@@ -33,12 +35,19 @@ export function verifyMac(output: string, signed: boolean): string {
   return app;
 }
 
+/** The Spade server the package just built carries: staged in dist for this host's target. */
+export function shippedSpade(): string {
+  return stagedSpade(dist, ReleaseTarget.parse(`${process.platform}-${process.arch}`));
+}
+
 export interface StageInput {
   /** The folder the release is staged in; emptied first. */
   target: string;
   /** Each source folder with the file names to copy from it. */
   sources: readonly (readonly [folder: string, names: readonly string[]])[];
   release: Omit<StagedRelease, "files">;
+  /** The Spade server this release ships, asked for its schema version (`ace-data.json`). */
+  spadeBinary: string;
 }
 
 /**
@@ -59,7 +68,10 @@ export async function stageRelease(input: StageInput): Promise<StagedRelease> {
       await copyFile(join(from, name), join(target, name));
       await record(name);
     }
-  await writeFile(join(target, releaseDataFile), renderReleaseData(await releaseDataAt(repo)));
+  await writeFile(
+    join(target, releaseDataFile),
+    renderReleaseData(await releaseDataAt(repo, input.spadeBinary)),
+  );
   await record(releaseDataFile);
   const release: StagedRelease = { ...input.release, files };
   await writeFile(join(target, "release.json"), JSON.stringify(release, null, 2) + "\n");

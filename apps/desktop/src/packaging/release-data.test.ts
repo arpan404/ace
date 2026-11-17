@@ -36,6 +36,19 @@ describe("Spade's schema version in a release's data formats", () => {
     expect(spadeMigrationCount(schema([entry("CREATE TABLE a (id)"), tricky]))).toBe(2);
   });
 
+  it("doesn't count a migration commented out, in line or block comments, nested or not", () => {
+    const commented = [
+      "    // Migration {",
+      '    //     sql: "DROP TABLE a",',
+      "    // },",
+      "    /* Migration {",
+      '        sql: "/* nested */ CREATE TABLE b (id)",',
+      "        backfill: None,",
+      "    }, */",
+    ].join("\n");
+    expect(spadeMigrationCount(schema([entry("CREATE TABLE a (id)"), commented]))).toBe(1);
+  });
+
   it("refuses a schema it can't read rather than guess a number", () => {
     expect(() => spadeMigrationCount("fn main() {}")).toThrow(/no MIGRATIONS/);
     expect(() => spadeMigrationCount(schema([]))).toThrow(/empty/);

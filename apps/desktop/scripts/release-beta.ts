@@ -19,7 +19,7 @@ import {
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { appVersion, desktop, dist, repo } from "./common.ts";
 import { checkPackagedLaunch } from "./launch-check.ts";
-import { readStaged, run, say, stageRelease, verifyMac } from "./release-stage.ts";
+import { readStaged, run, say, shippedSpade, stageRelease, verifyMac } from "./release-stage.ts";
 import {
   capture,
   githubReady,
@@ -122,6 +122,7 @@ async function build(version: string | undefined): Promise<void> {
   await stageRelease({
     target: join(releases, plan.tag),
     sources: [[output, files]],
+    spadeBinary: shippedSpade(),
     release: {
       version: plan.version,
       tag: plan.tag,

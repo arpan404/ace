@@ -8,9 +8,11 @@ import { ReleaseData } from "@ace/protocol";
 export const releaseDataFile = "ace-data.json";
 
 /**
- * Spade's schema version: the number of entries in `MIGRATIONS` in
- * `spade/crates/spade-store/src/schema.rs`, which `current_version()` returns. Counted from the
- * source so a release needs no Rust toolchain to say it.
+ * Spade's schema version as its source says: the number of entries in `MIGRATIONS` in
+ * `spade/crates/spade-store/src/schema.rs`, which `current_version()` returns. A release takes
+ * the number from the binary it ships (`spade --schema-version`) and uses this only as a
+ * cross-check, refusing a binary built from other source; `release:data` on an older checkout,
+ * whose binary can't say, uses it alone.
  */
 export function spadeMigrationCount(source: string): number {
   const start = /const MIGRATIONS: &\[Migration\] = &\[\s*$/m.exec(source);
@@ -29,8 +31,9 @@ export function renderReleaseData(data: ReleaseData): string {
 }
 
 /**
- * `Migration {` openings at the list's own level: string literals (plain and raw) and anything
- * inside an entry's braces are skipped, so SQL that mentions a migration is never counted.
+ * `Migration {` openings at the list's own level: comments (line and nested block comments), string
+ * literals (plain and raw) and anything inside an entry's braces are skipped, so a commented-out
+ * entry or SQL that mentions a migration is never counted.
  */
 function topLevelEntries(list: string): number {
   let depth = 0;
@@ -43,6 +46,15 @@ function topLevelEntries(list: string): number {
       const close = `"${raw[1] ?? ""}`;
       const end = list.indexOf(close, index + raw[0].length);
       index = end === -1 ? list.length : end + close.length;
+      continue;
+    }
+    if (rest.startsWith("//")) {
+      const end = list.indexOf("\n", index);
+      index = end === -1 ? list.length : end + 1;
+      continue;
+    }
+    if (rest.startsWith("/*")) {
+      index = blockCommentEnd(list, index);
       continue;
     }
     const char = list[index];
@@ -58,4 +70,21 @@ function topLevelEntries(list: string): number {
     index += 1;
   }
   return count;
+}
+
+/** Just past the block comment opening at `start`; Rust's block comments nest. */
+function blockCommentEnd(text: string, start: number): number {
+  let depth = 0;
+  let index = start;
+  while (index < text.length) {
+    if (text.startsWith("/*", index)) {
+      depth += 1;
+      index += 2;
+    } else if (text.startsWith("*/", index)) {
+      depth -= 1;
+      index += 2;
+      if (depth === 0) return index;
+    } else index += 1;
+  }
+  return text.length;
 }

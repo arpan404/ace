@@ -21,7 +21,7 @@ import { appVersion, desktop, dist, repo } from "./common.ts";
 import { checkPackagedLaunch } from "./launch-check.ts";
 import { releaseDataAt } from "./release-data.ts";
 import { renderReleaseData } from "../src/packaging/release-data.ts";
-import { readStaged, run, say, stageRelease, verifyMac } from "./release-stage.ts";
+import { readStaged, run, say, shippedSpade, stageRelease, verifyMac } from "./release-stage.ts";
 import {
   capture,
   githubReady,
@@ -213,6 +213,7 @@ async function build(version: string): Promise<void> {
       [output, desktopFiles],
       [daemonOutput, daemonFiles],
     ],
+    spadeBinary: shippedSpade(),
     release: { version, tag: releaseTag(version), commit, dirty, signed, notarized: signed },
   });
   if (!signed && process.platform === "darwin")
