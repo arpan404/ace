@@ -33,7 +33,15 @@ export async function workspaceGuard(root: string): Promise<() => Promise<void>>
   };
 }
 
-/** Identity outlives the physical-file LRU, so eviction can never reauthorize a moved root. */
+/** How many workspace roots keep their identity pinned between settings files. */
+const pinnedRoots = 64;
+
+/**
+ * Pins each workspace root to the identity it had when first read, least recently used first
+ * out. A settings file keeps the pin it was opened with for as long as it is cached, so dropping
+ * a root here never reauthorizes a file in use; a root read again after it was dropped is pinned
+ * afresh, as on a first visit. A daemon that has seen more roots than this keeps working.
+ */
 export class WorkspaceGuards {
   private roots = new Map<string, Promise<() => Promise<void>>>();
   forFile(path: string): Promise<() => Promise<void>> | undefined {
@@ -43,11 +51,15 @@ export class WorkspaceGuards {
   get(root: string): Promise<() => Promise<void>> {
     const path = resolve(root);
     const existing = this.roots.get(path);
-    if (existing) return existing;
-    if (this.roots.size >= 64)
-      return Promise.reject(
-        new SettingsError("limit", "Settings workspace identity limit reached"),
-      );
+    if (existing) {
+      this.roots.delete(path);
+      this.roots.set(path, existing);
+      return existing;
+    }
+    if (this.roots.size >= pinnedRoots) {
+      const oldest = this.roots.keys().next().value;
+      if (oldest !== undefined) this.roots.delete(oldest);
+    }
     const guard = workspaceGuard(path);
     this.roots.set(path, guard);
     void guard.catch(() => {

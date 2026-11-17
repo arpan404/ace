@@ -198,12 +198,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       sqliteFailureDetails(error, config.dataDir, diskSpace),
     ),
   );
-  // A full disk is entered as a condition and heals on its own, like contention.
+  // A rejection nobody caught is logged and the daemon keeps running. A full disk is entered as
+  // a condition and heals on its own, like contention.
   resources.own(
     installRejectionGuard(
       process,
       log,
       (reason) => storage.observe(reason) || isStoreRetry(reason),
+      now,
     ),
   );
   // A fatal error is charged to the service whose code raised it, for safe mode (ADR 0175).
