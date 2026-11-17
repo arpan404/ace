@@ -65,7 +65,8 @@ export function openModelStorage(path: string, runtime?: IdleWorkerRuntime): Cat
     if (!parsed.success) {
       failure = new Error("Model persistence protocol failed");
       fail();
-      void worker.terminate();
+      // Every waiting request already rejects with the failure recorded above.
+      void worker.terminate().catch(() => {});
       return;
     }
     const request = pending.get(parsed.data.id);
