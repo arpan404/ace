@@ -2,7 +2,9 @@ import { basicHandlers } from "./basics.ts";
 import type { Handlers } from "./context.ts";
 import { machineHandlers } from "./machine.ts";
 import { providerHandlers } from "./providers.ts";
-import { toolHandlers } from "./tools.ts";
+import { agentToolHandlers } from "./agent-tools.ts";
+import { marketHandlers } from "./market.ts";
+import { spadeHandlers } from "./spade.ts";
 import { workHandlers } from "./work.ts";
 
 /**
@@ -14,5 +16,7 @@ export const handlers: Handlers = {
   ...workHandlers,
   ...machineHandlers,
   ...providerHandlers,
-  ...toolHandlers,
+  ...spadeHandlers,
+  ...marketHandlers,
+  ...agentToolHandlers,
 };
