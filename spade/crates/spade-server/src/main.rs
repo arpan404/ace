@@ -69,6 +69,38 @@ fn main() -> std::process::ExitCode {
     if let Some(code) = spade_sandbox::linux::dispatch(&args) {
         return code;
     }
+    // Windows' sandbox launcher (ADR 0167): creates the command inside its AppContainer and job,
+    // then waits. The daemon spawns this with the command's stdio piped.
+    #[cfg(windows)]
+    if let Some(flag) = args.first()
+        && flag == spade_sandbox::windows::run::LAUNCHER_ARG
+    {
+        return std::process::ExitCode::from(spade_sandbox::windows::run::launcher_main(
+            &args[1..],
+        ));
+    }
+    // Windows' in-container egress bridge (ADR 0167 decision 3): a loopback listener the command's
+    // proxy points at, forwarding to the daemon over a named pipe. Started by the launcher inside
+    // the container; runs until the job closes.
+    #[cfg(windows)]
+    if let Some(flag) = args.first()
+        && flag == "sandbox-net-bridge"
+    {
+        let pipe = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
+        let port = args
+            .get(2)
+            .and_then(|a| a.to_str())
+            .and_then(|a| a.parse::<u16>().ok())
+            .unwrap_or_default();
+        let ready = args
+            .get(3)
+            .and_then(|a| a.to_str())
+            .and_then(|a| a.parse::<isize>().ok())
+            .unwrap_or_default();
+        return std::process::ExitCode::from(spade_sandbox::windows::bridge::in_container(
+            pipe, port, ready,
+        ));
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {

@@ -95,3 +95,4 @@ libproc = "0.14"
 
 [target."cfg(windows)".dependencies]
 win32job = "2.1.0"
+spade-sandbox-windows = { path = "../spade-sandbox-windows" }

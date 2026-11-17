@@ -104,8 +104,6 @@ fn inet6(call: Call, bytes: &[u8], rules: &Rules) -> Verdict {
 }
 
 fn unix(bytes: &[u8], cwd: &Path, rules: &Rules) -> Verdict {
-    use std::os::unix::ffi::OsStrExt;
-
     let path = &bytes[2..];
     // No path: an unnamed (autobound) socket; a leading NUL: the abstract namespace, where the
     // display server and some session buses listen. Neither is a place in the workspace.
@@ -113,7 +111,15 @@ fn unix(bytes: &[u8], cwd: &Path, rules: &Rules) -> Verdict {
         return Verdict::Deny;
     }
     let end = path.iter().position(|b| *b == 0).unwrap_or(path.len());
-    let path = Path::new(std::ffi::OsStr::from_bytes(&path[..end]));
+    // The socket's path as the kernel has it: bytes on Unix. This decision only runs on Linux; it
+    // is built (and tested) everywhere, so elsewhere the bytes are read as text.
+    #[cfg(unix)]
+    let path = {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&path[..end]))
+    };
+    #[cfg(not(unix))]
+    let path = std::path::PathBuf::from(String::from_utf8_lossy(&path[..end]).into_owned());
     let absolute = lexical(&cwd.join(path));
     if absolute.starts_with(&rules.sockets) && absolute != rules.sockets {
         Verdict::Unix(absolute)

@@ -9,6 +9,7 @@
 
 mod access;
 pub mod hooks;
+pub mod outside;
 pub mod servers;
 pub mod view;
 
@@ -71,6 +72,8 @@ pub struct Plugins {
     known: Mutex<Known>,
     refreshing: tokio::sync::Mutex<()>,
     servers: servers::Servers,
+    /// The person's answers for servers and hooks that can't be sealed off (ADR 0167).
+    outside: outside::Outside,
     /// How long a reading is used, in milliseconds ([`FRESH_FOR`] unless a test shortens it).
     fresh_for: std::sync::atomic::AtomicU64,
     /// How long one hook may run, in milliseconds ([`hooks::LIMIT`] unless a test shortens it).
@@ -106,6 +109,9 @@ pub struct PluginView {
     pub agents: Vec<String>,
     pub hooks: Vec<String>,
     pub servers: Vec<ServerState>,
+    /// It runs outside the sandbox, uncontained, as the person allowed (Always for this plugin
+    /// version, or a server started after they allowed it once). Its tools keep their reviews.
+    pub outside_sandbox: bool,
     /// Remote servers, added as connectors by URL.
     pub remote: Vec<view::RemoteServer>,
     pub not_used: Vec<view::NotUsed>,
@@ -128,9 +134,11 @@ impl Plugins {
         workspaces: Workspaces,
         shell: Shell,
     ) -> Arc<Self> {
+        let store = Arc::new(store);
         Arc::new(Self {
             daemon,
-            access: Access::new(store),
+            access: Access::new(store.clone()),
+            outside: outside::Outside::new(store),
             workspaces,
             shell,
             known: Mutex::new(Known::default()),
@@ -329,10 +337,30 @@ impl Plugins {
         self.access.allowed(agent)
     }
 
-    /// Forgets a deleted bot: its allow list and its servers.
+    /// Who raises the request when a server or hook would run outside the sandbox: the engine.
+    pub fn ask_through(&self, asker: std::sync::Weak<dyn outside::Ask>) {
+        self.outside.set_asker(asker);
+    }
+
+    /// The person answered whether `agent`'s plugin start in `asked` may run outside the sandbox:
+    /// a refused server is set up again on its next start, now with the answer.
+    pub fn answered_outside(
+        &self,
+        agent: &str,
+        asked: &outside::Asked,
+        allowed: bool,
+        always: bool,
+    ) -> Result<(), spade_store::StoreError> {
+        self.outside.answered(agent, asked, allowed, always)
+    }
+
+    /// Forgets a deleted bot: its allow list, its approvals outside the sandbox and its servers.
     pub fn forget(&self, agent: &str) {
         if let Err(error) = self.access.set(agent, BTreeSet::new()) {
             tracing::warn!(%error, "could not forget a bot's plugins");
+        }
+        if let Err(error) = self.outside.forget(agent) {
+            tracing::warn!(%error, "could not forget a bot's plugins allowed outside the sandbox");
         }
         self.servers.keep(|a, _, _| a != agent);
     }
@@ -365,12 +393,20 @@ impl Plugins {
                         .iter()
                         .map(|server| self.servers.state(agent, name, &server.name))
                         .collect(),
+                    outside_sandbox: false,
                     remote: usable.remote,
                     agents: usable.profiles.iter().map(|p| p.name.clone()).collect(),
                     not_used: usable.not_used,
                 }
             })
             .collect();
+        for view in &mut plugins {
+            let kept = known
+                .plugins
+                .get(&view.name)
+                .is_some_and(|plugin| self.outside.kept_for(agent, plugin));
+            view.outside_sandbox = kept || view.servers.iter().any(|s| s.outside_sandbox);
+        }
         plugins.sort_by(|a, b| a.name.cmp(&b.name));
         BotPlugins {
             plugins,
