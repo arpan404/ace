@@ -92,10 +92,12 @@ export class RecoveringWorker extends EventEmitter {
         this.stopRetry = undefined;
         void gone
           .then(() => this.start())
-          .catch((error: unknown) =>
+          .catch((restartError: unknown) =>
             this.emit(
               "error",
-              error instanceof Error ? error : new Error("Saved conversations could not restart"),
+              restartError instanceof Error
+                ? restartError
+                : new Error("Saved conversations could not restart"),
             ),
           );
       }, milliseconds);
