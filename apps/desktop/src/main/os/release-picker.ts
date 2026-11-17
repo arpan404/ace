@@ -50,8 +50,9 @@ export function parseReleaseList(value: unknown): ListedRelease[] {
  * the prerelease part, so 0.0.23 < 0.0.24-beta.20261116.1 < 0.0.24-beta.20261116.2 < 0.0.24.
  * A version that isn't semver (a development build) sorts below every release.
  */
+const valid = (version: string) => ReleaseVersion.safeParse(version).success;
+
 export function compareVersions(a: string, b: string): number {
-  const valid = (version: string) => ReleaseVersion.safeParse(version).success;
   if (!valid(a) || !valid(b)) return Number(valid(a)) - Number(valid(b));
   return isNewer(a, b) ? 1 : isNewer(b, a) ? -1 : 0;
 }
