@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { SpadeConnection } from "../spade/forward.ts";
 import type { PickAceSkill, PickPlugin, PickPorts } from "./pick.ts";
 import { spadeCall } from "./spade-port.ts";
+import type { MarketStore } from "./store.ts";
 
 /*
  * The picker's ports on a running daemon: Spade's bots, recipes and skills over the daemon's link
@@ -166,5 +167,27 @@ export function pickPorts(input: {
     names: async () => input.names(),
     // The marketplace service knows its installs and answers this itself.
     installedFromMarket: () => false,
+  };
+}
+
+/**
+ * The picker's ports as the service uses them, answering what was installed from the
+ * marketplace or a git catalog (any source) from the service's own installs: those are never
+ * the person's to publish. `names` adds the signed-in person's own to the privacy pass.
+ */
+export function withMarketInstalls(
+  pick: PickPorts,
+  store: MarketStore,
+  names: readonly string[],
+): PickPorts {
+  const types = {
+    "spade-skill": ["spade-skill"],
+    "spade-plugin": ["spade-plugin", "ace-plugin"],
+  };
+  return {
+    ...pick,
+    names: async () => [...(await pick.names()), ...names],
+    installedFromMarket: (type, name) =>
+      store.installs().some((each) => each.name === name && types[type].includes(each.type)),
   };
 }
