@@ -17,6 +17,18 @@ import { useManyDevices } from "../row-parts.tsx";
 import { useNewThreadMachines, type NewThreadMachines } from "./machine-choice.ts";
 import { moveResolver } from "./machine-move.ts";
 import { platformName, useAccountMachines } from "@/features/ace-account/index.ts";
+import { usePoolProjects } from "@/lib/pool-projects.ts";
+import {
+  checkoutOrder,
+  groupOf,
+  groupProjects,
+  type ProjectCheckout,
+} from "@ace/ui-core/project-groups";
+import { displayPath } from "@ace/ui-core";
+
+/** A menu value naming one checkout on a machine, for a machine with several of the project. */
+const checkoutValue = (checkout: ProjectCheckout) =>
+  `${checkout.machineId}\u0000${checkout.workspaceId}`;
 
 /**
  * The machine a new thread runs on, as a line under the page's question ("on Build server"),
@@ -70,12 +82,32 @@ function MachineMenu(props: {
   const account = useAccountMachines(machines);
   const moving = useRef(false);
   const home = props.from ? machines.find((each) => each.id === props.from) : current;
+  // The project's logical project (ADR 0180): its checkouts on each machine, online ones only.
+  const { lists } = usePoolProjects();
+  const homeId = home?.id;
+  const group = useMemo(
+    () => (homeId ? groupOf(groupProjects(lists), homeId, props.project) : undefined),
+    [lists, homeId, props.project],
+  );
+  const checkoutsOn = (machineId: string) =>
+    (group?.checkouts ?? [])
+      .filter((each) => each.machineId === machineId && each.online)
+      .toSorted(checkoutOrder);
   // Where the project lands on each machine, asked as the menu opens so a pick moves at once.
   const moves = useMemo(
-    () => moveResolver(storage, props.project, home),
-    // A new client for the machine it is on (a reconnect) asks again.
+    () =>
+      moveResolver(
+        storage,
+        props.project,
+        home,
+        (next) =>
+          (group?.checkouts ?? [])
+            .filter((each) => each.machineId === next.id && each.online)
+            .toSorted(checkoutOrder)[0]?.workspaceId,
+      ),
+    // A new client for the machine it is on (a reconnect), or a link made, asks again.
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `home` is read through its id and client.
-    [storage, props.project, home?.id, home?.client],
+    [storage, props.project, home?.id, home?.client, group],
   );
   const askAhead = () => {
     for (const machine of machines)
@@ -113,32 +145,55 @@ function MachineMenu(props: {
         <MenuRadioGroup
           value={current.id}
           onValueChange={(id: unknown) => {
-            const next = machines.find((machine) => machine.id === id);
-            if (next && next.id !== current.id && next.status === "online") void move(next);
+            const [machineId, workspaceId] = String(id).split("\u0000");
+            const next = machines.find((machine) => machine.id === machineId);
+            if (!next || next.id === current.id || next.status !== "online") return;
+            // One checkout of several there, chosen by its folder.
+            if (workspaceId) choose(next, { project: workspaceId, draft: props.draft });
+            else void move(next);
           }}
         >
-          {machines.map((machine) => (
-            <MenuRadioItem
-              key={machine.id}
-              value={machine.id}
-              disabled={machine.status !== "online"}
-              aria-label={
-                machine.status === "online"
-                  ? machine.name
-                  : `${machine.name}, ${machineStatus[machine.status].label}`
-              }
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <MachineMark icon={machine.icon} primary={machine.primary} />
-                <span className="truncate">{machine.name}</span>
-                {machine.status !== "online" && (
-                  <span className="text-xs text-subtle-foreground">
-                    {machineStatus[machine.status].label}
+          {machines.map((machine) => {
+            const several = machine.id === current.id ? [] : checkoutsOn(machine.id);
+            if (several.length > 1)
+              return several.map((checkout) => (
+                <MenuRadioItem
+                  key={checkout.key}
+                  value={checkoutValue(checkout)}
+                  aria-label={`${machine.name}, ${checkout.path}`}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <MachineMark icon={machine.icon} primary={machine.primary} />
+                    <span className="truncate">{machine.name}</span>
+                    <span className="truncate text-xs text-subtle-foreground">
+                      {displayPath(checkout.path, undefined)}
+                    </span>
                   </span>
-                )}
-              </span>
-            </MenuRadioItem>
-          ))}
+                </MenuRadioItem>
+              ));
+            return (
+              <MenuRadioItem
+                key={machine.id}
+                value={machine.id}
+                disabled={machine.status !== "online"}
+                aria-label={
+                  machine.status === "online"
+                    ? machine.name
+                    : `${machine.name}, ${machineStatus[machine.status].label}`
+                }
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <MachineMark icon={machine.icon} primary={machine.primary} />
+                  <span className="truncate">{machine.name}</span>
+                  {machine.status !== "online" && (
+                    <span className="text-xs text-subtle-foreground">
+                      {machineStatus[machine.status].label}
+                    </span>
+                  )}
+                </span>
+              </MenuRadioItem>
+            );
+          })}
           {account.only.map((machine) => (
             <MenuRadioItem
               key={machine.hostId}

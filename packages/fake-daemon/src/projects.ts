@@ -387,6 +387,7 @@ export class FakeProjects {
   ): Omit<CommandResult, "commandId"> {
     // An older daemon never answers a command it can't parse; the client asks first.
     if (!this.identities.enabled) return { ok: false, error: "invalid_message" };
+    if (this.identities.refusing) return { ok: false, error: "project_failed" };
     if (p.type === "workspace.identity.merge") {
       for (const id of this.identities.merge(p.from, p.into)) this.changed(id);
       return { ok: true };

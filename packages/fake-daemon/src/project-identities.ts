@@ -13,6 +13,8 @@ import {
  */
 export class FakeIdentities {
   enabled = true;
+  /** While set, identity commands are refused, as a daemon that couldn't write would (tests). */
+  refusing = false;
   private rows = new Map<string, { id: string; source: ProjectIdentitySource }>();
   private aliases = new Map<string, { to: string; at: number }>();
   private minted = 0;

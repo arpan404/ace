@@ -1,4 +1,6 @@
-import { ChatCircleIcon, FolderPlusIcon, FolderSimpleIcon } from "@ace/icons";
+import { ChatCircleIcon, DevicesIcon, FolderPlusIcon, FolderSimpleIcon } from "@ace/icons";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { z } from "zod";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 import { projectBadge } from "@ace/ui-core";
@@ -22,11 +24,25 @@ import { CommandShortcut } from "@/components/ui/command.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { useKeys } from "@/lib/keybindings.ts";
 import { describeKeys } from "@/lib/keymap.ts";
+import { NewThreadGroups, addProjectChoice } from "./new-thread-groups.tsx";
 
 type Chosen = Pick<Machine, "id" | "name" | "primary">;
 
 /** The last row: add a project here, whose new thread draft then opens. */
-const addProject = "\u0000add-project";
+const addProject = addProjectChoice;
+/** The machine list's first row: every machine's projects, as logical projects (ADR 0180). */
+const allMachines = "\u0000all-machines";
+
+/*
+ * Whether the step lists one machine's projects because the person picked that machine in it
+ * last. Absent: with more than one machine, it lists every machine's.
+ */
+const scopeKey = "ace.palette.newThreadIn";
+const Scope = z.object({ machine: z.literal(true).optional() }).catch({});
+const pickedMachine = (storage: KeyValueStorage | undefined) =>
+  readJson(storage, scopeKey, Scope, {}).machine === true;
+const rememberScope = (storage: KeyValueStorage | undefined, machine: boolean) =>
+  writeJson(storage, scopeKey, machine ? { machine: true } : {});
 
 /**
  * "New thread in…": a chat with no project first, then the projects by name, then Add
@@ -49,6 +65,10 @@ export function NewThreadIn(props: {
     return machines.find((each) => each.id === id);
   });
   const [picking, setPicking] = useState(false);
+  // More than one machine: every machine's projects, until the person picks one machine here.
+  const [everywhere, setEverywhere] = useState(
+    () => machines.length > 1 && !pickedMachine(storage),
+  );
   // This window's daemon is found by being primary: its id becomes its host id once known.
   const found =
     chosen && machines.find((each) => each.id === chosen.id || (chosen.primary && each.primary));
@@ -59,10 +79,18 @@ export function NewThreadIn(props: {
     : machines[0];
   const online = machines.filter((each) => each.status === "online").length;
   const several = online > 1 || (machine !== undefined && !machine.primary);
-  const choices = useMemo(() => machineChoices(machines, { onlineOnly: true }), [machines]);
+  const choices = useMemo(
+    () => [
+      ...(machines.length > 1
+        ? [{ id: allMachines, label: "All machines", icon: DevicesIcon }]
+        : []),
+      ...machineChoices(machines, { onlineOnly: true }),
+    ],
+    [machines],
+  );
 
   if (!machine) return null;
-  if (several && picking)
+  if ((several || everywhere) && picking)
     return (
       <CommandChoices
         key="machines"
@@ -71,8 +99,16 @@ export function NewThreadIn(props: {
         placeholder="New thread on…"
         choices={choices}
         onChoose={(choice) => {
+          if (choice.id === allMachines) {
+            setEverywhere(true);
+            rememberScope(storage, false);
+            setPicking(false);
+            return;
+          }
           const next = machines.find((each) => each.id === choice.id);
           if (next) setChosen({ id: next.id, name: next.name, primary: next.primary });
+          setEverywhere(false);
+          rememberScope(storage, true);
           setPicking(false);
         }}
         onBack={() => setPicking(false)}
@@ -81,10 +117,43 @@ export function NewThreadIn(props: {
         switchLabel="Projects"
       />
     );
-  const chip = several ? (
-    <MachineChip name={machine.name} onClick={() => setPicking(true)} />
-  ) : undefined;
-  const switchMachines = several ? () => setPicking(true) : undefined;
+  const chip =
+    several || everywhere ? (
+      <MachineChip
+        name={everywhere ? "All machines" : machine.name}
+        onClick={() => setPicking(true)}
+      />
+    ) : undefined;
+  const switchMachines = several || everywhere ? () => setPicking(true) : undefined;
+  const open = (on: Machine | undefined, project: string) => {
+    const host = on && !on.primary ? on.id : undefined;
+    if (several) rememberMachine(storage, host);
+    props.close();
+    void navigate(newThreadOn(host, project));
+    focusComposerSoon();
+  };
+  if (everywhere) {
+    const here = machines.find((each) => each.primary) ?? machine;
+    return (
+      <NewThreadGroups
+        machines={machines}
+        chip={chip}
+        onBack={props.onBack}
+        onSwitchMachines={switchMachines}
+        onChooseOther={(choice) => {
+          if (choice === addProject)
+            return props.onAddProject({ id: here.id, name: here.name, primary: here.primary });
+          open(here, choice);
+        }}
+        onChooseCheckout={(checkout) =>
+          open(
+            machines.find((each) => each.id === checkout.machineId),
+            checkout.workspaceId,
+          )
+        }
+      />
+    );
+  }
   return (
     <MachineScope
       key={machine.id}
