@@ -7,6 +7,9 @@
       "pattern": "^[^\\s@]+@[^\\s@]+$",
       "type": "string"
     },
+    "emailVerified": {
+      "type": "boolean"
+    },
     "id": {
       "maxLength": 256,
       "minLength": 1,

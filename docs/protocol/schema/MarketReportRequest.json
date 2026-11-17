@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketReportRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "note": {
+      "default": "",
+      "maxLength": 1000,
+      "type": "string"
+    },
+    "reason": {
+      "$ref": "https://ace.local/protocol/v1/MarketReportReason.json"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    }
+  },
+  "required": [
+    "type",
+    "name",
+    "reason"
+  ],
+  "type": "object"
+}

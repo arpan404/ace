@@ -13,6 +13,10 @@
       "maxItems": 3,
       "type": "array"
     },
+    "deprecated": {
+      "maxLength": 500,
+      "type": "string"
+    },
     "downloads": {
       "maximum": 9007199254740991,
       "minimum": 0,
@@ -37,6 +41,13 @@
     },
     "name": {
       "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "previews": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+      },
+      "maxItems": 4,
+      "type": "array"
     },
     "publisher": {
       "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
@@ -64,6 +75,9 @@
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "verified": {
+      "type": "boolean"
     },
     "version": {
       "$ref": "https://ace.local/protocol/v1/MarketVersion.json"

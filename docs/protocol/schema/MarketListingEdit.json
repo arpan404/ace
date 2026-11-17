@@ -1,0 +1,64 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketListingEdit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "categories": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketCategoryId.json"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
+    "description": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "keywords": {
+      "items": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string",
+        "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "line": {
+      "maxLength": 300,
+      "minLength": 0,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    },
+    "links": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketLink.json"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "previews": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    }
+  },
+  "required": [
+    "title",
+    "line",
+    "description",
+    "categories",
+    "keywords",
+    "links",
+    "previews"
+  ],
+  "type": "object"
+}

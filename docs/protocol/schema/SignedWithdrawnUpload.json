@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/SignedWithdrawnUpload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "basedOn": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "withdrawn": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    }
+  },
+  "required": [
+    "withdrawn"
+  ],
+  "type": "object"
+}

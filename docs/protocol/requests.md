@@ -1482,8 +1482,9 @@ Example:
 ```json
 {
   "operation": {
-    "id": "6WCk3EU673FnXxIICoaHdbgC2pzPFHSgjB3nJMF3PRqxXElx1hrDmolXSD-MDWdqikSx0vkBaZ-",
-    "op": "cancel"
+    "name": "7g7s17",
+    "op": "turnOn",
+    "type": "ace-plugin"
   },
   "requestId": "example",
   "type": "marketplace.request"
