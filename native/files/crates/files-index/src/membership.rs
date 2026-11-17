@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Membership for live updates: hash to arena slot.
+//! Membership for live updates: path hash to arena slot.
 
-use std::collections::HashMap;
-use std::hash::{BuildHasherDefault, Hasher};
+use std::hash::Hasher;
+
+use hashbrown::HashTable;
 
 use crate::arena::PathArena;
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x1000_0000_01b3;
 
-/// FNV-1a. Path hashing only has to spread a million similar strings, and every lookup compares the
-/// bytes of the stored path before believing the slot, so a collision can never report the wrong
-/// file.
+/// FNV-1a. Path hashing only has to spread a million similar strings; every lookup compares the
+/// bytes of the stored path before believing the slot, and the table keeps every entry that shares
+/// a hash, so a collision can never hide or misreport a file.
 #[derive(Default)]
 pub(crate) struct PathHasher(Option<u64>);
 
@@ -31,48 +32,57 @@ impl Hasher for PathHasher {
     }
 }
 
-pub(crate) type PathMap<V> = HashMap<u64, V, BuildHasherDefault<PathHasher>>;
+type Hash = fn(&str) -> u64;
 
-/// Hash-to-slot map for the indexed paths, so `apply` can refresh a file that a watcher reports as
-/// modified without adding it twice.
-#[derive(Debug, Default)]
+/// Hash-to-slot table for the indexed paths, so `apply` can refresh a file that a watcher reports as
+/// modified without adding it twice. The table holds every slot whose path hashes the same, which is
+/// what makes a collision harmless: lookups compare path text, never just the hash.
+#[derive(Debug)]
 pub(crate) struct Membership {
-    slots: PathMap<u32>,
+    table: HashTable<u32>,
+    hash: Hash,
 }
 
 impl Membership {
     pub fn with_capacity(paths: usize) -> Membership {
+        Membership::with_hasher(paths, hash)
+    }
+
+    fn with_hasher(paths: usize, hash: Hash) -> Membership {
         Membership {
-            slots: PathMap::with_capacity_and_hasher(paths, BuildHasherDefault::default()),
+            table: HashTable::with_capacity(paths),
+            hash,
         }
     }
 
-    /// The slot holding `path`, if it is indexed. The slot's bytes are compared, so a hash
-    /// collision reads as "not indexed" rather than as some other path.
+    /// The slot holding `path`, if it is indexed.
     pub fn find(&self, arena: &PathArena, path: &str) -> Option<u32> {
-        let slot = *self.slots.get(&hash(path))?;
-        (arena.is_live(slot) && arena.get(slot) == Some(path)).then_some(slot)
+        self.table
+            .find((self.hash)(path), |&slot| arena.get(slot) == Some(path))
+            .copied()
     }
 
-    pub fn insert(&mut self, path: &str, slot: u32) {
-        self.slots.insert(hash(path), slot);
+    pub fn insert(&mut self, arena: &PathArena, path: &str, slot: u32) {
+        let hash = self.hash;
+        self.table
+            .insert_unique((self.hash)(path), slot, move |&existing| {
+                hash(arena.get(existing).unwrap_or_default())
+            });
     }
 
-    /// Forget `path` if the map really points at it.
+    /// Forget `path` if the table really points at it.
     pub fn remove(&mut self, arena: &PathArena, path: &str) {
-        let hash = hash(path);
-        if self
-            .slots
-            .get(&hash)
-            .is_some_and(|&slot| arena.get(slot) == Some(path))
+        if let Ok(entry) = self
+            .table
+            .find_entry((self.hash)(path), |&slot| arena.get(slot) == Some(path))
         {
-            self.slots.remove(&hash);
+            entry.remove();
         }
     }
 
-    /// Approximate bytes the map occupies, for the build report and bench.
+    /// Approximate bytes the table occupies, for the build report and bench.
     pub fn bytes_used(&self) -> usize {
-        self.slots.capacity() * (size_of::<u64>() + size_of::<u32>())
+        self.table.capacity() * (size_of::<u32>() + size_of::<u8>())
     }
 }
 
@@ -80,4 +90,42 @@ fn hash(path: &str) -> u64 {
     let mut hasher = PathHasher::default();
     std::hash::Hash::hash(path, &mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A hasher that puts every path in one bucket, so the table has to tell them apart by text.
+    fn colliding(_: &str) -> u64 {
+        0x5eed
+    }
+
+    fn arena(paths: &[&str]) -> PathArena {
+        let mut arena = PathArena::default();
+        for path in paths {
+            arena.push(path);
+        }
+        arena
+    }
+
+    #[test]
+    fn colliding_paths_keep_their_own_slots() {
+        let arena = arena(&["src/a.rs", "src/b.rs"]);
+        let mut members = Membership::with_hasher(2, colliding);
+        members.insert(&arena, "src/a.rs", 0);
+        members.insert(&arena, "src/b.rs", 1);
+
+        assert_eq!(members.find(&arena, "src/a.rs"), Some(0));
+        assert_eq!(members.find(&arena, "src/b.rs"), Some(1));
+        assert_eq!(members.find(&arena, "src/c.rs"), None);
+
+        members.remove(&arena, "src/a.rs");
+        assert_eq!(members.find(&arena, "src/a.rs"), None);
+        assert_eq!(
+            members.find(&arena, "src/b.rs"),
+            Some(1),
+            "removing one colliding path leaves the other in place"
+        );
+    }
 }

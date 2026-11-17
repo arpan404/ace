@@ -11,27 +11,31 @@ use ignore::overrides::{Override, OverrideBuilder};
 use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkBuilder, WalkState};
 
 use crate::error::Error;
+use crate::ignores::{self, IgnoreRules};
 
 /// What the walk must leave out: git-ignore rules unless asked otherwise, and glob patterns that
-/// never list.
-#[derive(Debug, Clone)]
+/// never list. The same value answers for paths the watcher reports directly, so a created file is
+/// judged by the rules a build would use.
+#[derive(Debug)]
 pub(crate) struct Filters {
     include_ignored: bool,
-    matcher: Override,
+    hide: Override,
+    rules: Option<IgnoreRules>,
 }
 
 impl Default for Filters {
     fn default() -> Filters {
         Filters {
             include_ignored: false,
-            matcher: Override::empty(),
+            hide: Override::empty(),
+            rules: None,
         }
     }
 }
 
 impl Filters {
-    /// Validate the hide patterns once, so a bad glob fails the build instead of silently hiding
-    /// nothing.
+    /// Validate the hide patterns once and load the git rules, so a bad glob fails the build instead
+    /// of silently hiding nothing.
     pub fn new(root: &Root, hide: &[String], include_ignored: bool) -> Result<Filters, Error> {
         let mut cleaned = Vec::with_capacity(hide.len());
         for pattern in hide {
@@ -47,69 +51,125 @@ impl Filters {
             cleaned.push(pattern.to_owned());
         }
         Ok(Filters {
-            matcher: matcher(root, &cleaned)?,
+            hide: matcher(root, &cleaned)?,
             include_ignored,
+            rules: (!include_ignored).then(|| IgnoreRules::new(root)),
         })
     }
 
-    /// Whether a single relative path is hidden, for paths the watcher reports directly rather than
-    /// through a walk.
-    pub fn hides(&self, root: &Root, path: &str) -> bool {
-        self.matcher
-            .matched(root.path().join(path), false)
+    /// The same hidden patterns with git rules read again. A watcher can create or edit a
+    /// `.gitignore`, so an update must not judge new files by the rules a build loaded earlier.
+    pub fn refreshed(&self, root: &Root) -> Filters {
+        Filters {
+            include_ignored: self.include_ignored,
+            hide: self.hide.clone(),
+            rules: (!self.include_ignored).then(|| IgnoreRules::new(root)),
+        }
+    }
+
+    /// Whether a path the watcher reported, or any of its ancestor folders, is hidden or ignored.
+    pub fn excludes(&self, root: &Root, path: &str, is_dir: bool) -> bool {
+        let leaf = path.len();
+        for prefix in prefixes(path) {
+            let prefix_is_dir = prefix.len() < leaf || is_dir;
+            if self.hides(root, prefix, prefix_is_dir) {
+                return true;
+            }
+            if let Some(rules) = &self.rules
+                && rules.ignored(&root.path().join(prefix), prefix_is_dir, false)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether a path from a walk is excluded by rules the walk itself could not see.
+    pub fn recheck(&self, root: &Root, path: &str) -> bool {
+        self.rules
+            .as_ref()
+            .is_some_and(|rules| rules.ignored(&root.path().join(path), false, true))
+    }
+
+    /// Whether the rules above the root can exclude anything, so a walk that starts at the root
+    /// needs no per-entry recheck.
+    pub fn has_ancestors(&self) -> bool {
+        self.rules.as_ref().is_some_and(IgnoreRules::has_ancestors)
+    }
+
+    fn hides(&self, root: &Root, path: &str, is_dir: bool) -> bool {
+        self.hide
+            .matched(root.path().join(path), is_dir)
             .is_ignore()
     }
+}
+
+/// Every `/`-separated prefix of a path, ending with the path itself.
+fn prefixes(path: &str) -> impl Iterator<Item = &str> {
+    path.match_indices('/')
+        .map(move |(index, _)| &path[..index])
+        .chain(std::iter::once(path))
+}
+
+/// One request to walk files into a list.
+pub(crate) struct Walk<'a> {
+    pub root: &'a Root,
+    pub filters: &'a Filters,
+    pub max_files: usize,
+    pub cancel: &'a AtomicBool,
+    pub start: &'a Path,
+    /// Whether each entry must be rechecked against the rules above the walk start. A build walking
+    /// from the index root only needs this when the root sits below a repository top; walking a
+    /// folder inside the root always needs it.
+    pub recheck: bool,
+    /// Test support: called with the number of files accepted so far.
+    pub progress: Option<&'a (dyn Fn(u64) + Sync)>,
 }
 
 /// The files found by one walk.
 pub(crate) struct Collected {
     pub paths: Vec<String>,
     pub truncated: bool,
+    pub cancelled: bool,
 }
 
-/// Walk `start` under `root` and collect every file, up to `max_files`.
+/// Walk `root` and collect every file, up to `max_files`.
 ///
 /// Hidden files are included, because a person can open a dotfile. Nothing inside a `.git` folder is
 /// ever indexed, at any depth or as the root itself: that store is never a quick-open target and
-/// would fill any cap on its own.
-///
-/// Git's rules are applied as git applies them. A root inside a repository also sees the
-/// `.gitignore` files and `.git/info/exclude` from the repository top down, and nothing above that
-/// top. A root outside any repository applies the `.gitignore` files from itself and its parent
-/// folders, since there is no repository top to stop the chain.
-pub(crate) fn collect(
-    root: &Root,
-    filters: &Filters,
-    max_files: usize,
-    cancel: &AtomicBool,
-    start: &Path,
-) -> Result<Collected, Error> {
-    if inside_git_store(root) {
+/// would fill any cap on its own. Symlinks are indexed when they point at a file inside the root;
+/// symlinked folders are never followed.
+pub(crate) fn run(walk: Walk<'_>) -> Result<Collected, Error> {
+    if inside_git_store(walk.root) {
         return Ok(Collected {
             paths: Vec::new(),
             truncated: false,
+            cancelled: false,
         });
     }
-    let in_repo = repo_top(root.path()).is_some();
-    let mut builder = WalkBuilder::new(start);
+    let mut builder = WalkBuilder::new(walk.start);
     builder
         .hidden(false)
         .follow_links(false)
-        .parents(true)
-        .require_git(in_repo)
-        .ignore(!filters.include_ignored)
-        .git_ignore(!filters.include_ignored)
-        .git_global(!filters.include_ignored)
-        .git_exclude(!filters.include_ignored)
+        .parents(false)
+        .require_git(false)
+        .ignore(false)
+        .git_ignore(!walk.filters.include_ignored)
+        .git_global(!walk.filters.include_ignored && in_repo(walk.root))
+        .git_exclude(false)
         .threads(rayon::current_num_threads().max(1))
-        .overrides(filters.matcher.clone());
+        .overrides(walk.filters.hide.clone());
     let shared = Shared {
-        root,
+        root: walk.root,
+        filters: walk.filters,
         paths: Mutex::new(Vec::new()),
         count: AtomicUsize::new(0),
         cap_hit: AtomicBool::new(false),
-        max_files,
-        cancel,
+        cancelled: AtomicBool::new(false),
+        max_files: walk.max_files,
+        cancel: walk.cancel,
+        recheck: walk.recheck,
+        progress: walk.progress,
     };
     builder
         .build_parallel()
@@ -121,6 +181,7 @@ pub(crate) fn collect(
     Ok(Collected {
         paths,
         truncated: shared.cap_hit.load(Ordering::Relaxed),
+        cancelled: shared.cancelled.load(Ordering::Relaxed),
     })
 }
 
@@ -134,9 +195,8 @@ fn matcher(root: &Root, hide: &[String]) -> Result<Override, Error> {
     Ok(builder.build()?)
 }
 
-/// The nearest folder at or above `start` that holds a `.git` entry.
-fn repo_top(start: &Path) -> Option<&Path> {
-    start.ancestors().find(|dir| dir.join(".git").exists())
+fn in_repo(root: &Root) -> bool {
+    ignores::repo_top(root.path()).is_some()
 }
 
 /// A root inside the git store of a repository: every path under it lives in a `.git` folder, so
@@ -149,11 +209,15 @@ fn inside_git_store(root: &Root) -> bool {
 
 struct Shared<'a> {
     root: &'a Root,
+    filters: &'a Filters,
     paths: Mutex<Vec<String>>,
     count: AtomicUsize,
     cap_hit: AtomicBool,
+    cancelled: AtomicBool,
     max_files: usize,
     cancel: &'a AtomicBool,
+    recheck: bool,
+    progress: Option<&'a (dyn Fn(u64) + Sync)>,
 }
 
 struct CollectBuilder<'a> {
@@ -179,12 +243,19 @@ struct CollectVisitor<'a> {
 impl ParallelVisitor for CollectVisitor<'_> {
     fn visit(&mut self, entry: Result<DirEntry, ignore::Error>) -> WalkState {
         if self.shared.cancel.load(Ordering::Relaxed) {
+            self.shared.cancelled.store(true, Ordering::Relaxed);
             return WalkState::Quit;
         }
         let Ok(entry) = entry else {
             return WalkState::Continue;
         };
-        if entry.file_type().is_none_or(|kind| !kind.is_file()) {
+        let Some(kind) = entry.file_type() else {
+            return WalkState::Continue;
+        };
+        if !kind.is_file() && !kind.is_symlink() {
+            return WalkState::Continue;
+        }
+        if kind.is_symlink() && !self.links_to_file(&entry) {
             return WalkState::Continue;
         }
         let Some(path) = self.shared.root.relative(entry.path()) else {
@@ -193,12 +264,31 @@ impl ParallelVisitor for CollectVisitor<'_> {
         if path.is_empty() {
             return WalkState::Continue;
         }
-        if self.shared.count.fetch_add(1, Ordering::Relaxed) >= self.shared.max_files {
+        if self.shared.recheck && self.shared.filters.recheck(self.shared.root, &path) {
+            return WalkState::Continue;
+        }
+        let seen = self.shared.count.fetch_add(1, Ordering::Relaxed);
+        if seen >= self.shared.max_files {
             self.shared.cap_hit.store(true, Ordering::Relaxed);
+            return WalkState::Quit;
+        }
+        if let Some(progress) = self.shared.progress {
+            progress(seen as u64 + 1);
+        }
+        if self.shared.cancel.load(Ordering::Relaxed) {
+            self.shared.cancelled.store(true, Ordering::Relaxed);
             return WalkState::Quit;
         }
         self.local.push(path);
         WalkState::Continue
+    }
+}
+
+impl CollectVisitor<'_> {
+    /// Whether a symlink points at a file inside the root. Folders are never followed.
+    fn links_to_file(&self, entry: &DirEntry) -> bool {
+        std::fs::canonicalize(entry.path())
+            .is_ok_and(|target| target.starts_with(self.shared.root.path()) && target.is_file())
     }
 }
 

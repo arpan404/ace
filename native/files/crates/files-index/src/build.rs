@@ -2,20 +2,21 @@
 
 //! Building an index from a checkout.
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use files_safe::Root;
 
 use crate::arena::PathArena;
 use crate::error::Error;
 use crate::membership::Membership;
-use crate::walk::{self, Filters};
+use crate::walk::{self, Filters, Walk};
 use crate::{IndexOptions, PathIndex};
 
 pub(crate) fn build(
     root: &Root,
     options: &IndexOptions,
     cancel: &AtomicBool,
+    progress: Option<&(dyn Fn(u64) + Sync)>,
 ) -> Result<PathIndex, Error> {
     if options.max_files == 0 {
         return Err(Error::InvalidArgument(
@@ -23,7 +24,18 @@ pub(crate) fn build(
         ));
     }
     let filters = Filters::new(root, &options.hide, options.include_ignored)?;
-    let collected = walk::collect(root, &filters, options.max_files, cancel, root.path())?;
+    let collected = walk::run(Walk {
+        root,
+        filters: &filters,
+        max_files: options.max_files,
+        cancel,
+        start: root.path(),
+        recheck: filters.has_ancestors(),
+        progress,
+    })?;
+    if collected.cancelled || cancel.load(Ordering::Relaxed) {
+        return Err(Error::Aborted);
+    }
     let bytes = collected.paths.iter().map(String::len).sum();
     let mut arena = PathArena::with_capacity(collected.paths.len(), bytes);
     let mut members = Membership::with_capacity(collected.paths.len());

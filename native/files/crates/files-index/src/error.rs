@@ -12,6 +12,9 @@ pub enum Error {
     /// pattern that is not a glob.
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
+    /// The caller's cancel flag went up, so the build stopped without producing an index.
+    #[error("aborted")]
+    Aborted,
     /// Reading the checkout failed in a way that is not about one folder's permissions.
     #[error("cannot read the checkout: {0}")]
     Io(#[from] io::Error),
@@ -22,6 +25,7 @@ impl Error {
     pub fn code(&self) -> &'static str {
         match self {
             Error::InvalidArgument(_) => "INVALID_ARGUMENT",
+            Error::Aborted => "ABORTED",
             Error::Io(error) => match error.kind() {
                 io::ErrorKind::NotFound => "NOT_FOUND",
                 io::ErrorKind::PermissionDenied => "PERMISSION_DENIED",

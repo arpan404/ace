@@ -6,8 +6,8 @@ mod support;
 
 use std::fs;
 
-use files_index::IndexChange;
-use support::{indexed, paths, write};
+use files_index::{IndexChange, IndexOptions};
+use support::{build_index, checkout, indexed, paths, write};
 
 fn created(path: &str, directory: bool) -> IndexChange {
     IndexChange {
@@ -53,6 +53,26 @@ fn apply_adds_and_removes_files() {
 }
 
 #[test]
+fn prepare_runs_before_the_index_changes() {
+    let mut fixture = indexed(&["src/main.rs"]);
+    write(fixture.dir.path(), "src/new/one.rs", "");
+    let prepared = fixture.index.prepare(
+        &fixture.root,
+        &[created("src/new", true), deleted("src/main.rs", false)],
+    );
+    assert_eq!(fixture.index.len(), 1, "prepare leaves the index alone");
+    assert_eq!(paths(&fixture.index.search("main.rs", 5)), ["src/main.rs"]);
+
+    fixture.index.commit(prepared);
+    assert_eq!(fixture.index.len(), 1);
+    assert!(fixture.index.search("main.rs", 5).is_empty());
+    assert_eq!(
+        paths(&fixture.index.search("one.rs", 5)),
+        ["src/new/one.rs"]
+    );
+}
+
+#[test]
 fn deleted_folder_drops_its_subtree() {
     let mut fixture = indexed(&[
         "src/a/one.rs",
@@ -71,6 +91,21 @@ fn deleted_folder_drops_its_subtree() {
     for gone in ["one.rs", "two.rs", "three.rs"] {
         assert!(fixture.index.search(gone, 5).is_empty(), "{gone} is gone");
     }
+}
+
+#[test]
+fn deleted_folder_reported_as_a_file_drops_its_subtree() {
+    let mut fixture = indexed(&["src/a/one.rs", "src/a/two.rs", "src/b/three.rs"]);
+    fixture
+        .index
+        .apply(&fixture.root, &[deleted("src/a", false)]);
+    assert_eq!(fixture.index.len(), 1);
+    assert!(fixture.index.search("one.rs", 5).is_empty());
+    assert!(fixture.index.search("two.rs", 5).is_empty());
+    assert_eq!(
+        paths(&fixture.index.search("three.rs", 5)),
+        ["src/b/three.rs"]
+    );
 }
 
 #[test]
@@ -93,20 +128,6 @@ fn created_folder_adds_its_subtree() {
 }
 
 #[test]
-fn apply_never_adds_paths_inside_dot_git() {
-    let mut fixture = indexed(&["src/main.rs"]);
-    write(fixture.dir.path(), ".git/config", "");
-    write(fixture.dir.path(), ".git/hooks/pre-commit", "");
-    fixture.index.apply(
-        &fixture.root,
-        &[created(".git", true), created(".git/config", false)],
-    );
-    assert_eq!(fixture.index.len(), 1);
-    assert!(fixture.index.search("config", 5).is_empty());
-    assert!(fixture.index.search("precommit", 5).is_empty());
-}
-
-#[test]
 fn created_folder_respects_gitignore() {
     let mut fixture = indexed(&["src/main.rs", ".gitignore"]);
     write(fixture.dir.path(), ".gitignore", "build\n");
@@ -118,4 +139,84 @@ fn created_folder_respects_gitignore() {
         "an ignored file never enters through an update"
     );
     assert_eq!(paths(&fixture.index.search("ok.rs", 5)), ["src/ok.rs"]);
+}
+
+#[test]
+fn apply_skips_a_gitignored_folder() {
+    let mut fixture = indexed(&["src/main.rs", ".gitignore"]);
+    write(fixture.dir.path(), ".gitignore", "build\n");
+    write(fixture.dir.path(), "src/build/out.rs", "");
+    fixture
+        .index
+        .apply(&fixture.root, &[created("src/build", true)]);
+    assert!(fixture.index.search("out.rs", 5).is_empty());
+    assert_eq!(fixture.index.len(), 2);
+}
+
+#[test]
+fn apply_skips_a_gitignored_file() {
+    let mut fixture = indexed(&["src/main.rs", ".gitignore"]);
+    write(fixture.dir.path(), ".gitignore", "target\n");
+    write(fixture.dir.path(), "target/debug/foo.d", "");
+    fixture
+        .index
+        .apply(&fixture.root, &[created("target/debug/foo.d", false)]);
+    assert!(fixture.index.search("foo.d", 5).is_empty());
+    assert_eq!(fixture.index.len(), 2);
+}
+
+#[test]
+fn apply_skips_a_hidden_folder() {
+    let (dir, root) = checkout(&["src/main.rs"]);
+    let options = IndexOptions {
+        hide: vec!["node_modules".to_owned()],
+        ..IndexOptions::default()
+    };
+    let mut index = build_index(&root, &options);
+    write(dir.path(), "node_modules/x/y.js", "");
+    index.apply(
+        &root,
+        &[
+            created("node_modules/x/y.js", false),
+            created("node_modules", true),
+        ],
+    );
+    assert!(index.search("y.js", 5).is_empty());
+    assert_eq!(index.len(), 1);
+}
+
+#[test]
+fn deletions_clear_truncation() {
+    let files: Vec<String> = (0..40)
+        .map(|number| format!("src/file{number}.rs"))
+        .collect();
+    let files: Vec<&str> = files.iter().map(String::as_str).collect();
+    let (_dir, root) = checkout(&files);
+    let options = IndexOptions {
+        max_files: 12,
+        ..IndexOptions::default()
+    };
+    let mut index = build_index(&root, &options);
+    assert!(index.truncated());
+
+    let deletes: Vec<IndexChange> = (0..40)
+        .map(|number| deleted(&format!("src/file{number}.rs"), false))
+        .collect();
+    index.apply(&root, &deletes);
+    assert_eq!(index.len(), 0);
+    assert!(!index.truncated(), "the index is under its cap again");
+}
+
+#[test]
+fn apply_never_adds_paths_inside_dot_git() {
+    let mut fixture = indexed(&["src/main.rs"]);
+    write(fixture.dir.path(), ".git/config", "");
+    write(fixture.dir.path(), ".git/hooks/pre-commit", "");
+    fixture.index.apply(
+        &fixture.root,
+        &[created(".git", true), created(".git/config", false)],
+    );
+    assert_eq!(fixture.index.len(), 1);
+    assert!(fixture.index.search("config", 5).is_empty());
+    assert!(fixture.index.search("precommit", 5).is_empty());
 }

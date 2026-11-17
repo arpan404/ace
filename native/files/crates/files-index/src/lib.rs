@@ -29,6 +29,7 @@ mod apply;
 mod arena;
 mod build;
 mod error;
+mod ignores;
 mod membership;
 mod query;
 mod ranking;
@@ -91,6 +92,16 @@ pub struct Hit {
     pub positions: Vec<u32>,
 }
 
+/// A watcher batch expanded into the paths a commit will add and drop, with created folders already
+/// walked. Build it with [`PathIndex::prepare`] while searches are running, then hand it to
+/// [`PathIndex::commit`].
+#[derive(Debug, Default)]
+pub struct Prepared {
+    pub(crate) adds: Vec<String>,
+    pub(crate) deletes: Vec<String>,
+    pub(crate) truncated: bool,
+}
+
 /// Every file in one checkout, searchable as quickly as a person types.
 #[derive(Debug)]
 pub struct PathIndex {
@@ -103,28 +114,56 @@ pub struct PathIndex {
 
 impl PathIndex {
     /// Walk the checkout and index every file in it. `cancel` is checked as the walk proceeds; a
-    /// cancelled build returns the files it saw before the flag went up.
+    /// cancelled build returns [`Error::Aborted`] and no index.
     ///
     /// Git's ignore rules apply the way git applies them. A root inside a repository also sees the
     /// `.gitignore` files and `.git/info/exclude` from the repository top down, and nothing above
-    /// that top. A root outside any repository also sees the `.gitignore` files of its parent
-    /// folders. Nothing inside a `.git` folder is indexed.
+    /// that top. A root outside any repository sees only its own `.gitignore` files, never those of
+    /// its parent folders. `.ignore` files are not git's and never apply. Nothing inside a `.git`
+    /// folder is indexed, and a symlink is indexed only when it points at a file inside the root.
     pub fn build(
         root: &Root,
         options: &IndexOptions,
         cancel: &AtomicBool,
     ) -> Result<PathIndex, Error> {
-        build::build(root, options, cancel)
+        build::build(root, options, cancel, None)
     }
 
-    /// Apply a watcher batch: created and modified paths are added (or refreshed), deleted files
-    /// are dropped, and a folder change is expanded or collapsed to its subtree.
+    /// [`PathIndex::build`] with a progress callback, called with the number of files accepted so
+    /// far. Test support only; the daemon calls [`PathIndex::build`].
+    #[doc(hidden)]
+    pub fn build_with_progress(
+        root: &Root,
+        options: &IndexOptions,
+        cancel: &AtomicBool,
+        progress: &(dyn Fn(u64) + Sync),
+    ) -> Result<PathIndex, Error> {
+        build::build(root, options, cancel, Some(progress))
+    }
+
+    /// Expand a watcher batch without changing the index. Created folders are walked here, so a
+    /// caller sharing the index with a search can do the slow part while searches keep running and
+    /// take the write lock only for [`PathIndex::commit`].
+    pub fn prepare(&self, root: &Root, changes: &[IndexChange]) -> Prepared {
+        apply::prepare(self, root, changes)
+    }
+
+    /// Apply a prepared batch: every deleted path and its subtree is dropped, then the new paths are
+    /// added. Truncation clears once a batch brings the index back under its cap.
+    pub fn commit(&mut self, prepared: Prepared) {
+        apply::commit(self, prepared);
+    }
+
+    /// [`PathIndex::prepare`] followed by [`PathIndex::commit`], for callers that are not sharing
+    /// the index with a search.
     pub fn apply(&mut self, root: &Root, changes: &[IndexChange]) {
-        apply::apply(self, root, changes);
+        let prepared = self.prepare(root, changes);
+        self.commit(prepared);
     }
 
     /// Search for `query`, best first. An empty or all-whitespace query returns nothing. Case is
-    /// ignored and the query has to appear in order, though not adjacently.
+    /// ignored, whitespace separates terms, every term must appear in order though not adjacently,
+    /// and positions are byte offsets at character boundaries.
     pub fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
         query::search(&self.arena, query, limit)
     }
@@ -171,6 +210,12 @@ impl PathIndex {
     }
 }
 
+/// The index is shared with searches, which take `&PathIndex` from other threads.
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<PathIndex>();
+};
+
 /// Add a path unless the same path is already indexed, so a watcher's repeated saves do not show up
 /// twice. Returns whether the path is now indexed.
 pub(crate) fn insert(arena: &mut PathArena, members: &mut Membership, path: &str) -> bool {
@@ -179,7 +224,7 @@ pub(crate) fn insert(arena: &mut PathArena, members: &mut Membership, path: &str
     }
     match arena.push(path) {
         Some(slot) => {
-            members.insert(path, slot);
+            members.insert(arena, path, slot);
             true
         }
         None => false,

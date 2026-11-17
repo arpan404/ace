@@ -2,30 +2,74 @@
 
 //! Live updates from the watcher.
 
+use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 
 use files_safe::Root;
 
 use crate::membership::Membership;
-use crate::walk;
-use crate::{IndexChange, PathIndex};
+use crate::walk::{self, Filters, Walk};
+use crate::{IndexChange, PathIndex, Prepared};
 
 /// Compaction only pays off once the holes are this many, or half the index, whichever is larger.
 const COMPACT_FLOOR: usize = 65_536;
 
-pub(crate) fn apply(index: &mut PathIndex, root: &Root, changes: &[IndexChange]) {
+/// Expand a batch without touching the index. Created folders are walked here, which is the only
+/// slow part; the caller can do it while other threads keep searching.
+pub(crate) fn prepare(index: &PathIndex, root: &Root, changes: &[IndexChange]) -> Prepared {
+    let filters = index.filters.refreshed(root);
+    let mut prepared = Prepared::default();
     for change in changes {
         if change.deleted {
-            if change.directory {
-                remove_subtree(index, &change.path);
-            } else {
-                remove_file(index, &change.path);
+            if !change.path.is_empty() && Root::check(&change.path).is_ok() {
+                prepared.deletes.push(change.path.clone());
             }
         } else if change.directory {
-            add_subtree(index, root, &change.path);
+            add_subtree(index, &filters, root, &change.path, &mut prepared);
         } else {
-            add_file(index, root, &change.path);
+            add_file(index, &filters, root, &change.path, &mut prepared);
         }
+    }
+    prepared
+}
+
+/// Drop every deleted path and its subtree in one pass over the slots, then add the new paths.
+pub(crate) fn commit(index: &mut PathIndex, prepared: Prepared) {
+    if !prepared.deletes.is_empty() {
+        let deleted: HashSet<&str> = prepared.deletes.iter().map(String::as_str).collect();
+        let mut doomed = Vec::new();
+        for slot in 0..index.arena.slots() {
+            if !index.arena.is_live(slot) {
+                continue;
+            }
+            if let Some(path) = index.arena.get(slot)
+                && (deleted.contains(path) || under_deleted(path, &deleted))
+            {
+                doomed.push(slot);
+            }
+        }
+        for slot in doomed {
+            if let Some(path) = index.arena.get(slot).map(str::to_owned) {
+                index.members.remove(&index.arena, &path);
+                index.arena.remove(slot);
+            }
+        }
+    }
+    for path in &prepared.adds {
+        if index.arena.live_len() >= index.max_files {
+            index.truncated = true;
+            break;
+        }
+        if !crate::insert(&mut index.arena, &mut index.members, path) {
+            index.truncated = true;
+            break;
+        }
+    }
+    if prepared.truncated {
+        index.truncated = true;
+    }
+    if index.truncated && index.arena.live_len() < index.max_files {
+        index.truncated = false;
     }
     if index.arena.dead_len() > index.arena.live_len().max(COMPACT_FLOOR) {
         index.arena.compact();
@@ -40,7 +84,7 @@ fn reindex(index: &mut PathIndex) {
         if index.arena.is_live(slot)
             && let Some(path) = index.arena.get(slot)
         {
-            members.insert(path, slot);
+            members.insert(&index.arena, path, slot);
         }
     }
     index.members = members;
@@ -48,84 +92,74 @@ fn reindex(index: &mut PathIndex) {
 
 /// A watcher reports a save as a created change, so an already indexed path is refreshed in place
 /// rather than added twice.
-fn add_file(index: &mut PathIndex, root: &Root, path: &str) {
+fn add_file(
+    index: &PathIndex,
+    filters: &Filters,
+    root: &Root,
+    path: &str,
+    prepared: &mut Prepared,
+) {
     if path.is_empty() || Root::check(path).is_err() || in_git_store(path) {
         return;
     }
-    if index.filters.hides(root, path) {
+    if filters.excludes(root, path, false) {
         return;
     }
-    if index.arena.live_len() >= index.max_files {
-        index.truncated = true;
+    if index.arena.live_len() + prepared.adds.len() >= index.max_files {
+        prepared.truncated = true;
         return;
     }
-    if !crate::insert(&mut index.arena, &mut index.members, path) {
-        index.truncated = true;
-    }
+    prepared.adds.push(path.to_owned());
 }
 
-fn add_subtree(index: &mut PathIndex, root: &Root, dir: &str) {
+fn add_subtree(
+    index: &PathIndex,
+    filters: &Filters,
+    root: &Root,
+    dir: &str,
+    prepared: &mut Prepared,
+) {
     if dir.is_empty() || in_git_store(dir) {
+        return;
+    }
+    // The walk never filters the folder it starts from, so the created folder itself is checked
+    // here, against its own name and every ancestor.
+    if filters.excludes(root, dir, true) {
         return;
     }
     let Ok(absolute) = root.resolve(dir) else {
         return;
     };
-    let remaining = index.max_files.saturating_sub(index.arena.live_len());
+    let remaining = index
+        .max_files
+        .saturating_sub(index.arena.live_len() + prepared.adds.len());
     if remaining == 0 {
-        index.truncated = true;
+        prepared.truncated = true;
         return;
     }
     let cancel = AtomicBool::new(false);
-    let Ok(collected) = walk::collect(root, &index.filters, remaining, &cancel, &absolute) else {
+    let Ok(collected) = walk::run(Walk {
+        root,
+        filters,
+        max_files: remaining,
+        cancel: &cancel,
+        start: &absolute,
+        recheck: true,
+        progress: None,
+    }) else {
         return;
     };
     if collected.truncated {
-        index.truncated = true;
+        prepared.truncated = true;
     }
-    for path in &collected.paths {
-        if !crate::insert(&mut index.arena, &mut index.members, path) {
-            index.truncated = true;
-            break;
-        }
-    }
+    prepared.adds.extend(collected.paths);
 }
 
-fn remove_file(index: &mut PathIndex, path: &str) {
-    let Some(slot) = index.members.find(&index.arena, path) else {
-        return;
-    };
-    index.arena.remove(slot);
-    index.members.remove(&index.arena, path);
-}
-
-/// A deleted folder takes every path below it with it. Only the reported folder is known, so the
-/// index has to look at each path once; deletions arrive in batches, not per keystroke.
-fn remove_subtree(index: &mut PathIndex, dir: &str) {
-    if dir.is_empty() {
-        return;
-    }
-    let mut doomed = Vec::new();
-    for slot in 0..index.arena.slots() {
-        if !index.arena.is_live(slot) {
-            continue;
-        }
-        if let Some(path) = index.arena.get(slot)
-            && is_in_dir(path, dir)
-        {
-            doomed.push(slot);
-        }
-    }
-    for slot in doomed {
-        if let Some(path) = index.arena.get(slot).map(str::to_owned) {
-            index.members.remove(&index.arena, &path);
-            index.arena.remove(slot);
-        }
-    }
-}
-
-fn is_in_dir(path: &str, dir: &str) -> bool {
-    path.len() > dir.len() && path.starts_with(dir) && path.as_bytes().get(dir.len()) == Some(&b'/')
+/// Whether a path sits below one of the deleted paths. A watcher does not always mark a deleted
+/// folder as a folder, so a batch drops the exact path and its subtree either way.
+fn under_deleted(path: &str, deleted: &HashSet<&str>) -> bool {
+    path.match_indices('/')
+        .any(|(index, _)| deleted.contains(&path[..index]))
 }
 
 /// Nothing inside a `.git` folder is ever indexed, whatever route it arrives by.
