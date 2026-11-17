@@ -5,7 +5,8 @@
     "user",
     "update",
     "kill",
-    "stop"
+    "stop",
+    "storage"
   ],
   "type": "string"
 }

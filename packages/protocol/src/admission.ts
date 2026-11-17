@@ -2,10 +2,10 @@ import { z } from "zod";
 
 /**
  * What holds admission closed: the person's pause (`user`), an app update draining work
- * (`update`), kill-all's fence (`kill`) or a stop (`stop`). A client may add or remove only
- * `user`; the others end on their own.
+ * (`update`), kill-all's fence (`kill`), a stop (`stop`) or a disk too full to store new work
+ * (`storage`, ADR 0174). A client may add or remove only `user`; the others end on their own.
  */
-export const MaintenanceHold = z.enum(["user", "update", "kill", "stop"]);
+export const MaintenanceHold = z.enum(["user", "update", "kill", "stop", "storage"]);
 export type MaintenanceHold = z.infer<typeof MaintenanceHold>;
 
 /**
@@ -15,7 +15,7 @@ export type MaintenanceHold = z.infer<typeof MaintenanceHold>;
  */
 export const Admission = z.object({
   /** Empty while the machine takes new work. */
-  holds: z.array(MaintenanceHold).max(4),
+  holds: z.array(MaintenanceHold).max(5),
   /** Threads still at work or waiting, `waiting` of them on a person. */
   busy: z.number().int().nonnegative(),
   waiting: z.number().int().nonnegative(),

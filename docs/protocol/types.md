@@ -1368,7 +1368,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| holds | yes | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
+| holds | yes | array | {"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
 | busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | waiting | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 
@@ -19563,7 +19563,7 @@ Example:
 
 [JSON Schema](schema/MaintenanceHold.json), input validation.
 
-Type: ["user","update","kill","stop"]. See JSON Schema for constraints.
+Type: ["user","update","kill","stop","storage"]. See JSON Schema for constraints.
 
 Example:
 
@@ -19580,7 +19580,7 @@ Example:
 | draining | yes | boolean |  |
 | blockers | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | waiting | no | integer | {"minimum":0,"maximum":9007199254740991} |
-| holds | no | array | {"maxItems":4,"items":{"type":"string","enum":["user","update","kill","stop"]}} |
+| holds | no | array | {"maxItems":5,"items":{"type":"string","enum":["user","update","kill","stop","storage"]}} |
 
 Example:
 

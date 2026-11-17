@@ -226,7 +226,7 @@
     },
     "schema/Admission.json": {
       "bytes": 586,
-      "sha256": "8d2cb0bc21b30b52e3747663f8b96e03d53f2a3c01a044ed445777296bd61d94"
+      "sha256": "dcf783e39c8c40d115ca8410f97c90e7ff780cc915f69623d4e2c0e3dd266034"
     },
     "schema/AdmissionChanged.json": {
       "bytes": 386,
@@ -2509,12 +2509,12 @@
       "sha256": "9438d59715e5b0193f3b8842e188c7754bb12bd1b11df73ea3a2d8fd548dd7ba"
     },
     "schema/MaintenanceHold.json": {
-      "bytes": 213,
-      "sha256": "29cc7da2bf258ccd5aba7735838751888faf1ab5f9ad21722bc85126e5cd6021"
+      "bytes": 228,
+      "sha256": "29e349d05cd3d24d4d5f4b62142b2d7c74ecc7fb2375d1d361605eb1e2b472c3"
     },
     "schema/MaintenanceStatus.json": {
-      "bytes": 697,
-      "sha256": "b973dc34caf71b51bb5fafed1d63da004f987a48d406e493ebc27ec0c49c2e50"
+      "bytes": 718,
+      "sha256": "2d13f8f61b9733814ebb17d0b563f37339c1df5a15adff686f097f0b9f18480e"
     },
     "schema/ManagedAccountProvider.json": {
       "bytes": 256,
@@ -5493,8 +5493,8 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1110583,
-      "sha256": "2b8b0aee18dfafa1f768ac9bfc09a7dec2c04af974beebe8491bf40b660c4eac"
+      "bytes": 1110603,
+      "sha256": "7b36f1b87a40b9c3e4b2d3c592ab7aebcdfdc4cb8fc95cb6fbac28e3e53ebeec"
     }
   },
   "input": "0bb5a8ec3c001146e67aef6735c91e6b733a07200cad948f1d5f20b0cc8c2514",

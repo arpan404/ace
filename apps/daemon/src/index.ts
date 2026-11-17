@@ -41,6 +41,7 @@ import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } fro
 import { logHomeBackup } from "./home-backup-log.ts";
 import { lineageFile } from "./sequence-lineage.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
+import { StorageWatch, systemStorageDelay } from "./storage-watch.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
 import { watchStalls } from "./stall-log.ts";
 import { DaemonStop, type StopReason } from "./stop-reason.ts";
@@ -151,6 +152,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const resources = new Resources();
   resources.own(() => log.close(), "daemon log");
+  // A full disk holds new work and heals on its own once space is back (ADR 0174).
+  const storage = new StorageWatch({
+    home: config.dataDir,
+    diskSpace,
+    log,
+    delay: systemStorageDelay,
+    ...options.storageWatch,
+  });
+  resources.own(() => storage.close(), "storage watch");
   if (prepared.state === "fresh") {
     const followUp = new AbortController();
     resources.own(() => followUp.abort(), "home backup log");
@@ -170,7 +180,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       sqliteFailureDetails(error, config.dataDir, diskSpace),
     ),
   );
-  resources.own(installRejectionGuard(process, log, isStoreRetry));
+  // A full disk is entered as a condition and heals on its own, like contention.
+  resources.own(
+    installRejectionGuard(
+      process,
+      log,
+      (reason) => isStoreRetry(reason) || storage.observe(reason),
+    ),
+  );
   let stopping: Stopping | undefined;
   const stopRecord = stopRecorder({ run: () => run, log, now, pid: process.pid });
   // Disposers run in reverse: this record is the last line before the log closes.
@@ -199,7 +216,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       ),
   });
   resources.own(() => loop.close(), "event loop monitor");
-  const inventory = new ProcessInventory(join(config.dataDir, "processes.sqlite"));
+  const inventory = new ProcessInventory(
+    join(config.dataDir, "processes.sqlite"),
+    undefined,
+    (error) => {
+      if (!storage.observe(error))
+        log.log("warn", "Process inventory delete failed; retrying", logError(error));
+    },
+  );
   try {
     inventory.recover();
     if (process.platform === "win32") {
@@ -223,7 +247,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   const stopInventory = observeProcessGroups(inventory);
+  const stopRetrying = storage.onRoom(() => inventory.retryRemovals());
   resources.own(() => {
+    stopRetrying();
     stopInventory();
     inventory.close();
   }, "process inventory");
@@ -339,7 +365,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
     lifetime.signal.throwIfAborted();
     const eventStore = new Store(
       join(config.dataDir, "events.sqlite"),
-      (error) => log.log("error", "Event subscriber failed", logError(error)),
+      (error) => {
+        storage.observe(error);
+        log.log("error", "Event subscriber failed", logError(error));
+      },
       // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
       {
         now,
@@ -363,6 +392,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     resources.own(stopKeepingPause, "pause marker");
     // A restart in the middle of an update keeps the update's hold (ADR 0041).
     if (process.env.ACE_MAINTENANCE === "1") maintenance.enter("update");
+    resources.own(storage.attach(maintenance), "storage hold");
+    storage.start();
     const serviceContext: ServiceContext = {
       signal: lifetime.signal,
       config,
@@ -378,6 +409,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       onListen: [],
       maintenance,
+      diskFull: storage,
       store: eventStore,
     };
     const store = serviceContext.store;

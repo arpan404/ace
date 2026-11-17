@@ -6,10 +6,11 @@ import type { ServiceContext } from "./types.ts";
  * never rethrows: a failed pass, even of a full disk, must not stop the daemon.
  */
 export function backgroundFailure(
-  context: Pick<ServiceContext, "log" | "config" | "options">,
+  context: Pick<ServiceContext, "log" | "config" | "options" | "diskFull">,
   message: string,
 ): (error: unknown) => void {
-  return (error) =>
+  return (error) => {
+    context.diskFull?.observe(error);
     logBackgroundFailure(
       context.log,
       message,
@@ -17,4 +18,5 @@ export function backgroundFailure(
       context.config.dataDir,
       context.options.diskSpace,
     );
+  };
 }
