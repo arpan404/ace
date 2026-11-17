@@ -60,8 +60,21 @@ export const inventoryRuntime: InventoryRuntime = {
 export class ProcessInventory implements ProcessJournal {
   private db: DatabaseSync;
   private runtime: InventoryRuntime;
-  constructor(path: string, runtime: InventoryRuntime = inventoryRuntime) {
+  private report: (error: unknown) => void;
+  /**
+   * Exited processes whose rows could not be deleted yet (a full disk, a locked file). The exit
+   * is already true, so a failed delete is retried, never thrown into the exit listener that
+   * called it. A row left behind by a crash is harmless: recovery finds its group gone.
+   */
+  private unremoved = new Set<number>();
+  /** `report` hears each removal that failed and will be retried. */
+  constructor(
+    path: string,
+    runtime: InventoryRuntime = inventoryRuntime,
+    report: (error: unknown) => void = () => {},
+  ) {
     this.runtime = runtime;
+    this.report = report;
     this.db = new DatabaseSync(path);
     // Every spawn and exit writes here on the main thread. WAL commits are durable when the
     // daemon crashes, which is what recovery needs, without waiting on fsync: behind other disk
@@ -79,6 +92,9 @@ export class ProcessInventory implements ProcessJournal {
       .map((row) => Entry.parse(JSON.parse(String(row.entry))));
   }
   add(pid: number, metadata: { name: string; cwd?: string }): void {
+    // A reused pid: the earlier process's pending delete must not remove the new row.
+    this.unremoved.delete(pid);
+    this.retryRemovals();
     if (process.platform === "win32") return this.windowsAdd(pid, metadata);
     const identity = this.runtime.identity(pid);
     const owner = this.runtime.identity(this.runtime.ownerPid);
@@ -108,8 +124,23 @@ export class ProcessInventory implements ProcessJournal {
       )
       .run(pid, JSON.stringify(entry));
   }
+  /** Forget an exited process. Never throws: a delete that fails is kept and retried. */
   remove(pid: number): void {
-    this.db.prepare("DELETE FROM processes WHERE pid=?").run(pid);
+    this.unremoved.add(pid);
+    this.retryRemovals();
+  }
+  /** Retry the deletes that failed earlier; true once none is left. Never throws. */
+  retryRemovals(): boolean {
+    for (const pid of this.unremoved) {
+      try {
+        this.db.prepare("DELETE FROM processes WHERE pid=?").run(pid);
+      } catch (error) {
+        this.report(error);
+        return false;
+      }
+      this.unremoved.delete(pid);
+    }
+    return true;
   }
   recover(): { removed: number; killed: number } {
     if (process.platform === "win32") return this.windowsRecover();
@@ -199,6 +230,7 @@ export class ProcessInventory implements ProcessJournal {
     }, 1_000);
   }
   private windowsWrite(entry: WindowsTreeEntry): void {
+    this.unremoved.delete(entry.pid);
     this.db
       .prepare(
         "INSERT INTO processes VALUES (?,?) ON CONFLICT(pid) DO UPDATE SET entry=excluded.entry",
