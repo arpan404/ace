@@ -32,6 +32,8 @@ function adapter(provider: "claude" | "pi") {
       imageInput: false,
       rewindFiles: false,
     }),
+    // Discovery only registers adapters; no session opens, so nothing is translated.
+    createTranslator: () => ({ translate: () => [], tick: () => [] }),
     steps: [],
   });
 }
