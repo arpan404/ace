@@ -56,7 +56,7 @@ import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
 import { modelLoadBudget, type ModelLoadBudget } from "./model-load-budget.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
-import { parentGone } from "./parent-gone.ts";
+import { threadGone } from "../thread-gone.ts";
 import {
   executionModelId,
   matchesModel,
@@ -1030,7 +1030,9 @@ export class DelegationService {
   /** A child that never ran settles at once: no run of its will ever end to settle it. */
   private settleUnlaunched(edge: DelegationRecord, outcome: "cancelled" | "failed"): void {
     this.launches.take(edge.childId);
-    if (this.deps.store.getThread(edge.childId)?.queuedLaunch)
+    const queued = this.deps.store.getThread(edge.childId);
+    // A deleted child's row is a tombstone: nothing is written to it.
+    if (queued?.queuedLaunch && queued.deletedAt === undefined)
       this.deps.store.appendEvents(edge.childId, [{ type: "thread.updated", queuedLaunch: null }]);
     const result: DelegationOutcome = {
       threadId: edge.childId,
@@ -1043,7 +1045,7 @@ export class DelegationService {
     const thread = this.deps.store.getThread(edge.childId);
     if (
       thread &&
-      !parentGone((id) => this.deps.store.getThread(id), this.deps.engine, edge.parentId)
+      !threadGone((id) => this.deps.store.getThread(id), this.deps.engine, edge.parentId)
     ) {
       const shown = { ...thread, status: childStatus(edge, thread) };
       this.deps.engine.updateChild(edge.parentId, shown);
@@ -1390,7 +1392,7 @@ export class DelegationService {
       try {
         this.deps.store.atomic(() => {
           const parent = this.deps.store.getThread(next.parent_id);
-          if (!parent || parentGone(() => parent, this.deps.engine, next.parent_id)) {
+          if (!parent || threadGone(() => parent, this.deps.engine, next.parent_id)) {
             this.journal.discard(next.parent_id);
             return;
           }

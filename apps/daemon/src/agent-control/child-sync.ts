@@ -22,7 +22,7 @@ import type { LaunchQueue } from "./launch-queue.ts";
 import type { LimitNotices } from "./limit-notices.ts";
 import { childStoppedOnLimit } from "./limit-settlement.ts";
 import { deliveryNotice, type DeliveryNotice } from "./message-notices.ts";
-import { parentGone } from "./parent-gone.ts";
+import { threadGone } from "../thread-gone.ts";
 import { threadOutcome } from "./results.ts";
 import type { OutcomeWaiters } from "./waiters.ts";
 
@@ -178,7 +178,7 @@ export class ChildSync {
    */
   orphaned(edge: DelegationRecord): boolean {
     const { store, engine } = this.ports.deps;
-    if (!parentGone((id) => store.getThread(id), engine, edge.parentId)) return false;
+    if (!threadGone((id) => store.getThread(id), engine, edge.parentId)) return false;
     if (edge.phase === "settled") return true;
     const thread = store.getThread(edge.childId);
     store.atomic(() => {
@@ -186,7 +186,7 @@ export class ChildSync {
       let outcome: DelegationOutcome;
       if (edge.phase === "created" || !thread) {
         this.ports.launches.take(edge.childId);
-        if (thread?.queuedLaunch)
+        if (thread?.queuedLaunch && thread.deletedAt === undefined)
           store.appendEvents(edge.childId, [{ type: "thread.updated", queuedLaunch: null }]);
         outcome = {
           threadId: edge.childId,

@@ -42,6 +42,7 @@ import { ProjectStorage } from "./project-storage.ts";
 import { browseProjects } from "./project-browse.ts";
 import { ChatProjects } from "./chat-projects.ts";
 import type { Store } from "./store.ts";
+import type { DeletionPolicy } from "./thread-gone.ts";
 
 export interface ProjectsOptions {
   /** Ids for project notes the person adds in Edit project. */
@@ -58,6 +59,8 @@ export interface ProjectsOptions {
   /** Host-injected test fixture only; no client can set transport policy. */
   gitPolicy?: ProjectGitPolicy;
   hasOwnedWork?: (id: ThreadId) => boolean;
+  /** The deletion policy every thread the project's removal deletes goes through (ADR 0177). */
+  deletionPolicy?: DeletionPolicy;
   /** Where chats started with no project keep their folders (ADR 0099); unset disables chats. */
   chatsRoot?: string;
   /** Folder names for new chats. */
@@ -171,7 +174,7 @@ export class Projects {
     while (after !== undefined && !this.closed) {
       await this.store.writable();
       if (this.closed) return;
-      after = this.catalog.deleteLeftoverThreads(after, hasOwnedWork);
+      after = this.catalog.deleteLeftoverThreads(after, hasOwnedWork, this.options.deletionPolicy);
     }
   }
   private async favicon(path: string): Promise<string | null | undefined> {
@@ -368,7 +371,7 @@ export class Projects {
           );
       }
     this.check(allowed);
-    this.catalog.remove(workspaceId, stopRunning, hasOwnedWork);
+    this.catalog.remove(workspaceId, stopRunning, hasOwnedWork, this.options.deletionPolicy);
   }
   execute(
     input: Command,

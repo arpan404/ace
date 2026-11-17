@@ -1,6 +1,7 @@
 import type { Command, CommandResult, ThreadId } from "@ace/protocol";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
+import { threadGone } from "../thread-gone.ts";
 import { messagedChildStatus } from "./child-status.ts";
 import type { DelegationJournal } from "./journal.ts";
 
@@ -95,6 +96,12 @@ export function delegationCommandPolicy(deps: {
     if (!accepted.ok) return accepted;
     if (explicit) deps.journal.resumeMember(p.threadId, deps.now());
     if (carryOn) deps.resumeRestartHeld?.(p.threadId, command.id);
+    // A child whose parent is gone runs on its own: its edge stays settled, nothing reaches the
+    // parent.
+    if (threadGone((id) => deps.store.getThread(id), deps.engine, edge.parentId)) {
+      deps.changed();
+      return accepted;
+    }
     // Only the parent agent's own message makes the new work its turn's; the person's is theirs.
     if (edge.phase === "settled")
       deps.journal.reopen(

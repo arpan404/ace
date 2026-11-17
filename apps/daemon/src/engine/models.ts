@@ -180,7 +180,9 @@ export class EngineModels {
         .all(),
     );
     for (const row of rows) {
-      const state = this.repo.requireState(ThreadId.parse(row.thread_id));
+      // A purged thread keeps its session row but has no state: nothing is left to migrate.
+      const state = this.repo.state(ThreadId.parse(row.thread_id));
+      if (!state) continue;
       const metadata = this.repo.session(state.threadId);
       const selection = this.repo.transitions.get(state.threadId).selection;
       const legacyOpenCode =

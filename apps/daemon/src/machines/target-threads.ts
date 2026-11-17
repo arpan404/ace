@@ -180,7 +180,8 @@ export class TargetThreads {
         .prepare(
           `SELECT m.thread_id, m.origin_host, m.origin_thread, d.name FROM machine_threads m
            JOIN threads t ON t.id = m.thread_id LEFT JOIN devices d ON d.id = m.device_id
-           WHERE m.kind = 'delegate' AND json_extract(t.transitions, '$.delegatedFrom') IS NULL`,
+           WHERE m.kind = 'delegate' AND json_extract(t.transitions, '$.delegatedFrom') IS NULL
+           AND json_extract(t.client, '$.deletedAt') IS NULL`,
         )
         .all(),
     );

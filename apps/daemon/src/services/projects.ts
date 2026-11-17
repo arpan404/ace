@@ -23,6 +23,7 @@ export function startProjects({
         return (await services.settings.get("projects.roots")).value;
       }),
     hasOwnedWork: (id) => services.workspaceActions?.hasOwnedWork(id) ?? false,
+    deletionPolicy: (id, commandId) => services.engine?.prepareDeletion(id, commandId),
     clearLock: (path) =>
       services.workspaceActions?.clearProjectLock(path) ??
       Promise.resolve({ ok: false, error: "git_quarantined" }),

@@ -53,7 +53,7 @@ import { LostChildren } from "./child-lost.ts";
 import { RetryBackoff } from "./retry-backoff.ts";
 import { ChildLiveness, type ChildLivenessDeps, type Unanswered } from "./child-liveness.ts";
 import { refusedNotFound } from "./transport.ts";
-import { parentGone } from "../agent-control/parent-gone.ts";
+import { threadGone } from "../thread-gone.ts";
 
 export interface ChildrenDeps {
   store: Store;
@@ -615,7 +615,7 @@ export class MachineChildren implements RemoteChildren {
   }
   /** The parent is deleted, or the engine holds no state for it (its data was purged). */
   private gone(parent: ThreadId): boolean {
-    return parentGone((id) => this.deps.store.getThread(id), this.deps.engine(), parent);
+    return threadGone((id) => this.deps.store.getThread(id), this.deps.engine(), parent);
   }
   /** The engine, for a child whose parent is still there to show it. */
   private engineFor(parent: ThreadId): Engine | undefined {
