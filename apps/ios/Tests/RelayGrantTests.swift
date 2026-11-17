@@ -60,9 +60,10 @@ private let hostId = "A4IOPXUIEEM6GMLBBSWHEDA3CUUI64AG6CB4CALXPPRXWGPSVCRQ"
         let second = RelaySocket(route: route) { _, _ in }
         second.open()
         defer { second.close() }
-        // The refused upgrade carried the first message, so it was tried once more without it
-        // before the grant counted as refused.
-        try await until { server.subprotocols.count == 3 }
-        #expect(grants(server) == ["ace.grant.grant-1", "ace.grant.grant-1", "ace.grant.grant-2"])
+        // Each refused upgrade carried the first message, so it was tried once more without it
+        // before its grant counted as refused. The second is refused too, and stops there.
+        try await until { server.subprotocols.count >= 4 }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(grants(server) == ["ace.grant.grant-1", "ace.grant.grant-1", "ace.grant.grant-2", "ace.grant.grant-2"])
     }
 }
