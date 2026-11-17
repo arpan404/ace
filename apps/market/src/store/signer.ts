@@ -209,10 +209,12 @@ export async function setWithdrawn(
 
 /**
  * Marks one catalogue's versions by a withdrawn list the lists database stored, in one batch:
- * the list is recorded as this catalogue's applied one (only if it isn't older), and every
- * statement after applies only while this very list is the applied one, so an older list
- * applied late changes nothing. Generations move with the marks; the entries are refreshed
- * after. Applying the same list again does it all again.
+ * the list is recorded as this catalogue's applied one (only if it isn't older), every entry the
+ * marks touch is queued for a refresh, generations move and the marks are set, each statement
+ * after the first applying only while this very list is the applied one, so an older list
+ * applied late changes nothing. Then the queue is drained. A cut-off anywhere after the batch
+ * leaves the queue, which the cron drains (`applyWithdrawnDue`); applying the same list again
+ * does it all again.
  */
 export async function applyWithdrawn(
   db: D1Database,
@@ -220,22 +222,19 @@ export async function applyWithdrawn(
   now: number,
 ): Promise<void> {
   const hashes = JSON.stringify([...new Set(list.withdrawn.map((entry) => entry.hash))]);
-  const affected = async () =>
-    (
-      await db
-        .prepare(
-          `SELECT type, name, version, hash FROM versions
-            WHERE withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?1))`,
-        )
-        .bind(hashes)
-        .all<Key & { hash: string }>()
-    ).results;
-  const before = await affected();
+  const { results: before } = await db
+    .prepare(
+      `SELECT type, name, version, hash FROM versions
+        WHERE withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?1))`,
+    )
+    .bind(hashes)
+    .all<Key & { hash: string }>();
   const marks = before.flatMap((row) => {
     const reason = withdrawalReason(list.withdrawn, row);
     return reason ? [{ key: `${row.type}/${row.name}@${row.version}`, reason }] : [];
   });
   const guard = "(SELECT issued = ?1 FROM applied_lists WHERE name = 'withdrawn')";
+  const touched = `withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?2))`;
   await db.batch([
     db
       .prepare(
@@ -244,6 +243,14 @@ export async function applyWithdrawn(
           WHERE excluded.issued > applied_lists.issued`,
       )
       .bind(list.issued),
+    // Before the marks move: the entries they touch now, and those they touched before.
+    db
+      .prepare(
+        `INSERT INTO refresh_queue (type, name)
+          SELECT DISTINCT type, name FROM versions WHERE ${guard} AND (${touched})
+          ON CONFLICT (type, name) DO UPDATE SET queued = queued + 1`,
+      )
+      .bind(list.issued, hashes),
     db
       .prepare(
         `UPDATE entries SET generation = generation + 1 WHERE ${guard} AND EXISTS (
@@ -266,33 +273,73 @@ export async function applyWithdrawn(
       )
       .bind(list.issued, JSON.stringify(marks)),
   ]);
-  const applied = await appliedWithdrawn(db);
-  if (applied !== list.issued) return;
-  const entries = new Map(
-    [...before, ...(await affected())].map((row) => [`${row.type}/${row.name}`, row]),
-  );
-  for (const row of entries.values()) await refreshEntry(db, row.type, row.name, now);
+  await drainWithdrawn(db, now, refreshBatch);
 }
 
-/** The `issued` of the withdrawn list a catalogue last marked its versions by. */
-export async function appliedWithdrawn(db: D1Database): Promise<number | undefined> {
+/** Entries a refresh step brings in step at most, per catalogue. */
+const refreshBatch = 500;
+
+/**
+ * Refreshes up to `limit` queued entries; a row goes only while it wasn't queued again during
+ * its refresh. When the queue is empty, the applied list is recorded as fully refreshed. True
+ * when this pass reached the end of the queue.
+ */
+export async function drainWithdrawn(db: D1Database, now: number, limit: number) {
+  const { results } = await db
+    .prepare("SELECT type, name, queued FROM refresh_queue LIMIT ?1")
+    .bind(limit)
+    .all<{ type: string; name: string; queued: number }>();
+  for (const row of results) {
+    await refreshEntry(db, row.type, row.name, now);
+    await db
+      .prepare("DELETE FROM refresh_queue WHERE type = ?1 AND name = ?2 AND queued = ?3")
+      .bind(row.type, row.name, row.queued)
+      .run();
+  }
+  if (results.length === limit) return false;
+  // The completion cursor moves only while the queue is empty, checked in the statement.
+  await db
+    .prepare(
+      `INSERT INTO applied_lists (name, issued)
+        SELECT 'withdrawn:refreshed', issued FROM applied_lists
+          WHERE name = 'withdrawn' AND NOT EXISTS (SELECT 1 FROM refresh_queue)
+        ON CONFLICT (name) DO UPDATE SET issued = MAX(applied_lists.issued, excluded.issued)`,
+    )
+    .run();
+  return true;
+}
+
+/** The `issued` of the withdrawn list a catalogue last marked (or fully refreshed) by. */
+export async function appliedWithdrawn(
+  db: D1Database,
+  stage: "withdrawn" | "withdrawn:refreshed" = "withdrawn",
+): Promise<number | undefined> {
   const row = await db
-    .prepare("SELECT issued FROM applied_lists WHERE name = 'withdrawn'")
+    .prepare("SELECT issued FROM applied_lists WHERE name = ?1")
+    .bind(stage)
     .first<{ issued: number }>();
   return row?.issued;
 }
 
-/** The cron's step: marks every catalogue still behind the stored withdrawn list by it. */
+/**
+ * The cron's step: marks every catalogue still behind the stored withdrawn list by it, and
+ * drains every catalogue's queue of entries its marks touched, so a refresh cut off after the
+ * marks committed is finished (ADR 0173 §16).
+ */
 export async function applyWithdrawnDue(dbs: Databases, now: number): Promise<void> {
   const stored = await dbs.lists
     .prepare("SELECT issued, signed FROM withdrawn WHERE id = 1")
     .first<{ issued: number; signed: string }>();
-  if (!stored) return;
   await eachCatalogue(dbs, async ({ db }) => {
-    const applied = await appliedWithdrawn(db);
-    if (applied !== undefined && applied >= stored.issued) return;
-    const body = withdrawnBodyOf(stored.signed);
-    await applyWithdrawn(db, { issued: stored.issued, withdrawn: body.withdrawn }, now);
+    const [marked, refreshed] = await Promise.all([
+      appliedWithdrawn(db),
+      appliedWithdrawn(db, "withdrawn:refreshed"),
+    ]);
+    if (stored && (marked === undefined || marked < stored.issued)) {
+      const body = withdrawnBodyOf(stored.signed);
+      await applyWithdrawn(db, { issued: stored.issued, withdrawn: body.withdrawn }, now);
+    } else if (marked !== undefined && (refreshed === undefined || refreshed < marked))
+      await drainWithdrawn(db, now, refreshBatch);
   });
 }
 
