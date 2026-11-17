@@ -144,13 +144,20 @@ export class AccountManagement {
     });
   }
   async initialize(): Promise<void> {
-    // Homes that answered; one that hasn't is restored when it does (ADR 0175).
-    await this.options.registry.firstPass;
-    for (const { instance } of this.options.registry.pendingInstances())
-      await this.discardPending(instance.id);
-    await registerImplicitAccounts(this.options.registry, this.options.env);
-    // Restore isolated catalog identities on restart, using only read-only metadata probes.
-    for (const { instance, quota } of this.options.registry.list())
+    const registry = this.options.registry;
+    for (const { instance } of registry.pendingInstances()) await this.discardPending(instance.id);
+    // The CLIs' own logins are re-read once their records are checked; those touch no folder,
+    // so they are checked first and never wait behind a silent one (ADR 0175).
+    await Promise.all(
+      registry
+        .list()
+        .filter(({ instance }) => instance.implicit && registry.isChecking(instance.id))
+        .map(({ instance }) => registry.checked(instance.id)),
+    );
+    await registerImplicitAccounts(registry, this.options.env);
+    // Restore isolated catalog identities on restart, using only read-only metadata probes. Each
+    // account is restored once its own folder answers, never after every other account's.
+    for (const { instance, quota } of registry.list())
       if (!instance.managed) continue;
       else if (this.options.registry.isChecking(instance.id))
         void this.options.registry

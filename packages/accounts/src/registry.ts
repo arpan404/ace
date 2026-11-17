@@ -381,7 +381,11 @@ export class AccountRegistry {
     const roots = new Map<string, Set<string>>();
     const settled: Promise<void>[] = [];
     let turn: Promise<void> = Promise.resolve();
-    for (const account of this.readAccounts()) {
+    // The CLIs' own logins touch no folder: checked first, they never wait behind a silent one.
+    const accounts = this.readAccounts().toSorted(
+      (a, b) => Number(!a.instance.implicit) - Number(!b.instance.implicit),
+    );
+    for (const account of accounts) {
       if (this.pending.has(account.instance.id)) continue;
       const mine = turn.then(() => this.checkHome(account, roots, check, signal));
       this.checks.set(account.instance.id, mine);
@@ -765,18 +769,19 @@ export async function openRegistryIndex(
   return registry;
 }
 
+/**
+ * The index with every saved home checked, except any that hasn't answered: those read as
+ * `home_checking` and keep being checked, so a silent folder never holds up the caller (the
+ * `ace accounts` CLI, tools).
+ */
 export async function openRegistry(
   path: string,
   managedDataDir: string = dirname(path),
+  homeChecks: HomeCheckOptions = {},
 ): Promise<AccountRegistry> {
-  const registry = await openRegistryIndex(path, undefined, managedDataDir);
-  try {
-    await registry.ready;
-    return registry;
-  } catch (error) {
-    registry.close();
-    throw error;
-  }
+  const registry = await openRegistryIndex(path, undefined, managedDataDir, homeChecks);
+  await registry.firstPass;
+  return registry;
 }
 
 /** Windows as readers see them: a repeated reading that only moves its read time is no change. */

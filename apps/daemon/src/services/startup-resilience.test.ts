@@ -547,45 +547,30 @@ test("a repeatable warmup that keeps failing stops promising retries once its bu
   expect(retryingOf(subject, "usage")).toBe(false);
 });
 
-test("commands whose account wait fails once publish one library on the retry, built once", async () => {
+test("commands publish at start without waiting on any account, and a failed build is the ordinary retry", async () => {
   const clock = fakeClock();
   const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
-  let waits = 0;
-  const registry = {
-    get ready() {
-      return ++waits === 1 ? Promise.reject(new Error("homes not answering")) : Promise.resolve();
-    },
-    list: () => [],
-  };
   let starts = 0;
   let live: ServiceContext["services"] | undefined;
   await subject.start([
-    service("accounts", (context) => {
-      context.services.accountRegistry = registry as never;
+    service("commands", async (context) => {
+      await startCommands(context);
+      // The build is done and registered; the start still fails once, as a real one can.
+      if (++starts === 1) throw new Error("library could not open");
     }),
-    service(
-      "commands",
-      async (context) => {
-        starts++;
-        await startCommands(context);
-      },
-      { requires: ["accounts"] },
-    ),
     service("probe", (context) => {
       live = context.services;
     }),
   ]);
   await subject.listening(server);
-  await settle();
-  const promptFiles = live?.promptFiles;
-  expect(promptFiles).toBeDefined();
-  expect(live?.commands).toBeUndefined();
   expect(state(subject, "commands")).toBe("degraded");
   expect(retryingOf(subject, "commands")).toBe(true);
+  expect(live?.commands).toBeUndefined();
 
-  await clock.advance(10);
+  // The retry waits for the failed attempt's cleanup, then starts: a few turns of the clock.
+  for (let step = 0; step < 3; step++) await clock.advance(10);
   expect(state(subject, "commands")).toBe("ready");
+  expect(starts).toBe(2);
   expect(live?.commands).toBeDefined();
-  expect(live?.promptFiles).toBe(promptFiles);
-  expect(starts).toBe(1);
+  expect(live?.promptFiles).toBeDefined();
 });

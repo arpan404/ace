@@ -3,7 +3,6 @@ import { discoverClaudePlugins } from "../catalog-claude-discovery.ts";
 import { discoverCodexExtensions } from "../catalog-discovery.ts";
 import { createCatalogSession } from "./catalog.ts";
 import { realpath } from "node:fs/promises";
-import { repeatableWarmup } from "./warmup.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { pickInstance } from "@ace/accounts";
 import { createDaemonCommandLibrary, defaultCommandInstances } from "../command-library.ts";
@@ -23,22 +22,13 @@ export interface DaemonCommandIntegration {
   skills?: DaemonSkillOptions;
 }
 /**
- * The library and its owners are built once, here, so a failure to build is a failed start the
- * ordinary retry handles. Only waiting for the account registry can fail afterwards, and that
- * wait is the repeatable warmup. It publishes only after the wait succeeds and only once, so a run
- * after a failure never registers anything twice.
+ * Builds and publishes the command library once, inside the start. Nothing here waits on an
+ * account's home: one silent folder must not hold every account's commands and skills, and an
+ * account joins the library once its own folder answers (ADR 0175). With nothing left that can
+ * fail after the start returns, there is no warmup to repeat; a failure to build fails the start,
+ * which the ordinary service retry runs again after cleaning up.
  */
-export async function startCommands(context: ServiceContext): Promise<void> {
-  const publish = buildCommands(context);
-  const { services, signal } = context;
-  const initialization = repeatableWarmup(context, "commands", async () => {
-    await services.accountRegistry?.ready;
-    signal.throwIfAborted();
-    publish();
-  });
-  context.resources.own(() => initialization, "commands startup");
-}
-function buildCommands({
+export async function startCommands({
   store,
   config,
   options,
@@ -48,7 +38,8 @@ function buildCommands({
   signal,
   id,
   log,
-}: ServiceContext) {
+  onListen,
+}: ServiceContext): Promise<void> {
   const promptFiles = new PromptFiles({
     globalRoot: config.dataDir,
     projectRoot: (workspaceId) => store.getWorkspacePath(WorkspaceId.parse(workspaceId)),
@@ -77,7 +68,12 @@ function buildCommands({
   void skillLibrary.start();
   services.skillLibrary = skillLibrary;
   resources.own(() => skillLibrary.close(), "skill library");
-  const registered = () => services.accountRegistry?.list() ?? [];
+  // Accounts whose folder hasn't answered startup's check are left out until it does, so nothing
+  // here reads or probes a silent home.
+  const registered = () => {
+    const registry = services.accountRegistry;
+    return (registry?.list() ?? []).filter(({ instance }) => !registry?.isChecking(instance.id));
+  };
   const defaults = defaultCommandInstances(process.env);
   let discoveryTail: Promise<unknown> = Promise.resolve();
   let pendingDiscovery = 0;
@@ -171,22 +167,19 @@ function buildCommands({
     // Claude, Codex, OpenCode and Pi load the shipped skills natively and advertise them.
     { directory: builtinSkillsDirectory(), providers: ["cursor", "acp", "antigravity"] },
   );
+  // Plugins start after commands: follow their catalog once every core service is up. Runs once.
+  onListen.push(() => {
+    const plugins = services.plugins;
+    if (!plugins) return;
+    resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));
+    resources.own(plugins.subscribeCatalog(() => library.invalidateExtras()));
+  });
   resources.own(() => library.close(), "command library");
   if (integration.events) {
     const disconnect = connectDaemonCommandEvents(library, integration.events);
     resources.onShutdown(disconnect);
   }
-  /** Makes the library available, once the account registry has answered. Runs once. */
-  let published = false;
-  return () => {
-    if (published) return;
-    published = true;
-    services.commands = library;
-    const plugins = services.plugins;
-    if (!plugins) return;
-    resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));
-    resources.own(plugins.subscribeCatalog(() => library.invalidateExtras()));
-  };
+  services.commands = library;
 }
 export function createCommandsSession(context: SocketContext): SocketService {
   const catalog = createCatalogSession(context);
