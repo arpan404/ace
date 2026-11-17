@@ -81,6 +81,10 @@ struct ConversationFeed: View {
     /// keyboard's ride carries the rows there.
     @State private var keyboardMoving = false
     @State private var feedFrame: CGRect = .zero
+    /// The edge that holds still while lazy rows correct their heights (`TranscriptGrowthAnchor`).
+    @State private var growth = TranscriptGrowthAnchor()
+    /// Bumped as each older page lands.
+    @State private var olderLandings = 0
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
     /// The viewport controller owns the follow mode; the feed never keeps its
@@ -93,7 +97,12 @@ struct ConversationFeed: View {
         } else {
             captureTop()
             viewport.userLeftEnd()
+            if growth.keepsEnd { growth.leftEnd() }
         }
+    }
+    /// The reader moved the feed or changed what it holds: size changes keep the top again.
+    private func readerMovedFeed() {
+        if growth.keepsEnd { growth.readerMoved() }
     }
     private var pinned: Bool { following && (reading.thread == nil || reading.joined) }
     /// History rows are stale disk cache when the bridge said `.cached`, or
@@ -204,6 +213,9 @@ struct ConversationFeed: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0 }
         .coordinateSpace(name: Self.viewportSpace)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
+        // Rows measuring above the screen don't move it while a thread opens at its end or an
+        // older page lands (`TranscriptGrowthAnchor`).
+        .defaultScrollAnchor(growth.keepsEnd ? .bottom : nil, for: .sizeChanges)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.bottom, for: .alignment)
         .background(AceTheme.Colours.background)
@@ -224,6 +236,7 @@ struct ConversationFeed: View {
         .onScrollPhaseChange { old, phase in
             switch phase {
             case .tracking:
+                readerMovedFeed()
                 settle.cancel()
                 viewport.cancelPending()
                 readerTookOver(proxy)
@@ -232,6 +245,7 @@ struct ConversationFeed: View {
                 keep(.phase(.gesture), proxy: proxy)
             // A quick drag can skip tracking: a new gesture is one that starts from rest.
             case .interacting where old == .idle || old == .decelerating || old == .animating:
+                readerMovedFeed()
                 settle.cancel()
                 viewport.cancelPending()
                 readerTookOver(proxy)
@@ -367,8 +381,20 @@ struct ConversationFeed: View {
             .modifier(SpacerCounts(before: extent.before, after: extent.after))
             .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
             .onChange(of: reading.loading) { _, loading in
-                if loading, reading.operation == "older" { TranscriptJumpHooks.begin("older") }
+                if loading, reading.operation == "older" {
+                    growth.olderRequested()
+                    TranscriptJumpHooks.begin("older")
+                }
+                if !loading, reading.operation == "older" { olderLandings += 1 }
                 if !loading { pageIfNeeded(proxy) }
+            }
+            // The rows of a landed page measure within a few frames; then new rows below grow
+            // under a held top again.
+            .task(id: olderLandings) {
+                guard olderLandings > 0 else { return }
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, !reading.loading else { return }
+                growth.olderSettled()
             }
             .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
                 restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
@@ -420,6 +446,7 @@ struct ConversationFeed: View {
         toEnd(proxy)
     }
     private func disclosuresChanged() {
+        readerMovedFeed()
         intent.opened = true
         // Anchor the disclosure while reading history; the live end keeps following.
         if !following || reading.thread != nil, let top = currentTopRow() {
@@ -508,6 +535,7 @@ struct ConversationFeed: View {
         restoreSessionIfReady()
         if !initialScroll {
             if following { toEnd(proxy) }
+            growth.opened(atEnd: following)
             initialScroll = true
         }
         focusRequested()
@@ -530,6 +558,7 @@ struct ConversationFeed: View {
         guard lift != keyboardLift else { return }
         let growth = lift - keyboardLift
         let follows = !intent.active && (pinned || intent.metrics.bottom + growth < 0)
+        readerMovedFeed()
         keyboardMoving = true
         var instant = Transaction()
         instant.disablesAnimations = true
@@ -565,6 +594,7 @@ struct ConversationFeed: View {
         applyLayoutRevision()
         if thread.loaded, !initialScroll {
             if following { toEnd(proxy) }
+            growth.opened(atEnd: following)
             initialScroll = true
         }
     }
