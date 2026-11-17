@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use files_safe::Root;
 
 use crate::Error;
-use crate::version::version_of;
+use crate::version::{entry_version, same_entry};
 
 /// Creates a folder. The parent must exist, and nothing may be there already.
 pub fn create_dir(root: &Root, path: &str) -> Result<(), Error> {
@@ -28,17 +28,26 @@ pub fn create_dir(root: &Root, path: &str) -> Result<(), Error> {
 }
 
 /// Moves an entry. A taken destination is `CONFLICT` unless `overwrite` is set.
+///
+/// On a volume that ignores case, `Notes.md` to `notes.md` finds the destination already there;
+/// it names the same entry, so the rename is allowed and only the spelling changes. Moving
+/// something into itself or into its own subfolder is `INVALID_ARGUMENT`.
 pub fn rename(root: &Root, from: &str, to: &str, overwrite: bool) -> Result<(), Error> {
     let source = leaf(root, from)?;
     let destination = leaf(root, to)?;
-    std::fs::symlink_metadata(&source)?;
+    if destination.starts_with(&source) {
+        return Err(Error::InvalidArgument(format!("{to} is inside {from}")));
+    }
+    let source_metadata = std::fs::symlink_metadata(&source)?;
     if !overwrite {
         match std::fs::symlink_metadata(&destination) {
             Ok(metadata) => {
-                return Err(Error::Conflict {
-                    path: to.to_owned(),
-                    current: Some(version_of(&destination, &metadata)?),
-                });
+                if !same_entry(&source, &source_metadata, &destination, &metadata)? {
+                    return Err(Error::Conflict {
+                        path: to.to_owned(),
+                        current: Some(entry_version(root, to, &destination, &metadata)?),
+                    });
+                }
             }
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),

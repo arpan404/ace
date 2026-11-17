@@ -43,6 +43,53 @@ fn rename_of_a_missing_file_is_not_found() {
 }
 
 #[test]
+fn rename_into_its_own_subfolder_is_invalid() {
+    let fixture = Fixture::new();
+    fixture.write("dir/inside.txt", b"inside\n");
+
+    let error = files_io::rename(fixture.root(), "dir", "dir/moved", false)
+        .expect_err("a folder cannot be moved inside itself");
+
+    assert_eq!(error.code(), "INVALID_ARGUMENT");
+    assert_eq!(fixture.read("dir/inside.txt"), b"inside\n");
+}
+
+#[test]
+fn case_only_rename_is_allowed_where_the_volume_ignores_case() {
+    let fixture = Fixture::new();
+    fixture.write("Notes.md", b"case matters\n");
+    if !ignores_case(fixture.dir()) {
+        eprintln!("this volume is case-sensitive; skipping case_only_rename");
+        return;
+    }
+
+    files_io::rename(fixture.root(), "Notes.md", "notes.md", false).expect("a case-only rename");
+
+    assert_eq!(fixture.read("notes.md"), b"case matters\n");
+    let names: Vec<String> = std::fs::read_dir(fixture.dir())
+        .expect("list the root")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_eq!(names, ["notes.md"], "only the spelling on disk changes");
+}
+
+/// Whether `dir` is on a volume that treats two spellings of one name as the same file.
+#[allow(clippy::expect_used)]
+fn ignores_case(dir: &std::path::Path) -> bool {
+    let probe = dir.join("CaseProbe.txt");
+    std::fs::write(&probe, b"probe").expect("write probe");
+    let ignores = dir.join("caseprobe.txt").exists();
+    std::fs::remove_file(&probe).expect("remove probe");
+    ignores
+}
+
+#[test]
 fn remove_folder_recursively() {
     let fixture = Fixture::new();
     fixture.write("folder/nested/deep.txt", b"deep\n");

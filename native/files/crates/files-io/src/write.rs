@@ -18,6 +18,11 @@ use crate::version::{entry_version, version_of};
 ///
 /// `expected` is a version from `stat_version` or an earlier `read`; `None` means the file must
 /// not exist yet. Returns the version the saved file now has.
+///
+/// The save writes a complete copy beside the file and renames it into place, carrying the
+/// original's permission bits. Ownership, extended attributes, ACLs and other hard links to the
+/// old file are not carried over, which is also what the daemon's temp-and-rename save does. A
+/// file that did not exist yet keeps the private mode of the staging file.
 pub fn write(
     root: &Root,
     path: &str,
@@ -30,8 +35,7 @@ pub fn write(
     // The temp copy is complete and synced; check once more so a save that lost a race with
     // another writer never lands on top of it.
     let _ = guard(root, &absolute, path, expected)?;
-    temp.persist(&absolute)
-        .map_err(|error| Error::Io(error.error))?;
+    publish(temp, &absolute, original.as_ref())?;
     version_of(&absolute, &std::fs::metadata(&absolute)?)
 }
 
@@ -90,8 +94,69 @@ fn staged(
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     temp.as_file_mut().write_all(bytes)?;
     if let Some(metadata) = original {
-        temp.as_file().set_permissions(metadata.permissions())?;
+        temp.as_file()
+            .set_permissions(copied_permissions(metadata))?;
     }
     temp.as_file().sync_all()?;
     Ok(temp)
+}
+
+/// The original's permission bits. The setuid, setgid and sticky bits are deliberately dropped:
+/// a save must never hand a file more privilege than the caller asked for.
+#[cfg(unix)]
+fn copied_permissions(metadata: &Metadata) -> std::fs::Permissions {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::Permissions::from_mode(metadata.permissions().mode() & 0o777)
+}
+
+#[cfg(windows)]
+fn copied_permissions(metadata: &Metadata) -> std::fs::Permissions {
+    metadata.permissions()
+}
+
+/// Renames the complete copy into place, then syncs the folder so the entry itself is durable
+/// and not only the bytes it points at.
+#[cfg(unix)]
+fn publish(
+    temp: tempfile::NamedTempFile,
+    absolute: &Path,
+    _original: Option<&Metadata>,
+) -> Result<(), Error> {
+    temp.persist(absolute)
+        .map_err(|error| Error::Io(error.error))?;
+    if let Some(parent) = absolute.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+/// Windows refuses to replace a read-only file, so the attribute comes off first. The incoming
+/// copy already carries it, and a failed rename puts it back on the file that stayed.
+#[cfg(windows)]
+fn publish(
+    temp: tempfile::NamedTempFile,
+    absolute: &Path,
+    original: Option<&Metadata>,
+) -> Result<(), Error> {
+    let readonly = original.is_some_and(|metadata| metadata.permissions().readonly());
+    if readonly {
+        set_readonly(absolute, false)?;
+    }
+    match temp.persist(absolute) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            if readonly {
+                let _ = set_readonly(absolute, true);
+            }
+            Err(Error::Io(error.error))
+        }
+    }
+}
+
+#[cfg(windows)]
+fn set_readonly(path: &Path, readonly: bool) -> Result<(), Error> {
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    permissions.set_readonly(readonly);
+    std::fs::set_permissions(path, permissions)?;
+    Ok(())
 }
