@@ -4,29 +4,53 @@ import Testing
 
 /// The pinned bar's scroll edge under the large title.
 struct ScrollEdgeHoldTests {
-    @Test func theEdgeStaysHiddenWhileTheLargeTitleCollapses() {
+    private func scrolling() -> ScrollEdgeHold {
         var hold = ScrollEdgeHold()
-        for offset in stride(from: CGFloat(-4), through: 40, by: 2) { hold.update(offset) }
+        hold.phase(scrolling: true, offset: 0)
+        return hold
+    }
+
+    @Test func theEdgeStaysHiddenWhileTheLargeTitleCollapses() {
+        var hold = scrolling()
+        for offset in stride(from: CGFloat(-4), through: 40, by: 2) { hold.moved(to: offset) }
         #expect(!hold.shown)
     }
 
     @Test func aWobbleAroundTheHandOverNeverFlipsTheEdge() {
-        var hold = ScrollEdgeHold()
-        hold.update(60)
+        var hold = scrolling()
+        hold.moved(to: 60)
         var seen: Set<Bool> = []
         for offset: CGFloat in [50, 54, 30, 56, 20, 53, 12, 58] {
-            hold.update(offset)
+            hold.moved(to: offset)
             seen.insert(hold.shown)
         }
         #expect(seen == [true])
     }
 
     @Test func theEdgeHidesAgainBackAtTheTop() {
+        var hold = scrolling()
+        hold.moved(to: 120)
+        hold.moved(to: 3)
+        #expect(!hold.shown)
+        hold.moved(to: 30)
+        #expect(!hold.shown)
+    }
+
+    @Test func layoutMovingTheListWhileNobodyScrollsNeverFlipsTheEdge() {
         var hold = ScrollEdgeHold()
-        hold.update(120)
-        hold.update(3)
-        #expect(!hold.shown)
-        hold.update(30)
-        #expect(!hold.shown)
+        var seen: Set<Bool> = []
+        for offset: CGFloat in [0, 120, 2, 140, 0, 96, 4] {
+            hold.moved(to: offset)
+            seen.insert(hold.shown)
+        }
+        #expect(seen == [false])
+    }
+
+    @Test func aScrollComingToRestPastTheTitleShowsTheEdgeAndLayoutLeavesItThere() {
+        var hold = scrolling()
+        hold.phase(scrolling: false, offset: 140)
+        #expect(hold.shown)
+        hold.moved(to: 0)
+        #expect(hold.shown)
     }
 }
