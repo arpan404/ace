@@ -388,11 +388,14 @@ export function startMachines(context: ServiceContext): void {
           }
       });
     },
-    // A stopped parent's results wait for its next input, as a local child's do. A deleted one
-    // is never held: delivery finds it gone and ends what it was owed.
+    // A stopped or settled parent's results wait for its next input, as a local child's do:
+    // delivered, a result would start a turn and take a settled thread back out of Settled.
+    // Unsettling writes to the parent, which asks about them again. A deleted one is never
+    // held: delivery finds it gone and ends what it was owed.
     held: (parent) => {
       const thread = store.getThread(parent);
       if (!thread || thread.deletedAt !== undefined) return false;
+      if (thread.settledAt !== undefined) return true;
       const journal = services.agentControl?.delegations.journal;
       return !!journal && (journal.stopped(parent) || journal.fenced(parent));
     },

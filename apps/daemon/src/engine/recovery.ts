@@ -15,7 +15,7 @@ import {
 } from "@ace/protocol";
 import { continueMessage, type Fact, type ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
-import { exitShown, maxMessages, isSend } from "./queue-store.ts";
+import { exitShown, maxMessages, isSend, type RecoveryRecord } from "./queue-store.ts";
 import type { EngineClock } from "./actor.ts";
 import type { ContextWindowLookup } from "./context-meter.ts";
 
@@ -190,12 +190,8 @@ export class Recovery {
    * Ordinary interruption/pause retains these records. */
   /** Cancelling a subtree discards resumable work but keeps a Stop's hold for the person. */
   discardKeepingStop(id: ThreadId): void {
-    this.repo.store.atomic(() => {
-      const queue = this.repo.queue.get(id);
-      this.discard(id);
-      if (queue.paused && queue.reason === "stopped")
-        this.repo.queue.set(id, { paused: true, reason: "stopped" }, this.clock.now());
-    });
+    const queue = this.repo.queue.get(id);
+    this.discardHolding(id, stoppedHold(queue) ? { paused: true, reason: "stopped" } : released);
   }
   /**
    * Builds before the Stop rule captured a restart "continue" behind a Stop, which left a
@@ -217,7 +213,8 @@ export class Recovery {
     const queue = this.repo.queue.get(id);
     if (!queue.paused || queue.limited) return;
     if (queue.reason !== "restart" && queue.reason !== "stopped") return;
-    if (this.repo.queue.count(id) > 0) return;
+    // Child results wait under the hold too: sent, they would start a turn in a settled thread.
+    if (this.repo.queue.waitingSends(id) > 0) return;
     if (this.repo.queue.hasUncertain(id) || this.repo.pending.recovering(id)) return;
     this.repo.pending.finishContinuation(id);
     this.repo.queue.set(
@@ -234,6 +231,14 @@ export class Recovery {
     this.sync(id);
   }
   discard(id: ThreadId): void {
+    this.discardHolding(id, released);
+  }
+  /**
+   * `discard`, leaving the queue held as `hold` says in the same write, so the thread never
+   * reads as waiting to send in between. Settling a tree (`SettledTrees`) relies on it: a child
+   * that flashed "waiting" would be revived, settled again and report its result twice.
+   */
+  discardHolding(id: ThreadId, hold: QueueHold): void {
     this.repo.store.atomic(() => {
       const queue = this.repo.queue.get(id);
       for (const intent of this.repo.pending.headers(id))
@@ -247,8 +252,7 @@ export class Recovery {
         {
           continuation: null,
           trigger: null,
-          paused: false,
-          reason: null,
+          ...hold,
           limited: false,
           resetAt: null,
           resumeAt: null,
@@ -756,6 +760,10 @@ export class Recovery {
     this.cancel?.();
   }
 }
+
+/** How a discard leaves the queue: released, or held for a reason that still applies. */
+export type QueueHold = Pick<RecoveryRecord, "paused" | "reason">;
+const released: QueueHold = { paused: false, reason: null };
 
 function stoppedHold(queue: { paused: boolean; reason: string | null }): boolean {
   return queue.paused && queue.reason === "stopped";
