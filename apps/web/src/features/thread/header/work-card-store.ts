@@ -1,8 +1,5 @@
-import { useThreadMeta } from "@ace/client-react";
-import { createContext, use, useLayoutEffect, useState, useSyncExternalStore } from "react";
-import { useLayoutServices, type SessionKey } from "@/lib/layout.tsx";
-import { useVisibleParent } from "@/lib/spade-host.ts";
-import { createWorkCardTrees, type WorkCardMemory, type WorkCardTrees } from "./work-card-trees.ts";
+import { createContext, use, useSyncExternalStore } from "react";
+import type { WorkCardMemory } from "./work-card-trees.ts";
 
 /*
  * Whether the thread's Work card is open, and where it fits. The header's details icon and the
@@ -27,8 +24,16 @@ export interface WorkCardStore {
   setOpen(open: boolean): void;
   toggle(): void;
   setSide(side: boolean): void;
-  /** Follow a tree's remembered choice, live, until the returned stop. */
+  /**
+   * Follow a tree's remembered choice, live, until the returned stop. A choice the person made
+   * while the store followed no tree is saved to this one instead.
+   */
   follow(memory: WorkCardMemory): () => void;
+  /**
+   * Whether the card should take focus as it shows: only once after the person opened it. A card
+   * that shows because it was remembered, or opened on another screen, leaves focus where it is.
+   */
+  takeFocus(): boolean;
 }
 
 /** The card's width, from the floating surface both placements share. */
@@ -86,6 +91,9 @@ export function createWorkCardStore(initial?: WorkCardMemory): WorkCardStore {
   let state: WorkCardState = { open: false, side: false };
   let memory = initial;
   let wanted = memory?.open() ?? false;
+  /** The person chose while no tree was followed; the next tree followed takes the choice. */
+  let unsaved = false;
+  let focus = false;
   const listeners = new Set<() => void>();
   let button: HTMLButtonElement | null = null;
   let area: HTMLElement | null = null;
@@ -95,13 +103,16 @@ export function createWorkCardStore(initial?: WorkCardMemory): WorkCardStore {
     for (const listener of listeners) listener();
   };
   const choose = (open: boolean) => {
-    if (open !== wanted) memory?.remember(open);
+    if (!memory) unsaved = true;
+    else if (open !== wanted) memory.remember(open);
     wanted = open;
+    focus = open;
     set({ ...state, open });
   };
   // The choice made elsewhere in the tree: shown where the card docks, never as the popover.
   const sync = (open: boolean) => {
     wanted = open;
+    focus = false;
     if (state.side || !open) set({ ...state, open });
   };
   return {
@@ -128,56 +139,22 @@ export function createWorkCardStore(initial?: WorkCardMemory): WorkCardStore {
     },
     follow(next) {
       memory = next;
-      sync(next.open());
+      if (unsaved) {
+        unsaved = false;
+        next.remember(wanted);
+      } else sync(next.open());
       const stop = next.subscribe?.(() => sync(next.open()));
       return () => {
         stop?.();
         if (memory === next) memory = undefined;
       };
     },
+    takeFocus() {
+      const take = focus && state.open;
+      focus = false;
+      return take;
+    },
   };
-}
-
-const treesKey: SessionKey<WorkCardTrees> = { name: "workCardTrees" };
-
-/**
- * A thread screen's card store that follows its tree's choice on this device (`work-card-trees`):
- * the main thread, its subagents and its delegates open and close the card together, and moving
- * between them, or to another thread and back, keeps it where the person left it.
- */
-export function useTreeWorkCardStore(threadId: string): WorkCardStore {
-  const { storage, sessionValue } = useLayoutServices();
-  const trees = sessionValue(treesKey, () => createWorkCardTrees(storage));
-  const tree = useWorkCardTree(threadId);
-  const [store] = useState(() => createWorkCardStore(trees.memory(tree)));
-  useLayoutEffect(() => store.follow(trees.memory(tree)), [store, trees, tree]);
-  return store;
-}
-
-interface Hop {
-  /** The parent here, to walk on from. */
-  next: string | undefined;
-  /** The parent here or on a paired machine: the tree's main thread if nothing is above it. */
-  top: string | undefined;
-}
-
-function useHop(threadId: string | undefined): Hop {
-  const meta = useThreadMeta(threadId);
-  const local = useVisibleParent(meta?.delegatedBy);
-  return { next: local, top: local ?? meta?.delegatedFrom?.threadId };
-}
-
-/**
- * The main thread of `threadId`'s tree: up through the threads that delegated it, three levels
- * at most (deeper chains share the third ancestor's choice). A parent on a paired machine ends
- * the walk; its id names the same thread there. Spade's hidden host is no parent, so a thread
- * Spade delegated is a tree of its own.
- */
-export function useWorkCardTree(threadId: string): string {
-  const first = useHop(threadId);
-  const second = useHop(first.next);
-  const third = useHop(second.next);
-  return third.top ?? second.top ?? first.top ?? threadId;
 }
 
 export const WorkCardContext = createContext<WorkCardStore | null>(null);

@@ -11,7 +11,7 @@ import {
 import type { Agent } from "@ace/protocol";
 import { modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Suspense, useCallback, useEffect } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { MissingState } from "@/components/ui/missing-state.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
@@ -39,7 +39,8 @@ import { SubagentCrumb } from "../header/thread-crumb.tsx";
 import { DeferredWorkPopover, WorkButton } from "../header/work-button.tsx";
 
 import { DeferredStepDetail } from "../items/deferred-step-detail.ts";
-import { useTreeWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
+import { createWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
+import { WorkCardTreeFollower } from "../header/work-card-tree.tsx";
 import { WorkSide } from "../header/work-side.tsx";
 import { AskParentRetry } from "./ask-parent-retry.tsx";
 import { SubagentFocusProvider } from "./focus.ts";
@@ -73,7 +74,7 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   // An unnamed subagent goes by its task, as its row in the Summary does.
   const { name } = useAgentIdentity(threadId, agent);
   const root = !parent || parent.origin === "root";
-  const details = useTreeWorkCardStore(threadId);
+  const [details] = useState(() => createWorkCardStore());
   // An opened step's detail and the details icon's popover, so neither waits on first open.
   useEffect(
     () =>
@@ -101,6 +102,7 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   return (
     <SubagentFocusProvider value={agentId}>
       <WorkCardContext value={details}>
+        <WorkCardTreeFollower key={threadId} threadId={threadId} />
         <Screen
           page="thread"
           crumb={

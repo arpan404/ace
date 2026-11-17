@@ -86,3 +86,34 @@ test("an unreadable stored value reads as every card closed", () => {
   storage.setItem("ace.thread.workCardTrees", "{not json");
   expect(createWorkCardTrees(storage).memory("main").open()).toBe(false);
 });
+
+test("a choice made before the tree is known is saved to the tree once it is", () => {
+  const trees = createWorkCardTrees(memoryStorage());
+  const delegate = createWorkCardStore();
+  delegate.setSide(true);
+  delegate.toggle();
+  delegate.follow(trees.memory("main"));
+  expect(delegate.get().open).toBe(true);
+  expect(screen(trees, "main").store.get().open).toBe(true);
+});
+
+test("only the person's own open moves focus into the card", () => {
+  const trees = createWorkCardTrees(memoryStorage());
+  const main = screen(trees, "main");
+  const subagent = screen(trees, "main");
+  main.store.toggle();
+  expect(main.store.takeFocus()).toBe(true);
+  // Shown because the main thread opened it: focus stays where the person is typing.
+  expect(subagent.store.get().open).toBe(true);
+  expect(subagent.store.takeFocus()).toBe(false);
+  // A screen that opens with the card remembered open leaves focus alone too.
+  expect(screen(trees, "main").store.takeFocus()).toBe(false);
+});
+
+test("a screen of a tree forgotten past the kept limit closes its card", () => {
+  const trees = createWorkCardTrees(memoryStorage());
+  const oldest = screen(trees, "t0");
+  oldest.store.toggle();
+  for (let index = 1; index <= workCardTreesKept; index++) trees.memory(`t${index}`).remember(true);
+  expect(oldest.store.get().open).toBe(false);
+});

@@ -66,7 +66,8 @@ import { LongThreadHotkeys } from "./long/nav-keys.tsx";
 import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
 import { ProjectGlyph, ThreadCrumb, useHasParentCrumb } from "./header/thread-crumb.tsx";
 import { WorkButton } from "./header/work-button.tsx";
-import { useTreeWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
+import { createWorkCardStore, WorkCardContext } from "./header/work-card-store.ts";
+import { WorkCardTreeFollower } from "./header/work-card-tree.tsx";
 import { WorkSide } from "./header/work-side.tsx";
 import { DelegateBottom } from "./subagent/delegate-bottom.tsx";
 import { GuestBottom } from "./guest/guest-bottom.tsx";
@@ -214,7 +215,7 @@ function ThreadScreen(props: {
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.
   const drop = useFileDrop(composer);
-  const workCard = useTreeWorkCardStore(id);
+  const [workCard] = useState(() => createWorkCardStore());
   useHotkey(keymap.workCard.keys, workCard.toggle, { id: "workCard" });
   const thread = useMemo<ThreadRef | undefined>(
     () =>
@@ -226,6 +227,7 @@ function ThreadScreen(props: {
   return (
     <ThreadPartsProvider value={parts}>
       <WorkCardContext value={workCard}>
+        <WorkCardTreeFollower key={id} threadId={id} />
         <Screen
           page={meta && (meta.chat || isChatProject(meta.workspaceId)) ? "chat" : "thread"}
           crumb={meta && (props.crumb ?? (parented ? <ThreadCrumb threadId={id} /> : undefined))}

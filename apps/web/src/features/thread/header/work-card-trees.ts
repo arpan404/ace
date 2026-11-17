@@ -40,9 +40,12 @@ export function createWorkCardTrees(storage: KeyValueStorage | undefined): WorkC
     if (was === next) return;
     const rest = open.filter((id) => id !== tree);
     if (next) rest.push(tree);
+    const evicted = rest.slice(0, Math.max(0, rest.length - workCardTreesKept));
     open = rest.slice(-workCardTreesKept);
     storage?.setItem(storageKey, JSON.stringify(open));
-    for (const listener of listeners.get(tree) ?? []) listener();
+    // A forgotten tree reads as closed now: its open screens close with it.
+    for (const changed of [tree, ...evicted])
+      for (const listener of listeners.get(changed) ?? []) listener();
   };
   return {
     memory: (tree) => ({
