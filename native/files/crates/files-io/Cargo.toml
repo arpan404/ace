@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "files-io"
+description = "Range reads, encoding detection, atomic writes and mutations inside a checkout root"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+chardetng = "0.1"
+encoding_rs = "0.8"
+files-safe = { path = "../files-safe" }
+tempfile = "3"
+thiserror = "2"
