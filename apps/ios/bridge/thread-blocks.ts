@@ -63,7 +63,7 @@ import { preview } from "./presentation.ts";
 import { endingRow, filesRow } from "./turn-ending.ts";
 import { backgroundRows } from "./background-rows.ts";
 import { stepContext } from "./thread-rows.ts";
-import { workLog, type LogFacts } from "./work-log.ts";
+import { placedWorkLog, type LogFacts, type PlacedMoment } from "./work-log.ts";
 import { eventFollows, messageBlock, momentRow, streamingOf } from "./thread-messages.ts";
 import { anchoredOffset } from "./anchored-positions.ts";
 
@@ -102,6 +102,22 @@ const tokens: Record<SubagentState, StatusToken> = {
   cancelled: "neutral",
   done: "done",
 };
+
+type MomentBlock = Extract<Block, { kind: "moment" }>;
+
+/** The moments a settled head folds (restarts, a limit's wait, results landing), in order. */
+function foldedMoments(block: WorkBlock): MomentBlock[] {
+  return (block.folded ?? []).filter((inner): inner is MomentBlock => inner.kind === "moment");
+}
+
+/**
+ * Where an opened head places its moments among its steps: by when each began. The answer shown
+ * under the head stays out.
+ */
+export function placedMoments(block: Block | undefined): PlacedMoment[] {
+  if (block?.kind !== "work") return [];
+  return foldedMoments(block).map((moment) => ({ id: moment.key, at: moment.at }));
+}
 
 /** A folded head's steps, without the answer shown under it. */
 function workItems(block: WorkBlock): string[] {
@@ -354,12 +370,21 @@ export function blockRow(
     case "work": {
       const items = workItems(block);
       const background = backgroundRows(store, items);
-      const log = workLog(items, read, { ...facts, background });
+      const folded = foldedMoments(block);
+      // A moment's own items read as its row, never as steps.
+      const own = new Set(folded.flatMap((moment) => moment.itemIds));
+      const steps = own.size ? items.filter((id) => !own.has(id)) : items;
+      const log = placedWorkLog(steps, read, placedMoments(block), { ...facts, background });
       return {
         ...base,
         items,
         work: workSummary(store, block, items),
         log: log.rows,
+        /** Its moments' rows, which an opened log draws in place; nothing shows them folded. */
+        moments: folded.map((moment) => ({
+          id: moment.key,
+          event: momentRow(store, moment.moment, moment.itemIds, moment.since),
+        })),
         background,
         aceSteps: log.ace,
         retried: log.retried,

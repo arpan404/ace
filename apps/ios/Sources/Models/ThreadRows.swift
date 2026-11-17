@@ -23,6 +23,8 @@ struct StepLine: Codable, Sendable, Equatable {
     var expandable: Bool? = nil
     /// What the opened row shows, bounded by the bridge.
     var detail: StepDetail? = nil
+    /// A call still in flight: when it started, in ms since 1970; nil once it settles.
+    var startedAt: Double? = nil
 }
 /// An opened step: a command's output tail, compact diffs, a search's matches, a failure.
 struct StepDetail: Codable, Sendable, Equatable {
@@ -175,6 +177,14 @@ struct BlockRow: Codable, Sendable, Equatable {
     var ordinal: Int? = nil
     /// The work log's rows, as the web groups them (`bridge/work-log.ts`).
     var log: [LogRow]? = nil
+    /// A settled head's moments (a restart, a limit's wait, results landing), drawn where the
+    /// opened log's `moment` rows name them; nothing shows them while it is folded.
+    var moments: [Moment]? = nil
+    struct Moment: Codable, Sendable, Equatable {
+        let id: String
+        /// Nil when none of its items is loaded.
+        let event: EventRow?
+    }
     /// ace's own steps, worded with what earlier steps of the log said about them.
     var aceSteps: [AceStep]? = nil
     /// Failed steps a later step ran again with success.
@@ -224,6 +234,8 @@ struct EventRow: Codable, Sendable, Equatable {
     let mono: Bool
     /// Ms since 1970; 0 when the row shows no time.
     let at: Double
+    /// Where a span the row covers ends, in ms since 1970 ("9:23–9:30 AM"); 0 or nil for one time.
+    var until: Double? = nil
     /// How many identical rows this one stands for.
     let count: Int
     /// A stale Git lock an earlier daemon left stopped this send: Clear stale lock is offered.
