@@ -37,6 +37,11 @@ import XCTest
             XCTAssertTrue(segment.isHittable)
             XCTAssertGreaterThanOrEqual(segment.frame.minX, 0)
             XCTAssertLessThanOrEqual(segment.frame.maxX, width)
+            // Wide enough for its whole name: a cut-short "Iss…" is narrower than the word at a
+            // small 13 pt, so this holds the switch to showing every name in full.
+            let name = segment.label as NSString
+            let word = name.size(withAttributes: [.font: UIFont.systemFont(ofSize: 13)]).width
+            XCTAssertGreaterThanOrEqual(segment.frame.width, word.rounded(.up), "\(segment.label) is cut short")
         }
         // New pull request stays on the page, clear of the switch.
         let new = app.buttons["forge.newpr"]
