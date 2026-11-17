@@ -27,4 +27,19 @@ import Testing
         // A daemon clock slightly ahead never reads as negative time.
         #expect(ActivityTime.running(since: now.addingTimeInterval(4), now: now) == "0s")
     }
+    @Test func aMomentRowReadsOneTimeOrTheSpanItCovered() {
+        let utc = TimeZone(identifier: "UTC")!
+        let at = Date(timeIntervalSince1970: 1_763_285_000).timeIntervalSince1970 * 1000
+        let single = EventClock.words(at: at, locale: english, timeZone: utc)
+        #expect(single.contains(":"))
+        // No end, an end before it, or one inside the same minute: the one time.
+        #expect(EventClock.words(at: at, until: 0, locale: english, timeZone: utc) == single)
+        #expect(EventClock.words(at: at, until: at + 10_000, locale: english, timeZone: utc) == single)
+        // Back-to-back restarts or a limit's wait: from its start to its end, said once.
+        let span = EventClock.words(at: at, until: at + 7 * 60_000, locale: english, timeZone: utc)
+        #expect(span != single)
+        #expect(span.hasPrefix(single.components(separatedBy: " ").first ?? single))
+        #expect(span.contains("–"))
+        #expect(EventClock.words(at: 0, locale: english, timeZone: utc) == "")
+    }
 }

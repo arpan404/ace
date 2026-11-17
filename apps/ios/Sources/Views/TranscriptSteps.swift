@@ -284,7 +284,7 @@ struct WorkBlockView: View {
             if expanded {
                 Group {
                     if let ordinal = row.ordinal, let steps {
-                        DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps, thread: thread, openMessage: openMessage)
+                        DaemonSteps(ordinal: ordinal, blockId: blockId, links: steps, thread: thread, moments: row.moments, openMessage: openMessage)
                     } else if let log = row.log, !log.isEmpty {
                         StepRail { WorkLogRows(rows: log, source: source) }.onAppear { DisclosureTrace.shared.shown(blockId) }
                     } else {

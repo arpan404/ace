@@ -3,9 +3,10 @@ import Foundation
 /// A work log's rows and a turn's ending and changed files, as the bridge reads them from the
 /// shared work-log reading (`bridge/work-log.ts`, `bridge/turn-ending.ts`).
 extension BlockRow {
-    /// One row of a work log: a lone step, a thought, a sentence group, or background commands.
+    /// One row of a work log: a lone step, a thought, a sentence group, background commands, or
+    /// one of the turn's moments in place (its row travels on the head, `BlockRow.moments`).
     struct LogRow: Codable, Sendable, Equatable, Identifiable {
-        /// `step`, `thought`, `group` or `background`.
+        /// `step`, `thought`, `group`, `background` or `moment`.
         let kind: String
         let id: String
         var items: [String]? = nil
