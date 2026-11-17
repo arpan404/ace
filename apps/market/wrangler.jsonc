@@ -86,54 +86,54 @@
         // ACE_GRANT_KEYS is unset here, so publishing grants are checked against these.
         "ACE_ACCOUNT_KEYS_URL": "https://cloud.acehq.dev/v1/keys",
       },
-      // Replace each id with the one `wrangler d1 create <name>` prints (docs/market/deploy.md).
+      // The production databases (docs/market/deploy.md).
       "d1_databases": [
         {
           "binding": "MARKET_SUITS",
           "database_name": "ace-market-suits",
-          "database_id": "REPLACE-WITH-ace-market-suits-ID",
+          "database_id": "7fb489b0-4719-406f-a6db-f02f453c1c86",
           "migrations_dir": "migrations/catalogue",
         },
         {
           "binding": "MARKET_SKILLS",
           "database_name": "ace-market-skills",
-          "database_id": "REPLACE-WITH-ace-market-skills-ID",
+          "database_id": "693a944a-1121-45c3-acee-efac3abc7bfc",
           "migrations_dir": "migrations/catalogue",
         },
         {
           "binding": "MARKET_PLUGINS",
           "database_name": "ace-market-plugins",
-          "database_id": "REPLACE-WITH-ace-market-plugins-ID",
+          "database_id": "5b86569b-0e0e-49f6-9b8d-f60f57240e24",
           "migrations_dir": "migrations/catalogue",
         },
         {
           "binding": "MARKET_BOTS",
           "database_name": "ace-market-bots",
-          "database_id": "REPLACE-WITH-ace-market-bots-ID",
+          "database_id": "29543087-c33e-43e9-87f6-d7b425ddbb43",
           "migrations_dir": "migrations/catalogue",
         },
         {
           "binding": "MARKET_PUBLISHERS",
           "database_name": "ace-market-publishers",
-          "database_id": "REPLACE-WITH-ace-market-publishers-ID",
+          "database_id": "8ba0a218-1234-4dae-8ade-743a83549d7b",
           "migrations_dir": "migrations/publishers",
         },
         {
           "binding": "MARKET_COUNTS",
           "database_name": "ace-market-counts",
-          "database_id": "REPLACE-WITH-ace-market-counts-ID",
+          "database_id": "d144c5d5-58f8-4171-8b96-54b45c6aee95",
           "migrations_dir": "migrations/counts",
         },
         {
           "binding": "MARKET_MODERATION",
           "database_name": "ace-market-moderation",
-          "database_id": "REPLACE-WITH-ace-market-moderation-ID",
+          "database_id": "f67c4e06-1f55-4f6d-afc1-b6af18530e32",
           "migrations_dir": "migrations/moderation",
         },
         {
           "binding": "MARKET_LISTS",
           "database_name": "ace-market-lists",
-          "database_id": "REPLACE-WITH-ace-market-lists-ID",
+          "database_id": "de6592b1-26ae-447d-84f9-cba09f4fe58a",
           "migrations_dir": "migrations/lists",
         },
       ],

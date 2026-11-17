@@ -28,9 +28,9 @@ Run each command from `apps/market`.
    bunx wrangler r2 bucket create ace-market-objects
    ```
 
-   Put each id `d1 create` prints into `wrangler.jsonc`, under `env.production.d1_databases`, in
-   place of `REPLACE-WITH-<name>-ID`. The single `ace-market` database the Worker used before the
-   split held no data; once the new ones are deployed, delete it with
+   The production ids are in `wrangler.jsonc` under `env.production.d1_databases`; a database
+   made again needs its new id there. The single `ace-market` database the Worker used before the
+   split held no data and has no binding any more; delete it with
    `bunx wrangler d1 delete ace-market`.
 
 2. **Apply the migrations**, each database from its own folder:
