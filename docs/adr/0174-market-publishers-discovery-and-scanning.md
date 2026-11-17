@@ -1,4 +1,4 @@
-# 0173: The market's publishers, discovery and scanning
+# 0174: The market's publishers, discovery and scanning
 
 Status: proposed. Date: 2026-11-16. Decided by: the owner (2026-11-16: publisher profiles,
 trending and discovery, publishing from the app, publishers managing their own publications, and

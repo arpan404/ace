@@ -3,7 +3,7 @@ import { displayNameProblem, handleProblem, linkProblem, skeleton } from "./prof
 import type { MarketLink } from "@ace/protocol/marketplace";
 
 /*
- * The profile rules (ADR 0173 §3, §14): handles (shape, reserved words, lookalikes, the official
+ * The profile rules (ADR 0174 §3, §14): handles (shape, reserved words, lookalikes, the official
  * `ace`), display names (hidden characters, mixed scripts, reading as ace, a verified name) and
  * links. Behaviour: given a handle, name or link, a reason is returned or not.
  */

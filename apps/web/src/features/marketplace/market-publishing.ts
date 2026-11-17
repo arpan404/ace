@@ -12,7 +12,7 @@ import { market, marketKey } from "./market-api.ts";
 import { MarketFailure } from "./market-model.ts";
 
 /*
- * ADR 0173 through the daemon: Discover's ranked sections, publisher pages, listing pictures and
+ * ADR 0174 through the daemon: Discover's ranked sections, publisher pages, listing pictures and
  * the signed-in publisher's own page and actions (`publish`). Reads are queries under the
  * marketplace's key; every publish action is one mutation that reads the publisher's page again.
  */

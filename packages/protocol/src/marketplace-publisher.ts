@@ -13,7 +13,7 @@ import { MarketScanReport, MarketScanState } from "./marketplace-scan.ts";
 import { MarketVerificationProof } from "./marketplace-signed.ts";
 
 /*
- * Publishers on the wire (ADR 0173 §2 to §5, §7): public profiles, the signed-in publisher's own
+ * Publishers on the wire (ADR 0174 §2 to §5, §7): public profiles, the signed-in publisher's own
  * page, drafts and every action a publisher takes on their publications, transfers, signals,
  * appeals and abuse reports. Every write needs a market grant; reports need none. Schema only.
  */
@@ -40,7 +40,7 @@ export const MarketProfile = z.strictObject({
   /** The picture's sha256, served at `/v1/avatars/{sha256}`. */
   avatar: MarketHash.optional(),
   joined: z.number().int().nonnegative(),
-  /** Verified by ace's maintainers, on the signed verified list (ADR 0173 §13). */
+  /** Verified by ace's maintainers, on the signed verified list (ADR 0174 §13). */
   verified: z.boolean(),
   /** The proofs behind the mark: "Verified · owns example.com". */
   proofs: z.array(MarketVerificationProof).max(8),
@@ -77,7 +77,7 @@ export const MarketPinsSet = z.strictObject({ entries: z.array(MarketEntryRef).m
 
 /* ---------------------------------------------------------------- versions and entries */
 
-/** A version as its publisher sees it (ADR 0173 §4). */
+/** A version as its publisher sees it (ADR 0174 §4). */
 export const MarketVersionStatus = z.enum([
   "waiting",
   "live",
@@ -272,7 +272,7 @@ export const MarketLimits = z.strictObject({
 export const MarketMe = z.strictObject({
   profile: MarketProfile.optional(),
   state: MarketPublisherState,
-  /** Stricter thresholds apply (ADR 0173 §9). */
+  /** Stricter thresholds apply (ADR 0174 §9). */
   newPublisher: z.boolean(),
   limits: MarketLimits,
   entries: z.array(MarketOwnEntrySummary).max(500),

@@ -59,11 +59,11 @@ export const MarketFeedEntryWire = z.object({
   byAce: z.boolean().catch(false),
   updated: z.number().int().nonnegative().catch(0),
   downloads: z.number().int().nonnegative().catch(0),
-  /** The publisher carries ace's verified mark (ADR 0173 §3). */
+  /** The publisher carries ace's verified mark (ADR 0174 §3). */
   verified: z.boolean().catch(false),
   /** The publisher's note on the latest version, when they deprecated it. */
   deprecated: z.string().max(500).optional().catch(undefined),
-  /** The listing pictures by sha256 (ADR 0173 §5), served at `/v1/previews/{sha256}`. */
+  /** The listing pictures by sha256 (ADR 0174 §5), served at `/v1/previews/{sha256}`. */
   previews: z.array(MarketHash).max(4).optional().catch(undefined),
 });
 
@@ -124,14 +124,14 @@ export const MarketLink = z.strictObject({
 });
 export type MarketLink = z.infer<typeof MarketLink>;
 
-/** `/v1/entries/{type}/{name}`. Links and pictures are ADR 0173's listing edits. */
+/** `/v1/entries/{type}/{name}`. Links and pictures are ADR 0174's listing edits. */
 export const EntryBody = z.object({
   entry: z.unknown(),
   description: z.string().max(8192).catch(""),
   versions: z.array(z.unknown()).max(200).transform(parsedOnly(MarketEntryVersion)),
   links: z.array(z.unknown()).max(5).transform(parsedOnly(MarketLink)).catch([]).default([]),
   previews: z.array(MarketHash).max(4).catch([]).default([]),
-  /** The entry is unlisted: found by link, never by search (ADR 0173 §5). */
+  /** The entry is unlisted: found by link, never by search (ADR 0174 §5). */
   unlisted: z.boolean().catch(false).default(false),
 });
 export type EntryBody = z.infer<typeof EntryBody>;

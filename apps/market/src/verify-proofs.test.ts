@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkDomain, checkGithub, fetchProof, type ProofFetch } from "./verify-proofs.ts";
 
-/* Proof checks over a fake fetch (ADR 0173 §13): no network. */
+/* Proof checks over a fake fetch (ADR 0174 §13): no network. */
 
 const token = "t".repeat(43);
 

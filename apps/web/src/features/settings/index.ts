@@ -19,6 +19,8 @@ export {
   RemoteSettingsScreen,
   FleetMapScreen,
   FleetMachineScreen,
+  FleetMachineAppsScreen,
+  FleetAcrossScreen,
   SourceControlSettingsScreen,
   SettingsIndexScreen,
 } from "./settings-screens.tsx";

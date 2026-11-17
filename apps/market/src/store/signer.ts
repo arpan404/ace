@@ -113,7 +113,7 @@ type Key = { type: string; name: string; version: string };
 
 /**
  * Lists a signed version. The first time it goes live its publisher's count of live versions in
- * this catalogue moves (ADR 0173 §9) and its entry's first listing is set, in the same batch. Every statement
+ * this catalogue moves (ADR 0174 §9) and its entry's first listing is set, in the same batch. Every statement
  * re-checks that the version is still pending (or already listed, for a signature sent again),
  * so a hold or block a maintainer made after the route read it stands, and that the version
  * still names the bytes and publisher the manifest was checked against: a version blocked and
@@ -324,7 +324,7 @@ export async function appliedWithdrawn(
 /**
  * The cron's step: marks every catalogue still behind the stored withdrawn list by it, and
  * drains every catalogue's queue of entries its marks touched, so a refresh cut off after the
- * marks committed is finished (ADR 0173 §16).
+ * marks committed is finished (ADR 0174 §16).
  */
 export async function applyWithdrawnDue(dbs: Databases, now: number): Promise<void> {
   const stored = await dbs.lists

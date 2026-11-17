@@ -13,7 +13,7 @@ import {
 } from "./testing/publisher-harness.ts";
 
 /*
- * A publisher managing their publications (ADR 0173 §5) through the Worker's API: listing edits,
+ * A publisher managing their publications (ADR 0174 §5) through the Worker's API: listing edits,
  * pictures, latest and rollback, deprecation, withdrawal, deletion, visibility, archive, pins,
  * transfers, signals and appeals.
  */
