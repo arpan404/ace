@@ -1,5 +1,6 @@
 import { closeSync, openSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
+import { isDiskFull } from "./sqlite-failure.ts";
 
 /**
  * Space ace keeps for itself under ACE_HOME (ADR 0174): one file of zeros, written while the
@@ -14,7 +15,11 @@ export const reserveBytes = 16 * 1024 * 1024;
 export interface StorageReserve {
   /** Removes the reserve; true when there was one to remove. Never throws. */
   release(): boolean;
-  /** Writes the reserve when it is missing or short; false when the disk refused. Never throws. */
+  /**
+   * Writes the reserve when it is missing or short. False only when the disk or the person's
+   * quota refused it for want of space; any other failure leaves no reserve and isn't a reason
+   * to keep new work held. Never throws.
+   */
   restore(): boolean;
   /** Bytes of the reserve not on disk now: freed for ace, so not the person's free space. */
   missing(): number;
@@ -48,12 +53,12 @@ export function storageReserve(home: string, bytes = reserveBytes): StorageReser
         fd = openSync(path, "w", 0o600);
         for (let written = 0; written < bytes; written += chunk.length) writeSync(fd, chunk);
         return true;
-      } catch {
+      } catch (error) {
         // Half a reserve only takes space the person needs: none is kept.
         if (fd !== undefined) closeSync(fd);
         fd = undefined;
         remove();
-        return false;
+        return !isDiskFull(error);
       } finally {
         if (fd !== undefined) closeSync(fd);
       }

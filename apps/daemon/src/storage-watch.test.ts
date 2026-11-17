@@ -198,3 +198,70 @@ test("ace's reserve goes when the disk fills, never counts as room, and comes ba
   expect(state.gate.status().holds).toEqual([]);
   expect(statSync(reserve).size).toBe(MiB);
 });
+
+test("under a quota, the reserve given back is not room: new work waits until writes fit beside the reserve", () => {
+  // The boundary: a per-user quota, which the volume's free space never shows. The reserve and
+  // the probe write against it; a write past it fails with EDQUOT, as the kernel's would.
+  let quota = 0;
+  const refused = () => Object.assign(new Error("Disc quota exceeded"), { code: "EDQUOT" });
+  const take = (bytes: number) => {
+    if (quota < bytes) throw refused();
+    quota -= bytes;
+  };
+  let reserved = MiB * 16;
+  const reserve = {
+    release() {
+      quota += reserved;
+      const had = reserved > 0;
+      reserved = 0;
+      return had;
+    },
+    restore() {
+      if (reserved) return true;
+      try {
+        take(MiB * 16);
+      } catch {
+        return false;
+      }
+      reserved = MiB * 16;
+      return true;
+    },
+    missing: () => MiB * 16 - reserved,
+  };
+  const reads: (() => void)[] = [];
+  const gate = new MaintenanceGate(() => 0);
+  const watch = new StorageWatch({
+    home: mkdtempSync(join(tmpdir(), "ace-storage-quota-")),
+    // The volume itself has plenty of room the whole time.
+    diskSpace: () => ({ bavail: (10_000 * MiB) / 4096, bsize: 4096 }),
+    delay: (run) => {
+      reads.push(run);
+      return () => {};
+    },
+    log: { log: () => {} },
+    levels,
+    reserve,
+    probe: () => {
+      take(MiB);
+      quota += MiB;
+    },
+  });
+  cleanup.push(() => watch.close());
+  watch.attach(gate);
+  watch.start();
+  const tick = () => reads.shift()?.();
+
+  expect(watch.observe(refused())).toBe(true);
+  expect(gate.status().holds).toEqual(["storage"]);
+  // The reserve's 16 MiB came back to the quota, but nothing the person owns was freed.
+  for (let read = 0; read < 3; read++) {
+    tick();
+    expect(gate.status().holds).toEqual(["storage"]);
+  }
+  quota += 100 * MiB;
+  tick();
+  expect(gate.status().holds).toEqual([]);
+  // The reserve is in place again and writes still have room.
+  expect(reserved).toBe(16 * MiB);
+  expect(quota).toBeGreaterThan(MiB);
+});

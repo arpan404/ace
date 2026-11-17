@@ -139,9 +139,14 @@ export class StorageWatch {
     const bytes = this.freeBytes();
     const before = this.state;
     this.apply({ kind: "free", bytes });
-    // A hold a refused write began lifts only once a write goes through again (a quota).
-    if (bytes !== null && this.state.unproven && roomToResume(bytes, this.levels))
-      this.apply({ kind: "probe", ok: this.probe(), bytes });
+    // A hold a refused write began lifts only once writes go through again, beyond ace's own
+    // reserve: the reserve is written back first, still held, and only then is the probe run.
+    // Otherwise, under a quota, the probe would land in the space the reserve gave back, new
+    // work would be let in, and putting the reserve back would use the quota up again.
+    if (bytes !== null && this.state.unproven && roomToResume(bytes, this.levels)) {
+      const restored = this.options.reserve?.restore() ?? true;
+      this.apply({ kind: "probe", ok: restored && this.probe(), bytes });
+    }
     // Free space already counts the reserve as taken, so with new work let in it goes back.
     if (!this.state.full && bytes !== null) this.options.reserve?.restore();
     if (this.state.full && !before.full)
