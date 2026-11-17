@@ -43,24 +43,40 @@ pub struct Container {
 impl Container {
     /// The AppContainer for the bot whose workspace folder is named `bot`. The profile name is
     /// derived from the bot's id (sanitised, prefixed, capped at 64 wide chars as the API wants),
-    /// so it is stable across runs and unique to the bot.
+    /// so it is stable across runs and unique to the bot. Used only for the probe and the
+    /// no-network fallback; a real run gets a per-run identity ([`Container::for_run`]).
     pub fn for_bot(bot: &str) -> Self {
-        let mut name = String::from("spade.");
-        for ch in bot.chars() {
-            name.push(
-                if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
-                    ch
-                } else {
-                    '_'
-                },
-            );
-        }
-        name.truncate(64);
-        Self {
-            name,
-            display: format!("Spade bot {bot}"),
-        }
+        Self::named(&sanitise(bot), format!("Spade bot {bot}"))
     }
+
+    /// A per-run AppContainer: one identity for one run of a bot, so a run holds only its own
+    /// grants and nothing leaks to the bot's other running commands. Its profile is deleted when
+    /// the run ends. The run id keeps it unique; the bot keeps it attributable.
+    pub fn for_run(bot: &str, run: &str) -> Self {
+        // `<run>.<bot>` so the run id (short, unique) survives the 64-char cap even for a long bot.
+        let name = sanitise(&format!("{run}.{bot}"));
+        Self::named(&name, format!("Spade bot {bot} run {run}"))
+    }
+
+    fn named(sanitised: &str, display: String) -> Self {
+        let mut name = String::from("spade.");
+        name.push_str(sanitised);
+        name.truncate(64);
+        Self { name, display }
+    }
+}
+
+/// A string reduced to the characters an AppContainer profile name allows.
+fn sanitise(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// What the Windows launcher is told: the container to run in, the grants to hold while it runs,

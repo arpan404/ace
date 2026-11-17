@@ -230,8 +230,9 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
     let stop = spade_sandbox::windows::bridge::Stop::new();
     {
         let (name, s, pport, st) = (pipe.clone(), sid.clone(), proxy.port(), stop.clone());
+        let (ready, _rx) = std::sync::mpsc::sync_channel(1);
         tokio::spawn(async move {
-            spade_sandbox::windows::bridge::serve(&name, &s, pport, &st).await;
+            spade_sandbox::windows::bridge::serve(&name, &s, pport, &st, ready).await;
         });
     }
 
@@ -334,12 +335,19 @@ async fn the_bridge_splices_bytes_both_ways() {
     let sid = Sid::parse("S-1-1-0").unwrap_or_else(|_| std::process::abort());
     let pipe = format!("spade-test-{}", uuid::Uuid::new_v4().simple());
     let stop = spade_sandbox::windows::bridge::Stop::new();
+    let (ready, ready_rx) = std::sync::mpsc::sync_channel(1);
     {
         let (name, st) = (pipe.clone(), stop.clone());
         tokio::spawn(async move {
-            spade_sandbox::windows::bridge::serve(&name, &sid, echo_port, &st).await;
+            spade_sandbox::windows::bridge::serve(&name, &sid, echo_port, &st, ready).await;
         });
     }
+    // The acceptor acknowledges it is listening before we drive bytes through it.
+    assert_eq!(
+        ready_rx.recv_timeout(Duration::from_secs(5)),
+        Ok(true),
+        "the bridge acceptor should report ready"
+    );
 
     // The in-container bridge, run here as a plain process on a loopback port.
     let port = free_port();
@@ -376,65 +384,116 @@ fn free_port() -> u16 {
         .port()
 }
 
+// ---- Group B: per-run identity, durable revocation by object id (review 3, 4) ----
+
+use spade_sandbox::windows::acls;
+use spade_sandbox::windows::{Access as WAccess, Grant as WGrant};
+
+fn with_profile(container: &Container) -> Profile {
+    Profile(container.clone())
+}
+
 #[test]
-fn acls_are_taken_back_after_a_crash_and_when_a_bot_is_forgotten() {
+fn two_runs_of_a_bot_get_distinct_identities() {
+    let a = Container::for_run("bot1", "run-a");
+    let b = Container::for_run("bot1", "run-b");
+    assert_ne!(a.name, b.name, "each run gets its own AppContainer name");
+    assert_ne!(
+        profile::ensure(&a.name, &a.display)
+            .map(|s| s.to_string())
+            .ok(),
+        profile::ensure(&b.name, &b.display)
+            .map(|s| s.to_string())
+            .ok(),
+        "each run's SID differs",
+    );
+    let _ = profile::delete(&a.name);
+    let _ = profile::delete(&b.name);
+}
+
+#[test]
+fn a_run_is_recovered_by_object_identity_even_after_the_folder_moves() {
     let journal = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
     let work = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
     let folder = work.path().join("project");
     std::fs::create_dir_all(&folder).unwrap_or_else(|_| std::process::abort());
-
-    let (container, _profile) = container();
-    let grants = vec![spade_sandbox::windows::Grant {
+    let container = Container::for_run("botM", "run1");
+    let _p = with_profile(&container);
+    let grants = vec![WGrant {
         path: folder.clone(),
-        access: spade_sandbox::windows::Access::Write,
+        access: WAccess::Write,
     }];
 
-    // A run applies the grant and records it.
-    let sid = spade_sandbox::windows::acls::reconcile(journal.path(), &container, &grants)
+    let sid = acls::reconcile(journal.path(), "botM", &container, &grants)
         .unwrap_or_else(|_| std::process::abort());
     assert!(
         acl::granted(
-            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
+            &Object::open_pinned(&folder).unwrap_or_else(|_| std::process::abort()),
             &sid
         )
         .unwrap_or_else(|_| std::process::abort()),
         "the grant should be on the folder"
     );
 
-    // Crash: nothing cleaned up. The next start recovers and takes the grant back.
-    spade_sandbox::windows::acls::recover(journal.path());
+    // The folder is renamed (same volume keeps its file id), then a crash: nothing cleaned up.
+    let moved = work.path().join("renamed");
+    std::fs::rename(&folder, &moved).unwrap_or_else(|_| std::process::abort());
+
+    // Recovery takes the grant back by the object's identity, finding it at its new path.
+    acls::recover(journal.path());
     assert!(
         !acl::granted(
-            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
+            &Object::open_pinned(&moved).unwrap_or_else(|_| std::process::abort()),
             &sid
         )
         .unwrap_or_else(|_| std::process::abort()),
-        "recovery should have taken the grant back"
+        "recovery should take the grant back from the moved object"
     );
     assert!(
-        spade_sandbox::windows::acls::Journal::load(journal.path(), &container)
-            .paths
-            .is_empty(),
-        "the journal should be cleared after recovery"
+        acls::Journal::load(journal.path(), &container)
+            .granted
+            .is_empty()
     );
+    assert!(!acls::stuck(journal.path(), "botM"));
+}
 
-    // Granting again and then forgetting the bot also takes it back.
-    let sid = spade_sandbox::windows::acls::reconcile(journal.path(), &container, &grants)
+#[test]
+fn a_revocation_that_cannot_be_confirmed_gates_the_bot() {
+    let journal = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let work = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let folder = work.path().join("project");
+    std::fs::create_dir_all(&folder).unwrap_or_else(|_| std::process::abort());
+    let container = Container::for_run("botS", "run1");
+    let _p = with_profile(&container);
+    let grants = vec![WGrant {
+        path: folder.clone(),
+        access: WAccess::Write,
+    }];
+    acls::reconcile(journal.path(), "botS", &container, &grants)
         .unwrap_or_else(|_| std::process::abort());
+
+    // Delete the folder and put a junction in its place: the granted object is gone (so it can't
+    // be found by id) and the path now holds a reparse point we must refuse. The revocation can't
+    // be confirmed.
+    std::fs::remove_dir_all(&folder).unwrap_or_else(|_| std::process::abort());
+    let elsewhere = work.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap_or_else(|_| std::process::abort());
+    junction(&folder, &elsewhere);
+
     assert!(
-        acl::granted(
-            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
-            &sid
-        )
-        .unwrap_or_else(|_| std::process::abort())
+        acls::cleanup(journal.path(), &container).is_err(),
+        "an unconfirmable revocation must be reported, not swallowed"
     );
-    spade_sandbox::windows::acls::forget(journal.path(), &container);
     assert!(
-        !acl::granted(
-            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
-            &sid
-        )
-        .unwrap_or_else(|_| std::process::abort())
+        acls::stuck(journal.path(), "botS"),
+        "the bot is gated while the revoke is pending"
+    );
+    // A new run of the same bot is refused until the pending revocation clears.
+    let container2 = Container::for_run("botS", "run2");
+    let _p2 = with_profile(&container2);
+    assert!(
+        acls::reconcile(journal.path(), "botS", &container2, &grants).is_err(),
+        "the bot's next run is refused while cleanup is stuck"
     );
 }
 
@@ -534,4 +593,45 @@ fn revoking_a_parent_removes_the_inherited_ace_on_a_descendant() {
         !acl::inherited(&child_obj, &sid).unwrap_or_else(|_| std::process::abort()),
         "revoking the parent must remove the inherited ACE on the child"
     );
+}
+
+// ---- Group C: readiness acknowledgements, fail closed (review 6) ----
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_bridge_acceptor_acknowledges_success_and_failure() {
+    let sid = Sid::parse("S-1-1-0").unwrap_or_else(|_| std::process::abort());
+    let pipe = format!("spade-ready-{}", uuid::Uuid::new_v4().simple());
+
+    // The first acceptor on this pipe name comes up and says so.
+    let first = spade_sandbox::windows::bridge::Stop::new();
+    let (ready1, rx1) = std::sync::mpsc::sync_channel(1);
+    {
+        let (name, st, s) = (pipe.clone(), first.clone(), sid.clone());
+        tokio::spawn(async move {
+            spade_sandbox::windows::bridge::serve(&name, &s, 9, &st, ready1).await;
+        });
+    }
+    assert_eq!(
+        rx1.recv_timeout(Duration::from_secs(5)),
+        Ok(true),
+        "the first acceptor should report ready"
+    );
+
+    // A second acceptor on the same name can't make the first pipe instance, and says so rather
+    // than failing silently.
+    let second = spade_sandbox::windows::bridge::Stop::new();
+    let (ready2, rx2) = std::sync::mpsc::sync_channel(1);
+    {
+        let (name, st, s) = (pipe.clone(), second.clone(), sid.clone());
+        tokio::spawn(async move {
+            spade_sandbox::windows::bridge::serve(&name, &s, 9, &st, ready2).await;
+        });
+    }
+    assert_eq!(
+        rx2.recv_timeout(Duration::from_secs(5)),
+        Ok(false),
+        "a bridge that can't come up must report failure, not run silently"
+    );
+    first.stop();
+    second.stop();
 }

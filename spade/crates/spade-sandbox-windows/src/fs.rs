@@ -64,6 +64,41 @@ impl Object {
         Ok(object)
     }
 
+    /// Opens the object with volume serial and file id `(volume, file_id)`, using `on_drive`
+    /// (any path on that volume) to reach the volume. The object is found by its id even if it was
+    /// renamed or moved since it was granted, so a revocation reaches the right object. The caller
+    /// checks the volume serial matches.
+    pub fn open_by_id(on_drive: &Path, file_id: u64) -> std::io::Result<Self> {
+        use windows::Win32::Storage::FileSystem::{
+            FILE_ID_DESCRIPTOR, FILE_ID_DESCRIPTOR_0, FileIdType, OpenFileById,
+        };
+
+        let (root, _) = pinned_parts(on_drive)?;
+        let volume = Self::open_root(&root)?;
+        let descriptor = FILE_ID_DESCRIPTOR {
+            dwSize: std::mem::size_of::<FILE_ID_DESCRIPTOR>() as u32,
+            Type: FileIdType,
+            Anonymous: FILE_ID_DESCRIPTOR_0 {
+                FileId: file_id as i64,
+            },
+        };
+        // SAFETY: `descriptor` is a live local; `volume` is a handle on the right volume. The
+        // returned handle is checked and owned below.
+        let handle = unsafe {
+            OpenFileById(
+                volume.raw(),
+                &descriptor,
+                ACCESS,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            )
+        }
+        .map_err(crate::io)?;
+        // SAFETY: a fresh handle this object now owns alone.
+        Ok(Self(unsafe { OwnedHandle::from_raw_handle(handle.0) }))
+    }
+
     /// Opens a volume root such as `\\?\C:\` as a directory handle to walk from.
     fn open_root(root: &OsStr) -> std::io::Result<Self> {
         let name = crate::wide(root);

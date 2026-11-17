@@ -483,12 +483,9 @@ impl Security {
         let _ = self.store.set_setting(&settings::key(bot), None);
         self.log.forget(bot);
         self.checkpoints.forget(bot);
-        // Windows: take back the bot's AppContainer ACLs and delete its profile.
+        // Windows: take back every run's AppContainer ACLs for this bot and delete its profiles.
         #[cfg(windows)]
-        spade_sandbox::windows::acls::forget(
-            &self.acl_dir(),
-            &spade_sandbox::windows::Container::for_bot(bot),
-        );
+        spade_sandbox::windows::acls::forget(&self.acl_dir(), bot);
     }
 
     /// Where the Windows ACL journal lives (ADR 0167, ACL hygiene).

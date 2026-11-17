@@ -59,33 +59,53 @@ mod win {
     /// the pipe — and splice each to the TCP proxy on `127.0.0.1:proxy_port`. Both the server here
     /// and the client in [`in_container`] are overlapped, so a connection's two directions run at
     /// once (a synchronous pipe handle would serialise them and deadlock). Returns when stopped.
-    pub async fn serve(pipe_name: &str, sid: &Sid, proxy_port: u16, stop: &Stop) {
-        let Ok(security) = PipeSecurity::for_container(sid) else {
-            return;
-        };
+    ///
+    /// The first pipe instance is made up front and the result is reported on `ready` (a readiness
+    /// acknowledgement), so the caller knows the bridge is actually listening — or has failed —
+    /// before it lets the run start, rather than discovering a silent failure later.
+    pub async fn serve(
+        pipe_name: &str,
+        sid: &Sid,
+        proxy_port: u16,
+        stop: &Stop,
+        ready: std::sync::mpsc::SyncSender<bool>,
+    ) {
         let path = super::pipe_path(pipe_name);
+        let first = match PipeSecurity::for_container(sid).ok().and_then(|security| {
+            pipe::server(&path, &security, true)
+                .ok()
+                .map(|s| (security, s))
+        }) {
+            Some(pair) => pair,
+            None => {
+                let _ = ready.try_send(false);
+                return;
+            }
+        };
+        let _ = ready.try_send(true);
+        let (security, mut server) = first;
         let mut stop_rx = stop.watch();
-        let mut first = true;
         loop {
-            let server = match pipe::server(&path, &security, first) {
-                Ok(server) => server,
-                Err(_) => return,
-            };
-            first = false;
             tokio::select! {
                 connected = server.connect() => {
-                    if connected.is_err() {
-                        continue;
+                    if connected.is_ok() {
+                        tokio::spawn(async move {
+                            let mut server = server;
+                            if let Ok(mut proxy) =
+                                TcpStream::connect(("127.0.0.1", proxy_port)).await
+                            {
+                                let _ = copy_bidirectional(&mut server, &mut proxy).await;
+                            }
+                        });
                     }
                 }
                 _ = stop_rx.changed() => return,
             }
-            tokio::spawn(async move {
-                let mut server = server;
-                if let Ok(mut proxy) = TcpStream::connect(("127.0.0.1", proxy_port)).await {
-                    let _ = copy_bidirectional(&mut server, &mut proxy).await;
-                }
-            });
+            // The next instance, so the pipe keeps a listener up for the next connection.
+            server = match pipe::server(&path, &security, false) {
+                Ok(server) => server,
+                Err(_) => return,
+            };
         }
     }
 

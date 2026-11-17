@@ -22,7 +22,8 @@ use windows::Win32::System::Threading::{
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
     PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PROCESS_INFORMATION, ResumeThread,
-    STARTF_USESTDHANDLES, STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
+    STARTF_USESTDHANDLES, STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForSingleObject,
 };
 use windows::core::{PCWSTR, PWSTR};
 
@@ -73,9 +74,16 @@ pub fn run_with(
         None => None,
     };
 
+    // The command is created suspended and put in the job *before* it is resumed, so the job holds
+    // it from its first instruction. If it can't be put in the job, it is killed, never left to
+    // run unheld: the run fails closed.
     let (process, thread) = create(&mut caps, program, args, true)?;
     let process_handle = HANDLE(process.as_raw_handle());
-    job.assign(process.as_raw_handle())?;
+    if let Err(error) = job.assign(process.as_raw_handle()) {
+        // SAFETY: a live, still-suspended process handle; terminate it before returning.
+        let _ = unsafe { TerminateProcess(process_handle, 1) };
+        return Err(error);
+    }
     // SAFETY: a live thread handle; resuming the one suspended thread of the command.
     unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) };
     drop(thread);
