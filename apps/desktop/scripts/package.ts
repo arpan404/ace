@@ -74,12 +74,6 @@ const betaIcon =
   releaseLineOf(packagedAppVersion(process.env, appVersion())) === "beta"
     ? join(dist, "beta-icon", "icon.icns")
     : undefined;
-if (betaIcon)
-  execFileSync(
-    process.execPath,
-    [join(desktop, "scripts/icons.ts"), "--beta", join(dist, "beta-icon")],
-    { stdio: "inherit" },
-  );
 if (!process.argv.includes("--skip-build"))
   execFileSync(process.execPath, [join(desktop, "scripts/build.ts"), "--arch", arch], {
     stdio: "inherit",
@@ -92,6 +86,15 @@ if (!process.argv.includes("--skip-build"))
         }
       : process.env,
   });
+// After build.ts, which empties dist; electron-builder must find it, so a missing icon stops here.
+if (betaIcon) {
+  execFileSync(
+    process.execPath,
+    [join(desktop, "scripts/icons.ts"), "--beta", join(dist, "beta-icon")],
+    { stdio: "inherit" },
+  );
+  if (!existsSync(betaIcon)) throw new Error(`The beta's Dock icon wasn't rendered: ${betaIcon}`);
+}
 
 if (signed && process.platform === "darwin") {
   const staged = lockedUseEnvironment(join(dist, "locked-use"));
