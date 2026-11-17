@@ -28,6 +28,9 @@ test("analytics replay backs off, records its cause, and waits for new data once
         if (failing) throw new Error("database disk image is malformed");
         return store.readUsagePage(options);
       },
+      headSeq: () => store.headSeq(),
+      flushLiveWrites: () => store.flushLiveWrites(),
+      usageReplay: store.usageReplay,
     },
     UsageSettings.parse({ timezone: "UTC" }),
     (error, failure) =>

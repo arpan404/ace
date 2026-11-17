@@ -46,6 +46,8 @@ export const UsagePart = z.object({
   previous: Rows,
   /** The providers with usage here in the range, for the provider filter. */
   providers: z.array(z.string().min(1).max(64)).max(64),
+  /** The machine's daemon is still counting older history into these rows: they will grow. */
+  filling: z.boolean().default(false),
   /** The machine's catalog names for the models in `models`. */
   modelNames: z
     .array(
@@ -134,6 +136,7 @@ export async function readUsagePart(
     threads: threads.rows,
     threadsTruncated: threads.truncated,
     previous: earlier.rows,
+    filling: [daily, models, threads, earlier].some((result) => result.filling !== undefined),
     providers: [
       ...new Set(
         everyone.rows.flatMap((row) => (row.dimensions.provider ? [row.dimensions.provider] : [])),

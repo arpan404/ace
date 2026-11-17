@@ -45570,6 +45570,7 @@ Example:
 | rows | yes | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/UsageRow.json"}} |
 | truncated | yes | boolean |  |
 | burn | no | array | {"maxItems":20,"items":{"$ref":"https://ace.local/protocol/v1/UsageBurn.json"}} |
+| filling | no | object | {"properties":{"through":{"type":"integer","minimum":0,"maximum":9007199254740991},"head":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["through","head"]} |
 
 Example:
 
