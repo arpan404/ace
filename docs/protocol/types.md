@@ -43523,6 +43523,24 @@ Example:
 "assets/I9.WeBM"
 ```
 
+## SuitWatchMessage
+
+[JSON Schema](schema/SuitWatchMessage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suitWatch"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":80} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "suitWatch"
+}
+```
+
 ## SwitchSelection
 
 [JSON Schema](schema/SwitchSelection.json), input validation.

@@ -99,6 +99,13 @@ A scene is the animated backdrop behind the transcript and sidebar.
   person keeps it), `keep` and `revert`. Every apply records the previous look, so undo is one
   step.
 - The agent sees the result in ace's browser, which the person watches.
+- The devices hear a preview, keep or undo as `suitActive`, and the live check's `suitCheck`,
+  only on a socket that asked with the one-way `suitWatch` (read scope). The daemon answers each
+  ask with the look showing for that device now (`preview` or `none`) and any keep or undo that
+  waited for it, and the watch ends with the socket, so a client asks on every new one. A client
+  that never asks (the phone apps, the CLI, older clients) gets no frame it didn't request, and
+  its replies keep their order. (Added 2026-11-17: the first wiring pushed `suitActive` to every
+  welcomed socket unasked, ahead of the replies clients and tests were waiting for.)
 
 ### Escape hatch
 
