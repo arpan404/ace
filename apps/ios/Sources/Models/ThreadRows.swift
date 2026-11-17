@@ -23,6 +23,8 @@ struct StepLine: Codable, Sendable, Equatable {
     var expandable: Bool? = nil
     /// What the opened row shows, bounded by the bridge.
     var detail: StepDetail? = nil
+    /// A call still in flight: when it started, in ms since 1970; nil once it settles.
+    var startedAt: Double? = nil
 }
 /// An opened step: a command's output tail, compact diffs, a search's matches, a failure.
 struct StepDetail: Codable, Sendable, Equatable {
