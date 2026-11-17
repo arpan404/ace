@@ -547,7 +547,8 @@ export class BrowserSession {
     this.options.backendKind = kind;
     backend.privateMode?.(carried.private);
     const { removed } = this.tabs.reconcile(carried);
-    for (const tab of removed) void tab.close();
+    // A removed tab's queue settles itself; its shutdown has nothing left to report.
+    for (const tab of removed) void tab.close().catch(() => {});
     for (const tab of this.tabs.all()) tab.rebind();
     backend.privateMode?.(this.tabs.all().some((tab) => tab.private));
     this.captured = this.tabs.viewedId();
@@ -658,7 +659,7 @@ export class BrowserSession {
     if (this.closed) return;
     const viewed = this.tabs.viewed();
     const { added, removed } = this.tabs.reconcile();
-    for (const tab of removed) void tab.close();
+    for (const tab of removed) void tab.close().catch(() => {});
     // A popup of a private page is private too.
     for (const tab of added)
       if (tab.openedBy?.kind === "page" && viewed?.private) tab.setPrivate(true);
@@ -1081,7 +1082,10 @@ export class BrowserSession {
         () => Promise.all(this.tabs.all().map((tab) => tab.settled())),
         this.recordings,
         this.logs,
-      ).finally(() => this.drops.close());
+      ).finally(() => {
+        // Staging cleanup is best effort: the session is shut and nothing reads the directory.
+        this.drops.close().catch(() => {});
+      });
     })();
     return this.closing;
   }

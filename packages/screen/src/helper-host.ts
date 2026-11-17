@@ -30,7 +30,8 @@ export class HelperHost {
             onFailure: (error) => {
               if (epoch === this.epoch) {
                 // Keep the owned process reachable until close confirms its death.
-                void this.close();
+                // The failure is already reported; a close that cannot finish has nothing to add.
+                void this.close().catch(() => {});
                 this.options.onFailure(error);
               }
             },
