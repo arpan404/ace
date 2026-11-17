@@ -119,3 +119,55 @@ test("an exit whose row cannot be deleted never throws and is forgotten once the
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("a delete that keeps failing is retried on its own until it succeeds, and closing cancels the retry", () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-inventory-retry-"));
+  const path = join(home, "processes.sqlite");
+  const processes = new Map<number, ProcessIdentity>([
+    [10, { pid: 10, start: "owner-start", uid: 1000, group: 10 }],
+    [20, { pid: 20, start: "child", uid: 1000, group: 20 }],
+  ]);
+  const timers: { run: () => void; ms: number }[] = [];
+  const inventory = new ProcessInventory(
+    path,
+    {
+      identity: (pid) => processes.get(pid),
+      alive: () => true,
+      kill: () => {},
+      ownerPid: 10,
+      now: () => 1,
+      later: (run, ms) => {
+        const timer = { run, ms };
+        timers.push(timer);
+        return () => timers.splice(timers.indexOf(timer) >>> 0, 1);
+      },
+    },
+    () => {},
+  );
+  const blocker = new DatabaseSync(path);
+  try {
+    inventory.add(20, { name: "child" });
+    blocker.exec("BEGIN IMMEDIATE");
+    inventory.remove(20);
+    expect(timers.map((timer) => timer.ms)).toEqual([1_000]);
+    // The scheduled retry finds the file still locked: it schedules another, later one.
+    timers.shift()?.run();
+    expect(timers.map((timer) => timer.ms)).toEqual([2_000]);
+    blocker.exec("ROLLBACK");
+    timers.shift()?.run();
+    expect(inventory.list()).toEqual([]);
+    expect(timers).toEqual([]);
+    // A retry still pending when the inventory closes never runs against a closed database.
+    processes.set(30, { pid: 30, start: "other", uid: 1000, group: 30 });
+    inventory.add(30, { name: "other" });
+    blocker.exec("BEGIN IMMEDIATE");
+    inventory.remove(30);
+    expect(timers).toHaveLength(1);
+    inventory.close();
+    expect(timers).toEqual([]);
+  } finally {
+    if (blocker.isTransaction) blocker.exec("ROLLBACK");
+    blocker.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
