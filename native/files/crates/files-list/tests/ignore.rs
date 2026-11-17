@@ -222,19 +222,50 @@ fn the_repository_info_exclude_applies_under_a_subfolder_root() {
 }
 
 #[test]
-fn a_worktree_git_file_names_the_shared_git_directory() {
+fn a_linked_worktree_reads_the_main_repositorys_exclude_file() {
     let home = TempDir::new().unwrap();
-    let repo = home.path();
-    folder(repo, "store/git/info");
-    write(repo, "store/git/info/exclude", "*.ignored-by-test\n");
-    write(
-        repo,
-        "work/.git",
-        &format!("gitdir: {}\n", repo.join("store/git").display()),
+    let main = home.path().join("main");
+    folder(&main, "");
+    git(&main, &["init", "-q"]);
+    git(
+        &main,
+        &[
+            "-c",
+            "user.email=ace@example.com",
+            "-c",
+            "user.name=ace",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ],
     );
-    write(repo, "work/sub/file.ignored-by-test", "x");
+    write(&main, ".git/info/exclude", "*.ignored-by-test\n");
+    let worktree = home.path().join("wt");
+    git(
+        &main,
+        &["worktree", "add", "-q", &worktree.display().to_string()],
+    );
+    write(&worktree, "sub/file.ignored-by-test", "x");
+    write(&worktree, "sub/kept.txt", "x");
 
-    let page = first_page(&lister(&repo.join("work/sub")), "", &options(100));
+    let page = first_page(&lister(&worktree.join("sub")), "", &options(100));
 
     assert!(entry(&page.entries, "file.ignored-by-test").ignored);
+    assert!(!entry(&page.entries, "kept.txt").ignored);
+}
+
+/// Runs git for real; a machine without git fails the test rather than skipping it.
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap_or_else(|error| panic!("git {args:?} could not run: {error}"));
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

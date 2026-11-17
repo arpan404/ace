@@ -41,22 +41,22 @@ impl Rules {
     pub(crate) fn root(root: &Root) -> Rules {
         let abs = root.path().to_path_buf();
         let repository = git::repository(&abs);
-        let (top, git_dir) = match repository {
-            Some((top, git_dir)) => (top, Some(git_dir)),
+        let (top, common_dir) = match repository {
+            Some(repository) => (repository.top, Some(repository.common_dir)),
             None => (abs.clone(), None),
         };
         let segments = segments_between(&top, &abs);
 
         let mut rules = Vec::new();
-        let global = global_matcher(&top, git_dir.as_deref().unwrap_or(&top));
+        let global = global_matcher(&top, common_dir.as_deref().unwrap_or(&top));
         if !global.is_empty() {
             rules.push(Rule {
                 matcher: Arc::new(global),
                 depth: 0,
             });
         }
-        if let Some(git_dir) = &git_dir {
-            push_rule(&mut rules, git::info_exclude(git_dir), &top, 0);
+        if let Some(common_dir) = &common_dir {
+            push_rule(&mut rules, git::info_exclude(common_dir), &top, 0);
         }
         push_folder_rule(&mut rules, &top, 0);
 
