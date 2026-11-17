@@ -1,4 +1,3 @@
-import { isNewer } from "@ace/service/version";
 import type { UpdateReleaseNote } from "../../shared/contract.ts";
 
 /** At most this many releases, lines per release and characters per line reach the page. */
@@ -76,47 +75,19 @@ export function releaseNoteItems(note: string): { items: string[]; total: number
 }
 
 /**
- * What changed since `current`, from electron-updater's `releaseNotes`: one string for the
- * offered `version`, or (with `fullChangelog`) every newer release's `{ version, note }`.
- * Newest first; a stable install skips previews; releases without lines are dropped, and
- * those past the limit are counted in `olderReleases`.
+ * Releases' notes already in order, newest first (the release picker's order, ADR 0174), as
+ * the page shows them: releases without lines are dropped, those past the limit counted.
  */
-export function releaseNoteGroups(
-  raw: unknown,
-  version: string,
-  current: string,
-): { notes: UpdateReleaseNote[]; olderReleases: number } {
-  const entries: { version: string; note: string }[] = [];
-  if (typeof raw === "string") entries.push({ version, note: raw });
-  else if (Array.isArray(raw)) {
-    const list: unknown[] = raw;
-    for (const entry of list) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const entryVersion: unknown = Reflect.get(entry, "version");
-      const note: unknown = Reflect.get(entry, "note");
-      if (typeof entryVersion === "string" && typeof note === "string")
-        entries.push({ version: entryVersion, note });
-    }
-  }
-  const preview = current.includes("-");
-  const groups = entries
-    .filter((entry) => preview || !entry.version.includes("-"))
-    .filter((entry) => newer(entry.version, current))
-    .toSorted((a, b) => (newer(a.version, b.version) ? -1 : newer(b.version, a.version) ? 1 : 0))
-    .flatMap((entry) => {
-      const { items, total } = releaseNoteItems(entry.note);
-      return total === 0 ? [] : [{ version: entry.version, items, total }];
-    });
+export function noteGroups(entries: readonly { version: string; note: string }[]): {
+  notes: UpdateReleaseNote[];
+  olderReleases: number;
+} {
+  const groups = entries.flatMap((entry) => {
+    const { items, total } = releaseNoteItems(entry.note);
+    return total === 0 ? [] : [{ version: entry.version, items, total }];
+  });
   return {
     notes: groups.slice(0, releaseNoteLimits.releases),
     olderReleases: Math.max(0, groups.length - releaseNoteLimits.releases),
   };
-}
-
-function newer(next: string, than: string): boolean {
-  try {
-    return isNewer(next, than);
-  } catch {
-    return false;
-  }
 }

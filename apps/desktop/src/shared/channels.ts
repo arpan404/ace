@@ -34,6 +34,7 @@ import {
   SandboxNotice,
   TerminalCommand,
   UpdateStatus,
+  ReleaseLineName,
   WindowAction,
   WindowState,
 } from "./contract.ts";
@@ -180,6 +181,8 @@ export const requests = {
   "updates.install": { request: None, result: UpdateStatus },
   /** How many agents Restart would stop; null when the daemon could not say. */
   "updates.busy": { request: None, result: z.number().int().min(0).nullable() },
+  /** Update from the Stable or Beta line (ADR 0174): saves the choice, then checks it. */
+  "updates.setLine": { request: ReleaseLineName, result: UpdateStatus },
   /** Chromium's sandbox setup on a Linux AppImage or tar.gz, for a page that loaded late. */
   "sandbox.current": { request: None, result: SandboxNotice },
   /** Run the one-time setup; resolves once the person answered the password prompt. */

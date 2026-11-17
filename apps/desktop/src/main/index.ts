@@ -5,7 +5,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-import type { AppUpdateInstruction } from "@ace/protocol";
+import type { AppUpdateInstruction, HomeData } from "@ace/protocol";
 import { desktopUpdateArgument } from "@ace/service/desktop-update-argument";
 import {
   app,
@@ -262,10 +262,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
   // Paired clients read the app's update status from its daemon, and an administrator there can
   // ask for the update; the daemon's reply carries the request (ADR 0113).
   let remoteUpdate: ((instruction: AppUpdateInstruction) => void) | undefined;
+  // What the daemon's home holds, from its replies: an older release is offered only if it
+  // reads all of it (ADR 0174).
+  let homeData: HomeData | undefined;
   const updateReport = new UpdateReporter({
     ready: async () => healthy(await runtime.local()),
     send: async (report) => reportAppUpdate(await runtime.local(), report),
     instructed: (instruction) => remoteUpdate?.(instruction),
+    replied: (reply) => {
+      if (reply.homeData) homeData = reply.homeData;
+    },
     withdraw: async () => withdrawAppUpdate(await runtime.local()),
     timers,
     log: (message) => log("warn", message),
@@ -331,6 +337,9 @@ function main(target: DaemonTarget, crashDumps: string): void {
       await quitGate.shutDown();
     },
     quit: () => app.quit(),
+    chosenLine: () => settings.get().updateLine,
+    saveLine: async (line) => void (await settings.update({ updateLine: line })),
+    homeData: () => homeData,
     log: logger("updates"),
   });
   updateReport.status(updates.current());

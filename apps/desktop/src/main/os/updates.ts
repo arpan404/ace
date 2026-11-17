@@ -1,7 +1,11 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { releaseNoteGroups } from "./release-notes.ts";
+import type { HomeData } from "@ace/protocol";
+import type { ReleaseLine } from "@ace/service/release-line";
+import { isNewer } from "@ace/service/version";
+import { checkReleaseFeed, githubReleases } from "./release-feed.ts";
+import { noteGroups } from "./release-notes.ts";
 import type { UpdateEngine } from "./update-controller.ts";
 
 const updateCheckTimeoutMs = 15_000;
@@ -15,14 +19,21 @@ export interface EngineOptions {
   resourcesPath: string;
   execPath: string;
   env: NodeJS.ProcessEnv;
+  /** The line the person updates from now (ADR 0174). */
+  line(): ReleaseLine;
+  /** What the home holds, as the daemon last said; undefined until it has. */
+  homeData(): HomeData | undefined;
+  fetch?: typeof globalThis.fetch;
   log(level: "info" | "warn", message: string): void;
 }
 
 /**
- * electron-updater on the GitHub release feed (ADR 0091), or undefined for a build without
- * a feed (`app-update.yml` is written only by release packaging). electron-updater checks
- * each download's SHA-512 against the release's `latest*.yml`; on macOS Squirrel.Mac also
- * requires the update to carry the running app's code signature.
+ * electron-updater on the release the app picked (ADR 0091, 0174), or undefined for a build
+ * without a feed (`app-update.yml` is written only by release packaging). The release feed
+ * (`release-feed.ts`) picks the release for the person's line from GitHub's release list; the
+ * generic provider then reads that release's own folder. electron-updater checks each
+ * download's SHA-512 against the release's `latest*.yml`; on macOS Squirrel.Mac also requires
+ * the update to carry the running app's code signature.
  */
 export async function electronUpdateEngine(
   options: EngineOptions,
@@ -35,10 +46,8 @@ export async function electronUpdateEngine(
   autoUpdater.autoDownload = false;
   // Quitting installs a downloaded update: quitting stops the app's daemon in any case.
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.allowPrerelease = options.version.includes("-");
+  // Only for a release the picker chose below this version, after its guard (see `check`).
   autoUpdater.allowDowngrade = false;
-  // Notes for every release newer than this one, so a skipped version's changes show too.
-  autoUpdater.fullChangelog = true;
   autoUpdater.logger = {
     info: (value?: unknown) => options.log("info", `updater: ${text(value)}`),
     warn: (value?: unknown) => options.log("warn", `updater: ${text(value)}`),
@@ -53,17 +62,28 @@ export async function electronUpdateEngine(
     canInstall: await canReplaceItself(options),
     async check() {
       // The person hears back even when the network hangs.
+      const found = await within(
+        checkReleaseFeed(
+          { fetch: options.fetch ?? globalThis.fetch, urls: githubReleases },
+          { installed: options.version, line: options.line(), home: options.homeData() },
+        ),
+        updateCheckTimeoutMs,
+        "The update check timed out.",
+      );
+      if (found.kind === "current") return undefined;
+      if (found.kind === "blocked") return { blocked: found.message };
+      autoUpdater.setFeedURL({ provider: "generic", url: found.feedUrl });
+      // Semver ranks a beta of 0.0.23 below 0.0.23, so stable → that beta is a "downgrade" to
+      // electron-updater too; otherwise only a switch the guard allowed goes down.
+      autoUpdater.allowDowngrade = found.older || semverAbove(options.version, found.version);
       const result = await within(
         autoUpdater.checkForUpdates(),
         updateCheckTimeoutMs,
         "The update check timed out.",
       );
-      if (!result?.isUpdateAvailable) return undefined;
-      const version = result.updateInfo.version;
-      return {
-        version,
-        ...releaseNoteGroups(result.updateInfo.releaseNotes, version, options.version),
-      };
+      if (!result?.isUpdateAvailable || result.updateInfo.version !== found.version)
+        return undefined;
+      return { version: found.version, releaseUrl: found.releaseUrl, ...noteGroups(found.notes) };
     },
     async download(report) {
       // Squirrel.Mac verifies the signature only after electron-updater's download resolves.
@@ -122,6 +142,14 @@ function squirrelVerdict(squirrel: SquirrelEvents) {
   // Awaited only after the download; a refusal before then must not go unhandled.
   promise.catch(() => {});
   return { promise, dispose };
+}
+
+function semverAbove(version: string, than: string): boolean {
+  try {
+    return isNewer(version, than);
+  } catch {
+    return false;
+  }
 }
 
 function text(value: unknown): string {

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { releaseNoteGroups, releaseNoteItems, releaseNoteLimits } from "./release-notes.ts";
+import { noteGroups, releaseNoteItems, releaseNoteLimits } from "./release-notes.ts";
 
 /** GitHub's feed renders generated notes to HTML like this. */
 const generated = (lines: string[]) =>
@@ -44,39 +44,28 @@ it("a long release shows its first lines and counts the rest", () => {
   expect(releaseNoteItems(`- ${"x".repeat(400)}`).items[0]?.length).toBe(releaseNoteLimits.length);
 });
 
-it("every release since this version shows, newest first, without previews on stable", () => {
-  const raw = [
-    { version: "1.1.0", note: "<ul><li>Older change</li></ul>" },
-    { version: "1.3.0-preview.1", note: "<ul><li>Preview change</li></ul>" },
-    { version: "1.2.0", note: "<ul><li>Newer change</li></ul>" },
-    { version: "1.0.0", note: "<ul><li>This version</li></ul>" },
-    { version: "1.1.5", note: "<p></p>" },
-  ];
-  expect(releaseNoteGroups(raw, "1.2.0", "1.0.0")).toEqual({
+it("releases come through in the order given, and those without lines are dropped", () => {
+  expect(
+    noteGroups([
+      { version: "0.0.23-beta.20261104.1", note: "<ul><li>Newer change</li></ul>" },
+      { version: "1.1.5", note: "<p></p>" },
+      { version: "0.0.23", note: "- Older change" },
+    ]),
+  ).toEqual({
     notes: [
-      { version: "1.2.0", items: ["Newer change"], total: 1 },
-      { version: "1.1.0", items: ["Older change"], total: 1 },
+      { version: "0.0.23-beta.20261104.1", items: ["Newer change"], total: 1 },
+      { version: "0.0.23", items: ["Older change"], total: 1 },
     ],
     olderReleases: 0,
   });
-  expect(releaseNoteGroups(raw, "1.3.0-preview.1", "1.2.0-preview.1").notes[0]?.version).toBe(
-    "1.3.0-preview.1",
-  );
-});
-
-it("a single release's notes, or none, come through as they are", () => {
-  expect(releaseNoteGroups("<ul><li>Only change</li></ul>", "1.1.0", "1.0.0").notes).toEqual([
-    { version: "1.1.0", items: ["Only change"], total: 1 },
-  ]);
-  expect(releaseNoteGroups(null, "1.1.0", "1.0.0")).toEqual({ notes: [], olderReleases: 0 });
 });
 
 it("past the release limit, older releases are counted rather than listed", () => {
   const raw = Array.from({ length: 9 }, (_, index) => ({
-    version: `1.${index + 1}.0`,
+    version: `1.${9 - index}.0`,
     note: "- A change",
   }));
-  const { notes, olderReleases } = releaseNoteGroups(raw, "1.9.0", "1.0.0");
+  const { notes, olderReleases } = noteGroups(raw);
   expect(notes.map((note) => note.version)).toEqual([
     "1.9.0",
     "1.8.0",

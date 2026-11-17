@@ -39,6 +39,8 @@ export interface UpdateReportPorts {
   ready?(): Promise<boolean>;
   /** The daemon asked for something new (ADR 0113): each instruction id arrives once. */
   instructed?(instruction: AppUpdateInstruction): void;
+  /** Every reply the daemon sent, for what else it tells the app (its home's data, ADR 0174). */
+  replied?(reply: AppUpdateReply): void;
   /** Takes the report back (`probe.ts` `withdrawAppUpdate`), as the app quits. */
   withdraw(): Promise<void>;
   log(message: string): void;
@@ -152,6 +154,7 @@ export class UpdateReporter {
         this.#stopRetry = undefined;
         this.#failures = 0;
         this.#sent = key;
+        if (reply) this.#ports.replied?.(reply);
         if (this.#withdrawn) return;
         const instruction = reply?.instruction;
         if (instruction && instruction.id !== this.#heard) {

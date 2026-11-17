@@ -234,6 +234,9 @@ const NotificationToggles = z.partialRecord(NotificationCategory, z.boolean());
  * ids and keys against its keymap; this only bounds the size.
  */
 const Keybindings = z.record(z.string().min(1).max(64), z.string().min(1).max(64));
+/** ace's release lines (ADR 0174). */
+export const ReleaseLineName = z.enum(["stable", "beta"]);
+
 export const DesktopSettings = z.object({
   /** Keep the daemon and tray running after the last window closes. */
   background: z.boolean().default(true),
@@ -268,6 +271,11 @@ export const DesktopSettings = z.object({
    * Changed only through `cli.setOnPath`, which edits PATH too; never by a settings patch.
    */
   terminalCommand: z.boolean().default(true),
+  /**
+   * The release line this app updates from (ADR 0174): Stable or Beta. Null follows the build's
+   * own line, so a stable build starts on Stable and a beta build on Beta.
+   */
+  updateLine: ReleaseLineName.nullable().default(null).catch(null),
 });
 export type DesktopSettings = z.infer<typeof DesktopSettings>;
 /**
@@ -295,6 +303,7 @@ export const DesktopSettingsPatch = z.object({
   keybindingsIfUnset: Keybindings.optional(),
   preventSleep: z.boolean().optional(),
   browserDownloads: z.string().min(1).max(4096).nullable().optional(),
+  updateLine: ReleaseLineName.nullable().optional(),
 });
 export type DesktopSettingsPatch = z.infer<typeof DesktopSettingsPatch>;
 
@@ -428,7 +437,8 @@ export type UpdateReleaseNote = z.infer<typeof UpdateReleaseNote>;
  * - `downloaded`: ready; the person's Restart stops running agents and restarts at once.
  *   `installing`: restarting; under `ace update apply` it first waits for `waiting` agents.
  * `notes` covers every release newer than this one (newest first; `olderReleases` more on
- * GitHub). `error` says what failed and when; an update on offer stays on offer.
+ * GitHub). `error` says what failed and when; an update on offer stays on offer. `blocked`
+ * says why an older release on the chosen line isn't offered (ADR 0174).
  */
 export const UpdateStatus = z.object({
   state: z.enum([
@@ -450,6 +460,14 @@ export const UpdateStatus = z.object({
   waiting: z.number().int().min(0),
   notes: z.array(UpdateReleaseNote).max(6),
   olderReleases: z.number().int().min(0),
+  /** The line this app updates from now, and the line its own build belongs to (ADR 0174). */
+  line: ReleaseLineName,
+  buildLine: ReleaseLineName,
+  /**
+   * Why the line's release isn't offered: it is older than this version and can't read this
+   * install's data. One sentence; null when nothing is held back.
+   */
+  blocked: z.string().max(400).nullable(),
   error: z
     .object({
       during: z.enum(["check", "download", "install"]),
