@@ -11,7 +11,7 @@ import XCTest
     func testTheTabBarHoldsThreadsChatsAndSearchAndNoSpade() {
         let app = launch()
         let bar = app.tabBars.firstMatch
-        XCTAssertTrue(bar.buttons["Threads"].waitForExistence(timeout: 30))
+        XCTAssertTrue(bar.buttons["Projects"].waitForExistence(timeout: 30))
         XCTAssertTrue(bar.buttons["Chats"].exists)
         XCTAssertTrue(app.buttons["Search"].exists)
         XCTAssertFalse(app.buttons["Spade"].exists)
@@ -31,7 +31,7 @@ import XCTest
         select.tap()
         XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
         // Picking hides the tab bar for the selection's own bar.
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
     }
 
     func testComposeOnChatsStartsAChatAndOnThreadsAThread() {
@@ -204,7 +204,7 @@ import XCTest
         latest.tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         // A thread page hides the tab bar.
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
     }
 
     func testTheInboxLinkClosesTheOpenThreadAndShowsThreadsInbox() {
@@ -220,7 +220,7 @@ import XCTest
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["threads.tab.inbox"].isSelected)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
-        XCTAssertTrue(app.tabBars.firstMatch.buttons["Threads"].isSelected)
+        XCTAssertTrue(app.tabBars.firstMatch.buttons["Projects"].isSelected)
     }
 
     func testTheIPadSidebarFootCarriesThePlacesInTheWebRailsOrder() throws {
@@ -237,7 +237,7 @@ import XCTest
         let xs = places.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
         XCTAssertFalse(app.buttons["sidebar.spade"].exists)
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
         capture("ipad-sidebar")
         // Code review is a place of its own: pull requests and issues, the list beside them kept.
         app.buttons["sidebar.review"].tap()
@@ -259,7 +259,7 @@ import XCTest
         issues.tap()
         XCTAssertTrue(issues.isSelected)
         capture("code-review-issues")
-        app.tabBars.firstMatch.buttons["Threads"].tap()
+        app.tabBars.firstMatch.buttons["Projects"].tap()
         XCTAssertTrue(app.buttons["threads.tab.inbox"].waitForExistence(timeout: 10))
     }
 
