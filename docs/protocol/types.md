@@ -1373,6 +1373,7 @@ Example:
 | holds | yes | array | {"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
 | busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | waiting | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| startup | no | [StartupNotice.json](schema/StartupNotice.json) |  |
 
 Example:
 
@@ -40895,6 +40896,24 @@ Example:
   "grantId": "A-o7eOmv3TMxavxuY30zNe7CvipC59cOeJsYViuhoYqQou3rSWfxN7BsALt7VyKMASc0jT6kvI-yQFELStKbKme9Dj-vwNOPzOM6_46V5Kec",
   "kind": "mcp_client",
   "name": "example"
+}
+```
+
+## StartupNotice
+
+[JSON Schema](schema/StartupNotice.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| without | yes | array | {"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}} |
+| failing | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64},"retrying":{"type":"boolean"}},"required":["name","retrying"]}} |
+
+Example:
+
+```json
+{
+  "failing": [],
+  "without": []
 }
 ```
 

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createLogger } from "@ace/diagnostics";
 import { Store } from "../store.ts";
 import { readConfig } from "../config.ts";
@@ -6,6 +6,9 @@ import type { startServer } from "../server.ts";
 import { startupAttempts, safeModeSkips } from "../startup-attempts.ts";
 import { ServiceScope } from "./service-scope.ts";
 import { Resources } from "./resources.ts";
+import type { ServiceContext } from "./types.ts";
+import { startCommands } from "./commands.ts";
+import { repeatableWarmup, warmup } from "./warmup.ts";
 import { serviceOrder } from "./service-order.ts";
 import {
   EssentialServiceError,
@@ -164,10 +167,13 @@ test("a service that never recovers stays degraded once its retries are spent", 
     }),
   ]);
   await subject.listening(server);
+  const retrying = () => subject.status().find((entry) => entry.name === "suits")?.retrying;
+  expect(retrying()).toBe(true);
   for (let step = 0; step < 5; step++) await clock.advance(1_000);
   expect(attempts).toBe(3);
   expect(state(subject, "suits")).toBe("degraded");
   expect(clock.pending("retry")).toHaveLength(0);
+  expect(retrying()).toBe(false);
 });
 
 test("a retry does not stack a new start on one still stuck in a call", async () => {
@@ -435,4 +441,184 @@ test("work a service leaves running, from its start and its listener, is charged
   await new Promise((resolve) => setTimeout(resolve, 5));
   expect(owners).toEqual(["commands", "commands"]);
   expect(scope.current()).toBeUndefined();
+});
+
+const retryingOf = (subject: ServiceStartup, name: string) =>
+  subject.status().find((entry) => entry.name === name)?.retrying;
+
+test("a readiness change after a good start is published to listeners", async () => {
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [], schedule: fakeClock().schedule });
+  let warm: { name: string; state: "ready" | "degraded"; error?: string } = {
+    name: "commands",
+    state: "ready",
+  };
+  let announce: (() => void) | undefined;
+  await subject.start([
+    service("commands", (context) => {
+      announce = () => context.readiness?.(() => warm);
+      announce();
+    }),
+  ]);
+  let heard = 0;
+  subject.onChange(() => heard++);
+  warm = { name: "commands", state: "degraded", error: "warmup failed" };
+  announce?.();
+  expect(heard).toBeGreaterThan(0);
+  expect(state(subject, "commands")).toBe("degraded");
+});
+
+test("a warmup that cannot repeat is not promised a retry that never comes", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  await subject.start([
+    service("commands", async (context) => {
+      await warmup(context, "commands", async () => {
+        throw new Error("warmup failed");
+      });
+    }),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "commands")).toBe("degraded");
+  expect(clock.pending("retry")).toHaveLength(0);
+  expect(retryingOf(subject, "commands")).toBe(false);
+});
+
+test("the last retry's stuck cleanup does not keep promising another, and listeners hear it end", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10], schedule: clock.schedule });
+  const heard: (boolean | undefined)[] = [];
+  const stuck = Promise.withResolvers<void>();
+  subject.onChange(() => heard.push(retryingOf(subject, "suits")));
+  await subject.start([
+    service("suits", (context) => {
+      // A disposer that never finishes keeps this service's work in flight after it fails.
+      context.resources.own(() => stuck.promise);
+      throw new Error("still broken");
+    }),
+  ]);
+  await subject.listening(server);
+  for (let step = 0; step < 5; step++) await clock.advance(1_000);
+  expect(retryingOf(subject, "suits")).toBe(false);
+  expect(heard.at(-1)).toBe(false);
+  stuck.resolve();
+});
+
+test("a repeatable warmup that fails once runs again and ends ready, with no restart of the service", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  let starts = 0;
+  let runs = 0;
+  const heard: (boolean | undefined)[] = [];
+  subject.onChange(() => heard.push(retryingOf(subject, "usage")));
+  await subject.start([
+    service("usage", async (context) => {
+      starts++;
+      await repeatableWarmup(context, "usage", async () => {
+        if (++runs === 1) throw new Error("ledger busy");
+      });
+    }),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "usage")).toBe("degraded");
+  expect(retryingOf(subject, "usage")).toBe(true);
+  await clock.advance(10);
+  expect(state(subject, "usage")).toBe("ready");
+  expect(runs).toBe(2);
+  expect(starts).toBe(1);
+  expect(heard.at(-1)).toBeUndefined();
+});
+
+test("a repeatable warmup that keeps failing stops promising retries once its budget is spent", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  let runs = 0;
+  await subject.start([
+    service("usage", async (context) => {
+      await repeatableWarmup(context, "usage", async () => {
+        runs++;
+        throw new Error("ledger busy");
+      });
+    }),
+  ]);
+  await subject.listening(server);
+  for (let step = 0; step < 5; step++) await clock.advance(1_000);
+  expect(runs).toBe(3);
+  expect(state(subject, "usage")).toBe("degraded");
+  expect(retryingOf(subject, "usage")).toBe(false);
+});
+
+test("commands publish at start without waiting on any account, and a failed build is the ordinary retry", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  let starts = 0;
+  let live: ServiceContext["services"] | undefined;
+  await subject.start([
+    service("commands", async (context) => {
+      await startCommands(context);
+      // The build is done and registered; the start still fails once, as a real one can.
+      if (++starts === 1) throw new Error("library could not open");
+    }),
+    service("probe", (context) => {
+      live = context.services;
+    }),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "commands")).toBe("degraded");
+  expect(retryingOf(subject, "commands")).toBe(true);
+  expect(live?.commands).toBeUndefined();
+
+  // The retry waits for the failed attempt's cleanup, then starts: a few turns of the clock.
+  for (let step = 0; step < 3; step++) await clock.advance(10);
+  expect(state(subject, "commands")).toBe("ready");
+  expect(starts).toBe(2);
+  expect(live?.commands).toBeDefined();
+  expect(live?.promptFiles).toBeDefined();
+});
+
+/** A plugin service's catalog subscriptions, observable. */
+const catalog = () => {
+  const listeners = new Set<() => void>();
+  return {
+    listeners,
+    subscribeCatalog: (listener: () => void) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+};
+
+test("plugins that only start on a retry still reach commands, once, and a replaced plugin service is dropped", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  const first = catalog();
+  let starts = 0;
+  let live: ServiceContext["services"] | undefined;
+  await subject.start([
+    service("commands", (context) => startCommands(context)),
+    // Stands in for the plugin service: it fails its first start, then publishes as the real one does.
+    service("plugins", (context) => {
+      if (++starts === 1) throw new Error("plugin index busy");
+      context.services.plugins = first as never;
+      context.services.pluginAvailability?.publish(first as never);
+    }),
+    service("probe", (context) => {
+      live = context.services;
+    }),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "plugins")).toBe("degraded");
+  expect(first.listeners.size).toBe(0);
+
+  for (let step = 0; step < 3; step++) await clock.advance(10);
+  expect(state(subject, "plugins")).toBe("ready");
+  const invalidate = vi.spyOn(live!.commands!, "invalidateExtras");
+  expect(first.listeners.size).toBe(2);
+  for (const listener of first.listeners) listener();
+  expect(invalidate).toHaveBeenCalledTimes(1);
+
+  // A replacement plugin service takes over; the old one is no longer followed.
+  const second = catalog();
+  live!.pluginAvailability!.publish(second as never);
+  expect(first.listeners.size).toBe(0);
+  expect(second.listeners.size).toBe(2);
 });

@@ -140,6 +140,8 @@ export interface Services {
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
+  /** Followers of the plugin service: told each time a (re)started one is published. */
+  pluginAvailability: import("./plugin-availability.ts").Availability<PluginService>;
   /** ace's marketplace (ADR 0168). */
   marketplace?: import("../marketplace/service.ts").MarketplaceService;
   /** The Suit library (ADR 0150). */
@@ -180,7 +182,14 @@ export interface Services {
 }
 export interface ServiceContext {
   signal: AbortSignal;
-  readiness?(read: () => { state: "starting" | "ready" | "degraded"; error?: string }): void;
+  /**
+   * Reports the service's own state after its start returned. `rerun`, when the work can safely
+   * run again, lets startup repeat it on the retry schedule without restarting the service.
+   */
+  readiness?(
+    read: () => { state: "starting" | "ready" | "degraded"; error?: string },
+    rerun?: () => Promise<void>,
+  ): void;
   config: Config;
   options: DaemonOptions;
   store: Store;

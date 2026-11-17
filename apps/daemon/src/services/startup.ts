@@ -58,6 +58,10 @@ export interface ServiceStatus {
   name: string;
   state: "starting" | "ready" | "degraded";
   error?: string;
+  /** Safe mode left this service off for the run; it is never retried. */
+  skipped?: true;
+  /** For a degraded service: another attempt is scheduled or will follow; false once none is. */
+  retrying?: boolean;
 }
 export { systemStartup, type StartupRuntime } from "./startup-runtime.ts";
 
@@ -120,6 +124,10 @@ export class ServiceStartup {
   private readonly inflight = new Map<string, number>();
   private readonly retriesUsed = new Map<string, number>();
   private readonly retryTimers = new Map<string, () => void>();
+  /** A running service's warmup that can safely run again, and its own retry budget and timer. */
+  private readonly reruns = new Map<string, () => Promise<void>>();
+  private readonly warmupUsed = new Map<string, number>();
+  private readonly warmupTimers = new Map<string, () => void>();
   /** Set once the daemon listens; retries start after that. */
   private server: Server | undefined;
   /** One budget for every service's cleanup at shutdown, started by the first to close. */
@@ -140,13 +148,14 @@ export class ServiceStartup {
     this.skip = new Set(skip);
     validateRuntime(runtime);
     privateContext.resources.onShutdown(() => {
-      for (const cancel of this.retryTimers.values()) cancel();
+      for (const cancel of [...this.retryTimers.values(), ...this.warmupTimers.values()]) cancel();
       this.retryTimers.clear();
+      this.warmupTimers.clear();
     });
   }
   private readonly context: ServiceContext;
   status = (): ServiceStatus[] =>
-    [...this.statuses.values()].map(({ name, state, error }) => {
+    [...this.statuses.values()].map(({ name, state, error, skipped }) => {
       const warming = state !== "degraded" ? this.readiness.get(name)?.() : undefined;
       const result: ServiceStatus = {
         name,
@@ -155,6 +164,8 @@ export class ServiceStartup {
       };
       error = warming?.error ?? error;
       if (error !== undefined) result.error = error;
+      if (skipped) result.skipped = true;
+      if (result.state === "degraded" && !skipped) result.retrying = this.willRetry(name);
       return result;
     });
   private report(name: string): void {
@@ -167,13 +178,23 @@ export class ServiceStartup {
       this.context.log.log("error", "Startup observer failed", logError(error));
     }
   }
+  private readonly changeListeners = new Set<() => void>();
+  /** Tells `listener` whenever a service's status changes; returns how to stop. */
+  onChange = (listener: () => void): (() => void) => {
+    this.changeListeners.add(listener);
+    return () => void this.changeListeners.delete(listener);
+  };
+  private changed(): void {
+    for (const listener of this.changeListeners) listener();
+  }
   private record(name: string, status: ServiceStatus): void {
     this.statuses.set(name, status);
     this.report(name);
+    this.changed();
   }
-  private degraded(name: string, error: unknown): void {
+  private degraded(name: string, error: unknown, skipped = false): void {
     const message = `Service ${name}: ${error instanceof Error ? error.message : String(error)}`;
-    this.record(name, { name, state: "degraded", error: message });
+    this.record(name, { name, state: "degraded", error: message, ...(skipped ? { skipped } : {}) });
     this.context.log.log(
       "error",
       "Daemon service degraded",
@@ -229,6 +250,7 @@ export class ServiceStartup {
       this.degraded(
         name,
         new Error("Turned off for this run: it was still starting when ace last stopped"),
+        true,
       );
       return [];
     }
@@ -317,9 +339,14 @@ export class ServiceStartup {
                 services,
                 onListen,
                 signal: controller.signal,
-                readiness: (read) => {
+                readiness: (read, rerun) => {
                   this.readiness.set(name, read);
+                  if (rerun) this.reruns.set(name, rerun);
+                  else this.reruns.delete(name);
+                  if (this.readiness.get(name)?.().state === "ready") this.warmupUsed.delete(name);
                   this.report(name);
+                  this.changed();
+                  this.rerunLater(name);
                 },
               }),
             ),
@@ -387,6 +414,63 @@ export class ServiceStartup {
     for (const definition of this.definitions)
       if (this.retriable(definition)) this.retryLater(definition);
   }
+  /**
+   * Another attempt is scheduled or still to come: the service has retries left and none of what
+   * it requires has run out of its own (a dependent starts again when its dependency does).
+   * Only a service whose start failed is retried: a warmup that failed after a good start leaves
+   * it running, and ace says so until it restarts. What a stuck cleanup still holds is not a
+   * retry; the budget alone says whether another comes.
+   */
+  private willRetry(name: string): boolean {
+    const definition = this.definitions.find((entry) => entry.name === name);
+    if (!definition || failurePolicy(definition, this.critical) !== "degrade-and-retry")
+      return false;
+    if (this.skip.has(name) || this.context.signal.aborted) return false;
+    // A warmup that failed after a good start repeats on its own schedule or not at all.
+    if (this.statuses.get(name)?.state !== "degraded")
+      return this.warmupTimers.has(name) || this.canRerun(name);
+    if (this.retryTimers.has(name)) return true;
+    const own = (this.retriesUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0);
+    const required = definition.requires.filter(
+      (dependency) => this.statuses.get(dependency)?.state === "degraded",
+    );
+    return required.length ? required.every((d) => this.willRetry(d)) : own;
+  }
+  private canRerun(name: string): boolean {
+    return (
+      this.reruns.has(name) &&
+      !this.context.signal.aborted &&
+      (this.warmupUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0)
+    );
+  }
+  /**
+   * A warmup that failed after the service started runs again on the same backoff as a failed
+   * start, without closing or restarting the service. Each failure schedules the next.
+   */
+  private rerunLater(name: string): void {
+    if (this.readiness.get(name)?.().state !== "degraded") return;
+    if (this.warmupTimers.has(name) || !this.canRerun(name)) return;
+    const used = this.warmupUsed.get(name) ?? 0;
+    const delay = this.runtime.retryDelaysMs?.[used];
+    const rerun = this.reruns.get(name);
+    if (delay === undefined || !rerun) return;
+    this.warmupUsed.set(name, used + 1);
+    const cancel = this.runtime.schedule(
+      `rerun ${name}`,
+      () => {
+        this.warmupTimers.delete(name);
+        this.changed();
+        this.context.log.log("info", "Retrying service warmup", logFields([["service", name]]));
+        void rerun().catch((error: unknown) => {
+          if (!this.context.signal.aborted)
+            this.context.log.log("error", "Service warmup retry failed", logError(error));
+        });
+      },
+      delay,
+    );
+    this.warmupTimers.set(name, cancel);
+    this.changed();
+  }
   /** Degraded, not essential, with every required service ready, and retries left. */
   private retriable(definition: ServiceDefinition): boolean {
     return (
@@ -405,6 +489,8 @@ export class ServiceStartup {
       `retry ${name}`,
       () => {
         this.retryTimers.delete(name);
+        // With the last retry fired, "retrying" turns false before the attempt reports anything.
+        this.changed();
         void this.retry(definition).catch((error: unknown) => {
           // A stop during the retry aborts it; that is not a failure.
           if (!this.context.signal.aborted)
@@ -414,6 +500,7 @@ export class ServiceStartup {
       delay,
     );
     this.retryTimers.set(name, cancel);
+    this.changed();
   }
   /** Starts a degraded service again; once it is ready, the services that require it follow. */
   private async retry(definition: ServiceDefinition): Promise<void> {

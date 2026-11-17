@@ -9,6 +9,25 @@ export const MaintenanceHold = z.enum(["user", "update", "kill", "stop", "storag
 export type MaintenanceHold = z.infer<typeof MaintenanceHold>;
 
 /**
+ * What the daemon runs without (ADR 0175), by the names a person knows. `without` is what a
+ * safe-mode start left off; `failing` is what could not start or stopped working, with whether it is
+ * still being retried. Absent while everything runs.
+ */
+export const StartupNotice = z.object({
+  without: z.array(z.string().min(1).max(64)).max(64),
+  failing: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(64),
+        /** Whether another attempt is still to come; false once the retries are used up. */
+        retrying: z.boolean(),
+      }),
+    )
+    .max(64),
+});
+export type StartupNotice = z.infer<typeof StartupNotice>;
+
+/**
  * Whether a machine takes new work (ADR 0041's maintenance gate). Paused, new threads, turns
  * and messages wait; running turns, approvals and background tasks finish. The desktop tray's
  * "Pause new work" and a paired client's row both hold the same gate.
@@ -19,6 +38,8 @@ export const Admission = z.object({
   /** Threads still at work or waiting, `waiting` of them on a person. */
   busy: z.number().int().nonnegative(),
   waiting: z.number().int().nonnegative(),
+  /** Older daemons omit it; so does a daemon with nothing left off. */
+  startup: StartupNotice.optional(),
 });
 export type Admission = z.infer<typeof Admission>;
 

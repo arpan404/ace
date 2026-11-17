@@ -105,6 +105,27 @@ export function admissionWords(admission: Admission): {
   return { paused, line: `New work paused · ${stillRunning(admission)}`, action, canChange: true };
 }
 
+function nameList(names: readonly string[]): string {
+  if (names.length < 2) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * The one sentence for a daemon that runs without something (ADR 0175), or null while it runs
+ * whole: what a safe-mode start left off wins over what is being retried.
+ */
+export function startupWords(startup: Admission["startup"]): string | null {
+  if (!startup) return null;
+  if (startup.without.length)
+    return `ace started in safe mode without ${nameList(startup.without)} after repeated crashes.`;
+  if (!startup.failing.length) return null;
+  const retrying = startup.failing.filter((entry) => entry.retrying).map((entry) => entry.name);
+  const stopped = startup.failing.filter((entry) => !entry.retrying).map((entry) => entry.name);
+  if (stopped.length)
+    return `${nameList(stopped)} ${stopped.length === 1 ? "isn't" : "aren't"} working; restart ace to try again.`;
+  return `${nameList(retrying)} ${retrying.length === 1 ? "isn't" : "aren't"} working right now; ace is retrying.`;
+}
+
 /**
  * The desktop app's update, read-only: its version and one line. Restart required is the only
  * state that needs the person; a daemon no app has reported to reads Unknown.
