@@ -1,6 +1,13 @@
 import { ReleaseData, type HomeData } from "@ace/protocol";
 import { releaseLineOf, type ReleaseLine } from "@ace/service/release-line";
-import { blockedSentence, guardSwitch, parseReleaseList, pickRelease } from "./release-picker.ts";
+import {
+  blockedSentence,
+  candidates,
+  guardSwitch,
+  parseReleaseList,
+  pickRelease,
+  type ListedRelease,
+} from "./release-picker.ts";
 
 /**
  * The app's release feed (ADR 0174): GitHub's public releases API (no token), the picker, and
@@ -10,8 +17,10 @@ import { blockedSentence, guardSwitch, parseReleaseList, pickRelease } from "./r
  */
 
 export const githubReleases = {
-  /** Newest first; a hundred covers months of betas. */
+  /** Newest first, a hundred a page; further pages follow the `Link` header. */
   api: "https://api.github.com/repos/arpan404/ace/releases?per_page=100",
+  /** The newest stable release, for when the pages read hold none. */
+  latest: "https://api.github.com/repos/arpan404/ace/releases/latest",
   /** `<download><tag>/` holds a release's files, its `latest*.yml` among them. */
   download: "https://github.com/arpan404/ace/releases/download/",
   page: "https://github.com/arpan404/ace/releases/tag/",
@@ -47,10 +56,8 @@ export async function checkReleaseFeed(
   ports: FeedPorts,
   input: { installed: string; line: ReleaseLine; home: HomeData | undefined },
 ): Promise<FeedResult> {
-  const response = await ports.fetch(ports.urls.api, { headers });
-  if (!response.ok) throw new Error(`GitHub's release list answered ${response.status}.`);
   const pick = pickRelease({
-    releases: parseReleaseList(await response.json()),
+    releases: await listReleases(ports),
     installed: input.installed,
     line: input.line,
   });
@@ -76,6 +83,43 @@ export async function checkReleaseFeed(
     ...(data ? { data } : {}),
     notes: pick.notes,
   };
+}
+
+/** At most this many pages of the release list (100 each) are read in one check. */
+export const releasePageLimit = 5;
+
+/**
+ * GitHub's release list, newest first, read until it reaches a stable release: everything newer
+ * than that is then in hand, so neither line's pick can miss. Betas could fill more pages than
+ * the limit, so if none of them held a stable release, `/releases/latest` adds the newest.
+ */
+async function listReleases(ports: FeedPorts): Promise<ListedRelease[]> {
+  const listed: ListedRelease[] = [];
+  const hasStable = () => candidates(listed).some((release) => release.line === "stable");
+  let url: string | undefined = ports.urls.api;
+  for (let page = 0; url && page < releasePageLimit && !hasStable(); page++) {
+    const response = await ports.fetch(url, { headers });
+    if (!response.ok) throw new Error(`GitHub's release list answered ${response.status}.`);
+    listed.push(...parseReleaseList(await response.json()));
+    url = nextPage(response.headers.get("link"));
+  }
+  if (!hasStable()) {
+    const response = await ports.fetch(ports.urls.latest, { headers });
+    // No stable release at all answers 404: the list stands as it is.
+    if (response.ok) listed.push(...parseReleaseList([await response.json()]));
+    else if (response.status !== 404)
+      throw new Error(`GitHub's latest release answered ${response.status}.`);
+  }
+  return listed;
+}
+
+/** The `rel="next"` URL of a `Link` header, if any. */
+export function nextPage(link: string | null): string | undefined {
+  for (const part of link?.split(",") ?? []) {
+    const match = /^\s*<([^>]+)>\s*;\s*rel="?next"?\s*$/.exec(part);
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
 }
 
 /** The release's `ace-data.json`, or undefined when it has none or it can't be read. */

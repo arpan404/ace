@@ -90,7 +90,12 @@ function engine(input: {
     freshHomeData: async () => input.freshHome?.() ?? input.home,
     feed: {
       fetch,
-      urls: { api: "https://api.test/releases", download, page: "https://page.test/" },
+      urls: {
+        api: "https://api.test/releases",
+        latest: "https://api.test/releases/latest",
+        download,
+        page: "https://page.test/",
+      },
     },
     onProgress: () => {},
     checkTimeoutMs: 20,

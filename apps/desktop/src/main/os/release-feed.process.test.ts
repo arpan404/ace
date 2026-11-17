@@ -15,12 +15,22 @@ interface Release {
 }
 
 const servers: Server[] = [];
+const listed = (release: Release) => ({
+  tag_name: release.tag,
+  draft: release.draft ?? false,
+  prerelease: release.prerelease,
+  body: `- Changes in ${release.tag}`,
+});
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((done) => server.close(done))));
 });
 
-async function github(releases: Release[], options: { listStatus?: number } = {}) {
+async function github(
+  releases: Release[],
+  options: { listStatus?: number; pageSize?: number } = {},
+) {
   const requests: string[] = [];
+  let origin = "";
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     requests.push(url.pathname);
@@ -29,17 +39,25 @@ async function github(releases: Release[], options: { listStatus?: number } = {}
         response.writeHead(options.listStatus, { "content-type": "application/json" });
         return response.end('{"message":"API rate limit exceeded"}');
       }
-      response.writeHead(200, { "content-type": "application/json" });
-      return response.end(
-        JSON.stringify(
-          releases.map((release) => ({
-            tag_name: release.tag,
-            draft: release.draft ?? false,
-            prerelease: release.prerelease,
-            body: `- Changes in ${release.tag}`,
-          })),
-        ),
-      );
+      // Newest first, a page at a time, with GitHub's Link header to the next page.
+      const size = options.pageSize ?? 100;
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const shown = releases.slice((page - 1) * size, page * size);
+      const more = page * size < releases.length;
+      response.writeHead(200, {
+        "content-type": "application/json",
+        ...(more
+          ? {
+              link: `<${origin}/repos/arpan404/ace/releases?per_page=${size}&page=${page + 1}>; rel="next"`,
+            }
+          : {}),
+      });
+      return response.end(JSON.stringify(shown.map(listed)));
+    }
+    if (url.pathname === "/repos/arpan404/ace/releases/latest") {
+      const latest = releases.find((release) => !release.prerelease && !release.draft);
+      response.writeHead(latest ? 200 : 404, { "content-type": "application/json" });
+      return response.end(JSON.stringify(latest ? listed(latest) : { message: "Not Found" }));
     }
     const download = /^\/download\/([^/]+)\/(.+)$/.exec(url.pathname);
     if (download) {
@@ -61,11 +79,12 @@ async function github(releases: Release[], options: { listStatus?: number } = {}
   });
   servers.push(server);
   await new Promise<void>((ready) => server.listen(0, "127.0.0.1", ready));
-  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const ports: FeedPorts = {
     fetch: globalThis.fetch,
     urls: {
-      api: `${origin}/repos/arpan404/ace/releases?per_page=100`,
+      api: `${origin}/repos/arpan404/ace/releases?per_page=${options.pageSize ?? 100}`,
+      latest: `${origin}/repos/arpan404/ace/releases/latest`,
       download: `${origin}/download/`,
       page: `${origin}/tag/`,
     },
@@ -80,6 +99,7 @@ const stable023: Release = {
   prerelease: false,
   files: { "latest-mac.yml": feed("0.0.23"), "ace-data.json": data(63) },
 };
+const stable022: Release = { tag: "v0.0.22", prerelease: false, files: {} };
 const beta = (daemon: number): Release => ({
   tag: "ace-beta-2026-11-16-0.0.24-1",
   prerelease: true,
@@ -168,6 +188,40 @@ describe("the release feed against GitHub's shape", () => {
     const { ports, requests } = await github([beta(63), stable023]);
     await checkReleaseFeed(ports, { installed: "0.0.22", line: "stable", home: undefined });
     expect(requests.some((path) => path.endsWith("ace-data.json"))).toBe(false);
+  });
+
+  it("reads on through pages of betas until it reaches a stable release", async () => {
+    const betas = Array.from({ length: 5 }, (_, index): Release => ({
+      tag: `ace-beta-2026-11-${String(10 + index).padStart(2, "0")}-0.0.24-1`,
+      prerelease: true,
+      files: {},
+    })).toReversed();
+    const { ports, requests } = await github([...betas, stable023, stable022], { pageSize: 2 });
+    const result = await checkReleaseFeed(ports, {
+      installed: "0.0.22",
+      line: "stable",
+      home: undefined,
+    });
+    expect(result).toMatchObject({ kind: "offer", tag: "v0.0.23" });
+    // Page 3 held the stable release; nothing past it is read.
+    expect(requests.filter((path) => path === "/repos/arpan404/ace/releases")).toHaveLength(3);
+  });
+
+  it("asks for the latest stable release when the pages it may read hold none", async () => {
+    const betas = Array.from({ length: 12 }, (_, index): Release => ({
+      tag: `ace-beta-2026-11-${String(10 + index).padStart(2, "0")}-0.0.24-1`,
+      prerelease: true,
+      files: {},
+    })).toReversed();
+    const { ports, requests } = await github([...betas, stable023], { pageSize: 2 });
+    const result = await checkReleaseFeed(ports, {
+      installed: "0.0.22",
+      line: "stable",
+      home: undefined,
+    });
+    expect(result).toMatchObject({ kind: "offer", tag: "v0.0.23" });
+    expect(requests.filter((path) => path === "/repos/arpan404/ace/releases")).toHaveLength(5);
+    expect(requests).toContain("/repos/arpan404/ace/releases/latest");
   });
 
   it("fails the check when GitHub refuses the list, rather than call ace current", async () => {
