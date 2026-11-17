@@ -891,6 +891,8 @@ fn run_helper_as(container: &Container, sid: &Sid, lpac: bool, args: &[&str]) ->
 const LINKED: u32 = 0;
 const SOURCE_REFUSED: u32 = 2;
 const LINK_REFUSED: u32 = 5;
+/// The helper's exit code when `CreateHardLinkW`, called directly, refused the link.
+const DIRECT_REFUSED: u32 = 6;
 
 #[test]
 fn a_contained_run_links_only_its_own_files_into_its_own_folders() {
@@ -960,6 +962,38 @@ fn a_contained_run_links_only_its_own_files_into_its_own_folders() {
             );
             assert!(!escaped.exists(), "{how} under {token}: a link appeared");
         }
+
+        // The same three through `CreateHardLinkW` called directly, with no pre-check of ours in
+        // front of it: Windows itself refuses the person's file and the ungranted destination.
+        let token = if lpac { "LPAC" } else { "plain AppContainer" };
+        let run = |args: &[&str]| run_helper_as(&container, &sid, lpac, args);
+        let arg = |path: &Path| path.to_string_lossy().into_owned();
+        let made = workspace.join("direct-own.txt");
+        assert_eq!(
+            run(&["hardlink-direct", &arg(&own), &arg(&made)]),
+            LINKED,
+            "CreateHardLinkW under {token}: a link between the run's own files should be made"
+        );
+        let smuggled = workspace.join("direct-secret.txt");
+        assert_eq!(
+            run(&["hardlink-direct", &arg(&secret), &arg(&smuggled)]),
+            DIRECT_REFUSED,
+            "CreateHardLinkW under {token}: the person's file must be refused"
+        );
+        assert!(
+            !smuggled.exists(),
+            "CreateHardLinkW under {token}: a link appeared"
+        );
+        let escaped = ungranted.join("direct-out.txt");
+        assert_eq!(
+            run(&["hardlink-direct", &arg(&own), &arg(&escaped)]),
+            DIRECT_REFUSED,
+            "CreateHardLinkW under {token}: a link into an ungranted folder must be refused"
+        );
+        assert!(
+            !escaped.exists(),
+            "CreateHardLinkW under {token}: a link appeared"
+        );
         // The person's file is untouched.
         assert_eq!(
             std::fs::read(&secret).unwrap_or_else(|_| std::process::abort()),

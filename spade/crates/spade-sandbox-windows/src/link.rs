@@ -15,8 +15,8 @@ use windows::Wdk::Storage::FileSystem::{
 };
 use windows::Win32::Foundation::{HANDLE, RtlNtStatusToDosError};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    FILE_WRITE_ATTRIBUTES, OPEN_EXISTING, SYNCHRONIZE,
+    CreateFileW, CreateHardLinkW, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, OPEN_EXISTING, SYNCHRONIZE,
 };
 use windows::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -63,8 +63,28 @@ fn open_source(existing: &Path) -> std::io::Result<OwnedHandle> {
     Ok(unsafe { OwnedHandle::from_raw_handle(handle.0) })
 }
 
-/// Makes `link` a hard link to `existing` the Win32 way (`CreateHardLinkW`, through `std`), after
-/// first opening the source as that call must, so the failing stage is known.
+/// Makes `link` a hard link to `existing` by calling `CreateHardLinkW` directly, as any process
+/// can — no pre-check of Spade's in front of it, so a refusal here is Windows' own. The stage
+/// isn't known (that is what [`via_win32`] is for); `Ok(())` only if the link was made.
+pub fn create_hard_link(existing: &Path, link: &Path) -> std::io::Result<()> {
+    let (existing, link) = (
+        crate::wide(existing.as_os_str()),
+        crate::wide(link.as_os_str()),
+    );
+    // SAFETY: both names are NUL-terminated and outlive the call; no security attributes.
+    unsafe {
+        CreateHardLinkW(
+            windows::core::PCWSTR(link.as_ptr()),
+            windows::core::PCWSTR(existing.as_ptr()),
+            None,
+        )
+    }
+    .map_err(crate::io)
+}
+
+/// A diagnostic of the Win32 way: opens the source as `CreateHardLinkW` must, then makes the link
+/// with it, so the failing stage is known. Its pre-check means a refusal at the first stage is
+/// Spade's open, not Windows' link call — [`create_hard_link`] is the unguarded call.
 pub fn via_win32(existing: &Path, link: &Path) -> Result<(), LinkError> {
     drop(open_source(existing).map_err(LinkError::at(Stage::OpenSource))?);
     std::fs::hard_link(existing, link).map_err(LinkError::at(Stage::CreateLink))

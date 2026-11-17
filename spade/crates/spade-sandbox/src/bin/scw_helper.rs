@@ -53,6 +53,15 @@ mod windows {
             // native NtSetInformationFile path. 0 made, 2 stopped opening the source, 5 the source
             // opened but the link couldn't be created.
             Some("hardlink") => linked(spade_sandbox::windows::link::via_win32, &rest),
+            // `hardlink-direct <existing> <link>`: CreateHardLinkW called directly, no pre-check.
+            // 0 made, 6 refused.
+            Some("hardlink-direct") => match spade_sandbox::windows::link::create_hard_link(
+                std::path::Path::new(rest.first().copied().unwrap_or("")),
+                std::path::Path::new(rest.get(1).copied().unwrap_or("")),
+            ) {
+                Ok(()) => 0,
+                Err(_) => 6,
+            },
             Some("hardlink-nt") => linked(spade_sandbox::windows::link::via_nt, &rest),
             _ => 3,
         }
