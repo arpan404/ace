@@ -83,6 +83,8 @@ struct ConversationFeed: View {
     @State private var feedFrame: CGRect = .zero
     /// The edge that holds still while lazy rows correct their heights (`TranscriptGrowthAnchor`).
     @State private var growth = TranscriptGrowthAnchor()
+    /// A row has been drawn since the feed appeared: the opening's hold counts from here.
+    @State private var rowsPainted = false
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
     /// The viewport controller owns the follow mode; the feed never keeps its
@@ -160,7 +162,10 @@ struct ConversationFeed: View {
                         TranscriptFeedRowView(row: row, thread: shown, links: links).equatable().id(row.id)
                             .transcriptJumpMark(row.id)
                             .disabled(historyStale)
-                            .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear") }
+                            .onAppear {
+                                ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear")
+                                if !rowsPainted { rowsPainted = true }
+                            }
                             // The row's frame in the content, not on screen: a scroll leaves it
                             // alone, so this runs when rows change height, never per scroll frame.
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { frame in
@@ -378,11 +383,15 @@ struct ConversationFeed: View {
             .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
             .modifier(SpacerCounts(before: extent.before, after: extent.after))
             .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
-            // The rows of an opened thread measure within a few frames of landing; then new rows and
-            // the reader's drags grow under a held top, as before (`TranscriptGrowthAnchor`).
-            .task(id: initialScroll) {
-                guard initialScroll else { return }
+            // The rows of an opened thread measure within a few frames of being drawn, and the scroll
+            // to the end settles; then new rows and the reader's drags grow under a held top, as
+            // before (`TranscriptGrowthAnchor`).
+            .task(id: rowsPainted) {
+                guard rowsPainted else { return }
                 try? await Task.sleep(for: .seconds(1))
+                while !Task.isCancelled, settle.isRunning || intent.animating {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
                 guard !Task.isCancelled else { return }
                 growth.openSettled()
             }
