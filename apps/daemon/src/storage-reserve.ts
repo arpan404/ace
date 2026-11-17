@@ -48,20 +48,27 @@ export function storageReserve(home: string, bytes = reserveBytes): StorageReser
     restore() {
       if (size() >= bytes) return true;
       const chunk = Buffer.alloc(1024 * 1024);
-      let fd: number | undefined;
+      let failure: unknown;
       try {
-        fd = openSync(path, "w", 0o600);
-        for (let written = 0; written < bytes; written += chunk.length) writeSync(fd, chunk);
-        return true;
+        const fd = openSync(path, "w", 0o600);
+        try {
+          for (let written = 0; written < bytes; written += chunk.length) writeSync(fd, chunk);
+        } catch (error) {
+          failure = error;
+        }
+        // A close can fail too (EIO, or space a delayed allocation found missing): it counts.
+        try {
+          closeSync(fd);
+        } catch (error) {
+          failure ??= error;
+        }
       } catch (error) {
-        // Half a reserve only takes space the person needs: none is kept.
-        if (fd !== undefined) closeSync(fd);
-        fd = undefined;
-        remove();
-        return !isDiskFull(error);
-      } finally {
-        if (fd !== undefined) closeSync(fd);
+        failure = error;
       }
+      if (failure === undefined) return true;
+      // Half a reserve only takes space the person needs: none is kept.
+      remove();
+      return !isDiskFull(failure);
     },
   };
 }

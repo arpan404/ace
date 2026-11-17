@@ -265,3 +265,43 @@ test("under a quota, the reserve given back is not room: new work waits until wr
   expect(reserved).toBe(16 * MiB);
   expect(quota).toBeGreaterThan(MiB);
 });
+
+test("a reserve that fails with an I/O error stops neither the reads nor the hold from lifting", () => {
+  const eio = () => Object.assign(new Error("i/o error"), { code: "EIO" });
+  const reads: (() => void)[] = [];
+  const lines: string[] = [];
+  const gate = new MaintenanceGate(() => 0);
+  const watch = new StorageWatch({
+    home: mkdtempSync(join(tmpdir(), "ace-storage-eio-")),
+    diskSpace: () => ({ bavail: (10_000 * MiB) / 4096, bsize: 4096 }),
+    delay: (run) => {
+      reads.push(run);
+      return () => {
+        const index = reads.indexOf(run);
+        if (index >= 0) reads.splice(index, 1);
+      };
+    },
+    log: { log: (_level, message) => lines.push(message) },
+    levels,
+    reserve: {
+      release: () => true,
+      restore: () => {
+        throw eio();
+      },
+      missing: () => 0,
+    },
+    probe: () => {},
+  });
+  cleanup.push(() => watch.close());
+  watch.attach(gate);
+  expect(() => watch.start()).not.toThrow();
+  expect(reads).toHaveLength(1);
+
+  watch.observe(Object.assign(new Error("no space"), { code: "ENOSPC" }));
+  expect(gate.status().holds).toEqual(["storage"]);
+  reads.shift()?.();
+  // The reserve couldn't be written for a reason other than space: new work is let in anyway.
+  expect(gate.status().holds).toEqual([]);
+  expect(reads).toHaveLength(1);
+  expect(lines).toContain("Couldn't put back the space ace keeps");
+});

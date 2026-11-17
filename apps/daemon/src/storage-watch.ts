@@ -136,6 +136,16 @@ export class StorageWatch {
   check(): void {
     if (this.closed) return;
     this.cancel?.();
+    // Whatever one read meets, the next is scheduled: a watch that stops reading never heals.
+    try {
+      this.read();
+    } catch (error) {
+      this.options.log.log("warn", "Free space check failed; trying again", logError(error));
+    } finally {
+      this.schedule();
+    }
+  }
+  private read(): void {
     const bytes = this.freeBytes();
     const before = this.state;
     this.apply({ kind: "free", bytes });
@@ -144,11 +154,11 @@ export class StorageWatch {
     // Otherwise, under a quota, the probe would land in the space the reserve gave back, new
     // work would be let in, and putting the reserve back would use the quota up again.
     if (bytes !== null && this.state.unproven && roomToResume(bytes, this.levels)) {
-      const restored = this.options.reserve?.restore() ?? true;
+      const restored = this.restoreReserve();
       this.apply({ kind: "probe", ok: restored && this.probe(), bytes });
     }
     // Free space already counts the reserve as taken, so with new work let in it goes back.
-    if (!this.state.full && bytes !== null) this.options.reserve?.restore();
+    if (!this.state.full && bytes !== null) this.restoreReserve();
     if (this.state.full && !before.full)
       this.options.log.log(
         "error",
@@ -157,7 +167,19 @@ export class StorageWatch {
       );
     else if (this.state.low && !before.low && !this.state.full)
       this.options.log.log("warn", "Disk space is low", logFields([["freeBytes", bytes]]));
-    this.schedule();
+  }
+  /**
+   * Puts the reserve back; false only when the disk or quota refused it. Anything else it
+   * throws is logged and is no reason to keep new work held.
+   */
+  private restoreReserve(): boolean {
+    try {
+      return this.options.reserve?.restore() ?? true;
+    } catch (error) {
+      if (isDiskFull(error)) return false;
+      this.options.log.log("warn", "Couldn't put back the space ace keeps", logError(error));
+      return true;
+    }
   }
   /**
    * Free bytes as the person has them: space ace freed from its own reserve is ace's, so a
