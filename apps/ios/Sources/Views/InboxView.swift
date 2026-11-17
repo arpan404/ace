@@ -49,6 +49,8 @@ struct InboxView: View {
     @State private var settles = 0
     /// Search's field, kept while the person moves between tabs.
     @State private var searchQuery = ""
+    /// Bumped by a tap on the Search tab while it shows: its field takes focus.
+    @State private var searchFocusAsks = 0
     /// Bumped by Search's Select threads: the Threads list starts picking.
     @State private var selectAsks = 0
     /// Holds off row taps just after a row action, so the row sliding into its place stays shut.
@@ -120,7 +122,7 @@ struct InboxView: View {
     }
 
     private var tabs: some View {
-        TabView(selection: $tab) {
+        TabView(selection: tabChoice) {
             Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
                 stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
             }
@@ -181,12 +183,23 @@ struct InboxView: View {
         .animation(.default, value: organize.undo?.serial)
     }
 
+    /// The tab bar's choice, and the sidebar's at the foot of Search and Code review. Tapping
+    /// Search while it shows asks for its field, as a second tap on a tab acts on the page it
+    /// already shows. The thread lists keep `$tab`: Search never shows beside them, and a binding
+    /// made afresh each render would redraw them on every change here.
+    private var tabChoice: Binding<InboxTab> {
+        Binding(get: { tab }, set: { chosen in
+            if chosen == .search && tab == .search { searchFocusAsks += 1 }
+            tab = chosen
+        })
+    }
+
     /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
     /// at its foot so the person can go back to the lists.
     private var search: some View {
-        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery)
+        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
@@ -196,7 +209,7 @@ struct InboxView: View {
         CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
                       openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }

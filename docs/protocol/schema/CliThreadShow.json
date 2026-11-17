@@ -1,0 +1,88 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliThreadShow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "interactions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Interaction.json"
+      },
+      "type": "array"
+    },
+    "items": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "agentId",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "itemsBefore": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "thread": {
+      "additionalProperties": {},
+      "properties": {
+        "createdAt": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "status": {
+          "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "number"
+        },
+        "workspaceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "title",
+        "provider",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "thread",
+    "items",
+    "itemsBefore",
+    "interactions"
+  ],
+  "type": "object"
+}

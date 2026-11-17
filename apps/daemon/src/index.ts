@@ -525,6 +525,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
+      lifetime: lifetime.signal,
       shutdown: shutdownControl(config.dataDir, {
         id: randomUUID,
         now,

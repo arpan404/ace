@@ -1,16 +1,20 @@
 import SwiftUI
 
 /// The Search tab (the web's command palette and search, in place of a More tab). Before a query:
-/// the places outside the thread lists as capsules, the last searches and the latest threads.
-/// With one: actions, threads, pull requests, projects and messages of every paired machine
-/// (`InboxSearchList`). On iOS 26 its field is the tab bar's own detached search.
+/// the places outside the thread lists as a grid of their glyphs, the last searches and the
+/// latest threads. With one: actions, threads, projects, pull requests and messages of every
+/// paired machine (`InboxSearchList`). On iOS 26 its field is the tab bar's own detached search;
+/// where Search is a plain tab (iOS 27) the field stays under the title, never behind a pull.
 struct SearchHome: View {
     @Bindable var inbox: MachineInbox
     /// A thread is open on Threads or Chats: its own commands are offered, named by its title.
     let openTitle: String?
     let actions: SearchActions
     @Binding var query: String
+    /// Bumped by a second tap on the Search tab: the field takes focus.
+    var focusAsks = 0
     @State private var openPulls: Int?
+    @FocusState private var fieldFocused: Bool
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -25,8 +29,10 @@ struct SearchHome: View {
             .background(AceTheme.Colours.background)
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $query, placement: .automatic, prompt: Text("Threads, pull requests, settings"))
+            .searchable(text: $query, placement: Self.fieldPlacement, prompt: Text("Threads, pull requests, settings"))
+            .searchFocused($fieldFocused)
         }
+        .onChange(of: focusAsks) { fieldFocused = true }
         .task(id: inbox.sessions.map { "\($0.hostId):\($0.client.connection)" }) {
             openPulls = await OpenPullCount.read(inbox, kept: true)
             openPulls = await OpenPullCount.read(inbox, kept: false) ?? openPulls
@@ -34,8 +40,16 @@ struct SearchHome: View {
     }
 }
 
-/// Search before anything is typed: things to act on, not an explanation. The places, the last
-/// searches and the latest threads, each a row that does something.
+extension SearchHome {
+    /// The system's search tab (iOS 26) places its own field in the tab bar. As a plain tab the
+    /// field would wait in the collapsed navigation drawer, so it is pinned there open.
+    static var fieldPlacement: SearchFieldPlacement {
+        HomeTabs.composeTab ? .navigationBarDrawer(displayMode: .always) : .automatic
+    }
+}
+
+/// Search before anything is typed: things to act on, not an explanation. The places, then as the
+/// web's search opens, the latest threads and the last searches, each a row that does something.
 private struct SearchStart: View {
     let inbox: MachineInbox
     let openPulls: Int?
@@ -46,13 +60,29 @@ private struct SearchStart: View {
     var body: some View {
         List {
             Section {
-                SearchPlaceCapsules(places: SearchPlace.offered(paired: !inbox.sessions.isEmpty), openPulls: openPulls,
-                                    open: actions.place)
+                SearchPlaceGrid(places: SearchPlace.offered(paired: !inbox.sessions.isEmpty), openPulls: openPulls,
+                                open: actions.place)
                     .listRowInsets(EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin,
                                               bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin))
                     .listRowBackground(AceTheme.Colours.background)
                     .listRowSeparator(.hidden)
             } header: { SearchHeader("Places") }
+            let latest = RecentThreads.latest(inbox)
+            if !latest.isEmpty {
+                Section {
+                    ForEach(latest, id: \.self) { key in
+                        if let row = inbox.row(key) {
+                            Button { actions.open(key) } label: {
+                                InboxThreadRow(row: row, snoozed: row.snoozedUntil != nil, machine: inbox.mark(key.machineId),
+                                               project: inbox.projectLook(key, workspace: row.workspaceId))
+                            }
+                            .buttonStyle(.row)
+                            .accessibilityIdentifier("search.latest.\(key.id)")
+                            .inboxRowChrome()
+                        }
+                    }
+                } header: { SearchHeader("Recent threads") }
+            }
             if !recent.isEmpty {
                 Section {
                     ForEach(recent, id: \.self) { entry in
@@ -73,22 +103,6 @@ private struct SearchStart: View {
                             .accessibilityIdentifier("search.recent.clear")
                     }
                 }
-            }
-            let latest = RecentThreads.latest(inbox)
-            if !latest.isEmpty {
-                Section {
-                    ForEach(latest, id: \.self) { key in
-                        if let row = inbox.row(key) {
-                            Button { actions.open(key) } label: {
-                                InboxThreadRow(row: row, snoozed: row.snoozedUntil != nil, machine: inbox.mark(key.machineId),
-                                               project: inbox.projectLook(key, workspace: row.workspaceId))
-                            }
-                            .buttonStyle(.row)
-                            .accessibilityIdentifier("search.latest.\(key.id)")
-                            .inboxRowChrome()
-                        }
-                    }
-                } header: { SearchHeader("Recent threads") }
             }
         }
         .listStyle(.plain)

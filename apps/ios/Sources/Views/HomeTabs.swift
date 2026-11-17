@@ -3,8 +3,8 @@ import SwiftUI
 /// The home screen's tabs. `compose` is the detached compose button on iOS 27, never a page.
 enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 
-/// The home tabs in their order (Threads · Chats · Spade · Code review · Search, then compose) and
-/// what each is called. Code review is the web rail's place for pull requests and issues. Spade, ace's cloud agent, is hidden until it launches: turning `showsSpade` on puts
+/// The home tabs in their order (Projects · Chats · Spade · Code review · Search, then compose) and
+/// what each is called, in the web rail's words: the thread list is Projects there. Code review is the web rail's place for pull requests and issues. Spade, ace's cloud agent, is hidden until it launches: turning `showsSpade` on puts
 /// its tab back in its slot between Chats and Search, and its glyph in the iPad sidebar, with
 /// nothing else to lay out again.
 enum HomeTabs {
@@ -16,7 +16,7 @@ enum HomeTabs {
 
     static func title(_ tab: InboxTab) -> String {
         switch tab {
-        case .threads: "Threads"
+        case .threads: "Projects"
         case .chats: "Chats"
         case .spade: "Spade"
         case .review: "Code review"

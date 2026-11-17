@@ -16,11 +16,13 @@ import { readConfig } from "./config.ts";
 import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { accessRequest } from "./client-access.ts";
-import { addressCheckMs } from "./remote-runtime.ts";
-import type { Store } from "./store.ts";
+import { addressCheckMs, remoteCloseWaitMs } from "./remote-runtime.ts";
+import { Store } from "./store.ts";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
 import { randomBytes } from "node:crypto";
+import { WebSocketServer, type WebSocket } from "ws";
+import { hostId } from "@ace/secure-channel";
 
 async function runtime(
   overrides: {
@@ -42,9 +44,13 @@ async function runtime(
     account?: (store: Store, home: string) => MachineAccount;
     /** ACE_REMOTE_PORT; ephemeral by default. */
     remotePort?: number;
+    /** A home an earlier start used, kept when this one closes; a fresh one by default. */
+    home?: string;
+    /** The daemon's lifetime (`ServerOptions.lifetime`). */
+    lifetime?: AbortSignal;
   } = {},
 ) {
-  const home = await mkdtemp(join(tmpdir(), "ace-remote-runtime-"));
+  const home = overrides.home ?? (await mkdtemp(join(tmpdir(), "ace-remote-runtime-")));
   const settings = new SettingsService({ dataDir: home });
   const hold = overrides.holdPairingLinkSetting;
   if (hold) {
@@ -58,7 +64,7 @@ async function runtime(
     }) as typeof settings.get;
   }
   const workspace = join(home, "repository");
-  await mkdir(workspace);
+  await mkdir(workspace, { recursive: true });
   let ids = 0;
   let now = 1000;
   const files = await FilesService.create({
@@ -78,7 +84,7 @@ async function runtime(
   let networkAvailable = !overrides.unavailable;
   const logs: unknown[] = [];
   const webRoot = join(home, "web");
-  await mkdir(webRoot);
+  await mkdir(webRoot, { recursive: true });
   await writeFile(join(webRoot, "index.html"), '<main id="root">Pair this device</main>');
   const config = readConfig({
     ACE_HOME: home,
@@ -95,6 +101,7 @@ async function runtime(
       settings,
       files,
       ...(overrides.runtime ? { runtime: overrides.runtime } : {}),
+      ...(overrides.lifetime ? { lifetime: overrides.lifetime } : {}),
       log: (error) => logs.push(error),
       now: () => now,
       remoteConfig: config,
@@ -145,7 +152,7 @@ async function runtime(
     await f.close();
     await files.close();
     await settings.close();
-    await rm(home, { recursive: true, force: true });
+    if (!overrides.home) await rm(home, { recursive: true, force: true });
   };
   return {
     ...f,
@@ -884,5 +891,157 @@ test("a fresh home serves the LAN with nothing saved, and a taken port leaves th
   } finally {
     await f.close();
     await new Promise((resolve) => taken.close(resolve));
+  }
+});
+
+/** A relay that takes each connection and then never answers its registration. */
+async function silentRelay() {
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await once(server, "listening");
+  const open = new Set<WebSocket>();
+  let connections = 0;
+  server.on("connection", (socket) => {
+    connections++;
+    open.add(socket);
+    socket.once("close", () => open.delete(socket));
+  });
+  const { port } = z.object({ port: z.number() }).parse(server.address());
+  return {
+    url: `ws://127.0.0.1:${port}`,
+    connections: () => connections,
+    open: () => open.size,
+    close: async () => {
+      for (const socket of open) socket.terminate();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
+}
+
+/** Machine accounts on one home and store that outlive a start, as a real daemon's do. */
+async function lastingAccount() {
+  const home = await mkdtemp(join(tmpdir(), "ace-relay-account-"));
+  const store = new Store(join(home, "events.sqlite"));
+  const opened: MachineAccount[] = [];
+  return {
+    open: () => {
+      const account = machineAccount({
+        dataDir: home,
+        codes: store.machineCodes,
+        fetch: globalThis.fetch,
+        now: Date.now,
+        randomBytes,
+        delay: () => () => {},
+      });
+      opened.push(account);
+      return account;
+    },
+    close: async () => {
+      for (const account of opened) await account.close();
+      await store.close();
+      await rm(home, { recursive: true, force: true });
+    },
+  };
+}
+
+test("a signed-in daemon whose relay never answers its registration stops within its budget, and registers on the next start", async () => {
+  const silent = await silentRelay();
+  const backend = await startFakeAccountBackend(Date.now);
+  const home = await mkdtemp(join(tmpdir(), "ace-remote-runtime-"));
+  const accounts = await lastingAccount();
+  let relay: Awaited<ReturnType<typeof startRelay>> | undefined;
+  try {
+    const first = accounts.open();
+    const f = await runtime({
+      enabled: true,
+      hostedRelayUrl: silent.url,
+      home,
+      account: () => first,
+    });
+    let closed = false;
+    try {
+      await first.handover(backend.origin, backend.token);
+      // The relay took the connection and the machine grant; it never confirms the registration.
+      await expect.poll(() => silent.connections()).toBeGreaterThan(0);
+      expect(backend.grantRequests).toMatchObject([{ kind: "machine" }]);
+
+      const started = performance.now();
+      await f.close();
+      closed = true;
+      // Well inside the daemon's shutdown limit, and not by waiting out remote access's backstop.
+      expect(performance.now() - started).toBeLessThan(remoteCloseWaitMs);
+      const logged = f.logs.map(String).join("\n");
+      expect(logged).not.toContain("shutdown deadline exceeded");
+      // Giving up a registration isn't a failure to report.
+      expect(logged).not.toContain("Couldn't reach the relay");
+    } finally {
+      if (!closed) await f.close();
+      await first.close();
+    }
+    // Nothing is left connected to the relay that never answered.
+    await expect.poll(() => silent.open()).toBe(0);
+    const attempts = silent.connections();
+
+    // The next start finds the session and relay keys intact and registers by itself.
+    relay = await startRelay();
+    const restarted = accounts.open();
+    await restarted.load();
+    const g = await runtime({
+      enabled: true,
+      hostedRelayUrl: relay.url,
+      home,
+      account: () => restarted,
+    });
+    try {
+      await expect
+        .poll(async () => RemoteStatus.parse(await g.local("/v1/status")).remoteAccess.networks)
+        .toMatchObject({ lan: { state: "on" }, account: { state: "on", address: relay.url } });
+      const keys = await loadOrCreateHostKeys(join(home, "relay"));
+      expect(g.server.relayHostId).toBe(hostId(keys.publicKey));
+      // The closed daemon never tried the silent relay again.
+      expect(silent.connections()).toBe(attempts);
+    } finally {
+      await g.close();
+    }
+  } finally {
+    await accounts.close();
+    await relay?.close();
+    await backend.close();
+    await silent.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a stop while a signed-in daemon starts on a relay that never answers ends the wait at once", async () => {
+  const silent = await silentRelay();
+  const backend = await startFakeAccountBackend(Date.now);
+  const accounts = await lastingAccount();
+  try {
+    // Signed in before the daemon starts, as a restart finds it.
+    await accounts.open().handover(backend.origin, backend.token);
+    const signedIn = accounts.open();
+    await signedIn.load();
+    const lifetime = new AbortController();
+    const starting = runtime({
+      enabled: true,
+      hostedRelayUrl: silent.url,
+      account: () => signedIn,
+      lifetime: lifetime.signal,
+    });
+    // Startup waits on ace's relay, which took the connection and never confirms it.
+    await expect.poll(() => silent.connections()).toBeGreaterThan(0);
+
+    const stopped = performance.now();
+    lifetime.abort();
+    const f = await starting;
+    try {
+      expect(performance.now() - stopped).toBeLessThan(remoteCloseWaitMs);
+      await expect.poll(() => silent.open()).toBe(0);
+    } finally {
+      await f.close();
+    }
+  } finally {
+    await accounts.close();
+    await backend.close();
+    await silent.close();
   }
 });
