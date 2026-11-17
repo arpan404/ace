@@ -376,6 +376,10 @@ fn what_the_sandbox_stopped_is_read_from_the_output() {
             Some(Blocked::Files),
         ),
         (
+            "sh: 1: cannot create /home/x/a: Permission denied",
+            Some(Blocked::Files),
+        ),
+        (
             "curl: (56) CONNECT tunnel failed, response 403",
             Some(Blocked::Network),
         ),

@@ -1,5 +1,7 @@
 //! A fake home folder and small real commands run through Linux's launcher (ADR 0167 decision
 //! 1), shared by the Linux sandbox tests. Nothing real is touched.
+// Each test file uses part of it.
+#![allow(dead_code)]
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

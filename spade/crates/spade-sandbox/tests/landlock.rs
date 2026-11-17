@@ -216,3 +216,23 @@ fn limits_on_open_files_and_tasks_are_set() {
     }
     assert_eq!(text.lines().count(), 2, "{text}");
 }
+
+#[test]
+fn without_landlock_nothing_is_contained_and_the_status_says_why() {
+    // Only a kernel without Landlock can show this (Docker Desktop's is one); elsewhere the
+    // tests above show the opposite.
+    if spade_sandbox::linux::landlock_supported() {
+        return;
+    }
+    let runner = spade_sandbox::Runner::probe(Some(linux::launcher()));
+    let status = runner.status();
+    assert!(!status.contains() && !status.usable(), "{status:?}");
+    assert_eq!(status.landlock_abi, None);
+    assert!(
+        status
+            .reason
+            .as_deref()
+            .is_some_and(|r| r.contains("doesn't enforce Landlock")),
+        "{status:?}"
+    );
+}

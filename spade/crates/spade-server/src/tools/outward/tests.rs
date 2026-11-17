@@ -3,7 +3,9 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use super::host::{Host, HostFuture, HostRan, Launch};
-use super::{git, github, messages};
+#[cfg(target_os = "macos")]
+use super::messages;
+use super::{git, github};
 
 /// Stands in for git, gh and osascript: records each launch, answers `remote get-url` with
 /// `rewritten` (the person's own URL rewriting), everything else with success.
