@@ -13,7 +13,8 @@
 
 use std::io::Write;
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use super::screen::Screen;
@@ -24,6 +25,9 @@ use rustix::termios::{OptionalActions, Termios};
 
 /// How long the relay drains the command's last output once every process has ended.
 const DRAIN: Duration = Duration::from_secs(2);
+/// How long the launcher waits to hand the person's terminal its restore sequence when the
+/// terminal reads slowly; only a terminal that reads nothing at all misses it.
+const RESTORE: Duration = Duration::from_secs(5);
 
 /// Where the caller's terminal output goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,9 +220,18 @@ impl Dedicated {
         let (input, size) = (copy(&master)?, copy(&master)?);
         let (keys, model) = (copy(&caller[0])?, copy(&caller[model_of(&layout)])?);
         let (done, drained) = mpsc::channel();
-        // From here on the guard in `relay` gives the caller's terminal back on every way out.
+        let output = Arc::new(Output {
+            sink: Mutex::new(Shown {
+                sink: sink.map(std::fs::File::from),
+                ended: false,
+            }),
+            alternate: AtomicBool::new(false),
+        });
+        // From here on dropping `relay` gives the caller its screen and its terminal's modes
+        // back, on every way out.
         let relay = Relay {
             drained,
+            output: Arc::clone(&output),
             raw: if layout.raw {
                 RawMode::set(&caller[0])
             } else {
@@ -228,7 +241,7 @@ impl Dedicated {
         spawn(
             "spade-pty-output",
             Box::new(move || {
-                drain(&master, sink.map(std::fs::File::from));
+                drain(&master, &output);
                 let _ = done.send(());
             }),
         )
@@ -274,15 +287,17 @@ impl Drop for RawMode {
     }
 }
 
-/// A running relay. Dropping it, finished or not, gives the caller its terminal back.
+/// A running relay. Dropping it, finished or not, sends the person's terminal its restore
+/// sequence and gives its modes back.
 pub struct Relay {
     drained: mpsc::Receiver<()>,
+    output: Arc<Output>,
     raw: Option<RawMode>,
 }
 
 impl Relay {
-    /// After the command's whole tree has ended: shows what it last wrote, then (on drop) gives
-    /// the caller its terminal back as it was.
+    /// After the command's whole tree has ended: shows what it last wrote, for at most
+    /// [`DRAIN`], then (on drop) restores the person's screen and terminal.
     pub fn finish(self) {
         let _ = self.drained.recv_timeout(DRAIN);
     }
@@ -290,7 +305,71 @@ impl Relay {
 
 impl Drop for Relay {
     fn drop(&mut self) {
+        // The output worker may be blocked writing to a slow terminal: ending waits for that
+        // write, then sends the restore and stops the worker for good. It runs on its own
+        // thread so a terminal that reads nothing can't hold the launcher past [`RESTORE`].
+        let output = Arc::clone(&self.output);
+        let (done, ended) = mpsc::channel();
+        let started = threads(
+            "spade-pty-restore",
+            Box::new(move || {
+                output.end();
+                let _ = done.send(());
+            }),
+        );
+        match started {
+            Ok(()) => {
+                let _ = ended.recv_timeout(RESTORE);
+            }
+            // No thread to spare: end here, as the launcher is ending anyway.
+            Err(_) => self.output.end(),
+        }
         drop(self.raw.take());
+    }
+}
+
+/// Where the command's filtered output goes, shared by the output worker and the relay.
+struct Output {
+    sink: Mutex<Shown>,
+    /// The command is on a `?1049h` alternate screen, as [`Screen`] last saw.
+    alternate: AtomicBool,
+}
+
+struct Shown {
+    /// The person's terminal; `None` once a write to it failed, or with nowhere to show.
+    sink: Option<std::fs::File>,
+    /// The restore was sent: nothing is written after it.
+    ended: bool,
+}
+
+impl Output {
+    /// Shows `bytes`, unless the relay has ended. Each call writes whole sequences only, so the
+    /// restore sent after it never lands inside one.
+    fn show(&self, bytes: &[u8]) -> bool {
+        let mut shown = self.sink.lock().unwrap_or_else(|e| e.into_inner());
+        if shown.ended {
+            return false;
+        }
+        if let Some(out) = shown.sink.as_mut()
+            && out.write_all(bytes).is_err()
+        {
+            shown.sink = None;
+        }
+        true
+    }
+
+    /// Sends the restore sequence once, after any write in progress, and stops all output.
+    fn end(&self) {
+        let mut shown = self.sink.lock().unwrap_or_else(|e| e.into_inner());
+        if shown.ended {
+            return;
+        }
+        shown.ended = true;
+        let restore = super::screen::restore(self.alternate.load(Ordering::SeqCst));
+        if let Some(out) = shown.sink.as_mut() {
+            let _ = out.write_all(&restore);
+        }
+        shown.sink = None;
     }
 }
 
@@ -311,11 +390,11 @@ fn forward(from: &OwnedFd, mut to: std::fs::File) {
     }
 }
 
-/// Copies what the command writes, through [`Screen`], to `sink` until the pty ends (its master
-/// reads `EIO` once the last command-side descriptor closes), then undoes what the command left
-/// switched on. Without a sink, or once it fails, the output is still read, so the command never
-/// blocks on a full pty.
-fn drain(master: &OwnedFd, mut sink: Option<std::fs::File>) {
+/// Shows what the command writes, through [`Screen`], until the pty ends (its master reads
+/// `EIO` once the last command-side descriptor closes), then ends the output with the restore.
+/// Once the relay has ended, or with nowhere to show it, the output is still read, so the
+/// command never blocks on a full pty.
+fn drain(master: &OwnedFd, output: &Output) {
     let mut buffer = [0u8; 16 * 1024];
     let mut screen = Screen::default();
     let mut shown = Vec::with_capacity(buffer.len());
@@ -325,19 +404,14 @@ fn drain(master: &OwnedFd, mut sink: Option<std::fs::File>) {
             Ok(n) => {
                 shown.clear();
                 screen.feed(&buffer[..n], &mut shown);
-                if let Some(out) = sink.as_mut()
-                    && out.write_all(&shown).is_err()
-                {
-                    sink = None;
-                }
+                output.alternate.store(screen.alternate(), Ordering::SeqCst);
+                output.show(&shown);
             }
             Err(rustix::io::Errno::INTR) => {}
             Err(_) => break,
         }
     }
-    if let Some(out) = sink.as_mut() {
-        let _ = out.write_all(&screen.restore());
-    }
+    output.end();
 }
 
 /// Gives the pty the caller's window size each time the caller's terminal is resized.
@@ -472,5 +546,37 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         relay.finish();
         assert_eq!(modes(&terminal), before);
+    }
+
+    /// Everything the person's terminal has been sent so far.
+    fn sent(master: &OwnedFd) -> Vec<u8> {
+        let flags = rustix::fs::fcntl_getfl(master).unwrap_or_else(|e| panic!("{e}"));
+        rustix::fs::fcntl_setfl(master, flags | OFlags::NONBLOCK).unwrap_or_else(|e| panic!("{e}"));
+        let mut all = Vec::new();
+        let mut buffer = [0u8; 4096];
+        while let Ok(n) = rustix::io::read(master, &mut buffer) {
+            if n == 0 {
+                break;
+            }
+            all.extend_from_slice(&buffer[..n]);
+        }
+        all
+    }
+
+    #[test]
+    fn a_relay_dropped_on_an_error_path_still_restores_the_persons_screen() {
+        let (master, terminal) = person();
+        let relay = dedicated_for(&terminal)
+            .relay()
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(relay);
+        let shown = sent(&master);
+        let restore = super::super::screen::restore(false);
+        // Unconditional: even with nothing written, the cursor is shown and the modes reset.
+        assert!(
+            shown.ends_with(&restore) && restore.ends_with(b"\x1b[?25h\x1b[?1l\x1b>"),
+            "{:?}",
+            String::from_utf8_lossy(&shown)
+        );
     }
 }

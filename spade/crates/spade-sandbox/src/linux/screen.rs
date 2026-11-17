@@ -8,15 +8,29 @@
 //! DCS, APC, PM and SOS strings, window manipulation (`CSI … t`), device and status queries whose
 //! answers would come back as input (`CSI n`, `CSI c`, `ENQ`, `ESC Z`), mouse and paste modes,
 //! resets and any other private mode. 8-bit C1 controls are dropped too, raw or UTF-8 encoded.
-//! Pure: no I/O.
+//! Each kept CSI operation takes only the parameters that act within the visible screen
+//! ([`acts_on_screen`]: `ESC[3J`, erasing scrollback, is dropped). When the output ends,
+//! [`restore`] returns the person's terminal to its defaults unconditionally: what a command
+//! sets can't be tracked through cursor save and restore or the alternate screen. Pure: no I/O.
 
 /// Longest CSI sequence judged; a longer one is dropped whole.
 const MOST_CSI: usize = 128;
 /// DEC private modes kept: cursor keys, autowrap, cursor visible, the alternate screens.
 const PRIVATE_MODES: &[&[u8]] = &[b"1", b"7", b"25", b"47", b"1047", b"1048", b"1049"];
-/// Final bytes of CSI sequences kept (without a private marker or intermediates): SGR, cursor
-/// movement and saving, erasing, inserting and deleting, scrolling and repeating.
-const CSI_FINALS: &[u8] = b"mABCDEFGHIJKLMPSTXZ@`abdefrsu";
+/// Final bytes of CSI sequences kept with at most one number: cursor movement, erasing
+/// characters, inserting and deleting characters and lines, scrolling and repeating. Every one
+/// acts within the visible screen.
+const ONE_NUMBER: &[u8] = b"ABCDEFGIPLMSTXZ@`abde";
+/// What every finished relay sends, whatever the command did: the main screen, plain text, the
+/// ASCII character sets in G0 and G1 with G0 in use, autowrap on, insert mode off, full-screen
+/// scroll margins (set between saving and restoring the cursor, since setting them homes it,
+/// which also leaves a clean rendition in the cursor-save slot), a visible cursor, and normal
+/// cursor and keypad keys.
+const RESET: &[u8] =
+    b"\x1b[?1047l\x1b[0m\x1b(B\x1b)B\x0f\x1b[?7h\x1b[4l\x1b7\x1b[r\x1b8\x1b[?25h\x1b[?1l\x1b>";
+/// Leaves the alternate screen entered with `?1049h`, restoring the cursor it saved. Sent only
+/// then: on the main screen it would move the cursor to wherever the command last saved it.
+const LEAVE_1049: &[u8] = b"\x1b[?1049l";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -40,18 +54,6 @@ enum State {
     Utf8(u8),
 }
 
-/// What the kept sequences left switched on, undone when the command ends.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct Modes {
-    alternate: bool,
-    hidden: bool,
-    cursor_keys: bool,
-    keypad: bool,
-    shifted: bool,
-    line_drawing: bool,
-    styled: bool,
-}
-
 /// The relay's filter between the command's output and the person's terminal.
 #[derive(Debug, Clone)]
 pub struct Screen {
@@ -60,7 +62,8 @@ pub struct Screen {
     pending: Vec<u8>,
     /// The byte before, inside a string (`C2 9C` is ST in UTF-8).
     last: u8,
-    modes: Modes,
+    /// The command is on the alternate screen it entered with `?1049h`.
+    alternate: bool,
 }
 
 impl Default for Screen {
@@ -69,7 +72,7 @@ impl Default for Screen {
             state: State::Ground,
             pending: Vec::new(),
             last: 0,
-            modes: Modes::default(),
+            alternate: false,
         }
     }
 }
@@ -82,33 +85,9 @@ impl Screen {
         }
     }
 
-    /// What returns the person's terminal to how it was, after the command's last output: the
-    /// main screen, a visible cursor, normal keys, the ASCII character set and plain text.
-    pub fn restore(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        let m = self.modes;
-        if m.styled {
-            out.extend_from_slice(b"\x1b[0m");
-        }
-        if m.line_drawing {
-            out.extend_from_slice(b"\x1b(B");
-        }
-        if m.shifted {
-            out.push(0x0f);
-        }
-        if m.cursor_keys {
-            out.extend_from_slice(b"\x1b[?1l");
-        }
-        if m.keypad {
-            out.extend_from_slice(b"\x1b>");
-        }
-        if m.hidden {
-            out.extend_from_slice(b"\x1b[?25h");
-        }
-        if m.alternate {
-            out.extend_from_slice(b"\x1b[?1049l");
-        }
-        out
+    /// Whether the command is on the alternate screen it entered with `?1049h`.
+    pub fn alternate(&self) -> bool {
+        self.alternate
     }
 
     fn byte(&mut self, byte: u8, out: &mut Vec<u8>) {
@@ -151,14 +130,7 @@ impl Screen {
         match byte {
             0x1b => self.state = State::Escape,
             0x07..=0x0d | 0x20..=0x7f => out.push(byte),
-            0x0e => {
-                self.modes.shifted = true;
-                out.push(byte);
-            }
-            0x0f => {
-                self.modes.shifted = false;
-                out.push(byte);
-            }
+            0x0e | 0x0f => out.push(byte),
             // Leading bytes of 2-, 3- and 4-byte characters; the rest never start one.
             0xc2..=0xdf => self.lead(byte, 1),
             0xe0..=0xef => self.lead(byte, 2),
@@ -230,14 +202,7 @@ impl Screen {
             b'P' | b'X' | b'^' | b'_' => self.state = State::Text { osc: false },
             b'(' | b')' => self.state = State::Charset(byte),
             0x20..=0x2f => self.state = State::Skip,
-            b'7' | b'8' | b'D' | b'E' | b'M' | b'=' | b'>' => {
-                match byte {
-                    b'=' => self.modes.keypad = true,
-                    b'>' => self.modes.keypad = false,
-                    _ => {}
-                }
-                out.extend_from_slice(&[0x1b, byte]);
-            }
+            b'7' | b'8' | b'D' | b'E' | b'M' | b'=' | b'>' => out.extend_from_slice(&[0x1b, byte]),
             0x1b => self.state = State::Escape,
             // A control inside an escape: the escape is dropped, the control judged alone.
             0x00..=0x1f => self.ground(byte, out),
@@ -249,12 +214,7 @@ impl Screen {
     fn charset(&mut self, set: u8, byte: u8, out: &mut Vec<u8>) {
         self.state = State::Ground;
         match byte {
-            b'0' | b'B' => {
-                if set == b'(' {
-                    self.modes.line_drawing = byte == b'0';
-                }
-                out.extend_from_slice(&[0x1b, set, byte]);
-            }
+            b'0' | b'B' => out.extend_from_slice(&[0x1b, set, byte]),
             0x20..=0x2f => self.state = State::Skip,
             _ => {}
         }
@@ -314,9 +274,9 @@ impl Screen {
             }
             for mode in &kept {
                 match *mode {
-                    b"1" => self.modes.cursor_keys = on,
-                    b"25" => self.modes.hidden = !on,
-                    b"47" | b"1047" | b"1049" => self.modes.alternate = on,
+                    b"1049" => self.alternate = on,
+                    // Leaving by another mode leaves the screen `?1049l` would restore from.
+                    b"47" | b"1047" if !on => self.alternate = false,
                     _ => {}
                 }
             }
@@ -329,15 +289,8 @@ impl Screen {
             // A private marker or intermediates: queries, resets, cursor styles, key modes.
             return;
         }
-        let kept = match last {
-            b'h' | b'l' => body == b"4",
-            _ => CSI_FINALS.contains(&last),
-        };
-        if !kept {
+        if !acts_on_screen(body, last) {
             return;
-        }
-        if last == b'm' {
-            self.modes.styled = !(body.is_empty() || body == b"0");
         }
         out.extend_from_slice(b"\x1b[");
         out.extend_from_slice(body);
@@ -357,6 +310,47 @@ impl Screen {
         if self.state != (State::Text { osc }) {
             self.last = 0;
         }
+    }
+}
+
+/// What returns the person's terminal to how it was: [`RESET`], after leaving a `?1049h`
+/// alternate screen when `alternate`.
+pub fn restore(alternate: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(LEAVE_1049.len() + RESET.len());
+    if alternate {
+        out.extend_from_slice(LEAVE_1049);
+    }
+    out.extend_from_slice(RESET);
+    out
+}
+
+/// Whether a CSI sequence without a private marker (`body`, its parameters, and `last`) acts
+/// only within the visible screen: each operation with only the parameters it takes there.
+/// `ESC[3J`, which erases the person's scrollback, is not among them.
+fn acts_on_screen(body: &[u8], last: u8) -> bool {
+    if last == b'm' {
+        // SGR alone takes colon sub-parameters.
+        return true;
+    }
+    if body.contains(&b':') {
+        return false;
+    }
+    let numbers: Vec<&[u8]> = if body.is_empty() {
+        Vec::new()
+    } else {
+        body.split(|b| *b == b';').collect()
+    };
+    match last {
+        b'J' | b'K' => {
+            numbers.len() <= 1
+                && numbers
+                    .first()
+                    .is_none_or(|n| matches!(*n, b"" | b"0" | b"1" | b"2"))
+        }
+        b'H' | b'f' | b'r' => numbers.len() <= 2,
+        b's' | b'u' => numbers.is_empty(),
+        b'h' | b'l' => body == b"4",
+        _ => ONE_NUMBER.contains(&last) && numbers.len() <= 1,
     }
 }
 
@@ -480,22 +474,227 @@ mod tests {
         assert_eq!(shown(&long), b"after");
     }
 
-    #[test]
-    fn what_the_command_left_on_is_undone_at_the_end() {
+    /// The state of a terminal that the kept sequences can change and that outlives the
+    /// command, as xterm keeps it: enough to tell whether the person's terminal is as it was.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    struct Rendition {
+        /// Any SGR attribute or colour set (concealed, reverse, colours, …).
+        styled: bool,
+        g0_line_drawing: bool,
+        g1_line_drawing: bool,
+        shifted: bool,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Model {
+        rendition: Rendition,
+        /// What DECSC (`ESC 7`, and `?1049h`) saved, which DECRC (`ESC 8`, `?1049l`) restores.
+        saved: Rendition,
+        alternate: bool,
+        autowrap: bool,
+        insert: bool,
+        full_margins: bool,
+        cursor_visible: bool,
+        cursor_keys: bool,
+        keypad: bool,
+    }
+
+    impl Default for Model {
+        fn default() -> Self {
+            Self {
+                rendition: Rendition::default(),
+                saved: Rendition::default(),
+                alternate: false,
+                autowrap: true,
+                insert: false,
+                full_margins: true,
+                cursor_visible: true,
+                cursor_keys: false,
+                keypad: false,
+            }
+        }
+    }
+
+    impl Model {
+        /// Applies what the filter let through (only kept sequences, each whole).
+        fn apply(&mut self, mut bytes: &[u8]) {
+            while let Some((&first, rest)) = bytes.split_first() {
+                bytes = rest;
+                match first {
+                    0x0e => self.rendition.shifted = true,
+                    0x0f => self.rendition.shifted = false,
+                    0x1b => bytes = self.escape(bytes),
+                    _ => {}
+                }
+            }
+        }
+
+        fn escape<'a>(&mut self, bytes: &'a [u8]) -> &'a [u8] {
+            let Some((&kind, rest)) = bytes.split_first() else {
+                return bytes;
+            };
+            match kind {
+                b'7' => self.saved = self.rendition,
+                b'8' => self.rendition = self.saved,
+                b'=' => self.keypad = true,
+                b'>' => self.keypad = false,
+                b'(' | b')' => {
+                    let line = rest.first() == Some(&b'0');
+                    if kind == b'(' {
+                        self.rendition.g0_line_drawing = line;
+                    } else {
+                        self.rendition.g1_line_drawing = line;
+                    }
+                    return &rest[1..];
+                }
+                b'[' => {
+                    let end = rest
+                        .iter()
+                        .position(|b| (0x40..=0x7e).contains(b))
+                        .unwrap_or(rest.len() - 1);
+                    self.csi(&rest[..end], rest[end]);
+                    return &rest[end + 1..];
+                }
+                _ => {}
+            }
+            rest
+        }
+
+        fn csi(&mut self, body: &[u8], last: u8) {
+            if let Some(modes) = body.strip_prefix(b"?") {
+                let on = last == b'h';
+                for mode in modes.split(|b| *b == b';') {
+                    match mode {
+                        b"1" => self.cursor_keys = on,
+                        b"7" => self.autowrap = on,
+                        b"25" => self.cursor_visible = on,
+                        b"47" | b"1047" => self.alternate = on,
+                        b"1048" if on => self.saved = self.rendition,
+                        b"1048" => self.rendition = self.saved,
+                        b"1049" if on => {
+                            self.saved = self.rendition;
+                            self.alternate = true;
+                        }
+                        b"1049" => {
+                            self.alternate = false;
+                            self.rendition = self.saved;
+                        }
+                        _ => {}
+                    }
+                }
+                return;
+            }
+            match last {
+                b'm' => {
+                    for param in body.split(|b| *b == b';') {
+                        self.rendition.styled = !matches!(param, b"" | b"0");
+                    }
+                }
+                b'h' | b'l' if body == b"4" => self.insert = last == b'h',
+                b'r' => self.full_margins = body.is_empty(),
+                b's' => self.saved = self.rendition,
+                b'u' => self.rendition = self.saved,
+                _ => {}
+            }
+        }
+    }
+
+    /// The person's terminal after the command wrote `output` and the relay finished.
+    fn after(output: &[u8]) -> Model {
         let mut screen = Screen::default();
-        let mut out = Vec::new();
-        screen.feed(
-            b"\x1b[?1049h\x1b[?25l\x1b[?1h\x1b=\x1b[1m\x1b(0\x0e",
-            &mut out,
-        );
-        assert_eq!(
-            screen.restore(),
-            b"\x1b[0m\x1b(B\x0f\x1b[?1l\x1b>\x1b[?25h\x1b[?1049l"
-        );
-        screen.feed(
-            b"\x1b[0m\x1b(B\x0f\x1b[?1l\x1b>\x1b[?25h\x1b[?1049l",
-            &mut out,
-        );
-        assert_eq!(screen.restore(), b"");
+        let mut shown = Vec::new();
+        screen.feed(output, &mut shown);
+        shown.extend_from_slice(&restore(screen.alternate()));
+        let mut model = Model::default();
+        model.apply(&shown);
+        model
+    }
+
+    #[test]
+    fn every_mode_a_command_may_set_is_back_as_it_was_after_it_ends() {
+        for output in [
+            &b"\x1b[?7l"[..],
+            b"\x1b[4h",
+            b"\x1b[5;10r",
+            b"\x1b[?25l\x1b[?1h\x1b=",
+            b"\x1b[1;31m\x1b(0\x1b)0\x0e",
+            b"\x1b[?1049h\x1b[8m\x1b[?7l\x1b[4h\x1b[2;5r",
+            b"\x1b[?47h\x1b[7m",
+            b"\x1b[?1047h",
+        ] {
+            assert_eq!(after(output), Model::default(), "{output:?}");
+        }
+    }
+
+    #[test]
+    fn saving_and_restoring_the_cursor_cant_carry_attributes_past_the_end() {
+        for output in [
+            // Concealed, saved, plain again, restored: concealed at the end.
+            &b"\x1b[8m\x1b7\x1b[0m\x1b8"[..],
+            b"\x1b[8m\x1b[s\x1b[0m\x1b[u",
+            b"\x1b(0\x1b7\x1b(B\x1b8",
+            b"\x1b[8m\x1b[?1048h\x1b[0m\x1b[?1048l",
+            // Concealed saved by the alternate screen and restored on leaving it.
+            b"\x1b[8m\x1b[?1049h\x1b[0m\x1b[?1049l",
+            b"\x1b[?1049h\x1b[8m\x1b7\x1b[0m\x1b8",
+            // A concealed rendition left in the saved slot, for the person's prompt to restore.
+            b"\x1b[8m\x1b7\x1b[0m",
+        ] {
+            assert_eq!(after(output), Model::default(), "{output:?}");
+        }
+    }
+
+    #[test]
+    fn the_restore_needs_no_knowledge_of_what_the_command_did() {
+        // Even a filter that missed every mode change leaves the terminal as it was: the
+        // restore is unconditional.
+        let mut model = Model::default();
+        model.apply(b"\x1b[?7l\x1b[4h\x1b[3;9r\x1b[8m\x1b7\x1b[?25l\x1b[?1h\x1b=\x1b)0\x0e");
+        model.apply(&restore(false));
+        assert_eq!(model, Model::default());
+    }
+
+    #[test]
+    fn only_operations_that_act_within_the_visible_screen_are_kept() {
+        for kept in [
+            &b"\x1b[J"[..],
+            b"\x1b[0J",
+            b"\x1b[1J",
+            b"\x1b[2J",
+            b"\x1b[2K",
+            b"\x1b[5;10H",
+            b"\x1b[;H",
+            b"\x1b[3;20r",
+            b"\x1b[r",
+            b"\x1b[s",
+            b"\x1b[u",
+            b"\x1b[4X",
+            b"\x1b[2T",
+            b"\x1b[38:2::1:2:3m",
+        ] {
+            assert_eq!(shown(kept), kept, "{:?}", String::from_utf8_lossy(kept));
+        }
+        for dropped in [
+            // Erases the person's scrollback.
+            &b"\x1b[3J"[..],
+            b"\x1b[3K",
+            b"\x1b[0;3J",
+            // Too many parameters: other operations share these finals.
+            b"\x1b[1;2;3H",
+            b"\x1b[1;2;3;4;5T",
+            b"\x1b[1;2A",
+            b"\x1b[5;10s",
+            b"\x1b[1u",
+            b"\x1b[1;2;3r",
+            // Sub-parameters belong to SGR alone.
+            b"\x1b[1:2H",
+        ] {
+            assert_eq!(
+                shown(&[b"<", dropped, b">"].concat()),
+                b"<>",
+                "{:?}",
+                String::from_utf8_lossy(dropped)
+            );
+        }
     }
 }

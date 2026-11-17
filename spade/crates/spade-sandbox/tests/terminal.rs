@@ -152,8 +152,8 @@ assert "plain text" in text and "\x1b[1;31mred\x1b[0m" in text and "after" in te
 for leak in ["]52","]5","]0;","]2;","title","[18t","[8;5;5t","[6n","[c","[>c","\x05","\x1bP","+q",
              "\x1b_","AAAA","\x1b^","private","\x1bX","sos","\u009b","\u009d","1000"]:
  assert leak not in text,(leak,repr(text))
-# The alternate screen a full-screen tool asks for passes, and is left again at the end.
-assert "\x1b[?1049h" in text and text.rstrip().endswith("\x1b[?1049l"),repr(text)
+# The alternate screen a full-screen tool asks for passes, and is left first at the end.
+assert "\x1b[?1049h" in text and "after\r\r\n\x1b[?1049l\x1b[?1047l" in text,repr(text)
 "#;
     drive(inside, parent);
 }
@@ -180,4 +180,49 @@ assert "\x1b[?1049h" in text and "line 0 of the notes" in text and "less done" i
 assert "PID" in text and "\x1b[H" in text and "top done" in text,repr(text[-3000:])
 "#;
     drive(inside, parent);
+}
+
+/// The bytes every finished relay ends with (`linux/screen.rs`), as Python sees them.
+const RESTORE: &str =
+    r#"b"\x1b[?1047l\x1b[0m\x1b(B\x1b)B\x0f\x1b[?7h\x1b[4l\x1b7\x1b[r\x1b8\x1b[?25h\x1b[?1l\x1b>""#;
+
+#[test]
+fn a_command_on_a_terminal_ends_well_within_the_drain_timeout() {
+    let parent = format!(
+        r#"
+m,s=terminal(); start=time.time()
+p=subprocess.Popen(ARGS,stdin=s,stdout=s,stderr=s)
+text=collect(m,p); took=time.time()-start
+assert p.returncode==0,(p.returncode,text)
+assert took<1.0,("the launcher waited out its drain timeout",took)
+assert text.encode().endswith({RESTORE}),repr(text)
+"#
+    );
+    drive("print('done')", &parent);
+}
+
+#[test]
+fn a_slow_reader_still_gets_the_restore_sequence() {
+    // 200 kB read at about 40 kB/s: what is still buffered when the command ends takes the
+    // reader longer than the two-second drain.
+    let inside = r#"import os
+os.write(1,b"\x1b[?25l\x1b[?7l\x1b[8m")
+line=b"x"*1023+b"\n"
+for _ in range(200): os.write(1,line)
+"#;
+    let parent = format!(
+        r#"
+m,s=terminal()
+p=subprocess.Popen(ARGS,stdin=subprocess.DEVNULL,stdout=s,stderr=s)
+out=b""; quiet=0
+while quiet<10:
+ r,_,_=select.select([m],[],[],0.1)
+ if r:
+  out+=os.read(m,4096); quiet=0; time.sleep(0.1)
+ elif p.poll() is not None: quiet+=1
+assert p.returncode==0,p.returncode
+assert out.endswith({RESTORE}),repr(out[-300:])
+"#
+    );
+    drive(inside, &parent);
 }

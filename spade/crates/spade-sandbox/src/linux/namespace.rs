@@ -25,8 +25,11 @@ pub fn run(args: &[OsString], terminal: Option<Dedicated>) -> Result<ExitCode, S
         None => super::pty::caller()?,
     };
     control.stdio(&stdio)?;
+    // Init has its copies now. Ours of the command's stdin goes at once: when it is the pty, a
+    // copy kept here would hold the pty open and the relay would wait out its drain for it.
     // Init's own messages go where the command's output goes.
-    let [_, stdout, stderr] = stdio;
+    let [stdin, stdout, stderr] = stdio;
+    drop(stdin);
     let mut child = Command::new("/usr/bin/unshare")
         .args([
             "--user",

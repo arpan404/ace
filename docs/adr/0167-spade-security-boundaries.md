@@ -317,10 +317,33 @@ no reviewer) apply there as on macOS.
    mouse, focus and paste modes, other private modes, sequences with a private marker or
    intermediates (cursor style, soft reset, key modifiers), resets, tab-stop changes, other C0
    controls, and 8-bit C1 controls, raw or UTF-8 encoded, with overlong and surrogate encodings
-   refused. A string left open ends at the next ESC, as on a terminal. When the output ends the
-   relay undoes what kept sequences left on: the main screen, cursor, keys, character set and
-   plain text. The accepted cost: tools that wait on a query (a cursor-position report) time
-   out and fall back.
+   refused. A string left open ends at the next ESC, as on a terminal. Each kept CSI operation
+   is checked with the parameters it takes within the visible screen: erase in display or line
+   only with no parameter, 0, 1 or 2 (`ESC[3J`, which erases the person's scrollback, is
+   dropped), cursor position and scroll margins with at most two numbers, cursor save and
+   restore with none, the other movement, erasing, inserting, deleting, scrolling and repeat
+   operations with at most one, sub-parameters only in SGR. The accepted cost: tools that wait
+   on a query (a cursor-position report) time out and fall back.
+
+   The end of the output always restores the person's terminal, whatever the command did,
+   since tracking modes failed: cursor save and restore and the alternate screen carry
+   attributes past a reset (`ESC[8m ESC7 ESC[0m ESC8` left text concealed), and autowrap, insert
+   mode and margins weren't tracked. The relay sends `?1049l` if the command is on a `?1049h`
+   alternate screen (on the main screen it would move the cursor to the command's last saved
+   position), then, unconditionally, leaves any alternate screen (`?1047l`), resets SGR, puts
+   ASCII in G0 and G1 and shifts in, turns autowrap on and insert mode off, saves the cursor,
+   resets the scroll margins to the full screen and restores the cursor (resetting the margins
+   homes it; this also leaves a clean rendition in the cursor-save slot for the person's
+   prompt), shows the cursor, and resets cursor-key and keypad modes. These are a normal
+   terminal's defaults.
+
+   The restore is sent on every way out. The output worker writes whole sequences under a lock
+   that the relay's end also takes, so the restore follows the last complete write and nothing
+   follows it. Finishing waits up to two seconds for the last output; then, or when the relay is
+   dropped on an error or unwind, the end is sent from its own thread, waited for up to five
+   seconds, so a slow reader still gets it and only a terminal that reads nothing misses it. The
+   outer launcher drops its copy of the command's stdin as soon as init has it: a kept pty
+   descriptor had held the pty open, so every run on a terminal waited out the two seconds.
 
    Raw mode is held by a guard set before the change is applied and dropped on every way out:
    finishing, an error, a failed thread start (every relay thread starts through
@@ -449,7 +472,10 @@ no reviewer) apply there as on macOS.
 Real-kernel regression tests cover the person's terminal and another same-user PTY (only the
 dedicated pty opens; size and mode changes land only on it, even through a leaked descriptor),
 clipboard, title, window and query sequences split across reads never reaching it while `less`
-and `top` still render, raw mode undone after a failure that follows it, a contained process
+and `top` still render, a terminal model returning to its defaults after every kept mode
+(including through cursor save and restore and the alternate screen), the restore reaching a
+slow reader and an unfinished relay's drop, a run on a terminal ending well inside the drain
+time, `ESC[3J` dropped, raw mode undone after a failure that follows it, a contained process
 planting links where launcher state used to live while 40 runs end by a signal,
 another process's command line under both `/proc` plans, metadata variants with path/fd and
 symlink races, SysV IPC, host POSIX shm, an unlisted syscall, compatibility-ABI refusal and

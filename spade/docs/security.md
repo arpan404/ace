@@ -184,9 +184,23 @@ OSC (clipboard, title, hyperlinks, colours), DCS, APC, PM and SOS string; `CSI â
 controls; queries whose answers would come back as input (`CSI n`, `CSI c`, ENQ, `ESC Z`,
 DECRQM and the like); mouse, focus and paste modes and other private modes; sequences with a
 private marker or intermediates; resets and tab stops; other C0 controls; 8-bit C1 controls,
-raw or UTF-8 encoded, and overlong or surrogate encodings. When the output ends, what kept
-sequences left on (alternate screen, hidden cursor, application keys, line drawing, colours)
-is undone. Tools that wait on a terminal query time out and fall back.
+raw or UTF-8 encoded, and overlong or surrogate encodings. Each kept CSI operation takes only
+the parameters that act within the visible screen: erase in display or line only with none, 0,
+1 or 2 (`ESC[3J` would erase the person's scrollback), cursor position and margins at most two
+numbers, cursor save and restore none, the other kept operations at most one, sub-parameters
+only in SGR. Tools that wait on a terminal query time out and fall back.
+
+When the output ends the relay always sends the same restore, not one built from tracked
+modes (cursor save and restore and the alternate screen defeat tracking): `?1049l` first if the
+command is on a `?1049h` alternate screen, then leave any alternate screen, plain SGR, ASCII in
+G0 and G1 with SI, autowrap on, insert off, full scroll margins between a cursor save and
+restore (so the cursor stays put and the save slot holds a clean rendition), cursor visible,
+normal cursor keys and keypad. The output worker and the relay's end share a lock, so the
+restore follows the last whole write and nothing follows it. It is sent on every way out:
+after the two-second drain, or when the relay is dropped on an error or unwind, from its own
+thread, waited for up to five seconds, so a slow reader still gets it. The outer launcher
+drops its copy of the command's stdin once init has it, so a run on a terminal no longer waits
+out the drain.
 
 As a second layer, the ioctl allowlist admits only read-only terminal requests directly on any
 descriptor (TCGETS, TCGETS2, TIOCGWINSZ, TIOCGPGRP, TIOCGSID, TIOCGPTN, FIONREAD). Mode and

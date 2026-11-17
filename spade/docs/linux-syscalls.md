@@ -246,12 +246,12 @@ sandbox on a terminal, because they use TCGETS2; it is now a direct read-only re
 
 | Suite                                                      | Passed | Ignored | Both requested grep counts |
 | ---------------------------------------------------------- | -----: | ------: | -------------------------- |
-| cargo test -p spade-sandbox                                |    125 |       1 | 0 / 0                      |
+| cargo test -p spade-sandbox                                |    131 |       1 | 0 / 0                      |
 | cargo test -p spade-server --test security --test effects  |     24 |       0 | 0 / 0                      |
 | cargo test -p spade-server --test computer (terminal tool) |     29 |       0 | 0 / 0                      |
 
 The ignored test is the networked smoke, not run here. The sandbox count is after the
 review follow-up (launcher state over the control channel, the output filter and the raw-mode
-guard); it was 113 before it. The no-user-namespace fallback was
+guard, then the unconditional terminal restore); it was 113 before them. The no-user-namespace fallback was
 probed inside a user namespace with user.max_user_namespaces set to 0 and every capability
 dropped: processes partial with the plain reason, the other six boundaries contained.
