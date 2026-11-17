@@ -9,7 +9,7 @@ const homes: string[] = [];
 afterEach(() => {
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
-function home(): string {
+function newHome(): string {
   const path = mkdtempSync(join(tmpdir(), "ace-home-data-"));
   homes.push(path);
   return path;
@@ -23,7 +23,7 @@ function database(path: string, sql: string): DatabaseSync {
 
 describe("the data formats a home holds", () => {
   it("reads the marker and every database's stored version", () => {
-    const root = home();
+    const root = newHome();
     writeFileSync(
       join(root, "ace-format.json"),
       '{"format":"ace-v1","createdAt":"2026-11-16T00:00:00.000Z"}\n',
@@ -40,7 +40,7 @@ describe("the data formats a home holds", () => {
   });
 
   it("counts a migration another process committed but hasn't checkpointed yet", () => {
-    const root = home();
+    const root = newHome();
     mkdirSync(join(root, "spade"));
     const spade = database(join(root, "spade", "spade.sqlite"), "PRAGMA user_version = 9;");
     try {
@@ -54,7 +54,7 @@ describe("the data formats a home holds", () => {
   });
 
   it("is null for each file the home doesn't have or can't be read", () => {
-    const root = home();
+    const root = newHome();
     writeFileSync(join(root, "ace-format.json"), "not a marker");
     writeFileSync(join(root, "notifications.sqlite"), "not a database");
     expect(readHomeData(root)).toEqual({ home: null, daemon: null, notify: null, spade: null });

@@ -224,8 +224,9 @@ it("publishing refuses staged files whose bytes changed since the build", () => 
   ]);
 });
 
+const data = (sha: string) => ({ name: "ace-data.json", bytes: 50, sha256: sha.repeat(64) });
+
 it("each host's ace-data.json publishes once when they agree, and stops the release when not", () => {
-  const data = (sha: string) => ({ name: "ace-data.json", bytes: 50, sha256: sha.repeat(64) });
   const mac = staged({
     files: [{ name: "latest-mac.yml", bytes: 1, sha256: "1".repeat(64) }, data("a")],
   });

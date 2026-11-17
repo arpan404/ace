@@ -186,6 +186,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     }
   });
   #hostId: string | undefined;
+  /** The daemon build's release line, from its last welcome (ADR 0174). */
+  #releaseLine: string | undefined;
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;
   #history: KeptHistory | undefined;
@@ -242,6 +244,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "welcome":
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("identity", "Transport changed daemon identity");
+            this.#releaseLine = message.releaseLine;
             this.#newSocket();
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
@@ -504,6 +507,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   connectionGeneration(): Selection<number | undefined> {
     return this.notifications.select(["connection", "socket"], () =>
       this.state === "ready" ? this.#socket : undefined,
+    );
+  }
+  releaseLine(): Selection<string | undefined> {
+    return this.notifications.select(["connection", "socket"], () =>
+      this.state === "ready" ? this.#releaseLine : undefined,
     );
   }
   #newSocket(): void {

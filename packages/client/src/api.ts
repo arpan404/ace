@@ -105,6 +105,11 @@ export interface ClientApi {
    * sends under the ids it used there. Thread and sidebar views follow on their own.
    */
   connectionGeneration(): Selection<number | undefined>;
+  /**
+   * The release line the daemon's build belongs to, as its welcome said (`beta`, `stable`, ADR
+   * 0174); undefined while not ready, or from a daemon that doesn't say.
+   */
+  releaseLine?(): Selection<string | undefined>;
   /** The path to the machine the connection uses now (ADR 0114); absent with a single route. */
   activePath?(): Selection<import("@ace/protocol").MachinePathKind | undefined>;
   /** Let `paths` keep the connection on the machine's fastest working path (ADR 0114). */
