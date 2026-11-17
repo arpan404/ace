@@ -26,6 +26,11 @@ const unauthorized = (message = "Valid hello required"): DeviceAdmission => ({
   message,
 });
 const loginPollMs = 2_000;
+/**
+ * How often the daemon reads its session back from the backend. Each read renews it there
+ * (ADR 0100), and the answer carries the new expiry, so a machine left running stays signed in.
+ */
+export const SESSION_RENEW_MS = 60 * 60_000;
 
 /**
  * A sign-in or sign-out that applies only while the daemon still holds the session the caller
@@ -57,6 +62,8 @@ export function machineAccount(options: {
   /** In memory only: a restart gives the session a new id, so no decision outlives it. */
   let sessionId: string | null = null;
   let login: { url: string; expiresAt: number; stop(): void } | undefined;
+  let stopRenewing: () => void = noop;
+  let closed = false;
   let writes: Promise<unknown> = Promise.resolve();
   let codeChecks: Promise<unknown> = Promise.resolve();
   const listeners = new Set<() => void>();
@@ -123,6 +130,52 @@ export function machineAccount(options: {
     }
   }
 
+  /**
+   * Reads the stored session back from the backend, which renews it, and keeps the expiry and
+   * account details it answers with. A session that lapsed here but that the backend still holds
+   * (renewed elsewhere, or a clock that slept) comes back. One the backend no longer knows signs
+   * the machine out while it still looked live; a lapsed one is left for the app to replace.
+   * Network failures keep what is stored and try again on the next round.
+   */
+  async function renew(): Promise<void> {
+    const current = session;
+    if (!current) return;
+    let checked;
+    try {
+      checked = await client(current.origin).session(current.token, AbortSignal.timeout(10_000));
+    } catch (error) {
+      if (error instanceof AceAccountError && error.status === 401 && session === current)
+        await serial(async () => {
+          if (session !== current || current.expiresAt <= options.now()) return;
+          await writeSession(options.dataDir, null);
+          session = undefined;
+          sessionId = null;
+          notify();
+        });
+      return;
+    }
+    if (checked.account.id !== current.account.id) return;
+    await serial(async () => {
+      if (session !== current) return;
+      const wasActive = current.expiresAt > options.now();
+      const next = { ...current, account: checked.account, expiresAt: checked.expiresAt };
+      await writeSession(options.dataDir, next);
+      // The same session, renewed: conditional changes read before this still apply.
+      session = next;
+      if (!wasActive && next.expiresAt > options.now()) notify();
+    });
+  }
+  const scheduleRenew = () => {
+    if (closed) return;
+    stopRenewing = options.delay(() => {
+      void renew()
+        .catch((error: unknown) =>
+          options.log?.(error instanceof Error ? error : new Error(String(error))),
+        )
+        .finally(scheduleRenew);
+    }, SESSION_RENEW_MS);
+  };
+
   /** The grant's verdict under `published`, then the machine code, one check at a time. */
   async function admitWith(
     published: GrantKeySet,
@@ -170,10 +223,18 @@ export function machineAccount(options: {
     return run;
   }
   return {
+    /** Reads the stored session, then keeps it renewed while the daemon runs. */
     async load(): Promise<void> {
       session = await readSession(options.dataDir);
       sessionId = session ? newId() : null;
+      stopRenewing();
+      void renew().catch((error: unknown) =>
+        options.log?.(error instanceof Error ? error : new Error(String(error))),
+      );
+      scheduleRenew();
     },
+    /** Renew the session now (`load` keeps doing it on a timer). */
+    renew,
     status(): MachineAccountStatus {
       const current = active();
       const code = options.codes.current();
@@ -382,6 +443,8 @@ export function machineAccount(options: {
       };
     },
     async close(): Promise<void> {
+      closed = true;
+      stopRenewing();
       stopLogin();
       listeners.clear();
       await writes;
