@@ -18,5 +18,8 @@ ignore = "0.4"
 unicode-normalization = "0.1"
 thiserror = "2"
 
+[target.'cfg(unix)'.dependencies]
+uzers = { version = "0.12", default-features = false }
+
 [dev-dependencies]
 tempfile = "3"

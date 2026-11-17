@@ -204,21 +204,13 @@ fn resolve_path(value: &str, base: &Path) -> Option<PathBuf> {
     })
 }
 
-/// A user's home folder from the password database; only unix keeps one ace can read.
+/// A user's home folder from the system's user database; only unix has one, and macOS keeps its
+/// accounts somewhere `/etc/passwd` does not show.
 #[cfg(unix)]
 fn home_of(user: &str) -> Option<PathBuf> {
-    let database = std::fs::read_to_string("/etc/passwd").ok()?;
-    for line in database.lines() {
-        let mut fields = line.split(':');
-        if fields.next() != Some(user) {
-            continue;
-        }
-        let home = fields.nth(4)?;
-        if !home.is_empty() {
-            return Some(PathBuf::from(home));
-        }
-    }
-    None
+    use uzers::os::unix::UserExt;
+    let user = uzers::get_user_by_name(user)?;
+    Some(user.home_dir().to_path_buf())
 }
 
 #[cfg(not(unix))]
@@ -231,4 +223,41 @@ fn read_bounded(path: &Path) -> Option<String> {
     let mut bytes = Vec::new();
     file.take(MAX_CONFIG_BYTES).read_to_end(&mut bytes).ok()?;
     String::from_utf8(bytes).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_value_ends_at_an_unquoted_comment() {
+        assert_eq!(unquote("extra-ignore ; notes"), "extra-ignore");
+        assert_eq!(unquote("extra-ignore # notes"), "extra-ignore");
+        assert_eq!(unquote("\"a # b\" ; notes"), "a # b");
+        assert_eq!(unquote("\"quoted value\""), "quoted value");
+        assert_eq!(unquote("  padded  "), "padded");
+    }
+
+    #[test]
+    fn a_leading_tilde_expands_to_a_home_folder() {
+        let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+        let base = Path::new("/checkout");
+        assert_eq!(resolve_path("~", base), Some(home.clone()));
+        assert_eq!(
+            resolve_path("~/ignore", base),
+            Some(home.join("ignore")),
+            "git expands a leading tilde before anything reads the file"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_named_tilde_uses_that_users_home() {
+        let Ok(user) = std::env::var("USER") else {
+            return;
+        };
+        assert_eq!(home_of(&user), std::env::var_os("HOME").map(PathBuf::from));
+    }
 }

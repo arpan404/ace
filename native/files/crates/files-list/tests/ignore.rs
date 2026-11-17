@@ -336,3 +336,39 @@ fn a_nested_repository_ignores_by_its_own_rules() {
     let outer = first_page(&lister(repo), "", &options(100));
     assert!(entry(&outer.entries, "top.log").ignored);
 }
+
+#[test]
+fn a_core_excludes_file_value_ignores_a_trailing_comment() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    folder(root, ".git");
+    write(
+        root,
+        ".git/config",
+        "[core]\n\texcludesFile = extra-ignore ; this is a note\n",
+    );
+    write(root, "extra-ignore", "*.ignored-by-test\n");
+    write(root, IGNORED, "x");
+
+    let page = first_page(&lister(root), "", &options(100));
+
+    assert!(entry(&page.entries, IGNORED).ignored);
+}
+
+#[test]
+fn a_quoted_core_excludes_file_keeps_its_spaces() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    folder(root, "ignore files");
+    write(
+        root,
+        ".git/config",
+        "[core]\n\texcludesFile = \"ignore files/extra\" # quoted\n",
+    );
+    write(root, "ignore files/extra", "*.ignored-by-test\n");
+    write(root, IGNORED, "x");
+
+    let page = first_page(&lister(root), "", &options(100));
+
+    assert!(entry(&page.entries, IGNORED).ignored);
+}
