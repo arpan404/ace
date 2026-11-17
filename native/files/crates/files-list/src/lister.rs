@@ -10,7 +10,7 @@ use files_safe::Root;
 
 use crate::clock::{Clock, SystemClock};
 use crate::cursor::Cursor;
-use crate::entry::{Entry, Kind, kind_of, millis, size_of};
+use crate::entry::{Entry, Kind, kind_of, millis, size_of, symlink_kind};
 use crate::error::Error;
 use crate::hide::Hidden;
 use crate::page::{ListOptions, Page};
@@ -77,8 +77,9 @@ impl Lister {
             ),
         };
         let hidden = Hidden::build(self.root.path(), &options.hide)?;
+        let handle = self.root.open_dir(dir)?;
         let rules = self.rules_for(dir)?;
-        let snapshot = self.snapshot(dir, &rules, &hidden)?;
+        let snapshot = self.snapshot(dir, &handle, &rules, &hidden)?;
         let total = snapshot.total();
         let offset = match cursor {
             None => 0,
@@ -114,7 +115,7 @@ impl Lister {
             .encode()
         });
         Ok(Page {
-            entries: snapshot.entries(offset..end),
+            entries: snapshot.entries(&handle, offset..end),
             next_cursor,
             total,
         })
@@ -122,29 +123,33 @@ impl Lister {
 
     /// Reports one entry, following nothing: a symlink reports what it points at.
     ///
-    /// The root itself is not an entry of anything, so the empty path is `INVALID_PATH`.
+    /// The name reported is the one the folder stores, which is also the name git's ignore rules
+    /// are matched against. The root itself is not an entry of anything, so the empty path is
+    /// `INVALID_PATH`.
     pub fn stat(&self, path: &str) -> Result<Entry, Error> {
         Root::check(path)?;
         if path.is_empty() {
             return Err(Error::Path(files_safe::Error::InvalidPath(String::new())));
         }
-        let (parent, name) = split_leaf(path);
-        let parent_abs = self.root.resolve(parent)?;
-        let metadata = std::fs::symlink_metadata(parent_abs.join(name))?;
-        let file_type = metadata.file_type();
-        let kind = if file_type.is_symlink() {
-            symlink_kind(&self.root, path)
+        let (parent, _) = split_leaf(path);
+        let (handle, name) = self.root.open_parent(path)?;
+        let metadata = handle.symlink_metadata(&name)?;
+        let kind = if metadata.file_type().is_symlink() {
+            symlink_kind(&handle, &name)
         } else {
-            kind_of(&file_type)
+            kind_of(&metadata.file_type())
         };
         let rules = self.rules_for(parent)?;
         let is_dir = matches!(kind, Kind::Directory);
         Ok(Entry {
-            ignored: rules.folder_ignored() || rules.ignored(name, is_dir),
+            ignored: rules.folder_ignored() || rules.ignored(&name, is_dir),
             path: path.to_owned(),
-            name: name.to_owned(),
+            name,
             size: size_of(&metadata, &kind),
-            mtime_ms: metadata.modified().map(millis).unwrap_or(0),
+            mtime_ms: metadata
+                .modified()
+                .map(|time| millis(time.into_std()))
+                .unwrap_or(0),
             kind,
         })
     }
@@ -163,7 +168,7 @@ impl Lister {
     /// dropped, so the next listing reports the new flags without anyone calling `invalidate`.
     fn rules_for(&self, dir: &str) -> Result<Arc<Rules>, Error> {
         if let Some(cached) = self.cached_rules(dir) {
-            if cached.is_current() {
+            if cached.is_current(&self.root) {
                 return Ok(cached);
             }
             self.forget(dir);
@@ -172,7 +177,7 @@ impl Lister {
             Rules::root(&self.root)
         } else {
             let (parent, name) = split_leaf(dir);
-            self.rules_for(parent)?.child(name)
+            self.rules_for(parent)?.child(name, &self.root)
         };
         let rules = Arc::new(rules);
         if let Ok(mut cache) = self.rules.lock() {
@@ -203,13 +208,14 @@ impl Lister {
     }
 
     /// The listing of `dir`, re-read when the folder or the hide patterns changed.
-    fn snapshot(&self, dir: &str, rules: &Rules, hidden: &Hidden) -> Result<Arc<Snapshot>, Error> {
-        let abs = self.root.resolve(dir)?;
-        let metadata = std::fs::metadata(&abs)?;
-        if !metadata.is_dir() {
-            return Err(Error::NotDirectory(dir.to_owned()));
-        }
-        let stamp = Stamp::of(&metadata);
+    fn snapshot(
+        &self,
+        dir: &str,
+        handle: &cap_std::fs::Dir,
+        rules: &Rules,
+        hidden: &Hidden,
+    ) -> Result<Arc<Snapshot>, Error> {
+        let stamp = Stamp::of(&handle.dir_metadata()?);
         let racy = stamp.is_racy(self.clock.now());
         let hide = hidden.fingerprint();
         if let Some(cached) = self.cached_snapshot(dir)
@@ -218,29 +224,13 @@ impl Lister {
         {
             return Ok(cached);
         }
-        let fresh = Arc::new(snapshot::read(
-            &self.root, dir, &abs, stamp, racy, rules, hidden,
-        )?);
+        let fresh = Arc::new(snapshot::read(dir, handle, stamp, racy, rules, hidden)?);
         // A folder that changed within the racy window is not cached: its stamp cannot prove it
         // will look the same on the next call, so the next call reads it again.
         if !racy && let Ok(mut cache) = self.snapshots.lock() {
             cache.insert(dir, Arc::clone(&fresh), fresh.total());
         }
         Ok(fresh)
-    }
-}
-
-/// A symlink's target kind, but only while the target is inside the root.
-fn symlink_kind(root: &Root, path: &str) -> Kind {
-    match root
-        .resolve(path)
-        .ok()
-        .and_then(|abs| std::fs::metadata(abs).ok())
-    {
-        Some(metadata) => Kind::Symlink {
-            target: Some(Box::new(kind_of(&metadata.file_type()))),
-        },
-        None => Kind::Symlink { target: None },
     }
 }
 

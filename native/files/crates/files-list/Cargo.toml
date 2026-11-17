@@ -13,6 +13,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+cap-std = "4"
 files-safe = { path = "../files-safe" }
 ignore = "0.4"
 unicode-normalization = "0.1"

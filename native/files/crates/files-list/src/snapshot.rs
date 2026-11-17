@@ -4,14 +4,15 @@
 //!
 //! Reading a folder of 100,000 names costs one directory read and one sort. The size and time of
 //! an entry are only read when that entry lands in a page, so showing the first 500 of 100,000
-//! costs 500 stats instead of 100,000.
+//! costs 500 stats instead of 100,000. Both happen through the folder's own handle: nothing here
+//! re-walks a path, so a folder renamed mid-listing cannot make ace stat something else.
 
-use files_safe::Root;
 use std::cmp::Ordering;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
 
-use crate::entry::{Entry, Kind, kind_of, millis, size_of};
+use cap_std::fs::Dir;
+
+use crate::entry::{Entry, Kind, kind_of, millis, size_of, symlink_kind};
 use crate::error::Error;
 use crate::hide::Hidden;
 use crate::rules::Rules;
@@ -38,7 +39,6 @@ pub(crate) struct Snapshot {
     pub(crate) racy: bool,
     /// The hide patterns this listing was filtered with.
     pub(crate) hide: String,
-    abs: PathBuf,
     items: Vec<Item>,
 }
 
@@ -47,26 +47,26 @@ impl Snapshot {
         self.items.len()
     }
 
-    /// The entries in `range`, reading the numbers the panel shows now.
+    /// The entries in `range`, reading the numbers the panel shows now through `dir`.
     ///
     /// A file that vanished between the folder read and this page reports zeroes; the next
     /// listing is the one that stops showing it.
-    pub(crate) fn entries(&self, range: Range<usize>) -> Vec<Entry> {
+    pub(crate) fn entries(&self, dir: &Dir, range: Range<usize>) -> Vec<Entry> {
         self.items[range]
             .iter()
-            .map(|item| self.entry(item))
+            .map(|item| self.entry(dir, item))
             .collect()
     }
 
-    fn entry(&self, item: &Item) -> Entry {
-        let metadata = std::fs::symlink_metadata(self.abs.join(&item.name)).ok();
+    fn entry(&self, dir: &Dir, item: &Item) -> Entry {
+        let metadata = dir.symlink_metadata(&item.name).ok();
         let size = metadata
             .as_ref()
             .map_or(0, |metadata| size_of(metadata, &item.kind));
         let mtime_ms = metadata
             .as_ref()
             .and_then(|metadata| metadata.modified().ok())
-            .map_or(0, millis);
+            .map_or(0, |time| millis(time.into_std()));
         Entry {
             path: item.path.clone(),
             name: item.name.clone(),
@@ -78,20 +78,19 @@ impl Snapshot {
     }
 }
 
-/// Reads `abs` (the folder `dir` under `root`) and returns every entry the contract lists.
+/// Reads the folder behind `handle`, which is the folder `dir` under the checkout root.
 pub(crate) fn read(
-    root: &Root,
     dir: &str,
-    abs: &Path,
+    handle: &Dir,
     stamp: Stamp,
     racy: bool,
     rules: &Rules,
     hidden: &Hidden,
 ) -> Result<Snapshot, Error> {
     let mut items = Vec::new();
-    for entry in std::fs::read_dir(abs)? {
+    for entry in handle.entries()? {
         let entry = entry?;
-        if let Some(item) = item_for(root, dir, &entry, rules, hidden)? {
+        if let Some(item) = item_for(handle, dir, &entry, rules, hidden)? {
             items.push(item);
         }
     }
@@ -100,7 +99,6 @@ pub(crate) fn read(
         stamp,
         racy,
         hide: hidden.fingerprint().to_owned(),
-        abs: abs.to_path_buf(),
         items,
     })
 }
@@ -108,9 +106,9 @@ pub(crate) fn read(
 /// One directory item, or `None` when it cannot be a path the API can send back or the caller
 /// asked for it to be hidden.
 fn item_for(
-    root: &Root,
+    handle: &Dir,
     dir: &str,
-    entry: &std::fs::DirEntry,
+    entry: &cap_std::fs::DirEntry,
     rules: &Rules,
     hidden: &Hidden,
 ) -> Result<Option<Item>, Error> {
@@ -122,12 +120,12 @@ fn item_for(
     } else {
         format!("{dir}/{name}")
     };
-    if Root::check(&path).is_err() {
+    if files_safe::Root::check(&path).is_err() {
         return Ok(None);
     }
     let file_type = entry.file_type()?;
     let kind = if file_type.is_symlink() {
-        symlink_kind(root, &path)
+        symlink_kind(handle, &name)
     } else {
         kind_of(&file_type)
     };
@@ -144,20 +142,6 @@ fn item_for(
         name,
         kind,
     }))
-}
-
-/// A symlink's target kind, but only while the target is inside the root.
-fn symlink_kind(root: &Root, path: &str) -> Kind {
-    match root
-        .resolve(path)
-        .ok()
-        .and_then(|abs| std::fs::metadata(abs).ok())
-    {
-        Some(metadata) => Kind::Symlink {
-            target: Some(Box::new(kind_of(&metadata.file_type()))),
-        },
-        None => Kind::Symlink { target: None },
-    }
 }
 
 /// Folders first, then everything else, each in case-insensitive natural order with the exact

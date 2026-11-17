@@ -2,8 +2,9 @@
 
 //! What a single folder entry is, and the per-entry numbers the panel shows.
 
-use std::fs::{FileType, Metadata};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use cap_std::fs::{Dir, FileType, Metadata};
 
 /// What an entry is, as the Files panel draws it.
 ///
@@ -63,6 +64,20 @@ pub(crate) fn kind_of(file_type: &FileType) -> Kind {
         Kind::File
     } else {
         Kind::Other
+    }
+}
+
+/// A symlink's target kind, read through the folder's own handle.
+///
+/// The handle only reaches inside the root, so a link that leads out of it is refused by the
+/// filesystem layer; that refusal is the answer, not an error: the entry is a symlink ace will
+/// not follow, and the panel shows it as one.
+pub(crate) fn symlink_kind(dir: &Dir, name: &str) -> Kind {
+    match dir.metadata(name) {
+        Ok(metadata) => Kind::Symlink {
+            target: Some(Box::new(kind_of(&metadata.file_type()))),
+        },
+        Err(_) => Kind::Symlink { target: None },
     }
 }
 

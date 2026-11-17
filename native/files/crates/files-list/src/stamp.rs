@@ -8,8 +8,9 @@
 //! applies the same rule to its index, and ace treats such a folder as unsettled: it is never
 //! cached and its cursors are refused until it settles.
 
-use std::fs::Metadata;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use cap_std::fs::Metadata;
 
 /// How recently a folder may have changed before its stamp counts as proof of no change.
 pub(crate) const RACY_WINDOW_NANOS: u128 = 2_000_000_000;
@@ -25,7 +26,10 @@ pub(crate) struct Stamp {
 impl Stamp {
     pub(crate) fn of(metadata: &Metadata) -> Stamp {
         Stamp {
-            mtime_ns: metadata.modified().ok().map_or(0, nanos_since_epoch),
+            mtime_ns: metadata
+                .modified()
+                .ok()
+                .map_or(0, |time| nanos_since_epoch(time.into_std())),
             ctime_ns: ctime_ns(metadata),
             inode: inode(metadata),
         }
@@ -45,7 +49,7 @@ pub(crate) fn nanos_since_epoch(time: SystemTime) -> u128 {
 
 #[cfg(unix)]
 fn inode(metadata: &Metadata) -> u64 {
-    std::os::unix::fs::MetadataExt::ino(metadata)
+    cap_std::fs::MetadataExt::ino(metadata)
 }
 
 #[cfg(not(unix))]
@@ -55,7 +59,7 @@ fn inode(_metadata: &Metadata) -> u64 {
 
 #[cfg(unix)]
 fn ctime_ns(metadata: &Metadata) -> u128 {
-    use std::os::unix::fs::MetadataExt;
+    use cap_std::fs::MetadataExt;
     let seconds = metadata.ctime();
     if seconds < 0 {
         return 0;
@@ -66,5 +70,8 @@ fn ctime_ns(metadata: &Metadata) -> u128 {
 
 #[cfg(not(unix))]
 fn ctime_ns(metadata: &Metadata) -> u128 {
-    metadata.created().ok().map_or(0, nanos_since_epoch)
+    metadata
+        .created()
+        .ok()
+        .map_or(0, |time| nanos_since_epoch(time.into_std()))
 }

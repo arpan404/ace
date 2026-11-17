@@ -4,8 +4,6 @@
 
 mod support;
 
-use std::fs::File;
-
 use files_list::{Kind, ListOptions};
 use tempfile::TempDir;
 
@@ -153,12 +151,17 @@ fn lists_the_same_folder_from_several_threads() {
     assert!(pages.windows(2).all(|pair| pair[0] == pair[1]));
 }
 
+// APFS and HFS+ refuse a name that is not UTF-8, so only Linux can hold one to skip.
+#[cfg(target_os = "linux")]
 #[test]
 fn does_not_list_entries_the_api_could_not_address() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
     let home = TempDir::new().unwrap();
     let root = home.path();
     support::write(root, "plain.txt", "x");
-    File::create(root.join("back\\slash.txt")).unwrap();
+    File::create(root.join(OsStr::from_bytes(b"not-utf8-\xff.txt"))).unwrap();
 
     let listing = first_page(&lister(root), "", &options(10));
 

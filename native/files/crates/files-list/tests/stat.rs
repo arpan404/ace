@@ -176,3 +176,53 @@ fn a_lister_can_be_moved_to_another_thread() {
 
     assert_eq!(total, 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_to_outside_lists_without_a_target_kind() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    let elsewhere = TempDir::new().unwrap();
+    write(elsewhere.path(), "outside.txt", "x");
+    support::symlink(
+        root,
+        "escape",
+        &elsewhere.path().join("outside.txt").display().to_string(),
+    );
+
+    let lister = lister(root);
+    let page = support::first_page(&lister, "", &options(10));
+    let listed = support::entry(&page.entries, "escape");
+    assert_eq!(listed.kind, Kind::Symlink { target: None });
+    assert_eq!(
+        lister.stat("escape").unwrap().kind,
+        Kind::Symlink { target: None }
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_that_was_moved_and_replaced_reports_path_changed() {
+    let home = TempDir::new().unwrap();
+    let root = home.path().join("checkout");
+    folder(&root, "src");
+    write(&root, "src/main.rs", "x");
+    let lister = lister(&root);
+
+    std::fs::rename(&root, home.path().join("moved")).unwrap();
+    folder(home.path(), "elsewhere");
+    support::symlink(
+        home.path(),
+        "checkout",
+        &home.path().join("elsewhere").display().to_string(),
+    );
+
+    assert_eq!(
+        lister.list("", &options(10)).unwrap_err().code(),
+        "PATH_CHANGED"
+    );
+    assert_eq!(
+        lister.stat("src/main.rs").unwrap_err().code(),
+        "PATH_CHANGED"
+    );
+}
