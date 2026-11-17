@@ -7,9 +7,10 @@
 //! that file is done. Binary files are skipped, long lines are cut to a 400-byte preview, and the
 //! match cap stops every walker thread as soon as it is reached.
 //!
-//! Hidden files and folders are not searched, as ripgrep does by default. Git's rules come from
-//! `.gitignore` files at and below the root and from `.git/info/exclude`; the user's global
-//! excludes file is not consulted, so a search depends only on the checkout.
+//! Hidden files and folders are searched, as the Files panel lists them; the caller's `exclude`
+//! globs decide what to leave out, including `.git`. Git's rules come from `.gitignore` files at
+//! and below the root and from `.git/info/exclude`; the user's global excludes file is not
+//! consulted, so a search depends only on the checkout.
 
 mod error;
 mod pattern;

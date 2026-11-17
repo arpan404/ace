@@ -87,6 +87,7 @@ pub(crate) fn run(
     let mut builder = WalkBuilder::new(root.path());
     builder
         .overrides(overrides)
+        .hidden(false)
         .parents(false)
         .require_git(false)
         .git_global(false)

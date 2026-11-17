@@ -271,6 +271,69 @@ fn long_line_preview_is_bounded() -> TestResult {
 }
 
 #[test]
+fn searches_hidden_files_and_folders() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    write(temp.path(), ".env", "needle\n")?;
+    write(temp.path(), ".config/app.txt", "needle\n")?;
+    let root = Root::open(temp.path())?;
+    let (files, summary) = run(&root, &query("needle"))?;
+
+    assert_eq!(paths(&files), [".config/app.txt", ".env"]);
+    assert_eq!(summary.matches, 2);
+    Ok(())
+}
+
+#[test]
+fn reports_every_match_on_a_line() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    write(temp.path(), "twice.txt", "needle and needle\n")?;
+    let root = Root::open(temp.path())?;
+    let (files, summary) = run(&root, &query("needle"))?;
+
+    assert_eq!(summary.matches, 2);
+    assert_eq!(files.len(), 1);
+    let line = &files[0].lines[0];
+    assert_eq!(line.ranges, [(0, 6), (11, 17)]);
+    for (start, end) in &line.ranges {
+        assert_eq!(&line.preview[*start as usize..*end as usize], "needle");
+    }
+    Ok(())
+}
+
+#[test]
+fn preview_offsets_survive_multibyte_text() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    write(temp.path(), "accent.txt", "héllo needle\n")?;
+    let root = Root::open(temp.path())?;
+    let (files, _summary) = run(&root, &query("needle"))?;
+
+    assert_eq!(files.len(), 1);
+    let line = &files[0].lines[0];
+    assert_eq!(line.preview, "héllo needle");
+    let (start, end) = line.ranges[0];
+    assert_eq!(start, 7);
+    assert_eq!(&line.preview[start as usize..end as usize], "needle");
+    Ok(())
+}
+
+#[test]
+fn max_file_bytes_skips_large_files() -> TestResult {
+    let temp = tempfile::tempdir()?;
+    write(temp.path(), "small.txt", "needle\n")?;
+    let mut large = String::from("needle\n");
+    large.push_str(&"x".repeat(200));
+    write(temp.path(), "large.txt", large)?;
+    let root = Root::open(temp.path())?;
+    let mut query = query("needle");
+    query.max_file_bytes = 50;
+    let (files, summary) = run(&root, &query)?;
+
+    assert_eq!(paths(&files), ["small.txt"]);
+    assert_eq!(summary.files, 1);
+    Ok(())
+}
+
+#[test]
 fn cancel_stops_search() -> TestResult {
     let temp = tempfile::tempdir()?;
     write(temp.path(), "a.txt", "needle\n")?;
