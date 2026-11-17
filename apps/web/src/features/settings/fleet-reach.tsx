@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { RemoteNetworks } from "@ace/protocol";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { HairlineRow, RowAction, RowGroup, StateWords } from "@/components/hairline-row.tsx";
@@ -39,8 +39,10 @@ export function ReachRows(props: {
   machine: Machine;
   label: string;
   dependents: Dependents;
-  /** This computer's account row signs it in and out here (the overview); else it only says. */
+  /** This computer's account row signs it in and out here (when asked); else it only says, since Security signs it in and out. */
   signIn?: boolean;
+  /** Rows after the networks: the machine's links with the others. */
+  children?: ReactNode;
 }) {
   const [risky, setRisky] = useState<Confirming>();
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
@@ -87,6 +89,7 @@ export function ReachRows(props: {
           ))}
         </>
       )}
+      {props.children}
       <ConfirmDialog confirming={risky} onDone={() => setRisky(undefined)} />
     </RowGroup>
   );
