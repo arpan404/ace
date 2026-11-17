@@ -9,6 +9,7 @@ import {
   follow,
 } from "./flags.ts";
 import type { CommandSpec, NounSpec } from "./spec.ts";
+import { projectCommands, requestCommands } from "./work-requests.ts";
 
 /** Threads, what needs the person, and projects (ADR 0176 §7, Work). */
 export const workNouns: readonly NounSpec[] = [
@@ -18,22 +19,48 @@ export const workNouns: readonly NounSpec[] = [
 ];
 
 const thread = "THREAD";
-const threadArg = { name: thread, summary: "A thread id", required: true } as const;
+const threadSummary = "A thread id, or at least 6 characters of one";
+const threadArg = { name: thread, summary: threadSummary, required: true } as const;
 
-export const workCommands: readonly CommandSpec[] = [
+/** One thread, then the thread's organising verb (`settle`, `resume`…). */
+function organise(verb: string, summary: string, extra: Partial<CommandSpec> = {}): CommandSpec {
+  return {
+    id: `thread.${verb}`,
+    words: ["thread", verb],
+    summary,
+    group: "work",
+    mutates: true,
+    args: [threadArg],
+    flags: [idempotencyKey],
+    output: "receipt",
+    ...extra,
+  };
+}
+
+const threadCommands: readonly CommandSpec[] = [
   {
     id: "thread.list",
     words: ["thread", "list"],
     summary: "Your threads, in the app's order",
+    description:
+      "Pinned first, then what needs you, what runs, what finished unseen and the rest. Settled and snoozed threads are left out unless asked for.",
     group: "work",
     nounDefault: true,
-    flags: [projectRef],
+    flags: [
+      projectRef,
+      { name: "needs-you", summary: "Only threads waiting on you" },
+      { name: "running", summary: "Only threads at work" },
+      { name: "settled", summary: "Only settled threads" },
+      limit,
+      after,
+    ],
     aliases: [
       { words: ["threads"], quiet: true },
       { words: ["threads", "list"], deprecatedSince: since },
     ],
     examples: [
       { command: "ace thread list", summary: "Every thread" },
+      { command: "ace thread list --needs-you --quiet", summary: "Ids of threads waiting on you" },
       { command: "ace thread list --project ace --json", summary: "One project's, as JSON" },
     ],
     output: "thread.list",
@@ -42,10 +69,18 @@ export const workCommands: readonly CommandSpec[] = [
     id: "thread.show",
     words: ["thread", "show"],
     summary: "One thread's transcript, requests and state",
+    description: "Without THREAD on a terminal, offers a list of threads to pick from.",
     group: "work",
-    args: [threadArg],
+    args: [{ name: thread, summary: threadSummary }],
+    flags: [
+      { name: "items", value: "N", summary: "Show the last N items (default 20, at most 200)" },
+      { name: "before", value: "CURSOR", summary: "The items before this cursor (from Earlier:)" },
+    ],
     aliases: [{ words: ["thread", "read"], deprecatedSince: since }],
-    examples: [{ command: "ace thread show t_9f2c41", summary: "Read a thread" }],
+    examples: [
+      { command: "ace thread show t_9f2c41", summary: "Read a thread" },
+      { command: "ace thread show t_9f2c41 --items 50", summary: "More of it" },
+    ],
     output: "thread.show",
   },
   {
@@ -53,7 +88,7 @@ export const workCommands: readonly CommandSpec[] = [
     words: ["thread", "start"],
     summary: "Start an agent on a prompt",
     description:
-      "Registers the project when given a path, then starts a thread. Without a prompt on a terminal it asks for one; elsewhere pass the prompt or - to read it from stdin.",
+      "Registers the project when given a path, then starts a thread on your default provider from Settings. Without a prompt on a terminal it asks for one; elsewhere pass the prompt or - to read it from stdin.",
     group: "work",
     mutates: true,
     args: [{ name: "PROMPT", summary: "What to do; - reads stdin", stdin: true }],
@@ -171,106 +206,55 @@ export const workCommands: readonly CommandSpec[] = [
     group: "work",
     args: [threadArg],
     aliases: [{ words: ["task", "status"], deprecatedSince: since }],
+    exits: [
+      { code: 2, when: "it, or an agent under it, waits on a person" },
+      { code: 1, when: "it failed" },
+    ],
     output: "thread.status",
   },
   {
-    id: "request.allow",
-    words: ["request", "allow"],
-    summary: "Allow a pending approval or plan",
+    id: "thread.tree",
+    words: ["thread", "tree"],
+    summary: "A thread's agent tree: each agent and what it does",
     group: "work",
-    mutates: true,
-    args: [{ name: "REQUEST", summary: "The request id" }],
+    args: [threadArg],
+    output: "thread.tree",
+  },
+  organise("resume", "Carry on a thread that stopped at a restart or a pause"),
+  organise("rename", "Give a thread a new title", {
+    args: [threadArg, { name: "NAME", summary: "Its new title", required: true }],
+  }),
+  organise("settle", "Settle a thread: it leaves the list until it changes"),
+  organise("unsettle", "Bring a settled thread back to the list"),
+  organise("snooze", "Hide a thread until a time or an event", {
     flags: [
-      { name: "thread", value: "THREAD", summary: "The thread whose one open request to answer" },
-      { name: "option", value: "ID", summary: "One of the request's own options" },
-      { name: "request", value: "REQUEST", summary: "Same as REQUEST", hidden: true },
+      {
+        name: "until",
+        value: "WHEN",
+        summary: "1h, 30m, 2d, tomorrow, monday, needs-you or pr-changes",
+      },
       idempotencyKey,
     ],
-    aliases: [
-      {
-        words: ["thread", "approve"],
-        deprecatedSince: since,
-        wordsAs: ["thread"],
-        renameFlags: { interaction: "request" },
-      },
+    examples: [
+      { command: "ace thread snooze t_9f2c41 --until tomorrow", summary: "Until 9:00 tomorrow" },
+      { command: "ace thread snooze t_9f2c41 --until needs-you", summary: "Until it asks" },
     ],
-    output: "receipt",
-  },
-  {
-    id: "request.deny",
-    words: ["request", "deny"],
-    summary: "Deny a pending approval or plan",
-    group: "work",
-    mutates: true,
-    args: [{ name: "REQUEST", summary: "The request id" }],
-    flags: [
-      { name: "thread", value: "THREAD", summary: "The thread whose one open request to answer" },
-      { name: "option", value: "ID", summary: "One of the request's own options" },
-      { name: "request", value: "REQUEST", summary: "Same as REQUEST", hidden: true },
-      idempotencyKey,
-    ],
-    aliases: [
-      {
-        words: ["thread", "deny"],
-        deprecatedSince: since,
-        wordsAs: ["thread"],
-        renameFlags: { interaction: "request" },
-      },
-    ],
-    output: "receipt",
-  },
-  {
-    id: "project.list",
-    words: ["project", "list"],
-    summary: "Your projects",
-    group: "work",
-    nounDefault: true,
-    flags: [limit, after],
-    aliases: [{ words: ["projects"], quiet: true }],
-    output: "project.list",
-  },
-  {
-    id: "project.add",
-    words: ["project", "add"],
-    summary: "Register a folder as a project",
-    group: "work",
-    mutates: true,
-    args: [{ name: "PATH", summary: "The folder; this one when omitted" }],
-    flags: [idempotencyKey],
-    aliases: [{ words: ["add"], deprecatedSince: since }],
-    output: "receipt",
-  },
-  {
-    id: "project.rename",
-    words: ["project", "rename"],
-    summary: "Rename a project",
-    group: "work",
-    mutates: true,
+  }),
+  organise("fork", "Start a new thread from a thread's last turn", {
     args: [
-      { name: "PROJECT", summary: "The project id", required: true },
-      { name: "NAME", summary: "Its new name", required: true },
+      threadArg,
+      { name: "TEXT", summary: "The fork's first message; - reads stdin", stdin: true },
     ],
-    flags: [idempotencyKey],
-    output: "receipt",
-  },
-  {
-    id: "project.remove",
-    words: ["project", "remove"],
-    summary: "Stop tracking a project; its files stay",
-    group: "work",
-    mutates: true,
-    args: [{ name: "PROJECT", summary: "The project id", required: true }],
-    flags: [{ name: "stop-threads", summary: "Stop its running threads first" }, idempotencyKey],
-    output: "receipt",
-  },
-  {
-    id: "project.open",
-    words: ["project", "open"],
-    summary: "Open a project in the app",
-    group: "work",
-    mutates: true,
-    args: [{ name: "PROJECT", summary: "A project id or a folder; this folder when omitted" }],
-    flags: [{ name: "web", summary: "Open the web app, not the desktop app" }, idempotencyKey],
-    aliases: [{ words: ["open"] }],
-  },
+    flags: [{ name: "title", value: "TITLE", summary: "The new thread's title" }, idempotencyKey],
+    output: "thread.fork",
+  }),
+  organise("model", "Switch a thread's model from its next turn", {
+    args: [threadArg, { name: "MODEL", summary: "The model id", required: true }],
+  }),
+];
+
+export const workCommands: readonly CommandSpec[] = [
+  ...threadCommands,
+  ...requestCommands,
+  ...projectCommands,
 ];

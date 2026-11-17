@@ -127,9 +127,9 @@ describe("a wrong command line is a usage error naming what's wrong and the near
 });
 
 test("a required argument left out is reported as missing, so a terminal can ask for it", () => {
-  const parsed = parse("thread show");
+  const parsed = parse("thread status");
   expect(parsed.kind === "command" && parsed.missing.map((arg) => arg.name)).toEqual(["THREAD"]);
-  const given = parse("thread show t1");
+  const given = parse("thread status t1");
   expect(given.kind === "command" && given.missing).toEqual([]);
 });
 

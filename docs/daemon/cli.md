@@ -81,28 +81,46 @@ This machine: the daemon, your account, what needs you, what runs.
 
 Your threads, in the app's order.
 
+Pinned first, then what needs you, what runs, what finished unseen and the rest. Settled and snoozed threads are left out unless asked for.
+
 - `--project PROJECT`: A project id, name or path
+- `--needs-you`: Only threads waiting on you
+- `--running`: Only threads at work
+- `--settled`: Only settled threads
+- `--limit N`: At most N results
+- `--after CURSOR`: The page after this cursor (from the last page's next)
 
     ace thread list
     # Every thread
 
+    ace thread list --needs-you --quiet
+    # Ids of threads waiting on you
+
     ace thread list --project ace --json
     # One project's, as JSON
 
-### `ace thread show THREAD`
+### `ace thread show [THREAD] [flags]`
 
 One thread's transcript, requests and state.
 
-- `THREAD`: A thread id
+Without THREAD on a terminal, offers a list of threads to pick from.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+
+- `--items N`: Show the last N items (default 20, at most 200)
+- `--before CURSOR`: The items before this cursor (from Earlier:)
 
     ace thread show t_9f2c41
     # Read a thread
+
+    ace thread show t_9f2c41 --items 50
+    # More of it
 
 ### `ace thread start [PROMPT|-] [flags]`
 
 Start an agent on a prompt.
 
-Registers the project when given a path, then starts a thread. Without a prompt on a terminal it asks for one; elsewhere pass the prompt or - to read it from stdin.
+Registers the project when given a path, then starts a thread on your default provider from Settings. Without a prompt on a terminal it asks for one; elsewhere pass the prompt or - to read it from stdin.
 
 - `PROMPT`: What to do; - reads stdin
 
@@ -146,7 +164,7 @@ Shortcut: `ace chat`.
 
 Queue a message for when the agent's turn ends.
 
-- `THREAD`: A thread id
+- `THREAD`: A thread id, or at least 6 characters of one
 - `TEXT`: The message; - reads stdin
 
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
@@ -155,7 +173,7 @@ Queue a message for when the agent's turn ends.
 
 Send a message into the agent's current turn.
 
-- `THREAD`: A thread id
+- `THREAD`: A thread id, or at least 6 characters of one
 - `TEXT`: The message; - reads stdin
 
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
@@ -194,27 +212,145 @@ Never reports done while any agent in a tree still works or waits on a person. E
 
 A thread's state; the exit code follows it.
 
-- `THREAD`: A thread id
+- `THREAD`: A thread id, or at least 6 characters of one
+
+### `ace thread tree THREAD`
+
+A thread's agent tree: each agent and what it does.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+
+### `ace thread resume THREAD [flags]`
+
+Carry on a thread that stopped at a restart or a pause.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace thread rename THREAD NAME [flags]`
+
+Give a thread a new title.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+- `NAME`: Its new title
+
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace thread settle THREAD [flags]`
+
+Settle a thread: it leaves the list until it changes.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace thread unsettle THREAD [flags]`
+
+Bring a settled thread back to the list.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace thread snooze THREAD [flags]`
+
+Hide a thread until a time or an event.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+
+- `--until WHEN`: 1h, 30m, 2d, tomorrow, monday, needs-you or pr-changes
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+    ace thread snooze t_9f2c41 --until tomorrow
+    # Until 9:00 tomorrow
+
+    ace thread snooze t_9f2c41 --until needs-you
+    # Until it asks
+
+### `ace thread fork THREAD [TEXT|-] [flags]`
+
+Start a new thread from a thread's last turn.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+- `TEXT`: The fork's first message; - reads stdin
+
+- `--title TITLE`: The new thread's title
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace thread model THREAD MODEL [flags]`
+
+Switch a thread's model from its next turn.
+
+- `THREAD`: A thread id, or at least 6 characters of one
+- `MODEL`: The model id
+
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace request list [flags]`
+
+Every open approval, question and plan, across threads.
+
+- `--thread THREAD`: Only this thread's and its agents'
+
+    ace request list
+    # What needs you
+
+    ace request list --quiet
+    # Their ids, one per line
+
+### `ace request show [REQUEST]`
+
+One request in full: what it asks and its choices.
+
+- `REQUEST`: A request id, or at least 6 characters of one; picked on a terminal when omitted
 
 ### `ace request allow [REQUEST] [flags]`
 
 Allow a pending approval or plan.
 
-- `REQUEST`: The request id
+- `REQUEST`: A request id, or at least 6 characters of one; picked on a terminal when omitted
 
 - `--thread THREAD`: The thread whose one open request to answer
+- `--always`: Allow it from now on, where the request offers that
 - `--option ID`: One of the request's own options
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+    ace request allow
+    # Pick one of the open requests
+
+    ace request allow i_4b1d0e --always
+    # Allow it from now on
 
 ### `ace request deny [REQUEST] [flags]`
 
-Deny a pending approval or plan.
+Deny a pending approval, plan or question.
 
-- `REQUEST`: The request id
+- `REQUEST`: A request id, or at least 6 characters of one; picked on a terminal when omitted
 
 - `--thread THREAD`: The thread whose one open request to answer
 - `--option ID`: One of the request's own options
+- `--feedback TEXT`: Why, sent back to the agent (plans and questions)
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace request answer [REQUEST] [TEXT|-] [flags]`
+
+Answer an agent's question.
+
+Pick choices with --choice (QUESTION=ID when it asks several), or type an answer where the question takes one. On a terminal, missing answers are asked for.
+
+- `REQUEST`: A request id, or at least 6 characters of one; picked on a terminal when omitted
+- `TEXT`: A typed answer; - reads stdin
+
+- `--thread THREAD`: The thread whose one open request to answer
+- `--choice ID`: A choice, or QUESTION=ID; repeat for more
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+    ace request answer i_4b1d0e --choice postgres
+    # Pick a choice
+
+    ace request answer i_4b1d0e "Use the staging bucket"
+    # Type the answer
 
 ### `ace project list [flags]`
 
@@ -222,6 +358,12 @@ Your projects.
 
 - `--limit N`: At most N results
 - `--after CURSOR`: The page after this cursor (from the last page's next)
+
+### `ace project show [PROJECT]`
+
+One project: its folder, git and threads.
+
+- `PROJECT`: A project id, name or path; this folder when omitted
 
 ### `ace project add [PATH] [flags]`
 
@@ -235,7 +377,7 @@ Register a folder as a project.
 
 Rename a project.
 
-- `PROJECT`: The project id
+- `PROJECT`: A project id, name or path
 - `NAME`: Its new name
 
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
@@ -244,7 +386,7 @@ Rename a project.
 
 Stop tracking a project; its files stay.
 
-- `PROJECT`: The project id
+- `PROJECT`: A project id, name or path
 
 - `--stop-threads`: Stop its running threads first
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
@@ -253,7 +395,7 @@ Stop tracking a project; its files stay.
 
 Open a project in the app.
 
-- `PROJECT`: A project id or a folder; this folder when omitted
+- `PROJECT`: A project id, name or folder; this folder when omitted
 
 - `--web`: Open the web app, not the desktop app
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
