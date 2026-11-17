@@ -48,14 +48,13 @@ function accepts(env: Record<string, string>): boolean {
   }).success;
 }
 
-test("an environment larger than any OS can launch a process with is refused", () => {
+test("an environment no process could start with is refused", () => {
   const value = "x".repeat(100_000);
-  // 20 variables of 100 KB fit Linux's 2 MiB ARG_MAX; 25 don't, nor does one over 128 KiB.
-  expect(accepts(Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`V${i}`, value])))).toBe(
-    true,
-  );
-  expect(accepts(Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`V${i}`, value])))).toBe(
+  // 30 variables of 100 KB is over every platform's launch limit; one over 128 KiB is over its
+  // storage bound.
+  expect(accepts(Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`V${i}`, value])))).toBe(
     false,
   );
   expect(accepts({ HUGE: "x".repeat(131_073) })).toBe(false);
+  expect(accepts({ PATH: "/usr/bin", LONG: value })).toBe(true);
 });

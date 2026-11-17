@@ -1,9 +1,8 @@
 import { z } from "zod";
 import {
-  ENV_BLOCK_LIMIT,
   ENV_NAME_LIMIT,
   ENV_VALUE_LIMIT,
-  environmentSize,
+  environmentLaunchError,
 } from "@ace/provider-kit/process-env";
 import {
   ProviderKind,
@@ -39,7 +38,8 @@ export const ModelInstance = z
     env: z
       .record(z.string().max(ENV_NAME_LIMIT), z.string().max(ENV_VALUE_LIMIT))
       .default({})
-      .refine((env) => environmentSize(env) <= ENV_BLOCK_LIMIT),
+      // Only an environment a process can start with: anything larger fails at launch anyway.
+      .refine((env) => environmentLaunchError(env) === undefined),
     /** Variables the discovery process must not inherit from the daemon's own environment. */
     unsetEnv: z.array(z.string().min(1).max(256)).max(64).optional(),
   })
