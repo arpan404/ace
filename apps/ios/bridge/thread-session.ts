@@ -40,7 +40,7 @@ import {
 } from "./thread-attachments.ts";
 import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
 import { QuoteShelf, quoteText, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
-import { followBlocks } from "./thread-blocks.ts";
+import { followBlocks, placedMoments } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
@@ -463,7 +463,11 @@ export class ThreadSession {
         );
         break;
       case "steps.open":
-        this.#steps.open(action.ordinal, this.#answersOf(action.block));
+        this.#steps.open(
+          action.ordinal,
+          this.#answersOf(action.block),
+          placedMoments(this.#blocks.block(action.block)),
+        );
         break;
       case "steps.close":
         this.#steps.close(action.ordinal);
