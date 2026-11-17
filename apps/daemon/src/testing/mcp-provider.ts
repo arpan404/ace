@@ -175,6 +175,11 @@ if (provider === "opencode") {
       if (!entry.value.includes("ace_guide")) throw new Error("Native tool guidance is missing");
       res.writeHead(204).end();
       return;
+    } else if (path === "/api/session/native/environment" && req.method === "PUT") {
+      // The thread's shell variables (ADR 0176 §10); this double runs no shell.
+      req.resume();
+      res.writeHead(204).end();
+      return;
     } else if (path.endsWith("/interrupt")) result = { interrupted: true };
     else {
       // Older providers may not offer optional metadata APIs such as command.list.

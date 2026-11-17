@@ -71,6 +71,8 @@ export class OpenCodeSession implements ProviderSession {
   private recoveryRead: Promise<void> | undefined;
   private ancestry: AncestryProbe;
   private recoveryStarted = 0;
+  /** What this thread's sessions' shell commands run with; absent without ace's variables. */
+  private shellEnvironment: Record<string, string> | undefined;
   get mcp() {
     return openCodeMcpControls(
       this.client,
@@ -88,7 +90,18 @@ export class OpenCodeSession implements ProviderSession {
       threadId: ctx.threadId,
       rootKey: ctx.rootKey ?? "root",
     });
-    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
+    this.shellEnvironment = ctx.agentEnv && server.shellEnvironment(ctx.agentEnv);
+    // A subagent's session starts with the server's environment: give it the thread's as soon
+    // as it joins, which precedes its first model reply and so its first command.
+    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "", (id) => {
+      void this.applyEnvironment(id).catch((error: unknown) =>
+        this.emit("note", "agent.environment", {
+          type: "unset",
+          sessionID: id,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    });
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
     if (ctx.aceMcp)
       this.aceLocations = new AceMcpLocations({
@@ -229,6 +242,9 @@ export class OpenCodeSession implements ProviderSession {
           value: `${openCodeNativeToolGuidance}\n${developerInstructions("opencode", ctx.aceMcp.session?.())}`,
         });
       s.ownership.establish(info);
+      // Before any input: the server keeps it in memory only, so every open (a resume on a
+      // restarted daemon too) sets it again.
+      await s.applyEnvironment(info.id);
       await s.aceLocations?.ensure(info.location.directory);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;
@@ -258,6 +274,11 @@ export class OpenCodeSession implements ProviderSession {
       await s.close("shutdown").catch(() => {});
       throw failure;
     }
+  }
+  /** This thread's variables for one of its sessions' shell commands (agent-env.ts). */
+  private async applyEnvironment(sessionID: string): Promise<void> {
+    if (!this.shellEnvironment) return;
+    await this.client.session.environment({ sessionID, variables: this.shellEnvironment });
   }
   /**
    * A stop nobody awaits (this session's voided close, or the adapter's server release on exit)
