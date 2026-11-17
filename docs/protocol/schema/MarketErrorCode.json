@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketErrorCode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "not_found",
+    "invalid",
+    "refused",
+    "forbidden",
+    "unavailable",
+    "conflict",
+    "expired",
+    "busy",
+    "failed"
+  ],
+  "type": "string"
+}

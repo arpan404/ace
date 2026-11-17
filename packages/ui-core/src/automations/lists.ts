@@ -4,6 +4,7 @@ import type {
   AutomationRun,
   AutomationSource,
   AutomationTriggerError,
+  AutomationWebhookState,
   Automation,
 } from "@ace/protocol";
 
@@ -23,6 +24,8 @@ export interface AutomationEntry {
   lastRun: AutomationRun | undefined;
   /** The thread an agent made it from; undefined for the person's own automations. */
   owner: string | undefined;
+  /** A webhook automation's address and whether it has a secret; undefined for other triggers. */
+  webhook: AutomationWebhookState | undefined;
 }
 
 /** Which store an entry lives in, for the writes that address it. */
@@ -48,6 +51,7 @@ export function automationLists(reply: AutomationResponse): AutomationLists {
       triggerError: schedule?.triggerError,
       lastRun: schedule?.lastRun,
       owner: undefined,
+      webhook: schedule?.webhook,
     };
   });
   const threads = (reply.threadAutomations ?? []).map((entry) => ({
@@ -58,6 +62,7 @@ export function automationLists(reply: AutomationResponse): AutomationLists {
     triggerError: entry.triggerError,
     lastRun: entry.lastRun,
     owner: entry.threadId,
+    webhook: entry.webhook,
   }));
   return { person, threads };
 }

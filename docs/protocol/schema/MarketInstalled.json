@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketInstalled.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "acceptedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "reason": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/MarketInstallState.json"
+    },
+    "target": {
+      "maxLength": 200,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    },
+    "update": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    },
+    "version": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "type",
+    "name",
+    "title",
+    "version",
+    "hash",
+    "acceptedAt",
+    "state"
+  ],
+  "type": "object"
+}
