@@ -7,6 +7,8 @@ import {
   type SpadeHostThread,
 } from "../spade/host-thread.ts";
 import type { SpadeLink } from "../spade/link.ts";
+import { hostBusyWatch } from "../spade/host-busy.ts";
+import { backgroundFailure } from "./background.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** How long a burst of writes settles before the host thread's busy flag is read again. */
@@ -24,21 +26,30 @@ export function spadeHostThread(
 ) {
   const { services, store } = context;
   let tracked: ThreadId | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const refresh = () => {
-    timer = undefined;
-    if (!tracked) return;
-    const live = services.agentControl?.delegations.journal.liveDescendants(tracked) ?? [];
-    link.setThread({ id: tracked, busy: live.length > 0 });
-  };
+  const busy = hostBusyWatch({
+    busy: () => {
+      if (!tracked) return undefined;
+      return (services.agentControl?.delegations.journal.liveDescendants(tracked) ?? []).length > 0;
+    },
+    apply: (value) => {
+      if (tracked) link.setThread({ id: tracked, busy: value });
+    },
+    report: backgroundFailure(context, "Spade's host thread status not read"),
+    after: (ms, run) => {
+      const timer = setTimeout(run, ms);
+      timer.unref?.();
+      return () => clearTimeout(timer);
+    },
+    settleMs: busySettleMs,
+    retryMs: { first: 1000, most: 30_000 },
+  });
+  const refresh = () => busy.now();
   const stopWrites = store.onWrite(() => {
-    if (!tracked || timer) return;
-    timer = setTimeout(refresh, busySettleMs);
-    timer.unref?.();
+    if (tracked) busy.written();
   });
   context.resources.own(() => {
     stopWrites();
-    clearTimeout(timer);
+    busy.close();
   }, "spade host thread status");
   // The host thread's access and provider are the person's defaults: a change applies to
   // Spade's next delegation at once, with the same thread, lease and delegation receipts.
