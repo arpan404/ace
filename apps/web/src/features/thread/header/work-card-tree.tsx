@@ -1,4 +1,11 @@
-import { ClientProvider, useNotifyBatch, useThreadError } from "@ace/client-react";
+import {
+  ClientProvider,
+  OptionalLeaseScope,
+  useConnectionState,
+  useNotifyBatch,
+  useThreadError,
+  useThreadRoom,
+} from "@ace/client-react";
 import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import { createContext, use, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { useLayoutServices, type SessionKey } from "@/lib/layout.tsx";
@@ -66,10 +73,15 @@ const treeFacts = (thread: ThreadRecord): TreeFacts => ({
   host: thread.host,
 });
 
+/** Parent facts already read, at most this many: a parent never changes, so none go stale. */
+const factsKept = 1000;
+const factsKey: SessionKey<Map<string, TreeFacts>> = { name: "workCardTreeFacts" };
+
 /**
  * One thread of the walk. It reports the tree's main thread once known: itself when nothing
- * delegated it, its parent's answer otherwise. A parent that can't be read (gone, or on a machine
- * that is offline or unpaired) ends the walk there, named by the id this thread holds for it.
+ * delegated it, its parent's answer otherwise. A thread that can't be read (gone, no room to
+ * subscribe, its machine offline or unpaired) ends the walk there, named by the id held for it;
+ * the walk goes on once it can be read.
  */
 function TreeStep(props: {
   threadId: string;
@@ -77,11 +89,23 @@ function TreeStep(props: {
   report(found: Found): void;
 }) {
   const { threadId, seen, report } = props;
-  const facts = useThreadField(threadId, treeFacts, shallowEqual);
-  const failed = useThreadError(threadId) !== undefined;
+  const known = useLayoutServices().sessionValue(factsKey, () => new Map());
+  const [facts, setFacts] = useState(() => known.get(threadId));
+  const [unreadable, setUnreadable] = useState(false);
+  const found = useCallback(
+    (next: TreeFacts) => {
+      known.delete(threadId);
+      known.set(threadId, next);
+      if (known.size > factsKept) known.delete(known.keys().next().value ?? threadId);
+      setFacts(next);
+    },
+    [known, threadId],
+  );
+  // Room to subscribe coming back retries a read refused for lack of it.
+  const room = useThreadRoom() > 0;
   const own: Found | undefined =
     facts === undefined
-      ? failed
+      ? unreadable
         ? { kind: "root", id: threadId }
         : { kind: "loading" }
       : facts.host !== undefined
@@ -99,24 +123,66 @@ function TreeStep(props: {
   }, [ownKind, ownId, report]);
   // A parent that is Spade's host is no parent: this thread is the tree's main thread.
   const fromParent = useCallback(
-    (found: Found) => report(found.kind === "host" ? { kind: "root", id: threadId } : found),
+    (next: Found) => report(next.kind === "host" ? { kind: "root", id: threadId } : next),
     [report, threadId],
   );
   // The walk so far with this thread added, stable while neither changes. Ids never hold NUL.
   const walked = [...seen, threadId].join("\u0000");
   const chain = useMemo(() => walked.split("\u0000"), [walked]);
-  if (own !== undefined || !facts) return null;
+  if (!facts)
+    return (
+      <OptionalLeaseScope>
+        <ReadFacts
+          key={String(room)}
+          threadId={threadId}
+          found={found}
+          unreadable={setUnreadable}
+        />
+      </OptionalLeaseScope>
+    );
+  if (own !== undefined) return null;
   if (facts.delegatedBy !== undefined)
-    return <TreeStep threadId={facts.delegatedBy} seen={chain} report={fromParent} />;
+    return (
+      <TreeStep
+        key={facts.delegatedBy}
+        threadId={facts.delegatedBy}
+        seen={chain}
+        report={fromParent}
+      />
+    );
   if (facts.fromThread === undefined) return null;
   return (
     <RemoteStep
+      key={facts.fromThread}
       host={facts.fromHost}
       threadId={facts.fromThread}
       seen={chain}
       report={fromParent}
     />
   );
+}
+
+/**
+ * Holds the thread only until its facts arrive, and only in spare subscription room (an optional
+ * lease), so a long chain never holds many threads nor takes room from one the person opens.
+ */
+function ReadFacts(props: {
+  threadId: string;
+  found(facts: TreeFacts): void;
+  unreadable(unreadable: boolean): void;
+}) {
+  const { threadId, found, unreadable } = props;
+  const facts = useThreadField(threadId, treeFacts, shallowEqual);
+  const failed = useThreadError(threadId) !== undefined;
+  // Lost, not merely still connecting: a first connect is not a reason to give up the walk.
+  const state = useConnectionState();
+  const down = state === "reconnecting" || state === "offline" || state === "fatal";
+  useLayoutEffect(() => {
+    if (facts) found(facts);
+  }, [facts, found]);
+  const stuck = !facts && (failed || down);
+  useLayoutEffect(() => unreadable(stuck), [stuck, unreadable]);
+  return null;
 }
 
 interface RemoteProps {

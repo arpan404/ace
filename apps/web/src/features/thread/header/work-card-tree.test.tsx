@@ -38,31 +38,30 @@ async function threads(more: (main: string) => Partial<ThreadInit>[]) {
     });
   }
   const show = (...ids: string[]) => {
-    const stores = new Map(
-      ids.map((id) => {
-        const store = createWorkCardStore();
-        store.setSide(true);
-        return [id, store] as const;
-      }),
-    );
+    const stores = ids.map((id) => {
+      const store = createWorkCardStore();
+      store.setSide(true);
+      return { id, store };
+    });
     component.render(
       <QueryClientProvider client={new QueryClient()}>
         <LayoutProvider storage={keyValues()}>
-          {ids.map((id) => (
-            <WorkCardContext key={id} value={stores.get(id) ?? null}>
+          {stores.map(({ id, store }, index) => (
+            <WorkCardContext key={index} value={store}>
               <WorkCardTreeFollower threadId={id} />
             </WorkCardContext>
           ))}
         </LayoutProvider>
       </QueryClientProvider>,
     );
-    return (id: string): WorkCardStore => {
-      const store = stores.get(id);
-      if (!store) throw new Error(`No screen of ${id}`);
+    /** The `nth` screen of `id`, counting from 0. */
+    return (id: string, nth = 0): WorkCardStore => {
+      const store = stores.filter((each) => each.id === id)[nth]?.store;
+      if (!store) throw new Error(`No screen ${nth} of ${id}`);
       return store;
     };
   };
-  return { main, show };
+  return { main, show, client: component.client };
 }
 
 test("a delegate five levels down opens and closes the card with its main thread", async () => {
@@ -105,4 +104,28 @@ test("a delegate whose parent is on an unpaired machine shares the card with its
   const screen = show("here-one", "here-two");
   screen("here-one").toggle();
   await waitFor(() => expect(screen("here-two").get().open).toBe(true));
+});
+
+test("a resolved chain holds none of its parents' subscriptions", async () => {
+  const chain = Array.from({ length: 10 }, (_, index) => `p${index}`);
+  const { main, show, client } = await threads((root) =>
+    chain.map((id, index) => ({ id, parentThreadId: index === 0 ? root : chain[index - 1] })),
+  );
+  const room = () => client.threadRoom().getSnapshot();
+  const before = room();
+  const last = chain.at(-1) ?? "";
+  const screen = show(last, main);
+  screen(main).toggle();
+  await waitFor(() => expect(screen(last).get().open).toBe(true));
+  await waitFor(() => expect(room()).toBe(before));
+});
+
+test("a delegate opened while offline still shares its card with its other screens", async () => {
+  const { show, client } = await threads((root) => [{ id: "b", parentThreadId: root }]);
+  await client.close();
+  const screen = show("b", "b");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  screen("b").toggle();
+  // Both screens of `b` find the same tree while its parents can't be read.
+  expect(screen("b", 1).get().open).toBe(true);
 });
