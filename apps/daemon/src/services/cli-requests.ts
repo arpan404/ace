@@ -1,5 +1,5 @@
 import {
-  ThreadId,
+  type ThreadId,
   type CliOpenRequest,
   type CliRequestList,
   type Interaction,
@@ -72,13 +72,8 @@ export function storeRequestSource(context: Pick<ServiceContext, "store" | "serv
   const { store, services } = context;
   const journal = services.agentControl?.delegations.journal;
   return {
-    needsYouThreads: (limit: number) =>
-      store
-        .statement(
-          "SELECT id FROM threads WHERE json_extract(status, '$.state') = 'needs_you' AND json_extract(client,'$.deletedAt') IS NULL ORDER BY updated_at DESC LIMIT ?",
-        )
-        .all(limit)
-        .map((row) => ThreadId.parse(row.id)),
+    // An in-memory set the event writer keeps current: no read of the threads table per call.
+    needsYouThreads: (limit: number) => store.needsYou.list(limit),
     thread: (id: ThreadId) => store.getThread(id),
     interaction: (id: string) => store.getInteraction(id),
     descendants: (id: ThreadId) => journal?.liveDescendants(id).map((edge) => edge.childId) ?? [],
