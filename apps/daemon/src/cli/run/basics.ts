@@ -115,7 +115,7 @@ export const basicHandlers: Handlers = {
     const candidates = await completeLive(
       context.table,
       context.args.words,
-      daemonRefs(() => context.config().dataDir),
+      daemonRefs(() => context.dataDir()),
       liveBudgetMs,
     );
     // The shell waits for this process to end: a daemon read past its budget must not hold it.
