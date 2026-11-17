@@ -43,6 +43,10 @@ import UIKit
 
     func register(_ view: UIView, row id: String) { rows[id] = Weak(view: view) }
 
+    /// The feed scrolled itself (`mark`'s letter): shown on the next frame's trace entry.
+    private var marks = ""
+    func mark(_ letter: String) { if run != nil { marks += letter } }
+
     /// The feed's scroll phase changed.
     /// A new gesture ends the run: what the reader does next is theirs.
     func scrolling(_ phase: String) {
@@ -101,12 +105,13 @@ import UIKit
         }
         // Each frame: the move on screen, then within the content, then the phase.
         if !onScreen.isFinite {
-            run.trace.append("swap\(phase)")
+            run.trace.append("swap\(phase)\(marks)")
         } else if abs(onScreen) >= 0.5 || abs(inContent) >= 0.5 {
-            run.trace.append("\(Int(onScreen.rounded()))/\(Int(inContent.rounded()))\(phase)")
+            run.trace.append("\(Int(onScreen.rounded()))/\(Int(inContent.rounded()))\(phase)\(marks)")
         } else {
-            run.trace.append(phase)
+            run.trace.append(phase + marks)
         }
+        marks = ""
         run.last = seen
         run.offset = offset
         run.step = step
@@ -198,6 +203,12 @@ enum TranscriptJumpHooks {
     @MainActor static func begin(_ name: String) {
         #if ACE_FIXTURE
         if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name) }
+        #endif
+    }
+    /// The feed scrolled itself; `letter` names which scroll (`ConversationFeed`).
+    @MainActor static func mark(_ letter: String) {
+        #if ACE_FIXTURE
+        if PerfProbe.enabled { TranscriptJumpProbe.shared.mark(letter) }
         #endif
     }
     @MainActor static func scrolling(_ phase: ScrollPhase) {

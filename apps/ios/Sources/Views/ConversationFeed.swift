@@ -327,7 +327,7 @@ struct ConversationFeed: View {
             // Content that shrank under a still feed left it past its end: back to the real end,
             // so the rows show instead of the dark below them.
             if thread.loaded, TranscriptScrollIntent.Metrics.strandedPastEnd(old: old, new: new, moving: intent.active || intent.animating) {
-                proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
+                TranscriptJumpHooks.mark("X"); proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
             }
             // Scroll to end follows the end's distance as it changes, mid-drag included: it floats
             // over the composer, so showing it moves nothing under the rows.
@@ -472,6 +472,7 @@ struct ConversationFeed: View {
             viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
         }
         stackSwitches += 1
+        TranscriptJumpHooks.mark("R")
         PerfProbe.add("feed.restacks", 1)
         if following { toEnd(proxy) }
     }
@@ -492,7 +493,7 @@ struct ConversationFeed: View {
                 // measures, then refine to the exact offset below.
                 if anchor.keeper.frames.frame(session.rowID) == nil {
                     if viewport.correctionFrames == 0 {
-                        proxy.scrollTo(session.rowID, anchor: .center)
+                        TranscriptJumpHooks.mark("C"); proxy.scrollTo(session.rowID, anchor: .center)
                     }
                     viewport.noteCorrectionApplied()
                 } else {
@@ -518,13 +519,14 @@ struct ConversationFeed: View {
                 now: model.now())
             switch correction {
             case .shift:
-                if let held = viewport.held,
+                // The held bottom already keeps the rows on screen where they were.
+                if !growth.keepsEnd, let held = viewport.held,
                     placeRowAtTop(held.rowID, top: held.top, proxy: proxy) {
                     viewport.noteCorrectionApplied()
                     keep(.placedHeldRow, proxy: proxy)
                 }
             case .aim(let index):
-                if rows.indices.contains(index) { proxy.scrollTo(rows[index].id, anchor: .center) }
+                if rows.indices.contains(index) { TranscriptJumpHooks.mark("A"); proxy.scrollTo(rows[index].id, anchor: .center) }
             case .end, .none: break
             }
         }
@@ -577,7 +579,7 @@ struct ConversationFeed: View {
         var instant = Transaction()
         instant.disablesAnimations = true
         withTransaction(instant) {
-            if keyboardFollow.landed(lift: Double(keyboardLift)) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+            if keyboardFollow.landed(lift: Double(keyboardLift)) { TranscriptJumpHooks.mark("K"); proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
         }
         keyboardMoving = false
         // The scroll's target is above it, so it goes without moving the rows.
@@ -649,7 +651,7 @@ struct ConversationFeed: View {
         // Before the rows land there is no end to reach: a settle started on the placeholder
         // would hold the budget the first real scroll to the end needs.
         guard ready, !settle.isRunning else { return }
-        proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
+        TranscriptJumpHooks.mark("E"); proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
         let intent = intent
         guard !UIAccessibility.isVoiceOverRunning else { return }
         // An animated scroll the settle waits on is one still moving the rows: a scroll with
@@ -660,7 +662,7 @@ struct ConversationFeed: View {
                        let moving = intent.animating && intent.metrics.y != lastY
                        lastY = intent.metrics.y
                        return moving
-                   }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+                   }) { TranscriptJumpHooks.mark("e"); proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
     }
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
@@ -686,7 +688,7 @@ struct ConversationFeed: View {
     /// to where it lands (`TranscriptPlaceKeeper`).
     private func jump(to row: TranscriptFeedRow, proxy: ScrollViewProxy) {
         keep(.jumped(row.id), proxy: proxy)
-        withAnimation { proxy.scrollTo(row.id, anchor: .top) }
+        withAnimation { TranscriptJumpHooks.mark("J"); proxy.scrollTo(row.id, anchor: .top) }
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     private func focusRequested() {
@@ -739,9 +741,9 @@ struct ConversationFeed: View {
             viewport: Double(metrics.viewport),
             topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
             rowHeight: Double(frame.height)) {
-            proxy.scrollTo(session.rowID, anchor: UnitPoint(x: 0, y: fraction))
+            TranscriptJumpHooks.mark("S"); proxy.scrollTo(session.rowID, anchor: UnitPoint(x: 0, y: fraction))
         } else {
-            proxy.scrollTo(session.rowID, anchor: .top)
+            TranscriptJumpHooks.mark("S"); proxy.scrollTo(session.rowID, anchor: .top)
         }
         viewport.noteCorrectionApplied()
     }
@@ -795,7 +797,7 @@ struct ConversationFeed: View {
         return TranscriptPlaceKeeper.Facts(held: viewport.held, inset: intent.metrics.topInset,
             mayCapture: viewport.mode == .reading && !viewport.isAiming && !restoring,
             mayCorrect: viewport.canCorrect && !viewport.isAiming && !restoring && viewport.mode != .following
-                && !UIAccessibility.isVoiceOverRunning)
+                && !UIAccessibility.isVoiceOverRunning && !growth.keepsEnd)
     }
     /// Hands `event` to the place keeper and does what it decides: hold a row, or scroll one back.
     /// Pure-geometry drift (async Markdown and media sizing) is corrected there, bounded by the
@@ -823,10 +825,10 @@ struct ConversationFeed: View {
                     : TranscriptFeedRow.rows(shown).first { $0.id == id }?.block.row.items.first
                 viewport.noteCaptured(rowID: id, itemID: item, top: top)
             case .place(let id, let top):
-                if !placeRowAtTop(id, top: top, proxy: proxy) { proxy.scrollTo(id, anchor: .top) }
+                if !placeRowAtTop(id, top: top, proxy: proxy) { TranscriptJumpHooks.mark("P"); proxy.scrollTo(id, anchor: .top) }
                 viewport.noteCorrectionApplied()
             case .aim(let id, let fraction):
-                proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
+                TranscriptJumpHooks.mark("a"); proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
             case .released: pageIfNeeded(proxy)
             }
         }
@@ -842,7 +844,7 @@ struct ConversationFeed: View {
         guard let fraction = TranscriptAnchorPlacement.fraction(top: top,
             viewport: Double(metrics.viewport), topInset: Double(metrics.topInset),
             bottomInset: Double(metrics.bottomInset), rowHeight: Double(frame.height)) else { return false }
-        proxy.scrollTo(rowID, anchor: UnitPoint(x: 0, y: fraction))
+        TranscriptJumpHooks.mark("H"); proxy.scrollTo(rowID, anchor: UnitPoint(x: 0, y: fraction))
         return true
     }
     /// Item-level successor for a gone held row: the row holding the smallest
