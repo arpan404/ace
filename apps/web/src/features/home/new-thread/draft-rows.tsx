@@ -12,7 +12,7 @@ import { useOrganizerState } from "@/features/organize/index.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { usePreparations } from "./preparations.ts";
 import { useDiscardDraft } from "./use-discard-draft.ts";
-import { useSidebarDevice } from "../device-filter-state.ts";
+import { inScope, useSidebarDevice } from "../device-filter-state.ts";
 
 /**
  * Unsent preparations belong to a daemon and this device, outside the running thread list:
@@ -26,11 +26,11 @@ export function DraftRows(props: {
   const identity = useHostIdentity();
   const device = useSidebarDevice();
   const others = useMachines().filter(
-    (machine) => !machine.primary && machine.client && (!device || machine.id === device),
+    (machine) => !machine.primary && machine.client && inScope(device, machine.id),
   );
   return (
     <>
-      {identity && (!device || device === identity.hostId) && (
+      {identity && inScope(device, identity.hostId) && (
         <MachineDrafts
           only={props.project}
           host={identity.hostId}

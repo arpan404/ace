@@ -4,7 +4,6 @@ import { projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { MachineMark } from "@/components/ui/machine-label.tsx";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -21,8 +20,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { useMachines } from "@/lib/machines.ts";
-import { DeviceFilter } from "./device-filter.tsx";
+import { DeviceFilter, ScopeMark, scopeNames, useScopeMachines } from "./device-filter.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
@@ -41,17 +39,17 @@ const all = "\u0000all";
 export function ProjectFilter() {
   const organizer = useOrganizer();
   const { project } = useOrganizerState();
-  const deviceId = useSidebarDevice();
-  const device = useMachines().find((machine) => machine.id === deviceId);
+  const chosen = useScopeMachines(useSidebarDevice());
+  const deviceName = scopeNames(chosen);
   const withThreads = useProjects();
   const directory = useProjectDirectory();
   const { name } = directory;
   const projectName = project === null ? null : name(project);
   const label = projectName ?? "All projects";
   const fullTitle =
-    projectName && device
-      ? `${projectName} · ${device.name}`
-      : (projectName ?? device?.name ?? "All projects");
+    projectName && deviceName
+      ? `${projectName} · ${deviceName}`
+      : (projectName ?? deviceName ?? "All projects");
   const total = withThreads.reduce((sum, p) => sum + p.threads, 0);
   const rows = useMemo(() => {
     const counts = new Map(withThreads.map((p) => [p.id, p.threads]));
@@ -68,7 +66,7 @@ export function ProjectFilter() {
       <Menu>
         <Tip label={fullTitle}>
           <MenuTrigger
-            aria-label={`Project filter: ${label}${device ? `, Device: ${device.name}` : ""}`}
+            aria-label={`Project filter: ${label}${deviceName ? `, Device: ${deviceName}` : ""}`}
             className="group/filter flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-md font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
           >
             <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
@@ -79,14 +77,13 @@ export function ProjectFilter() {
                 />
               )}
               {project !== null && <span className="min-w-0 truncate">{projectName}</span>}
-              {project !== null && device && (
+              {project !== null && deviceName && (
                 <span aria-hidden className="shrink-0">
                   ·
                 </span>
               )}
-              {device && <MachineMark icon={device.icon} primary={device.primary} size={16} />}
-              {device && <span className="min-w-0 truncate">{device.name}</span>}
-              {project === null && !device && <span className="truncate">All projects</span>}
+              <ScopeMark chosen={chosen} size={16} />
+              {project === null && !deviceName && <span className="truncate">All projects</span>}
             </span>
             <CaretDownIcon aria-hidden size={12} className="shrink-0 text-muted-foreground" />
           </MenuTrigger>

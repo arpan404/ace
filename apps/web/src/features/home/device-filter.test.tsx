@@ -7,10 +7,26 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const threads = () => within(screen.getByRole("navigation", { name: "Projects" }));
 
-async function chooseDevice(name: string) {
+async function openDevices() {
   await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /^Device filter:/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
+}
+
+const item = (device: string) => screen.findByRole("menuitemcheckbox", { name: device });
+
+/** Narrow the Threads panel to `name` alone (or every device). */
+async function chooseDevice(name: string) {
+  await openDevices();
+  // A device ticks into the filter, so first clear one already chosen.
+  if (
+    name !== "All devices" &&
+    (await item("All devices")).getAttribute("aria-checked") !== "true"
+  ) {
+    await userEvent.click(await item("All devices"));
+    await openDevices();
+  }
+  await userEvent.click(await item(name));
+  while (screen.queryAllByRole("menu").length) await userEvent.keyboard("{Escape}");
 }
 
 test("the device filter narrows threads and drafts and remembers the choice after reload", async () => {

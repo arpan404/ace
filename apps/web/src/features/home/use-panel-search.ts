@@ -8,7 +8,7 @@ import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useIsChat, useIsChatThread } from "@/lib/projects.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
-import { useSidebarDevice } from "./device-filter-state.ts";
+import { inScope, useSidebarDevice } from "./device-filter-state.ts";
 import type { HomeList, SettledEntry } from "./use-home-threads.ts";
 
 /** One daemon search hit. */
@@ -74,7 +74,7 @@ export function useSettledSearch(
     () => new Set([...list.pinned, ...list.listed, ...list.snoozed, ...list.settled]),
     [list.pinned, list.listed, list.snoozed, list.settled],
   );
-  const offDevice = device !== undefined && device !== own;
+  const offDevice = !inScope(device, own);
   const isChat = useIsChat();
   const isChatThread = useIsChatThread();
   // Only hits whose thread is settled (or not loaded at all: the daemon pages settled threads).

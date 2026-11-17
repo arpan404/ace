@@ -2,6 +2,7 @@ import type { SidebarReader } from "@ace/client";
 import { useClient, useSidebar, useSidebarStore } from "@ace/client-react";
 import { useRef, useState } from "react";
 import { usePrimaryMachine } from "@/lib/machines.ts";
+import { type DeviceScope, inScope } from "./device-filter-state.ts";
 
 /** Where Home's own window's next page of settled threads starts, while it holds older ones. */
 const nextPageAt = (reader: SidebarReader) =>
@@ -33,7 +34,7 @@ export interface SettledPaging {
  * loop; changing the project or device filter starts over. Another machine's threads all arrive
  * at once, so they never page.
  */
-export function useSettledPaging(project: string | null, device?: string): SettledPaging {
+export function useSettledPaging(project: string | null, device?: DeviceScope): SettledPaging {
   const client = useClient();
   const own = usePrimaryMachine().id;
   const key = JSON.stringify([project, device]);
@@ -45,7 +46,7 @@ export function useSettledPaging(project: string | null, device?: string): Settl
   // One page at a time: two asks before a render (an effect run twice) would send the same
   // cursor twice, and the daemon refuses the second as stale.
   const asking = useRef(false);
-  const hasMore = nextAt !== undefined && !request.stalled && (!device || device === own);
+  const hasMore = nextAt !== undefined && !request.stalled && inScope(device, own);
   const update = (patch: Partial<Request>) =>
     setRequest((current) => ({ ...(current.key === key ? current : request), ...patch, key }));
   const more = async () => {
