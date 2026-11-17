@@ -25,6 +25,7 @@ import {
   githubReady,
   headCommit,
   signingIdentity,
+  untrackedFiles,
   worktreeClean,
 } from "./release-tools.ts";
 
@@ -83,6 +84,11 @@ async function build(version: string | undefined): Promise<void> {
   const host = betaHostProblem(process.platform, process.arch);
   if (host) throw new Error(host);
   if (!worktreeClean()) throw new Error("Commit your changes first: a beta is built from main.");
+  const untracked = untrackedFiles();
+  if (untracked.length)
+    throw new Error(
+      `Untracked files would ship in the beta; remove them or build in a fresh worktree: ${untracked.slice(0, 5).join(", ")}${untracked.length > 5 ? ` and ${untracked.length - 5} more` : ""}`,
+    );
   const commit = headCommit();
   if (!onMain(commit))
     throw new Error(`${commit.slice(0, 12)} is not on origin/main; betas are built from main.`);
