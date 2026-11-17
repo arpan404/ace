@@ -129,6 +129,12 @@ export function transfersHttp(
         });
         reply(refusal.status, refusal.body());
       }
-    })();
+    })().catch((error: unknown) =>
+      owner.log("Serving a transfer call failed", {
+        device: device.name,
+        deviceId: device.id,
+        error,
+      }),
+    );
   };
 }
