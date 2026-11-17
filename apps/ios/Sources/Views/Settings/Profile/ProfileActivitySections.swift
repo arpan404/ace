@@ -31,7 +31,7 @@ struct ProfileActivitySections: View {
         if let report {
             Section {
                 if report.empty {
-                    Text("Your agents' work shows here as they run.")
+                    Text("No agent work yet.")
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .accessibilityIdentifier("profile.empty")

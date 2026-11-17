@@ -55,6 +55,48 @@ import XCTest
         }
     }
 
+    func testSignedInProfileListsTheAccountsMachinesAndAsksBeforeForgettingOrSigningOut() throws {
+        let app = launch(["--spike-account"])
+        app.openBrowseDestination("inbox.settings")
+        let profile = app.buttons["settings.account"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        profile.tap()
+        let person = app.descendants(matching: .any)["account.person"].firstMatch
+        XCTAssertTrue(person.waitForExistence(timeout: 10))
+        XCTAssertTrue(person.label.contains("Ada Lovelace") && person.label.contains("ada@example.com"), person.label)
+        let machine = app.descendants(matching: .any)["account.machine.fixture-studio"].firstMatch
+        XCTAssertTrue(machine.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Machines on your account"].exists)
+        screenshot("profile-signed-in")
+
+        machine.swipeLeft()
+        let forget = app.buttons["account.machine.forget.fixture-studio"]
+        XCTAssertTrue(forget.waitForExistence(timeout: 5))
+        forget.tap()
+        XCTAssertTrue(app.staticTexts["Forget studio?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["account.machine.forget.confirm"].exists)
+        screenshot("profile-forget")
+        dismissDialog(app)
+        XCTAssertTrue(machine.waitForExistence(timeout: 5), "the machine stays until Forget is confirmed")
+
+        let signOut = app.buttons["account.signOut"]
+        for _ in 0..<8 where !signOut.isHittable { app.swipeUp() }
+        signOut.tap()
+        XCTAssertTrue(app.staticTexts["Your threads and drafts stay on this device."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["account.signOut.confirm"].exists)
+        screenshot("profile-sign-out")
+        dismissDialog(app)
+        XCTAssertTrue(signOut.waitForExistence(timeout: 5), "still signed in until Sign out is confirmed")
+    }
+
+    /// Closes a confirmation dialog without choosing: its Cancel on a phone's action sheet, else a
+    /// tap outside the popover.
+    private func dismissDialog(_ app: XCUIApplication) {
+        let cancel = app.buttons["Cancel"]
+        if cancel.exists && cancel.isHittable { cancel.tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap() }
+    }
+
     /// Safari came forward, and its address bar, read without tapping, names `page`. At rest
     /// the bar may show only the domain; then the domain is checked. When no address can be
     /// read, coming forward is all this can see.
@@ -279,9 +321,9 @@ import XCTest
 
     // MARK: Helpers
 
-    private func launch() -> XCUIApplication {
+    private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", port]
+        app.launchArguments = ["--spike", "--spike-port", port] + extra
         if let size = ProcessInfo.processInfo.environment["ACE_IOS_TEXT_SIZE"] {
             app.launchArguments += ["-UIPreferredContentSizeCategoryName", size]
         }
