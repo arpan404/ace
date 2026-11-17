@@ -6,7 +6,7 @@ import { commandTable } from "./commands/table.ts";
 import { complete, completionScript, currentShell, shells } from "./completion.ts";
 import { aliasOutcome, aliasPhase, releasesSince } from "./deprecation.ts";
 import { humanError, toCliError } from "./errors.ts";
-import { canPrompt, outputMode, useColor } from "./input-mode.ts";
+import { canPrompt, outputMode, useColor, type Surroundings } from "./input-mode.ts";
 import { CliFailure, usageFailure } from "./output.ts";
 
 const table = commandTable();
@@ -103,8 +103,8 @@ describe("error text", () => {
 });
 
 describe("who is on the other end", () => {
-  const person = { flags: {}, env: {}, stdinTTY: true, stdoutTTY: true };
-  test.each([
+  const person: Surroundings = { flags: {}, env: {}, stdinTTY: true, stdoutTTY: true };
+  test.each<[string, Surroundings, boolean]>([
     ["a person at a terminal", person, true],
     ["stdin is a pipe", { ...person, stdinTTY: false }, false],
     ["stdout is a pipe", { ...person, stdoutTTY: false }, false],
