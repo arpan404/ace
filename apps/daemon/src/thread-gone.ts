@@ -89,11 +89,14 @@ export async function purgeThread(
     store.statement("INSERT OR IGNORE INTO thread_purges VALUES (?,?)").run(id, at),
   );
   const plan = store.atomic((db) => transcriptPurgePlan(db));
+  let step = 0;
   for (;;) {
     await pace.idle();
     if (!pace.going()) return false;
     await store.writable();
-    if (store.atomic((db) => purgeTranscriptBatch(db, id, plan, pace.batch)) === 0) break;
+    const progress = store.atomic((db) => purgeTranscriptBatch(db, id, plan, pace.batch, step));
+    if (progress.changed === 0) break;
+    step = progress.step;
   }
   store.atomic(() => {
     // Another purge of the same thread may have finished it meanwhile.

@@ -5,6 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import { AgentId, Item, Thread, type EventPayload, type ThreadId } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { StorageJournal } from "./storage/journal.ts";
+import { migrateEngine } from "./engine/migrations.ts";
 import { purgeThread, resumePurges, threadGone, type PurgePace } from "./thread-gone.ts";
 
 /*
@@ -135,4 +136,59 @@ test("a purge cut short is finished after a restart", async () => {
   expect(finished).toEqual([big]);
   expect(rows(store, "events", big)).toBe(0);
   expect(store.statement("SELECT 1 FROM storage_purged WHERE thread_id=?").get(big)).toBeDefined();
+});
+
+test("a thread with one very large stream, long item text and many finished intents is purged in bounded writes, leaving none of them", async () => {
+  const opened = open();
+  const { store } = opened;
+  const big = thread(opened, "streams", 1);
+  const item = String(store.statement("SELECT id FROM items WHERE thread_id=?").get(big)?.id);
+  store.atomic((db) => {
+    migrateEngine(db);
+    db.prepare("INSERT INTO output_streams(id,thread_id,item_id,size) VALUES ('out',?,?,0)").run(
+      big,
+      item,
+    );
+    db.prepare(
+      "INSERT INTO item_text_streams(id,thread_id,item_id,part,size) VALUES ('text',?,?,0,0)",
+    ).run(big, item);
+    const chunk = Buffer.alloc(64);
+    const output = db.prepare("INSERT INTO output_chunks VALUES ('out',?,?)");
+    const source = db.prepare("INSERT INTO item_source_chunks VALUES ('text',?,?)");
+    const intent = db.prepare(
+      "INSERT INTO intents(command_id,thread_id,kind,payload,status) VALUES (?,?,'send','{}','done')",
+    );
+    for (let index = 0; index < 6000; index++) output.run(index * 64, chunk);
+    for (let index = 0; index < 3000; index++) source.run(index * 64, chunk);
+    for (let index = 0; index < 3000; index++) intent.run(`intent-${index}`, big);
+  });
+  tombstone(store, big);
+
+  // Every row each write changes, cascades included, between one pause and the next.
+  const written = () => Number(store.statement("SELECT total_changes() AS n").get()?.n);
+  const writes: number[] = [];
+  let last = written();
+  const pace: PurgePace = {
+    batch: 200,
+    async idle() {
+      writes.push(written() - last);
+      last = written();
+    },
+    going: () => true,
+  };
+  expect(await purgeThread(store, big, 3, pace)).toBe(true);
+  const completion = written() - last;
+
+  expect.soft(Math.max(...writes)).toBeLessThanOrEqual(200);
+  // Completion only updates identity and state: none of the history above is left for it.
+  expect.soft(completion).toBeLessThan(50);
+  const left = (sql: string) => Number(store.statement(sql).get(big)?.n);
+  expect
+    .soft(left("SELECT COUNT(*) AS n FROM output_chunks WHERE stream_id='out' OR ?=''"))
+    .toBe(0);
+  expect
+    .soft(left("SELECT COUNT(*) AS n FROM item_source_chunks WHERE stream_id='text' OR ?=''"))
+    .toBe(0);
+  expect.soft(left("SELECT COUNT(*) AS n FROM item_text_streams WHERE thread_id=?")).toBe(0);
+  expect.soft(left("SELECT COUNT(*) AS n FROM intents WHERE thread_id=?")).toBe(0);
 });

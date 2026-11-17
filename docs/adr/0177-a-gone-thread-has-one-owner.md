@@ -29,7 +29,9 @@ transfers, engine session rows. Readers of those rows assumed the thread was sti
   stops the tree before it writes the tombstone, so it writes it with `tombstone`.
 - **Purging.** Every purge calls `purgeThread`. The tombstone is the visibility fence; the purge is
   noted in `thread_purges`, its transcript goes in short writes of at most 512 rows with a turn of
-  the event loop between them (ADR 0170), and a last small transaction removes its engine state and
+  the event loop between them (ADR 0170): rows owned through a cascading key (stream and blob
+  chunks, item text) go before their owners so no delete cascades past its batch, then the thread's
+  rows, its history indexes, its finished intents and its events. A last small transaction removes its engine state and
   the engine's own rows (session, selection, queue), records the deletion and marks it purged. A
   purge a stop or restart cut short is finished in the background at the next start. The
   `threads` row stays as the tombstone.
