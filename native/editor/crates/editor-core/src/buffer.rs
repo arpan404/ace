@@ -72,6 +72,17 @@ impl Buffer {
         Cow::Owned(text)
     }
 
+    /// The UTF-16 width of one line's text, excluding its ending.
+    pub(crate) fn line_utf16_len(&self, index: usize) -> u32 {
+        if index >= self.len_lines() {
+            return 0;
+        }
+        let start = self.rope.line_to_char(index);
+        let end = start + self.content_chars(index);
+        let width = self.rope.char_to_utf16_cu(end) - self.rope.char_to_utf16_cu(start);
+        u32::try_from(width).unwrap_or(u32::MAX)
+    }
+
     /// The byte offset of a position, clamped to the line's content and the document.
     ///
     /// Uses ropey's UTF-16 index, so a column in a five-megabyte line costs the same as one in a

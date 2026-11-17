@@ -23,8 +23,9 @@ impl Document {
         let mut selections = Vec::with_capacity(capacity);
         for line in first..=last {
             let content = self.buffer.line(line as usize);
-            let anchor_column = visual_to_utf16(&content, anchor.column, tab_size);
-            let head_column = visual_to_utf16(&content, head.column, tab_size);
+            let length = self.buffer.line_utf16_len(line as usize);
+            let anchor_column = visual_to_utf16(&content, anchor.column, tab_size).min(length);
+            let head_column = visual_to_utf16(&content, head.column, tab_size).min(length);
             selections.push(Selection::new(
                 Position::new(line, anchor_column),
                 Position::new(line, head_column),
