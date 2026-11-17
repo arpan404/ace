@@ -5,6 +5,7 @@ import { DatabaseSync } from "./sqlite.ts";
 import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./process-identity.ts";
 import { WindowsSid, windowsTreeRuntime, type WindowsTreeRuntime } from "./process-identity.ts";
 import type { WindowsProcessRecord } from "./process-identity.ts";
+import { guardedTick, inventoryRetryMs } from "./inventory-retry.ts";
 export interface ProcessJournal {
   add(pid: number, metadata: { name: string; cwd?: string }): void;
   remove(pid: number): void;
@@ -38,6 +39,8 @@ export interface InventoryRuntime {
   windowsTree?: WindowsTreeRuntime;
   /** Windows only: runs the descendant recorder on an interval; returns its stop. */
   windowsEvery?: (run: () => void, milliseconds: number) => () => void;
+  /** Runs `run` once after `milliseconds`; returns its cancel. Retries of failed deletes use it. */
+  later?: (run: () => void, milliseconds: number) => () => void;
 }
 const NoSuchProcess = z.object({ code: z.literal("ESRCH") });
 export const inventoryRuntime: InventoryRuntime = {
@@ -60,8 +63,24 @@ export const inventoryRuntime: InventoryRuntime = {
 export class ProcessInventory implements ProcessJournal {
   private db: DatabaseSync;
   private runtime: InventoryRuntime;
-  constructor(path: string, runtime: InventoryRuntime = inventoryRuntime) {
+  private report: (error: unknown) => void;
+  /**
+   * Exited processes whose rows could not be deleted yet (a full disk, a locked file). The exit
+   * is already true, so a failed delete is retried, never thrown into the exit listener that
+   * called it. A row left behind by a crash is harmless: recovery finds its group gone.
+   */
+  private unremoved = new Set<number>();
+  /** The scheduled retry of `unremoved`, and how many retries in a row have failed. */
+  private cancelRetry: (() => void) | undefined;
+  private retryFailures = 0;
+  /** `report` hears each write that failed and will be retried (a delete, a Windows tick). */
+  constructor(
+    path: string,
+    runtime: InventoryRuntime = inventoryRuntime,
+    report: (error: unknown) => void = () => {},
+  ) {
     this.runtime = runtime;
+    this.report = report;
     this.db = new DatabaseSync(path);
     // Every spawn and exit writes here on the main thread. WAL commits are durable when the
     // daemon crashes, which is what recovery needs, without waiting on fsync: behind other disk
@@ -79,6 +98,9 @@ export class ProcessInventory implements ProcessJournal {
       .map((row) => Entry.parse(JSON.parse(String(row.entry))));
   }
   add(pid: number, metadata: { name: string; cwd?: string }): void {
+    // A reused pid: the earlier process's pending delete must not remove the new row.
+    this.unremoved.delete(pid);
+    this.retryRemovals();
     if (process.platform === "win32") return this.windowsAdd(pid, metadata);
     const identity = this.runtime.identity(pid);
     const owner = this.runtime.identity(this.runtime.ownerPid);
@@ -108,9 +130,43 @@ export class ProcessInventory implements ProcessJournal {
       )
       .run(pid, JSON.stringify(entry));
   }
+  /** Forget an exited process. Never throws: a delete that fails is kept and retried. */
   remove(pid: number): void {
-    this.db.prepare("DELETE FROM processes WHERE pid=?").run(pid);
+    this.unremoved.add(pid);
+    this.retryRemovals();
   }
+  /**
+   * Retry the deletes that failed earlier; true once none is left. Never throws. While any is
+   * left, another attempt is scheduled on a bounded backoff, whatever made this one fail.
+   */
+  retryRemovals(): boolean {
+    for (const pid of this.unremoved) {
+      try {
+        this.db.prepare("DELETE FROM processes WHERE pid=?").run(pid);
+      } catch (error) {
+        this.report(error);
+        this.scheduleRetry();
+        return false;
+      }
+      this.unremoved.delete(pid);
+    }
+    this.retryFailures = 0;
+    this.cancelRetry?.();
+    this.cancelRetry = undefined;
+    return true;
+  }
+  private scheduleRetry(): void {
+    if (this.closed) return;
+    this.cancelRetry?.();
+    this.cancelRetry = (this.runtime.later ?? later)(
+      () => {
+        this.cancelRetry = undefined;
+        this.retryRemovals();
+      },
+      inventoryRetryMs(++this.retryFailures),
+    );
+  }
+  private closed = false;
   recover(): { removed: number; killed: number } {
     if (process.platform === "win32") return this.windowsRecover();
     let removed = 0;
@@ -144,6 +200,9 @@ export class ProcessInventory implements ProcessJournal {
     return { removed, killed };
   }
   close(): void {
+    this.closed = true;
+    this.cancelRetry?.();
+    this.cancelRetry = undefined;
     this.stopWindowsRecorder?.();
     this.db.close();
   }
@@ -191,14 +250,22 @@ export class ProcessInventory implements ProcessJournal {
       createdAt: this.runtime.now(),
     });
     this.windowsWrite(entry);
-    this.stopWindowsRecorder ??= (this.runtime.windowsEvery ?? windowsEvery)(() => {
-      if (!this.recordWindowsTrees()) {
-        this.stopWindowsRecorder?.();
-        this.stopWindowsRecorder = undefined;
-      }
-    }, 1_000);
+    // A tick runs from a timer: a failed write (a full disk) is reported and retried on a
+    // backoff, never thrown. What was already recorded stays as evidence.
+    this.stopWindowsRecorder ??= (this.runtime.windowsEvery ?? windowsEvery)(
+      guardedTick(() => this.recordWindowsTrees(), {
+        now: () => this.runtime.now(),
+        report: (error) => this.report(error),
+        stop: () => {
+          this.stopWindowsRecorder?.();
+          this.stopWindowsRecorder = undefined;
+        },
+      }),
+      1_000,
+    );
   }
   private windowsWrite(entry: WindowsTreeEntry): void {
+    this.unremoved.delete(entry.pid);
     this.db
       .prepare(
         "INSERT INTO processes VALUES (?,?) ON CONFLICT(pid) DO UPDATE SET entry=excluded.entry",
@@ -272,6 +339,12 @@ export class ProcessInventory implements ProcessJournal {
     const { removed, killed } = this.recoverWindows();
     return { removed, killed };
   }
+}
+
+function later(run: () => void, milliseconds: number): () => void {
+  const timer = setTimeout(run, milliseconds);
+  timer.unref();
+  return () => clearTimeout(timer);
 }
 
 function windowsEvery(run: () => void, milliseconds: number): () => void {

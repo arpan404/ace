@@ -9,7 +9,7 @@ import {
   type HourCount,
 } from "./trending.ts";
 
-/* Discover's rankings (ADR 0173 §6, §15): caps, decay, the minimum, movement and the tiers. */
+/* Discover's rankings (ADR 0174 §6, §15): caps, decay, the minimum, movement and the tiers. */
 
 const now = 500_000;
 /** `count` downloads in each of `hours`, counted back from now. */

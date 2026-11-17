@@ -16,7 +16,7 @@ import { useOwnEntry, usePublishAction } from "./market-publishing.ts";
 import { Stage } from "./market-stage.tsx";
 
 /*
- * Managing one of your entries (ADR 0173 §5): its listing's words, every version with its state
+ * Managing one of your entries (ADR 0174 §5): its listing's words, every version with its state
  * (which one the listing shows, and going back to an older one), deprecating, withdrawing (asked
  * twice), appeals, unlisted and archived, handing it to another publisher, and its signals.
  * Each change is one publish action; what the market says back is shown in a sentence.

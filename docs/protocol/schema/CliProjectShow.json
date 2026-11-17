@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliProjectShow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "project": {
+      "$ref": "https://ace.local/protocol/v1/Project.json"
+    },
+    "threads": {
+      "properties": {
+        "needsYou": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "running": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "total": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total",
+        "needsYou",
+        "running"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "project",
+    "threads"
+  ],
+  "type": "object"
+}

@@ -1,6 +1,6 @@
 # 0168: ace's marketplace
 
-Status: proposed, amended by [ADR 0173](0173-market-publishers-discovery-and-scanning.md)
+Status: proposed, amended by [ADR 0174](0174-market-publishers-discovery-and-scanning.md)
 (publishers, discovery, publishing from the app, the scan pipeline and account-only writes).
 Date: 2026-11-15. Decided by: the owner (2026-11-15: one general marketplace
 for ace rather than one for Spade, holding Suits, Spade's skills, plugins and bots, and later
@@ -71,18 +71,18 @@ type lists its entries as "Needs a newer ace" and never installs them.
   and limits.
 - **Listings live in D1**: publishers, entries, versions, review marks, categories, the
   featured list, withdrawals and anonymous download totals. One database per entry type and per
-  shared domain since [ADR 0173](0173-market-publishers-discovery-and-scanning.md) decision 16.
+  shared domain since [ADR 0174](0174-market-publishers-discovery-and-scanning.md) decision 16.
 - **Entry bytes live in R2** (`ace-market-objects`). Each version is one archive of its folder
   (regular files and folders only), stored at `objects/<content hash>`, where the hash is ADR
   0014's content hash (sorted paths, executable bits, framed bytes). An object is written once
   and never overwritten or changed; a published version number is never reused for other
   bytes. Removing a version from the listings leaves its object, so a person who installed it
   can reinstall the same bytes.
-- **The Worker serves two things:**
-  - **the catalog API** the daemon reads (decision 3);
-  - **a public web page** for browsing: the same entries, categories and featured list, each
-    entry with its description, versions, publisher and a link that opens it in ace. The page
-    follows the design language: words, not chrome.
+- **The Worker serves the API only.** The catalog API the daemon reads (decision 3), under
+  `/v1`. `GET /` answers `{"name":"ace market","api":"/v1"}` and any other path outside `/v1` is a
+  JSON 404. An earlier draft also had a public web page for browsing; the owner removed it
+  (2026-11-16): the marketplace's home is the modal inside ace, and "open in ace" links are the
+  app's own `?market=` links, not Worker pages.
 - **Built like ace cloud.** Zod 4 schemas at every boundary, clock, randomness and fetch
   injected, pure modules for every decision. The checks (decision 7) are pure modules shared
   with the daemon and the CLI, so the Worker imports no Node code, as ADR 0110 did for the
@@ -97,7 +97,7 @@ Read routes need no sign-in and set no cookie. All live under `/v1`:
 | Route                                     | Answers                                                                                                                                                                      |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /v1/index` (`?since=<stamp>`)        | Every listed entry's summary: type, name, title, one line, publisher, categories, keywords, latest version, reviewed, updated, download total. `ETag`; `since` sends changes |
-| `GET /v1/search?q=&type=&category=`       | Ranked summaries, for the web page and any client without the index                                                                                                          |
+| `GET /v1/search?q=&type=&category=`       | Ranked summaries, for any client without the index                                                                                                                           |
 | `GET /v1/categories`, `GET /v1/featured`  | The category list and the featured entries                                                                                                                                   |
 | `GET /v1/entries/{type}/{name}`           | The entry page: description, its versions, publisher, preview                                                                                                                |
 | `GET /v1/entries/{type}/{name}/{version}` | The signed version manifest, its signature and, if reviewed, the signed review mark (decision 6)                                                                             |
@@ -222,8 +222,7 @@ published, key}`, signed with Ed25519 by an ace marketplace key. Builds ship the
   (ADR 0111). The account backend mints a grant for the market (`aud: "market.acehq.dev"`,
   `purpose: "market-publish"`), which the Worker verifies with `@ace/account-grant` against the
   backend's published keys; `cloud.acehq.dev` refuses that grant, and the market refuses relay
-  and machine grants. On the web page, signing in sets a short session cookie scoped to the
-  publishing routes only. On first publish, the account picks a publisher name, unique across
+  and machine grants. On first publish, the account picks a publisher name, unique across
   the market. Browsing and installing never need an account.
 - **Uploading a version.** `POST /v1/publish/{type}/{name}/versions` takes the folder's archive
   and a version number. The Worker runs the server-side checks before anything is listed, the
@@ -317,7 +316,7 @@ the part of ace that already owns it:
   and the Worker stores no address. Rate limits use Workers rate-limit bindings, which keep
   counters in memory only.
 - No logs of who searched. The daemon searches its own copy of the index, so its queries never
-  reach the Worker. The web page's search is answered and forgotten; request logs for read
+  reach the Worker. Searches the Worker answers are answered and forgotten; request logs for read
   routes are off.
 - **Download totals are kept, anonymously.** Each version has one counter in D1, incremented
   when its object is fetched, with nothing about who fetched it. Entry pages show it as a meta
@@ -358,7 +357,7 @@ places (no mockup here):
   action: Settings › Spade › Apps (which Spade's list top button opens) gains "Browse the
   marketplace", filtered to skills, plugins and bots; Spade's new-bot flow gains "From the
   marketplace" beside the templates; Settings › Appearance gains "Find Suits"; the Skills
-  place's Add menu gains "From the marketplace". A link from the public web page opens the entry
+  place's Add menu gains "From the marketplace". An "open in ace" link (the app's `?market=` deep link) opens the entry
   here.
 - **Phones.** Suits stay off the phone apps (ADR 0150). The iPhone gets the Spade types later,
   through the daemon, in the phone's own grammar.
@@ -404,12 +403,11 @@ Each has a recommendation, which this ADR assumes until the owner says otherwise
 ## Phases
 
 1. **The service, the client and the UI.** The `market.acehq.dev` Worker (D1, R2, the catalog
-   API, the web page, the publish API with its checks), the signer, the daemon's client and
+   API, the publish API with its checks), the signer, the daemon's client and
    verification, git catalogs as the second source, and the marketplace in the app. Maintainers
    seed it with ace's own Suits, the ten templates as recipes and a first set of skills, through
    `ace marketplace publish`. Deploying the Worker is the owner's step.
-2. **Publishing from the app**: Export and Publish on Suits, skills and bots, and the web page's
-   upload for any signed-in publisher. The iPhone's Spade types follow in this phase.
+2. **Publishing from the app**: Export and Publish on Suits, skills and bots, for any signed-in publisher. The iPhone's Spade types follow in this phase.
 3. **ace plugins**, once an ADR defines what a plugin may add to ace itself.
 
 ## Options considered
@@ -419,7 +417,7 @@ Each has a recommendation, which this ADR assumes until the owner says otherwise
 - **Git catalogs only.** The first draft of this ADR: no hosted service, an official catalog in
   a git repository taking pull requests. Superseded by the owner's choice of a hosted market:
   publishing by pull request asks too much of most people, and a hosted index gives search,
-  categories and a public page. Git catalogs stay as the second source.
+  and categories. Git catalogs stay as the second source.
 - **Serving the market from `cloud.acehq.dev`.** One Worker fewer, but a marketplace deploy or
   fault would share a script with sign-in and the relay, whose Durable Objects must never be
   disturbed (ADR 0141 decision 3). Its own Worker and domain keep the blast radius apart.
@@ -429,7 +427,7 @@ Each has a recommendation, which this ADR assumes until the owner says otherwise
 - **Signing on the Worker.** Faster listing, but the key would sit with the thing it protects
   against. Rejected.
 - **Searching on the Worker for every query.** Rejected for the daemon: it would send every
-  query out and fail offline. The daemon keeps the index; the web page uses the search route.
+  query out and fail offline. The daemon keeps the index; the search route serves clients without the index.
 - **Auto-updating Suits and skills, which run no code by themselves.** Rejected for one rule
   everywhere: a skill's scripts and a Suit's scenes are code, and a person reviews each version.
 

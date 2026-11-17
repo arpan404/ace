@@ -30,6 +30,10 @@ export function BetaSettings() {
           entry="beta.marketplace"
           description={betaSwitches.marketplace.description}
         />
+        <SettingSwitch
+          setting={settingKeys.marketAskBeforeAgentPublish}
+          entry="market.askBeforeAgentPublish"
+        />
       </SettingSection>
       <SettingSection label="Video" scope="daemon">
         <MediaPipelineRow />

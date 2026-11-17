@@ -1,43 +1,33 @@
 import { selectedProfile } from "./profiles.ts";
 import { accessRequest, pinnedSocketTransport } from "../client-access.ts";
-import { z } from "zod";
 import {
   Client,
   ClientError,
   ticketCredential,
   webSocketTransport,
+  type ClientOptions,
   type Selection,
 } from "@ace/client";
 import { DeviceId } from "@ace/protocol";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { WebSocket } from "ws";
 import { cliStorage } from "./storage.ts";
+import { agentShell, localDevice } from "./person-gate.ts";
+import { reachLocalDaemon } from "./daemon-endpoint.ts";
 import { CliFailure } from "./output.ts";
 import { timeoutMs, option, type Args } from "./args.ts";
 
-const HostConnection = z.object({
-  origin: z.url().refine((value) => {
-    const url = new URL(value);
-    return (
-      url.protocol === "http:" &&
-      url.hostname === "127.0.0.1" &&
-      url.pathname === "/" &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash
-    );
-  }),
-  token: z.string().regex(/^[0-9a-f]{64}$/),
-});
-export function hostConnection(home: string) {
-  return HostConnection.parse({
-    origin: readFileSync(join(home, "daemon-endpoint"), "utf8"),
-    token: readFileSync(join(home, "daemon-token"), "utf8"),
-  });
-}
+export {
+  daemonDown,
+  hostConnection,
+  reachLocalDaemon,
+  tcpProbe,
+  type Probe,
+  type ProbeAnswer,
+} from "./daemon-endpoint.ts";
+
 export function waitSelection<T>(
   selection: Selection<T>,
   accept: (value: T) => boolean,
@@ -98,8 +88,12 @@ export function connectChat(home: string, args: Args) {
 }
 async function connectWithLifetime(home: string, args: Args, duration: number | undefined) {
   const profile = selectedProfile(home, option(args, "remote"));
-  const connection = profile ? undefined : hostConnection(home);
-  const persistence = cliStorage(profile ? join(home, "cli-remotes", profile.id) : home);
+  const connection = profile ? undefined : await reachLocalDaemon(home);
+  // On a remote the paired device's id is the only one its ticket admits.
+  const local = localDevice(agentShell(process.env));
+  const persistence = cliStorage(
+    profile ? join(home, "cli-remotes", profile.id) : join(home, local.outbox),
+  );
   const lifetime = new AbortController();
   const interrupt = () =>
     lifetime.abort(
@@ -117,8 +111,8 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
           () => lifetime.abort(new CliFailure("timeout", "Observation timed out")),
           duration,
         );
-  const client = new Client({
-    deviceId: profile?.deviceId ?? DeviceId.parse("ace-cli"),
+  const client = cliClient({
+    deviceId: profile?.deviceId ?? DeviceId.parse(local.id),
     transport: () =>
       profile
         ? pinnedSocketTransport(profile.origin.replace("https:", "wss:"), profile.fingerprint)
@@ -135,15 +129,6 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
         )
       : async () => connection?.token ?? "",
     storage: persistence.storage,
-    scheduler: {
-      set(ms, callback) {
-        const scheduled = setTimeout(callback, ms);
-        return () => clearTimeout(scheduled);
-      },
-    },
-    random: Math.random,
-    id: randomUUID,
-    now: Date.now,
   });
   const close = async () => {
     process.removeListener("SIGINT", interrupt);
@@ -154,13 +139,7 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
     persistence.close();
   };
   try {
-    await client.start();
-    const state = await waitSelection(
-      client.connectionState(),
-      (candidate) => candidate === "ready" || candidate === "fatal",
-      AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]),
-    );
-    if (state === "fatal") throw client.error ?? new ClientError("auth");
+    await untilReady(client, AbortSignal.any([lifetime.signal, AbortSignal.timeout(15000)]));
     return {
       client,
       signal: lifetime.signal,
@@ -172,4 +151,66 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
     await close();
     throw error;
   }
+}
+
+/**
+ * A read-only connection to this machine's daemon, for tab completion (ADR 0176 §6): no outbox,
+ * so nothing is written, and given up when `signal` aborts. Throws when a remote picked with
+ * `ace remote use` is where commands go, as this daemon's references aren't its.
+ */
+export async function peekLocalDaemon(
+  home: string,
+  connection: { origin: string; token: string },
+  signal: AbortSignal,
+): Promise<{ client: Client; close: () => Promise<void> }> {
+  // Opening the profile store creates it; with no store there is no remote to have picked.
+  if (existsSync(join(home, "cli-profiles.sqlite")) && selectedProfile(home))
+    throw new CliFailure("refused", "A remote is selected.");
+  const client = cliClient({
+    deviceId: DeviceId.parse(localDevice(agentShell(process.env)).id),
+    transport: () =>
+      webSocketTransport(() => new WebSocket(connection.origin.replace("http:", "ws:"))),
+    credential: async () => connection.token,
+    storage: {
+      async load() {
+        return null;
+      },
+      async save() {},
+    },
+  });
+  try {
+    await untilReady(client, signal);
+  } catch (error) {
+    await client.close();
+    throw error;
+  }
+  return { client, close: () => client.close() };
+}
+
+function cliClient(
+  parts: Pick<ClientOptions, "deviceId" | "transport" | "credential" | "storage">,
+): Client {
+  return new Client({
+    ...parts,
+    scheduler: {
+      set(ms, callback) {
+        const scheduled = setTimeout(callback, ms);
+        return () => clearTimeout(scheduled);
+      },
+    },
+    random: Math.random,
+    id: randomUUID,
+    now: Date.now,
+  });
+}
+
+/** Starts the client and waits for it to be ready; a fatal connection throws its error. */
+async function untilReady(client: Client, signal: AbortSignal): Promise<void> {
+  await client.start();
+  const state = await waitSelection(
+    client.connectionState(),
+    (candidate) => candidate === "ready" || candidate === "fatal",
+    signal,
+  );
+  if (state === "fatal") throw client.error ?? new ClientError("auth");
 }

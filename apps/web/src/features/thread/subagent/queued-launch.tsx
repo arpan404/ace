@@ -17,6 +17,7 @@ export function QueuedLaunch(props: {
   slotLimit?: number | undefined;
   slotsInUse?: number | undefined;
   queuePosition?: number | undefined;
+  waitingFor?: "storage" | undefined;
 }) {
   const words = queuedLaunchWords(useThreadFreshness(props.threadId).live, props);
   return (
@@ -30,6 +31,9 @@ export function QueuedLaunch(props: {
         <p role="status" className="text-ui text-muted-foreground">
           {words.kind === "stale" ? (
             words.word
+          ) : words.kind === "disk" ? (
+            // One sentence: a message doesn't start it either until space is freed.
+            `${words.text}.`
           ) : words.kind === "place" ? (
             <>
               Queued: {words.text}. Starts when one finishes

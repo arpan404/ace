@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliThreadState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "state": {
+      "type": "string"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "tree": {
+      "$ref": "https://ace.local/protocol/v1/CliTree.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "status",
+    "state",
+    "tree"
+  ],
+  "type": "object"
+}

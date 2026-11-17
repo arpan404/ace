@@ -22,9 +22,48 @@ use crate::plugins::Plugins;
 const WAIT: Duration = Duration::from_secs(5);
 
 impl Engine {
-    /// The person's plugins, once the server has set them.
-    pub fn set_plugins(&self, plugins: Arc<Plugins>) {
+    /// The person's plugins, once the server has set them. A plugin's server or hook that would
+    /// run outside the sandbox asks the person through this engine.
+    pub fn set_plugins(self: &Arc<Self>, plugins: Arc<Plugins>) {
+        let asker: Arc<dyn crate::plugins::outside::Ask> = self.clone();
+        plugins.ask_through(Arc::downgrade(&asker));
         let _ = self.plugins.set(plugins);
+    }
+
+    /// Answers a request to run a plugin's server or hook outside the sandbox, asked in
+    /// `conversation` (ADR 0167). Bound to what was asked, as Spade stored it: the answer covers
+    /// that plugin version, command and environment only. Answered once.
+    pub fn answer_outside(
+        &self,
+        conversation: &str,
+        id: &str,
+        allowed: bool,
+        always: bool,
+    ) -> Result<(), super::AnswerError> {
+        if self.store.conversation(conversation)?.is_none() {
+            return Err(super::AnswerError::NotFound);
+        }
+        let (Some(plugins), Some(agent)) = (self.plugins().cloned(), self.agent_of(conversation))
+        else {
+            return Err(super::AnswerError::NotAwaiting);
+        };
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let events = self.load(conversation)?;
+        let Some(asked) = open_outside(&events, |asked_id, _| asked_id == id) else {
+            return Err(super::AnswerError::NotAwaiting);
+        };
+        self.append(
+            conversation,
+            &Event::Known(Known::PluginOutsideAnswered {
+                id: id.to_owned(),
+                allowed,
+                always,
+            }),
+        )?;
+        drop(_order);
+        plugins.answered_outside(&agent, &asked, allowed, always)?;
+        self.announce(conversation);
+        Ok(())
     }
 
     pub fn plugins(&self) -> Option<&Arc<Plugins>> {
@@ -43,6 +82,74 @@ impl Engine {
         )
         .map(|_| ())
     }
+}
+
+impl crate::plugins::outside::Ask for Engine {
+    /// Raises the request in the bot's conversation, unless one for the same start is still open.
+    fn ask_outside(&self, bot: &str, asked: crate::plugins::outside::Asked) {
+        let conversation = match self.agent_view(bot) {
+            Ok(Some(view)) => view.agent.conversation,
+            _ => return,
+        };
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let Ok(events) = self.load(&conversation) else {
+            return;
+        };
+        if open_outside(&events, |_, key| key == asked.key).is_some() {
+            return;
+        }
+        let event = Event::Known(Known::PluginOutsideAsked {
+            id: self.ids.next("outside"),
+            plugin: asked.plugin,
+            version: asked.version,
+            hash: asked.hash,
+            what: asked.what,
+            line: asked.line,
+            key: asked.key,
+        });
+        if let Err(error) = self.append(&conversation, &event) {
+            tracing::warn!(%error, "could not ask to run a plugin outside the sandbox");
+            return;
+        }
+        drop(_order);
+        self.announce(&conversation);
+    }
+}
+
+/// The request to run a plugin outside the sandbox among `events` that `matches` (by its id and
+/// key) and isn't answered yet.
+fn open_outside(
+    events: &[Event],
+    matches: impl Fn(&str, &str) -> bool,
+) -> Option<crate::plugins::outside::Asked> {
+    let answered: std::collections::HashSet<&str> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::PluginOutsideAnswered { id, .. }) => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::PluginOutsideAsked {
+            id,
+            plugin,
+            version,
+            hash,
+            what,
+            line,
+            key,
+        }) if !answered.contains(id.as_str()) && matches(id, key) => {
+            Some(crate::plugins::outside::Asked {
+                plugin: plugin.clone(),
+                version: version.clone(),
+                hash: hash.clone(),
+                what: what.clone(),
+                line: line.clone(),
+                key: key.clone(),
+            })
+        }
+        _ => None,
+    })
 }
 
 /// The plugins and the conversation's bot, when it has any plugin.

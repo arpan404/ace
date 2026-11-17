@@ -41,7 +41,7 @@ export function MachineDevices(props: { machine: Machine; fleet: Fleet }) {
   if (!machine.client) return null;
   return (
     <RowGroup
-      label="Devices that open it"
+      label="Devices"
       count={devices.length}
       anchor="devices"
       actions={<PairDevice machine={machine.id} variant="ghost" />}

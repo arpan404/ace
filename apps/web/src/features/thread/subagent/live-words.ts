@@ -1,6 +1,7 @@
 import type { AgentStatus } from "@ace/protocol";
 import {
   describeActivity,
+  diskWaitDetail,
   queuedDetail,
   queuedSlotFragment,
   subagentOutcome,
@@ -47,12 +48,16 @@ export function subagentBarWords(
  */
 export function queuedLaunchWords(
   live: Live,
-  place: { [K in keyof QueuePlace]?: QueuePlace[K] | undefined },
+  place: { [K in keyof QueuePlace]?: QueuePlace[K] | undefined } & {
+    waitingFor?: "storage" | undefined;
+  },
 ):
   | { kind: "stale"; word: string }
   | { kind: "place"; text: string }
-  | { kind: "waiting"; text: string } {
+  | { kind: "waiting"; text: string }
+  | { kind: "disk"; text: string } {
   if (!live.current) return { kind: "stale", word: live.word };
+  if (place.waitingFor === "storage") return { kind: "disk", text: diskWaitDetail };
   const { slotLimit, slotsInUse, queuePosition } = place;
   if (slotLimit !== undefined && slotsInUse !== undefined && queuePosition !== undefined)
     return { kind: "place", text: queuedSlotFragment({ slotLimit, slotsInUse, queuePosition }) };

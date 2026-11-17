@@ -1,0 +1,134 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketDraftSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "folder",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "archive": {
+          "maxLength": 8000000,
+          "type": "string"
+        },
+        "kind": {
+          "const": "archive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "archive"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SuitId.json"
+        },
+        "kind": {
+          "const": "suit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "spade-bot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "spade-skill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "kind": {
+          "const": "ace-skill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "plugin",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    }
+  ]
+}

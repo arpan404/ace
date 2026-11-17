@@ -354,7 +354,7 @@ Example:
 | resetCredits | no | [QuotaResetCredits.json](schema/QuotaResetCredits.json) |  |
 | usageNotice | no | object | {"properties":{"reason":{"type":"string","enum":["signed_out","unavailable"]},"message":{"type":"string","minLength":1,"maxLength":256},"observedAt":{"type":"number","minimum":0}},"required":["reason","message","observedAt"]} |
 | windows | yes | object | {"propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/QuotaWindow.json"},"maxProperties":32,"x-ace-constraint":"At most 32 quota windows."} |
-| blockers | no | object | {"default":{},"properties":{"overflow":{"type":"boolean","const":true},"limitError":{"$ref":"https://ace.local/protocol/v1/QuotaWindow.json"},"homeUnavailable":{"type":"string","enum":["home_missing","home_unreadable","foreign_home","home_conflict"]}}} |
+| blockers | no | object | {"default":{},"properties":{"overflow":{"type":"boolean","const":true},"limitError":{"$ref":"https://ace.local/protocol/v1/QuotaWindow.json"},"homeUnavailable":{"type":"string","enum":["home_missing","home_unreadable","foreign_home","home_conflict","home_checking"]}}} |
 | usage | yes | object | {"properties":{"inputTokens":{"type":"number","minimum":0},"outputTokens":{"type":"number","minimum":0},"costUsd":{"type":"number","minimum":0}}} |
 
 Example:
@@ -849,6 +849,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | email | yes | string | {"maxLength":320,"pattern":"^[^\\s@]+@[^\\s@]+$"} |
 | name | yes | string | {"maxLength":256} |
+| emailVerified | no | boolean |  |
 | picture | no | boolean |  |
 
 Example:
@@ -856,9 +857,9 @@ Example:
 ```json
 {
   "email": "q]hRb^;>}qE@*Q[cq",
+  "emailVerified": false,
   "id": "example",
-  "name": "example",
-  "picture": false
+  "name": "example"
 }
 ```
 
@@ -878,12 +879,12 @@ Example:
 {
   "account": {
     "email": "^<aU2@hMeJHqQD",
+    "emailVerified": false,
     "id": "example",
-    "name": "example",
-    "picture": false
+    "name": "example"
   },
-  "expiresAt": 7,
-  "token": "lEg3Y7YF4tExoYeRM1J_BsSZboxIOgpDf4C3yGdhol3"
+  "expiresAt": 4,
+  "token": "Eg3Y7YF4tExoYeRM1J_BsSZboxIOgpDf4C3yGdhol3X"
 }
 ```
 
@@ -950,11 +951,11 @@ Example:
 {
   "account": {
     "email": "09MIm}e@f",
+    "emailVerified": false,
     "id": "example",
-    "name": "example",
-    "picture": false
+    "name": "example"
   },
-  "expiresAt": 10
+  "expiresAt": 4
 }
 ```
 
@@ -1064,10 +1065,11 @@ Example:
     "account": {
       "email": ",O6JThc^GU@)[.w,;",
       "id": "example",
-      "name": "example"
+      "name": "example",
+      "picture": false
     },
-    "expiresAt": 2,
-    "token": "OC3etED1t_qpqs76g-nib0Ew0qcILcF67sbVd-RK-qx"
+    "expiresAt": 3,
+    "token": "3etED1t_qpqs76g-nib0Ew0qcILcF67sbVd-RK-qxq4"
   },
   "status": "complete"
 }
@@ -1368,9 +1370,10 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| holds | yes | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
+| holds | yes | array | {"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
 | busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | waiting | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| startup | no | [StartupNotice.json](schema/StartupNotice.json) |  |
 
 Example:
 
@@ -3907,6 +3910,24 @@ Example:
 "ios:ed1cEefb44Fbb7ADAbADd4-A5B40DFfaBc4A"
 ```
 
+## AppealAnswer
+
+[JSON Schema](schema/AppealAnswer.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| answer | yes | string | {"minLength":1,"maxLength":2000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| decision | yes | ["approve","keep"] |  |
+
+Example:
+
+```json
+{
+  "answer": "example",
+  "decision": "keep"
+}
+```
+
 ## ApprovalOption
 
 [JSON Schema](schema/ApprovalOption.json), input validation.
@@ -4313,6 +4334,36 @@ Example:
 "ff1463214e91839bd50f6a06aaf32c95ed9ccf98c2b2f2a3fce2f06e524acdfb"
 ```
 
+## BlockDecision
+
+[JSON Schema](schema/BlockDecision.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| reason | yes | string | {"minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+
+Example:
+
+```json
+{
+  "reason": "example",
+  "scan": {
+    "checks": [],
+    "findings": [],
+    "format": "ace-market-scan",
+    "read": {
+      "files": 5,
+      "textBytes": 5
+    },
+    "runnable": true,
+    "scanner": 7,
+    "truncated": true,
+    "verdict": "block"
+  }
+}
+```
+
 ## BlockedReason
 
 [JSON Schema](schema/BlockedReason.json), input validation.
@@ -4323,6 +4374,35 @@ Example:
 
 ```json
 "background_task"
+```
+
+## BotFileV1
+
+[JSON Schema](schema/BotFileV1.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"spade-bot"` |  |
+| version | yes | `1` |  |
+| name | yes | string | {"minLength":1,"maxLength":80,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| task | no | string | {"default":"","maxLength":4000} |
+| avatar | no | any JSON value |  |
+| model | no | union | {"anyOf":[{"type":"string","maxLength":200},{"type":"null"}]} |
+| routines | no | array | {"default":[],"maxItems":64,"items":{"type":"object","properties":{"name":{"type":"string","maxLength":120},"instruction":{"type":"string","maxLength":4000},"trigger":{}},"required":["name","instruction","trigger"]}} |
+| connectors | no | union | {"anyOf":[{"type":"object","properties":{"all":{"type":"boolean"},"connectors":{"default":[],"maxItems":64,"type":"array","items":{"type":"string","maxLength":64}}},"required":["all"]},{"type":"null"}]} |
+| notes | no | array | {"default":[],"maxItems":200,"items":{"type":"string","maxLength":2000}} |
+
+Example:
+
+```json
+{
+  "avatar": null,
+  "connectors": null,
+  "format": "spade-bot",
+  "name": "example",
+  "task": "example",
+  "version": 1
+}
 ```
 
 ## BranchRef
@@ -8733,6 +8813,38 @@ Example:
 }
 ```
 
+## CategoriesBody
+
+[JSON Schema](schema/CategoriesBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| categories | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MarketCategory.json"},"x-ace-constraint":"Items that don't parse are dropped; a value that isn't a list reads as none."} |
+
+Example:
+
+```json
+{
+  "categories": []
+}
+```
+
+## CategoriesUpload
+
+[JSON Schema](schema/CategoriesUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| categories | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/MarketCategory.json"}} |
+
+Example:
+
+```json
+{
+  "categories": []
+}
+```
+
 ## ChannelClose
 
 [JSON Schema](schema/ChannelClose.json), input validation.
@@ -8750,6 +8862,673 @@ Example:
   "code": 1008,
   "reason": "example",
   "type": "channel.close"
+}
+```
+
+## CliAdmission
+
+[JSON Schema](schema/CliAdmission.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"admission"` |  |
+| ok | yes | `true` |  |
+| status | yes | `"accepted"` |  |
+| commandId | yes | string |  |
+| idempotencyKey | yes | string |  |
+| threadId | yes | string |  |
+
+Example:
+
+```json
+{
+  "commandId": "example",
+  "idempotencyKey": "example",
+  "ok": true,
+  "status": "accepted",
+  "threadId": "example",
+  "type": "admission"
+}
+```
+
+## CliAlias
+
+[JSON Schema](schema/CliAlias.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| words | yes | array | {"items":{"type":"string"}} |
+| deprecatedSince | no | string |  |
+
+Example:
+
+```json
+{
+  "deprecatedSince": "example",
+  "words": []
+}
+```
+
+## CliArgument
+
+[JSON Schema](schema/CliArgument.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| summary | yes | string |  |
+| required | yes | boolean |  |
+| variadic | yes | boolean |  |
+| stdin | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "required": true,
+  "stdin": true,
+  "summary": "example",
+  "variadic": false
+}
+```
+
+## CliCleanupReceipt
+
+[JSON Schema](schema/CliCleanupReceipt.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| planId | yes | string | {"minLength":1,"maxLength":256} |
+| state | yes | ["complete","pending","stale"] |  |
+| items | yes | array | {"maxItems":256,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["removed","pending","protected"]},"reason":{"$ref":"https://ace.local/protocol/v1/StorageReason.json"},"error":{"type":"string","maxLength":128}},"required":["id","state"]}} |
+| revision | no | string |  |
+
+Example:
+
+```json
+{
+  "items": [],
+  "planId": "example",
+  "state": "pending"
+}
+```
+
+## CliCommand
+
+[JSON Schema](schema/CliCommand.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| words | yes | array | {"items":{"type":"string"}} |
+| summary | yes | string |  |
+| description | no | string |  |
+| group | yes | string |  |
+| arguments | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliArgument.json"}} |
+| flags | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliFlag.json"}} |
+| examples | yes | array | {"items":{"type":"object","properties":{"command":{"type":"string"},"summary":{"type":"string"}},"required":["command","summary"]}} |
+| aliases | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliAlias.json"}} |
+| output | no | string |  |
+| mutates | yes | boolean |  |
+| offline | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "aliases": [],
+  "arguments": [],
+  "examples": [],
+  "flags": [],
+  "group": "example",
+  "id": "example",
+  "mutates": false,
+  "offline": true,
+  "output": "example",
+  "summary": "example",
+  "words": []
+}
+```
+
+## CliCommandHelp
+
+[JSON Schema](schema/CliCommandHelp.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| words | yes | array | {"items":{"type":"string"}} |
+| summary | yes | string |  |
+| description | no | string |  |
+| group | yes | string |  |
+| arguments | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliArgument.json"}} |
+| flags | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliFlag.json"}} |
+| examples | yes | array | {"items":{"type":"object","properties":{"command":{"type":"string"},"summary":{"type":"string"}},"required":["command","summary"]}} |
+| aliases | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliAlias.json"}} |
+| output | no | string |  |
+| mutates | yes | boolean |  |
+| offline | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "aliases": [],
+  "arguments": [],
+  "examples": [],
+  "flags": [],
+  "group": "example",
+  "id": "example",
+  "mutates": true,
+  "offline": false,
+  "summary": "example",
+  "words": []
+}
+```
+
+## CliCommandTree
+
+[JSON Schema](schema/CliCommandTree.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string |  |
+| globalFlags | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliFlag.json"}} |
+| commands | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliCommand.json"}} |
+| topics | yes | array | {"items":{"type":"object","properties":{"name":{"type":"string"},"summary":{"type":"string"}},"required":["name","summary"]}} |
+| exitCodes | yes | array | {"items":{"type":"object","properties":{"code":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"name":{"$ref":"https://ace.local/protocol/v1/CliOutcome.json"},"means":{"type":"string"}},"required":["code","name","means"]}} |
+
+Example:
+
+```json
+{
+  "commands": [],
+  "exitCodes": [],
+  "globalFlags": [],
+  "topics": [],
+  "version": "example"
+}
+```
+
+## CliConfigEntry
+
+[JSON Schema](schema/CliConfigEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| setting | yes | string |  |
+| key | yes | string |  |
+| value | yes | [JsonValue.json](schema/JsonValue.json) |  |
+| source | yes | ["default","saved","environment"] |  |
+| overriddenBy | no | string |  |
+| live | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "key": "example",
+  "live": false,
+  "overriddenBy": "example",
+  "setting": "example",
+  "source": "environment",
+  "value": 8
+}
+```
+
+## CliDaemonDown
+
+[JSON Schema](schema/CliDaemonDown.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `false` |  |
+
+Example:
+
+```json
+{
+  "running": false
+}
+```
+
+## CliDaemonStart
+
+[JSON Schema](schema/CliDaemonStart.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `true` |  |
+| url | yes | string |  |
+| tokenPath | yes | string |  |
+| remoteUrl | no | string |  |
+| fingerprint | no | string |  |
+
+Example:
+
+```json
+{
+  "remoteUrl": "example",
+  "running": true,
+  "tokenPath": "example",
+  "url": "example"
+}
+```
+
+## CliDoctorReport
+
+[JSON Schema](schema/CliDoctorReport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| at | yes | number |  |
+| checks | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/DiagnosticCheck.json"}} |
+| planned | yes | array | {"items":{}} |
+| repairs | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/DiagnosticRepair.json"}} |
+
+Example:
+
+```json
+{
+  "at": 1,
+  "checks": [],
+  "planned": [],
+  "repairs": []
+}
+```
+
+## CliError
+
+[JSON Schema](schema/CliError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | `false` |  |
+| status | yes | [CliOutcome.json](schema/CliOutcome.json) |  |
+| code | yes | [CliErrorCode.json](schema/CliErrorCode.json) |  |
+| error | yes | string |  |
+| hint | no | string |  |
+| command | no | string |  |
+| argument | no | string |  |
+| suggestion | no | string |  |
+| retry | no | object | {"properties":{"idempotencyKey":{"type":"string"}},"required":["idempotencyKey"]} |
+| request | no | string |  |
+| admission | no | any JSON value |  |
+| problems | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliProblem.json"}} |
+
+Example:
+
+```json
+{
+  "admission": null,
+  "code": "lock_held",
+  "command": "example",
+  "error": "example",
+  "ok": false,
+  "problems": [],
+  "request": "example",
+  "retry": {
+    "idempotencyKey": "example"
+  },
+  "status": "failed"
+}
+```
+
+## CliErrorCode
+
+[JSON Schema](schema/CliErrorCode.json), input validation.
+
+Type: ["unknown_command","unknown_flag","missing_argument","bad_argument","too_many_arguments","retired_command","ambiguous","refused","not_found","daemon_down","turned_off","busy","forbidden","conflict","suspended","quota","needs_human","signed_out","reauth","person_only","confirm","failed","blocked","check_failed","internal","timeout","uncertain","address_in_use","lock_held","newer_data","incompatible_data"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"lock_held"
+```
+
+## CliFeatures
+
+[JSON Schema](schema/CliFeatures.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| spade | yes | boolean |  |
+| marketplace | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "marketplace": true,
+  "spade": true
+}
+```
+
+## CliFeatureSwitch
+
+[JSON Schema](schema/CliFeatureSwitch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| live | yes | boolean |  |
+| spade | no | boolean |  |
+| marketplace | no | boolean |  |
+
+Example:
+
+```json
+{
+  "live": true,
+  "marketplace": false,
+  "spade": true
+}
+```
+
+## CliFlag
+
+[JSON Schema](schema/CliFlag.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string |  |
+| short | no | string |  |
+| value | no | string |  |
+| summary | yes | string |  |
+| repeat | yes | boolean |  |
+| choices | no | array | {"items":{"type":"string"}} |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "repeat": true,
+  "summary": "example"
+}
+```
+
+## CliLogRecord
+
+[JSON Schema](schema/CliLogRecord.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| at | yes | number |  |
+| level | yes | ["debug","info","warn","error"] |  |
+| component | yes | string |  |
+| message | yes | string |  |
+| data | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "at": 0,
+  "component": "example",
+  "data": null,
+  "level": "error",
+  "message": "example"
+}
+```
+
+## CliMarketCheck
+
+[JSON Schema](schema/CliMarketCheck.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | string |  |
+| name | yes | string |  |
+| hash | yes | string |  |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| problems | yes | array | {"items":{"type":"object","properties":{"path":{"type":"string"},"message":{"type":"string"}},"required":["message"],"additionalProperties":{}}} |
+
+Example:
+
+```json
+{
+  "bytes": 1,
+  "files": 1,
+  "hash": "example",
+  "name": "example",
+  "problems": [],
+  "type": "example"
+}
+```
+
+## CliMarketInstall
+
+[JSON Schema](schema/CliMarketInstall.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| review | yes | [MarketReview.json](schema/MarketReview.json) |  |
+| installed | no | [MarketInstalled.json](schema/MarketInstalled.json) |  |
+
+Example:
+
+```json
+{
+  "installed": {
+    "acceptedAt": 1,
+    "hash": "d65df09357dff91cd8f8ec919d266b715ba81d22bfde40f2d864a654cbc875ae",
+    "name": "dk7",
+    "source": "market",
+    "state": "off",
+    "target": "example",
+    "title": "example",
+    "type": "suit",
+    "version": "example"
+  },
+  "review": {
+    "body": {
+      "files": 7,
+      "fonts": [],
+      "passes": false,
+      "problems": [],
+      "scenes": [],
+      "type": "suit"
+    },
+    "byAce": false,
+    "deprecated": "example",
+    "expiresAt": 8,
+    "hash": "e743ad2cf0c20604cf658a0ae5b41cb4c65f330c1ee25dd7322f68f74d22f550",
+    "id": "-GDuNrglbZXJ-MtLuPWhXTawxsotClcaf4OYKreHWiGabXsvPX3fxhl-61ZadYrZA4",
+    "items": 2,
+    "name": "c",
+    "reviewed": false,
+    "scan": {
+      "checks": [],
+      "findings": [],
+      "format": "ace-market-scan",
+      "hash": "6355e7f3aef9fd64e8a8072de7245b748e4bddff9783e0f3497b5a536ce852c3",
+      "read": {
+        "files": 1,
+        "textBytes": 2
+      },
+      "runnable": false,
+      "runnableReason": "example",
+      "scanner": 10,
+      "truncated": true,
+      "verdict": "pass"
+    },
+    "signed": true,
+    "source": "market",
+    "title": "example",
+    "type": "suit",
+    "version": "example"
+  }
+}
+```
+
+## CliMarketSearch
+
+[JSON Schema](schema/CliMarketSearch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| readAt | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "total": 4
+}
+```
+
+## CliMarketShow
+
+[JSON Schema](schema/CliMarketShow.json), input validation.
+
+### entry
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"entry"` |  |
+| entry | yes | [MarketEntryDetail.json](schema/MarketEntryDetail.json) |  |
+
+Example:
+
+```json
+{
+  "entry": {
+    "description": "example",
+    "installed": {
+      "acceptedAt": 7,
+      "deprecated": "example",
+      "hash": "29d2cd33483d80edbfd652e387084dec8d2591fdaa81eeef5c400fa9a634271e",
+      "name": "j",
+      "reason": "example",
+      "source": "git:3zng98oexdsypq",
+      "state": "blocked",
+      "target": "example",
+      "title": "example",
+      "type": "spade-skill",
+      "version": "example"
+    },
+    "summary": {
+      "byAce": false,
+      "categories": [],
+      "downloads": 8,
+      "keywords": [],
+      "line": "example",
+      "name": "p",
+      "previews": [],
+      "publisher": {
+        "id": "example",
+        "name": "y"
+      },
+      "reviewed": false,
+      "source": "git:ydt5atqiue3e867k1etyfn5jhdeef",
+      "supported": true,
+      "title": "example",
+      "type": "example",
+      "updated": 2,
+      "verified": false
+    },
+    "versions": []
+  },
+  "kind": "entry"
+}
+```
+
+### publisher
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"publisher"` |  |
+| page | yes | [MarketPublisherPage.json](schema/MarketPublisherPage.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "publisher",
+  "page": {
+    "downloads": 4,
+    "entries": [],
+    "official": false,
+    "pinned": [],
+    "profile": {
+      "bio": "example",
+      "displayName": "example",
+      "handle": "1ww48h",
+      "id": "example",
+      "joined": 2,
+      "links": [],
+      "pins": [],
+      "proofs": [],
+      "verified": false
+    }
+  }
+}
+```
+
+## CliOkOutput
+
+[JSON Schema](schema/CliOkOutput.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | `true` |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## CliOpenRequest
+
+[JSON Schema](schema/CliOpenRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| threadTitle | yes | string | {"maxLength":256} |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| interaction | yes | [Interaction.json](schema/Interaction.json) |  |
+
+Example:
+
+```json
+{
+  "interaction": {
+    "agentId": "example",
+    "blocking": true,
+    "createdAt": 3,
+    "id": "example",
+    "raw": [],
+    "request": {
+      "kind": "elicitation",
+      "message": "example",
+      "server": "example",
+      "title": "example"
+    },
+    "resolution": {
+      "answers": {},
+      "kind": "question"
+    },
+    "resolvedBy": "example",
+    "state": "resolved",
+    "threadId": "example",
+    "truncated": {
+      "chars": 7
+    }
+  },
+  "provider": "opencode",
+  "threadId": "example",
+  "threadTitle": "example",
+  "workspaceId": "example"
 }
 ```
 
@@ -8861,6 +9640,22 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"request.list"` |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| limit | no | integer | {"minimum":1,"maximum":200} |
+
+Example:
+
+```json
+{
+  "op": "request.list"
+}
+```
+
+### Variant 8
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"task.spawn"` |  |
 | parentId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | request | yes | [DelegationRequest.json](schema/DelegationRequest.json) |  |
@@ -8872,19 +9667,22 @@ Example:
   "op": "task.spawn",
   "parentId": "example",
   "request": {
+    "access": "ask",
     "acpAgentId": "example",
-    "effort": "example",
-    "estimatedLoad": 9,
-    "project": "example",
-    "provider": "opencode",
-    "requestId": "yFCtjvoUfuY",
+    "provider": "codex",
+    "requestId": "k__wgo5cj",
     "role": "example",
-    "task": "example"
+    "task": "example",
+    "wait": false,
+    "workspace": {
+      "kind": "existing_worktree",
+      "path": "example"
+    }
   }
 }
 ```
 
-### Variant 8
+### Variant 9
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -8900,7 +9698,7 @@ Example:
 }
 ```
 
-### Variant 9
+### Variant 10
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -8916,11 +9714,11 @@ Example:
   "args": {},
   "op": "sim",
   "threadId": "example",
-  "verb": "logs"
+  "verb": "act"
 }
 ```
 
-### Variant 10
+### Variant 11
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -8932,9 +9730,87 @@ Example:
 
 ```json
 {
-  "key": "bXh3MmFk",
+  "key": "5Gvo",
   "op": "task.cancel",
   "threadId": "example"
+}
+```
+
+## CliOutcome
+
+[JSON Schema](schema/CliOutcome.json), input validation.
+
+Type: ["ok","failed","needs-human","timeout","refused","uncertain","address-in-use","lock-held","usage","newer-data","incompatible-data"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"usage"
+```
+
+## CliProblem
+
+[JSON Schema](schema/CliProblem.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | no | string |  |
+| line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| message | yes | string |  |
+
+Example:
+
+```json
+{
+  "message": "example"
+}
+```
+
+## CliProjectShow
+
+[JSON Schema](schema/CliProjectShow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| project | yes | [Project.json](schema/Project.json) |  |
+| threads | yes | object | {"properties":{"total":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"needsYou":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"running":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["total","needsYou","running"]} |
+
+Example:
+
+```json
+{
+  "project": {
+    "badge": {
+      "color": "violet"
+    },
+    "id": "example",
+    "kind": "chat",
+    "name": "example",
+    "path": "example"
+  },
+  "threads": {
+    "needsYou": 7,
+    "running": 2,
+    "total": 3
+  }
+}
+```
+
+## CliReceipt
+
+[JSON Schema](schema/CliReceipt.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| idempotencyKey | yes | string |  |
+
+Example:
+
+```json
+{
+  "idempotencyKey": "example",
+  "ok": false
 }
 ```
 
@@ -8961,6 +9837,24 @@ Example:
 }
 ```
 
+## CliRequestList
+
+[JSON Schema](schema/CliRequestList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requests | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/CliOpenRequest.json"}} |
+| truncated | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "requests": [],
+  "truncated": false
+}
+```
+
 ## CliResult
 
 [JSON Schema](schema/CliResult.json), input validation.
@@ -8984,6 +9878,24 @@ Example:
 }
 ```
 
+## CliServiceState
+
+[JSON Schema](schema/CliServiceState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| active | yes | boolean |  |
+| linger | no | `true` |  |
+
+Example:
+
+```json
+{
+  "active": false,
+  "linger": true
+}
+```
+
 ## CliSimVerb
 
 [JSON Schema](schema/CliSimVerb.json), input validation.
@@ -8994,6 +9906,149 @@ Example:
 
 ```json
 "list"
+```
+
+## CliSpadeBot
+
+[JSON Schema](schema/CliSpadeBot.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string |  |
+| kind | yes | ["main","bot"] |  |
+| name | yes | string |  |
+| task | yes | string |  |
+| model | yes | string |  |
+| conversation | yes | string |  |
+| state | yes | ["idle","working","waiting"] |  |
+| waitingFor | no | ["approval","question"] |  |
+| status | no | string |  |
+| problem | no | string |  |
+| unseen | yes | boolean |  |
+| pinned | yes | boolean |  |
+| lastActivity | yes | number |  |
+| lastMessage | no | object | {"properties":{"from":{"type":"string","enum":["person","agent"]},"text":{"type":"string"},"at":{"type":"number"}},"required":["from","text","at"]} |
+| parent | no | object | {"properties":{"id":{"type":"string"},"name":{"type":"string"}},"required":["id","name"]} |
+
+Example:
+
+```json
+{
+  "conversation": "example",
+  "id": "example",
+  "kind": "main",
+  "lastActivity": 9,
+  "model": "example",
+  "name": "example",
+  "pinned": true,
+  "problem": "example",
+  "state": "working",
+  "status": "example",
+  "task": "example",
+  "unseen": true,
+  "waitingFor": "approval"
+}
+```
+
+## CliSpadeChat
+
+[JSON Schema](schema/CliSpadeChat.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| bot | yes | string |  |
+| conversation | yes | string |  |
+| reply | no | string |  |
+
+Example:
+
+```json
+{
+  "bot": "example",
+  "conversation": "example"
+}
+```
+
+## CliSpadeStatus
+
+[JSON Schema](schema/CliSpadeStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| beta | yes | boolean |  |
+| enabled | yes | boolean |  |
+| live | yes | boolean |  |
+| status | no | [SpadeStatus.json](schema/SpadeStatus.json) |  |
+
+Example:
+
+```json
+{
+  "beta": true,
+  "enabled": true,
+  "live": true
+}
+```
+
+## CliSpadeSwitch
+
+[JSON Schema](schema/CliSpadeSwitch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| enabled | yes | boolean |  |
+| live | yes | boolean |  |
+| beta | no | `true` |  |
+
+Example:
+
+```json
+{
+  "enabled": false,
+  "live": true
+}
+```
+
+## CliStatus
+
+[JSON Schema](schema/CliStatus.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `true` |  |
+| version | yes | union | {"anyOf":[{"type":"string","const":"development"},{"$ref":"https://ace.local/protocol/v1/ReleaseVersion.json"}]} |
+| ready | no | `true` |  |
+| admission | no | [MaintenanceStatus.json](schema/MaintenanceStatus.json) |  |
+| account | no | object | {"properties":{"signedIn":{"type":"boolean"},"email":{"type":"string"}},"required":["signedIn"]} |
+| needsYou | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+| working | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "account": {
+    "signedIn": false
+  },
+  "running": true,
+  "version": "8707146040.2751929845.2474294158"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| running | yes | `false` |  |
+
+Example:
+
+```json
+{
+  "running": false
+}
 ```
 
 ## CliTaskStatus
@@ -9013,24 +10068,127 @@ Example:
 ```json
 {
   "generation": 0,
-  "outcome": {
-    "before": null,
-    "failure": {
-      "accountLabel": "example",
-      "code": "example",
-      "message": "example"
-    },
-    "outcome": "completed",
-    "result": "example",
-    "threadId": "example",
-    "truncated": true
-  },
   "state": "unresponsive",
   "status": {
     "on": "queue",
-    "state": "waiting"
+    "state": "waiting",
+    "waitingFor": "storage"
   },
   "threadId": "example"
+}
+```
+
+## CliThreadList
+
+[JSON Schema](schema/CliThreadList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threads | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"workspaceId":{"type":"string"},"title":{"type":"string"},"provider":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"status":{"$ref":"https://ace.local/protocol/v1/ThreadStatus.json"},"createdAt":{"type":"number"},"updatedAt":{"type":"number"}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":{}}} |
+| rows | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/CliThreadRow.json"}} |
+| next | yes | string,null |  |
+| window | no | [ThreadListWindow.json](schema/ThreadListWindow.json) |  |
+
+Example:
+
+```json
+{
+  "next": null,
+  "rows": [],
+  "threads": []
+}
+```
+
+## CliThreadRow
+
+[JSON Schema](schema/CliThreadRow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string |  |
+| title | yes | string |  |
+| project | yes | string |  |
+| workspaceId | yes | string |  |
+| provider | yes | string |  |
+| branch | no | string |  |
+| pinned | yes | boolean |  |
+| settled | yes | boolean |  |
+| state | yes | string |  |
+| meaning | yes | string |  |
+| waitingOn | no | integer | {"minimum":-9007199254740991,"maximum":9007199254740991} |
+| since | no | number |  |
+| activityAt | yes | number |  |
+
+Example:
+
+```json
+{
+  "activityAt": 1,
+  "meaning": "example",
+  "pinned": true,
+  "project": "example",
+  "provider": "example",
+  "settled": true,
+  "state": "example",
+  "threadId": "example",
+  "title": "example",
+  "workspaceId": "example"
+}
+```
+
+## CliThreadShow
+
+[JSON Schema](schema/CliThreadShow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| thread | yes | object | {"properties":{"id":{"type":"string"},"workspaceId":{"type":"string"},"title":{"type":"string"},"provider":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"status":{"$ref":"https://ace.local/protocol/v1/ThreadStatus.json"},"createdAt":{"type":"number"},"updatedAt":{"type":"number"}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":{}} |
+| items | yes | array | {"items":{"type":"object","properties":{"id":{"type":"string"},"type":{"type":"string"},"agentId":{"type":"string"},"createdAt":{"type":"number"}},"required":["id","type","agentId","createdAt"],"additionalProperties":{}}} |
+| itemsBefore | yes | number,null |  |
+| interactions | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/Interaction.json"}} |
+
+Example:
+
+```json
+{
+  "interactions": [],
+  "items": [],
+  "itemsBefore": 8,
+  "thread": {
+    "createdAt": 2,
+    "id": "example",
+    "provider": "claude",
+    "status": {
+      "state": "failed"
+    },
+    "title": "example",
+    "updatedAt": 7,
+    "workspaceId": "example"
+  }
+}
+```
+
+## CliThreadState
+
+[JSON Schema](schema/CliThreadState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | string |  |
+| status | yes | [ThreadStatus.json](schema/ThreadStatus.json) |  |
+| state | yes | string |  |
+| tree | yes | [CliTree.json](schema/CliTree.json) |  |
+
+Example:
+
+```json
+{
+  "state": "example",
+  "status": {
+    "state": "done"
+  },
+  "threadId": "example",
+  "tree": []
 }
 ```
 
@@ -9099,6 +10257,38 @@ Example:
 {
   "required": "example",
   "status": "unreadable"
+}
+```
+
+## CliVersionOutput
+
+[JSON Schema](schema/CliVersionOutput.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string |  |
+
+Example:
+
+```json
+{
+  "version": "example"
+}
+```
+
+## CollectionsUpload
+
+[JSON Schema](schema/CollectionsUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| collections | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/MarketCollection.json"}} |
+
+Example:
+
+```json
+{
+  "collections": []
 }
 ```
 
@@ -10497,119 +11687,94 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 1,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
+    "contextMeters": {},
+    "entitiesBefore": {},
     "interactions": {},
     "itemOrder": [],
-    "itemSeqs": {},
     "items": {},
+    "itemsBefore": null,
     "kind": "thread",
-    "partial": {
-      "previews": []
-    },
     "runs": {},
-    "seq": 9,
+    "seq": 1,
     "thread": {
-      "acpAgentId": "example",
-      "activityAt": 0,
-      "autoSettle": false,
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": true,
+          "planMode": false,
+          "resume": false
+        },
+        "coverage": "generic",
+        "mcp": "http",
+        "modeSelection": false,
+        "modelSelection": true,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "visibility": "limited"
+      },
       "createdAt": 5,
-      "delegatedBy": "example",
-      "delegatedFrom": {
-        "hostId": "example",
-        "hostName": "example",
-        "provider": "example",
-        "threadId": "example"
-      },
-      "deletedAt": 1,
-      "details": {
-        "base": {
-          "fetch": "unreachable",
-          "head": "934c3ba327d5fedb6915c33d401f95b78cd68569e5fa564699a45d754",
-          "ref": "example"
-        },
-        "behind": 2,
-        "continuedOn": {
-          "at": 1,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "head": null,
-        "linkedIssues": [],
-        "worktree": "example",
-        "worktreeMissing": true,
-        "worktreeSetup": {
-          "at": 8,
-          "details": [],
-          "state": "failed"
-        }
-      },
-      "effectiveCapabilities": {
-        "backgroundTaskControl": false,
-        "backgroundVisibility": "partial",
-        "fork": true,
-        "forkMode": "context-handoff",
-        "goals": false,
-        "imageInput": true,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "permissions": {
-          "modes": [],
-          "nativeAutoReview": true,
-          "toolGate": true
-        },
-        "planMode": true,
-        "resume": true,
-        "rewindFiles": false,
-        "steer": true,
-        "steeringMode": "interrupt-restart",
-        "subagentTranscripts": true,
-        "tokenUsage": true
-      },
-      "execution": {
-        "provider": "opencode"
-      },
-      "handoff": {
-        "bytes": 1,
-        "sourceThreadId": "example",
-        "truncated": true
-      },
-      "hasSentMessage": true,
-      "host": "spade-bot",
+      "hasSentMessage": false,
+      "host": "spade",
       "id": "example",
       "imported": {
-        "importedAt": 7,
+        "importedAt": 0,
         "instanceId": "example",
         "native": {
+          "acpAgentId": "example",
           "nativeId": "example",
-          "provider": "cursor"
+          "provider": "antigravity"
         },
         "sourceId": "example"
       },
-      "listOrder": 7,
-      "pinned": false,
-      "prSettledKey": "example",
-      "provider": "antigravity",
-      "readAt": 3,
-      "rootAgentId": "example",
+      "instanceId": "example",
+      "listOrder": 0,
+      "pinOrder": 3,
+      "provider": "acp",
       "settleWhenDone": true,
-      "settledReason": "pr_closed",
+      "settledReason": "manual",
       "snoozeWake": {
-        "on": "needs_you"
+        "on": "pr",
+        "prs": [
+          {
+            "checks": "failed",
+            "head": "example",
+            "pr": "example",
+            "state": "draft",
+            "updatedAt": 3
+          }
+        ]
       },
-      "snoozedUntil": 0,
+      "snoozeWoke": {
+        "at": 4,
+        "on": "needs_you",
+        "outcome": "finished"
+      },
       "status": {
-        "state": "new"
+        "interactions": 9,
+        "state": "needs_you"
+      },
+      "switch": {
+        "at": 2,
+        "error": "example",
+        "lossy": false,
+        "selection": {
+          "instanceId": "example",
+          "provider": "antigravity"
+        },
+        "state": "applied"
       },
       "title": "example",
+      "titleSource": "generated",
       "unread": true,
-      "updatedAt": 5,
+      "updatedAt": 6,
       "workspaceId": "example"
     },
     "usage": {}
@@ -13356,6 +14521,31 @@ Example:
 "interactions"
 ```
 
+## EntryBody
+
+[JSON Schema](schema/EntryBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entry | yes | any JSON value |  |
+| description | yes | string | {"maxLength":8192,"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| versions | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntryVersion.json"},"x-ace-constraint":"Items that don't parse are dropped; a value that isn't a list reads as none."} |
+| links | no | array | {"default":[],"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MarketLink.json"},"x-ace-constraint":"Items that don't parse are dropped; a value that isn't a list reads as none."} |
+| previews | no | array | {"default":[],"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"},"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| unlisted | no | boolean | {"default":false,"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+
+Example:
+
+```json
+{
+  "description": "example",
+  "entry": null,
+  "links": [],
+  "unlisted": true,
+  "versions": []
+}
+```
+
 ## EventId
 
 [JSON Schema](schema/EventId.json), input validation.
@@ -13432,6 +14622,38 @@ Example:
     "model": "example",
     "provider": "acp"
   }
+}
+```
+
+## FeaturedBody
+
+[JSON Schema](schema/FeaturedBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"type":{"type":"string","maxLength":40},"name":{"type":"string","maxLength":64}},"required":["type","name"]}} |
+
+Example:
+
+```json
+{
+  "entries": []
+}
+```
+
+## FeaturedUpload
+
+[JSON Schema](schema/FeaturedUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"maxItems":24,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"}},"required":["type","name"]}} |
+
+Example:
+
+```json
+{
+  "entries": []
 }
 ```
 
@@ -15332,6 +16554,24 @@ Example:
 }
 ```
 
+## HoldDecision
+
+[JSON Schema](schema/HoldDecision.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| decision | yes | ["approve","hold"] |  |
+| note | no | string | {"maxLength":500} |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+
+Example:
+
+```json
+{
+  "decision": "approve"
+}
+```
+
 ## HostedAddress
 
 [JSON Schema](schema/HostedAddress.json), input validation.
@@ -16824,14 +18064,11 @@ Example:
   "childThreadId": "example",
   "complete": true,
   "createdAt": 0,
-  "generation": 5,
+  "generation": 8,
   "id": "example",
-  "machine": {
-    "machine": "example",
-    "name": "example"
-  },
   "nativeId": "example",
   "origin": "ace",
+  "outcome": null,
   "phase": "settled",
   "provider": "acp",
   "role": "example",
@@ -16842,7 +18079,7 @@ Example:
   },
   "title": "example",
   "type": "delegation.started",
-  "updatedAt": 9
+  "updatedAt": 5
 }
 ```
 
@@ -17485,6 +18722,23 @@ Example:
     7
   ],
   "tab": "inbox"
+}
+```
+
+## ListingDecision
+
+[JSON Schema](schema/ListingDecision.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| decision | yes | ["approve","refuse"] |  |
+| reason | no | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "decision": "refuse"
 }
 ```
 
@@ -19103,6 +20357,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 | result | no | string | {"maxLength":4096} |
 | truncated | no | boolean |  |
 | last | no | string | {"maxLength":160} |
@@ -19117,6 +20372,7 @@ Example:
 
 ```json
 {
+  "contact": "unconfirmed",
   "elapsedSeconds": 9,
   "failure": {
     "accountId": "example",
@@ -19124,19 +20380,19 @@ Example:
     "code": "example",
     "message": "example"
   },
+  "last": "example",
   "machine": "example",
   "queuePosition": 5,
   "requests": [],
-  "result": "example",
   "state": "failed",
   "status": {
-    "on": "rate_limit",
-    "queuePosition": 7,
-    "slotsInUse": 5,
+    "on": "network",
+    "slotLimit": 7,
     "state": "waiting"
   },
   "threadId": "example",
-  "title": "example"
+  "title": "example",
+  "waitingFor": "storage"
 }
 ```
 
@@ -19565,12 +20821,12 @@ Example:
 
 [JSON Schema](schema/MaintenanceHold.json), input validation.
 
-Type: ["user","update","kill","stop"]. See JSON Schema for constraints.
+Type: ["user","update","kill","stop","storage"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"update"
+"kill"
 ```
 
 ## MaintenanceStatus
@@ -19582,7 +20838,7 @@ Example:
 | draining | yes | boolean |  |
 | blockers | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | waiting | no | integer | {"minimum":0,"maximum":9007199254740991} |
-| holds | no | array | {"maxItems":4,"items":{"type":"string","enum":["user","update","kill","stop"]}} |
+| holds | no | array | {"maxItems":5,"items":{"type":"string","enum":["user","update","kill","stop","storage"]}} |
 
 Example:
 
@@ -19605,6 +20861,288 @@ Example:
 
 ```json
 "pi"
+```
+
+## ManifestFile
+
+[JSON Schema](schema/ManifestFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | [ContainedPath.json](schema/ContainedPath.json) |  |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| executable | yes | boolean |  |
+| sha256 | yes | [MarketHash.json](schema/MarketHash.json) |  |
+
+Example:
+
+```json
+{
+  "bytes": 9,
+  "executable": true,
+  "path": "example",
+  "sha256": "bdcb5bdd7ed3c448aa686ee1bce6189086a96e3a45ec793c06b8d2a31195d01c"
+}
+```
+
+## MarketApiError
+
+[JSON Schema](schema/MarketApiError.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| error | yes | [MarketApiErrorCode.json](schema/MarketApiErrorCode.json) |  |
+| message | yes | string | {"maxLength":2000} |
+| problems | no | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketProblem.json"}} |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+
+Example:
+
+```json
+{
+  "error": "blocked",
+  "message": "example"
+}
+```
+
+## MarketApiErrorCode
+
+[JSON Schema](schema/MarketApiErrorCode.json), input validation.
+
+Type: ["unauthorized","reauth","email_unverified","suspended","forbidden","not_found","invalid","refused","blocked","conflict","too_large","quota","busy","unavailable","method"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"refused"
+```
+
+## MarketAppeal
+
+[JSON Schema](schema/MarketAppeal.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"pattern":"^apl_[a-z0-9]{8,40}$"} |
+| note | yes | string | {"maxLength":2000} |
+| replacement | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| state | yes | [MarketAppealState.json](schema/MarketAppealState.json) |  |
+| answer | no | string | {"maxLength":2000} |
+
+Example:
+
+```json
+{
+  "answer": "example",
+  "at": 4,
+  "id": "apl_d19x8ybcrrhgptz",
+  "note": "example",
+  "state": "approved"
+}
+```
+
+## MarketAppealRequest
+
+[JSON Schema](schema/MarketAppealRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| note | yes | string | {"minLength":1,"maxLength":2000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| replacement | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+
+Example:
+
+```json
+{
+  "note": "example"
+}
+```
+
+## MarketAppealState
+
+[JSON Schema](schema/MarketAppealState.json), input validation.
+
+Type: ["open","approved","kept"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"approved"
+```
+
+## MarketArchivedSet
+
+[JSON Schema](schema/MarketArchivedSet.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| archived | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "archived": true
+}
+```
+
+## MarketBio
+
+[JSON Schema](schema/MarketBio.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
+## MarketBlockedPattern
+
+[JSON Schema](schema/MarketBlockedPattern.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"} |
+| text | yes | string | {"minLength":6,"maxLength":200} |
+| reason | yes | string | {"minLength":1,"maxLength":500} |
+
+Example:
+
+```json
+{
+  "id": "7awrpc1",
+  "reason": "example",
+  "text": "example"
+}
+```
+
+## MarketBlocklist
+
+[JSON Schema](schema/MarketBlocklist.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-blocklist"` |  |
+| issued | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| hashes | yes | array | {"maxItems":10000,"items":{"type":"object","properties":{"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"},"reason":{"type":"string","minLength":1,"maxLength":500}},"required":["hash","reason"],"additionalProperties":false}} |
+| files | yes | array | {"maxItems":10000,"items":{"type":"object","properties":{"sha256":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"},"reason":{"type":"string","minLength":1,"maxLength":500}},"required":["sha256","reason"],"additionalProperties":false}} |
+| patterns | yes | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/MarketBlockedPattern.json"}} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+
+Example:
+
+```json
+{
+  "files": [],
+  "format": "ace-market-blocklist",
+  "hashes": [],
+  "issued": 3,
+  "key": "Ug2Pc59b9geI6OwBQw0H8T-To0k",
+  "patterns": []
+}
+```
+
+## MarketBotReview
+
+[JSON Schema](schema/MarketBotReview.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| recipe | yes | [Recipe.json](schema/Recipe.json) |  |
+| leftOut | yes | array | {"maxItems":20,"items":{"type":"string","maxLength":500}} |
+| name | yes | array | {"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/MarketPrivacySpan.json"}} |
+| task | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketPrivacySpan.json"}} |
+| routines | yes | array | {"maxItems":32,"items":{"type":"object","properties":{"name":{"maxItems":20,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/MarketPrivacySpan.json"}},"instruction":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/MarketPrivacySpan.json"}}},"required":["name","instruction"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "leftOut": [],
+  "name": [],
+  "recipe": {
+    "format": "spade-bot",
+    "model": "fast",
+    "name": "example",
+    "needs": {},
+    "plugins": [],
+    "task": "example",
+    "version": 2
+  },
+  "routines": [],
+  "task": []
+}
+```
+
+## MarketCatalogFile
+
+[JSON Schema](schema/MarketCatalogFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxLength":64} |
+| plugins | no | array | {"default":[],"maxItems":256,"items":{}} |
+| entries | no | array | {"default":[],"maxItems":1024,"items":{}} |
+
+Example:
+
+```json
+{}
+```
+
+## MarketCatalogItem
+
+[JSON Schema](schema/MarketCatalogItem.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketWireType.json](schema/MarketWireType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| source | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ContainedPath.json"},{"type":"string","const":"."},{"type":"string","const":"./"}]} |
+| hash | no | [MarketHash.json](schema/MarketHash.json) |  |
+| title | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","minLength":1,"maxLength":120} |
+| description | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxLength":8192} |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) | {"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| keywords | no | array | {"x-ace-constraint":"Items that don't parse are dropped; a value that isn't a list reads as none.","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":40}} |
+
+Example:
+
+```json
+{
+  "description": "example",
+  "hash": "417d03b408a385a36907189ca76b02ada1557dcc55fb8ea58646f122c15e33de",
+  "name": "8",
+  "source": "./",
+  "type": "hnxtl"
+}
+```
+
+## MarketCatalogPlugin
+
+[JSON Schema](schema/MarketCatalogPlugin.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| source | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ContainedPath.json"},{"type":"string","const":"."},{"type":"string","const":"./"}]} |
+| hash | no | [MarketHash.json](schema/MarketHash.json) |  |
+| title | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","minLength":1,"maxLength":120} |
+| description | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxLength":8192} |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) | {"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| keywords | no | array | {"x-ace-constraint":"Items that don't parse are dropped; a value that isn't a list reads as none.","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":40}} |
+
+Example:
+
+```json
+{
+  "name": "k7sokn4vdo",
+  "source": ".",
+  "title": "example",
+  "version": "3678889.201329.9719626"
+}
 ```
 
 ## MarketCategory
@@ -19637,6 +21175,22 @@ Example:
 "f"
 ```
 
+## MarketChangelogSet
+
+[JSON Schema](schema/MarketChangelogSet.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| text | yes | string | {"maxLength":4000} |
+
+Example:
+
+```json
+{
+  "text": "example"
+}
+```
+
 ## MarketClientMessage
 
 [JSON Schema](schema/MarketClientMessage.json), input validation.
@@ -19646,6 +21200,7 @@ Example:
 | type | yes | `"marketplace.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":80} |
 | operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
+| thread | no | [ThreadId.json](schema/ThreadId.json) |  |
 
 Example:
 
@@ -19658,6 +21213,450 @@ Example:
   },
   "requestId": "example",
   "type": "marketplace.request"
+}
+```
+
+## MarketCollection
+
+[JSON Schema](schema/MarketCollection.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [MarketCategoryId.json](schema/MarketCategoryId.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":60,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| line | yes | string | {"maxLength":200} |
+| entries | yes | array | {"maxItems":24,"items":{"type":"object","properties":{"type":{"type":"string","minLength":1,"maxLength":40},"name":{"type":"string","minLength":1,"maxLength":64}},"required":["type","name"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "id": "8waq73cb3b0s4vmgjt13tatw47x9z1p",
+  "line": "example",
+  "title": "example"
+}
+```
+
+## MarketCollectionId
+
+[JSON Schema](schema/MarketCollectionId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"c"
+```
+
+## MarketDeprecation
+
+[JSON Schema](schema/MarketDeprecation.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| note | yes | string | {"minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+
+Example:
+
+```json
+{
+  "note": "example"
+}
+```
+
+## MarketDiscover
+
+[JSON Schema](schema/MarketDiscover.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hero | no | [MarketEntrySummary.json](schema/MarketEntrySummary.json) |  |
+| featured | yes | array | {"maxItems":24,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| trending | yes | array | {"maxItems":50,"items":{"type":"object","properties":{"entry":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"},"rank":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"movement":{"$ref":"https://ace.local/protocol/v1/MarketTrendMovement.json"},"week":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["entry","rank","movement","week"],"additionalProperties":false}} |
+| fresh | yes | array | {"maxItems":24,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| collections | yes | array | {"maxItems":16,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/MarketCategoryId.json"},"title":{"type":"string","maxLength":60},"line":{"type":"string","maxLength":200},"entries":{"maxItems":24,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}}},"required":["id","title","line","entries"],"additionalProperties":false}} |
+| publishers | yes | array | {"maxItems":12,"items":{"$ref":"https://ace.local/protocol/v1/MarketTopPublisher.json"}} |
+| rankedAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| readAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "collections": [],
+  "featured": [],
+  "fresh": [],
+  "publishers": [],
+  "rankedAt": 4,
+  "readAt": 4,
+  "trending": []
+}
+```
+
+## MarketDiscoverBody
+
+[JSON Schema](schema/MarketDiscoverBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hero | no | any JSON value |  |
+| featured | yes | array | {"maxItems":24,"items":{}} |
+| trending | yes | array | {"maxItems":50,"items":{"$ref":"https://ace.local/protocol/v1/MarketTrendingRow.json"}} |
+| fresh | yes | array | {"maxItems":24,"items":{}} |
+| collections | yes | array | {"maxItems":16,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/MarketCategoryId.json"},"title":{"type":"string","maxLength":60},"line":{"type":"string","maxLength":200},"entries":{"maxItems":24,"type":"array","items":{}}},"required":["id","title","line","entries"]}} |
+| publishers | yes | array | {"maxItems":12,"items":{"$ref":"https://ace.local/protocol/v1/MarketTopPublisher.json"}} |
+| rankedAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "collections": [],
+  "featured": [],
+  "fresh": [],
+  "hero": null,
+  "publishers": [],
+  "rankedAt": 4,
+  "trending": []
+}
+```
+
+## MarketDisplayName
+
+[JSON Schema](schema/MarketDisplayName.json), input validation.
+
+Semantic rule: Leading and trailing whitespace is removed before the length limits apply.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
+## MarketDone
+
+[JSON Schema](schema/MarketDone.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"done"` |  |
+
+Example:
+
+```json
+{
+  "status": "done"
+}
+```
+
+## MarketDraft
+
+[JSON Schema](schema/MarketDraft.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [MarketDraftId.json](schema/MarketDraftId.json) |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| created | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| updated | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| changelog | yes | string | {"maxLength":4000} |
+| title | yes | string | {"minLength":1,"maxLength":120} |
+| problems | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketProblem.json"}} |
+| scan | yes | [MarketScanState.json](schema/MarketScanState.json) |  |
+
+Example:
+
+```json
+{
+  "changelog": "example",
+  "created": 6,
+  "files": 1,
+  "hash": "4358937a7d4e842761c6865d0f6a1e758077a4fc9c7e24686da96420d694bd56",
+  "id": "drf_475ui8crryjgtvo",
+  "name": "z",
+  "problems": [],
+  "scan": {
+    "report": {
+      "checks": [],
+      "findings": [],
+      "format": "ace-market-scan",
+      "read": {
+        "files": 9,
+        "textBytes": 7
+      },
+      "runnable": true,
+      "scanner": 4,
+      "truncated": false,
+      "verdict": "warn"
+    },
+    "state": "done"
+  },
+  "size": 3,
+  "title": "example",
+  "type": "suit",
+  "updated": 0,
+  "version": "13.415352226.97640-9eDVwEEBvCO"
+}
+```
+
+## MarketDraftCheck
+
+[JSON Schema](schema/MarketDraftCheck.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| files | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/MarketDraftFile.json"}} |
+| excluded | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/MarketDraftLeftOut.json"}} |
+| findings | yes | array | {"maxItems":500,"items":{"$ref":"https://ace.local/protocol/v1/MarketDraftFinding.json"}} |
+| hash | yes | string | {"pattern":"^[a-f0-9]{64}$"} |
+| bot | no | [MarketBotReview.json](schema/MarketBotReview.json) |  |
+
+Example:
+
+```json
+{
+  "excluded": [],
+  "files": [],
+  "findings": [],
+  "hash": "e63390fb7cf19cadf58023d8dd93a05ee5b461c8e7cba09782fcbae0991aef92"
+}
+```
+
+## MarketDraftChecked
+
+[JSON Schema](schema/MarketDraftChecked.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| hash | yes | string | {"pattern":"^[a-f0-9]{64}$"} |
+| binaries | yes | array | {"maxItems":1024,"items":{"type":"string","maxLength":512}} |
+| accepted | yes | array | {"maxItems":500,"items":{"type":"string","maxLength":2000}} |
+| recipe | no | object | {"properties":{"task":{"type":"string","maxLength":4000},"routines":{"maxItems":32,"type":"array","items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"instruction":{"type":"string","minLength":1,"maxLength":4000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"schedule":{"type":"string","minLength":1,"maxLength":200,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."}},"required":["name","instruction","schedule"],"additionalProperties":false}}},"required":["task","routines"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "accepted": [],
+  "binaries": [],
+  "hash": "4b0051c6c16d4bd8053b08f4a26bf95ed0abf1f0488b4c280fa45ed8e702efdd"
+}
+```
+
+## MarketDraftFile
+
+[JSON Schema](schema/MarketDraftFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"minLength":1,"maxLength":512} |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| binary | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "binary": false,
+  "bytes": 0,
+  "path": "example"
+}
+```
+
+## MarketDraftFinding
+
+[JSON Schema](schema/MarketDraftFinding.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"maxLength":512} |
+| line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| kind | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/MarketPrivacyKind.json"},{"type":"string","const":"hidden-text"}]} |
+| text | yes | string | {"maxLength":2000} |
+| sentence | yes | string | {"maxLength":500} |
+| blocking | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "blocking": true,
+  "kind": "hidden-text",
+  "path": "example",
+  "sentence": "example",
+  "text": "example"
+}
+```
+
+## MarketDraftId
+
+[JSON Schema](schema/MarketDraftId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"drf_b5s5z65tnf4sxkzriua3jyt4l0amytd65dos"
+```
+
+## MarketDraftLeftOut
+
+[JSON Schema](schema/MarketDraftLeftOut.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"minLength":1,"maxLength":512} |
+| reason | yes | ["hidden","credential"] |  |
+
+Example:
+
+```json
+{
+  "path": "example",
+  "reason": "credential"
+}
+```
+
+## MarketDraftPatch
+
+[JSON Schema](schema/MarketDraftPatch.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| changelog | no | string | {"maxLength":4000} |
+
+Example:
+
+```json
+{
+  "version": "28792.521502685.8"
+}
+```
+
+## MarketDraftSource
+
+[JSON Schema](schema/MarketDraftSource.json), input validation.
+
+### folder
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"folder"` |  |
+| path | yes | string | {"minLength":1,"maxLength":4096} |
+
+Example:
+
+```json
+{
+  "kind": "folder",
+  "path": "example"
+}
+```
+
+### archive
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"archive"` |  |
+| archive | yes | string | {"maxLength":8000000} |
+
+Example:
+
+```json
+{
+  "archive": "example",
+  "kind": "archive"
+}
+```
+
+### suit
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"suit"` |  |
+| id | yes | [SuitId.json](schema/SuitId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "7l8-0rcsd-exzsv1ujw-2",
+  "kind": "suit"
+}
+```
+
+### spade-bot
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"spade-bot"` |  |
+| id | yes | string | {"minLength":1,"maxLength":80,"pattern":"^[A-Za-z0-9_-]+$"} |
+
+Example:
+
+```json
+{
+  "id": "I0bPc1",
+  "kind": "spade-bot"
+}
+```
+
+### spade-skill
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"spade-skill"` |  |
+| id | yes | string | {"minLength":1,"maxLength":80,"pattern":"^[A-Za-z0-9_-]+$"} |
+
+Example:
+
+```json
+{
+  "id": "Mb2_sW",
+  "kind": "spade-skill"
+}
+```
+
+### ace-skill
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"ace-skill"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_09f86178b11649c5a5312af0797f8502f8ac5e2c",
+  "kind": "ace-skill"
+}
+```
+
+### plugin
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"plugin"` |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "plugin",
+  "name": "c7dwf4"
 }
 ```
 
@@ -19684,6 +21683,7 @@ Example:
     "keywords": [],
     "line": "example",
     "name": "9oq",
+    "previews": [],
     "publisher": {
       "id": "example",
       "name": "nb76a0um8"
@@ -19713,6 +21713,24 @@ Example:
 "cd-1frtmk"
 ```
 
+## MarketEntryRef
+
+[JSON Schema](schema/MarketEntryRef.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "u7uz8",
+  "type": "spade-bot"
+}
+```
+
 ## MarketEntrySummary
 
 [JSON Schema](schema/MarketEntrySummary.json), input validation.
@@ -19734,6 +21752,9 @@ Example:
 | downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | supported | yes | boolean |  |
 | from | no | string | {"maxLength":2048} |
+| verified | no | boolean |  |
+| deprecated | no | string | {"maxLength":500} |
+| previews | no | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}} |
 
 Example:
 
@@ -19746,12 +21767,14 @@ Example:
   "keywords": [],
   "line": "example",
   "name": "gvt1",
+  "previews": [],
   "reviewed": true,
   "source": "git:n6ql7k0u0f",
   "supported": false,
   "title": "example",
   "type": "example",
   "updated": 2,
+  "verified": false,
   "version": "71905424.562160.4660"
 }
 ```
@@ -19780,11 +21803,14 @@ Example:
 | published | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | withdrawn | no | string | {"maxLength":500} |
+| deprecated | no | string | {"maxLength":500} |
+| changelog | no | string | {"maxLength":4000} |
 
 Example:
 
 ```json
 {
+  "changelog": "example",
   "downloads": 2,
   "hash": "560a831c847f8bf4b106115ae751f2f2a0b0b85b2edf76e51504428f186cbe6b",
   "published": 5,
@@ -19798,12 +21824,53 @@ Example:
 
 [JSON Schema](schema/MarketErrorCode.json), input validation.
 
-Type: ["not_found","invalid","refused","forbidden","unavailable","conflict","expired","busy","failed"]. See JSON Schema for constraints.
+Type: ["signed_out","reauth","blocked","suspended","quota","not_found","invalid","refused","forbidden","unavailable","conflict","expired","busy","failed","person_only"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"failed"
+"person_only"
+```
+
+## MarketFeedEntryWire
+
+[JSON Schema](schema/MarketFeedEntryWire.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketWireType.json](schema/MarketWireType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| title | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","minLength":1,"maxLength":120} |
+| line | yes | string | {"maxLength":300,"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| publisher | no | [MarketPublisher.json](schema/MarketPublisher.json) | {"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| categories | yes | array | {"maxItems":3,"items":{"$ref":"https://ace.local/protocol/v1/MarketCategoryId.json"},"x-ace-constraint":"Items that don't parse are dropped; a value that isn't a list reads as none."} |
+| keywords | yes | array | {"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":40},"x-ace-constraint":"Items that don't parse are dropped; a value that isn't a list reads as none."} |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) | {"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| reviewed | yes | boolean | {"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| byAce | yes | boolean | {"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| updated | yes | integer | {"minimum":0,"maximum":9007199254740991,"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991,"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| verified | yes | boolean | {"x-ace-constraint":"A value that doesn't parse is read as its default."} |
+| deprecated | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxLength":500} |
+| previews | no | array | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}} |
+
+Example:
+
+```json
+{
+  "byAce": true,
+  "categories": [],
+  "downloads": 8,
+  "keywords": [],
+  "line": "example",
+  "name": "m0fo4rd8.i.u",
+  "reviewed": false,
+  "title": "example",
+  "type": "z-kd7lg",
+  "updated": 5,
+  "verified": true,
+  "version": "938268.8009900.730139135"
+}
 ```
 
 ## MarketFileRow
@@ -19828,6 +21895,36 @@ Example:
 }
 ```
 
+## MarketHandle
+
+[JSON Schema](schema/MarketHandle.json), input validation.
+
+Semantic rule: Publisher names cannot contain consecutive hyphens.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"mhbgaah62g736"
+```
+
+## MarketHandleChange
+
+[JSON Schema](schema/MarketHandleChange.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| handle | yes | [MarketHandle.json](schema/MarketHandle.json) |  |
+
+Example:
+
+```json
+{
+  "handle": "uhgaqs04oc13cez"
+}
+```
+
 ## MarketHash
 
 [JSON Schema](schema/MarketHash.json), input validation.
@@ -19838,6 +21935,28 @@ Example:
 
 ```json
 "aae1cb00402e5a1e8ca2fcba2bdf1380464108c427555af941a90ccb9c2c823f"
+```
+
+## MarketIndexBody
+
+[JSON Schema](schema/MarketIndexBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| stamp | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| full | yes | boolean |  |
+| entries | yes | array | {"maxItems":50000,"items":{}} |
+| removed | no | array | {"default":[],"maxItems":50000,"items":{"type":"object","properties":{"type":{"type":"string","maxLength":40},"name":{"type":"string","maxLength":64}},"required":["type","name"]}} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "full": true,
+  "removed": [],
+  "stamp": 3
+}
 ```
 
 ## MarketInstallChoices
@@ -19874,6 +21993,7 @@ Example:
 | acceptedAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | state | yes | [MarketInstallState.json](schema/MarketInstallState.json) |  |
 | reason | no | string | {"maxLength":500} |
+| deprecated | no | string | {"maxLength":500} |
 | update | no | [MarketVersion.json](schema/MarketVersion.json) |  |
 | target | no | string | {"maxLength":200} |
 
@@ -19896,12 +22016,199 @@ Example:
 
 [JSON Schema](schema/MarketInstallState.json), input validation.
 
-Type: ["on","withdrawn","off"]. See JSON Schema for constraints.
+Type: ["on","withdrawn","blocked","off"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
 "on"
+```
+
+## MarketKeyId
+
+[JSON Schema](schema/MarketKeyId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"LkIIWAWvjOsM8M0Va3f7tPE-_aApmBOTh09qkFV6UT6AwKv4mx2__1"
+```
+
+## MarketKeySet
+
+[JSON Schema](schema/MarketKeySet.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| keys | yes | array | {"maxItems":2,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/MarketKeyId.json"},"publicKey":{"type":"string","pattern":"^[A-Za-z0-9_-]{43}$"}},"required":["id","publicKey"]}} |
+
+Example:
+
+```json
+{
+  "keys": []
+}
+```
+
+## MarketLatestSet
+
+[JSON Schema](schema/MarketLatestSet.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "version": "56.493406.495757602"
+}
+```
+
+## MarketLimits
+
+[JSON Schema](schema/MarketLimits.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| uploadsToday | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| uploadsPerDay | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| storedBytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| quotaBytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| drafts | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| draftLimit | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "draftLimit": 8,
+  "drafts": 2,
+  "quotaBytes": 5,
+  "storedBytes": 8,
+  "uploadsPerDay": 4,
+  "uploadsToday": 0
+}
+```
+
+## MarketLink
+
+[JSON Schema](schema/MarketLink.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| label | yes | string | {"minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| url | yes | string | {"maxLength":2048,"pattern":"^https:\\/\\/[^\\s/?#@]+(?:[/?#][^\\s]*)?$"} |
+
+Example:
+
+```json
+{
+  "label": "example",
+  "url": "https://Xv5jJC+(2h/"
+}
+```
+
+## MarketListingEdit
+
+[JSON Schema](schema/MarketListingEdit.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| title | yes | string | {"minLength":1,"maxLength":120,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| line | yes | string | {"minLength":0,"maxLength":300,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| description | yes | string | {"maxLength":8192} |
+| categories | yes | array | {"maxItems":3,"items":{"$ref":"https://ace.local/protocol/v1/MarketCategoryId.json"}} |
+| keywords | yes | array | {"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."}} |
+| links | yes | array | {"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MarketLink.json"}} |
+| previews | yes | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}} |
+
+Example:
+
+```json
+{
+  "categories": [],
+  "description": "example",
+  "keywords": [],
+  "line": "example",
+  "links": [],
+  "previews": [],
+  "title": "example"
+}
+```
+
+## MarketListingFile
+
+[JSON Schema](schema/MarketListingFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| title | no | string | {"minLength":1,"maxLength":120,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| line | no | string | {"minLength":0,"maxLength":300,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| description | no | string | {"maxLength":8192} |
+| categories | no | array | {"maxItems":3,"items":{"$ref":"https://ace.local/protocol/v1/MarketCategoryId.json"}} |
+| keywords | no | array | {"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":40,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."}} |
+
+Example:
+
+```json
+{
+  "keywords": [],
+  "line": "example"
+}
+```
+
+## MarketMe
+
+[JSON Schema](schema/MarketMe.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| profile | no | [MarketProfile.json](schema/MarketProfile.json) |  |
+| state | yes | [MarketPublisherState.json](schema/MarketPublisherState.json) |  |
+| newPublisher | yes | boolean |  |
+| limits | yes | [MarketLimits.json](schema/MarketLimits.json) |  |
+| entries | yes | array | {"maxItems":500,"items":{"$ref":"https://ace.local/protocol/v1/MarketOwnEntrySummary.json"}} |
+| drafts | yes | array | {"maxItems":20,"items":{"$ref":"https://ace.local/protocol/v1/MarketDraft.json"}} |
+| transfers | yes | array | {"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/MarketTransfer.json"}} |
+
+Example:
+
+```json
+{
+  "drafts": [],
+  "entries": [],
+  "limits": {
+    "draftLimit": 4,
+    "drafts": 0,
+    "quotaBytes": 4,
+    "storedBytes": 1,
+    "uploadsPerDay": 3,
+    "uploadsToday": 9
+  },
+  "newPublisher": true,
+  "state": "suspended",
+  "transfers": []
+}
+```
+
+## MarketNamedFile
+
+[JSON Schema](schema/MarketNamedFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxLength":200} |
+| description | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxLength":8192} |
+| blurb | no | string | {"x-ace-constraint":"A value that doesn't parse is read as its default.","maxLength":300} |
+
+Example:
+
+```json
+{}
 ```
 
 ## MarketNeed
@@ -19925,6 +22232,33 @@ Example:
   "label": "example",
   "required": false,
   "why": "example"
+}
+```
+
+## MarketOfficialList
+
+[JSON Schema](schema/MarketOfficialList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-official"` |  |
+| issued | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| publisher | yes | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| accounts | yes | array | {"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":256}} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+
+Example:
+
+```json
+{
+  "accounts": [],
+  "format": "ace-market-official",
+  "issued": 0,
+  "key": "xTyfdKfiL1Phvm-WHsYSv-K-_gd51pdR-M2oOJkLNSVzIsJwZ2wl",
+  "publisher": {
+    "id": "example",
+    "name": "2"
+  }
 }
 ```
 
@@ -20232,6 +22566,145 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"discover"` |  |
+
+Example:
+
+```json
+{
+  "op": "discover"
+}
+```
+
+### Variant 19
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"publisher"` |  |
+| handle | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+
+Example:
+
+```json
+{
+  "handle": "j",
+  "op": "publisher"
+}
+```
+
+### Variant 20
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"picture"` |  |
+| kind | yes | [MarketPictureKind.json](schema/MarketPictureKind.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+
+Example:
+
+```json
+{
+  "hash": "d4bf8894f01667a78a85ab8090dba64673278ee673aab3097999d3206af472db",
+  "kind": "preview",
+  "op": "picture"
+}
+```
+
+### Variant 21
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"publish"` |  |
+| request | yes | [MarketPublishAction.json](schema/MarketPublishAction.json) |  |
+
+Example:
+
+```json
+{
+  "op": "publish",
+  "request": {
+    "action": "draftUpdate",
+    "changelog": "example",
+    "id": "drf_kq9d8mhiy"
+  }
+}
+```
+
+### Variant 22
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"report"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| reason | yes | [MarketReportReason.json](schema/MarketReportReason.json) |  |
+| note | no | string | {"default":"","maxLength":1000} |
+
+Example:
+
+```json
+{
+  "name": "3bb6.ukxiqls",
+  "op": "report",
+  "reason": "copyright",
+  "type": "suit",
+  "version": "4094.1548131.27995-lPV.0DJgJqlHo6fWVs.RQ2b2alxz5ULr"
+}
+```
+
+### Variant 23
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"publishables"` |  |
+| type | yes | [MarketPickType.json](schema/MarketPickType.json) |  |
+
+Example:
+
+```json
+{
+  "op": "publishables",
+  "type": "spade-plugin"
+}
+```
+
+### Variant 24
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"botRecipe"` |  |
+| id | yes | string | {"minLength":1,"maxLength":80,"pattern":"^[A-Za-z0-9_-]+$"} |
+
+Example:
+
+```json
+{
+  "id": "ZuBJ8qUJa",
+  "op": "botRecipe"
+}
+```
+
+### Variant 25
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"privacyCheck"` |  |
+| texts | yes | array | {"maxItems":40,"items":{"type":"string","maxLength":8000}} |
+
+Example:
+
+```json
+{
+  "op": "privacyCheck",
+  "texts": []
+}
+```
+
+### Variant 26
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"spadeSkillFiles"` |  |
 | name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | path | no | string | {"maxLength":512} |
@@ -20240,8 +22713,232 @@ Example:
 
 ```json
 {
-  "name": "u",
-  "op": "spadeSkillFiles"
+  "name": "896jknkb68c",
+  "op": "spadeSkillFiles",
+  "path": "example"
+}
+```
+
+## MarketOwnEntry
+
+[JSON Schema](schema/MarketOwnEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| summary | yes | [MarketOwnEntrySummary.json](schema/MarketOwnEntrySummary.json) |  |
+| listing | yes | [MarketListingEdit.json](schema/MarketListingEdit.json) |  |
+| latest | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| pendingListing | no | object | {"properties":{"listing":{"$ref":"https://ace.local/protocol/v1/MarketListingEdit.json"},"scan":{"$ref":"https://ace.local/protocol/v1/MarketScanReport.json"},"at":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991}},"required":["listing","scan","at"],"additionalProperties":false} |
+| versions | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketOwnVersion.json"}} |
+
+Example:
+
+```json
+{
+  "listing": {
+    "categories": [],
+    "description": "example",
+    "keywords": [],
+    "line": "example",
+    "links": [],
+    "previews": [],
+    "title": "example"
+  },
+  "pendingListing": {
+    "at": 0,
+    "listing": {
+      "categories": [],
+      "description": "example",
+      "keywords": [],
+      "line": "example",
+      "links": [],
+      "previews": [],
+      "title": "example"
+    },
+    "scan": {
+      "checks": [],
+      "findings": [],
+      "format": "ace-market-scan",
+      "read": {
+        "files": 3,
+        "textBytes": 1
+      },
+      "runnable": true,
+      "runnableReason": "example",
+      "scanner": 1,
+      "truncated": false,
+      "verdict": "block"
+    }
+  },
+  "summary": {
+    "archived": false,
+    "downloads": 2,
+    "line": "example",
+    "name": "u",
+    "openReports": 0,
+    "pendingListing": false,
+    "pinned": true,
+    "reviewed": true,
+    "title": "example",
+    "type": "ace-plugin",
+    "version": "89.64648969.1894703-z2X0QFqZzN",
+    "versions": 4,
+    "visibility": "listed"
+  },
+  "versions": []
+}
+```
+
+## MarketOwnEntrySummary
+
+[JSON Schema](schema/MarketOwnEntrySummary.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":120} |
+| line | yes | string | {"maxLength":300} |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| status | no | [MarketVersionStatus.json](schema/MarketVersionStatus.json) |  |
+| versions | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| visibility | yes | [MarketVisibility.json](schema/MarketVisibility.json) |  |
+| archived | yes | boolean |  |
+| pinned | yes | boolean |  |
+| reviewed | yes | boolean |  |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| pendingListing | yes | boolean |  |
+| openReports | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "archived": true,
+  "downloads": 6,
+  "line": "example",
+  "name": "n3424",
+  "openReports": 3,
+  "pendingListing": true,
+  "pinned": false,
+  "reviewed": false,
+  "title": "example",
+  "type": "spade-skill",
+  "version": "486675.41.7",
+  "versions": 1,
+  "visibility": "listed"
+}
+```
+
+## MarketOwnVersion
+
+[JSON Schema](schema/MarketOwnVersion.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| published | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| status | yes | [MarketVersionStatus.json](schema/MarketVersionStatus.json) |  |
+| held | yes | boolean |  |
+| reason | no | string | {"maxLength":500} |
+| deprecated | no | string | {"maxLength":500} |
+| changelog | yes | string | {"maxLength":4000} |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+| appeal | no | [MarketAppeal.json](schema/MarketAppeal.json) |  |
+
+Example:
+
+```json
+{
+  "changelog": "example",
+  "deprecated": "example",
+  "downloads": 1,
+  "hash": "a8c29e481fc3143c19d1d97184ca88f0350c09358cbe476b6fa293f07456675b",
+  "held": true,
+  "published": 9,
+  "reason": "example",
+  "size": 6,
+  "status": "waiting",
+  "version": "31.197719.3851-Olzp7g8XFf"
+}
+```
+
+## MarketPickType
+
+[JSON Schema](schema/MarketPickType.json), input validation.
+
+Type: ["spade-bot","spade-skill","spade-plugin"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"spade-plugin"
+```
+
+## MarketPictureKind
+
+[JSON Schema](schema/MarketPictureKind.json), input validation.
+
+Type: ["preview","avatar"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"preview"
+```
+
+## MarketPinsSet
+
+[JSON Schema](schema/MarketPinsSet.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntryRef.json"}} |
+
+Example:
+
+```json
+{
+  "entries": []
+}
+```
+
+## MarketPrivacyKind
+
+[JSON Schema](schema/MarketPrivacyKind.json), input validation.
+
+Type: ["secret","home-path","email","phone","private-url","own-name"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"home-path"
+```
+
+## MarketPrivacySpan
+
+[JSON Schema](schema/MarketPrivacySpan.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| start | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| end | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| kind | yes | [MarketPrivacyKind.json](schema/MarketPrivacyKind.json) |  |
+| text | yes | string | {"maxLength":2000} |
+| sentence | yes | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "end": 0,
+  "kind": "private-url",
+  "sentence": "example",
+  "start": 5,
+  "text": "example"
 }
 ```
 
@@ -20265,6 +22962,934 @@ Example:
 }
 ```
 
+## MarketProfile
+
+[JSON Schema](schema/MarketProfile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":64} |
+| handle | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+| displayName | yes | [MarketDisplayName.json](schema/MarketDisplayName.json) |  |
+| bio | yes | [MarketBio.json](schema/MarketBio.json) |  |
+| links | yes | array | {"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MarketLink.json"}} |
+| avatar | no | [MarketHash.json](schema/MarketHash.json) |  |
+| joined | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| verified | yes | boolean |  |
+| proofs | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/MarketVerificationProof.json"}} |
+| pins | yes | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntryRef.json"}} |
+
+Example:
+
+```json
+{
+  "bio": "example",
+  "displayName": "example",
+  "handle": "ir4kmyduqc4siyfjlf6",
+  "id": "example",
+  "joined": 4,
+  "links": [],
+  "pins": [],
+  "proofs": [],
+  "verified": false
+}
+```
+
+## MarketProfileCreate
+
+[JSON Schema](schema/MarketProfileCreate.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| handle | yes | [MarketHandle.json](schema/MarketHandle.json) |  |
+| displayName | yes | [MarketDisplayName.json](schema/MarketDisplayName.json) |  |
+| bio | no | [MarketBio.json](schema/MarketBio.json) | {"default":""} |
+| links | no | array | {"default":[],"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MarketLink.json"}} |
+
+Example:
+
+```json
+{
+  "displayName": "example",
+  "handle": "qbhl4-io4g38tg6y-e7c",
+  "links": []
+}
+```
+
+## MarketProfileEdit
+
+[JSON Schema](schema/MarketProfileEdit.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| displayName | no | [MarketDisplayName.json](schema/MarketDisplayName.json) |  |
+| bio | no | [MarketBio.json](schema/MarketBio.json) |  |
+| links | no | array | {"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MarketLink.json"}} |
+
+Example:
+
+```json
+{}
+```
+
+## MarketPublishable
+
+[JSON Schema](schema/MarketPublishable.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketPickType.json](schema/MarketPickType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":120} |
+| line | yes | string | {"maxLength":300} |
+| from | yes | ["spade","ace","plugin"] |  |
+| face | no | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{}} |
+| source | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"spade-bot"},"id":{"type":"string","minLength":1,"maxLength":80,"pattern":"^[A-Za-z0-9_-]+$"}},"required":["kind","id"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"spade-skill"},"id":{"type":"string","minLength":1,"maxLength":80,"pattern":"^[A-Za-z0-9_-]+$"}},"required":["kind","id"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"ace-skill"},"id":{"$ref":"https://ace.local/protocol/v1/SkillId.json"}},"required":["kind","id"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","const":"plugin"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"}},"required":["kind","name"],"additionalProperties":false}]} |
+
+Example:
+
+```json
+{
+  "face": {},
+  "from": "plugin",
+  "line": "example",
+  "name": "xf",
+  "source": {
+    "id": "Pb2e4w7",
+    "kind": "spade-bot"
+  },
+  "title": "example",
+  "type": "spade-skill"
+}
+```
+
+## MarketPublishAction
+
+[JSON Schema](schema/MarketPublishAction.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"me"` |  |
+
+Example:
+
+```json
+{
+  "action": "me"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"entry"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "action": "entry",
+  "name": "r",
+  "type": "ace-plugin"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"createProfile"` |  |
+| profile | yes | [MarketProfileCreate.json](schema/MarketProfileCreate.json) |  |
+
+Example:
+
+```json
+{
+  "action": "createProfile",
+  "profile": {
+    "displayName": "example",
+    "handle": "3vmi33tg1b5a44q6qx",
+    "links": []
+  }
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"editProfile"` |  |
+| profile | yes | [MarketProfileEdit.json](schema/MarketProfileEdit.json) |  |
+
+Example:
+
+```json
+{
+  "action": "editProfile",
+  "profile": {
+    "bio": "example",
+    "links": []
+  }
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"changeHandle"` |  |
+| handle | yes | [MarketHandle.json](schema/MarketHandle.json) |  |
+
+Example:
+
+```json
+{
+  "action": "changeHandle",
+  "handle": "mg76m7-nzrhly649sqh"
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"setAvatar"` |  |
+| image | yes | string | {"maxLength":1400000} |
+
+Example:
+
+```json
+{
+  "action": "setAvatar",
+  "image": "example"
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"setPins"` |  |
+| entries | yes | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntryRef.json"}} |
+
+Example:
+
+```json
+{
+  "action": "setPins",
+  "entries": []
+}
+```
+
+### Variant 8
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"draftCreate"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| source | yes | [MarketDraftSource.json](schema/MarketDraftSource.json) |  |
+| changelog | no | string | {"maxLength":4000} |
+| checked | no | [MarketDraftChecked.json](schema/MarketDraftChecked.json) |  |
+
+Example:
+
+```json
+{
+  "action": "draftCreate",
+  "changelog": "example",
+  "name": "q",
+  "source": {
+    "kind": "plugin",
+    "name": "pel"
+  },
+  "type": "spade-plugin",
+  "version": "11.02.8"
+}
+```
+
+### Variant 9
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"draftCheck"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| source | yes | [MarketDraftSource.json](schema/MarketDraftSource.json) |  |
+
+Example:
+
+```json
+{
+  "action": "draftCheck",
+  "name": "olsv.ixotfsd",
+  "source": {
+    "kind": "plugin",
+    "name": "c"
+  },
+  "type": "ace-plugin"
+}
+```
+
+### Variant 10
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"draftRead"` |  |
+| id | yes | [MarketDraftId.json](schema/MarketDraftId.json) |  |
+
+Example:
+
+```json
+{
+  "action": "draftRead",
+  "id": "drf_gkrmpqxtyl4rbc5cmjstagfs4nby"
+}
+```
+
+### Variant 11
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"draftUpdate"` |  |
+| id | yes | [MarketDraftId.json](schema/MarketDraftId.json) |  |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| changelog | no | string | {"maxLength":4000} |
+| source | no | [MarketDraftSource.json](schema/MarketDraftSource.json) |  |
+| checked | no | [MarketDraftChecked.json](schema/MarketDraftChecked.json) |  |
+
+Example:
+
+```json
+{
+  "action": "draftUpdate",
+  "id": "drf_aaca9c2da1t"
+}
+```
+
+### Variant 12
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"draftDelete"` |  |
+| id | yes | [MarketDraftId.json](schema/MarketDraftId.json) |  |
+
+Example:
+
+```json
+{
+  "action": "draftDelete",
+  "id": "drf_hst9bgf183ihcoxatu"
+}
+```
+
+### Variant 13
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"draftPublish"` |  |
+| id | yes | [MarketDraftId.json](schema/MarketDraftId.json) |  |
+
+Example:
+
+```json
+{
+  "action": "draftPublish",
+  "id": "drf_u8de55ezfxhh2kn8pcsjrdb2vc3ac5"
+}
+```
+
+### Variant 14
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"listing"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| listing | yes | [MarketListingEdit.json](schema/MarketListingEdit.json) |  |
+
+Example:
+
+```json
+{
+  "action": "listing",
+  "listing": {
+    "categories": [],
+    "description": "example",
+    "keywords": [],
+    "line": "example",
+    "links": [],
+    "previews": [],
+    "title": "example"
+  },
+  "name": "2",
+  "type": "ace-plugin"
+}
+```
+
+### Variant 15
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"preview"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| index | yes | integer | {"minimum":0,"maximum":3} |
+| image | yes | string | {"maxLength":1400000} |
+
+Example:
+
+```json
+{
+  "action": "preview",
+  "image": "example",
+  "index": 3,
+  "name": "4",
+  "type": "ace-plugin"
+}
+```
+
+### Variant 16
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"changelog"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| text | yes | string | {"maxLength":4000} |
+
+Example:
+
+```json
+{
+  "action": "changelog",
+  "name": "c3jwsuz",
+  "text": "example",
+  "type": "suit",
+  "version": "9.75016281.3-BzKHCP4CTREIkE19eL"
+}
+```
+
+### Variant 17
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"latest"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "action": "latest",
+  "name": "p",
+  "type": "spade-plugin",
+  "version": "024488885.7057.760"
+}
+```
+
+### Variant 18
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"deprecate"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| note | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "action": "deprecate",
+  "name": "x7fo5f4",
+  "note": "example",
+  "type": "spade-bot",
+  "version": "559480684.48490910.2063-AlIgP0v29HLYn6Q"
+}
+```
+
+### Variant 19
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"withdraw"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| reason | yes | string | {"minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+
+Example:
+
+```json
+{
+  "action": "withdraw",
+  "name": "z",
+  "reason": "example",
+  "type": "spade-bot"
+}
+```
+
+### Variant 20
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"deleteEntry"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "action": "deleteEntry",
+  "name": "7vq.6k",
+  "type": "ace-plugin"
+}
+```
+
+### Variant 21
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"visibility"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| visibility | yes | [MarketVisibility.json](schema/MarketVisibility.json) |  |
+
+Example:
+
+```json
+{
+  "action": "visibility",
+  "name": "enni2rcb0q",
+  "type": "ace-plugin",
+  "visibility": "listed"
+}
+```
+
+### Variant 22
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"archive"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| archived | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "action": "archive",
+  "archived": true,
+  "name": "6",
+  "type": "spade-bot"
+}
+```
+
+### Variant 23
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"transfer"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| to | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+
+Example:
+
+```json
+{
+  "action": "transfer",
+  "name": "zrjacdh8ne",
+  "to": "ks6niql6w-0srum2nl0lw0dwqd9kj",
+  "type": "spade-plugin"
+}
+```
+
+### Variant 24
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"transferAnswer"` |  |
+| id | yes | [MarketTransferId.json](schema/MarketTransferId.json) |  |
+| accept | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "accept": false,
+  "action": "transferAnswer",
+  "id": "trf_rklsg70oj4yr582r4hbm"
+}
+```
+
+### Variant 25
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"signals"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "action": "signals",
+  "name": "jvf5p1m4a4p",
+  "type": "suit"
+}
+```
+
+### Variant 26
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"verification"` |  |
+
+Example:
+
+```json
+{
+  "action": "verification"
+}
+```
+
+### Variant 27
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"applyVerification"` |  |
+| domain | no | string | {"minLength":3,"maxLength":253,"pattern":"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"} |
+| github | no | string | {"pattern":"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$"} |
+
+Example:
+
+```json
+{
+  "action": "applyVerification"
+}
+```
+
+### Variant 28
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"checkVerification"` |  |
+
+Example:
+
+```json
+{
+  "action": "checkVerification"
+}
+```
+
+### Variant 29
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"appeal"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| note | yes | string | {"minLength":1,"maxLength":2000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| replacement | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+
+Example:
+
+```json
+{
+  "action": "appeal",
+  "name": "o29pb-wvmgz",
+  "note": "example",
+  "type": "spade-skill",
+  "version": "33630754.525080327.90318"
+}
+```
+
+## MarketPublishAnswer
+
+[JSON Schema](schema/MarketPublishAnswer.json), input validation.
+
+### me
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"me"` |  |
+| me | yes | [MarketMe.json](schema/MarketMe.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "me",
+  "me": {
+    "drafts": [],
+    "entries": [],
+    "limits": {
+      "draftLimit": 9,
+      "drafts": 1,
+      "quotaBytes": 8,
+      "storedBytes": 4,
+      "uploadsPerDay": 9,
+      "uploadsToday": 7
+    },
+    "newPublisher": false,
+    "state": "deleted",
+    "transfers": []
+  }
+}
+```
+
+### entry
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"entry"` |  |
+| entry | yes | [MarketOwnEntry.json](schema/MarketOwnEntry.json) |  |
+
+Example:
+
+```json
+{
+  "entry": {
+    "listing": {
+      "categories": [],
+      "description": "example",
+      "keywords": [],
+      "line": "example",
+      "links": [],
+      "previews": [],
+      "title": "example"
+    },
+    "summary": {
+      "archived": false,
+      "downloads": 8,
+      "line": "example",
+      "name": "r",
+      "openReports": 0,
+      "pendingListing": true,
+      "pinned": false,
+      "reviewed": false,
+      "status": "live",
+      "title": "example",
+      "type": "spade-plugin",
+      "version": "477238637.76.1008",
+      "versions": 7,
+      "visibility": "listed"
+    },
+    "versions": []
+  },
+  "kind": "entry"
+}
+```
+
+### profile
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"profile"` |  |
+| profile | yes | [MarketProfile.json](schema/MarketProfile.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "profile",
+  "profile": {
+    "bio": "example",
+    "displayName": "example",
+    "handle": "m",
+    "id": "example",
+    "joined": 7,
+    "links": [],
+    "pins": [],
+    "proofs": [],
+    "verified": true
+  }
+}
+```
+
+### draft
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"draft"` |  |
+| draft | yes | [MarketDraft.json](schema/MarketDraft.json) |  |
+
+Example:
+
+```json
+{
+  "draft": {
+    "changelog": "example",
+    "created": 9,
+    "files": 3,
+    "hash": "385630d6cb8dc2ea45cf7f7581653cfec727d234aa09cd5c68a810d0856f36a1",
+    "id": "drf_bmlcmtd5rzmb",
+    "name": "en7z4i1v",
+    "problems": [],
+    "scan": {
+      "report": {
+        "checks": [],
+        "findings": [],
+        "format": "ace-market-scan",
+        "hash": "8ddaa4a2ff8ca57c4998ed727a0733b8eff5e4d0cda8cbc774e8dccba906c303",
+        "read": {
+          "files": 8,
+          "textBytes": 4
+        },
+        "runnable": true,
+        "runnableReason": "example",
+        "scanner": 3,
+        "truncated": false,
+        "verdict": "warn"
+      },
+      "state": "done"
+    },
+    "size": 9,
+    "title": "example",
+    "type": "ace-plugin",
+    "updated": 5,
+    "version": "53648715.474889.718935-upFaJX0iCSDpo"
+  },
+  "kind": "draft"
+}
+```
+
+### checked
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"checked"` |  |
+| check | yes | [MarketDraftCheck.json](schema/MarketDraftCheck.json) |  |
+
+Example:
+
+```json
+{
+  "check": {
+    "excluded": [],
+    "files": [],
+    "findings": [],
+    "hash": "777be16c244f1b13e51409e32f36a4c5be6007ed98fafaa1690c781ecf6fa5aa"
+  },
+  "kind": "checked"
+}
+```
+
+### signals
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"signals"` |  |
+| signals | yes | [MarketSignals.json](schema/MarketSignals.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "signals",
+  "signals": {
+    "adoption": {
+      "downloads": 3,
+      "share": 1
+    },
+    "days": [],
+    "reports": [],
+    "versions": []
+  }
+}
+```
+
+### verification
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"verification"` |  |
+| verification | yes | [MarketVerificationStatus.json](schema/MarketVerificationStatus.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "verification",
+  "verification": {
+    "challenges": [],
+    "proofs": [],
+    "state": "applied",
+    "verified": false
+  }
+}
+```
+
+### published
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"published"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| held | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "held": false,
+  "kind": "published",
+  "name": "g",
+  "type": "spade-skill",
+  "version": "2117.74.319252"
+}
+```
+
+### pending
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"pending"` |  |
+| what | yes | ["listing","withdrawal"] |  |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "pending",
+  "what": "listing"
+}
+```
+
+### done
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"done"` |  |
+
+Example:
+
+```json
+{
+  "kind": "done"
+}
+```
+
 ## MarketPublisher
 
 [JSON Schema](schema/MarketPublisher.json), input validation.
@@ -20283,6 +23908,38 @@ Example:
 }
 ```
 
+## MarketPublisherBody
+
+[JSON Schema](schema/MarketPublisherBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| profile | yes | [MarketProfile.json](schema/MarketProfile.json) |  |
+| pinned | yes | array | {"maxItems":6,"items":{}} |
+| entries | yes | array | {"maxItems":500,"items":{}} |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "downloads": 5,
+  "entries": [],
+  "pinned": [],
+  "profile": {
+    "bio": "example",
+    "displayName": "example",
+    "handle": "ezm6kz3qt6",
+    "id": "example",
+    "joined": 3,
+    "links": [],
+    "pins": [],
+    "proofs": [],
+    "verified": false
+  }
+}
+```
+
 ## MarketPublisherName
 
 [JSON Schema](schema/MarketPublisherName.json), input validation.
@@ -20297,11 +23954,331 @@ Example:
 "n"
 ```
 
+## MarketPublisherPage
+
+[JSON Schema](schema/MarketPublisherPage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| profile | yes | [MarketProfile.json](schema/MarketProfile.json) |  |
+| pinned | yes | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| entries | yes | array | {"maxItems":500,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| official | no | boolean |  |
+
+Example:
+
+```json
+{
+  "downloads": 7,
+  "entries": [],
+  "official": true,
+  "pinned": [],
+  "profile": {
+    "bio": "example",
+    "displayName": "example",
+    "handle": "8",
+    "id": "example",
+    "joined": 6,
+    "links": [],
+    "pins": [],
+    "proofs": [],
+    "verified": false
+  }
+}
+```
+
+## MarketPublisherState
+
+[JSON Schema](schema/MarketPublisherState.json), input validation.
+
+Type: ["active","suspended","deleted"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"active"
+```
+
+## MarketQueueBody
+
+[JSON Schema](schema/MarketQueueBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| held | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"newPublisher":{"type":"boolean"},"published":{"type":"integer","minimum":0,"maximum":9007199254740991},"scan":{"$ref":"https://ace.local/protocol/v1/MarketScanReport.json"}},"required":["type","name","version","hash","publisher","newPublisher","published"]}} |
+| listings | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"listing":{"$ref":"https://ace.local/protocol/v1/MarketListingEdit.json"},"scan":{"$ref":"https://ace.local/protocol/v1/MarketScanReport.json"},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["type","name","publisher","listing","scan","at"]}} |
+| verifications | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"proofs":{"maxItems":8,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/MarketVerificationProof.json"}},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"flagged":{"type":"string","maxLength":500}},"required":["publisher","proofs","at"]}} |
+| appeals | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^apl_[a-z0-9]{8,40}$"},"note":{"type":"string","maxLength":2000},"replacement":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"state":{"$ref":"https://ace.local/protocol/v1/MarketAppealState.json"},"answer":{"type":"string","maxLength":2000},"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisher.json"},"status":{"type":"string","enum":["blocked","held"]},"reason":{"type":"string","maxLength":500}},"required":["id","note","at","state","type","name","version","publisher","status"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "appeals": [],
+  "held": [],
+  "listings": [],
+  "verifications": []
+}
+```
+
+## MarketReportId
+
+[JSON Schema](schema/MarketReportId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"rpt_7b0cligff"
+```
+
+## MarketReportReason
+
+[JSON Schema](schema/MarketReportReason.json), input validation.
+
+Type: ["malware","harmful","impersonation","spam","copyright","other"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"malware"
+```
+
+## MarketReportRequest
+
+[JSON Schema](schema/MarketReportRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| reason | yes | [MarketReportReason.json](schema/MarketReportReason.json) |  |
+| note | no | string | {"default":"","maxLength":1000} |
+
+Example:
+
+```json
+{
+  "name": "43g-v2ad.h9",
+  "note": "example",
+  "reason": "spam",
+  "type": "spade-bot"
+}
+```
+
+## MarketReportsBody
+
+[JSON Schema](schema/MarketReportsBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| reports | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/MarketReportId.json"},"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"reason":{"$ref":"https://ace.local/protocol/v1/MarketReportReason.json"},"note":{"type":"string","maxLength":1000},"at":{"type":"integer","minimum":0,"maximum":9007199254740991},"state":{"$ref":"https://ace.local/protocol/v1/MarketReportState.json"},"outcome":{"type":"string","maxLength":500}},"required":["id","type","name","reason","note","at","state"]}} |
+
+Example:
+
+```json
+{
+  "reports": []
+}
+```
+
+## MarketReportState
+
+[JSON Schema](schema/MarketReportState.json), input validation.
+
+Type: ["open","dismissed","kept","withdrawn","blocked"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"kept"
+```
+
 ## MarketResult
 
 [JSON Schema](schema/MarketResult.json), input validation.
 
 ### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"discover"` |  |
+| discover | yes | [MarketDiscover.json](schema/MarketDiscover.json) |  |
+
+Example:
+
+```json
+{
+  "discover": {
+    "collections": [],
+    "featured": [],
+    "fresh": [],
+    "hero": {
+      "byAce": true,
+      "categories": [],
+      "downloads": 2,
+      "from": "example",
+      "keywords": [],
+      "line": "example",
+      "name": "d",
+      "previews": [],
+      "reviewed": false,
+      "source": "git:zxyimu7zl4ilh7pgo50bhep",
+      "supported": true,
+      "title": "example",
+      "type": "example",
+      "updated": 3
+    },
+    "publishers": [],
+    "rankedAt": 3,
+    "readAt": 0,
+    "trending": []
+  },
+  "op": "discover"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"publisher"` |  |
+| page | yes | [MarketPublisherPage.json](schema/MarketPublisherPage.json) |  |
+
+Example:
+
+```json
+{
+  "op": "publisher",
+  "page": {
+    "downloads": 1,
+    "entries": [],
+    "pinned": [],
+    "profile": {
+      "bio": "example",
+      "displayName": "example",
+      "handle": "3hzwfa6",
+      "id": "example",
+      "joined": 6,
+      "links": [],
+      "pins": [],
+      "proofs": [],
+      "verified": false
+    }
+  }
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"picture"` |  |
+| type | yes | ["image/png","image/jpeg","image/webp"] |  |
+| data | yes | string | {"maxLength":1400000} |
+
+Example:
+
+```json
+{
+  "data": "example",
+  "op": "picture",
+  "type": "image/jpeg"
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"publish"` |  |
+| answer | yes | [MarketPublishAnswer.json](schema/MarketPublishAnswer.json) |  |
+
+Example:
+
+```json
+{
+  "answer": {
+    "kind": "profile",
+    "profile": {
+      "avatar": "5f5e76a24fe91f3a261f2b1c68cb52c3f9a1d337c5d76172b18aa8e8e3280f11",
+      "bio": "example",
+      "displayName": "example",
+      "handle": "c",
+      "id": "example",
+      "joined": 6,
+      "links": [],
+      "pins": [],
+      "proofs": [],
+      "verified": false
+    }
+  },
+  "op": "publish"
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"publishables"` |  |
+| items | yes | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/MarketPublishable.json"}} |
+| unavailable | yes | array | {"maxItems":8,"items":{"type":"string","maxLength":300}} |
+
+Example:
+
+```json
+{
+  "items": [],
+  "op": "publishables",
+  "unavailable": []
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"botRecipe"` |  |
+| recipe | yes | [Recipe.json](schema/Recipe.json) |  |
+| leftOut | yes | array | {"maxItems":20,"items":{"type":"string","maxLength":500}} |
+
+Example:
+
+```json
+{
+  "leftOut": [],
+  "op": "botRecipe",
+  "recipe": {
+    "face": {},
+    "format": "spade-bot",
+    "model": "fast",
+    "name": "example",
+    "version": 2
+  }
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"privacyCheck"` |  |
+| spans | yes | array | {"maxItems":40,"items":{"maxItems":200,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/MarketPrivacySpan.json"}}} |
+
+Example:
+
+```json
+{
+  "op": "privacyCheck",
+  "spans": []
+}
+```
+
+### Variant 8
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20317,7 +24294,7 @@ Example:
 }
 ```
 
-### Variant 2
+### Variant 9
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20332,11 +24309,12 @@ Example:
 {
   "entries": [],
   "op": "search",
-  "total": 8
+  "readAt": 5,
+  "total": 3
 }
 ```
 
-### Variant 3
+### Variant 10
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20352,13 +24330,13 @@ Example:
 {
   "categories": [],
   "featured": [],
-  "installed": 4,
+  "installed": 1,
   "op": "home",
-  "updates": 2
+  "updates": 9
 }
 ```
 
-### Variant 4
+### Variant 11
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20371,24 +24349,32 @@ Example:
 {
   "entry": {
     "description": "example",
+    "installed": {
+      "acceptedAt": 9,
+      "hash": "d44fb96225f4cd1055f4fa4c26fe0d38f02702e77ae53386fcb48bf66db29d94",
+      "name": "9",
+      "reason": "example",
+      "source": "git:wh0a8",
+      "state": "off",
+      "title": "example",
+      "type": "spade-skill",
+      "version": "example"
+    },
     "summary": {
-      "byAce": false,
+      "byAce": true,
       "categories": [],
-      "downloads": 1,
+      "deprecated": "example",
+      "downloads": 8,
       "keywords": [],
       "line": "example",
-      "name": "c",
-      "publisher": {
-        "id": "example",
-        "name": "vzk62asyml9q"
-      },
+      "name": "j",
       "reviewed": true,
       "source": "market",
-      "supported": false,
+      "supported": true,
       "title": "example",
       "type": "example",
-      "updated": 5,
-      "version": "057435.4.78"
+      "updated": 9,
+      "verified": false
     },
     "versions": []
   },
@@ -20396,7 +24382,7 @@ Example:
 }
 ```
 
-### Variant 5
+### Variant 12
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20410,30 +24396,32 @@ Example:
   "op": "review",
   "review": {
     "body": {
-      "description": "example",
-      "files": 8,
-      "flagged": 5,
-      "skillName": "example",
-      "type": "spade-skill"
+      "files": 0,
+      "fonts": [],
+      "passes": false,
+      "problems": [],
+      "scenes": [],
+      "type": "suit"
     },
     "byAce": true,
-    "expiresAt": 6,
-    "from": "example",
-    "hash": "e56053e0b41e34bbee258251806a8606870c75dd3d62b2842d5094fca2e67d10",
-    "id": "SWNB2PSvQ8aF7CKbK0kx4cueWcS8Ahmzwm6X04eJNocBipExh8u0GuLoljLwGwuGnQBRW2",
-    "items": 5,
-    "name": "j",
+    "deprecated": "example",
+    "expiresAt": 9,
+    "hash": "0d448f736b94e521dc3c500d2c818bdbb543a00967e3135e255c9bcd559da379",
+    "id": "E3ezvGpFeVYBHGoMkYz1YTPnnsssHzgUvWBVYN1MrNoJtkf1W-wn",
+    "items": 0,
+    "name": "w",
     "reviewed": true,
-    "signed": true,
-    "source": "git:nezvjchq5ybne2084m",
+    "signed": false,
+    "source": "git:8vw926jqapij4dlbjk34gxv54tckd7",
     "title": "example",
-    "type": "spade-plugin",
+    "type": "spade-skill",
+    "unlisted": false,
     "version": "example"
   }
 }
 ```
 
-### Variant 6
+### Variant 13
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20450,36 +24438,49 @@ Example:
   "op": "reviewPage",
   "review": {
     "body": {
-      "files": 4,
-      "fonts": [],
-      "passes": false,
-      "problems": [],
-      "scenes": [],
-      "type": "suit"
+      "botName": "example",
+      "brings": [],
+      "face": {},
+      "model": "capable",
+      "needs": [],
+      "notes": [],
+      "routines": [],
+      "spadeReady": true,
+      "task": "example",
+      "type": "spade-bot"
     },
-    "byAce": false,
-    "expiresAt": 1,
+    "byAce": true,
+    "expiresAt": 6,
     "from": "example",
-    "hash": "6654ed1352781b8b67eacc647412065306f8d9393a1cb23c2782b6565860b75e",
-    "id": "EqjEZIxOU4v0GAEaHQ9pgsd0QdNwIclNZ9-Tw6zm0aIJjUTHahFzc",
-    "items": 2,
-    "name": "c",
-    "publisher": {
-      "id": "example",
-      "name": "wg443i02d960dqit3"
-    },
+    "hash": "51b77ff3950f2be9bc92925e36a9bbd830b697bc36eace11c30ffb302c3b2dcb",
+    "id": "SyIwyNKmaZDg9IuNm8L9LD7Csrw4zEhF3-xZsLH9f1TBsQ0R30lOsHH-PdoyacMskRZkx",
+    "items": 9,
+    "name": "8.edd3-55ov",
     "reviewed": false,
-    "signed": false,
-    "source": "git:4",
+    "scan": {
+      "checks": [],
+      "findings": [],
+      "format": "ace-market-scan",
+      "read": {
+        "files": 3,
+        "textBytes": 5
+      },
+      "runnable": false,
+      "scanner": 6,
+      "truncated": false,
+      "verdict": "pass"
+    },
+    "signed": true,
+    "source": "market",
     "title": "example",
-    "type": "suit",
-    "updates": "example",
+    "type": "ace-plugin",
+    "unlisted": true,
     "version": "example"
   }
 }
 ```
 
-### Variant 7
+### Variant 14
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20495,7 +24496,7 @@ Example:
 }
 ```
 
-### Variant 8
+### Variant 15
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20507,20 +24508,22 @@ Example:
 ```json
 {
   "installed": {
-    "acceptedAt": 3,
-    "hash": "f1463e7a63eddc8077f769112ec6ddd6ce99c3dda7e980cb067cddec2b6ec83d",
-    "name": "rv",
-    "source": "git:eo71bawayf",
-    "state": "on",
+    "acceptedAt": 9,
+    "hash": "7e388707324ee9dc9181d2bc4ca91d9e2855e5de5ffb272d6465dbf2d7aa36f1",
+    "name": "s",
+    "reason": "example",
+    "source": "market",
+    "state": "withdrawn",
     "title": "example",
-    "type": "spade-skill",
+    "type": "spade-plugin",
+    "update": "005683.992999707.92504336",
     "version": "example"
   },
   "op": "done"
 }
 ```
 
-### Variant 9
+### Variant 16
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20536,7 +24539,7 @@ Example:
 }
 ```
 
-### Variant 10
+### Variant 17
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20548,13 +24551,12 @@ Example:
 
 ```json
 {
-  "content": "example",
   "files": [],
   "op": "spadeSkillFiles"
 }
 ```
 
-### Variant 11
+### Variant 18
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -20562,15 +24564,16 @@ Example:
 | code | yes | [MarketErrorCode.json](schema/MarketErrorCode.json) |  |
 | message | yes | string | {"maxLength":2000} |
 | problems | no | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketProblem.json"}} |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+| request | no | string | {"maxLength":200} |
 
 Example:
 
 ```json
 {
-  "code": "forbidden",
+  "code": "failed",
   "message": "example",
-  "op": "error",
-  "problems": []
+  "op": "error"
 }
 ```
 
@@ -20595,6 +24598,9 @@ Example:
 | updates | no | string | {"maxLength":64} |
 | body | yes | [MarketReviewBody.json](schema/MarketReviewBody.json) |  |
 | blocked | no | string | {"maxLength":500} |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+| deprecated | no | string | {"maxLength":500} |
+| unlisted | no | boolean |  |
 | expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | items | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 
@@ -20614,17 +24620,18 @@ Example:
     "type": "spade-bot"
   },
   "byAce": true,
-  "expiresAt": 7,
+  "expiresAt": 4,
   "from": "example",
   "hash": "fbf15b7532da05b3e856100da638327d097f15c018418720de954163ada8dd28",
   "id": "sUU1M8EzvSwqMD-4X32fANAaiL8iuloE5TuhHJ7SbyGz3SK8wLzj8dZo13KkBEcDVnKp0zpGk",
-  "items": 7,
+  "items": 4,
   "name": "g",
   "reviewed": false,
   "signed": true,
   "source": "git:er7tvb0k8482iovvkhu083253",
   "title": "example",
   "type": "spade-plugin",
+  "unlisted": false,
   "version": "example"
 }
 ```
@@ -20879,6 +24886,196 @@ Example:
 }
 ```
 
+## MarketScanCheck
+
+[JSON Schema](schema/MarketScanCheck.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [MarketScanCheckId.json](schema/MarketScanCheckId.json) |  |
+| verdict | yes | [MarketScanVerdict.json](schema/MarketScanVerdict.json) |  |
+| sentence | yes | string | {"minLength":1,"maxLength":500} |
+| findings | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "findings": 9,
+  "id": "known-bad",
+  "sentence": "example",
+  "verdict": "block"
+}
+```
+
+## MarketScanCheckId
+
+[JSON Schema](schema/MarketScanCheckId.json), input validation.
+
+Type: ["files","scripts","scene","plugin","recipe","secrets","hidden","known-bad"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"plugin"
+```
+
+## MarketScanContextBody
+
+[JSON Schema](schema/MarketScanContextBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"maxItems":50000,"items":{"type":"object","properties":{"type":{"type":"string","maxLength":40},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"publisher":{"$ref":"https://ace.local/protocol/v1/MarketPublisherName.json"},"downloads":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["type","name","publisher","downloads"]}} |
+| verified | yes | array | {"maxItems":5000,"items":{"type":"object","properties":{"handle":{"$ref":"https://ace.local/protocol/v1/MarketPublisherName.json"},"displayName":{"type":"string","maxLength":60}},"required":["handle","displayName"]}} |
+| newPublishers | yes | array | {"maxItems":50000,"items":{"$ref":"https://ace.local/protocol/v1/MarketPublisherName.json"}} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "newPublishers": [],
+  "verified": []
+}
+```
+
+## MarketScanFinding
+
+[JSON Schema](schema/MarketScanFinding.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| check | yes | [MarketScanCheckId.json](schema/MarketScanCheckId.json) |  |
+| rule | yes | string | {"pattern":"^[a-z0-9][a-z0-9-]{0,63}$"} |
+| level | yes | [MarketScanLevel.json](schema/MarketScanLevel.json) |  |
+| path | no | string | {"maxLength":512} |
+| line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| message | yes | string | {"minLength":1,"maxLength":500} |
+| strict | no | boolean |  |
+
+Example:
+
+```json
+{
+  "check": "plugin",
+  "level": "block",
+  "message": "example",
+  "path": "example",
+  "rule": "6gqi6z3w",
+  "strict": true
+}
+```
+
+## MarketScanLevel
+
+[JSON Schema](schema/MarketScanLevel.json), input validation.
+
+Type: ["note","warn","block"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"warn"
+```
+
+## MarketScanReport
+
+[JSON Schema](schema/MarketScanReport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-scan"` |  |
+| scanner | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| hash | no | [MarketHash.json](schema/MarketHash.json) |  |
+| verdict | yes | [MarketScanVerdict.json](schema/MarketScanVerdict.json) |  |
+| checks | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/MarketScanCheck.json"}} |
+| findings | yes | array | {"maxItems":500,"items":{"$ref":"https://ace.local/protocol/v1/MarketScanFinding.json"}} |
+| runnable | yes | boolean |  |
+| runnableReason | no | string | {"maxLength":300} |
+| truncated | yes | boolean |  |
+| read | yes | object | {"properties":{"files":{"type":"integer","minimum":0,"maximum":9007199254740991},"textBytes":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["files","textBytes"],"additionalProperties":false} |
+
+Example:
+
+```json
+{
+  "checks": [],
+  "findings": [],
+  "format": "ace-market-scan",
+  "read": {
+    "files": 5,
+    "textBytes": 1
+  },
+  "runnable": true,
+  "scanner": 7,
+  "truncated": true,
+  "verdict": "warn"
+}
+```
+
+## MarketScanState
+
+[JSON Schema](schema/MarketScanState.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | `"scanning"` |  |
+| read | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "files": 5,
+  "read": 8,
+  "state": "scanning"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | `"done"` |  |
+| report | yes | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+
+Example:
+
+```json
+{
+  "report": {
+    "checks": [],
+    "findings": [],
+    "format": "ace-market-scan",
+    "read": {
+      "files": 5,
+      "textBytes": 6
+    },
+    "runnable": true,
+    "scanner": 1,
+    "truncated": false,
+    "verdict": "warn"
+  },
+  "state": "done"
+}
+```
+
+## MarketScanVerdict
+
+[JSON Schema](schema/MarketScanVerdict.json), input validation.
+
+Type: ["pass","warn","block"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"warn"
+```
+
 ## MarketServerMessage
 
 [JSON Schema](schema/MarketServerMessage.json), input validation.
@@ -20897,9 +25094,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "entries": [],
-    "op": "search",
-    "total": 2
+    "data": "example",
+    "op": "picture",
+    "type": "image/png"
   },
   "type": "marketplace.result"
 }
@@ -20920,6 +25117,32 @@ Example:
   "installed": 3,
   "type": "marketplace.changed",
   "updates": 4
+}
+```
+
+## MarketSignals
+
+[JSON Schema](schema/MarketSignals.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| days | yes | array | {"maxItems":90,"items":{"type":"integer","minimum":0,"maximum":9007199254740991}} |
+| versions | yes | array | {"maxItems":200,"items":{"type":"object","properties":{"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"downloads":{"maxItems":90,"type":"array","items":{"type":"integer","minimum":0,"maximum":9007199254740991}}},"required":["version","downloads"],"additionalProperties":false}} |
+| adoption | yes | object | {"properties":{"latest":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"share":{"type":"number","minimum":0,"maximum":1},"downloads":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["share","downloads"],"additionalProperties":false} |
+| reports | yes | array | {"maxItems":500,"items":{"type":"object","properties":{"reason":{"$ref":"https://ace.local/protocol/v1/MarketReportReason.json"},"state":{"$ref":"https://ace.local/protocol/v1/MarketReportState.json"},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["reason","state","at"],"additionalProperties":false}} |
+
+Example:
+
+```json
+{
+  "adoption": {
+    "downloads": 0,
+    "latest": "382589.1592898.796911-kx87Vhn",
+    "share": 1
+  },
+  "days": [],
+  "reports": [],
+  "versions": []
 }
 ```
 
@@ -21006,6 +25229,320 @@ Example:
 }
 ```
 
+## MarketTopPublisher
+
+[JSON Schema](schema/MarketTopPublisher.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| handle | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+| displayName | yes | [MarketDisplayName.json](schema/MarketDisplayName.json) |  |
+| avatar | no | [MarketHash.json](schema/MarketHash.json) |  |
+| verified | yes | boolean |  |
+| entries | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "displayName": "example",
+  "downloads": 6,
+  "entries": 8,
+  "handle": "8",
+  "verified": true
+}
+```
+
+## MarketTransfer
+
+[JSON Schema](schema/MarketTransfer.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [MarketTransferId.json](schema/MarketTransferId.json) |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| from | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+| to | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| direction | yes | ["incoming","outgoing"] |  |
+
+Example:
+
+```json
+{
+  "at": 8,
+  "direction": "incoming",
+  "expiresAt": 9,
+  "from": "e898mzaepbwcrbvkos11zw",
+  "id": "trf_0i6bmhkc79us048t37aifmwcyo15qf2",
+  "name": "c",
+  "to": "g",
+  "type": "ace-plugin"
+}
+```
+
+## MarketTransferId
+
+[JSON Schema](schema/MarketTransferId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"trf_r1rs3sji1pzbbfavrpshrput1o7k0"
+```
+
+## MarketTransferOffer
+
+[JSON Schema](schema/MarketTransferOffer.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| to | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+
+Example:
+
+```json
+{
+  "to": "9"
+}
+```
+
+## MarketTrendingRow
+
+[JSON Schema](schema/MarketTrendingRow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entry | yes | any JSON value |  |
+| rank | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| movement | yes | [MarketTrendMovement.json](schema/MarketTrendMovement.json) |  |
+| week | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "entry": null,
+  "movement": {
+    "by": 5,
+    "kind": "down"
+  },
+  "rank": 3,
+  "week": 8
+}
+```
+
+## MarketTrendMovement
+
+[JSON Schema](schema/MarketTrendMovement.json), input validation.
+
+### new
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"new"` |  |
+
+Example:
+
+```json
+{
+  "kind": "new"
+}
+```
+
+### up
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"up"` |  |
+| by | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "by": 2,
+  "kind": "up"
+}
+```
+
+### down
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"down"` |  |
+| by | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "by": 6,
+  "kind": "down"
+}
+```
+
+### same
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"same"` |  |
+
+Example:
+
+```json
+{
+  "kind": "same"
+}
+```
+
+## MarketVerificationApply
+
+[JSON Schema](schema/MarketVerificationApply.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| domain | no | string | {"minLength":3,"maxLength":253,"pattern":"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"} |
+| github | no | string | {"pattern":"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$"} |
+
+Example:
+
+```json
+{
+  "domain": "p.g.xzambaehqpuprzyyfoeasyqjypbnktqaeqtunuarax"
+}
+```
+
+## MarketVerificationChallenge
+
+[JSON Schema](schema/MarketVerificationChallenge.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["domain","github"] |  |
+| subject | yes | string | {"maxLength":253} |
+| token | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+| expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| state | yes | ["waiting","passed","failed"] |  |
+| problem | no | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "expiresAt": 7,
+  "kind": "github",
+  "state": "waiting",
+  "subject": "example",
+  "token": "ev3hFi41TMMgMa7kAmpnlsM9H28sqYcfXL_AOZaoxjq"
+}
+```
+
+## MarketVerificationProof
+
+[JSON Schema](schema/MarketVerificationProof.json), input validation.
+
+### account
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"account"` |  |
+
+Example:
+
+```json
+{
+  "kind": "account"
+}
+```
+
+### domain
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"domain"` |  |
+| domain | yes | string | {"minLength":3,"maxLength":253,"pattern":"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"} |
+| via | yes | ["dns","well-known"] |  |
+
+Example:
+
+```json
+{
+  "domain": "1c1e2intkyq5ejqgl2qyug6qciz0ijhc6a1hhs8yk7gi8zvdolye7mnorfdp1.5.gikr4kygpswad6i7pluoi8zhfj64521dylqncuv86w.z7mi8gttaf5zlmt3itmyscf1ghb7kghaf8lvof7-70gx98zwrgyooskte.3.yvno9f-f8cqexs.tdpwqin",
+  "kind": "domain",
+  "via": "dns"
+}
+```
+
+### github
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"github"` |  |
+| login | yes | string | {"pattern":"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$"} |
+| via | yes | ["gist","repository"] |  |
+
+Example:
+
+```json
+{
+  "kind": "github",
+  "login": "Iha53byRKsSpv8YU",
+  "via": "repository"
+}
+```
+
+## MarketVerificationStatus
+
+[JSON Schema](schema/MarketVerificationStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| verified | yes | boolean |  |
+| proofs | yes | array | {"maxItems":8,"items":{"$ref":"https://ace.local/protocol/v1/MarketVerificationProof.json"}} |
+| state | yes | ["none","applied","verified","revoked"] |  |
+| challenges | yes | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MarketVerificationChallenge.json"}} |
+| reason | no | string | {"maxLength":500} |
+| flagged | no | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "challenges": [],
+  "proofs": [],
+  "state": "verified",
+  "verified": false
+}
+```
+
+## MarketVerifiedList
+
+[JSON Schema](schema/MarketVerifiedList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-verified"` |  |
+| issued | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| publishers | yes | array | {"maxItems":10000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":64},"handle":{"$ref":"https://ace.local/protocol/v1/MarketPublisherName.json"},"proofs":{"minItems":1,"maxItems":8,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/MarketVerificationProof.json"}},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","handle","proofs","at"],"additionalProperties":false}} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+
+Example:
+
+```json
+{
+  "format": "ace-market-verified",
+  "issued": 6,
+  "key": "KXFTOOr6FHcNTTjgzQTs7JBxQOiOeCaOKB_X750Wtsk51lzrRvVMT",
+  "publishers": []
+}
+```
+
 ## MarketVersion
 
 [JSON Schema](schema/MarketVersion.json), input validation.
@@ -21016,6 +25553,74 @@ Example:
 
 ```json
 "9.3234077.886-z5.Xj"
+```
+
+## MarketVersionStatus
+
+[JSON Schema](schema/MarketVersionStatus.json), input validation.
+
+Type: ["waiting","live","not-reviewed","withdrawn","blocked"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"waiting"
+```
+
+## MarketVisibility
+
+[JSON Schema](schema/MarketVisibility.json), input validation.
+
+Type: ["listed","unlisted"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"listed"
+```
+
+## MarketVisibilitySet
+
+[JSON Schema](schema/MarketVisibilitySet.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| visibility | yes | [MarketVisibility.json](schema/MarketVisibility.json) |  |
+
+Example:
+
+```json
+{
+  "visibility": "listed"
+}
+```
+
+## MarketWireType
+
+[JSON Schema](schema/MarketWireType.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"u-v3s46"
+```
+
+## MarketWithdrawRequest
+
+[JSON Schema](schema/MarketWithdrawRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| reason | yes | string | {"minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+
+Example:
+
+```json
+{
+  "reason": "example"
+}
 ```
 
 ## McpAttribution
@@ -22213,6 +26818,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 | elapsedSeconds | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | needs | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | ask | no | string | {"maxLength":100} |
@@ -22226,11 +26832,10 @@ Example:
 
 ```json
 {
-  "ask": "example",
-  "elapsedSeconds": 9,
+  "elapsedSeconds": 7,
   "id": "example",
   "last": "example",
-  "notice": "example",
+  "needs": 1,
   "parent": "example",
   "result": "example",
   "role": "example",
@@ -23534,6 +28139,64 @@ Example:
   "scopes": [
     "admin"
   ]
+}
+```
+
+## PendingVersion
+
+[JSON Schema](schema/PendingVersion.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| publisher | yes | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| published | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| approved | no | boolean |  |
+
+Example:
+
+```json
+{
+  "hash": "ac2d673ce60ce97f713d1294416950b593f5fbd4555f2b0effba181b2255c84b",
+  "name": "s",
+  "published": 3,
+  "publisher": {
+    "id": "example",
+    "name": "h"
+  },
+  "size": 0,
+  "type": "spade-skill",
+  "version": "369112.955050.7424957"
+}
+```
+
+## PendingWithdrawal
+
+[JSON Schema](schema/PendingWithdrawal.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| reason | yes | string | {"maxLength":500} |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "at": 5,
+  "hash": "8928acd372a47bcfc7754b6f20686a88c795d528434a745d2de2a0397fee5098",
+  "name": "a",
+  "reason": "example",
+  "type": "spade-bot",
+  "version": "9.79.75-NeAaxB1xkr3"
 }
 ```
 
@@ -27460,6 +32123,92 @@ Example:
 }
 ```
 
+## PublishAccepted
+
+[JSON Schema](schema/PublishAccepted.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | `"pending"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| held | no | boolean |  |
+| scan | no | [MarketScanReport.json](schema/MarketScanReport.json) |  |
+
+Example:
+
+```json
+{
+  "hash": "713e78dd7e69d3d38e9711e69c8c46e7201cae2fa9ca9f443cd711ffb1fccccd",
+  "held": false,
+  "name": "unw1.n2yy565",
+  "status": "pending",
+  "type": "spade-bot",
+  "version": "92928.69656.123-y3OA"
+}
+```
+
+## PublisherDecision
+
+[JSON Schema](schema/PublisherDecision.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | [MarketPublisherState.json](schema/MarketPublisherState.json) |  |
+| reason | no | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "reason": "example",
+  "state": "active"
+}
+```
+
+## PublisherVersionsBody
+
+[JSON Schema](schema/PublisherVersionsBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| publisher | yes | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| state | yes | [MarketPublisherState.json](schema/MarketPublisherState.json) |  |
+| live | yes | array | {"maxItems":10000,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"$ref":"https://ace.local/protocol/v1/MarketVersion.json"},"hash":{"$ref":"https://ace.local/protocol/v1/MarketHash.json"}},"required":["type","name","version","hash"]}} |
+
+Example:
+
+```json
+{
+  "live": [],
+  "publisher": {
+    "id": "example",
+    "name": "3cywjsacfawpvxeera"
+  },
+  "state": "active"
+}
+```
+
+## PublishRefused
+
+[JSON Schema](schema/PublishRefused.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| error | yes | `"refused"` |  |
+| problems | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketProblem.json"}} |
+
+Example:
+
+```json
+{
+  "error": "refused",
+  "problems": []
+}
+```
+
 ## PushAccessAlert
 
 [JSON Schema](schema/PushAccessAlert.json), input validation.
@@ -27604,6 +32353,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 
 Example:
 
@@ -27655,6 +32405,7 @@ Example:
 | slotLimit | yes | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 
 Example:
 
@@ -27969,6 +32720,73 @@ Example:
   "size": 2,
   "type": "example"
 }
+```
+
+## Recipe
+
+[JSON Schema](schema/Recipe.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"spade-bot"` |  |
+| version | yes | `2` |  |
+| name | yes | string | {"minLength":1,"maxLength":80,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+| blurb | no | string | {"default":"","maxLength":300} |
+| task | no | string | {"default":"","maxLength":4000} |
+| face | no | object | {"propertyNames":{"type":"string","maxLength":40},"additionalProperties":{}} |
+| model | no | ["fast","capable"] | {"default":"capable"} |
+| routines | no | array | {"default":[],"maxItems":32,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"instruction":{"type":"string","minLength":1,"maxLength":4000,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"schedule":{"type":"string","minLength":1,"maxLength":200,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."}},"required":["name","instruction","schedule"],"additionalProperties":false}} |
+| skills | no | array | {"default":[],"maxItems":32,"items":{"type":"string","maxLength":80}} |
+| plugins | no | array | {"default":[],"maxItems":16,"items":{"type":"string","maxLength":80}} |
+| needs | no | object | {"default":{"connectors":[]},"properties":{"connectors":{"default":[],"maxItems":32,"type":"array","items":{"anyOf":[{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/RecipeConnectorId.json"},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["id","why"],"additionalProperties":false},{"type":"object","properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.","x-ace-url-maxLength":2048},"why":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."},"required":{"default":false,"type":"boolean"}},"required":["url","why"],"additionalProperties":false}]}},"tools":{"maxItems":64,"type":"array","items":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}},"additionalProperties":false} |
+| notes | no | array | {"default":[],"maxItems":50,"items":{"type":"string","maxLength":2000}} |
+
+Example:
+
+```json
+{
+  "face": {},
+  "format": "spade-bot",
+  "name": "example",
+  "notes": [],
+  "version": 2
+}
+```
+
+## RecipeConnectorId
+
+[JSON Schema](schema/RecipeConnectorId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"dageaxrzhxgq0ixn73hwj_448kgpj9g-ehdeu4tyz6t2bs-"
+```
+
+## RecipePluginRef
+
+[JSON Schema](schema/RecipePluginRef.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"spade-plugin/r"
+```
+
+## RecipeSkillRef
+
+[JSON Schema](schema/RecipeSkillRef.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"skills/e"
 ```
 
 ## RegistryAgent
@@ -28434,6 +33252,23 @@ Example:
 ```json
 {
   "state": "failed"
+}
+```
+
+## ReportResolution
+
+[JSON Schema](schema/ReportResolution.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | ["dismissed","kept","withdrawn","blocked"] |  |
+| note | no | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "state": "dismissed"
 }
 ```
 
@@ -29143,6 +33978,36 @@ Example:
     "worktree": "example"
   },
   "threadId": "example"
+}
+```
+
+## ReviewMark
+
+[JSON Schema](schema/ReviewMark.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-review"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| reviewed | yes | boolean |  |
+| byAce | yes | boolean |  |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+
+Example:
+
+```json
+{
+  "at": 4,
+  "byAce": true,
+  "format": "ace-market-review",
+  "hash": "2bbf0846ba828d1e640de99dd5585dc545cb72f409b8c194981102ff7df01a70",
+  "key": "kmCKjxq0",
+  "name": "kxy5kg8f",
+  "reviewed": false,
+  "type": "spade-plugin"
 }
 ```
 
@@ -33154,6 +38019,24 @@ Example:
 }
 ```
 
+## SearchBody
+
+[JSON Schema](schema/SearchBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| entries | yes | array | {"maxItems":100,"items":{}} |
+| total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "total": 4
+}
+```
+
 ## SearchErrorResponse
 
 [JSON Schema](schema/SearchErrorResponse.json), input validation.
@@ -33528,17 +38411,18 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"beta.spade":{"type":"boolean"},"beta.marketplace":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"beta.spade":{"type":"boolean"},"beta.marketplace":{"type":"boolean"},"market.askBeforeAgentPublish":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
 ```json
 {
   "settings": {
+    "access.nativeModes": {},
     "browser.backendLoss": "headless",
     "browser.profileScope": "thread",
     "clients.keybindings": null,
-    "media.delivery": "auto",
+    "media.encode": "auto",
     "providers.coder.model": "example",
     "providers.coder.reasoningEffort": "high",
     "providers.configuration": [],
@@ -33550,8 +38434,7 @@ Example:
     "storage.backupWorktrees": true,
     "threads.forkOnSwitch": true,
     "threads.settleOnClose": false,
-    "threads.settleOnMerge": true,
-    "threads.useWorktree": false
+    "threads.settleOnMerge": true
   },
   "version": 2
 }
@@ -33593,7 +38476,7 @@ Example:
 
 ```json
 {
-  "key": "remote.relayMcp",
+  "key": "remote.hostedPairingLink",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -33604,7 +38487,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","beta.spade","beta.marketplace","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","beta.spade","beta.marketplace","market.askBeforeAgentPublish","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -33703,7 +38586,7 @@ Example:
 
 ```json
 {
-  "key": "threads.settleOnClose",
+  "key": "threads.settleOnMerge",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -34035,6 +38918,7 @@ Example:
 | spade.enabled | yes | boolean |  |
 | beta.spade | yes | boolean |  |
 | beta.marketplace | yes | boolean |  |
+| market.askBeforeAgentPublish | yes | boolean |  |
 | devices.emulatorWindow | yes | boolean |  |
 | media.encode | yes | ["auto","legacy"] |  |
 | media.delivery | yes | ["auto","legacy"] |  |
@@ -34080,7 +38964,7 @@ Example:
 {
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": 2,
+  "agents.maxRunningChildren": 9,
   "automations.enabled": true,
   "beta.marketplace": true,
   "beta.spade": true,
@@ -34091,19 +38975,24 @@ Example:
   "browser.profile": "ephemeral",
   "browser.profileScope": "thread",
   "browser.userChrome.storageReads": true,
-  "clients.keybindings": [],
-  "clients.theme": [],
+  "clients.keybindings": null,
+  "clients.theme": "example",
   "computer.blockedApps": [],
   "computer.lockedUse": true,
-  "devices.emulatorWindow": false,
-  "devices.enabled": true,
+  "devices.emulatorWindow": true,
+  "devices.enabled": false,
   "generation.autoDraftCommits": true,
-  "generation.model": null,
+  "generation.model": {
+    "effort": "example",
+    "model": "example",
+    "provider": "acp"
+  },
   "host.displayName": "example",
   "host.icon": {
-    "kind": "cloud"
+    "kind": "cpu"
   },
-  "logs.maxBytes": 1048582,
+  "logs.maxBytes": 1048584,
+  "market.askBeforeAgentPublish": false,
   "media.delivery": "auto",
   "media.encode": "auto",
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
@@ -34111,12 +39000,12 @@ Example:
   "projects.roots": [],
   "providers.claude.chrome": "on",
   "providers.coder.model": "example",
-  "providers.coder.provider": "antigravity",
+  "providers.coder.provider": null,
   "providers.coder.reasoningEffort": "default",
   "providers.coder.tier": "fast",
   "providers.codex.toolSource": null,
   "providers.configuration": [],
-  "providers.default": "antigravity",
+  "providers.default": "opencode",
   "providers.planner.model": "example",
   "providers.planner.provider": "codex",
   "providers.planner.reasoningEffort": "minimal",
@@ -34131,18 +39020,18 @@ Example:
   "providers.verifier.tier": "default",
   "remote.agentAccess": "operate",
   "remote.agentTransfers": false,
-  "remote.enabled": false,
+  "remote.enabled": true,
   "remote.hostedPairingLink": false,
-  "remote.lan": true,
+  "remote.lan": false,
   "remote.mcpPublicUrl": null,
-  "remote.publicUrlWebhooks": false,
+  "remote.publicUrlWebhooks": true,
   "remote.relay": false,
-  "remote.relayMcp": false,
-  "remote.relayUrl": "",
+  "remote.relayMcp": true,
+  "remote.relayUrl": "wss://relay.example.invalid/",
   "remote.relayWebhooks": true,
   "remote.tailscale": false,
   "remote.tailscaleMcp": true,
-  "remote.tailscaleWebhooks": true,
+  "remote.tailscaleWebhooks": false,
   "remote.transferIgnoredFiles": false,
   "remote.transport": "local",
   "sourceControl.preferences": {
@@ -34155,26 +39044,24 @@ Example:
     "remote": "origin"
   },
   "spade.enabled": false,
-  "storage.backupWorktrees": false,
+  "storage.backupWorktrees": true,
   "storage.retention": {
-    "attachments": null,
-    "threads": 2,
-    "worktrees": 7
+    "logs": 7
   },
-  "storage.retentionDays": 5,
-  "storage.scheduledCleanup": false,
-  "storage.worktreeRetentionDays": 4,
-  "threads.autoSettleAfter": "never",
+  "storage.retentionDays": 7,
+  "storage.scheduledCleanup": true,
+  "storage.worktreeRetentionDays": 6,
+  "threads.autoSettleAfter": "1w",
   "threads.followUpBehavior": "queue",
   "threads.forkOnSwitch": false,
-  "threads.keepSettledFor": "7d",
-  "threads.limitPolicy": "migrate_now",
-  "threads.settleOnClose": false,
+  "threads.keepSettledFor": "3d",
+  "threads.limitPolicy": "snooze_until_reset",
+  "threads.settleOnClose": true,
   "threads.settleOnMerge": false,
-  "threads.sortBy": "activity",
+  "threads.sortBy": "manual",
   "threads.unresponsiveAfter": "15m",
-  "threads.useWorktree": false,
-  "worktree.preparationTimeoutMs": 60002
+  "threads.useWorktree": true,
+  "worktree.preparationTimeoutMs": 60008
 }
 ```
 
@@ -34238,6 +39125,180 @@ Example:
 
 ```json
 "image/jpeg"
+```
+
+## Signed
+
+[JSON Schema](schema/Signed.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| body | yes | any JSON value |  |
+| signature | yes | string | {"pattern":"^[A-Za-z0-9_-]{86}$"} |
+
+Example:
+
+```json
+{
+  "body": null,
+  "signature": "e9anto6Ye5g3us6NCDZTML0Xk9lrUMxj1Gb6gPG83v5dzVsSM7RebTYdVheVxC5puUZ2s8470J6-_WgunLyNVA"
+}
+```
+
+## SignedBlocklistUpload
+
+[JSON Schema](schema/SignedBlocklistUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| blocklist | yes | [Signed.json](schema/Signed.json) |  |
+| basedOn | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "blocklist": {
+    "body": null,
+    "signature": "fRGPSJZbaEEmAt9vZTybdnEPVXEbw9FGLzVQX_jSNdu7_whsEOzRPh4aoSZZRcP8uGvRDA-njsEZfBt9EvYZaH"
+  }
+}
+```
+
+## SignedOfficialUpload
+
+[JSON Schema](schema/SignedOfficialUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| official | yes | [Signed.json](schema/Signed.json) |  |
+| basedOn | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "basedOn": 0,
+  "official": {
+    "body": null,
+    "signature": "D3RHaB8r5hpm68so9dCVwApVjHAaDUWFR25JK8Wxy2LTcnrJ7Bp1GaQpBEeNmmEwmeDULaI3cqm90AY26OsydZ"
+  }
+}
+```
+
+## SignedReviewUpload
+
+[JSON Schema](schema/SignedReviewUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| review | yes | [Signed.json](schema/Signed.json) |  |
+
+Example:
+
+```json
+{
+  "review": {
+    "body": null,
+    "signature": "bIPtp0_DMcYUENjbCAZQZWE9kNp8V5OOh5S7qbMO6SvrO0g-ldVesD79h77zuTXMiqs51P3ZnY1yt2uz1JeUJW"
+  }
+}
+```
+
+## SignedVerifiedUpload
+
+[JSON Schema](schema/SignedVerifiedUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| verified | yes | [Signed.json](schema/Signed.json) |  |
+| basedOn | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| revoked | no | array | {"default":[],"maxItems":100,"items":{"type":"object","properties":{"handle":{"$ref":"https://ace.local/protocol/v1/MarketPublisherName.json"},"reason":{"type":"string","minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."}},"required":["handle","reason"]}} |
+
+Example:
+
+```json
+{
+  "basedOn": 2,
+  "revoked": [],
+  "verified": {
+    "body": null,
+    "signature": "l2lS0HjR1v8fuhGmq1fkQvUqvoW-7RuDD9ZldZk0TPbFzdwEAJdZqT8WDjBqqNm8_yhJFCK7mMsCHtQAXCI1p_"
+  }
+}
+```
+
+## SignedVersionUpload
+
+[JSON Schema](schema/SignedVersionUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| manifest | yes | [Signed.json](schema/Signed.json) |  |
+
+Example:
+
+```json
+{
+  "manifest": {
+    "body": null,
+    "signature": "QV6TJWj0W6WvllPy2nQa3S8a_ersWNnNXYcUJx4z_R5f0k4TKMTAKaqAnIqAHZAapnLxiuCiNOVDVTMiU3YhWI"
+  }
+}
+```
+
+## SignedWithdrawnUpload
+
+[JSON Schema](schema/SignedWithdrawnUpload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| withdrawn | yes | [Signed.json](schema/Signed.json) |  |
+| basedOn | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "withdrawn": {
+    "body": null,
+    "signature": "fQG2ifDNP9QlQ0w1NqDWKnf6vAvo05gl-ldXGDNZjl6xMVaEHbnYc_AaJDrcXVYmuONmxmR3XYK6ziOS5i6NP8"
+  }
+}
+```
+
+## SignerPending
+
+[JSON Schema](schema/SignerPending.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| versions | yes | array | {"maxItems":500,"items":{"$ref":"https://ace.local/protocol/v1/PendingVersion.json"}} |
+| withdrawals | yes | array | {"maxItems":500,"items":{"$ref":"https://ace.local/protocol/v1/PendingWithdrawal.json"}} |
+| withdrawn | no | [Signed.json](schema/Signed.json) |  |
+| blocklist | no | [Signed.json](schema/Signed.json) |  |
+| verified | no | [Signed.json](schema/Signed.json) |  |
+| official | no | [Signed.json](schema/Signed.json) |  |
+
+Example:
+
+```json
+{
+  "official": {
+    "body": null,
+    "signature": "XTphgr7SOjOc-eNBOR9xr1_YRkPUte2qRBnz4T2I8KLGwQ-8fNBbGZE8iB0OFXdO5jX85KCirdRjALCgHFq88q"
+  },
+  "verified": {
+    "body": null,
+    "signature": "nk1J3kBYo3N2Fk60OVL7rsYCLfrUDiFP3ccIpgem80s9rI9SvE8Eiy0RIHybpvcE-L6gDXdEMG82X6C7P1lkbW"
+  },
+  "versions": [],
+  "withdrawals": [],
+  "withdrawn": {
+    "body": null,
+    "signature": "kkiUqq3uwDRXwwFxyiZ3fniZdgd-Sng1nrc3TaaTalTnzpwUZsxcbDcFaKn1SOS4VECxv77nmQg8L5AYev0LbV"
+  }
+}
 ```
 
 ## SiteOrigin
@@ -35100,10 +40161,8 @@ Example:
   "interactions": {},
   "itemOrder": [],
   "items": {},
+  "itemsBefore": null,
   "kind": "thread",
-  "partial": {
-    "previews": []
-  },
   "runs": {},
   "seq": 1,
   "thread": {
@@ -36919,6 +41978,24 @@ Example:
 }
 ```
 
+## StartupNotice
+
+[JSON Schema](schema/StartupNotice.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| without | yes | array | {"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}} |
+| failing | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":64},"retrying":{"type":"boolean"}},"required":["name","retrying"]}} |
+
+Example:
+
+```json
+{
+  "failing": [],
+  "without": []
+}
+```
+
 ## StepMeasurement
 
 [JSON Schema](schema/StepMeasurement.json), input validation.
@@ -37813,7 +42890,7 @@ Example:
 
 [JSON Schema](schema/SuitPart.json), input validation.
 
-Type: ["app","rail","rail-item","sidebar","sidebar-header","sidebar-footer","sidebar-tabs","thread-list","thread-row","thread-title","thread-meta","project-header","header","header-title","main","transcript","right-panel","panel-header","message-user","message-agent","message-meta","turn-divider","tool-row","tool-output","code-block","inline-code","diff","link","attachment","working-line","approval-strip","question-card","status-icon","composer","composer-input","composer-toolbar","composer-send","model-picker","button","icon-button","input","select","checkbox","switch","slider","tabs","tab","badge","kbd","menu","menu-item","popover","dialog","tooltip","toast","command-palette","settings-nav","settings-section","settings-row","nav-item","terminal","file-tree","browser-panel","empty-state","scrollbar","divider","page","page-header","page-title","page-toolbar","page-body","page-section","list","list-row","list-group","card","table","table-row","stat","filter-bar","search-field","avatar","label-chip","progress","chart","panel-body","terminal-tab","panel-toolbar","panel-tab","pr-header","pr-row","issue-row","review-comment","review-thread","check-row","commit-row","diff-file","diff-line","timeline-item","branch-chip","merge-box","spade-message","chat-row","segmented","segment","segmented-thumb","switch-thumb","slider-thumb","tool-group-header","tool-icon","composer-strip","queue-strip","queue-item"]. See JSON Schema for constraints.
+Type: ["app","rail","rail-item","sidebar","sidebar-header","sidebar-footer","sidebar-tabs","thread-list","thread-row","thread-title","thread-meta","project-header","header","header-title","main","transcript","right-panel","panel-header","message-user","message-agent","message-meta","turn-divider","tool-row","tool-output","code-block","inline-code","diff","link","attachment","working-line","approval-strip","question-card","status-icon","composer","composer-input","composer-toolbar","composer-send","model-picker","button","icon-button","input","select","checkbox","switch","slider","tabs","tab","badge","kbd","menu","menu-item","popover","dialog","tooltip","toast","command-palette","settings-nav","settings-section","settings-row","nav-item","terminal","file-tree","browser-panel","empty-state","scrollbar","divider","page","page-header","page-title","page-toolbar","page-body","page-section","list","list-row","list-group","card","table","table-row","stat","filter-bar","search-field","avatar","label-chip","progress","chart","panel-body","terminal-tab","panel-toolbar","panel-tab","pr-header","pr-row","issue-row","review-comment","review-thread","check-row","commit-row","diff-file","diff-line","timeline-item","branch-chip","merge-box","spade-message","chat-row","segmented","segment","segmented-thumb","switch-thumb","slider-thumb","tool-group-header","tool-icon","composer-strip","queue-strip","queue-item","market-stage","market-hero","market-try"]. See JSON Schema for constraints.
 
 Example:
 
@@ -39840,6 +44917,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 
 Example:
 
@@ -41571,6 +46649,7 @@ Example:
 | rows | yes | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/UsageRow.json"}} |
 | truncated | yes | boolean |  |
 | burn | no | array | {"maxItems":20,"items":{"$ref":"https://ace.local/protocol/v1/UsageBurn.json"}} |
+| filling | no | object | {"properties":{"through":{"type":"integer","minimum":0,"maximum":9007199254740991},"head":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["through","head"]} |
 
 Example:
 
@@ -42720,6 +47799,67 @@ Example:
 }
 ```
 
+## VersionBody
+
+[JSON Schema](schema/VersionBody.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| manifest | yes | [Signed.json](schema/Signed.json) |  |
+| review | no | [Signed.json](schema/Signed.json) |  |
+
+Example:
+
+```json
+{
+  "manifest": {
+    "body": null,
+    "signature": "HsCT5ufShBF1zZKa11xBJEdcboYYdJCJowdZ6Uz6gRaYRm-5mabXuuaMRqvBhOKGFPIzaEia0Vw8zxO1dvZr7N"
+  },
+  "review": {
+    "body": null,
+    "signature": "xL4ap2k69E2CLqqq8_8Sfht6hjJHxLjoSCgLZ1lRfUSX8PSilpJb5Y2Ulw9kPsYlWuvOz5LYkM41bSh8nX1qAw"
+  }
+}
+```
+
+## VersionManifest
+
+[JSON Schema](schema/VersionManifest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-manifest"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| publisher | yes | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| files | yes | array | {"maxItems":4096,"items":{"$ref":"https://ace.local/protocol/v1/ManifestFile.json"}} |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| published | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+
+Example:
+
+```json
+{
+  "files": [],
+  "format": "ace-market-manifest",
+  "hash": "6fae9cd0bb82f1edb9e422082bca1af9c6fac6693f4f7c8a2a0f1e03f67dd812",
+  "key": "yXSNuZyUpyes-5OQ6UY0lwlY1434oe4cdcMMgi7MX0NLdTb7j",
+  "name": "3",
+  "published": 4,
+  "publisher": {
+    "id": "example",
+    "name": "5"
+  },
+  "size": 5,
+  "type": "spade-plugin",
+  "version": "15343.370737096.068153"
+}
+```
+
 ## WaitMode
 
 [JSON Schema](schema/WaitMode.json), input validation.
@@ -42823,6 +47963,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 | result | no | string | {"maxLength":4096} |
 | truncated | no | boolean |  |
 | last | no | string | {"maxLength":160} |
@@ -42834,14 +47975,15 @@ Example:
 
 ```json
 {
-  "contact": "lost",
   "elapsedSeconds": 9,
-  "last": "example",
+  "machine": "example",
+  "needs": [],
   "slotLimit": 5,
   "state": "done",
   "step": "example",
   "threadId": "example",
-  "title": "example"
+  "title": "example",
+  "truncated": false
 }
 ```
 
@@ -42862,6 +48004,94 @@ Example:
   "auth": "aCNHUp6TPED9WE7DGMDEsZ",
   "endpoint": "https://example.invalid/",
   "p256dh": "2PfSuZb9FZgd7speE7r7AFqOau8pte2l0nGiX2iu5Mg3qqCnbS2Y_jm2Xa-SVRpWKw6K6F7z6apdBZu405T_zpO"
+}
+```
+
+## Withdrawal
+
+[JSON Schema](schema/Withdrawal.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| scope | yes | `"version"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| reason | yes | string | {"minLength":1,"maxLength":500} |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "at": 0,
+  "hash": "f6652c65081278a43a17df4b3628385825a5f26a7f94fe0f99e8218f422f1400",
+  "name": "w",
+  "reason": "example",
+  "scope": "version",
+  "type": "suit",
+  "version": "72617.69000.393149075-de8yQXLXdLbnLH"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| scope | yes | `"hash"` |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| reason | yes | string | {"minLength":1,"maxLength":500} |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "at": 1,
+  "hash": "0596d36b33ef397f8c9fdf0f8f2ae7066e4eb6486cf85a0832aaadf34239b356",
+  "reason": "example",
+  "scope": "hash"
+}
+```
+
+## WithdrawnList
+
+[JSON Schema](schema/WithdrawnList.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `"ace-market-withdrawn"` |  |
+| issued | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| withdrawn | yes | array | {"maxItems":10000,"items":{"$ref":"https://ace.local/protocol/v1/Withdrawal.json"}} |
+| key | yes | [MarketKeyId.json](schema/MarketKeyId.json) |  |
+
+Example:
+
+```json
+{
+  "format": "ace-market-withdrawn",
+  "issued": 4,
+  "key": "RPiFZDviDWLM3NgcrpaBs0YcoA0ChRpr8c2Nk7TzbiS_WROBW3n5",
+  "withdrawn": []
+}
+```
+
+## WithdrawRequest
+
+[JSON Schema](schema/WithdrawRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| reason | yes | string | {"minLength":1,"maxLength":500,"x-ace-constraint":"Leading and trailing whitespace is removed before the length limits apply."} |
+
+Example:
+
+```json
+{
+  "reason": "example"
 }
 ```
 

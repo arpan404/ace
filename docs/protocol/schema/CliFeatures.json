@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliFeatures.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "marketplace": {
+      "type": "boolean"
+    },
+    "spade": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "spade",
+    "marketplace"
+  ],
+  "type": "object"
+}

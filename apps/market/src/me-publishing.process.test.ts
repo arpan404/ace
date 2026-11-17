@@ -12,7 +12,7 @@ import {
 } from "./testing/publisher-harness.ts";
 
 /*
- * Publishing through drafts and the CLI (ADR 0173 §5, §8, §9, §14): the scan runs before anything
+ * Publishing through drafts and the CLI (ADR 0174 §5, §8, §9, §14): the scan runs before anything
  * is stored; a block is refused with its findings, a hold waits for a maintainer, the rest wait
  * for the signer. Archives are synthetic and inert.
  */

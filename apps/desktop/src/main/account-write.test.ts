@@ -46,8 +46,9 @@ it.each([
   ["signed out, but can't check its session when changed", unconditional(signedOut), false],
   ["signed out, with a sign-in under way on the machine", loggingIn, false],
   ["lapsed on the same account, signed in through the app", lapsed("user_a", "handover"), true],
-  // Its own sign-in stays its own after it lapses: only Settings' Switch replaces it.
-  ["lapsed on the same account, signed in on its own", lapsed("user_a", "login"), false],
+  // A lapsed session holds nothing to keep: the app's sign-in signs the machine back in.
+  ["lapsed on the same account, signed in on its own", lapsed("user_a", "login"), true],
+  ["lapsed on another account, signed in on its own", lapsed("user_b", "login"), false],
   ["lapsed on another account", lapsed("user_b", "handover"), false],
 ] as const)("app signs in as user_a, daemon %s: hands over = %s", (_name, status, expected) => {
   expect(handsOverOnSignIn(status, { origin, accountId: "user_a" })).toBe(expected);

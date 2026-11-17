@@ -4,17 +4,17 @@ import { handAccountToDaemon, readDaemonAccount } from "./account-handover.ts";
 
 /*
  * What the app's own sign-in and sign-out do to this computer's daemon (ADR 0111). The app
- * shares its session only with a daemon that has none, or whose session (live or lapsed) the
- * app gave it on this same account. A daemon signed in on its own (`ace login`), even one whose
- * session lapsed, is never moved or signed out by the app; Settings' Switch is the one way to
- * move it. A daemon that can't make the change conditional on what was read (no `sessionId`)
+ * shares its session with a daemon that has none, whose session lapsed on this same account,
+ * or whose live session the app gave it on this same account. A daemon signed in on its own
+ * (`ace login`) is never moved or signed out by the app while that session lasts, and one on
+ * another account is never switched; Settings' Switch is the one way to move it. A daemon that can't make the change conditional on what was read (no `sessionId`)
  * is never changed at all.
  */
 
 /**
  * Whether the app, signed in to `app.accountId` at `app.origin`, hands its session to the
- * daemon: yes when the daemon holds no session at all, or the app gave it the one it holds on
- * this same account. Never while a sign-in from the machine is under way.
+ * daemon: yes when the daemon holds no session at all, or holds one on this same account that
+ * lapsed or that the app gave it. Never while a sign-in from the machine is under way.
  */
 export function handsOverOnSignIn(
   daemon: MachineAccountStatus,
@@ -22,11 +22,8 @@ export function handsOverOnSignIn(
 ): boolean {
   if (daemon.sessionId === undefined || daemon.login) return false;
   if (daemon.account === undefined) return !daemon.signedIn;
-  return (
-    daemon.source === "handover" &&
-    daemon.origin === app.origin &&
-    daemon.account.id === app.accountId
-  );
+  if (daemon.origin !== app.origin || daemon.account.id !== app.accountId) return false;
+  return !daemon.signedIn || daemon.source === "handover";
 }
 
 /**

@@ -70,6 +70,9 @@ function open(port: number): Promise<Socket> {
     const socket = connect({ host: "127.0.0.1", port, noDelay: true });
     socket.once("connect", () => {
       socket.off("error", reject);
+      // Startup waits on this socket across awaits before the capture listens to it: a reset
+      // (emulator killed, device unplugged) shows as its close, never as an unheard error.
+      socket.on("error", () => {});
       resolve(socket);
     });
     socket.once("error", reject);

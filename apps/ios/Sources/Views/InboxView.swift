@@ -3,8 +3,8 @@ import SwiftUI
 /// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads (Inbox,
 /// Snoozed and Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside
 /// the lists and search everything) and compose: the tab bar's prominent button on iOS 27, a round
-/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Spade's tab waits behind
-/// `HomeTabs.showsSpade`. Grouping and wording come from each machine's runtime. A row and its
+/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Spade's tab is there while
+/// a machine shows Spade (Settings › Beta). Grouping and wording come from each machine's runtime. A row and its
 /// thread belong to their machine.
 struct InboxView: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
@@ -49,6 +49,8 @@ struct InboxView: View {
     @State private var settles = 0
     /// Search's field, kept while the person moves between tabs.
     @State private var searchQuery = ""
+    /// Bumped by a tap on the Search tab while it shows: its field takes focus.
+    @State private var searchFocusAsks = 0
     /// Bumped by Search's Select threads: the Threads list starts picking.
     @State private var selectAsks = 0
     /// Holds off row taps just after a row action, so the row sliding into its place stays shut.
@@ -120,7 +122,7 @@ struct InboxView: View {
     }
 
     private var tabs: some View {
-        TabView(selection: $tab) {
+        TabView(selection: tabChoice) {
             Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
                 stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
             }
@@ -129,11 +131,10 @@ struct InboxView: View {
                 stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
             }
             .accessibilityIdentifier("tab.chats")
-            // Spade, ace's cloud agent, keeps its slot between Chats and Search until it launches.
-            if HomeTabs.showsSpade {
-                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) {
-                    SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
-                }
+            // Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
+            if showsSpade {
+                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) { spade }
+                    .accessibilityIdentifier("tab.spade")
             }
             Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
                 .accessibilityIdentifier("tab.review")
@@ -150,6 +151,9 @@ struct InboxView: View {
             }
         }
         .tint(AceTheme.Colours.foreground)
+        .environment(\.showsSpade, showsSpade)
+        // Spade turned off on the machine while its tab showed: back to Threads.
+        .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
         .onChange(of: tab) { old, new in
             // Coming back to a tab shows its page, never the drawer left out when it was left.
@@ -181,14 +185,36 @@ struct InboxView: View {
         .animation(.default, value: organize.undo?.serial)
     }
 
+    /// The tab bar's choice, and the sidebar's at the foot of Search and Code review. Tapping
+    /// Search while it shows asks for its field, as a second tap on a tab acts on the page it
+    /// already shows. The thread lists keep `$tab`: Search never shows beside them, and a binding
+    /// made afresh each render would redraw them on every change here.
+    private var tabChoice: Binding<InboxTab> {
+        Binding(get: { tab }, set: { chosen in
+            if chosen == .search && tab == .search { searchFocusAsks += 1 }
+            tab = chosen
+        })
+    }
+
     /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
     /// at its foot so the person can go back to the lists.
     private var search: some View {
-        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery)
+        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
+    }
+
+    /// A paired machine shows Spade (Settings › Beta), so its tab is there.
+    private var showsSpade: Bool { !inbox.spadeSessions.isEmpty }
+
+    /// Spade: the bots of a machine that shows it, and one conversation.
+    private var spade: some View {
+        SpadeTab(inbox: inbox, chosen: tab == .spade, tabBar: sizeClass != .regular)
+            .inboxFootBar {
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
+            }
     }
 
     /// Code review: pull requests and issues, a home tab of their own as the web rail's place.
@@ -196,7 +222,7 @@ struct InboxView: View {
         CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
                       openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
@@ -255,6 +281,7 @@ struct InboxView: View {
         switch place {
         case .threads: return (tabs.first { $0.id == "inbox" }?.needsYou ?? 0) > 0
         case .chats: return tabs.contains { $0.chats && $0.needsYou > 0 }
+        case .spade: return inbox.spadeSessions.contains { $0.client.spade.bots?.contains { $0.state == "needs-you" } == true }
         default: return false
         }
     }

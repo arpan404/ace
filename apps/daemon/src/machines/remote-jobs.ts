@@ -173,7 +173,15 @@ export class RemoteJobs {
   }
   private arm(): void {
     if (this.closed || this.cancelTimer || this.polling) return;
-    const any = this.deps.store.statement("SELECT 1 FROM machine_jobs LIMIT 1").get();
+    let any: unknown;
+    try {
+      any = this.deps.store.statement("SELECT 1 FROM machine_jobs LIMIT 1").get();
+    } catch (error) {
+      // Unreadable now: poll anyway at the paced wait, which reads again and reports its own
+      // failure, so held jobs are never left unwatched (and this never rejects a timer's poll).
+      this.deps.log("Remote command jobs not read", { error: String(error) });
+      any = true;
+    }
     if (!any) return;
     this.cancelTimer = this.deps.schedule(this.pace.waitMs, () => {
       this.cancelTimer = undefined;

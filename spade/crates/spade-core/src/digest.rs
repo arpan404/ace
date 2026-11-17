@@ -238,6 +238,7 @@ fn bookkeeping(event: &Known) -> bool {
             | Known::MemoryIndexed { .. }
             | Known::PluginsStarted { .. }
             | Known::PluginsChanged {}
+            | Known::PluginOutsideAnswered { .. }
             | Known::Renamed { .. }
             | Known::AccessChanged { .. }
             | Known::TurnPaused { .. }

@@ -270,9 +270,14 @@ export class CommandFiles {
     });
     return this.batch;
   }
+  /** Runs from timers and watchers with nobody awaiting it, so it never rejects. */
   private async pump(): Promise<void> {
     if (this.closed || this.healing || this.flushing) return;
-    await this.advance();
+    try {
+      await this.advance();
+    } catch {
+      // Discovery reports its own failures; the recovery loop picks up what is left.
+    }
     if (!this.closed && (this.pending.size || this.index.pending) && !this.continuation) {
       this.continuation = setImmediate(() => {
         this.continuation = undefined;
@@ -300,6 +305,7 @@ export class CommandFiles {
     if (this.flushing) return this.flushing;
     this.healing ??= (async () => {
       for (const path of await this.recovery.check()) this.queue(path);
+      this.index.retryUnanswered();
       await this.advance();
     })().finally(() => {
       this.healing = undefined;

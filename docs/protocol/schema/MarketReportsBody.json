@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketReportsBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reports": {
+      "items": {
+        "properties": {
+          "at": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "$ref": "https://ace.local/protocol/v1/MarketReportId.json"
+          },
+          "name": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+          },
+          "note": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "outcome": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "https://ace.local/protocol/v1/MarketReportReason.json"
+          },
+          "state": {
+            "$ref": "https://ace.local/protocol/v1/MarketReportState.json"
+          },
+          "type": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+          },
+          "version": {
+            "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "name",
+          "reason",
+          "note",
+          "at",
+          "state"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    }
+  },
+  "required": [
+    "reports"
+  ],
+  "type": "object"
+}

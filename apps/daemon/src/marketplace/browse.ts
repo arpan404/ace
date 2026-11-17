@@ -7,6 +7,7 @@ import type {
 import { entryKey, search, verifyManifest, type FeedEntry } from "@ace/marketplace";
 import { EntryBody, VersionBody, type MarketKeySet } from "@ace/protocol/marketplace";
 import type { MarketHttp } from "./http.ts";
+import { marketError } from "./market-error.ts";
 import {
   markedPublisher,
   readWithdrawn,
@@ -41,7 +42,7 @@ async function enabledListings(store: MarketStore) {
   );
 }
 
-/** Search, each publisher's tier from the signed lists (ADR 0173 §15). */
+/** Search, each publisher's tier from the signed lists (ADR 0174 §15). */
 export async function searchListings(
   store: MarketStore,
   operation: Extract<MarketOperation, { op: "search" }>,
@@ -172,4 +173,19 @@ export async function readEntry(
   }
   detail.summary = summaryOf(source, entry, marks());
   return detail;
+}
+
+/** An entry's page, with its install when it was installed from this source. */
+export async function readListed(
+  ports: { store: MarketStore; http: MarketHttp | undefined; keys: MarketKeySet },
+  marks: () => RowMarks,
+  sourceId: string,
+  type: string,
+  name: string,
+): Promise<MarketResult> {
+  const detail = await readEntry(ports, marks, sourceId, type, name);
+  if (!detail) return marketError("not_found", `${type}/${name} isn't listed`);
+  const installed = ports.store.install(type, name);
+  if (installed && installed.source === sourceId) detail.installed = publicInstall(installed);
+  return { op: "read", entry: detail };
 }

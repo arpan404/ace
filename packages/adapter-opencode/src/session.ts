@@ -5,6 +5,7 @@ import { openCodeNativeToolGuidance } from "./native-tools.ts";
 import { AceMcpLocations } from "./mcp-locations.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePolicy, withSpadeBot } from "./permission-policy.ts";
+import { settleEnvironment } from "./agent-env.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution, ExecutionSelection } from "@ace/protocol";
@@ -30,6 +31,11 @@ const PreviousModel = z.object({
   variant: z.string().optional(),
 });
 const InterruptResult = z.object({ interrupted: z.boolean() });
+/** Lifecycle notes that still reach the thread after the session closed. */
+function endingNote(type: unknown): boolean {
+  return type === "exited" || type === "stop-failed";
+}
+
 export class OpenCodeSession implements ProviderSession {
   /** ace's MCP server in each location this session uses; absent without ace's tools. */
   private aceLocations: AceMcpLocations | undefined;
@@ -45,6 +51,9 @@ export class OpenCodeSession implements ProviderSession {
   private started: number;
   private opening = true;
   private closed = false;
+  /** The one close: every caller, voided or awaited, settles with its outcome. */
+  private closing: Promise<void> | undefined;
+  private stopFailureNoted = false;
   private exitReported = false;
   private recovering = false;
   private openingBuffer: unknown[] = [];
@@ -63,6 +72,8 @@ export class OpenCodeSession implements ProviderSession {
   private recoveryRead: Promise<void> | undefined;
   private ancestry: AncestryProbe;
   private recoveryStarted = 0;
+  /** What this thread's sessions' shell commands run with; absent without ace's variables. */
+  private shellEnvironment: Record<string, string> | undefined;
   get mcp() {
     return openCodeMcpControls(
       this.client,
@@ -80,7 +91,12 @@ export class OpenCodeSession implements ProviderSession {
       threadId: ctx.threadId,
       rootKey: ctx.rootKey ?? "root",
     });
-    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
+    this.shellEnvironment = server.shellEnvironment(ctx.agentEnv ?? {});
+    // A subagent's session is created and prompted before ace hears of it; the gate holds its
+    // tools until this sets its environment, and refuses them if it can't (agent-env.ts).
+    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "", (id) => {
+      void this.admitEnvironment(id);
+    });
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
     if (ctx.aceMcp)
       this.aceLocations = new AceMcpLocations({
@@ -133,7 +149,7 @@ export class OpenCodeSession implements ProviderSession {
       },
     });
     this.abortListener = () => {
-      void this.close("shutdown");
+      void this.close("shutdown").catch((error: unknown) => this.noteStopFailure(error));
     };
   }
   static async open(ctx: SessionContext, server: OpenCodeServer): Promise<OpenCodeSession> {
@@ -173,7 +189,7 @@ export class OpenCodeSession implements ProviderSession {
       },
       exited: (deliberate, message) => {
         s.reportExit(deliberate, message);
-        void s.close("shutdown");
+        void s.close("shutdown").catch((error: unknown) => s.noteStopFailure(error));
       },
     });
     ctx.signal.addEventListener("abort", s.abortListener, { once: true });
@@ -221,6 +237,9 @@ export class OpenCodeSession implements ProviderSession {
           value: `${openCodeNativeToolGuidance}\n${developerInstructions("opencode", ctx.aceMcp.session?.())}`,
         });
       s.ownership.establish(info);
+      // Before any input: the server keeps it in memory only, so every open (a resume on a
+      // restarted daemon too) sets it again.
+      await s.applyEnvironment(info.id);
       await s.aceLocations?.ensure(info.location.directory);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;
@@ -251,8 +270,56 @@ export class OpenCodeSession implements ProviderSession {
       throw failure;
     }
   }
+  /**
+   * Gives one of the thread's sessions its shell environment (agent-env.ts), then lets the gate
+   * run its tools. Throws when either fails.
+   */
+  private async applyEnvironment(sessionID: string): Promise<void> {
+    if (!this.shellEnvironment) return;
+    await this.client.session.environment({ sessionID, variables: this.shellEnvironment });
+    await settleEnvironment(this.client, this.server.runtime, this.directoryOf(sessionID), {
+      sessionID,
+      ok: true,
+    });
+  }
+  private directoryOf(sessionID: string): string {
+    return this.ownership.sessions.get(sessionID)?.directory ?? this.ctx.cwd;
+  }
+  /**
+   * A subagent joining the tree gets its thread's environment. When that fails it never runs a
+   * command with another: the gate refuses its tools (told so, or after its wait runs out), and
+   * ace stops it, saying why.
+   */
+  private async admitEnvironment(sessionID: string): Promise<void> {
+    try {
+      await this.applyEnvironment(sessionID);
+      return;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await settleEnvironment(this.client, this.server.runtime, this.directoryOf(sessionID), {
+        sessionID,
+        ok: false,
+        message: reason.slice(0, 1024),
+      }).catch(() => {});
+      await this.client.session.interrupt({ sessionID }).catch(() => {});
+      this.emit("note", "agent.environment", { type: "stopped", sessionID, message: reason });
+    }
+  }
+  /**
+   * A stop nobody awaits (this session's voided close, or the adapter's server release on exit)
+   * failed: noted once per session, after close too. Awaited closes still reject with it.
+   */
+  noteStopFailure(error: unknown): void {
+    if (this.stopFailureNoted) return;
+    this.stopFailureNoted = true;
+    this.emit("note", "lifecycle", {
+      type: "stop-failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
-    if (this.closed && !(channel === "lifecycle" && object(data).type === "exited")) return;
+    // Once closed, only the session's own ending is recorded: its exit, and a stop that failed.
+    if (this.closed && !(channel === "lifecycle" && endingNote(object(data).type))) return;
     const t = Math.round(this.server.runtime.monotonic() - this.started);
     const encoded = JSON.stringify(this.server.redact(data));
     const bearer = this.ctx.aceMcp?.bearer;
@@ -504,10 +571,14 @@ export class OpenCodeSession implements ProviderSession {
     this.emit("note", "lifecycle", { type: "exited", deliberate, message });
     this.ctx.onExit({ deliberate, ...(message ? { message } : {}) });
   }
-  async close(reason: "idle" | "user" | "shutdown"): Promise<void> {
-    if (this.closed) return;
+  close(reason: "idle" | "user" | "shutdown"): Promise<void> {
+    if (this.closing) return this.closing;
     if (reason === "idle" && !this.translator.isSettled())
-      throw new Error("Cannot idle-close unsettled OpenCode session");
+      return Promise.reject(new Error("Cannot idle-close unsettled OpenCode session"));
+    this.closing = this.shutdown(reason);
+    return this.closing;
+  }
+  private async shutdown(reason: "idle" | "user" | "shutdown"): Promise<void> {
     this.closed = true;
     this.controller.abort();
     this.unsubscribe();

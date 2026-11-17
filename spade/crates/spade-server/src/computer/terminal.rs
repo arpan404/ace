@@ -830,6 +830,10 @@ impl Terminal {
                         scratch: self.scratch.clone(),
                     },
                     outside,
+                    // The bot terminal is Unix-only, where confining never yields `NeedsReview`
+                    // (that is the Windows containment narrowing); the field is never consulted
+                    // here, so a reviewed terminal command runs as the gate decided.
+                    may_run_uncontained: true,
                 },
             )
             .await;

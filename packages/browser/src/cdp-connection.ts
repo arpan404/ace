@@ -127,7 +127,17 @@ export class CdpConnection {
       const detached = Detached.safeParse(params);
       if (detached.success) this.rejectSession(detached.data.sessionId, "Browser target detached");
     }
-    this.emitters.get(sessionId)?.emit(method, params);
+    const events = this.emitters.get(sessionId);
+    if (!events) return;
+    // Delivery runs inside the browser pipe's data event: a listener that throws costs only
+    // its own handling of this event, never the other listeners or the daemon.
+    for (const listener of events.rawListeners(method)) {
+      try {
+        Reflect.apply(listener, events, [params]);
+      } catch {
+        /* Listeners cannot break delivery. */
+      }
+    }
   }
   close(reason: string): void {
     if (this.reason) return;

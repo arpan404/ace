@@ -3,12 +3,21 @@ import { fileURLToPath } from "node:url";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { expect, it, vi } from "vitest";
 import { Helper, type Frame } from "./index.ts";
-import { deferred, fakeCommand, ids, target, manager, helperFixture } from "./testing/support.ts";
+import {
+  deferred,
+  fakeCommand,
+  ids,
+  target,
+  macHostPlatform,
+  manager,
+  helperFixture,
+} from "./testing/support.ts";
 it("the supervised helper correlates concurrent commands and receives fragmented binary frames", async () => {
   const received = deferred<Frame>();
   const errors: Error[] = [];
   const helper = await Helper.open({
     ...fakeCommand,
+    ...macHostPlatform,
     env: { REVERSE_REPLIES: "1" },
     scheduler: { schedule: () => () => {} },
     nextId: ids(),

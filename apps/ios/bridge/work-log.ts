@@ -2,6 +2,7 @@ import type { Item } from "@ace/protocol";
 import {
   backgroundGroup,
   groupSteps,
+  placeMoments,
   thoughtLabel,
   type StepContext,
   type StepGroup,
@@ -27,6 +28,8 @@ export type ReadItem = (id: string) => Item | undefined;
 
 export type LogRow =
   | { kind: "step"; id: string }
+  /** A turn's moment (a restart, a limit's wait, results landing), drawn from its head's row. */
+  | { kind: "moment"; id: string }
   | { kind: "thought"; id: string; label: string; done: boolean }
   | {
       kind: "group";
@@ -161,4 +164,38 @@ export function workLog(ids: readonly string[], read: ReadItem, facts: LogFacts 
     thoughts.push({ id, done, label: thoughtLabel(done, done ? facts.took?.(id) : undefined) });
   }
   return { rows, retried: [...reading.retried], thoughts, ace: worded };
+}
+
+/** A turn's moment by its block key, and when it began. */
+export interface PlacedMoment {
+  id: string;
+  at: number;
+}
+
+/**
+ * A settled turn's log with its moments placed where they happened, as the web's opened log
+ * places them (`placeMoments`): the steps between two moments group on their own, and each moment
+ * is one `moment` row between them. `at` reads a step's creation time.
+ */
+export function placedWorkLog(
+  ids: readonly string[],
+  read: ReadItem,
+  moments: readonly PlacedMoment[],
+  facts: LogFacts = {},
+): WorkLog {
+  if (!moments.length) return workLog(ids, read, facts);
+  const steps = ids.map((id) => ({ id, at: read(id)?.createdAt ?? 0 }));
+  const placed: WorkLog = { rows: [], retried: [], thoughts: [], ace: [] };
+  for (const segment of placeMoments(steps, moments)) {
+    if (segment.kind === "moment") {
+      placed.rows.push({ kind: "moment", id: segment.moment.id });
+      continue;
+    }
+    const log = workLog(segment.ids, read, facts);
+    placed.rows.push(...log.rows);
+    placed.retried.push(...log.retried);
+    placed.thoughts.push(...log.thoughts);
+    placed.ace.push(...log.ace);
+  }
+  return placed;
 }

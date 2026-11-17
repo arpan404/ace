@@ -40,7 +40,7 @@ import {
 } from "./thread-attachments.ts";
 import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
 import { QuoteShelf, quoteText, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
-import { followBlocks } from "./thread-blocks.ts";
+import { followBlocks, placedMoments } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
 import { goalPayload, PillFollower } from "./thread-pill.ts";
@@ -54,6 +54,7 @@ import { continuationPayload } from "./thread-continue.ts";
 import { ThreadModelSheet } from "./thread-model-sheet.ts";
 import { TuneFollower } from "./thread-tune.ts";
 import { ThreadTransitions } from "./thread-transitions.ts";
+import { ReadMark } from "./thread-read-mark.ts";
 import { answerResolution, controlsRow, sendPayload, stopPayload } from "./thread-controls.ts";
 
 /*
@@ -92,6 +93,7 @@ export class ThreadSession {
   readonly #tune: TuneFollower;
   readonly #tray: AttachmentTray;
   readonly #transitions: ThreadTransitions;
+  readonly #readMark: ReadMark;
   /** The next message's browser annotations (ADR 0082). */
   readonly annotations: ThreadAnnotations;
   /** The passages of the agent's messages the next message replies to. */
@@ -143,7 +145,27 @@ export class ThreadSession {
     // group never reads done while a child the list knows is newer still works.
     const list = client.threads();
     this.#blocks = followBlocks(store, put, undefined, (id) => listedSubagentState(list.store, id));
-    const stopList = list.store.observe(() => this.#blocks.relist());
+    this.#readMark = new ReadMark({
+      cursor: () => store.cursor,
+      // Only the daemon's list: a copy from disk or one it hasn't confirmed may be stale.
+      markedUnread: () => {
+        const listed = list.store;
+        if (!listed.loaded || listed.syncing || listed.unconfirmed) return undefined;
+        const entry = listed.thread(threadId);
+        return entry && entry.unread === true;
+      },
+      markRead: (lastSeenSeq) =>
+        void client.markThreadRead({ threadId: this.#threadId, lastSeenSeq }).catch(() => {}),
+      clearUnread: () =>
+        void client
+          .command({ type: "thread.read", threadId: this.#threadId, unread: false })
+          .catch(() => {}),
+      schedule: (ms, run) => scheduler.set(ms, run),
+    });
+    const stopList = list.store.observe(() => {
+      this.#blocks.relist();
+      this.#readMark.listed();
+    });
     this.#releaseList = () => {
       stopList();
       list.release();
@@ -234,6 +256,7 @@ export class ThreadSession {
       this.#lane?.tap(keys);
       this.#lane?.info(keys);
       this.#steps.changed(keys);
+      if (keys === "all" || keys.has("cursor")) this.#readMark.moved();
       if (keys === "all") void this.#readSetting();
       if (
         keys === "all" ||
@@ -319,6 +342,7 @@ export class ThreadSession {
 
   dispose(): void {
     this.#releaseList();
+    this.#readMark.dispose();
     this.#abort.abort();
     this.#stop();
     this.#steps.dispose();
@@ -463,7 +487,11 @@ export class ThreadSession {
         );
         break;
       case "steps.open":
-        this.#steps.open(action.ordinal, this.#answersOf(action.block));
+        this.#steps.open(
+          action.ordinal,
+          this.#answersOf(action.block),
+          placedMoments(this.#blocks.block(action.block)),
+        );
         break;
       case "steps.close":
         this.#steps.close(action.ordinal);
@@ -536,6 +564,9 @@ export class ThreadSession {
         break;
       case "quote.clear":
         this.#quotes.clear();
+        break;
+      case "atEnd":
+        this.#readMark.atEnd(action.atEnd);
         break;
     }
   }

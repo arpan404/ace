@@ -15,12 +15,12 @@ function defaultAccount(provider: ProviderKind): string | undefined {
   return provider === "cursor" ? cursorDefaultInstanceId : `${provider}-cli-default`;
 }
 
-/** A registered account, or none while account homes are still being validated. */
+/** A registered account, or none when the account index can't be read. */
 export function registered(accounts: AccountRegistry | undefined, id: string) {
   try {
     return accounts?.get(id);
   } catch {
-    // Account homes are still being validated: the failure goes without the name.
+    // The account index can't be read: the failure goes without the name.
     return undefined;
   }
 }

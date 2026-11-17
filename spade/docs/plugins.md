@@ -172,6 +172,20 @@ plugin is turned off or changes version, and when Spade stops. A crash is restar
 use, at most 3 times in 10 minutes; then the server says it failed until the person turns the
 plugin off and on. A stop for being idle never counts as a crash.
 
+**Where the sandbox can't seal a server or hook off** (on Windows: one with network — plugins'
+network defaults to open — or one run from a folder Spade doesn't own; ADR 0167), it doesn't
+start until the person allows it to run outside the sandbox. Before starting it, Spade asks the
+sandbox without side effects (the same decision a run would get) and, when it can't be held,
+raises a request card in the bot's conversation: "<plugin> needs the network, and Windows can't
+seal that off yet. Run it outside the sandbox?" with **Allow** (one start), **Always for this
+plugin version**, and **Deny**. The answer is bound to a digest of the bot, the plugin's id,
+version and content hash, server or hook, the command and its environment: an update, or a
+changed command or environment, asks again. Until then the server's `state` is
+`waiting_for_you` and a hook fails with that reason; it is never run plainly behind the person's
+back. Once allowed it runs plainly — `outside_sandbox: true`, never `contained` — and the
+server's tool calls keep their usual reviews. **Always** answers are kept in Spade's database
+(`settings`, key `plugins.outside`); **Allow** lasts one start and **Deny** until Spade restarts.
+
 Its tools are deferred, named `<plugin>__<tool>` (anything but letters, digits, `_` and `-`
 becomes `_`, at most 64), described as `<plugin>: <description>`, with risk from their
 annotations (unlabelled means write) and output untrusted, as connectors' are. A call is sent
@@ -181,15 +195,20 @@ once with a 60-second timeout.
 
 Under `/v1` with Spade's bearer token. `503` when Spade isn't set up with ace.
 
-| Method and path            | Body                | Answer                                                                 |
-| -------------------------- | ------------------- | ---------------------------------------------------------------------- |
-| `GET /agents/{id}/plugins` |                     | `{plugins: [Plugin], cli, problem}`; reads ace's plugins again first   |
-| `PUT /agents/{id}/plugins` | `{plugins: [name]}` | The same, after storing; `400` for a plugin not accepted in ace, `404` |
+| Method and path                                    | Body                | Answer                                                                                        |
+| -------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------- |
+| `GET /agents/{id}/plugins`                         |                     | `{plugins: [Plugin], cli, problem}`; reads ace's plugins again first                          |
+| `PUT /agents/{id}/plugins`                         | `{plugins: [name]}` | The same, after storing; `400` for a plugin not accepted in ace, `404`                        |
+| `POST /conversations/{id}/plugin_outside/{ask_id}` | `{allowed, always}` | `202`; answers a request to run a plugin outside the sandbox; `409` when it isn't open, `404` |
 
 A Plugin is `{name, version, enabled_in_ace, allowed, rules: [name], skills: [name], commands:
 [name], agents: [name], hooks: [event], servers:
-[{name, state, tools, problem}], remote: [{name, url}], not_used: [{what, reason}]}`, where a
-server's `state` is `not_started`, `running`, `stopped` (idle) or `failed`.
+[{name, state, tools, problem, outside_sandbox}], outside_sandbox, remote: [{name, url}],
+not_used: [{what, reason}]}`, where a server's `state` is `not_started`, `running`, `stopped`
+(idle), `failed` or `waiting_for_you`, and `outside_sandbox` says it runs uncontained as the
+person allowed. The request and its answer are the conversation events `plugin_outside_asked`
+`{id, plugin, version, hash, what, line, key}` and `plugin_outside_answered` `{id, allowed,
+always}`.
 
 The web app's bot settings show a Plugins section under Apps: one switch per accepted plugin with
 what it brings, a remote server's address to add in Apps, and the "Not used by Spade" list.

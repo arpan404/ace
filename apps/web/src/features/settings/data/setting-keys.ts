@@ -63,6 +63,7 @@ export const settingKeys = {
   mediaDelivery: setting("media.delivery", SettingsValues.shape["media.delivery"], "legacy"),
   betaSpade: setting("beta.spade", z.boolean(), false),
   betaMarketplace: setting("beta.marketplace", z.boolean(), false),
+  marketAskBeforeAgentPublish: setting("market.askBeforeAgentPublish", z.boolean(), false),
   maxRunningChildren: setting(
     "agents.maxRunningChildren",
     SettingsValues.shape["agents.maxRunningChildren"],

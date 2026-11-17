@@ -143,6 +143,14 @@ export interface SessionContext {
   cwd: string;
   /** Instance-specific environment; adapters must pass it to every owned provider process. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Daemon-owned, per thread (ADR 0176 §10): `ACE_THREAD_ID`, `ACE_NO_INPUT` and `ACE_HOME` for
+   * the agent's own shell commands. A process that serves only this session takes them in its
+   * environment; a shared one passes them per thread where the provider can (Codex's
+   * `shell_environment_policy`, OpenCode's per-session environment). Never part of a pool key,
+   * never accepted from wire data.
+   */
+  agentEnv?: Readonly<Record<string, string>>;
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
@@ -216,6 +224,11 @@ export interface SessionContext {
   };
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
+  /**
+   * The session is waiting for the home folders of these accounts (their names) to answer
+   * startup's check before it starts; called once, when the wait has become noticeable.
+   */
+  onAccountWait?(accounts: readonly string[]): void;
   /** Exclusive with resume. Inclusive provider-native boundary; never a guessed canonical ID. */
   fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
   options?: ExecutionOptions;

@@ -1,4 +1,4 @@
--- The maintainers' lists (ADR 0168, ADR 0173 §6, §16): the signed withdrawn list, categories,
+-- The maintainers' lists (ADR 0168, ADR 0174 §6, §16): the signed withdrawn list, categories,
 -- featured entries and collections. A few rows each.
 
 CREATE TABLE categories (

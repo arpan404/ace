@@ -1,0 +1,65 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketProfile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "avatar": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "bio": {
+      "$ref": "https://ace.local/protocol/v1/MarketBio.json"
+    },
+    "displayName": {
+      "$ref": "https://ace.local/protocol/v1/MarketDisplayName.json"
+    },
+    "handle": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+    },
+    "id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "joined": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "links": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketLink.json"
+      },
+      "maxItems": 5,
+      "type": "array"
+    },
+    "pins": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntryRef.json"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "proofs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketVerificationProof.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "verified": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "handle",
+    "displayName",
+    "bio",
+    "links",
+    "joined",
+    "verified",
+    "proofs",
+    "pins"
+  ],
+  "type": "object"
+}

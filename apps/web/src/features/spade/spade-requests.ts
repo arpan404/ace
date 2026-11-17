@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { SpadeExchange } from "@ace/client/spade-http";
 import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
-import { spadeProblem, spadeProblemNeeds } from "@ace/ui-core/spade-chat";
+import { SpadeRequestError, spadeProblemNeeds, spadeRefusal } from "@ace/ui-core/spade-chat";
 import { spadeTransport, SpadeTransport, type SpadeBody } from "./spade-transport.ts";
 
 /**
@@ -10,30 +10,7 @@ import { spadeTransport, SpadeTransport, type SpadeBody } from "./spade-transpor
  * the bodies' shape, so callers parse them with `@ace/ui-core/spade-chat`.
  */
 
-/** Spade refused, or the daemon couldn't reach it. `status` is Spade's, when it answered. */
-export class SpadeRequestError extends Error {
-  readonly status: number | undefined;
-  /** The daemon's code when it, not Spade, answered (`failed`: no answer came back). */
-  readonly code: string | undefined;
-  /** What Spade said the request still needs, such as `client_id` or `ace_account`. */
-  readonly needs: string | undefined;
-  constructor(message: string, status?: number, code?: string, needs?: string) {
-    super(message);
-    this.name = "SpadeRequestError";
-    this.status = status;
-    this.code = code;
-    this.needs = needs;
-  }
-  /** The request may have reached Spade: no answer came back to say either way. */
-  get unanswered(): boolean {
-    return this.code === "failed";
-  }
-}
-
-/** What a refusal says to the person, by Spade's status where its own words would be vague. */
-function refusal(status: number, body: string): string {
-  return spadeProblem(body) ?? `Spade answered ${status}.`;
-}
+export { SpadeRequestError };
 
 /** A connection, or the transport over it (`spadeTransport`). */
 export type SpadeTarget = ClientApi | SpadeTransport;
@@ -61,7 +38,7 @@ async function spadeAnswer(
   if (answer.status < 200 || answer.status > 299) {
     const text = "text" in answer.body ? answer.body.text : "";
     throw new SpadeRequestError(
-      refusal(answer.status, text),
+      spadeRefusal(answer.status, text),
       answer.status,
       undefined,
       spadeProblemNeeds(text),

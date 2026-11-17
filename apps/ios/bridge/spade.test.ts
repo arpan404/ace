@@ -1,0 +1,276 @@
+import { afterEach, expect, test } from "vitest";
+import { ClientCore } from "@ace/client";
+import { FakeDaemon, FakeSpadeApi, fakeTransport } from "@ace/fake-daemon";
+import { DeviceId, HostId } from "@ace/protocol";
+import { until } from "./test-host.ts";
+import { NativeSpade } from "./spade.ts";
+import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
+import type { SpadeBubbleRow, SpadeListRow } from "./spade-rows.ts";
+
+/*
+ * Spade on the iPhone over the real SDK and an in-process fake daemon with a fake Spade behind
+ * `spade.*`: whether the tab shows, the bots in the list's order and words, and one
+ * conversation live, sending, answering and stopping as Swift asks.
+ */
+
+const stops: (() => Promise<void> | void)[] = [];
+afterEach(async () => {
+  for (const stop of stops.splice(0).toReversed()) await stop();
+});
+
+/** What Swift holds: each key's latest patch. */
+class Patches {
+  readonly held = new Map<string, Record<string, unknown>>();
+  put(key: string, read: () => Record<string, unknown> | undefined) {
+    const value = read();
+    if (value) this.held.set(key, value);
+    else this.held.delete(key);
+  }
+  clear(prefix: string) {
+    for (const key of this.held.keys()) if (key.startsWith(prefix)) this.held.delete(key);
+  }
+  get state() {
+    return this.held.get("spade:state") as
+      | {
+          shown: boolean | null;
+          line: { sentence: string; ready: boolean; canTurnOn: boolean };
+          list: { rows: SpadeListRow[] | null; failed: boolean };
+        }
+      | undefined;
+  }
+  /** The open conversation's bubbles, in their order. */
+  get bubbles(): SpadeBubbleRow[] {
+    const order = (this.held.get("spade:order")?.order ?? []) as string[];
+    return order.flatMap((key) => {
+      const row = this.held.get(`spade:row:${key}`)?.row;
+      return row ? [row as SpadeBubbleRow] : [];
+    });
+  }
+  get head() {
+    return this.held.get("spade:conversation");
+  }
+}
+
+async function setUp(seed: (spade: FakeSpadeApi) => void = () => {}) {
+  const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
+  daemon.services.settings.write("beta.spade", true);
+  daemon.services.settings.write("spade.enabled", true);
+  daemon.spade.status = { state: "ready", version: "0.6.0" };
+  const api = new FakeSpadeApi(daemon.spade, () => Date.now());
+  seed(api);
+  const owner = new ClientCore({
+    deviceId: DeviceId.parse("ios-spade-test"),
+    expectedHostId: HostId.parse("ios-test-host"),
+    transport: () => fakeTransport(daemon),
+    credential: async () => ({ token: "t" }),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: { set: later },
+    id: () => crypto.randomUUID(),
+    random: () => 0.5,
+    now: () => Date.now(),
+  });
+  stops.push(() => owner.close());
+  await owner.start();
+  await until(() => owner.state === "ready");
+  const patches = new Patches();
+  const spade = new NativeSpade(owner, patches, {
+    now: () => Date.now(),
+    id: () => crypto.randomUUID(),
+    later,
+  });
+  stops.push(() => spade.stop());
+  spade.start();
+  const ask = (request: NativeSpadeRequest) =>
+    answerSpade(
+      owner,
+      spade,
+      request,
+      { id: () => crypto.randomUUID() },
+      new AbortController().signal,
+    );
+  return { daemon, api, spade, patches, ask };
+}
+
+function later(delay: number, callback: () => void) {
+  const timer = setTimeout(callback, delay);
+  return () => clearTimeout(timer);
+}
+
+test("the Spade tab shows while Beta's switch is on, and goes the moment it is turned off", async () => {
+  const { daemon, patches } = await setUp();
+  await until(() => patches.state?.shown === true);
+
+  daemon.spade.setStatus({ state: "off", hidden: true });
+
+  await until(() => patches.state?.shown === false);
+});
+
+test("the list puts Spade first, then whoever needs the person, then working, then the rest", async () => {
+  const { patches, spade } = await setUp((api) => {
+    api.addAgent({ name: "Quiet", last_activity: 50, last_message: lastWords("All done.") });
+    api.addAgent({ name: "Busy", state: "working", status: "Reading the docs", last_activity: 10 });
+    api.addAgent({ name: "Spade", kind: "main", last_activity: 1 });
+    api.addAgent({ name: "Asker", state: "waiting", waiting_for: "approval", last_activity: 5 });
+  });
+  spade.handle({ type: "spade.watch", on: true });
+
+  const rows = await until(() => patches.state?.list.rows ?? undefined);
+
+  expect(rows.map((row) => [row.name, row.state, row.line])).toEqual([
+    ["Spade", "rest", "No messages yet"],
+    ["Asker", "needs-you", "Needs you"],
+    ["Busy", "working", "Reading the docs"],
+    ["Quiet", "rest", "All done."],
+  ]);
+  expect(rows[0]?.main).toBe(true);
+});
+
+test("while Spade isn't running the tab says why, and no bot shows as still working", async () => {
+  const { daemon, patches, spade } = await setUp((api) =>
+    api.addAgent({ name: "Busy", state: "working", status: "Reading" }),
+  );
+  spade.handle({ type: "spade.watch", on: true });
+  await until(() => patches.state?.list.rows?.[0]?.state === "working");
+
+  daemon.spade.setStatus({ state: "failed", reason: "It exited with code 1." });
+
+  await until(() => patches.state?.line.sentence === "Spade stopped. It exited with code 1.");
+  expect(patches.state?.line.ready).toBe(false);
+  await until(() => patches.state?.list.rows?.[0]?.state === "off");
+});
+
+test("an open conversation shows its history, then a reply's words as they stream in", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, daemon, patches, spade } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Helper" });
+    fake.store(bot.conversation, { type: "user_message", text: "Plan my week" });
+    fake.reply(bot, "Here is a plan.");
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.open", conversationId: bot.conversation });
+
+  await until(() => patches.bubbles.length === 2);
+  expect(patches.bubbles).toEqual([
+    { kind: "person", text: "Plan my week", sending: false, attached: null },
+    { kind: "bot", text: "Here is a plan.", live: false, end: null },
+  ]);
+
+  api.store(bot.conversation, { type: "reply_started", reply: "r9" });
+  daemon.spade.emit(`/v1/conversations/${bot.conversation}/live`, "delta", {
+    reply: "r9",
+    text: "Thinking it",
+  });
+
+  await until(() => patches.bubbles.at(-1)?.kind === "bot" && patches.bubbles.length === 3);
+  expect(patches.bubbles.at(-1)).toEqual({
+    kind: "bot",
+    text: "Thinking it",
+    live: true,
+    end: null,
+  });
+  expect(patches.head).toMatchObject({ answering: true, loaded: true, problem: null });
+});
+
+test("a sent message shows at once, and stays once Spade has stored it", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, patches, spade, ask } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Helper" });
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.open", conversationId: bot.conversation });
+  await until(() => patches.head?.loaded === true);
+
+  const sending = ask({ type: "spade.send", conversationId: bot.conversation, text: "Hello" });
+  expect(patches.bubbles).toEqual([
+    { kind: "person", text: "Hello", sending: true, attached: null },
+  ]);
+
+  expect(await sending).toEqual({ ok: true });
+  await until(() => patches.bubbles[0]?.kind === "person" && !patches.bubbles[0].sending);
+  expect(patches.bubbles).toHaveLength(1);
+  expect(api.sent("POST", `/v1/conversations/${bot.conversation}/messages`)).toEqual([
+    { text: "Hello" },
+  ]);
+});
+
+test("a message Spade refuses leaves the conversation, and the phone is told why", async () => {
+  const { patches, spade, ask } = await setUp();
+  spade.handle({ type: "spade.open", conversationId: "c-gone" });
+
+  const outcome = await ask({ type: "spade.send", conversationId: "c-gone", text: "Hello" });
+
+  expect(outcome).toMatchObject({ ok: false, title: "Couldn't send" });
+  expect(patches.bubbles).toEqual([]);
+});
+
+test("an approval shows in Spade's words with Always allow where it holds, and Allow answers it", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, patches, spade, ask } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Builder" });
+    fake.ask(bot, "call-1", "shell", { command: "npm test" });
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.open", conversationId: bot.conversation });
+
+  // Named once the list says whose conversation it is.
+  const card = await until(() =>
+    patches.bubbles.find((row) => row.kind === "ask" && row.sentence.startsWith("Builder")),
+  );
+  expect(card).toMatchObject({
+    callId: "call-1",
+    sentence: "Builder wants to run a command.",
+    detail: "npm test",
+    always: true,
+  });
+
+  const answered = await ask({
+    type: "spade.answer",
+    conversationId: bot.conversation,
+    callId: "call-1",
+    allowed: true,
+    always: false,
+  });
+
+  expect(answered).toEqual({ ok: true });
+  expect(api.sent("POST", `/v1/conversations/${bot.conversation}/approvals/call-1`)).toEqual([
+    { allowed: true, always: false },
+  ]);
+  await until(() => !patches.bubbles.some((row) => row.kind === "ask"));
+});
+
+test("Stop ends the open reply, and a Stop that finds nothing answering is no failure", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, patches, spade, ask } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Helper" });
+    fake.store(bot.conversation, { type: "reply_started", reply: "r1" });
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.open", conversationId: bot.conversation });
+  await until(() => patches.head?.answering === true);
+
+  expect(await ask({ type: "spade.stop", conversationId: bot.conversation })).toEqual({ ok: true });
+
+  await until(() => patches.head?.answering === false);
+  expect(patches.bubbles.at(-1)).toMatchObject({ kind: "bot", end: { text: "Stopped" } });
+  expect(api.sent("POST", `/v1/conversations/${bot.conversation}/stop`)).toHaveLength(1);
+});
+
+test("opening a conversation Spade counts unseen marks it seen, and its row settles", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { patches, spade } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Helper", unseen: true });
+    fake.reply(bot, "Done.");
+    bot.unseen = true;
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.watch", on: true });
+  await until(() => patches.state?.list.rows?.[0]?.state === "unseen");
+
+  spade.handle({ type: "spade.open", conversationId: bot.conversation });
+
+  await until(() => patches.state?.list.rows?.[0]?.state === "rest");
+});
+
+function lastWords(text: string) {
+  return { from: "agent" as const, text, at: 50, from_agent: null };
+}

@@ -134,10 +134,10 @@ export class DaemonRuntime {
         {
           spawn:
             this.target.kind === "managed"
-              ? () => {
-                  launchStep("Spawning the daemon");
+              ? ({ safeMode }) => {
+                  launchStep("Spawning the daemon", { safeMode });
                   return (options.spawnDaemon ?? spawnDaemon)({
-                    ...this.spawnOptions(home, this.resolvedPath),
+                    ...this.spawnOptions(home, this.resolvedPath, safeMode),
                     prioritize: launchPolicy.wrap,
                     onOutput:
                       options.daemonOutput ??
@@ -330,14 +330,12 @@ export class DaemonRuntime {
     return Boolean(await readLocalDaemon(this.target.home));
   }
 
-  private spawnOptions(home: string, path: string) {
-    return {
-      home,
-      resources: this.options.resources,
-      path,
-      version: this.options.version,
-      env: this.options.env,
-    };
+  private spawnOptions(home: string, path: string, safeMode = false) {
+    const env = { ...this.options.env };
+    // Only the supervisor decides a safe start, never an inherited environment.
+    if (safeMode) env.ACE_SAFE_MODE = "1";
+    else delete env.ACE_SAFE_MODE;
+    return { home, resources: this.options.resources, path, version: this.options.version, env };
   }
 
   private update(status: DaemonStatus): void {

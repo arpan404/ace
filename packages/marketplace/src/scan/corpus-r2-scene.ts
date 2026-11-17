@@ -1,5 +1,5 @@
 /*
- * Suit scenes for the scene allowlist's tests (ADR 0173 §8): each `blocked` sample reaches a
+ * Suit scenes for the scene allowlist's tests (ADR 0174 §8): each `blocked` sample reaches a
  * capability a scene may not have by a spelling a name match misses (built property names,
  * reflection, aliases), or loads from outside the Suit through its CSS or ornaments. The `benign`
  * samples only draw. Inert data: nothing here is run, and every host is under `.invalid`.

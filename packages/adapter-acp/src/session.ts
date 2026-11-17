@@ -246,7 +246,8 @@ class AcpSession implements ProviderSession {
     void this.proc.stop();
   }
   abort = (): void => {
-    void this.close("shutdown");
+    // A tree that outlived its stop is noted by stopTree; shutdown goes on.
+    void this.close("shutdown").catch(() => {});
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
     const redacted = redactLease(data, this.ctx.mcp?.secrets ?? []);
@@ -622,10 +623,16 @@ class AcpSession implements ProviderSession {
   /** Windows: EOF is the polite stop; the recorded tree is gone before this resolves. */
   #treeStop: Promise<unknown> | undefined;
   stopTree(): Promise<unknown> {
-    this.#treeStop ??= import("@ace/provider-kit/tree-stop").then(({ stopTreeAfterEof }) =>
+    if (this.#treeStop) return this.#treeStop;
+    const stopping = import("@ace/provider-kit/tree-stop").then(({ stopTreeAfterEof }) =>
       stopTreeAfterEof(this.proc, 5_000),
     );
-    return this.#treeStop;
+    // Awaiting callers still see the failure; a voided stop (a transport fault) leaves it here.
+    stopping.catch((error: unknown) =>
+      this.frame("note", "transport", { event: "tree-stop-failed", message: String(error) }),
+    );
+    this.#treeStop = stopping;
+    return stopping;
   }
   rejectQueue(error: Error): void {
     for (const job of this.queue.splice(0)) job.reject(error);

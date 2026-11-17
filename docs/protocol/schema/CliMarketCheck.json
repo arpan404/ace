@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliMarketCheck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "files": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hash": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "problems": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "type": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "name",
+    "hash",
+    "files",
+    "bytes",
+    "problems"
+  ],
+  "type": "object"
+}

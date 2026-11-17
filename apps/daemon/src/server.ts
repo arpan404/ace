@@ -374,6 +374,12 @@ export async function startServer(options: ServerOptions): Promise<{
         : actor;
       return activeDevice(current, auth.now()) && allows(current, scope);
     };
+    // Authenticated with the daemon's token file on loopback: the person's whole authority, which
+    // any process able to read the file has (ADR 0176 §12.5).
+    const hostCredential = () =>
+      relayed === undefined &&
+      accountAdmitted === undefined &&
+      authenticated.get(socket)?.revocable === false;
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
@@ -407,10 +413,7 @@ export async function startServer(options: ServerOptions): Promise<{
       },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
-      hostCredential: () =>
-        relayed === undefined &&
-        accountAdmitted === undefined &&
-        authenticated.get(socket)?.revocable === false,
+      hostCredential,
       accountDevice: () => accountId,
       access: {
         auth,
@@ -689,7 +692,13 @@ export async function startServer(options: ServerOptions): Promise<{
             encoder,
             send,
           }).map((subscribe) => JSON.stringify(subscribe));
-          void afterConfirm(early, actor, message.channel, epoch);
+          // A failure finishing the hello (a store read, a service's welcome) ends this socket,
+          // as a failed service authentication does, never the daemon.
+          afterConfirm(early, actor, message.channel, epoch).catch((error: unknown) => {
+            options.log?.(error);
+            early.readable.resolve(false);
+            socket.close(1011, "service_unavailable");
+          });
         }
         return;
       }
@@ -725,6 +734,7 @@ export async function startServer(options: ServerOptions): Promise<{
             flights,
             open: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
             authorize,
+            hostCredential,
             send,
             delay: runtime.delay,
           });

@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliDoctorReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "at": {
+      "type": "number"
+    },
+    "checks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DiagnosticCheck.json"
+      },
+      "type": "array"
+    },
+    "planned": {
+      "items": {},
+      "type": "array"
+    },
+    "repairs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DiagnosticRepair.json"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "at",
+    "checks",
+    "planned",
+    "repairs"
+  ],
+  "type": "object"
+}

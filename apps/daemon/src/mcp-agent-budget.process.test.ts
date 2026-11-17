@@ -208,11 +208,13 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // with no existing tool to fold into. A deferring client pays only for their names, which
   // the per-request budget above counts; a core or static client never lists them upfront.
   // Raised for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
-  // can do; the base it landed on already listed 32.
+  // can do; the base it landed on already listed 32. Raised from 33 to 35 for market_read and
+  // market_publish (ADR 0176 §12.5): nothing else reaches the market, and they load upfront
+  // nowhere.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),
   );
-  expect(own.length).toBeLessThanOrEqual(33);
+  expect(own.length).toBeLessThanOrEqual(35);
 });
 
 it("a core-mode session gains a family's tools by reading its guide or using its entry point", async () => {
@@ -235,6 +237,11 @@ it("a core-mode session gains a family's tools by reading its guide or using its
   });
   await core.refreshTools();
   expect(core.has("agents_status")).toBe(true);
+  // The market has no guide: finding its tools opens them.
+  expect(core.has("market_publish")).toBe(false);
+  await core.call("tools_find", { query: "publish a draft to the market" });
+  await core.refreshTools();
+  expect(core.has("market_publish")).toBe(true);
   await core.close();
 });
 

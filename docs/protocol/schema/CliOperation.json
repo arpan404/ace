@@ -142,6 +142,26 @@
     },
     {
       "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "request.list",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "op": {
           "const": "task.spawn",
           "type": "string"

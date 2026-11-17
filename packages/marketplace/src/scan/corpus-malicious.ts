@@ -1,7 +1,7 @@
 import type { MarketEntryType } from "@ace/protocol/marketplace";
 
 /*
- * The scanner's malicious corpus (ADR 0173 §8, Tests): inert samples written for these tests that
+ * The scanner's malicious corpus (ADR 0174 §8, Tests): inert samples written for these tests that
  * only exhibit the patterns a harmful entry would. None is real malware and none is ever run:
  * every host is under the reserved `.invalid` top-level domain or in the RFC 5737 documentation
  * ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), and binaries are a few magic bytes.
@@ -110,7 +110,7 @@ const scene = (id: string, category: string, code: string): CorpusSample => ({
 const bytes = (...values: number[]) => new Uint8Array([...values, 0, 0, 0, 0, 0, 0, 0, 0]);
 const blob = "QUJDRA".repeat(200);
 
-// Licence texts a Suit may hold must stay inert data (ADR 0173 §8).
+// Licence texts a Suit may hold must stay inert data (ADR 0174 §8).
 const OFL_TEXT = "Copyright 2024 The Authors. Licensed under the SIL Open Font Licence 1.1.\n";
 const licenceSuit = (
   id: string,

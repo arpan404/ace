@@ -65,13 +65,16 @@ export class StatusTray {
         : `Daemon ${this.status.state}`
       : "Starting…";
     const running = this.status?.state === "running";
-    const shown = JSON.stringify([state, needsYou, paused, running]);
+    // A running daemon carries a message only when it runs without something (safe mode).
+    const note = running ? this.status?.message : undefined;
+    const shown = JSON.stringify([state, needsYou, paused, running, note]);
     if (shown === this.shown) return;
     this.shown = shown;
     if (process.platform === "darwin") tray.setTitle(needsYou ? ` ${needsYou}` : "");
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: state, enabled: false },
+        ...(note ? [{ label: note, enabled: false }] : []),
         { label: needsYou ? `${needsYou} need you` : "Nothing needs you", enabled: false },
         { type: "separator" },
         { label: "Open ace", click: () => this.actions.open() },

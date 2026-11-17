@@ -2,7 +2,7 @@ import { tiered, type RankingTier } from "./ranking.ts";
 
 /*
  * Search on the device (ADR 0168 §11): name, then title, then one line and keywords, rarer words
- * counting more, a typo forgiven, the publisher's tier a bounded multiplier (ADR 0173 §15). Pure,
+ * counting more, a typo forgiven, the publisher's tier a bounded multiplier (ADR 0174 §15). Pure,
  * and run on the daemon's own copy of the index, so a query never leaves the machine; the Worker
  * runs the same for its web page.
  */
@@ -36,7 +36,7 @@ export function words(text: string): string[] {
   return text
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
 }

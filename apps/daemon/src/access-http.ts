@@ -12,6 +12,18 @@ import { AccessError, RemoteAuth } from "./remote-auth.ts";
 import { allows } from "./devices.ts";
 import { issuePairing } from "./pairing-issue.ts";
 
+/**
+ * Admission as the local app's main process reads it over HTTP. It asks only whether the
+ * person paused, and builds that predate the `storage` hold (ADR 0176) reject the whole answer
+ * for it: a health check would read the daemon as unhealthy while the disk is full. So the hold
+ * is left out here and admission still reads closed (`draining`); clients hear of it over the
+ * socket.
+ */
+function hostAdmission<T extends { holds: readonly string[] }>(status: T): T {
+  if (!status.holds.includes("storage")) return status;
+  return { ...status, holds: status.holds.filter((hold) => hold !== "storage") };
+}
+
 async function body(request: IncomingMessage): Promise<unknown> {
   let bytes = 0;
   const chunks: Buffer[] = [];
@@ -154,7 +166,9 @@ export function accessHttp({
             ...(eventLoop ? { eventLoop: eventLoop() } : {}),
             ...(providerProcesses ? { providers: providerProcesses() } : {}),
             // The local app's health check reads admission with it, instead of a second request.
-            ...(maintenance && auth.local(token) ? { admission: maintenance.status() } : {}),
+            ...(maintenance && auth.local(token)
+              ? { admission: hostAdmission(maintenance.status()) }
+              : {}),
           };
         } else if (path === "/v1/stop" && request.method === "POST" && shutdown) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
@@ -170,14 +184,18 @@ export function accessHttp({
           // A drain renews its lease with each POST; one that stops renewing lets go on its own.
           const update = path === "/v1/maintenance/update";
           if (request.method === "POST")
-            result = update
-              ? (updateHold?.renew() ?? maintenance.enter("update"))
-              : maintenance.enter("user");
+            result = hostAdmission(
+              update
+                ? (updateHold?.renew() ?? maintenance.enter("update"))
+                : maintenance.enter("user"),
+            );
           else if (request.method === "DELETE")
-            result = update
-              ? (updateHold?.release() ?? maintenance.leave("update"))
-              : maintenance.leave("user");
-          else if (request.method === "GET") result = maintenance.status();
+            result = hostAdmission(
+              update
+                ? (updateHold?.release() ?? maintenance.leave("update"))
+                : maintenance.leave("user"),
+            );
+          else if (request.method === "GET") result = hostAdmission(maintenance.status());
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/app-update" && appUpdate) {
           if (!auth.local(token)) throw new AccessError(403, "Host token required");

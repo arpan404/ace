@@ -91,6 +91,18 @@ test("a queued subagent's line names its slot use and queue place, else the old 
   ).toBe("Starts when a running agent finishes");
 });
 
+test("a subagent queued while the disk is full says it waits for disk space, place or not", () => {
+  for (const place of [{}, { slotLimit: 4, slotsInUse: 4, queuePosition: 2 }])
+    expect(
+      subagentDetail(
+        { state: "queued", agentId: "a1", ...place, waitingFor: "storage" },
+        undefined,
+        undefined,
+        true,
+      ).detail,
+    ).toBe("Waiting for disk space");
+});
+
 test("queue places read as people say them", () => {
   expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23].map(ordinal)).toEqual([
     "1st",

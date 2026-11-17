@@ -1,8 +1,11 @@
-import type { MarketMe } from "@ace/protocol/marketplace";
+import type { MarketDraftChecked, MarketMe } from "@ace/protocol/marketplace";
 import { MarketEntryName } from "@ace/protocol/marketplace";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { useNativePicker } from "@/lib/native-picker.ts";
 import { typeWord } from "./market-model.ts";
+import { PickChoices } from "./market-publish-pick.tsx";
+import { DraftReview } from "./market-publish-review.tsx";
 import { Foot, keyOf, Steps } from "./market-publish-parts.tsx";
 import {
   standing,
@@ -14,8 +17,11 @@ import { Stage } from "./market-stage.tsx";
 
 /*
  * The Item step: which one. A look is one of the person's own Suits, read from their library by
- * id. A bot, skill or plugin is a folder on this machine, under a name: a new entry, or a new
- * version of one they already published.
+ * id. A bot, skill or plugin is picked from the person's own (Spade's bots, Spade's and ace's
+ * skills, plugins they made), and the daemon reads its files and checks them here; the person
+ * sees exactly what would upload and confirms it (`DraftReview`) before Next.
+ * "Choose a folder…" stays for anything else: the app's folder picker on desktop, a path on the
+ * web, under a name.
  */
 
 function SuitChoices(props: {
@@ -49,10 +55,12 @@ function SuitChoices(props: {
 function FolderChoice(props: {
   type: MarketPublishType;
   me: MarketMe | undefined;
+  /** A folder the app's picker chose. */
+  path: string;
   onChoose(item: MarketPublishItem | undefined): void;
 }) {
   const [name, setName] = useState("");
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState(props.path);
   const mine = props.me?.entries.filter((entry) => entry.type === props.type) ?? [];
   const update = (nextName: string, nextPath: string) => {
     setName(nextName);
@@ -131,6 +139,21 @@ export function ChooseItem(props: {
   onNext(item: MarketPublishItem): void;
 }) {
   const { type, chosen } = props;
+  const [folder, setFolder] = useState<{ path: string }>();
+  const [checked, setChecked] = useState<MarketDraftChecked>();
+  // The review reports after each render; only a confirmation that says something new is kept.
+  const report = useCallback(
+    (next: MarketDraftChecked | undefined) =>
+      setChecked((before) => (JSON.stringify(before) === JSON.stringify(next) ? before : next)),
+    [],
+  );
+  const picker = useNativePicker(true);
+  const reviewed = type !== "suit" && chosen?.source !== undefined;
+  const chooseFolder = async () => {
+    props.onChoose(undefined);
+    const path = picker ? await picker.choose() : "";
+    if (path !== null) setFolder({ path });
+  };
   return (
     <div className="mk-inner" data-width="form">
       <Steps now={props.now} />
@@ -139,18 +162,48 @@ export function ChooseItem(props: {
       </h1>
       {type === "suit" ? (
         <SuitChoices me={props.me} chosen={chosen} onChoose={props.onChoose} />
+      ) : folder ? (
+        <FolderChoice type={type} me={props.me} path={folder.path} onChoose={props.onChoose} />
       ) : (
-        <FolderChoice type={type} me={props.me} onChoose={props.onChoose} />
+        <PickChoices type={type} me={props.me} chosen={chosen} onChoose={props.onChoose} />
       )}
-      <Foot>
+      {type !== "suit" && chosen?.source && (
+        <DraftReview
+          key={`${chosen.name}:${JSON.stringify(chosen.source)}`}
+          type={type}
+          name={chosen.name}
+          source={chosen.source}
+          onChecked={report}
+        />
+      )}
+      <Foot
+        left={
+          type === "suit" ? null : folder ? (
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={() => {
+                setFolder(undefined);
+                props.onChoose(undefined);
+              }}
+            >
+              Back to yours
+            </Button>
+          ) : (
+            <Button variant="ghost" size="lg" onClick={() => void chooseFolder()}>
+              Choose a folder…
+            </Button>
+          )
+        }
+      >
         <Button variant="ghost" size="lg" onClick={props.onBack}>
           Back
         </Button>
         <Button
           variant="primary"
           size="lg"
-          disabled={!chosen}
-          onClick={() => chosen && props.onNext(chosen)}
+          disabled={!chosen || (reviewed && !checked)}
+          onClick={() => chosen && props.onNext(reviewed ? { ...chosen, checked } : chosen)}
         >
           Next
         </Button>

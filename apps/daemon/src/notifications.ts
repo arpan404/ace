@@ -51,6 +51,7 @@ export interface DaemonNotifications {
   open(): Promise<void>;
   ready(): Promise<void>;
   tick(): Promise<void>;
+  /** Starts delivering. Calling it again changes nothing. */
   activate(): void;
   start(): Promise<void>;
   stop(): void;

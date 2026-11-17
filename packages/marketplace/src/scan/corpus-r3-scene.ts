@@ -1,5 +1,5 @@
 /*
- * Suit scenes for the `this` and frame-alias tests (ADR 0173 §8): each `blocked` sample reaches
+ * Suit scenes for the `this` and frame-alias tests (ADR 0174 §8): each `blocked` sample reaches
  * another frame or the network through a `this` the check can't prove (a function a timer or a
  * listener runs, where `this` is the global object) or through an alias or built name of a frame
  * member. The `benign` samples only draw. Inert data: nothing here is run, and every host is under

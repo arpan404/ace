@@ -24,7 +24,7 @@ import {
 } from "./rows.ts";
 
 /*
- * A publisher's own entries (ADR 0173 §4, §5): what their page shows, and the settings they
+ * A publisher's own entries (ADR 0174 §4, §5): what their page shows, and the settings they
  * change. An entry's settings live in its type's catalogue; every change moves its generation in
  * the same batch and brings its row in step, so the index and `since` readers follow. Reports
  * and appeals are read from the moderation database.

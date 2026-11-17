@@ -2,14 +2,14 @@ import { setImmediate } from "node:timers/promises";
 import { helperGate } from "./testing/gate.ts";
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, type Frame } from "./index.ts";
-import { deferred, manager, ready, target } from "./testing/support.ts";
+import { deferred, macHostPlatform, manager, ready, target } from "./testing/support.ts";
 import { ScreenCowork, type PhysicalInput } from "./cowork.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 async function setup(env: NodeJS.ProcessEnv = {}) {
-  const test = await manager(env);
+  const test = await manager(env, macHostPlatform);
   cleanups.push(test.close);
   return test.screen;
 }

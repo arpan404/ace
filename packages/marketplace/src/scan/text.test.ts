@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fold, hasBidi, hasInvisible, mixedScriptWord, normaliseText } from "./text.ts";
 
 /*
- * Text folding (ADR 0173 §8): look-alikes folded, zero-width and bidi characters told apart from
+ * Text folding (ADR 0174 §8): look-alikes folded, zero-width and bidi characters told apart from
  * ordinary text, and an emoji joiner allowed between emoji. These guard the hidden check and the
  * profile rules.
  */

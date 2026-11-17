@@ -1,5 +1,6 @@
 import type { AceAccount } from "@ace/protocol/ace-account";
 import { digest } from "./crypto.ts";
+import { SESSION_LIFETIME_MS } from "./login.ts";
 import type { SessionStore } from "./sessions.ts";
 import { InvalidGrantError } from "./workos.ts";
 import type { AccountProvider } from "./workos.ts";
@@ -12,7 +13,8 @@ const REFRESH_LEASE_MS = 15_000;
 
 /**
  * Reads an ace session, refreshing it with WorkOS each time so a revoked or deleted WorkOS
- * user loses access. WorkOS refresh tokens are single-use, so concurrent reads must not spend
+ * user loses access. Each refresh renews the session for another `SESSION_LIFETIME_MS`, so a
+ * session in use never lapses; one left unused that long does. WorkOS refresh tokens are single-use, so concurrent reads must not spend
  * the same one: readers in this isolate share one refresh, and a D1 lease stops readers in
  * other isolates, which get the stored account instead.
  */
@@ -48,11 +50,18 @@ export function sessionReader(deps: {
       await store.remove(hash);
       return undefined;
     }
-    if (!(await store.rotate(hash, identity.account, identity.refreshToken, identity.pictureUrl)))
-      return undefined;
+    const expiresAt = Math.max(stored.expiresAt, now() + SESSION_LIFETIME_MS);
+    const rotated = await store.rotate(
+      hash,
+      identity.account,
+      identity.refreshToken,
+      expiresAt,
+      identity.pictureUrl,
+    );
+    if (!rotated) return undefined;
     return {
       account: identity.account,
-      expiresAt: stored.expiresAt,
+      expiresAt,
       signedInAt: stored.signedInAt,
     };
   }

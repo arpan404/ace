@@ -55,6 +55,11 @@ export async function startFilesRelay(
      * the system's.
      */
     nkClock?: NkClock | undefined;
+    /**
+     * Gives up the registration: aborted, an unanswered one stops at once instead of waiting
+     * out its deadline, and a running one stops as `close` would.
+     */
+    signal?: AbortSignal | undefined;
   },
 ) {
   const media = options.media;
@@ -158,7 +163,9 @@ export async function startFilesRelay(
     const connection = await connectHostToRelay({
       relayUrl: options.url,
       hostKeys: options.keys,
-      signal: controller.signal,
+      signal: options.signal
+        ? AbortSignal.any([controller.signal, options.signal])
+        : controller.signal,
       ...(options.relayAccount ? { account: options.relayAccount } : {}),
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
       ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),

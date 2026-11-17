@@ -8,6 +8,8 @@ export {
 } from "./instances.ts";
 export { addAccount } from "./login.ts";
 export { AccountRegistry, openRegistry, openRegistryIndex } from "./registry.ts";
+export type { HomeCheck, HomeCheckOptions } from "./home-checks.ts";
+export { AccountHomeUnanswered } from "./home-wait.ts";
 export { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
 export {
   availability,

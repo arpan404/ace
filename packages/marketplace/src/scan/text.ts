@@ -1,5 +1,5 @@
 /*
- * Text as the scanner reads it (ADR 0173 §8), ported from Spade's `spade-classify::text`: NFKC
+ * Text as the scanner reads it (ADR 0174 §8), ported from Spade's `spade-classify::text`: NFKC
  * normalisation, zero-width and tag characters removed, and look-alike letters folded to the
  * ASCII letter they imitate, so a Cyrillic-c `curl` and a zero-width-split `curl` both read as
  * `curl`. What was hidden is kept as a fact of its own, since hiding a word is itself a signal.
@@ -7,11 +7,12 @@
  */
 
 /** Zero-width, bidi and tag code points that never belong in code or a name. */
-const ZERO_WIDTH = /[​-‏‪-‮⁠-⁤⁦-⁯﻿\u{E0000}-\u{E007F}]/gu;
+const ZERO_WIDTH =
+  /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\u{E0000}-\u{E007F}]/gu;
 /** Bidi overrides and embeddings, the dangerous subset that reorders text. */
-const BIDI = /[‪-‮⁦-⁩]/u;
+const BIDI = /[\u202A-\u202E\u2066-\u2069]/u;
 /** Zero-width and tag characters (bidi handled apart); an emoji ZWJ between emoji is allowed. */
-const INVISIBLE = /[​-‍⁠-⁤﻿\u{E0000}-\u{E007F}]/u;
+const INVISIBLE = /[\u200B-\u200D\u2060-\u2064\uFEFF\u{E0000}-\u{E007F}]/u;
 const TAG = /[\u{E0000}-\u{E007F}]/u;
 
 /**
@@ -155,7 +156,7 @@ export function mixedScriptWord(input: string): string | undefined {
 }
 
 /**
- * The confusable **skeleton** of a handle or name (ADR 0173 §3, §8): lower-cased, NFKC, look-alike
+ * The confusable **skeleton** of a handle or name (ADR 0174 §3, §8): lower-cased, NFKC, look-alike
  * letters and digits folded (`0→o`, `1→l`, `3→e`, `5→s`, `rn→m`, `vv→w`, `i`/`l` together), all
  * separators dropped. Two names with one skeleton can't both exist, so `ace-team` and `acc-tearn`
  * collide.

@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliConfigEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "key": {
+      "type": "string"
+    },
+    "live": {
+      "type": "boolean"
+    },
+    "overriddenBy": {
+      "type": "string"
+    },
+    "setting": {
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "default",
+        "saved",
+        "environment"
+      ],
+      "type": "string"
+    },
+    "value": {
+      "$ref": "https://ace.local/protocol/v1/JsonValue.json"
+    }
+  },
+  "required": [
+    "setting",
+    "key",
+    "value",
+    "source",
+    "live"
+  ],
+  "type": "object"
+}

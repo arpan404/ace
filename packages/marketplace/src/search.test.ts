@@ -79,7 +79,7 @@ describe("marketplace search", () => {
     expect(names(search(items, { query: "" }))).toEqual(["b", "c", "a"]);
   });
 
-  describe("publisher tiers (ADR 0173 §15)", () => {
+  describe("publisher tiers (ADR 0174 §15)", () => {
     it("rank official above verified above the rest among equals", () => {
       const items = [
         popular(undefined, 500, "c-other"),

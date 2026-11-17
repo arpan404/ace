@@ -1,11 +1,11 @@
 import type { MarketBlocklist, MarketScanFinding } from "@ace/protocol/marketplace";
 import type { ArchiveFile } from "@ace/marketplace";
 import { knownBad } from "@ace/marketplace/scan";
-import { turnOff, type InstallPorts } from "./install.ts";
+import { turnOff, turnOn, type InstallPorts } from "./install.ts";
 import type { StoredInstall } from "./store.ts";
 
 /*
- * Installed entries against the signed blocklist (ADR 0173 §8). At startup and on every refresh
+ * Installed entries against the signed blocklist (ADR 0174 §8). At startup and on every refresh
  * the pinned bytes of every install not yet blocked are checked against the stored list, so a
  * failure or crash part way is put right the next time; a match is turned off as `blocked`, with
  * the reason. An install checks the bytes it is about to land the same way. Nothing is deleted,
@@ -70,4 +70,24 @@ export async function applyBlocklist(
     changed = true;
   }
   return changed;
+}
+
+/**
+ * Turns an install back on and saves it so, answering the saved record. Blocked bytes stay off,
+ * answering undefined, while the newest verified blocklist still names them.
+ */
+export async function turnOnUnlessBlocked(
+  ports: () => InstallPorts,
+  install: StoredInstall,
+  blocklist: MarketBlocklist | undefined,
+): Promise<StoredInstall | undefined> {
+  if (install.state === "blocked") {
+    const found = await blockedFindings(ports(), install, blocklist);
+    if (found.length > 0) return undefined;
+  }
+  await turnOn(ports(), install);
+  const { reason: _reason, ...rest } = install;
+  const on: StoredInstall = { ...rest, state: "on" };
+  ports().store.saveInstall(on);
+  return on;
 }

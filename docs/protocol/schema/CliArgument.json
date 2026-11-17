@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliArgument.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "stdin": {
+      "type": "boolean"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "variadic": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name",
+    "summary",
+    "required",
+    "variadic",
+    "stdin"
+  ],
+  "type": "object"
+}

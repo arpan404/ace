@@ -1,0 +1,57 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketCatalogPlugin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "description": {
+      "maxLength": 8192,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "keywords": {
+      "items": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array",
+      "x-ace-constraint": "Items that don't parse are dropped; a value that isn't a list reads as none."
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ContainedPath.json"
+        },
+        {
+          "const": ".",
+          "type": "string"
+        },
+        {
+          "const": "./",
+          "type": "string"
+        }
+      ]
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    }
+  },
+  "required": [
+    "name",
+    "source"
+  ],
+  "type": "object"
+}

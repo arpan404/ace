@@ -1,0 +1,82 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "aliases": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliAlias.json"
+      },
+      "type": "array"
+    },
+    "arguments": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliArgument.json"
+      },
+      "type": "array"
+    },
+    "description": {
+      "type": "string"
+    },
+    "examples": {
+      "items": {
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "flags": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliFlag.json"
+      },
+      "type": "array"
+    },
+    "group": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "mutates": {
+      "type": "boolean"
+    },
+    "offline": {
+      "type": "boolean"
+    },
+    "output": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "words": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "words",
+    "summary",
+    "group",
+    "arguments",
+    "flags",
+    "examples",
+    "aliases",
+    "mutates",
+    "offline"
+  ],
+  "type": "object"
+}

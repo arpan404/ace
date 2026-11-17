@@ -203,6 +203,8 @@ export const ThreadAction = z.discriminatedUnion("type", [
       .max(messageQuoteLimit),
   }),
   z.object({ type: z.literal("quote.clear") }),
+  /** Whether the reader sits at the transcript's live end (`thread-read-mark.ts`). */
+  z.object({ type: z.literal("atEnd"), atEnd: z.boolean() }),
 ]);
 export type ThreadAction = z.infer<typeof ThreadAction>;
 

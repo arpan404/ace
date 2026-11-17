@@ -20,7 +20,7 @@ import { useMarketMe } from "./market-publishing.ts";
 import { Stage } from "./market-stage.tsx";
 
 /*
- * Publishing (ADR 0173 §2): what you're publishing, which one, ace's checks on its files (the
+ * Publishing (ADR 0174 §2): what you're publishing, which one, ace's checks on its files (the
  * scan's findings as sentences), then its listing, and it waits for review. Each step has its
  * own page under the same steps line and a sticky foot.
  */
@@ -162,6 +162,8 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
         onChoose={setItem}
         onBack={() => setStep("Type")}
         onNext={(chosen) => {
+          // The confirmed check travels with the item, so Check again sends it too.
+          setItem(chosen);
           runChecks(chosen);
           setStep("Check");
         }}

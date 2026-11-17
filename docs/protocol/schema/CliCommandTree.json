@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliCommandTree.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commands": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliCommand.json"
+      },
+      "type": "array"
+    },
+    "exitCodes": {
+      "items": {
+        "properties": {
+          "code": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "means": {
+            "type": "string"
+          },
+          "name": {
+            "$ref": "https://ace.local/protocol/v1/CliOutcome.json"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "means"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "globalFlags": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliFlag.json"
+      },
+      "type": "array"
+    },
+    "topics": {
+      "items": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "globalFlags",
+    "commands",
+    "topics",
+    "exitCodes"
+  ],
+  "type": "object"
+}

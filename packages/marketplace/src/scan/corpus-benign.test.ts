@@ -3,7 +3,7 @@ import { benignSamples } from "./corpus-benign.ts";
 import { scanSample } from "./corpus.ts";
 
 /*
- * The benign corpus's false positives (ADR 0173 §8, Tests): the scanner must never block a real,
+ * The benign corpus's false positives (ADR 0174 §8, Tests): the scanner must never block a real,
  * useful entry. Every benign sample is scanned; none may be blocked, and the number that draw a
  * warn is reported for the README. The detection side (malicious caught) lives in
  * detection.test.ts.

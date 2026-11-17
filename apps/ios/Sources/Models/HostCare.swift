@@ -11,6 +11,8 @@ struct MachineAdmissionInfo: Codable, Sendable, Equatable {
     let action: String
     /// False while an update, kill-all or stop holds admission: Resume can't end it.
     let canChange: Bool
+    /// "ace started in safe mode without Commands after repeated crashes."; nil while it runs whole.
+    let startup: String?
 }
 
 /// `machine.appUpdate` (`bridge/machine-app-update.ts`): the desktop app's update, read-only.

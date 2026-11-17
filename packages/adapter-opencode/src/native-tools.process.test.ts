@@ -125,12 +125,15 @@ test("Full access keeps OpenCode Desktop's browser tools off, as its Build agent
   }
 });
 
-test("ace adds its MCP server and readiness plugin to OpenCode and leaves the person's own configuration untouched", async () => {
+test("ace adds its MCP server, environment gate and readiness plugin to OpenCode and leaves the person's own configuration untouched", async () => {
   const { h, close } = await openFullAccess();
   try {
     const { plugins, ...rest } = object(await h.control("/test/configuration"));
     expect(rest).toEqual(userConfig);
-    expect(array(plugins)).toHaveLength(1);
+    expect(array(plugins)).toEqual([
+      expect.stringMatching(/agent-env-plugin$/),
+      expect.stringMatching(/mcp-ready-plugin$/),
+    ]);
     expect(object(await h.control("/test/mcp"))).toMatchObject({ names: ["user", "ace"] });
     const requests = array(await h.control("/test/requests")).map(object);
     const create = requests.find((r) => r.path === "/api/session" && r.method === "POST");
