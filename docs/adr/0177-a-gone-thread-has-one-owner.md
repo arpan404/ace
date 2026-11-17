@@ -27,9 +27,12 @@ transfers, engine session rows. Readers of those rows assumed the thread was sti
   policy (`Engine.prepareDeletion`, bound to `DelegationService.cancelDescendants`) and writes the
   tombstone in one transaction. The thread lifecycle runs the policy when it admits the delete and
   stops the tree before it writes the tombstone, so it writes it with `tombstone`.
-- **Purging.** Every purge calls `purgeThread`: the thread's data goes, with the engine's own rows
-  for it (session, selection, queue), and the purge is recorded, in one transaction. The `threads`
-  row stays as the tombstone.
+- **Purging.** Every purge calls `purgeThread`. The tombstone is the visibility fence; the purge is
+  noted in `thread_purges`, its transcript goes in short writes of at most 512 rows with a turn of
+  the event loop between them (ADR 0170), and a last small transaction removes its engine state and
+  the engine's own rows (session, selection, queue), records the deletion and marks it purged. A
+  purge a stop or restart cut short is finished in the background at the next start. The
+  `threads` row stays as the tombstone.
 - **Reading.** A thread is gone when it is deleted or the engine holds no state for it
   (`threadGone`). Every reader that may meet a reference to another thread checks it first and
   treats a gone thread as gone, never as an error: nothing is applied to it in the engine.
