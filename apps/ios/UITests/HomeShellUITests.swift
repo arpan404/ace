@@ -94,8 +94,10 @@ import XCTest
 
     func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
         let app = launch()
+        // Open Search once: closing a place returns to it, and tapping Search again while it
+        // shows focuses its field (#2215) instead of opening it.
+        app.openSearch()
         for (place, title) in [("usage", "Usage"), ("automations", "Automations"), ("history", "History"), ("archived", "Archived")] {
-            app.openSearch()
             let capsule = app.buttons["search.place.\(place)"]
             XCTAssertTrue(capsule.waitForExistence(timeout: 10), "\(place) is missing from Places")
             capsule.tap()
