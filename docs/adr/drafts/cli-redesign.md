@@ -118,7 +118,8 @@ The default provider is the person's default from Settings, no longer always Cod
   change when it's piped. Each command has a renderer that prints words and aligned columns in
   the [design language](../../design/design-language.md)'s voice: state, not chrome. Lists follow
   the app's order (pinned, needs you, running, finished unseen, the rest) with no section labels.
-  A status shows as one glyph in its state's colour (`◆` needs you, `✕` failed, `◌` working with
+  A status shows as one glyph in its state's colour (`◆` an approval, `?` a question and `✦` a
+  model to choose, all needs-you amber; `✕` failed, `◌` working with
   its running time, `◌3` waiting on three agents, `▣` background, `✓` finished unseen; nothing
   for idle, just the age). Colour is used only for state. Ids, paths, branches and commands are
   plain text that can be copied. Nothing prints indented JSON in human mode.
