@@ -178,6 +178,8 @@ export class TargetLaunches {
    * a local child. A full engine keeps it waiting; the message still goes in behind it.
    */
   startNow(threadId: ThreadId): void {
+    // Not while admission is closed: the task waits queued, as every start does then.
+    if (!this.admits()) return;
     try {
       this.deps.store.atomic(() => {
         const launch = this.queue.take(threadId);

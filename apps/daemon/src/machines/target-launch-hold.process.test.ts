@@ -40,6 +40,14 @@ afterEach(async () => {
 async function setup() {
   const h = await harness([], scriptFrames());
   await h.engine.ready();
+  // The calling machine's paired device, as pairing records it.
+  h.store.atomic((db) =>
+    db
+      .prepare(
+        "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at, install_id) VALUES (?, ?, ?, ?, 1, 1, NULL, NULL, NULL)",
+      )
+      .run(device.id, device.name, "hash", JSON.stringify(device.scopes)),
+  );
   const timers: { ms: number; run: () => void }[] = [];
   const reported: unknown[] = [];
   const machine = { admits: true, storageFull: false };
@@ -139,4 +147,68 @@ it("a waiting child whose start the full disk rolls back is retried on a backoff
   tick();
   await h.engine.flush();
   expect(h.contexts).toHaveLength(1);
+});
+
+/** What the child was given, in order: input it took, then input queued for its next turn. */
+function inputs(h: Awaited<ReturnType<typeof setup>>["h"], threadId: ThreadId): string[] {
+  const snapshot = h.store.snapshotThread(threadId);
+  const text = (parts: readonly { type: string; text?: string }[]) =>
+    parts.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
+  const taken = snapshot.itemOrder.flatMap((id) => {
+    const item = snapshot.items[id];
+    return item?.type === "message" && item.role === "user" ? [text(item.parts)] : [];
+  });
+  return [...taken, ...h.engine.queue(threadId).messages.map((message) => text(message.input))];
+}
+const follow = (threadId: ThreadId, requestId: string, delivery: "queue" | "steer" = "queue") =>
+  ({ op: "message", threadId, requestId, text: `Follow-up ${requestId}`, delivery }) as const;
+
+it("a parent's messages to a child held for admission start nothing, and reach it once, after its task, when admission reopens", async () => {
+  const { h, threads, machine } = await setup();
+  machine.admits = false;
+  const sent = await threads.delegate(device, origin, delegate("waits"));
+  await settled();
+  // The parent's message would start a waiting child at once; held, it starts nothing.
+  expect(threads.message(device, follow(sent.threadId, "first"))).toEqual({ arrival: "held" });
+  expect(threads.message(device, follow(sent.threadId, "second"))).toEqual({ arrival: "held" });
+  // A retried copy is the same message.
+  expect(threads.message(device, follow(sent.threadId, "first"))).toEqual({ arrival: "held" });
+  await h.engine.flush();
+  expect(h.contexts).toHaveLength(0);
+  expect(threads.launches.queued(sent.threadId)).toBe(true);
+
+  machine.admits = true;
+  threads.launches.pump();
+  threads.resumeHeld();
+  await h.engine.flush();
+  expect(h.contexts).toHaveLength(1);
+  const got = inputs(h, sent.threadId);
+  expect(got.filter((text) => text.includes("Do waits"))).toHaveLength(1);
+  expect(got.filter((text) => text.startsWith("Follow-up"))).toEqual([
+    "Follow-up first",
+    "Follow-up second",
+  ]);
+  expect(got.findIndex((text) => text.includes("Do waits"))).toBeLessThan(
+    got.indexOf("Follow-up first"),
+  );
+  // Delivered once: another reopen, or a copy arriving late, sends nothing again.
+  threads.resumeHeld();
+  threads.message(device, follow(sent.threadId, "first"));
+  await h.engine.flush();
+  expect(inputs(h, sent.threadId).filter((text) => text === "Follow-up first")).toHaveLength(1);
+});
+
+it("a message to a running child from another machine is held while admission is closed", async () => {
+  const { h, threads, machine } = await setup();
+  const sent = await threads.delegate(device, origin, delegate("runs"));
+  await h.engine.flush();
+  expect(h.contexts).toHaveLength(1);
+  machine.admits = false;
+  expect(threads.message(device, follow(sent.threadId, "later"))).toEqual({ arrival: "held" });
+  await h.engine.flush();
+  expect(inputs(h, sent.threadId)).not.toContain("Follow-up later");
+  machine.admits = true;
+  threads.resumeHeld();
+  await h.engine.flush();
+  expect(inputs(h, sent.threadId).filter((text) => text === "Follow-up later")).toHaveLength(1);
 });

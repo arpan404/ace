@@ -87,13 +87,25 @@ export function startMachines(context: ServiceContext): void {
   });
   resources.own(() => threads.close());
   // Children held while admission was closed start as soon as it reopens.
-  let stopReopen = maintenance?.onReopen(() => threads.launches.pump());
+  // Queued tasks first, then the messages held behind them, in the order they came.
+  const reopened = () => {
+    threads.launches.pump();
+    threads.resumeHeld();
+  };
+  let stopReopen = maintenance?.onReopen(reopened);
   onListen.push((server) => {
     if (server.maintenance === maintenance) return;
     stopReopen?.();
     maintenance = server.maintenance;
-    stopReopen = maintenance.onReopen(() => threads.launches.pump());
+    stopReopen = maintenance.onReopen(reopened);
   });
+  // Messages held when the daemon last stopped are delivered once the engine is up.
+  void services.engine
+    ?.ready()
+    .then(() => threads.resumeHeld())
+    .catch((error: unknown) =>
+      log.log("warn", "Held machine messages not resumed", logError(error)),
+    );
   resources.own(() => stopReopen?.());
   // A raised or cleared limit starts children other machines left waiting here at once.
   const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());

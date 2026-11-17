@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   Command,
   CommandId,
+  DeviceId,
   HostId,
   ThreadId,
   type CommandResult,
@@ -40,6 +41,7 @@ import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts"
 import { TargetRefusal } from "./target-refusal.ts";
 import { TargetLaunches } from "./target-launches.ts";
 import { MessageRejections, messageKey } from "./target-rejections.ts";
+import { HeldMessages } from "./held-messages.ts";
 import {
   diskWait,
   diskWaitStep,
@@ -114,6 +116,9 @@ export class TargetThreads {
   readonly launches: TargetLaunches;
   /** Messages refused before they reached their thread, which no copy of can ever run. */
   readonly rejections: MessageRejections;
+  /** Messages that arrived while admission here was closed, delivered once it reopens. */
+  private held: HeldMessages;
+  private resuming = false;
   private outcomes: TargetOutcomes;
   private cancelAttempts = 0;
   constructor(deps: TargetThreadDeps) {
@@ -130,6 +135,7 @@ export class TargetThreads {
     });
     this.launches = new TargetLaunches(deps);
     this.rejections = new MessageRejections(deps.store, deps.now);
+    this.held = new HeldMessages(deps.store);
     this.markDelegatedFrom();
   }
   /**
@@ -533,8 +539,22 @@ export class TargetThreads {
       );
     const engine = this.deps.engine();
     if (!engine) throw new TargetRefusal("unavailable", "Agents are starting on this machine.");
+    // While admission is closed (a pause, an update, a full disk) the message is kept, once, and
+    // delivered when it reopens; nothing starts meanwhile. One already delivered is answered as
+    // before, and one never overtakes a message held before it.
+    const delivered = this.deps.store.commandReceipt(
+      CommandId.parse(`machine-message:${key}`),
+      DeviceId.parse(device.id),
+    );
+    if (!delivered) {
+      if (this.admits() && this.held.waiting(call.threadId)) this.resumeHeld();
+      if (!this.admits() || this.held.waiting(call.threadId)) {
+        this.held.hold(key, device.id, call);
+        return { arrival: "held" as const };
+      }
+    }
     try {
-      return this.deliver(device, call, engine, key);
+      return this.deliver(device.id, call, engine, key);
     } catch (error) {
       // Each refusal from here follows a step recorded under the request (the restart's stop, the
       // send, the queue move, the message's own fate), so every copy of the request gets the same
@@ -545,13 +565,13 @@ export class TargetThreads {
   }
   /** The message itself: each step is recorded under the request, so a retry repeats its answer. */
   private deliver(
-    device: Device,
+    deviceId: string,
     call: Extract<MachineCall, { op: "message" }>,
     engine: Engine,
     key: string,
   ) {
     const run = (id: string, payload: unknown): CommandResult => {
-      const command = Command.parse({ id, deviceId: device.id, payload });
+      const command = Command.parse({ id, deviceId, payload });
       return this.deps.store.recordCommand(command.id, command.deviceId, () =>
         engine.internalHandler.handle(command, commandContext(this.deps.store)),
       );
@@ -606,6 +626,45 @@ export class TargetThreads {
     const reading = messageArrival(engine.messageFacts(call.threadId, id), restart);
     if (!reading.ok) throw new TargetRefusal("invalid", reading.hint);
     return { arrival: reading.arrival };
+  }
+  /**
+   * Delivers the messages held while admission was closed, oldest first, once it is open again.
+   * A message whose device lost access or whose thread was deleted meanwhile is dropped, as it
+   * would have been refused; one this machine refuses on delivery is done with. Any other failure
+   * (a full disk) keeps it and the rest for the next reopen. Delivery is recorded per request, so
+   * one delivered before a failed removal is never sent twice.
+   */
+  resumeHeld(): void {
+    if (this.resuming) return;
+    this.resuming = true;
+    try {
+      for (;;) {
+        const batch = this.admits() ? this.held.oldest() : [];
+        if (!batch.length) return;
+        for (const message of batch) {
+          const engine = this.deps.engine();
+          if (!engine || !this.admits()) return;
+          const thread = this.deps.store.getThread(message.call.threadId);
+          if (
+            this.rejections.active({ id: DeviceId.parse(message.deviceId) }) &&
+            thread &&
+            thread.deletedAt === undefined
+          )
+            try {
+              this.deliver(message.deviceId, message.call, engine, message.key);
+            } catch (error) {
+              this.deps.report(error);
+              if (!(error instanceof TargetRefusal)) return;
+            }
+          this.held.remove(message.key);
+        }
+      }
+    } finally {
+      this.resuming = false;
+    }
+  }
+  private admits(): boolean {
+    return this.deps.admitsWork?.() !== false;
   }
   /** The person's answer from another device goes through this machine's own consent owners. */
   respond(device: Device, call: Extract<MachineCall, { op: "respond" }>) {
