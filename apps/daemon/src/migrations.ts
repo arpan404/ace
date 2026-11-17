@@ -191,7 +191,7 @@ const migrations = [
  * Oldest schema an existing database is upgraded from. Each step after it must carry the
  * backfill existing rows need to read correctly. Older databases are refused.
  */
-const UPGRADE_FLOOR = 14;
+export const UPGRADE_FLOOR = 14;
 /** The schema version this build migrates to. */
 export const schemaVersion = migrations.length;
 
@@ -231,14 +231,7 @@ export function migrate(db: DatabaseSync): void {
         `The daemon database is schema ${version}, and this build reads schema ${migrations.length}`,
         "Quit ace, then start it with a fresh ACE_HOME.",
       );
-    for (let i = version; i < migrations.length; i++) {
-      const sql = migrations[i];
-      if (sql === undefined) throw new Error("Missing migration");
-      db.exec(sql);
-      db.prepare(
-        "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
-      ).run(i + 1);
-    }
+    runSteps(db, version, migrations.length);
     // Pre-release branches once shipped different thread metadata columns under one schema
     // number. Those layouts are refused rather than repaired (AGENTS.md: no legacy upgrades).
     const columns = new Set(
@@ -258,6 +251,39 @@ export function migrate(db: DatabaseSync): void {
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
+  }
+}
+
+/**
+ * Builds a new, empty database at an older supported schema by running the steps the release
+ * that shipped it ran, so an upgrade test starts from that layout instead of rewinding a current
+ * one. Only the steps: what a Store creates at open is not part of a schema version.
+ */
+export function createDatabaseAt(db: DatabaseSync, version: number): void {
+  if (!Number.isInteger(version) || version < UPGRADE_FLOOR || version > migrations.length)
+    throw new Error(`Schema ${version} is not one this build upgrades from`);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(
+      "CREATE TABLE schema_version (id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL)",
+    );
+    runSteps(db, 0, version);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/** Runs steps `from` up to `to` in the caller's transaction, recording each version reached. */
+function runSteps(db: DatabaseSync, from: number, to: number): void {
+  for (let i = from; i < to; i++) {
+    const sql = migrations[i];
+    if (sql === undefined) throw new Error("Missing migration");
+    db.exec(sql);
+    db.prepare(
+      "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
+    ).run(i + 1);
   }
 }
 
