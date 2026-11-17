@@ -3522,6 +3522,7 @@ dependencies = [
 name = "spade-sandbox-windows"
 version = "0.1.0"
 dependencies = [
+ "tokio",
  "windows",
 ]
 

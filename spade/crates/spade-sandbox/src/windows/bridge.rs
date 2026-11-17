@@ -22,15 +22,11 @@ pub use win::{in_container, serve};
 
 #[cfg(windows)]
 mod win {
-    use std::io::{Read, Write};
-    use std::sync::Arc;
-
     use tokio::io::AsyncWriteExt;
     use tokio::net::TcpStream;
-    use tokio::net::windows::named_pipe::ServerOptions;
     use tokio::sync::watch;
 
-    use spade_sandbox_windows::pipe::PipeSecurity;
+    use spade_sandbox_windows::pipe::{self, PipeSecurity};
     use spade_sandbox_windows::sid::Sid;
 
     /// The daemon's side: accept pipe connections (only the run's container SID may open the pipe)
@@ -45,20 +41,13 @@ mod win {
             tracing::warn!("the egress bridge could not build its pipe's permissions");
             return;
         };
-        let security = Arc::new(security);
         let path = super::pipe_path(&pipe_name);
         let mut first = true;
         loop {
-            // SAFETY: `security` lives across the call; its pointer is a valid SECURITY_ATTRIBUTES.
-            let server = unsafe {
-                ServerOptions::new()
-                    .first_pipe_instance(first)
-                    .create_with_security_attributes_raw(&path, security.attributes().cast_mut())
-            };
-            first = false;
-            let Ok(server) = server else {
+            let Ok(server) = pipe::server(&path, &security, first) else {
                 return;
             };
+            first = false;
             tokio::select! {
                 connected = server.connect() => {
                     if connected.is_err() {
@@ -67,8 +56,6 @@ mod win {
                 }
                 _ = stop.changed() => return,
             }
-            let security = security.clone();
-            let _ = &security;
             tokio::spawn(async move {
                 let mut server = server;
                 if let Ok(mut proxy) = TcpStream::connect(("127.0.0.1", proxy_port)).await {

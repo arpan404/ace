@@ -59,6 +59,24 @@ impl PipeSecurity {
     }
 }
 
+/// A named-pipe server instance at `path` whose DACL is `security` (one bot's container SID). The
+/// unsafe call lives here because the rest of Spade forbids `unsafe`. `first` must be set on the
+/// first instance of a name and clear on the rest.
+pub fn server(
+    path: &str,
+    security: &PipeSecurity,
+    first: bool,
+) -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeServer> {
+    use tokio::net::windows::named_pipe::ServerOptions;
+    // SAFETY: `security` outlives the call; its pointer is a valid SECURITY_ATTRIBUTES with a
+    // self-relative descriptor, exactly what the parameter wants.
+    unsafe {
+        ServerOptions::new()
+            .first_pipe_instance(first)
+            .create_with_security_attributes_raw(path, security.attributes().cast_mut())
+    }
+}
+
 impl Drop for PipeSecurity {
     fn drop(&mut self) {
         if !self.descriptor.is_invalid() {
