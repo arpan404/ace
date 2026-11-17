@@ -98,7 +98,7 @@ export async function openCodexSession(
       }
       // Local RPC rejection cannot resolve translation's held completion. Retire the owned peer.
       emit("note", { event: "turn-correlation-timeout", threadId: thread });
-      void lifetime.failTransport();
+      lifetime.failTransport();
     };
     correlationDeadlines.set(id, io.schedule(expire, deadline - io.now()));
   }
@@ -151,7 +151,7 @@ export async function openCodexSession(
       }
       if (!optionalMethod || !(error instanceof RangeError)) {
         // A rejected incoming execution frame makes the peer detach. Its process is ours.
-        if (dir === "recv") void lifetime.failTransport();
+        if (dir === "recv") lifetime.failTransport();
         throw error;
       }
       emit("note", {
@@ -342,7 +342,7 @@ export async function openCodexSession(
     notification: (message) => onNotification(message),
     request: (message) => onRequest(message),
     stderr: (line) => lifetime.stderr(line),
-    failed: () => void lifetime.failTransport(),
+    failed: () => lifetime.failTransport(),
     exited: (exit) => lifetime.exited(exit),
   };
   const rpc: Pick<CodexChannel, "request"> = {

@@ -92,3 +92,30 @@ test("a reading that settles after the stop is ignored", async () => {
   expect(exceeded).toEqual([]);
   expect(clock.pending).toEqual([]);
 });
+
+test("a kill that throws when the limit is crossed is reported as an error, not left unhandled", async () => {
+  const clock = manualClock();
+  const errors: unknown[] = [];
+  const unhandled: unknown[] = [];
+  const hear = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", hear);
+  try {
+    watchMemory({
+      pid: 7,
+      limitBytes: 300,
+      intervalMs: 100,
+      sample: async () => 400,
+      schedule: clock.schedule,
+      onExceeded: () => {
+        throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+      },
+      onSampleError: (error) => errors.push(error),
+    });
+    await clock.tick();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(errors).toMatchObject([{ code: "EPERM" }]);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", hear);
+  }
+});

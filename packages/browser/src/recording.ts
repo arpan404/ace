@@ -179,7 +179,7 @@ export class Recording {
       // The helper kills ffmpeg on stdin EOF if the daemon dies.
       encoder.stdin?.on("error", () => {});
       const timer = setTimeout(() => encoder.kill("SIGTERM"), 120_000);
-      encoder.once("error", () => {
+      encoder.on("error", () => {
         clearTimeout(timer);
         resolve(false);
       });

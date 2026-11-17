@@ -58,3 +58,21 @@ it("a request whose signal was aborted before it was sent never reaches the help
   expect(await ops()).toEqual(["state com.apple.calculator"]);
   expect(children).toHaveLength(1);
 });
+
+it("a helper whose stdin pipe breaks mid-request fails that request and the next one gets a fresh helper", async () => {
+  const { helper, children } = await connection();
+  const stuck = helper.request(
+    "act",
+    { app: "com.example.stuck", actions: [{ type: "key", key: "Escape" }] },
+    10_000,
+    undefined,
+  );
+  // Wait until the request is on the wire, then the pipe breaks as an exiting helper's would.
+  while (children.length === 0 || !helper.busy()) await new Promise((r) => setTimeout(r, 10));
+  await new Promise((r) => setTimeout(r, 50));
+  const pipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+  expect(() => children[0]?.stdin.emit("error", pipe)).not.toThrow();
+  await expect(stuck).rejects.toMatchObject({ code: "helper_exited" });
+  await helper.request("state", { app: "com.apple.calculator" }, 10_000, undefined);
+  expect(children).toHaveLength(2);
+});
