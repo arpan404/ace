@@ -123,6 +123,8 @@ struct InboxSearchList: View {
     }
 
     private var everyKind: Bool { scope.kind == "all" && scope.project.isEmpty }
+    /// Machines are paired but none answers: the search couldn't be asked.
+    private var offline: Bool { !inbox.sessions.isEmpty && !inbox.sessions.contains { $0.client.connection == "ready" } }
 
     @ViewBuilder private var results: some View {
         if everyKind { actionSection }
@@ -133,6 +135,19 @@ struct InboxSearchList: View {
                     ForEach(threads) { found in threadRow(found) }
                 } header: { SearchHeader("Threads") }
             }
+        }
+        if everyKind, !everything.projects.isEmpty {
+            Section {
+                ForEach(everything.projects) { found in
+                    Button { remember(); actions.project(found.machineId, found.project.id) } label: {
+                        SearchPlainRow(title: found.project.name, icon: .folderSimple,
+                                       detail: inbox.showsMachineNames ? inbox.name(found.machineId) : nil)
+                    }
+                    .buttonStyle(.row)
+                    .accessibilityIdentifier("search.project.\(found.project.id)")
+                    .inboxRowChrome()
+                }
+            } header: { SearchHeader("Projects") }
         }
         if everyKind, !pulls.found.isEmpty || pulls.problem != nil {
             Section {
@@ -149,19 +164,6 @@ struct InboxSearchList: View {
                 }
             } header: { SearchHeader("Pull requests") }
         }
-        if everyKind, !everything.projects.isEmpty {
-            Section {
-                ForEach(everything.projects) { found in
-                    Button { remember(); actions.project(found.machineId, found.project.id) } label: {
-                        SearchPlainRow(title: found.project.name, icon: .folderSimple,
-                                       detail: inbox.showsMachineNames ? inbox.name(found.machineId) : nil)
-                    }
-                    .buttonStyle(.row)
-                    .accessibilityIdentifier("search.project.\(found.project.id)")
-                    .inboxRowChrome()
-                }
-            } header: { SearchHeader("Projects") }
-        }
         if scope.kind != "thread" { messageSection }
         if messages.loading && messages.merged(inbox).isEmpty && foundThreads.isEmpty {
             ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
@@ -169,8 +171,16 @@ struct InboxSearchList: View {
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
         } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
                     && pulls.found.isEmpty && !(everyKind && pulls.problem != nil) && messages.merged(inbox).isEmpty {
-            EmptyState.search(text)
-                .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            // Paired machines, none reachable: nothing was asked, so "No results" would be wrong.
+            Group {
+                if offline {
+                    EmptyState(icon: .magnifyingGlass, title: "Search is offline", line: "Search when reconnected.")
+                } else {
+                    EmptyState.search(text)
+                }
+            }
+            .padding(.top, AceDesign.Space.section)
+            .listRowSeparator(.hidden).listRowBackground(Color.clear)
         }
     }
 
