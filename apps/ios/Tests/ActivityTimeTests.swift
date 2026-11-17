@@ -42,4 +42,33 @@ import Testing
         #expect(span.contains("–"))
         #expect(EventClock.words(at: 0, locale: english, timeZone: utc) == "")
     }
+    private func command(settled: Bool, startedAt: Double?, awaiting: Bool? = nil) -> StepLine {
+        StepLine(icon: "command", verb: settled ? "Ran" : "Running", target: "bun run lint", note: "", settled: settled,
+                 failed: false, needsYou: false, added: nil, removed: nil, awaiting: awaiting, startedAt: startedAt)
+    }
+    @Test func aStepInFlightCountsUpFromItsStartAndShimmersUnlessMotionIsReduced() {
+        let started = now.addingTimeInterval(-7).timeIntervalSince1970 * 1000
+        let running = StepInFlight(step: command(settled: false, startedAt: started))
+        #expect(running.elapsed(now: now) == "7s")
+        #expect(running.elapsed(now: now.addingTimeInterval(87)) == "1m 34s")
+        #expect(running.shimmers(reduceMotion: false))
+        #expect(!running.shimmers(reduceMotion: true))
+    }
+    @Test func aStepThatSettledOrWaitsOnApprovalNeitherShimmersNorCounts() {
+        let started = now.addingTimeInterval(-7).timeIntervalSince1970 * 1000
+        for step in [command(settled: true, startedAt: started), command(settled: false, startedAt: started, awaiting: true)] {
+            #expect(StepInFlight(step: step).elapsed(now: now) == nil)
+            #expect(!StepInFlight(step: step).shimmers(reduceMotion: false))
+        }
+        // A running step whose start the bridge didn't send still shimmers, with no time.
+        let unknown = StepInFlight(step: command(settled: false, startedAt: nil))
+        #expect(unknown.elapsed(now: now) == nil)
+        #expect(unknown.shimmers(reduceMotion: false))
+    }
+    @Test func theShimmerBandCrossesTheWordsOncePerPeriod() {
+        let start = Date(timeIntervalSinceReferenceDate: 100 * Shimmer.period)
+        #expect(Shimmer.phase(at: start) == 0)
+        #expect(abs(Shimmer.phase(at: start.addingTimeInterval(Shimmer.period / 2)) - 0.5) < 0.0001)
+        #expect(Shimmer.phase(at: start.addingTimeInterval(Shimmer.period)) == 0)
+    }
 }
