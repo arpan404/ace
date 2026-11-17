@@ -281,7 +281,7 @@ struct ConversationFeed: View {
             @unknown default: break
             }
             intent.animating = phase == .animating
-            TranscriptJumpHooks.scrolling(phase != .idle)
+            TranscriptJumpHooks.scrolling(phase)
         }
         .onScrollGeometryChange(for: TranscriptScrollIntent.Metrics.self) { geometry in
             // The container is the area inside the insets; the feed runs under the header and

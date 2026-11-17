@@ -5,19 +5,23 @@ import UIKit
 /// themselves while a thread opens and while an older page lands. Each frame it reads where every
 /// row on screen is drawn (the layers' presentation values) and takes the median move of the rows
 /// it saw the frame before. A move nobody made is a jump: while the feed is at rest, any move;
-/// while a finger or a fling moves it, only what the rows moved within the content (the move
-/// less the scroll's own). Each run goes to the probe as `jump.<open|older>.frames` (frames
-/// sampled), `.moved` (frames that jumped), `.total` and `.max` (points), and `.trace`, one
-/// value per frame, so a UI test can hold the first paint and paging to keeping the reader's line
-/// still. Release builds compile it away.
+/// while a finger or a fling moves it, a break in that motion, a frame moving more than
+/// `smooth` points beyond the frame before. Each run goes to the probe as
+/// `jump.<open|older>.frames` (frames sampled), `.moved` (frames that jumped), `.total` and
+/// `.max` (points), and `.trace`, one entry per frame (`<on screen>/<within the content><phase>`,
+/// or the phase alone when nothing moved), so a UI test can hold the first paint and paging to
+/// keeping the reader's line still. Release builds compile it away.
 @MainActor final class TranscriptJumpProbe {
     static let shared = TranscriptJumpProbe()
     private var rows: [String: Weak] = [:]
     private weak var scroller: UIScrollView?
     private var link: CADisplayLink?
     private var run: Run?
-    /// The person or a fling is moving the feed (its scroll phase isn't idle).
-    private var moving = false
+    /// The feed's scroll phase: `i`dle, `t`racking, `d`ecelerating, `a`nimating, `n` interacting.
+    private var phase = "i"
+    private var moving: Bool { phase != "i" }
+    /// Runs finished, by name, so each page's run is kept apart.
+    private var counts: [String: Int] = [:]
 
     private struct Run {
         let name: String
@@ -27,6 +31,8 @@ import UIKit
         var painted = false
         var last: [String: Double] = [:]
         var offset: Double = 0
+        /// The last frame's move on screen.
+        var step: Double = 0
         var frames = 0
         var moved = 0
         var total: Double = 0
@@ -37,7 +43,7 @@ import UIKit
     func register(_ view: UIView, row id: String) { rows[id] = Weak(view: view) }
 
     /// The feed's scroll phase changed.
-    func scrolling(_ moving: Bool) { self.moving = moving }
+    func scrolling(_ phase: String) { self.phase = phase }
 
     /// Starts sampling `name` (`open`, `older`): from the first frame rows are on screen, for
     /// `span` seconds. A run already going is finished first.
@@ -72,18 +78,26 @@ import UIKit
         let onScreen = shifts.isEmpty ? Double.infinity : shifts[shifts.count / 2]
         // Within the content: the move on screen less the scroll's own.
         let inContent = onScreen + (offset - run.offset)
-        let jump = moving ? inContent : onScreen
+        // A fling slows by a few points a frame, and a finger moves about as evenly.
+        let smooth = 10.0
+        let jump = !moving ? onScreen : abs(onScreen - run.step) > smooth ? onScreen - run.step : 0
         if abs(jump) >= 0.5 {
             let size = jump.isFinite ? abs(jump) : 999
             run.moved += 1
             run.total += size
             run.most = max(run.most, size)
-            run.trace.append(jump.isFinite ? String(Int(jump.rounded())) : "swap")
+        }
+        // Each frame: the move on screen, then within the content, then the phase.
+        if !onScreen.isFinite {
+            run.trace.append("swap\(phase)")
+        } else if abs(onScreen) >= 0.5 || abs(inContent) >= 0.5 {
+            run.trace.append("\(Int(onScreen.rounded()))/\(Int(inContent.rounded()))\(phase)")
         } else {
-            run.trace.append(moving ? "m" : "0")
+            run.trace.append(phase)
         }
         run.last = seen
         run.offset = offset
+        run.step = onScreen.isFinite ? onScreen : 0
     }
 
     private func finish() {
@@ -92,9 +106,17 @@ import UIKit
         guard let run else { return }
         self.run = nil
         let key = "jump.\(run.name)"
-        PerfProbe.record(["\(key).frames": String(run.frames), "\(key).moved": String(run.moved),
-                          "\(key).total": String(Int(run.total.rounded())), "\(key).max": String(Int(run.most.rounded())),
-                          "\(key).trace": run.trace.joined(separator: ",")])
+        let count = (counts[run.name] ?? 0) + 1
+        counts[run.name] = count
+        let values = ["frames": String(run.frames), "moved": String(run.moved), "total": String(Int(run.total.rounded())),
+                      "max": String(Int(run.most.rounded())), "trace": run.trace.joined(separator: ",")]
+        // The latest run under `jump.<name>`, and each one under `jump.<name>.<n>`.
+        var entries: [String: String] = [:]
+        for (field, value) in values {
+            entries["\(key).\(field)"] = value
+            entries["\(key).\(count).\(field)"] = value
+        }
+        PerfProbe.record(entries)
         PerfProbe.add("\(key).runs", 1)
         PerfProbe.add("\(key).movedAll", Double(run.moved))
     }
@@ -165,9 +187,19 @@ enum TranscriptJumpHooks {
         if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name) }
         #endif
     }
-    @MainActor static func scrolling(_ moving: Bool) {
+    @MainActor static func scrolling(_ phase: ScrollPhase) {
         #if ACE_FIXTURE
-        if PerfProbe.enabled { TranscriptJumpProbe.shared.scrolling(moving) }
+        guard PerfProbe.enabled else { return }
+        let letter: String
+        switch phase {
+        case .idle: letter = "i"
+        case .tracking: letter = "t"
+        case .interacting: letter = "n"
+        case .decelerating: letter = "d"
+        case .animating: letter = "a"
+        @unknown default: letter = "?"
+        }
+        TranscriptJumpProbe.shared.scrolling(letter)
         #endif
     }
 }

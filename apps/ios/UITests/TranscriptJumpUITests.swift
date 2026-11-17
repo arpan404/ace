@@ -38,11 +38,12 @@ import XCTest
             transcript.fling(older: true)
         }
         XCTAssertTrue(app.waitForProbe("jump.older.runs", atLeast: 2, timeout: 20), "two older pages loaded")
-        let run = jumpRun(app, "older")
-        let all = app.probeValue("jump.older.movedAll") ?? -1
-        print("jump older ios-reading: \(run); jumped frames over all pages \(all)")
-        XCTAssertGreaterThan(run.frames, 30, "frames were sampled: \(run)")
-        XCTAssertEqual(all, 0, "no page moved the rows on screen: \(run)")
+        let pages = [jumpRun(app, "older.1"), jumpRun(app, "older.2")]
+        for (n, page) in pages.enumerated() { print("jump older ios-reading page \(n + 1): \(page)") }
+        for page in pages {
+            XCTAssertGreaterThan(page.frames, 30, "frames were sampled: \(page)")
+            XCTAssertEqual(page.moved, 0, "the page didn't move the rows on screen: \(page)")
+        }
     }
 
     private func open(_ threadId: String) -> XCUIApplication {
