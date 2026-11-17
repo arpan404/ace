@@ -135,6 +135,13 @@ export const SettingsValues = z.object({
    */
   "beta.marketplace": z.boolean(),
   /**
+   * Ask me before agents publish (ADR 0176 owner decision 1). Off by default: an agent's publish
+   * through `market_publish` or `ace market` from its shell follows the provider's permissions.
+   * On, every agent publish becomes a request in the asking thread's strip that only a person's
+   * device answers. Global, admin only.
+   */
+  "market.askBeforeAgentPublish": z.boolean(),
+  /**
    * Android emulators ace starts open their own window too, for its extended controls
    * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.
    * Read when an emulator boots, so a change applies to the next boot. Emulators the person

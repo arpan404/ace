@@ -1,0 +1,63 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketVerifiedList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "ace-market-verified",
+      "type": "string"
+    },
+    "issued": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "publishers": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "handle": {
+            "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+          },
+          "id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "proofs": {
+            "items": {
+              "$ref": "https://ace.local/protocol/v1/MarketVerificationProof.json"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "handle",
+          "proofs",
+          "at"
+        ],
+        "type": "object"
+      },
+      "maxItems": 10000,
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "issued",
+    "publishers",
+    "key"
+  ],
+  "type": "object"
+}

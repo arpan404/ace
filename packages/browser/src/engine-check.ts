@@ -94,7 +94,7 @@ function supervise(child: Child, timeoutMs: number, run: Run): Promise<Run> {
       run.timedOut = true;
       kill();
     }, timeoutMs);
-    child.once("error", (error) => {
+    child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
     });

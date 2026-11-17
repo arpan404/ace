@@ -166,3 +166,23 @@ test.runIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "the lock is taken in a home where no file can be made, as on a full disk, and only a held lock is called another daemon's",
+  () => {
+    const dataDir = join(root(), ".ace");
+    acquireLock(dataDir)();
+    // No new file can be made in the home: what a disk with no free block does too.
+    chmodSync(dataDir, 0o500);
+    try {
+      const release = acquireLock(dataDir);
+      try {
+        expect(() => acquireLock(dataDir)).toThrow("Another daemon owns it");
+      } finally {
+        release();
+      }
+    } finally {
+      chmodSync(dataDir, 0o700);
+    }
+  },
+);

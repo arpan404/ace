@@ -11,6 +11,7 @@ import { RecentSet } from "./retention.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { readCodexToolFacts } from "./tool-facts.ts";
+import { codexShellEnvConfig } from "./shell-env.ts";
 import { codexToolListing } from "./tool-search.ts";
 import { configuredTurnPolicy } from "./default-permissions.ts";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
@@ -98,7 +99,7 @@ export async function openCodexSession(
       }
       // Local RPC rejection cannot resolve translation's held completion. Retire the owned peer.
       emit("note", { event: "turn-correlation-timeout", threadId: thread });
-      void lifetime.failTransport();
+      lifetime.failTransport();
     };
     correlationDeadlines.set(id, io.schedule(expire, deadline - io.now()));
   }
@@ -151,7 +152,7 @@ export async function openCodexSession(
       }
       if (!optionalMethod || !(error instanceof RangeError)) {
         // A rejected incoming execution frame makes the peer detach. Its process is ours.
-        if (dir === "recv") void lifetime.failTransport();
+        if (dir === "recv") lifetime.failTransport();
         throw error;
       }
       emit("note", {
@@ -342,7 +343,7 @@ export async function openCodexSession(
     notification: (message) => onNotification(message),
     request: (message) => onRequest(message),
     stderr: (line) => lifetime.stderr(line),
-    failed: () => void lifetime.failTransport(),
+    failed: () => lifetime.failTransport(),
     exited: (exit) => lifetime.exited(exit),
   };
   const rpc: Pick<CodexChannel, "request"> = {
@@ -519,15 +520,14 @@ export async function openCodexSession(
     > = configured
       ? configuredTurnPolicy(await configured)
       : codexThreadPolicy(permissionMode, ctx.cwd);
+    const shellEnv = codexShellEnvConfig(ctx.agentEnv);
     const params = {
       cwd: ctx.cwd,
       ...threadPolicy,
-      ...(injection
-        ? {
-            developerInstructions: injection.developerInstructions,
-            config: { ...threadPolicy.config, ...injection.config },
-          }
+      ...(injection || Object.keys(shellEnv).length
+        ? { config: { ...threadPolicy.config, ...injection?.config, ...shellEnv } }
         : {}),
+      ...(injection ? { developerInstructions: injection.developerInstructions } : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
     const result = obj(

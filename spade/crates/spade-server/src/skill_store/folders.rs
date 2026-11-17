@@ -4,7 +4,10 @@
 //! removed. [`recover`] tidies what a crash left: a moved-aside folder whose skill has no folder
 //! goes back, everything else staged or aside is removed.
 
-use std::io::Write;
+use std::io::{Read, Write};
+
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::fs::{Dir, OpenOptions};
 use std::path::{Component, Path, PathBuf};
 
 /// A file to write into a skill's folder.
@@ -136,34 +139,91 @@ pub(super) fn remove(root: &Path, id: &str) -> std::io::Result<()> {
     }
 }
 
-/// `SKILL.md` of `<root>/<id>`.
-pub(super) fn read_skill(root: &Path, id: &str) -> std::io::Result<String> {
-    if !usable_id(id) {
-        return Err(std::io::Error::other(format!("{id} is not a skill id")));
-    }
-    std::fs::read_to_string(root.join(id).join("SKILL.md"))
+/// SKILL.md is read at most this large.
+pub(super) const SKILL_MD_BYTES: u64 = 1024 * 1024;
+
+/// `O_NONBLOCK`, so opening a FIFO planted in a skill's folder never waits for a writer.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const NONBLOCK: i32 = 0o4000;
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+const NONBLOCK: i32 = 0x0004;
+
+fn refused(message: String) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
 }
 
-/// One of `<root>/<id>`'s files, refused past `largest` bytes, never through a link.
+/// `<root>/<id>`, opened without following a link: a skill folder that is a link is refused.
+fn skill_dir(root: &Path, id: &str) -> std::io::Result<Dir> {
+    if !usable_id(id) {
+        return Err(refused(format!("{id} is not a skill id")));
+    }
+    Dir::open_ambient_dir(root, cap_std::ambient_authority())?.open_dir_nofollow(id)
+}
+
+/// The regular file `name` in `dir`, never through a link, and refused once it passes `largest`
+/// bytes while it is read. The checks are made on the opened handle, so nothing can be swapped
+/// in between checking and reading.
+fn read_regular(dir: &Dir, name: &Path, shown: &str, largest: u64) -> std::io::Result<Vec<u8>> {
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        options.custom_flags(NONBLOCK);
+    }
+    let file = dir.open_with(name, &options).map_err(|e| {
+        refused(format!(
+            "{shown} can't be opened as the skill's own file: {e}"
+        ))
+    })?;
+    if !file.metadata()?.is_file() {
+        return Err(refused(format!("{shown} is not a regular file")));
+    }
+    let mut bytes = Vec::new();
+    file.take(largest + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > largest {
+        return Err(refused(format!(
+            "{shown} is larger than {} KB",
+            largest / 1024
+        )));
+    }
+    Ok(bytes)
+}
+
+/// `<root>/<id>/SKILL.md`, read without following a link, at most [`SKILL_MD_BYTES`].
+pub(super) fn read_skill(root: &Path, id: &str) -> std::io::Result<String> {
+    let dir = skill_dir(root, id)?;
+    let bytes = read_regular(&dir, Path::new("SKILL.md"), "SKILL.md", SKILL_MD_BYTES)?;
+    String::from_utf8(bytes).map_err(|_| refused("SKILL.md isn't text".to_owned()))
+}
+
+/// One of `<root>/<id>`'s files, refused past `largest` bytes. Every folder on the way and the
+/// file itself are opened relative to the one before, without following a link.
 pub(super) fn read_file(
     root: &Path,
     id: &str,
     relative: &str,
     largest: u64,
 ) -> std::io::Result<Vec<u8>> {
-    let Some(inner) = inside(relative).filter(|_| usable_id(id)) else {
-        return Err(std::io::Error::other(format!(
-            "{relative} is not in the skill"
-        )));
+    let Some(inner) = inside(relative) else {
+        return Err(refused(format!("{relative} is not in the skill")));
     };
-    let path = root.join(id).join(inner);
-    let meta = std::fs::symlink_metadata(&path)?;
-    if !meta.is_file() || meta.len() > largest {
-        return Err(std::io::Error::other(format!(
-            "{relative} is not a file Spade keeps"
-        )));
+    let parts: Vec<_> = inner
+        .components()
+        .map(|c| c.as_os_str().to_owned())
+        .collect();
+    let Some((last, folders)) = parts.split_last() else {
+        return Err(refused(format!("{relative} is not in the skill")));
+    };
+    let mut dir = skill_dir(root, id)?;
+    for folder in folders {
+        dir = dir.open_dir_nofollow(folder).map_err(|e| {
+            refused(format!(
+                "{relative} can't be opened as the skill's own file: {e}"
+            ))
+        })?;
     }
-    std::fs::read(path)
+    read_regular(&dir, Path::new(last), relative, largest)
 }
 
 /// After a crash mid-replace: a folder moved aside whose skill has no folder goes back; every

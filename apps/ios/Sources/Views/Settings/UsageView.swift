@@ -105,6 +105,13 @@ struct UsageView: View {
                 .accessibilityIdentifier("usage.refresh")
             }
             if inbox.sessions.count > 1 { coverageLine }
+            if tab != .limits, let filling = report?.filling {
+                Text(filling)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("usage.filling")
+            }
         }
     }
 

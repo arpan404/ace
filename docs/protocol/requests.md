@@ -1482,8 +1482,7 @@ Example:
 ```json
 {
   "operation": {
-    "id": "6WCk3EU673FnXxIICoaHdbgC2pzPFHSgjB3nJMF3PRqxXElx1hrDmolXSD-MDWdqikSx0vkBaZ-",
-    "op": "cancel"
+    "op": "discover"
   },
   "requestId": "example",
   "type": "marketplace.request"

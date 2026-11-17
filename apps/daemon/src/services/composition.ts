@@ -110,6 +110,7 @@ export function readyServices(
     handle: (command, store) =>
       services.asks?.resolve(command) ??
       services.browserHelp?.resolve(command) ??
+      services.marketAgent?.requests.resolve(command) ??
       handler.handle(command, store),
   };
 }

@@ -144,48 +144,66 @@ export class AccountManagement {
     });
   }
   async initialize(): Promise<void> {
-    await this.options.registry.ready;
-    for (const { instance } of this.options.registry.pendingInstances())
-      await this.discardPending(instance.id);
-    await registerImplicitAccounts(this.options.registry, this.options.env);
-    // Restore isolated catalog identities on restart, using only read-only metadata probes.
-    for (const { instance, quota } of this.options.registry.list())
-      if (instance.managed && !quota.blockers.homeUnavailable) {
-        this.options.signal?.throwIfAborted();
-        if (this.options.configuration?.(instance.provider, instance.id).enabled === false)
-          continue;
-        await assertManagedHome(this.options.dataDir, instance);
-        const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
-        if (instance.provider === "cursor" && !sdk) continue;
-        const env = instanceEnv(
-          instance,
-          sdk?.env ?? this.options.env,
-          sdk ? "cursor-sdk" : undefined,
-        );
-        if (
-          this.options.registry.get(instance.id)?.quota.auth !== "logged_out" &&
-          instance.provider !== "acp"
-        ) {
-          const discovery = configuredProviderDiscovery(
-            instance.provider,
-            this.options.configuration?.(instance.provider, instance.id).binaryPath,
-            this.options.discovery,
-          );
-          const executable =
-            instance.provider === "pi"
-              ? (discovery.executable ?? defaultProviderExecutable(instance.provider))
-              : (discovery.overrides?.[instance.provider] ??
-                defaultProviderExecutable(instance.provider));
-          this.registerCatalog(instance, sdk !== undefined, executable, env);
-        }
-        const refresh = this.refresh(instance);
-        this.restorations.add(refresh);
-        void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
-      }
+    const registry = this.options.registry;
+    for (const { instance } of registry.pendingInstances()) await this.discardPending(instance.id);
+    // The CLIs' own logins are re-read once their records are checked; those touch no folder,
+    // so they are checked first and never wait behind a silent one (ADR 0175).
+    await Promise.all(
+      registry
+        .list()
+        .filter(({ instance }) => instance.implicit && registry.isChecking(instance.id))
+        .map(({ instance }) => registry.checked(instance.id)),
+    );
+    await registerImplicitAccounts(registry, this.options.env);
+    // Restore isolated catalog identities on restart, using only read-only metadata probes. Each
+    // account is restored once its own folder answers, never after every other account's.
+    for (const { instance, quota } of registry.list())
+      if (!instance.managed) continue;
+      else if (this.options.registry.isChecking(instance.id))
+        void this.options.registry
+          .checked(instance.id)
+          .then(() => this.restoreLater(instance.id))
+          .catch(() => {});
+      else if (!quota.blockers.homeUnavailable) await this.restoreManaged(instance);
     // Limits as they stand now, not only as the last session left them.
     const limits = this.limits.refresh();
     this.restorations.add(limits);
     void limits.catch(() => {}).finally(() => this.restorations.delete(limits));
+  }
+  /** A managed account whose home answered after startup, restored as at startup. */
+  private async restoreLater(id: string): Promise<void> {
+    const account = this.options.registry.get(id);
+    if (this.closed || !account?.instance.managed || account.quota.blockers.homeUnavailable) return;
+    const restore = this.restoreManaged(account.instance);
+    this.restorations.add(restore);
+    await restore.finally(() => this.restorations.delete(restore));
+  }
+  private async restoreManaged(instance: ProviderInstance): Promise<void> {
+    this.options.signal?.throwIfAborted();
+    if (this.options.configuration?.(instance.provider, instance.id).enabled === false) return;
+    await assertManagedHome(this.options.dataDir, instance);
+    const sdk = instance.provider === "cursor" ? this.options.cursor?.() : undefined;
+    if (instance.provider === "cursor" && !sdk) return;
+    const env = instanceEnv(instance, sdk?.env ?? this.options.env, sdk ? "cursor-sdk" : undefined);
+    if (
+      this.options.registry.get(instance.id)?.quota.auth !== "logged_out" &&
+      instance.provider !== "acp"
+    ) {
+      const discovery = configuredProviderDiscovery(
+        instance.provider,
+        this.options.configuration?.(instance.provider, instance.id).binaryPath,
+        this.options.discovery,
+      );
+      const executable =
+        instance.provider === "pi"
+          ? (discovery.executable ?? defaultProviderExecutable(instance.provider))
+          : (discovery.overrides?.[instance.provider] ??
+            defaultProviderExecutable(instance.provider));
+      this.registerCatalog(instance, sdk !== undefined, executable, env);
+    }
+    const refresh = this.refresh(instance);
+    this.restorations.add(refresh);
+    void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
   }
   /** Read every account's current limits where its CLI can say without a model turn. */
   async refreshLimits(): Promise<void> {

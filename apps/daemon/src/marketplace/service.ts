@@ -5,8 +5,8 @@ import type {
   MarketPublishAction,
   MarketResult,
 } from "@ace/protocol/marketplace";
-import type { WithdrawalTarget } from "@ace/marketplace";
-import { type MarketKeySet } from "@ace/protocol/marketplace";
+import { privacySpans, withSentences, type WithdrawalTarget } from "@ace/marketplace";
+import { MarketPickType, type MarketKeySet, type MarketMe } from "@ace/protocol/marketplace";
 import type { GitRuntime } from "@ace/plugins";
 import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
 import { GitCatalogs } from "./git.ts";
@@ -24,6 +24,8 @@ import {
 import { learnWithdrawn, readWithdrawn, refreshSource, withdrawalOf } from "./listings.ts";
 import { applyBlocklist, blockedEntry, blockedFindings } from "./blocklist.ts";
 import { discover, publisherPage, report } from "./discover.ts";
+import { checkDraft, confirmedArchive } from "./check.ts";
+import { botRecipe, listPublishables, type PickPorts } from "./pick.ts";
 import { publishAction, type MarketGrantPort } from "./publish.ts";
 import { badgesOf, Trust } from "./trust.ts";
 import type { MarketPublisher } from "@ace/protocol/marketplace";
@@ -56,6 +58,8 @@ export interface MarketplaceOptions {
   suits: () => SuitPort | undefined;
   plugins: () => MarketPluginPort | undefined;
   spade: SpadePort;
+  /** What the publish flow's picker reads: Spade's bots and skills, ace's skills, plugins. */
+  pick?: PickPorts | undefined;
   /** Runs `run` after `ms`; returns its cancel. */
   schedule: (run: () => void, ms: number) => () => void;
   /**
@@ -66,6 +70,15 @@ export interface MarketplaceOptions {
   /** Tests add catalogs by local path; people add https addresses only. */
   allowLocalGit?: boolean;
 }
+
+/** Draft sources read and checked on this machine before anything is uploaded. */
+const checkedKinds: ReadonlySet<string> = new Set([
+  "folder",
+  "spade-bot",
+  "spade-skill",
+  "ace-skill",
+  "plugin",
+]);
 
 const reviewLifetimeMs = 30 * 60_000;
 const staleMs = 60 * 60_000;
@@ -94,6 +107,8 @@ const error = (
 export interface MarketRequestPorts {
   /** Mints a market grant for a `publish` action; absent or undefined answers `signed_out`. */
   grant?: MarketGrantPort | undefined;
+  /** The signed-in person's own name and email, which the privacy pass flags. */
+  names?: readonly string[] | undefined;
 }
 
 export class MarketplaceService {
@@ -251,6 +266,92 @@ export class MarketplaceService {
     }
   }
 
+  /**
+   * The picker's ports, answering what was installed from the marketplace or a git catalog
+   * (any source) from this service's own installs: those are never the person's to publish.
+   */
+  #pick(names: readonly string[] = []): PickPorts | undefined {
+    const pick = this.#options.pick;
+    if (!pick) return undefined;
+    const types = {
+      "spade-skill": ["spade-skill"],
+      "spade-plugin": ["spade-plugin", "ace-plugin"],
+    };
+    return {
+      ...pick,
+      names: async () => [...(await pick.names()), ...names],
+      installedFromMarket: (type, name) =>
+        this.#store
+          .installs()
+          .some((each) => each.name === name && types[type].includes(each.type)),
+    };
+  }
+
+  /**
+   * One publish action. A draft from something picked or a folder is checked on this machine
+   * first (`draftCheck`), and created only from the archive the person's confirmation of that
+   * check allows; nothing else of it reaches the market.
+   */
+  async #publish(request: MarketPublishAction, ports: MarketRequestPorts): Promise<MarketResult> {
+    const base = { http: this.#http(), grant: ports.grant };
+    const drafting =
+      request.action === "draftCheck" ||
+      request.action === "draftCreate" ||
+      request.action === "draftUpdate"
+        ? request
+        : undefined;
+    const source = drafting?.source;
+    if (!drafting || !source || !checkedKinds.has(source.kind))
+      return publishAction(base, this.#ownFolder(request));
+    const pick = this.#pick(ports.names);
+    if (!pick) return error("unavailable", "Publishing isn't set up on this machine");
+    // The publisher's page is asked for (minting a grant) only when it is needed, so a folder
+    // that can't be published is refused before any grant.
+    let asked: Promise<MarketMe> | undefined;
+    let failed: MarketResult | undefined;
+    const me = () =>
+      (asked ??= publishAction(base, { action: "me" }).then((mine) => {
+        if (mine.op === "publish" && mine.answer.kind === "me") return mine.answer.me;
+        failed =
+          mine.op === "error" ? mine : error("failed", "The market didn't answer who you are");
+        throw new Refused("The market didn't answer who you are");
+      }));
+    try {
+      return await this.#checked(drafting, source, pick, base, me);
+    } catch (thrown) {
+      // Signed out or unreachable while asking who the publisher is: say that, as any action does.
+      if (failed) return failed;
+      throw thrown;
+    }
+  }
+
+  async #checked(
+    drafting: Extract<
+      MarketPublishAction,
+      { action: "draftCheck" | "draftCreate" | "draftUpdate" }
+    >,
+    source: NonNullable<typeof drafting.source>,
+    pick: PickPorts,
+    base: Parameters<typeof publishAction>[0],
+    me: () => Promise<MarketMe>,
+  ): Promise<MarketResult> {
+    const draft =
+      drafting.action === "draftUpdate"
+        ? (await me()).drafts.find((each) => each.id === drafting.id)
+        : drafting;
+    if (!draft) return error("not_found", "There is no such draft");
+    const type = MarketPickType.safeParse(draft.type);
+    if (!type.success) return error("invalid", "Only a bot, a skill or a plugin is checked here");
+    const input = { type: type.data, name: draft.name, source, me };
+    if (drafting.action === "draftCheck") {
+      const check = await checkDraft(pick, input);
+      if (!check) return error("invalid", "There is nothing to check");
+      return { op: "publish", answer: { kind: "checked", check } };
+    }
+    const archive = await confirmedArchive(pick, { ...input, checked: drafting.checked });
+    return publishAction({ ...base, archive }, drafting);
+  }
+
   /** A draft from one of the person's Suits names that Suit's folder on this machine. */
   #ownFolder(action: MarketPublishAction): MarketPublishAction {
     if (!("source" in action) || action.source?.kind !== "suit") return action;
@@ -372,10 +473,27 @@ export class MarketplaceService {
           operation.handle,
         );
       case "publish":
-        return publishAction(
-          { http: this.#http(), grant: ports.grant },
-          this.#ownFolder(operation.request),
-        );
+        return this.#publish(operation.request, ports);
+      case "publishables": {
+        const pick = this.#pick();
+        if (!pick) return error("unavailable", "Publishing isn't set up on this machine");
+        return listPublishables(pick, operation.type);
+      }
+      case "privacyCheck": {
+        const pick = this.#pick(ports.names);
+        const names = pick ? await pick.names() : [];
+        return {
+          op: "privacyCheck",
+          spans: operation.texts.map((text) =>
+            withSentences(privacySpans(text, { names }).slice(0, 200)),
+          ),
+        };
+      }
+      case "botRecipe": {
+        const pick = this.#pick();
+        if (!pick) return error("unavailable", "Publishing isn't set up on this machine");
+        return botRecipe(pick, operation.id);
+      }
       case "report":
         return report(this.#http(), operation);
       case "picture": {

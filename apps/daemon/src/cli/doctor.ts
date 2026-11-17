@@ -20,10 +20,10 @@ import { runTriage, triageInteractive } from "./triage.ts";
 export async function doctorCommand(args: Args, config: Config): Promise<void> {
   validateArgs(args, ["fix", "dry-run", "provider", "all"], 1);
   if (args.flags.remote)
-    throw new CliFailure(
-      "refused",
-      "Doctor runs on this computer. Run ace doctor on the affected host.",
-    );
+    throw new CliFailure("refused", "Doctor runs only on this computer, not a remote.", undefined, {
+      code: "refused",
+      hint: "Run ace doctor on the affected machine.",
+    });
   const providerValue = option(args, "provider");
   const provider = providerValue === undefined ? undefined : TriageProvider.parse(providerValue);
   const dryRun = !!args.flags["dry-run"];

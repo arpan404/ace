@@ -14,7 +14,7 @@ import {
 import { approve, blocklistBy, officialBy, signerIoOf } from "./testing/discover-harness.ts";
 
 /*
- * `ace market sign` scans again before it signs (ADR 0173 §8, §9): against the real Worker, a
+ * `ace market sign` scans again before it signs (ADR 0174 §8, §9): against the real Worker, a
  * stored version the newest blocklist names is blocked, a warn nobody approved is held, an
  * official version is held unless approved, and only the rest is listed.
  */

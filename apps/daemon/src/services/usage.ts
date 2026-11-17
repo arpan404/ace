@@ -1,5 +1,4 @@
 import { logError, logFields } from "@ace/diagnostics";
-import { warmup } from "./warmup.ts";
 import { createDaemonUsage, loadUsageSettings } from "../usage.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startUsage(context: ServiceContext): Promise<void> {
@@ -29,8 +28,11 @@ export async function startUsage(context: ServiceContext): Promise<void> {
   );
   resources.own(() => usage.close());
   services.usage = usage;
+  // Opening reads only the saved cursor. Replaying the history behind it is derived data: it runs
+  // after start, one bounded page per turn of the event loop, resuming from the cursor that each
+  // committed page advances, while summaries fill in as it goes (ADR 0170). A failed page retries
+  // with backoff (`createDaemonUsage`) instead of holding the service in "starting".
   await usage.start();
-  void warmup(context, "usage", () => usage.catchUp());
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";

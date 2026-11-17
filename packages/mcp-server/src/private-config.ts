@@ -31,7 +31,18 @@ export function privateMcpConfig(content: string, workspace?: string) {
     rmSync(directory, { recursive: true, force: true });
     throw error;
   }
-  return { path, remove: () => rmSync(directory, { recursive: true, force: true }) };
+  return {
+    path,
+    // Runs from process-exit callbacks: a folder still held (Windows antivirus or an indexer,
+    // EBUSY/EPERM) is retried briefly, then left to the temp directory, never thrown.
+    remove: () => {
+      try {
+        rmSync(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+      } catch {
+        /* Left behind; its lease secrets already ended with the session. */
+      }
+    },
+  };
 }
 
 /** Read only a bounded private regular file, with symlinks rejected at open. */

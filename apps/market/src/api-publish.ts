@@ -55,14 +55,14 @@ import {
 } from "./store/publish.ts";
 
 /*
- * Publishing (ADR 0168 §7, ADR 0173 §5, §8, §9): the CLI's one-step upload and the app's drafts.
+ * Publishing (ADR 0168 §7, ADR 0174 §5, §8, §9): the CLI's one-step upload and the app's drafts.
  * A market grant names the account; an entry belongs to whoever first published it. Every
  * version runs the format checks and the scan before anything is stored: a block is refused
  * (the CLI records it as a blocked version with its report), a warn, a new publisher's first
  * version and every version published as `ace` are held for a maintainer, the rest wait for the
  * signer. A version number never names other bytes, except one the scan blocked.
  *
- * Across databases (ADR 0173 §16): the entry and its versions are in the type's catalogue;
+ * Across databases (ADR 0174 §16): the entry and its versions are in the type's catalogue;
  * drafts, the quota and the upload count are in the publishers database. The quota is reserved
  * there first (a charge for a version stored straight away, or the draft's claim), then the
  * catalogue stores the version.
@@ -88,7 +88,7 @@ const quota = (message: string) => failure(429, "quota", message);
 const changed = () =>
   failure(409, "conflict", "The draft changed while it was being published; try again.");
 
-/** The publisher's caps, by their standing now (ADR 0173 §9). */
+/** The publisher's caps, by their standing now (ADR 0174 §9). */
 const capsOf = (publisher: AuthedPublisher, now: number) =>
   publisherLimits(limitTier(publisher, now));
 
@@ -246,7 +246,7 @@ export async function publish(
   if (!scanned.done) {
     const refusal = await reserve(false);
     if (refusal) return refusal;
-    // Too much to read in one request: it carries on as a draft (ADR 0173 §8).
+    // Too much to read in one request: it carries on as a draft (ADR 0174 §8).
     const id = context.newId("drf");
     const written = await writeDraft(
       publishers,
@@ -347,7 +347,7 @@ async function draftChecked(context: Context, draft: DraftTable) {
 }
 
 /**
- * One more budgeted step of a draft's scan (ADR 0173 §8), from a request for the draft or the
+ * One more budgeted step of a draft's scan (ADR 0174 §8), from a request for the draft or the
  * cron. Every step is bound to the draft's hash: bytes that aren't the ones the row names (a
  * replace on its way) are left for later, and a step lands only while the draft still names the
  * bytes it read. Answers whether the scan is done now.
@@ -472,7 +472,7 @@ const emptyJob = () => ({
   state: { scanner: 1, cursor: 0, files: 0, textBytes: 0, findings: [], facts: {} },
 });
 
-/** `/v1/me/drafts…` (ADR 0173 §5). */
+/** `/v1/me/drafts…` (ADR 0174 §5). */
 export async function draftRoute(
   request: Request,
   url: URL,
@@ -543,7 +543,7 @@ export async function draftRoute(
 }
 
 /**
- * Publishes a draft (ADR 0173 §5, §16). The report, the bytes and the version are bound to the
+ * Publishes a draft (ADR 0174 §5, §16). The report, the bytes and the version are bound to the
  * draft's hash: the report must have scanned the hash the row names, the archive read again from
  * R2 must hash the same, and the draft is claimed for the version only while it still names that
  * hash with its scan done; the claim moves its bytes onto the version's charge in the same

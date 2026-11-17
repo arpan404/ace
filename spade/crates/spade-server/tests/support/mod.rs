@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 pub mod gated;
 pub mod plugins;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod sandbox;
 
 use keyring_core::mock;

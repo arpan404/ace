@@ -332,6 +332,11 @@ impl Plugins {
         Ok(())
     }
 
+    /// The plugins the person allowed `agent`, by name, whether or not they are on now.
+    pub fn allowed(&self, agent: &str) -> BTreeSet<String> {
+        self.access.allowed(agent)
+    }
+
     /// Who raises the request when a server or hook would run outside the sandbox: the engine.
     pub fn ask_through(&self, asker: std::sync::Weak<dyn outside::Ask>) {
         self.outside.set_asker(asker);

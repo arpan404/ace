@@ -10,7 +10,7 @@ import { reviewKey, type EntryKey, type PreparedReview } from "./market-api.ts";
  * What an entry looks like, from what this machine already knows: a Suit's palette from the Suit
  * library when it is installed (or built in), else from its review once one was prepared; a
  * bot's face from its review. Nothing is fetched for a card: a listing without a picture of its
- * own shows its type's mark until the market's listings carry previews (ADR 0173).
+ * own shows its type's mark until the market's listings carry previews (ADR 0174).
  */
 
 /** The Suit's `suit.json` from its review, as the library would read it; undefined if it isn't one. */

@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketReportState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "open",
+    "dismissed",
+    "kept",
+    "withdrawn",
+    "blocked"
+  ],
+  "type": "string"
+}

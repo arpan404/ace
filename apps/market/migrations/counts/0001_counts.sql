@@ -1,4 +1,4 @@
--- Download counts and what is ranked from them (ADR 0168 §3, §10; ADR 0173 §6, §16). Counts
+-- Download counts and what is ranked from them (ADR 0168 §3, §10; ADR 0174 §6, §16). Counts
 -- only: nothing names who fetched.
 
 -- Trending's pass and when it last ranked.

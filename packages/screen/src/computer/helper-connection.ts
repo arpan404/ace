@@ -277,6 +277,14 @@ export class HelperConnection {
       }
     });
     child.stderr.resume();
+    // A pipe that breaks (EPIPE as the helper exits mid-write) leaves this helper unusable.
+    // Unheard, the stream's error event would end the daemon; the exit fails the running job.
+    const broken = () => {
+      if (this.child === child) this.kill();
+    };
+    child.stdin.on("error", broken);
+    child.stdout.on("error", broken);
+    child.stderr.on("error", () => {});
     const failed = (code: string, message: string) => () => {
       if (this.child === child) this.child = undefined;
       const job = this.current;

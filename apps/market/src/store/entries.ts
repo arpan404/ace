@@ -9,7 +9,7 @@ import { entryManagement, entryState, type EntryTable } from "./rows.ts";
 import { versionsOf } from "./read.ts";
 
 /*
- * Keeping an entry's row in step with its versions, inside its type's catalogue (ADR 0173 §16).
+ * Keeping an entry's row in step with its versions, inside its type's catalogue (ADR 0174 §16).
  * Every visible change takes the catalogue's next stamp, which is strictly greater than the last
  * and never behind the clock, inside the same transaction as the change, so `since` never misses
  * one. The publisher's standing comes from the catalogue's copy of it (`store/copies.ts`).

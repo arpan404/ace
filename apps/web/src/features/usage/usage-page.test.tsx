@@ -591,6 +591,27 @@ test("the figures count every machine, and one that goes offline is named, not d
   expect(screen.queryByRole("article", { name: /· Build server$/ })).toBeNull();
 });
 
+test("while the daemon is still counting older history the page says so in one sentence, gone once counted", async () => {
+  const app = harness();
+  app.daemon.services.usage.filling = { through: 1_000, head: 90_000 };
+  await app.open("/usage");
+
+  await screen.findByText("Usage is still being counted; totals will grow.");
+  app.daemon.services.usage.filling = undefined;
+  await userEvent.click(screen.getByRole("button", { name: "Refresh limits" }));
+  await waitFor(() => expect(screen.queryByText(/is still being counted/)).toBeNull());
+});
+
+test("among several machines, the still-counting sentence names the one whose history isn't counted yet", async () => {
+  const app = harness({ machines: [{ hostId: "build-server", name: "Build server" }] });
+  const server = app.machines.get("build-server");
+  if (!server) throw new Error("no build server");
+  server.services.usage.filling = { through: 1_000, head: 90_000 };
+  await app.open("/usage");
+
+  await screen.findByText("Usage on Build server is still being counted; totals will grow.");
+});
+
 test("the page goes straight from the title to Limits, with no summary sentence", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [50, 4 * hour, 300] });

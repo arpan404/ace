@@ -1,4 +1,4 @@
-//! A server whose bots' commands run through the macOS sandbox (ADR 0167), a fake home folder
+//! A server whose bots' commands run through the machine's sandbox (ADR 0167), a fake home folder
 //! holding the person's files, and one bot: the world the security and effects process tests
 //! share.
 
@@ -178,7 +178,8 @@ async fn world_built(
     let spade = Spade::start_with(scripts, tools, options).await?;
     bots.set(&spade.engine);
     let runner = if sandboxed {
-        spade_sandbox::Runner::probe(None)
+        // Linux starts Spade's own binary as the launcher; macOS's sandbox needs none.
+        spade_sandbox::Runner::probe(Some(PathBuf::from(env!("CARGO_BIN_EXE_spade"))))
     } else {
         spade_sandbox::Runner::unavailable("no sandbox in this test")
     };

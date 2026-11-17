@@ -3,23 +3,28 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { SettingsService } from "@ace/settings";
 import type { SpadeServiceState } from "../spade/rules.ts";
 import type { SpadeServiceControl } from "../spade/service-control.ts";
-import { parseArgs } from "./args.ts";
-import { featuresCommand } from "./features.ts";
-import { spadeCommand } from "./spade.ts";
+import type { Args } from "./args.ts";
+import { betaFeature, readFeatures, switchFeature } from "./features.ts";
+import { CliFailure } from "./output.ts";
+import { featureWords, spadeSwitchWords } from "./render/spade.ts";
+import { switchSpade } from "./spade.ts";
 
-/** A home with Spade turned on in Settings › Beta. */
-async function shownHome(onTestFinished: (run: () => Promise<void>) => void): Promise<string> {
-  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
-  await writeFile(
-    join(home, "settings.json"),
-    JSON.stringify({ version: 2, settings: { "beta.spade": true } }),
-  );
-  return home;
+const noFlags: Args = { words: [], flags: {} };
+
+/** A fresh home; `shown` turns Spade on in Settings › Beta. */
+async function home(onTestFinished: (run: () => Promise<void>) => void, shown = false) {
+  const dir = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  if (shown)
+    await writeFile(
+      join(dir, "settings.json"),
+      JSON.stringify({ version: 2, settings: { "beta.spade": true } }),
+    );
+  return dir;
 }
 
 /** A service manager that only records what it was asked to do. */
@@ -40,49 +45,43 @@ function serviceManager() {
   };
   return { control, asked, state: () => state };
 }
-async function saved(home: string): Promise<unknown> {
-  const settings = new SettingsService({ dataDir: home });
+
+async function saved(dir: string, key: "spade.enabled" | "beta.spade"): Promise<unknown> {
+  const settings = new SettingsService({ dataDir: dir });
   try {
-    return (await settings.get("spade.enabled")).value;
+    return (await settings.get(key)).value;
   } finally {
     await settings.close();
   }
 }
 
+const feature = async (
+  dir: string,
+  name: "spade" | "marketplace",
+  on: boolean,
+  control: SpadeServiceControl = serviceManager().control,
+) => featureWords(await switchFeature(noFlags, dir, name, on, () => control));
+
 test("with no daemon running, ace spade on|off registers or removes Spade's service and saves the setting", async ({
   onTestFinished,
 }) => {
-  const home = await shownHome(onTestFinished);
-  const printed = quietStdout(onTestFinished);
+  const dir = await home(onTestFinished, true);
   const manager = serviceManager();
 
-  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  const on = await switchSpade(noFlags, dir, true, manager.control);
   expect(manager.asked).toEqual(["installBinary", "register"]);
-  expect(await saved(home)).toBe(true);
-  expect(printed.at(-1)).toContain("once the ace daemon runs");
+  expect(await saved(dir, "spade.enabled")).toBe(true);
+  expect(spadeSwitchWords(on)).toContain("once the ace daemon runs");
 
   // Already running: on again leaves the service alone.
-  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  await switchSpade(noFlags, dir, true, manager.control);
   expect(manager.asked).toEqual(["installBinary", "register"]);
 
-  await spadeCommand(parseArgs(["spade", "off"]), home, manager.control);
+  await switchSpade(noFlags, dir, false, manager.control);
   expect(manager.state()).toBe("absent");
-  expect(await saved(home)).toBe(false);
+  expect(await saved(dir, "spade.enabled")).toBe(false);
 });
 
-/** Stdout swallowed for the test, its text kept. */
-function quietStdout(onTestFinished: (run: () => void) => void): string[] {
-  const printed: string[] = [];
-  vi.spyOn(process.stdout, "write").mockImplementation((text: unknown, done?: unknown) => {
-    printed.push(String(text));
-    if (typeof done === "function") done();
-    return true;
-  });
-  onTestFinished(() => {
-    vi.restoreAllMocks();
-  });
-  return printed;
-}
 /** A loopback port nothing listens on. */
 async function closedPort(): Promise<number> {
   const server = createServer();
@@ -98,119 +97,147 @@ async function closedPort(): Promise<number> {
 test("a daemon-endpoint left by a daemon that is gone still lets ace spade act without it", async ({
   onTestFinished,
 }) => {
-  const home = await shownHome(onTestFinished);
-  quietStdout(onTestFinished);
-  await writeFile(join(home, "daemon-endpoint"), `http://127.0.0.1:${await closedPort()}`);
-  await writeFile(join(home, "daemon-token"), "t".repeat(64));
+  const dir = await home(onTestFinished, true);
+  await writeFile(join(dir, "daemon-endpoint"), `http://127.0.0.1:${await closedPort()}`);
+  await writeFile(join(dir, "daemon-token"), "t".repeat(64));
   const manager = serviceManager();
-  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  await switchSpade(noFlags, dir, true, manager.control);
   expect(manager.asked).toEqual(["installBinary", "register"]);
-  expect(await saved(home)).toBe(true);
+  expect(await saved(dir, "spade.enabled")).toBe(true);
 });
 
 test("a daemon that runs but doesn't answer is never worked around: ace spade fails and changes nothing", async ({
   onTestFinished,
 }) => {
-  const home = await shownHome(onTestFinished);
-  quietStdout(onTestFinished);
+  const dir = await home(onTestFinished, true);
   // A daemon still starting: it takes connections and answers none of them.
   const held: Socket[] = [];
   const starting = createServer((socket) => held.push(socket));
   starting.listen(0, "127.0.0.1");
   await once(starting, "listening");
-  onTestFinished(() => {
+  onTestFinished(async () => {
     for (const socket of held) socket.destroy();
     starting.close();
   });
   const address = starting.address();
   if (!address || typeof address === "string") throw new Error("No port");
-  await writeFile(join(home, "daemon-endpoint"), `http://127.0.0.1:${address.port}`);
-  await writeFile(join(home, "daemon-token"), "t".repeat(64));
+  await writeFile(join(dir, "daemon-endpoint"), `http://127.0.0.1:${address.port}`);
+  await writeFile(join(dir, "daemon-token"), "t".repeat(64));
   const manager = serviceManager();
 
   await expect(
-    spadeCommand(parseArgs(["spade", "on", "--timeout", "1s"]), home, manager.control),
+    switchSpade({ words: [], flags: { timeout: "1s" } }, dir, true, manager.control),
   ).rejects.toThrow("running but didn't answer");
   expect(manager.asked).toEqual([]);
-  expect(await saved(home)).not.toBe(true);
+  expect(await saved(dir, "spade.enabled")).not.toBe(true);
 });
 
-test("ace spade refuses anything but on or off", async () => {
-  await expect(
-    spadeCommand(parseArgs(["spade", "maybe"]), "/nowhere", serviceManager().control),
-  ).rejects.toThrow("ace spade on|off");
-});
-
-test("ace spade on is refused while Spade is turned off in Beta, and works once ace features turns it on", async ({
+test("off a terminal, ace spade on is refused while Beta hides Spade, and changes nothing", async ({
   onTestFinished,
 }) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const printed = quietStdout(onTestFinished);
+  const dir = await home(onTestFinished);
   const manager = serviceManager();
-  await expect(spadeCommand(parseArgs(["spade", "on"]), home, manager.control)).rejects.toThrow(
-    /turned off in Settings › Beta/,
+  const refused: unknown = await switchSpade(noFlags, dir, true, manager.control).catch(
+    (error: unknown) => error,
   );
+  expect(refused).toBeInstanceOf(CliFailure);
+  expect(refused).toMatchObject({
+    outcome: "refused",
+    detail: { code: "turned_off", hint: expect.stringContaining("--yes") },
+  });
+  expect(manager.asked).toEqual([]);
+  expect(await saved(dir, "beta.spade")).toBe(false);
+});
+
+test("ace spade on --yes turns the Beta switch on too, then Spade", async ({ onTestFinished }) => {
+  const dir = await home(onTestFinished);
+  const manager = serviceManager();
+  const result = await switchSpade({ words: [], flags: { yes: true } }, dir, true, manager.control);
+  expect(result).toEqual({ enabled: true, live: false, beta: true });
+  expect(await saved(dir, "beta.spade")).toBe(true);
+  expect(await saved(dir, "spade.enabled")).toBe(true);
+  expect(manager.asked).toEqual(["installBinary", "register"]);
+});
+
+test("on a terminal, ace spade on asks once before turning Beta on, and a no changes nothing", async ({
+  onTestFinished,
+}) => {
+  const dir = await home(onTestFinished);
+  const manager = serviceManager();
+  let asked = 0;
+  const answer = (yes: boolean) => async () => {
+    asked++;
+    return yes;
+  };
+  await expect(switchSpade(noFlags, dir, true, manager.control, answer(false))).rejects.toThrow(
+    "Spade stays off",
+  );
+  expect(asked).toBe(1);
+  expect(await saved(dir, "beta.spade")).toBe(false);
   expect(manager.asked).toEqual([]);
 
-  await featuresCommand(parseArgs(["features", "on", "spade"]), home, manager.control);
-  await featuresCommand(parseArgs(["features"]), home);
-  expect(printed.at(-1)).toContain("Spade: on");
-  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  const result = await switchSpade(noFlags, dir, true, manager.control, answer(true));
+  expect(asked).toBe(2);
+  expect(result.beta).toBe(true);
   expect(manager.asked).toEqual(["installBinary", "register"]);
-
-  await featuresCommand(parseArgs(["features", "off", "spade"]), home, manager.control);
-  await featuresCommand(parseArgs(["features"]), home);
-  expect(printed.at(-1)).toContain("Spade: off");
-  // Off in Beta keeps Spade's own switch as it was.
-  expect(await saved(home)).toBe(true);
+  // Once Beta shows Spade, nothing is asked again.
+  await switchSpade(noFlags, dir, true, manager.control, answer(true));
+  expect(asked).toBe(2);
 });
 
-test("ace features turns the marketplace on and off, and refuses anything else", async ({
+test("ace feature off spade keeps Spade's own switch as it was", async ({ onTestFinished }) => {
+  const dir = await home(onTestFinished);
+  const manager = serviceManager();
+  await feature(dir, "spade", true, manager.control);
+  expect(await readFeatures(dir)).toMatchObject({ spade: true });
+  await switchSpade(noFlags, dir, true, manager.control);
+  expect(manager.asked).toEqual(["installBinary", "register"]);
+
+  await feature(dir, "spade", false, manager.control);
+  expect(await readFeatures(dir)).toMatchObject({ spade: false });
+  expect(await saved(dir, "spade.enabled")).toBe(true);
+});
+
+test("ace feature turns the marketplace on and off, and names the features for anything else", async ({
   onTestFinished,
 }) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
-  const printed = quietStdout(onTestFinished);
-  await featuresCommand(parseArgs(["features"]), home);
-  expect(printed.at(-1)).toContain("Marketplace: off");
-  await featuresCommand(parseArgs(["features", "on", "marketplace"]), home);
-  await featuresCommand(parseArgs(["features"]), home);
-  expect(printed.at(-1)).toContain("Marketplace: on");
-  await expect(featuresCommand(parseArgs(["features", "show", "spade"]), home)).rejects.toThrow(
-    "ace features on|off spade|marketplace",
+  const dir = await home(onTestFinished);
+  expect(await readFeatures(dir)).toEqual({ spade: false, marketplace: false });
+  expect(await feature(dir, "marketplace", true)).toBe("The marketplace is turned on.");
+  expect(await readFeatures(dir)).toEqual({ spade: false, marketplace: true });
+  expect(await feature(dir, "marketplace", false)).toContain("keeps working");
+  expect(() => betaFeature("marketplac")).toThrow(
+    expect.objectContaining({
+      outcome: "usage",
+      detail: expect.objectContaining({ hint: "Did you mean marketplace?" }),
+    }),
   );
+  expect(() => betaFeature("show")).toThrow("FEATURE must be spade or marketplace");
 });
 
 test("an old features.json that shows Spade still lets ace spade on through until it is moved", async ({
   onTestFinished,
 }) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
-  quietStdout(onTestFinished);
-  await writeFile(join(home, "features.json"), '{"spade": true}');
+  const dir = await home(onTestFinished);
+  await writeFile(join(dir, "features.json"), '{"spade": true}');
   const manager = serviceManager();
-  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  await switchSpade(noFlags, dir, true, manager.control);
   expect(manager.asked).toEqual(["installBinary", "register"]);
 });
 
-test("with no daemon running, ace features off spade stops Spade's service and keeps its data and switch", async ({
+test("with no daemon running, ace feature off spade stops Spade's service and keeps its data and switch", async ({
   onTestFinished,
 }) => {
-  const home = await shownHome(onTestFinished);
-  const printed = quietStdout(onTestFinished);
+  const dir = await home(onTestFinished, true);
   const manager = serviceManager();
-  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
-  await writeFile(join(home, "kept.txt"), "Spade's data");
+  await switchSpade(noFlags, dir, true, manager.control);
+  await writeFile(join(dir, "kept.txt"), "Spade's data");
 
-  await featuresCommand(parseArgs(["features", "off", "spade"]), home, manager.control);
-
+  expect(await feature(dir, "spade", false, manager.control)).toContain("service was stopped");
   expect(manager.state()).toBe("absent");
-  expect(printed.at(-1)).toContain("service was stopped");
-  expect(await saved(home)).toBe(true);
-  expect(await readFile(join(home, "kept.txt"), "utf8")).toBe("Spade's data");
+  expect(await saved(dir, "spade.enabled")).toBe(true);
+  expect(await readFile(join(dir, "kept.txt"), "utf8")).toBe("Spade's data");
 
   // With no service to stop, the words say only what happened.
-  await featuresCommand(parseArgs(["features", "off", "spade"]), home, manager.control);
-  expect(printed.at(-1)).not.toContain("stopped");
+  expect(await feature(dir, "spade", false, manager.control)).not.toContain("stopped");
 });

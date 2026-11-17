@@ -9,7 +9,7 @@ import { scanEntry, type ScanContext } from "./index.ts";
 import { viewOf } from "./script-view.ts";
 
 /*
- * The data-flow rule inverted (ADR 0173 §8): beside a network or program sink, a read the scanner
+ * The data-flow rule inverted (ADR 0174 §8): beside a network or program sink, a read the scanner
  * can't prove harmless is held, whatever runtime or spelling it uses, and the whole environment
  * reaching the network is blocked. A cap that drops code blocks as `scan-truncated`.
  */

@@ -1,7 +1,8 @@
 # 0167: Spade's security boundaries
 
-Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15: the capability waves are
-done; add security at the real boundaries so the blanket asks can go). From the Spade harness
+Status: accepted; amended 2026-11-17 (amendment 1: Linux). Date: 2026-11-15. Decided by: the
+owner (2026-11-15: the capability waves are done; add security at the real boundaries so the
+blanket asks can go). From the Spade harness
 audit (part C, the security model; wave 1 and the security items of wave 4) and its research
 notes (topic 5). Amends [ADR 0130](0130-spade-skills-and-workspace.md) (the shell's rules),
 [ADR 0142](0142-a-bots-computer.md) (what a bot's commands run in) and
@@ -185,8 +186,9 @@ filesystem and network isolation are both required.
      place, file writes in the workspace under taint run without a review too. Until then they
      keep it.
 
-9. **Platform fallbacks.** Without the sandbox (Windows today; Linux without Landlock, or with
-   network `partial`; macOS where the probe fails), commands run as they do today and every
+9. **Platform fallbacks.** Without the sandbox (Windows where no AppContainer can be made, or a
+   run it can't contain — Amendment 2; Linux without Landlock, or with network `partial`; macOS
+   where the probe fails), commands run as they do today and every
    review above stays. Spade reports why in the sandbox status. A failure to confine one run on a
    machine where the sandbox is available fails that run, so it never runs unconfined. It fails
    closed.
@@ -226,7 +228,8 @@ filesystem and network isolation are both required.
 - A plugin server that reads files outside its folder, or reaches the network without honouring
   proxy variables, stops working until the person grants a folder or the server honours them.
   The egress log names refused hosts, so the person can add them.
-- Linux and Windows keep today's reviews until their boundaries are complete and tested.
+- Linux and Windows keep today's reviews until their boundaries are complete and tested; what
+  each now holds, and for which runs, is in Amendments 1 (Linux) and 2 (Windows).
 
 ## Tests
 
@@ -240,7 +243,256 @@ filesystem and network isolation are both required.
 - The engine is tested through the API: a contained shell call runs unreviewed, and a call that
   isn't contained, or one with a kept finding, is still reviewed.
 
-## Amendment: Windows' sandbox is built (2026-11-17)
+## Amendment 1: Linux's sandbox, as built (2026-11-17)
+
+Replaces the Linux bullet of decision 1, the Linux part of decision 9 and the last consequence.
+Linux counts as `contained` only with Landlock ABI 3 or newer and contained files, network,
+signals, syscalls, devices, IPC and processes. Only then does ADR 0171's sandboxed path (no classifier,
+no reviewer) apply there as on macOS.
+
+1. **Keep the launcher outside the command's restrictions.** `spade sandbox-exec <plan>
+<program> <args>…` carves and opens the plan's roots, lowers its limits, becomes a subreaper,
+   and starts one thread that applies Landlock and seccomp to itself. The command inherits
+   both. Other launcher threads answer notifications, forward signals and reap descendants.
+   Spade forbids `unsafe`; this uses `landlock`, `libseccomp` (system libseccomp 2.5 or later,
+   LGPL, dynamically linked), `rustix`, `signal-hook` and util-linux.
+2. **Default-deny syscalls on the two verified native ABIs.** Repeated reviews of a
+   default-allow filter found missed ways to affect host state. Replace it with an explicit
+   developer-tool allowlist on x86_64 and aarch64. Known unlisted calls return `EPERM`.
+   Numbers unknown to libseccomp in the current 0 to 511 allocation range return `ENOSYS` for
+   libc fallback; higher numbers remain `EPERM`. `clone3` also returns `ENOSYS` because its
+   namespace flags are behind a pointer. Foreign ABIs kill the process. Other native
+   architectures fail the filtered probe and retain reviews.
+
+   The policy was built from the sandbox/security/effects suites and traced real git clone
+   through the proxy, Cargo build/test, npm install, Python venv and make workloads. It also
+   includes reviewed native equivalents and runtime primitives needed across the two ABIs.
+   The admitted list is 210 native syscall numbers on x86_64 and 177 on aarch64, including
+   conditional and supervised calls. `linux/allowlist.rs`, `linux/seccomp.rs` and
+   `linux/metadata.rs` are authoritative; [the syscall inventory](../../spade/docs/linux-syscalls.md)
+   records the names, conditions and smoke evidence. Future compatibility fixes must add a
+   specific reviewed call, rather than restore a default-allow branch. The accepted cost is
+   that an untested tool may need an allowlist addition.
+
+3. **Landlock for files, with supervised metadata.** Require ABI 3's truncate right.
+   ABI 1 to 2 report `files: partial` and retain reviews; denying path-based truncate alone
+   cannot contain `open(O_TRUNC)` and `ftruncate`. Read-write roots are the workspace,
+   `.spade/tmp`, consented write folders and a terminal's state files. System folders,
+   confirmed toolchains, read grants and plugin folders are read-only. `/dev` is excluded
+   even from a broad consented root. Roots containing denied places are carved on opened
+   objects without following links; denied inodes and multiply linked files met during
+   carving are omitted. The same descriptors receive Landlock rules.
+
+   Landlock does not mediate chmod, chown, xattr or timestamp writes. Notify all their
+   native variants, including `fchmodat2` (number 452 even on Debian 12's older libseccomp).
+   The supervisor copies arguments, opens targets no-follow with `openat2`, authorizes them
+   against the actual pinned write objects installed in Landlock, and performs the operation
+   on the pinned object. It never continues a path or fd mutation in the caller. Descriptor
+   targets are duplicated and their reopened identity must match. Symlink ancestors and
+   unresolved/deleted fd paths are refused. Only explicit no-follow ownership/timestamp
+   operations may change a symlink itself. Device metadata cannot be changed.
+
+4. **Minimal devices, a dedicated terminal and no shared host IPC.** Grant only `/dev/null`,
+   `/dev/zero`, `/dev/full`, `/dev/random`, `/dev/urandom`, `/dev/tty`, and the command's
+   dedicated pty. Never grant all of `/dev` or `/dev/pts`. The person's own terminal and a
+   different terminal of the same user cannot be opened. Separate sessions mean `/dev/tty` can
+   refer only to the command's own controlling terminal.
+
+   A command used to inherit the person's terminal on stdio, and a terminal-control ioctl on it
+   (TIOCSWINSZ, TCSETS) changed the person's terminal. Now, when any of the launcher's stdin,
+   stdout or stderr is a terminal, the outermost launcher (before any namespace) opens a fresh
+   pty itself, copies the caller's modes and size, and gives the command the pty in place of
+   each terminal; non-terminal stdio passes through, and with no terminal nothing changes.
+   With the pty on stdin, `setsid --ctty` makes it the controlling terminal. The launcher relays
+   output, and keystrokes while it may read stdin, holding the caller's terminal raw so the line
+   discipline runs once; SIGWINCH copies the size. After the whole tree ends it drains the last
+   output (at most two seconds) and restores the caller's modes before ending as the command
+   did. The Landlock rule names that pty's node, verified against the opened pty by device and
+   inode, so the command never holds the person's terminal through stdio.
+
+   A dedicated pty alone still let the command's output drive the person's terminal: OSC 52
+   clipboard writes and reads, titles, window and size controls, queries answered back as
+   keystrokes, and persistent emulator settings. The relay therefore passes output through an
+   allowlist filter, a byte-at-a-time state machine that keeps its place across reads, so a
+   sequence split between reads is judged whole. It keeps UTF-8 text, newline, carriage
+   return, tab, backspace and bell; SGR; cursor movement, saving and restoring; erasing,
+   inserting, deleting, scrolling regions and repeat; the DEC line-drawing set and SO/SI;
+   keypad and cursor-key modes, autowrap, cursor visibility and the alternate screens
+   (`?47`, `?1047`, `?1048`, `?1049`); and ANSI insert mode. It drops every OSC, DCS, APC, PM and
+   SOS string whole, `CSI … t`, every query (`CSI n`, `CSI c`, ENQ, `ESC Z`, DECRQM, XTVERSION),
+   mouse, focus and paste modes, other private modes, sequences with a private marker or
+   intermediates (cursor style, soft reset, key modifiers), resets, tab-stop changes, other C0
+   controls, and 8-bit C1 controls, raw or UTF-8 encoded, with overlong and surrogate encodings
+   refused. A string left open ends at the next ESC, as on a terminal. Each kept CSI operation
+   is checked with the parameters it takes within the visible screen: erase in display or line
+   only with no parameter, 0, 1 or 2 (`ESC[3J`, which erases the person's scrollback, is
+   dropped), cursor position and scroll margins with at most two numbers, cursor save and
+   restore with none, the other movement, erasing, inserting, deleting, scrolling and repeat
+   operations with at most one, sub-parameters only in SGR. The accepted cost: tools that wait
+   on a query (a cursor-position report) time out and fall back.
+
+   The end of the output always restores the person's terminal, whatever the command did,
+   since tracking modes failed: cursor save and restore and the alternate screen carry
+   attributes past a reset (`ESC[8m ESC7 ESC[0m ESC8` left text concealed), and autowrap, insert
+   mode and margins weren't tracked. The relay sends `?1049l` if the command is on a `?1049h`
+   alternate screen (on the main screen it would move the cursor to the command's last saved
+   position), then, unconditionally, leaves any alternate screen (`?1047l`), resets SGR, puts
+   ASCII in G0 and G1 and shifts in, turns autowrap on and insert mode off, saves the cursor,
+   resets the scroll margins to the full screen and restores the cursor (resetting the margins
+   homes it; this also leaves a clean rendition in the cursor-save slot for the person's
+   prompt), shows the cursor, and resets cursor-key and keypad modes. These are a normal
+   terminal's defaults.
+
+   The restore is sent on every way out. The output worker writes whole sequences under a lock
+   that the relay's end also takes, so the restore follows the last complete write and nothing
+   follows it. Finishing waits up to two seconds for the last output; then, or when the relay is
+   dropped on an error or unwind, the end is sent from its own thread, waited for up to five
+   seconds, so a slow reader still gets it and only a terminal that reads nothing misses it. The
+   outer launcher drops its copy of the command's stdin as soon as init has it: a kept pty
+   descriptor had held the pty open, so every run on a terminal waited out the two seconds.
+
+   Raw mode is held by a guard set before the change is applied and dropped on every way out:
+   finishing, an error, a failed thread start (every relay thread starts through
+   `thread::Builder`, and a failure stops the run) or an unwind. A relay that can't start
+   starts no command.
+
+   Use this precise Landlock policy rather than retaining mount privileges or depending on
+   private devpts support. The unprivileged launcher after exec has no mount capabilities;
+   signal namespaces do not give its command those privileges. No `/dev/ptmx` or `/dev/shm`
+   is granted, including on namespace-capable hosts. Tools needing new PTYs or POSIX shared
+   memory therefore need further design. If a future private devpts/tmpfs path is added,
+   it must preserve the same boundary and be probed before claiming coverage.
+
+   The private user/PID/mount namespace launch (decision 6) also requests a private IPC
+   namespace before confinement. Every SysV IPC call is unlisted on every ABI: shm, semaphore
+   and message creation, attachment, operations and control all fail `EPERM`, so IPC stays
+   contained where the namespace can't start. Below ABI 6 an unavailable namespace fails the
+   filtered launch; no path falls back to shared host IPC while claiming containment.
+
+5. **Supervise socket addresses and PID/TID effects.** Landlock ABI 4 limits TCP ports,
+   but cannot limit an address. Notify connect, bind and listen. Copy and judge the address,
+   duplicate the socket through a pidfd, then perform the operation in the supervisor.
+   Permit TCP only to loopback at the proxy's port, loopback binds, and Unix stream/seqpacket
+   sockets in the workspace. Refuse AF_UNSPEC. Hold a shared lock keyed by socket device/inode
+   from the check through the operation. Listen requires this supervisor's successful bind
+   and a fresh getsockname check under that lock; retained descriptors prevent inode reuse.
+   Socket creation is conditional; UDP, DNS, raw/packet/netlink sockets, Unix datagrams,
+   abstract sockets and MSG_FASTOPEN are refused.
+
+   Notify prlimit64, sched_setaffinity/setscheduler/setparam/setattr, setpriority, ioprio_set,
+   kcmp and pidfd_open. Only zero or self IDs are accepted where the syscall defines them;
+   task operations accept the notifying TID as well as the current process. Priority
+   selectors must name processes. Both kcmp IDs must be positive self IDs. pidfd_open
+   accepts a positive process ID, or the notifying TID with PIDFD_THREAD; NONBLOCK is optional,
+   unknown flags and zero are refused. Older kernels may reject THREAD with EINVAL. setrlimit
+   is already self-only. process_madvise/mrelease, process_vm, ptrace, NUMA migration and
+   pidfd_getfd stay unlisted. No fd/pointer target is checked and then continued.
+
+   ioctl has an explicit request list: read-only terminal queries on any descriptor (TCGETS,
+   TCGETS2, TIOCGWINSZ, TIOCGPGRP, TIOCGSID, TIOCGPTN, FIONREAD), fd controls and file
+   cloning. Terminal changes (TCSETS, TCSETSW, TCSETSF, their termios2 forms and TIOCSWINSZ)
+   are notified as a second layer behind the dedicated pty: the supervisor copies the value,
+   duplicates the caller's descriptor and makes the change itself only on the dedicated pty;
+   another terminal answers `EPERM`. Nothing is checked and then continued. The cost: a
+   background job's mode change on its own pty is applied instead of stopping it with SIGTTOU.
+   TIOCSCTTY and TIOCSPGRP stay direct because the kernel scopes them to the caller's own
+   controlling terminal, which in its new session can only be the dedicated pty; taking a
+   terminal another session controls needs CAP_SYS_ADMIN. TIOCSPTLCK is dropped. prctl has
+   self-only options. Make's UID/GID restoration is conditional on the launcher's current real
+   IDs or the no-change sentinel. Namespace changes, arbitrary ioctls, nested seccomp,
+   io_uring and kernel administration remain unlisted. no_new_privs is set; open files are
+   capped at 65,536 and tasks at the machine's current count plus 4,096.
+
+6. **A private PID namespace and `/proc`, separate sessions and every signal form isolated.**
+   On every Landlock ABI, util-linux unshare creates a private user, PID, IPC and mount
+   namespace with a fresh proc before confinement; the launcher grants that `/proc` whole. It
+   lists only the command's own processes. Before, ABI 6+ shared the host's PID namespace and
+   `/proc` was readable whole, so a command could list every process's command line.
+   Namespace PID 1 must successfully call setsid.
+
+   The launchers keep no state at any pathname. Init used to report the command's ending signal
+   through a temporary file under `TMPDIR`, which is inside the sandbox's writable workspace, and
+   to meet the outer launcher at a socket path under `/tmp`, which a person may grant. A
+   contained process could swap either for a link before the unrestricted init opened it, and
+   a test showed init then wrote through the link to a file outside. Now the outer launcher makes
+   a Unix seqpacket pair before anything is restricted and gives one end to unshare as stdin;
+   init takes it from descriptor 0 and points 0 at `/dev/null`. Over it the outer launcher sends
+   the command's stdin, stdout and stderr (`SCM_RIGHTS`), init sends its own pidfd, the outer
+   launcher checks that the pidfd names unshare's child and answers, and only then does init
+   start the command. If the command ends by a signal, init's last message says which. The
+   launchers open paths only in `/proc`, `/dev` and the device and grant objects carving
+   opens without following links. Signals go directly through init's pidfd, bypassing unshare's
+   waiting parent. TERM/HUP escalates to killing namespace init after 500 ms, ending all
+   descendants. This contains queued/thread signals without emulating their semantics.
+   ABI 6+ also uses Landlock signal and abstract-socket scoping.
+
+   Where unprivileged user namespaces aren't allowed the probe falls back to a plan without
+   the namespace, which grants only `/proc`'s machine-wide entries (`cpuinfo`, `meminfo`,
+   `stat`, `loadavg`, `uptime`, `version`, `filesystems`, `sys`), never a process's folder or a
+   link into one. Granting `/proc/self` and `/proc/thread-self` alone isn't possible: Landlock
+   rules hold inodes, the links resolve to `/proc/<pid>` of whoever follows them, and every
+   descendant has its own, so the command's own folder stays closed as well. Such runs report
+   `processes: partial` with a plain reason and keep reviews; below ABI 6 the filtered launch
+   fails closed there too and Landlock alone is used.
+
+   On every ABI the freshly spawned child runs through `/usr/bin/setsid` before exec.
+   This creates a private session/group without an unsafe Rust pre_exec hook. Failure
+   starts no command. INT, QUIT, TERM and HUP are forwarded to that private group; interrupts
+   do not escalate. A failed old-kernel namespace or init handshake fails the filtered probe
+   and leaves signals partial. A filtered launch repeats setup and fails closed on each run.
+
+7. **Serialize and bound shutdown work.** TERM/HUP escalates after 250 ms through a
+   pre-opened leader pidfd and owned-child kills. Normal exit also drains adopted descendants.
+   A single reaper mutex serializes SIGCHLD, shutdown killing and wait operations. Kill and
+   reap at most 32 children per pass, without retaining a descriptor per child. Pin proc
+   directories and check PPid and start time around pidfd acquisition. On EMFILE release four
+   reserved descriptors; if a pidfd still cannot be obtained, re-check the pinned identity
+   and kill by PID while the reaper lock prevents child reaping and PID reuse. Every reap is
+   nonblocking; an incomplete sweep never enters a blocking wait. Repeat discovery and
+   bounded passes until authoritative ECHILD. WNOWAIT keeps the leader reserved until group
+   forwarding is disabled. Socket state uses at most a quarter of the fd limit (max 4,096)
+   and notification workers at most 32, leaving room for cleanup.
+8. **Probe the complete policy before dropping reviews.** The real launcher probe writes
+   inside its workspace, cannot write beside it, reaches a stand-in proxy and cannot open
+   UDP. With the namespace it checks that its PID namespace differs from the prober's and that
+   `/proc/self` names itself; without, that the prober's `/proc` folder can't be read. All
+   filter, device, metadata, IPC and namespace setup is mandatory on that path. Status
+   exposes files, network, signals, syscalls, devices, ipc, processes and landlock_abi.
+   `contains()` requires all seven fields contained and ABI >=3. Missing setup reports partial with a
+   plain reason. Landlock alone reports files partial too, because metadata remains exposed;
+   network is partial at ABI 4+ or none below, signals contained only at ABI 6+, and commands
+   retain reviews. No Landlock means no sandbox. The policy is retried on every run.
+9. **Apps and remaining visibility.** The desktop bus and display sockets lie outside the
+   workspace or in the refused abstract namespace. The environment omits their variables,
+   so xdg-open, gio, notify-send and systemd-run --user cannot reach desktop apps. There is
+   no bus/display grant yet. `/proc` shows only the command's own namespace, or no process
+   folder at all without one; Landlock also blocks other processes' memory, environment, file
+   descriptors and cwd. A terminal leaked to the command on a descriptor other than stdio can
+   still be read and written (only its modes and size are protected); Spade's own runs never
+   pass one. A credential hard-linked inside a directory granted whole is
+   still that directory's file, as on macOS. Runtime needs libseccomp.so.2; builds need its
+   development headers.
+
+### Verification
+
+Real-kernel regression tests cover the person's terminal and another same-user PTY (only the
+dedicated pty opens; size and mode changes land only on it, even through a leaked descriptor),
+clipboard, title, window and query sequences split across reads never reaching it while `less`
+and `top` still render, a terminal model returning to its defaults after every kept mode
+(including through cursor save and restore and the alternate screen), the restore reaching a
+slow reader and an unfinished relay's drop, a run on a terminal ending well inside the drain
+time, `ESC[3J` dropped, raw mode undone after a failure that follows it, a contained process
+planting links where launcher state used to live while 40 runs end by a signal,
+another process's command line under both `/proc` plans, metadata variants with path/fd and
+symlink races, SysV IPC, host POSIX shm, an unlisted syscall, compatibility-ABI refusal and
+160 detached children under a 64-fd limit, including forced EMFILE in the actual reaper.
+Sandbox, security and effects suites and the six-step proxy smoke run on Linux 6.8 / ABI 4
+and 6.12 / ABI 6 in Debian 12 containers as a non-root user with all capabilities dropped,
+seccomp unconfined and proc system-path masking disabled. The x86_64 verification uses a full
+QEMU VM with a real x86_64 kernel, rather than user-mode syscall translation. The syscall
+inventory records observations and release reproduction commands.
+
+## Amendment 2: Windows' sandbox, as built (2026-11-17)
 
 Decision 1's Windows bullet is now built (`spade-sandbox-windows` for the system calls,
 `spade-sandbox::windows` for the policy and launch, `spade-server` for the wiring). Building it
@@ -277,8 +529,6 @@ on a real Windows 11 machine changed one thing in the design and firmed up the r
   the test machine lacks, so the build and the tests use the `x86_64-pc-windows-msvc` target (which
   runs under emulation); native ARM64 is a toolchain follow-up, not a code change. The one crate
   that uses `unsafe` is `spade-sandbox-windows`; the rest of Spade keeps `unsafe` forbidden.
-
-Linux is unchanged: it still reports `network: partial` until its seccomp filter lands.
 
 ### Hardening (2026-11-17)
 

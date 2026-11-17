@@ -6,7 +6,7 @@ import { benignSnippetSamples, unreadableSnippetSamples } from "./corpus-r4-snip
 import { scanEntry, type ScanContext } from "./index.ts";
 
 /*
- * Instruction snippets fail closed (ADR 0173 §8): a command an agent is told to run that the
+ * Instruction snippets fail closed (ADR 0174 §8): a command an agent is told to run that the
  * shell reader can't read for sure is held, whether it sits in a `sh` fence, an untagged fence,
  * an inline span, a command line or a fence in a file the rules read whole. Ordinary docs pass.
  */

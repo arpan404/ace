@@ -266,6 +266,8 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
       };
       const listening = () => {
         http.off("error", failed);
+        // Failed accepts (EMFILE) still arrive as error events; they cost that connection only.
+        if (!http.listenerCount("error")) http.on("error", () => {});
         resolve();
       };
       http.once("error", failed);

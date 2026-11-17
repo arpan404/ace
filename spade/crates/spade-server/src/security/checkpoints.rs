@@ -81,7 +81,7 @@ impl Checkpoints {
     /// taken counts: a failed one leaves the next due.
     pub fn due(&self, bot: &str, now: i64) -> bool {
         let last = self.last.lock().unwrap_or_else(|p| p.into_inner());
-        !last.get(bot).is_some_and(|at| now - at < EVERY)
+        last.get(bot).is_none_or(|at| now - at >= EVERY)
     }
 
     /// The bot's checkpoints, newest first. Copies left unfinished (a crash mid-copy) are

@@ -71,18 +71,22 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
     async release(hash: string) {
       await db.prepare("UPDATE sessions SET refreshing_until = 0 WHERE token = ?").bind(hash).run();
     },
-    /** Stores a rotated refresh token. An UPDATE cannot revive a concurrently revoked session. */
+    /**
+     * Stores a rotated refresh token and the session's renewed expiry. An UPDATE cannot revive a
+     * concurrently revoked session.
+     */
     async rotate(
       hash: string,
       account: AceAccount,
       refresh: string,
+      expires: number,
       pictureUrl?: string,
     ): Promise<boolean> {
       const result = await db
         .prepare(
-          "UPDATE sessions SET account = ?, refresh = ?, refreshing_until = 0 WHERE token = ?",
+          "UPDATE sessions SET account = ?, refresh = ?, expires = ?, refreshing_until = 0 WHERE token = ?",
         )
-        .bind(stored(account, pictureUrl), await sealer.seal(refresh, hash), hash)
+        .bind(stored(account, pictureUrl), await sealer.seal(refresh, hash), expires, hash)
         .run();
       return result.meta.changes > 0;
     },

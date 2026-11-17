@@ -1,8 +1,8 @@
 //! Spade's security boundaries through the server (ADR 0167): a bot's shell commands in the
-//! macOS sandbox run without a review and can't reach outside it; without the sandbox, or for
+//! sandbox (macOS's, and Linux's where Landlock and its filter hold) run without a review and can't reach outside it; without the sandbox, or for
 //! what could leave through it, they are reviewed as before; grants and network policies set
 //! over the API take effect on the next command. Process tests: each starts real shells.
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 
 mod support;
 
@@ -40,9 +40,14 @@ async fn a_sandboxed_command_runs_without_a_review_and_cannot_reach_outside_its_
     assert!(asked(&events).is_empty(), "{:?}", types(&events));
     let text = output(&events, "c1");
     assert!(text.contains("built") && text.contains("end"), "{text}");
-    assert!(text.contains("Operation not permitted"), "{text}");
+    // Seatbelt refuses with EPERM, Landlock with EACCES.
+    let refusal = if cfg!(target_os = "linux") {
+        "Permission denied"
+    } else {
+        "Operation not permitted"
+    };
     assert!(!text.contains("TAX-SECRET"), "{text}");
-    assert_eq!(text.matches("Operation not permitted").count(), 2, "{text}");
+    assert_eq!(text.matches(refusal).count(), 2, "{text}");
     assert!(
         !w.home
             .parent()
@@ -172,10 +177,11 @@ async fn a_folder_the_person_grants_is_writable_until_the_grant_is_taken_back() 
         .spade
         .wait_for_count(&w.conversation, "reply_finished", 2)
         .await?;
+    // Refused: `sh` answers 1 on macOS, 2 where it is dash.
+    let refused = output(&events, "c2");
     assert!(
-        output(&events, "c2").contains("rc=1"),
-        "{}",
-        output(&events, "c2")
+        refused.contains("rc=") && !refused.contains("rc=0"),
+        "{refused}"
     );
     assert!(!app.join("b.txt").exists());
     Ok(())

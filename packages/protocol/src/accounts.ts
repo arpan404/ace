@@ -229,8 +229,12 @@ export const AccountQuota = z.object({
     .object({
       overflow: z.literal(true).optional(),
       limitError: QuotaWindow.optional(),
+      /**
+       * Why the account's home can't be used. `home_checking`: this run's check of the folder
+       * hasn't answered yet; the account isn't missing, and work bound to it waits.
+       */
       homeUnavailable: z
-        .enum(["home_missing", "home_unreadable", "foreign_home", "home_conflict"])
+        .enum(["home_missing", "home_unreadable", "foreign_home", "home_conflict", "home_checking"])
         .optional(),
     })
     .default({}),

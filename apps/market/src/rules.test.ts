@@ -112,7 +112,7 @@ describe("listing rules", () => {
   });
 });
 
-describe("an entry's management (ADR 0173 §5)", () => {
+describe("an entry's management (ADR 0174 §5)", () => {
   const versions = [version("1.0.0", { reviewed: true }), version("1.1.0")];
 
   it.each([

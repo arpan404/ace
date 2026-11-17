@@ -129,6 +129,8 @@ export interface ServerOptions {
   };
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
+  /** Tells the listener when a service starts, degrades or recovers; returns how to stop. */
+  serviceChanges?: (listener: () => void) => () => void;
   /** Current and maximum event-loop delay for `/v1/status`. */
   eventLoop?: () => import("./loop-monitor.ts").LoopStatus;
   /** Socket welcomes follow finite listener setup; HTTP discovery remains immediate. */
@@ -161,6 +163,8 @@ export interface ServerOptions {
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
   /** ace's marketplace (ADR 0168): `marketplace.request` and its change pushes. */
   marketplace?: import("./marketplace/service.ts").MarketplaceService;
+  /** The marketplace as the person or an agent in a thread reaches it (ADR 0176 §12.5). */
+  marketAgent?: import("./marketplace/market-agent.ts").MarketAgent;
   /** The Suit library (ADR 0150): socket requests, change pushes and its asset URLs. */
   suits?: import("./suits/library.ts").SuitLibrary;
   suitLooks?: import("./suits/looks.ts").SuitLooks;

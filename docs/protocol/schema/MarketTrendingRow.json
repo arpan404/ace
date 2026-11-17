@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketTrendingRow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entry": {},
+    "movement": {
+      "$ref": "https://ace.local/protocol/v1/MarketTrendMovement.json"
+    },
+    "rank": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "week": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "entry",
+    "rank",
+    "movement",
+    "week"
+  ],
+  "type": "object"
+}

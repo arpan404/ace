@@ -118,6 +118,8 @@ export async function openPiSession(
   }
   const env = {
     ...ctx.env,
+    // One Pi process per session: its bash tool inherits the agent's variables (ADR 0176 §10).
+    ...ctx.agentEnv,
     ACE_PI_SESSION_FILE: configuration.path,
     ACE_PI_CONTROL_SECRET: undefined,
     ACE_PI_MCP_URL: undefined,
@@ -198,8 +200,11 @@ export async function openPiSession(
     dialogs.clear();
     ctx.signal.removeEventListener("abort", abort);
   };
+  /** A close nobody awaits: its failure is noted here; an awaited close still rejects with it. */
+  const stopFailed = (error: unknown) =>
+    note({ event: "stop-failed", message: error instanceof Error ? error.message : String(error) });
   const fatal = () => {
-    void close("shutdown", false);
+    void close("shutdown", false).catch(stopFailed);
   };
   const rpc = new PiRpc(
     proc,
@@ -281,7 +286,7 @@ export async function openPiSession(
     return closePromise;
   }
   function abort() {
-    void close("shutdown");
+    void close("shutdown").catch(stopFailed);
   }
   ctx.signal.addEventListener("abort", abort, { once: true });
   void proc.exited.then(() => {

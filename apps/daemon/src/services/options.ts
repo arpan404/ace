@@ -18,6 +18,11 @@ import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   /** Free space of the volume holding ACE_HOME, reported with storage failures. */
   diskSpace?: import("../sqlite-failure.ts").DiskSpace;
+  /** The storage-full watch's timer and thresholds (ADR 0176); tests drive them. */
+  storageWatch?: Pick<
+    import("../storage-watch.ts").StorageWatchOptions,
+    "delay" | "levels" | "intervals"
+  >;
   /** Event-loop stall measurement clock; tests drive drift without sleeping. */
   loopClock?: import("../loop-monitor.ts").LoopClock;
   /** Main-thread stall watchdog timing; tests shorten it. */
@@ -34,7 +39,12 @@ export type DaemonOptions = {
   accounts?: Pick<
     import("../account-management.ts").AccountManagementOptions,
     "env" | "discovery" | "terminal"
-  >;
+  > & {
+    /** How saved account homes are checked at startup; tests stall one at the fs boundary. */
+    homeChecks?: import("@ace/accounts").HomeCheckOptions;
+    /** When a session's wait for a silent home is mentioned, and when it gives up. */
+    homeWait?: { noticeMs?: number; limitMs?: number };
+  };
   providerStatus?: import("../provider-status.ts").ProviderStatusOptions;
   /** Local metadata process boundary, never accepted from socket clients. */
   modelDiscovery?: import("@ace/models").DiscoveryOptions;
