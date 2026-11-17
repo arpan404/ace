@@ -107,8 +107,12 @@ export class ServiceStartup {
     string,
     { dependencies: readonly string[]; close(): Promise<void> }
   >();
-  /** Services whose last start, or its cleanup, has not settled: a stuck call still runs. */
-  private readonly unsettled = new Set<string>();
+  /**
+   * Per service, how much of its work is still running: a start, a listener or a cleanup,
+   * counted until the call itself settles, not until a deadline stops waiting for it. A retry
+   * starts only once nothing is left, so it never takes resources an earlier owner still holds.
+   */
+  private readonly inflight = new Map<string, number>();
   private readonly retriesUsed = new Map<string, number>();
   private readonly retryTimers = new Map<string, () => void>();
   /** Set once the daemon listens; retries start after that. */
@@ -288,16 +292,11 @@ export class ServiceStartup {
       name: `service ${name}`,
       pending: () => (awaitingDependents ? ["waiting for dependents"] : resources.pending()),
     });
-    // The start itself, which may outlive its deadline: a retry waits until it has settled.
+    // The start itself, which may outlive its deadline. Held from here until the real calls
+    // are tracked, so the count never drops to zero in between.
     let attempt: Promise<unknown> = Promise.resolve();
-    this.unsettled.add(name);
-    this.observeAttempt(name, true);
-    let cleanup: Promise<unknown> = Promise.resolve();
-    const settle = () =>
-      void Promise.allSettled([attempt, cleanup]).then(() => {
-        this.unsettled.delete(name);
-        this.observeAttempt(name, false);
-      });
+    const registering = Promise.withResolvers<void>();
+    this.hold(name, registering.promise);
     try {
       await bounded(
         name,
@@ -320,7 +319,8 @@ export class ServiceStartup {
         this.runtime,
         this.context.signal,
       );
-      settle();
+      this.hold(name, attempt);
+      registering.resolve();
       this.context.signal.throwIfAborted();
       Object.assign(this.context.services, published);
       committed = true;
@@ -328,6 +328,8 @@ export class ServiceStartup {
         resources.beginShutdown();
         for (const key of Object.keys(published))
           Reflect.deleteProperty(this.context.services, key);
+        // The deadline only stops the log waiting; the close itself fences the next retry.
+        this.hold(name, resources.close());
         void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
           this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
         );
@@ -337,11 +339,14 @@ export class ServiceStartup {
     } catch (error) {
       resources.beginShutdown();
       this.degraded(name, error);
-      // A stuck disposer must not hold startup either. Shutdown retains the cleanup promise.
-      cleanup = boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
+      // A stuck disposer must not hold startup either. Shutdown retains the cleanup promise;
+      // the next retry waits for the close itself, however long it takes.
+      this.hold(name, attempt);
+      this.hold(name, resources.close());
+      registering.resolve();
+      void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
         this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
       );
-      settle();
       this.context.signal.throwIfAborted();
       stopOnIncompatibleData(error);
       return [];
@@ -406,7 +411,7 @@ export class ServiceStartup {
     if (!server || this.context.signal.aborted || !this.retriable(definition)) return;
     const { name } = definition;
     // The last attempt is still stuck in a call: starting another would only stack them.
-    if (this.unsettled.has(name)) return this.retryLater(definition);
+    if (this.inflight.has(name)) return this.retryLater(definition);
     this.context.log.log("info", "Retrying daemon service", logFields([["service", name]]));
     await this.runListeners(await this.startOne(definition), server);
     if (this.statuses.get(name)?.state !== "ready") return this.retryLater(definition);
@@ -422,6 +427,19 @@ export class ServiceStartup {
     });
     return this.budget;
   }
+  /** Counts `work` against `name` until it settles; the attempt marker follows the count. */
+  private hold(name: string, work: Promise<unknown>): void {
+    const running = this.inflight.get(name) ?? 0;
+    this.inflight.set(name, running + 1);
+    if (running === 0) this.observeAttempt(name, true);
+    const release = () => {
+      const left = (this.inflight.get(name) ?? 1) - 1;
+      if (left > 0) return void this.inflight.set(name, left);
+      this.inflight.delete(name);
+      this.observeAttempt(name, false);
+    };
+    work.then(release, release);
+  }
   private observeAttempt(name: string, running: boolean): void {
     try {
       this.runtime.onAttempt?.(name, running);
@@ -432,15 +450,23 @@ export class ServiceStartup {
   private async runListeners(listeners: readonly ServiceListener[], server: Server): Promise<void> {
     for (const listener of listeners) {
       if (this.statuses.get(listener.name)?.state === "degraded") continue;
+      // The listener's own call, which may outlive its deadline.
+      let started: Promise<unknown> = Promise.resolve();
+      const registering = Promise.withResolvers<void>();
+      this.hold(listener.name, registering.promise);
       try {
         await bounded(
           listener.name,
           async () => {
-            await listener.start(server);
+            started = Promise.resolve(listener.start(server));
+            await started;
           },
           this.runtime,
           this.context.signal,
-        );
+        ).finally(() => {
+          this.hold(listener.name, started);
+          registering.resolve();
+        });
         this.record(listener.name, { name: listener.name, state: "ready" });
       } catch (error) {
         listener.disable();

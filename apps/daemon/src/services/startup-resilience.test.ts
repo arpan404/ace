@@ -266,3 +266,73 @@ test("safe mode leaves off the services the last run was stuck starting, never a
   });
   expect(state(safe, "engine")).toBe("ready");
 });
+
+test("a retry waits for the last attempt's cleanup to finish, not only for its deadline", async () => {
+  const clock = fakeClock();
+  const released = Promise.withResolvers<void>();
+  let starts = 0;
+  const running: string[][] = [];
+  const marker = startupAttempts({
+    read: () => undefined,
+    write: (text) => running.push(JSON.parse(text).running),
+  });
+  const subject = startup({
+    timeoutMs: 15_000,
+    cleanupTimeoutMs: 100,
+    retryDelaysMs: [30_000, 30_000, 30_000],
+    schedule: clock.schedule,
+    onAttempt: marker.onAttempt,
+  });
+  await subject.start([
+    service("userBrowser", (context) => {
+      starts++;
+      if (starts > 1) return;
+      // The first owner holds a port it frees only when this close returns.
+      context.resources.own(() => released.promise);
+      throw new Error("browser did not start");
+    }),
+  ]);
+  await subject.listening(server);
+  await clock.advance(30_000);
+  await clock.advance(30_000);
+  expect(starts).toBe(1);
+  expect(running.at(-1)).toEqual(["userBrowser"]);
+
+  released.resolve();
+  await clock.advance(30_000);
+  expect(starts).toBe(2);
+  expect(state(subject, "userBrowser")).toBe("ready");
+  expect(running.at(-1)).toEqual([]);
+});
+
+test("a listener stuck in its call is not replaced until that call returns", async () => {
+  const clock = fakeClock();
+  const connecting = Promise.withResolvers<void>();
+  let listens = 0;
+  const subject = startup({
+    timeoutMs: 100,
+    cleanupTimeoutMs: 100,
+    retryDelaysMs: [1_000, 1_000, 1_000],
+    schedule: clock.schedule,
+  });
+  await subject.start([
+    service("notifications", (context) => {
+      context.onListen.push(async () => {
+        listens++;
+        // The first listener is stuck connecting a device.
+        if (listens === 1) await connecting.promise;
+      });
+    }),
+  ]);
+  const listening = subject.listening(server);
+  await clock.advance(100);
+  await listening;
+  expect(state(subject, "notifications")).toBe("degraded");
+  await clock.advance(1_000);
+  expect(listens).toBe(1);
+
+  connecting.resolve();
+  await clock.advance(1_000);
+  expect(listens).toBe(2);
+  expect(state(subject, "notifications")).toBe("ready");
+});
