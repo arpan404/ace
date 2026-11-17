@@ -81,6 +81,14 @@ const unconfigured: UpdateEngine = {
 export function appUpdates(options: AppUpdatesOptions): AppUpdates {
   const buildLine = releaseLineOf(options.version);
   const line = () => options.chosenLine() ?? buildLine;
+  // The first build to run picks the line for good (ADR 0174): a beta install stays on Beta
+  // after it updates to a stable release, instead of following that build's line.
+  if (options.chosenLine() === null)
+    void options
+      .saveLine(buildLine)
+      .catch((error: unknown) =>
+        options.log("warn", `Saving the release line failed: ${String(error)}`),
+      );
   let loading: Promise<UpdateEngine> | undefined;
   let loaded: UpdateEngine | undefined;
   const load = () =>
