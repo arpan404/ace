@@ -74,34 +74,52 @@ impl Object {
     }
 
     /// Whether `candidate` is `root` or inside it, **proven by file identity, not by string
-    /// prefix**: `root` is opened pinned to get its `(volume, file id)`, and `candidate` is walked
-    /// pinned, checking each component against it. A reparse point in either path, a `candidate`
-    /// that doesn't exist, or a `root` that doesn't exist is an error — so a toolchain on another
-    /// drive, behind a junction, or missing is never mistaken for being inside `root`.
+    /// prefix**: `root`'s `(volume, file id)` is read, and *every* component of `candidate` is
+    /// walked pinned to the end, each opened relative to its parent and refused if it is a reparse
+    /// point. The answer is yes only if some component matches `root`'s identity *and* the whole of
+    /// `candidate` exists and is reparse-free. So a toolchain on another drive, behind a junction,
+    /// or a required place that is missing (a deeper component that can't be opened) is never
+    /// mistaken for being inside `root` — the walk reaches the missing component and fails. Both
+    /// walks use traverse/read-attributes access only, never `WRITE_DAC` (which a standard user
+    /// lacks on system roots like `C:\Windows`), because this only reads identity, never edits ACLs.
     pub fn within(root: &Path, candidate: &Path) -> std::io::Result<bool> {
-        let root_id = Self::open_pinned(root)?.info()?.id;
+        let root_id = Self::pinned_readonly(root)?.info()?.id;
         let (volume, components) = pinned_parts(candidate)?;
         let mut object = Self::open_root(&volume, TRAVERSE)?;
         let info = object.info()?;
         if info.reparse {
             return Err(reparse_refused());
         }
-        if info.id == root_id {
-            return Ok(true);
-        }
-        let last = components.len().saturating_sub(1);
-        for (index, name) in components.iter().enumerate() {
-            let access = if index == last { ACCESS } else { TRAVERSE };
-            object = object.child(name, access)?;
+        let mut matched = info.id == root_id;
+        for name in &components {
+            object = object.child(name, TRAVERSE)?;
             let info = object.info()?;
             if info.reparse {
                 return Err(reparse_refused());
             }
-            if info.id == root_id {
-                return Ok(true);
+            matched |= info.id == root_id;
+        }
+        Ok(matched)
+    }
+
+    /// Opens `path` by walking it one component at a time, each pinned to its parent and refused if
+    /// it is a reparse point, using traverse/read-attributes access throughout (never `WRITE_DAC`).
+    /// Used to read a path's identity without the rights an ACL change needs, so it works for a
+    /// standard user on a system root. Unlike [`Self::open_pinned`], the final object is opened
+    /// read-only, not with ACL-editing rights.
+    fn pinned_readonly(path: &Path) -> std::io::Result<Self> {
+        let (volume, components) = pinned_parts(path)?;
+        let mut object = Self::open_root(&volume, TRAVERSE)?;
+        if object.info()?.reparse {
+            return Err(reparse_refused());
+        }
+        for name in &components {
+            object = object.child(name, TRAVERSE)?;
+            if object.info()?.reparse {
+                return Err(reparse_refused());
             }
         }
-        Ok(false)
+        Ok(object)
     }
 
     /// Opens the object with volume serial and file id `(volume, file_id)`, using `on_drive`
