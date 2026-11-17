@@ -81,31 +81,47 @@ descriptors carving opened are the ones the rules are installed on. The word lis
 ### On Windows (AppContainer)
 
 `spade-sandbox-windows` holds the system calls (the one Spade crate allowed `unsafe`);
-`spade-sandbox::windows` holds the policy and the launch; `spade-server` wires it in. Each bot
-gets an AppContainer profile with **no capabilities**, derived per bot, so it starts with no
-access to anything. The policy is all grants on that SID, set on **open handles** (opened without
-following a reparse point, so a link swapped into a name can't redirect them):
+`spade-sandbox::windows` holds the policy and the launch; `spade-server` wires it in. **Each run**
+gets its own AppContainer profile with **no capabilities** (derived from the bot and the run id),
+so it starts with no access to anything and holds only its own grants — a plugin's extra folders
+can't be reached by the bot's other running commands. The profile is deleted when the run ends.
+The policy is all grants on that SID, set on **open handles opened by walking the path one
+component at a time** (each opened relative to its parent's pinned handle and refused if it is a
+reparse point), so no component of the path can be swapped for a link that redirects the grant:
 
 - an inheritable *Modify* ACE (read, write, execute, delete — but not `WRITE_DAC`/`WRITE_OWNER`,
   so the command can't rewrite an ACL to reopen a denied place) on the workspace, its `.spade/tmp`
   (`TEMP`/`TMP`), granted read-write folders and Spade's per-run scratch;
 - a *Read & execute* ACE on confirmed toolchains, granted read-only folders and a plugin's folder;
-- an explicit *deny* ACE on any credential-list place that sits inside a granted folder (Windows
-  evaluates deny before allow); nothing else is granted, so the home folder, other users' folders,
-  other bots' workspaces and Spade's and ace's data are unreachable by default.
+- nothing else is granted, so the home folder, other users' folders, other bots' workspaces and
+  Spade's and ace's data are unreachable by default.
+
+A grant is reconciled to **exact rights** (the SID's previous ACEs are removed before the new one
+is set, so read-write changed to read-only doesn't keep Modify). ACLs are edited as `SE_FILE_OBJECT`
+and written unprotected, so an inheritable grant reaches existing children and revoking a parent
+removes the inherited ACEs on its descendants. A **denied** credential place inside a granted folder
+is special: an AppContainer's check grants the package SID on any allow ACE (a deny doesn't out-rank
+an inherited allow), so the deny stops that node inheriting, removes the SID's allow and leaves a
+protected inheritable deny — the place is unreachable even though its parent is granted. The word
+list still refuses a call naming a credential place first.
 
 The command runs through `spade sandbox-exec-win <plan> <program> <args>`: the daemon spawns
 Spade's own binary as the launcher with the command's stdio piped, and the launcher creates the
-command inside the AppContainer and a **job object** (kill-on-close, die-on-unhandled, caps on
-active processes and total memory, and UI restrictions — no clipboard read or write, no desktop
-switch, no global atoms, no system-parameter or display changes — so it can't drive other apps).
-Dropping the run closes the job and ends the whole tree.
+command inside the AppContainer, puts it in a **job object** (kill-on-close, die-on-unhandled, caps
+on active processes and total memory, and UI restrictions — no clipboard read or write, no desktop
+switch, no global atoms, no system-parameter or display changes — so it can't drive other apps)
+before resuming it, and kills it if it can't be put in the job. Dropping the run closes the job and
+ends the whole tree.
 
-**ACL hygiene.** Each run reconciles its grants and records the touched paths in a per-bot journal
-(`<data>/sandbox-acls/<container>.json`); a path no longer in the policy is revoked. On start the
-daemon recovers — it revokes every path any journal still names and clears the journals — so a
-crash leaves no stale ACE and each next run re-applies its own. Deleting a bot revokes its grants
-and deletes its profile. The word list still refuses a call naming a credential place first.
+**ACL hygiene (durable).** Each run records, in a per-run journal
+(`<data>/sandbox-acls/<container>.json`), every object its SID is granted on **with that object's
+identity (volume serial and file id, not just its path)**, written as intent *before* any ACL
+change. When the run ends — after its processes are gone, so no open handle survives revocation —
+its grants are taken back by identity (so a renamed or moved folder is still found), its journal is
+removed and its profile deleted. A revocation that can't be confirmed is kept pending, reported (not
+swallowed), and the **bot's next run is refused until it clears**. On start the daemon recovers
+every run's pending revocations. Deleting a bot takes back every run's grants and deletes its
+profiles.
 
 **Network (the egress bridge).** An AppContainer with no capabilities has no DNS and can't open a
 loopback connection to a process outside the container, so it can't reach the proxy directly, and
@@ -116,7 +132,9 @@ forwards each connection over a named pipe whose DACL grants only that run's con
 daemon-side acceptor, which splices it to the proxy's TCP port on loopback. The run's token still
 rides in `HTTP_PROXY`, so the proxy identifies the run; the bridge and acceptor only move bytes,
 and the acceptor stops when the run's ticket drops. The only way out of the container is that one
-SID-scoped pipe.
+SID-scoped pipe. The acceptor makes its first pipe instance up front and **acknowledges readiness**;
+the daemon waits for that and fails the run closed if the bridge can't come up, so a networked run
+is never started silently without its egress boundary.
 
 ## The egress proxy
 

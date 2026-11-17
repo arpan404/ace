@@ -262,18 +262,10 @@ on a real Windows 11 machine changed one thing in the design and firmed up the r
   with a raw security descriptor directly, and because the pipe's DACL is the natural place to name
   the one SID allowed to connect.
 - **Files.** The AppContainer denies everything by default (no capabilities), so the policy is all
-  grants: the bot's container SID gets an inheritable *Modify* ACE on the workspace, the run's temp
+  grants: the run's container SID gets an inheritable *Modify* ACE on the workspace, the run's temp
   folder, granted read-write folders and Spade's own per-run scratch, and a *Read & execute* ACE on
   toolchains, granted read-only folders and the plugin folder. The Modify and Read masks leave out
-  `WRITE_DAC`/`WRITE_OWNER`, so a command can't rewrite an ACL to reopen a denied place. A
-  credential place that sits inside a granted folder gets an explicit *deny* ACE on top (Windows
-  evaluates deny before allow). Every ACL is set on an **open handle** (opened without following a
-  reparse point), not on a path, so a link swapped into a name can't redirect the grant.
-- **ACL hygiene and recovery.** Each run reconciles its grants and records the touched paths in a
-  per-bot journal; a grant no longer in the policy is revoked. On start the daemon runs recovery,
-  which revokes every path any journal still names and clears the journals, so a crash leaves no
-  stale ACE (each next run re-applies its own). Deleting a bot revokes its grants and deletes its
-  profile. The container SID is derived per bot, so a grant never widens another bot's access.
+  `WRITE_DAC`/`WRITE_OWNER`, so a command can't rewrite an ACL to reopen a denied place.
 - **The job.** The process tree runs in a job object with kill-on-close and die-on-unhandled, a
   cap on active processes and total memory, and UI restrictions (no reading or writing the
   clipboard, no desktop switch, no global atoms, no system-parameter or display changes, no handle
@@ -285,3 +277,39 @@ on a real Windows 11 machine changed one thing in the design and firmed up the r
   that uses `unsafe` is `spade-sandbox-windows`; the rest of Spade keeps `unsafe` forbidden.
 
 Linux is unchanged: it still reports `network: partial` until its seccomp filter lands.
+
+### Hardening (2026-11-17)
+
+Two security reviews of the Windows build asked for six changes before it may report `contained`:
+
+- **Grants land on exactly the approved object.** A grant's path is walked one component at a time,
+  each opened relative to its parent's pinned directory handle and refused if it is a reparse point
+  (a symbolic link or junction). So no component of the path can be swapped for a link that
+  redirects the ACE, and the ACE is set on that pinned handle.
+- **Reconciled to exact rights.** A grant removes the SID's previous ACEs on the object before
+  setting the new one, so a folder changed from read-write to read-only no longer keeps Modify.
+  Staleness is judged by path *and* rights.
+- **Correct inheritance.** ACLs are edited as `SE_FILE_OBJECT` (not `SE_KERNEL_OBJECT`) and written
+  `UNPROTECTED`, so an inheritable grant propagates to existing children and revoking a parent
+  removes the inherited ACEs on its descendants. A moved file keeps its ACE (Windows doesn't
+  re-evaluate on move) and is cleaned up by file id; a hard link shares one ACL, so revoking by any
+  name clears it. A denied place is the exception: because an AppContainer's check grants the
+  package SID on *any* allow ACE — a deny does not out-rank an inherited allow as it does for a
+  normal token — a deny stops the node inheriting, removes the SID's allow and leaves a protected,
+  inheritable deny, so the place is truly unreachable even inside a granted folder.
+- **Per-run identity.** Each run gets its own AppContainer profile (derived from the bot and the
+  run id) holding only that run's grants, so a plugin's extra folders can't be reached by the bot's
+  other running commands. The profile is deleted when the run ends. Because open handles survive
+  revocation, a run's grants are taken back only after its processes are gone (the run's hold is
+  dropped once the command has finished).
+- **Durable revocation.** The journal records each object's identity (volume serial and file id,
+  not just its path) and is written as intent *before* any ACL change, so a crash mid-apply is
+  fully recoverable. A revocation finds the object by id even after it is renamed or moved, keeps
+  any revocation it can't confirm pending, refuses the bot's next run until cleanup succeeds, and
+  reports the failure rather than swallowing it. Recovery at start retries every run's pending
+  revocations.
+- **Status honesty.** `contained` reflects the layers actually running: the egress-bridge acceptor
+  makes its first pipe instance up front and acknowledges readiness, and the daemon fails the run
+  closed when the bridge can't come up rather than running it silently without network; the
+  launcher puts the command in its job before resuming it (killing it if it can't), and always
+  creates it in the AppContainer, so a run that bypasses review is contained or it does not run.
