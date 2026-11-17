@@ -480,8 +480,10 @@ rest. They never touch scanning, holds, blocks or the review before install.
   ranges), whose measured detection is reported in the scanner's README. The adversarial corpus
   covers the bypasses a review found: commands hidden in instruction files, a script run past an
   interpreter's options, exfiltration flowing across lines, and scene capabilities spelled around a
-  literal match. On 140 malicious samples the scanner catches 100% (every one blocked or held) and
-  blocks none of 55 benign and look-alike samples. Two invariants are pinned: a scan that didn't
+  literal match, and a second review's fail-closed bypasses (indirect module reads, truncation and
+  prose intent, multi-call applets, unproven-`this` frame access). On 189 malicious samples the
+  scanner catches 100% (every one blocked or held) and neither blocks nor holds any of 75 benign
+  and look-alike samples. Two invariants are pinned: a scan that didn't
   read every file is never a pass, and the device and the Worker reach the same verdict on the same
   bytes.
 - **Trending** ranking, caps, bursts, decay and movement; **the verified boost**: a verified

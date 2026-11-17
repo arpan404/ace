@@ -80,23 +80,27 @@ its own (`rule.ts`, `script-view.ts`):
 
 The corpus is written for these tests; no sample runs and none carries real malware (every host
 is under the reserved `.invalid` domain or in the documentation IP ranges). The first corpus is in
-`corpus-malicious.ts` and `corpus-benign.ts`; the review's adversarial additions are in
-`corpus-r2-commands.ts` (instruction files and interpreter operands), `corpus-r2-flow.ts`
-(cross-line exfiltration) and `corpus-r2-scene.ts` (scene-capability bypasses).
+`corpus-malicious.ts` and `corpus-benign.ts`; `corpus-r2-*` holds the first review's adversarial
+additions (instruction files, interpreter operands, cross-line exfiltration, scene-capability
+bypasses); `corpus-r3-*` holds the second review's (indirect module reads, truncation and prose
+intent, multi-call applets, unproven-`this` frame access), the ones a fail-closed scanner must
+catch rather than chase.
 
-| Corpus                             | Samples | Result                                         |
-| ---------------------------------- | ------- | ---------------------------------------------- |
-| Malicious, first set               | 85      | 100% caught, every category                    |
-| Malicious, instruction and operand | 29      | 100% caught                                    |
-| Malicious, data-flow exfiltration  | 12      | 100% caught                                    |
-| Malicious, scene bypass            | 14      | 100% caught                                    |
-| **Malicious, all**                 | **140** | **100% caught** (every sample blocked or held) |
-| Benign and look-alikes             | 55      | **0 blocked** (0% false positives)             |
+| Corpus                               | Samples | Result                                     |
+| ------------------------------------ | ------- | ------------------------------------------ |
+| Malicious, first set                 | 85      | 100% caught, every category                |
+| Malicious, round 2 (r2)              | 55      | 100% caught                                |
+| Malicious, round 3 (r3), fail-closed | 49      | 100% caught                                |
+| **Malicious, all**                   | **189** | **100% caught** (blocked or held)          |
+| Benign and look-alikes               | 75      | **0 blocked, 0 held** (0% false positives) |
 
 Detection counts a sample as caught when `disposition` returns something other than `list` for an
 ordinary publisher (`newPublisher: false`), i.e. the scan itself blocked or held it, never relying
 on a new-publisher hold. The thresholds the tests enforce are at least 95% detection and zero
-benign blocks.
+benign blocks; the benign corpus here holds zero as well, so the fail-closed rules add no friction
+to honest entries. The round-3 malicious set is caught the fail-closed way: an indirect module
+read beside a sink, a truncated instruction file, an unknown wrapper and an unproven `this` are
+all held or blocked without a signature for the exact spelling.
 
 ### Reproducing
 
