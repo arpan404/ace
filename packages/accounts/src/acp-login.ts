@@ -1,5 +1,10 @@
 import { spawnInteractive } from "@ace/provider-kit/process";
-import { ENV_NAME_LIMIT, ENV_VALUE_LIMIT, ENV_VARIABLE_LIMIT } from "@ace/provider-kit/process-env";
+import {
+  ENV_BLOCK_LIMIT,
+  ENV_NAME_LIMIT,
+  ENV_VALUE_LIMIT,
+  environmentSize,
+} from "@ace/provider-kit/process-env";
 import { ProviderInstance } from "@ace/protocol/accounts";
 import { AcpIdentity } from "@ace/protocol";
 import { z } from "zod";
@@ -10,7 +15,7 @@ export const AcpLoginPlan = z.object({
   args: z.array(z.string().max(4096)).max(64),
   env: z
     .record(z.string().max(ENV_NAME_LIMIT), z.string().max(ENV_VALUE_LIMIT).optional())
-    .refine((env) => Object.keys(env).length <= ENV_VARIABLE_LIMIT),
+    .refine((env) => environmentSize(env) <= ENV_BLOCK_LIMIT),
 });
 export type AcpLoginPlan = z.infer<typeof AcpLoginPlan>;
 export type AcpLoginResolver = (
