@@ -1088,12 +1088,15 @@ Required capability: automations. Timeout: 630000 ms.
 
 [JSON Schema](schema/automation_put.input.json), input validation.
 
+Semantic rule: webhook and schedule can't both be set.
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"minLength":1,"maxLength":256,"description":"The id you gave it in automation_put."} |
 | title | yes | string | {"minLength":1,"maxLength":256,"description":"What it does, for the person."} |
 | prompt | yes | string | {"minLength":1,"maxLength":262144,"description":"The message each run sends: the whole task, readable without this conversation."} |
 | schedule | no | [AgentAutomationSchedule.json](schema/AgentAutomationSchedule.json) | {"description":"rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5); timezone defaults to this machine's, startAt (epoch ms, whole minute) to now. Omit to run by hand only."} |
+| webhook | no | boolean | {"description":"true: runs when its signed webhook is called, with {{body.field}} from the JSON body. The person makes its secret and URL in Automations. Not with schedule."} |
 | enabled | no | boolean | {"default":true,"description":"false saves it paused."} |
 | missedRun | no | ["skip","run_once"] | {"default":"skip","description":"A run missed while ace was off: skip it, or run once."} |
 

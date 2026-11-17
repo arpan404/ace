@@ -138,6 +138,7 @@ export class FakeServicesWire {
       context.now,
       () => settings.get("automations.enabled") === true,
       context,
+      (key) => settings.get(key),
     );
   }
   seed(seed: ServicesSeed): void {

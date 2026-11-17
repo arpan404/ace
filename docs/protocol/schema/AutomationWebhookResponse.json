@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/AutomationWebhookResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "secret": {
+      "pattern": "^whsec_[A-Za-z0-9+/]{43}=$",
+      "type": "string"
+    },
+    "type": {
+      "const": "automation.webhookResult",
+      "type": "string"
+    },
+    "webhook": {
+      "$ref": "https://ace.local/protocol/v1/AutomationWebhookState.json"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

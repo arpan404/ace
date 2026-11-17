@@ -1,0 +1,66 @@
+{
+  "$id": "https://ace.local/protocol/v1/AutomationWebhookState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "active": {
+      "type": "boolean"
+    },
+    "path": {
+      "anyOf": [
+        {
+          "pattern": "^\\/hooks\\/[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "problem": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "url": {
+      "anyOf": [
+        {
+          "format": "ace-whatwg-url",
+          "type": "string",
+          "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+          "x-ace-url-maxLength": 2048
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "urls": {
+      "items": {
+        "properties": {
+          "url": {
+            "format": "ace-whatwg-url",
+            "type": "string",
+            "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+            "x-ace-url-maxLength": 2048
+          },
+          "via": {
+            "$ref": "https://ace.local/protocol/v1/AutomationWebhookVia.json"
+          }
+        },
+        "required": [
+          "via",
+          "url"
+        ],
+        "type": "object"
+      },
+      "maxItems": 3,
+      "type": "array"
+    }
+  },
+  "required": [
+    "active",
+    "path",
+    "url",
+    "urls"
+  ],
+  "type": "object"
+}

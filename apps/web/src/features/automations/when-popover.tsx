@@ -22,7 +22,7 @@ import {
   nextQuarter,
   syntaxChoices as syntaxes,
   timeZones,
-  triggerKinds as kinds,
+  triggerKindsWithWebhook as kinds,
   triggerPatch,
   upcomingLine,
   upcomingStarts,
@@ -36,7 +36,7 @@ import { displayTime, TimePicker } from "@/components/ui/time-picker.tsx";
 import { cityOf } from "@/components/ui/zone-search.tsx";
 
 /*
- * When an automation runs, as the strip's first control: a list of the four kinds, then the
+ * When an automation runs, as the strip's first control: a list of the kinds, then the
  * chosen kind's fields: a schedule's repeat, time, zone and missed-run rule with its next three
  * starts; a GitHub repository and event; file globs. Validated by the form's own schema; the
  * words and rules live in `@ace/ui-core/automations`, shared with the phone.
@@ -77,7 +77,7 @@ export function WhenPopover(props: {
         sideOffset={10}
         aria-label="When it runs"
         finalFocus={props.returnFocus}
-        className="flex max-h-[min(36rem,var(--available-height))] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
+        className="flex max-h-[min(36rem,var(--available-height))] w-80 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
       >
         <WhenFields form={form} onChange={props.onChange} errors={props.errors} now={now} />
       </PopoverContent>
@@ -187,6 +187,12 @@ function TriggerFields(props: {
       );
     case "manual":
       return null;
+    case "webhook":
+      return (
+        <p className="px-2 pt-1.5 pb-1 text-xs text-muted-foreground">
+          Its address and secret are on the automation once it's created.
+        </p>
+      );
   }
 }
 

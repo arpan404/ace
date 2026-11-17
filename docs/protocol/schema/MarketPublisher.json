@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketPublisher.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+    }
+  },
+  "required": [
+    "id",
+    "name"
+  ],
+  "type": "object"
+}

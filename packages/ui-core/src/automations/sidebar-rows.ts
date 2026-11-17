@@ -44,6 +44,8 @@ function shortTrigger(trigger: AutomationEntry["automation"]["trigger"]): string
       return describeRepeat(trigger.schedule);
     case "file":
       return "When files change";
+    case "webhook":
+      return "On its webhook";
     case "github":
       return {
         pr_changed: "On pull requests",
@@ -154,6 +156,8 @@ export function nextRunText(
       return "On the next change";
     case "manual":
       return "Only when you run it";
+    case "webhook":
+      return "On the next webhook call";
     case "schedule": {
       const state = scheduleState(automation.trigger.schedule, undefined, now);
       return state === "exhausted" ? scheduleStateCopy(state) : "Not scheduled yet";

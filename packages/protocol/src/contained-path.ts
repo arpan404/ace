@@ -28,4 +28,8 @@ export const ContainedPath = z
             !/[. ]$/.test(part),
         )
     );
-  }, "Must be a contained relative path");
+  }, "Must be a contained relative path")
+  .meta({
+    "x-ace-constraint":
+      "A relative path with / only: no empty, . or .. part, no device names, .git or characters Windows reads differently.",
+  });

@@ -1,7 +1,8 @@
 /*
  * Automations from the daemon (ADR 0015): `automation.list` (definitions and their next
  * scheduled start), `automation.inbox` (recent runs), and the `automation.put`,
- * `remove`, `setEnabled`, `retry` and `run` writes. Each is a correlated request; a
+ * `remove`, `setEnabled`, `retry` and `run` writes, and the person's webhook secret
+ * controls (`automation.webhook`, ADR 0173). Each is a correlated request; a
  * refusal rejects with the daemon's reason. Writes carry the entry's revision as a
  * compare-and-swap: omitted for backward compatibility, null for create-only, and a
  * number for stale-edit protection.
@@ -13,6 +14,8 @@ import {
   type AutomationResponse,
   type AutomationRun,
   type AutomationInbox,
+  type AutomationWebhookRequest,
+  type AutomationWebhookState,
 } from "@ace/protocol";
 import {
   automationErrorMessage,
@@ -180,4 +183,30 @@ export async function runAutomation(
   );
   if (!reply.run) throw new AutomationError(undefined);
   return reply.run;
+}
+
+/** A webhook's state after a rotate or revoke; `secret` only after a rotate, and only this once. */
+export interface WebhookSecretResult {
+  webhook: AutomationWebhookState | undefined;
+  secret: string | undefined;
+}
+
+/**
+ * Make or replace a webhook automation's secret (`rotate`), or delete it with its address
+ * (`revoke`). The secret is returned to the caller and kept nowhere here.
+ */
+export async function webhookSecret(
+  client: ClientApi,
+  id: string,
+  action: AutomationWebhookRequest["action"],
+  source: AutomationSource = "person",
+): Promise<WebhookSecretResult> {
+  const reply = await client.request({
+    type: "automation.webhook",
+    id,
+    action,
+    ...(source === "thread" ? { source } : {}),
+  });
+  if (!reply.ok) throw new AutomationError(reply.error);
+  return { webhook: reply.webhook, secret: reply.secret };
 }
