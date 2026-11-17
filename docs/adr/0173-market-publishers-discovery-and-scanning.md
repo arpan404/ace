@@ -4,7 +4,8 @@ Status: proposed. Date: 2026-11-16. Decided by: the owner (2026-11-16: publisher
 trending and discovery, publishing from the app, publishers managing their own publications, and
 a scan pipeline that blocks malware and harmful entries automatically; the same day: Workers, D1
 and R2 only; publishing only ever as an authenticated ace account; contracts in
-`@ace/protocol`). Amends [ADR 0168](0168-ace-marketplace.md) (the marketplace) and builds on
+`@ace/protocol`; then, before any data was stored: a D1 database per entry type and per shared
+domain, decision 16). Amends [ADR 0168](0168-ace-marketplace.md) (the marketplace) and builds on
 [ADR 0111](0111-account-machine-access.md) (account grants), [ADR 0150](0150-suits.md) (Suits),
 [ADR 0014](0014-plugins.md) (plugins), [ADR 0167](0167-spade-security-boundaries.md) (what a
 bot is granted), [ADR 0171](0171-spade-decides-on-effects.md) and
@@ -35,7 +36,7 @@ secrets. Nothing reads what a script does.
 
 - **Compute is the Worker** (`ace-market`); its cron (every 15 minutes) does background work:
   folding download counts, trending, scan steps that didn't fit a request, pruning.
-- **All data is in D1**; **all bytes are in R2**, under prefixes that say what they are:
+- **All data is in D1**, split across several databases (decision 16); **all bytes are in R2**, under prefixes that say what they are:
 
   | Prefix                 | Holds                                                             | Deleted?                    |
   | ---------------------- | ----------------------------------------------------------------- | --------------------------- |
@@ -462,6 +463,103 @@ top publishers, and break ties in New and notable. They are bounded: a clearly m
 more relevant entry still outranks an official one (an unverified entry with ten times the
 downloads outranks an official one), while among equals official ranks above verified above the
 rest. They never touch scanning, holds, blocks or the review before install.
+
+### 16. Several D1 databases: one per entry type, one per shared domain
+
+Added 2026-11-16, before any data was stored. The owner asked for a database per feature so no
+one D1 database (10 GB at most) carries the market's growth. The single `ace-market` database
+becomes these, each with its own binding and migration folder:
+
+| Database                | Binding             | Holds                                                                                                                                                                                                         |
+| ----------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ace-market-suits`      | `MARKET_SUITS`      | The catalogue of `suit` entries (below)                                                                                                                                                                       |
+| `ace-market-skills`     | `MARKET_SKILLS`     | The catalogue of `spade-skill` entries                                                                                                                                                                        |
+| `ace-market-plugins`    | `MARKET_PLUGINS`    | The catalogue of `spade-plugin` entries                                                                                                                                                                       |
+| `ace-market-bots`       | `MARKET_BOTS`       | The catalogue of `spade-bot` recipes                                                                                                                                                                          |
+| `ace-market-publishers` | `MARKET_PUBLISHERS` | Publishers and profiles, handle reservations, verification proofs and the signed verified list, the official list, drafts and their scan jobs, upload limits, the quota ledger, pictures and their tombstones |
+| `ace-market-counts`     | `MARKET_COUNTS`     | Download totals per version, hourly and daily buckets, trending and its pass, top publishers, and the daily size record                                                                                       |
+| `ace-market-moderation` | `MARKET_MODERATION` | Abuse reports, appeals and the signed blocklist                                                                                                                                                               |
+| `ace-market-lists`      | `MARKET_LISTS`      | The signed withdrawn list, categories, featured and collections                                                                                                                                               |
+
+A **catalogue** database holds one type's entries, versions (with their scan state and signed
+manifests and review marks), listing edits, removals, pending withdrawals, transfer offers, the
+entries' generations, its own `since` stamp and a copy of each publisher it names. The four
+catalogues share one schema (`migrations/catalogue`), so they can't drift; `ace-plugin` gets
+`ace-market-ace-plugins` when its ADR lands, by adding a binding that points at that folder.
+Until then the Worker has no database for it and refuses its writes, as the checks already do.
+Scan reports and bytes stay in R2 (decision 1).
+
+**Where the split differs from a pure per-feature cut, and why.** Each change keeps an invariant
+an earlier review fixed in one database:
+
+- **Drafts live with publishers, not with their type.** A draft's bytes count against its
+  publisher's quota and draft cap, checked in the statement that writes it; drafts are few per
+  publisher and deleted after 30 days, so they add no growth.
+- **Pictures live with publishers.** A picture's R2 key is the sha256 of its bytes, shared by
+  every type and publisher that stores the same picture; the tombstone protocol (decision 1)
+  needs every row that holds a key in the database that claims it.
+- **The verified list lives with publishers**, so storing it and marking publishers stay one
+  batch. The official list does too: it creates the `ace` publisher in the same batch.
+- **Transfer offers live with their entry.** Accepting moves the entry's owner only while the
+  offer stands, in one statement.
+
+**Publisher copies.** An entry's row depends on its publisher's handle, state and verified mark.
+Each catalogue keeps `publisher_copies` (id, handle, state, verified, created, `revision`). The
+publishers database moves `revision` in the statement that changes any of those fields (a
+trigger), and keeps `synced`, the revision every catalogue has. Applying a copy, in one catalogue
+batch: write the copy only if its revision is newer, and in the same batch move the generation
+of every entry of that publisher and restamp its listed ones, so a refresh that read the old
+copy can't write it back and `since` readers see the new handle; then refresh those entries.
+Only after every catalogue applied it does `synced` move, and only forward. A request that
+changes a publisher applies the copy at once; the cron applies every copy whose `synced` is
+behind, so a cut-off request is finished. A catalogue's `live_versions` count is its own, never
+overwritten by a copy; a publisher's live versions are the sum over the catalogues.
+
+**Every earlier invariant, and where it lives now:**
+
+| Invariant                                    | Where, and how                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Entry generations and refresh                | One catalogue: entries and versions share it, so every version change is still batched with the generation. Publisher fields arrive as copies fenced by revision, bumping the generation in the same batch.                                                                                                                                                                                                                                                      |
+| Withdrawal list with version marks           | The signed list is stored in lists (only if newer and based on the stored one, as before). Each catalogue keeps `applied_lists`, the newest list it marked; one catalogue batch records the list as applied (only if not older), moves generations, sets the marks and drops the pending withdrawals, each statement re-checking that this very list is the applied one. Sending the list again re-applies it; the cron applies a list a catalogue is behind on. |
+| Handle reservations, active and retired      | Publishers, unchanged: the triggers reserve and retire skeletons in the statement that writes the handle.                                                                                                                                                                                                                                                                                                                                                        |
+| Picture tombstones with owner and fencing    | Publishers, unchanged: picture rows, claims, owners and generations together. Only "is this listing picture still named" reads the catalogues: the sweep asks them in parallel, then drops a row only if it is still past its grace period, so an upload that charged the picture again in between keeps it.                                                                                                                                                     |
+| Once-per-hash download credit                | Counts. The download reads every catalogue in parallel for listed versions with the hash, credits the first listed (earliest `published`, then type, name, version), and writes all totals and buckets in one counts batch. The cron folds totals into the catalogues as absolute values, restamping only entries whose total moved, then marks them folded: a fold cut off part way is redone with the same values.                                             |
+| Transfers                                    | The entry's catalogue: the owner moves only while the offer stands, in one batch with the offer's removal. The giver's pins are filtered on every read, so a stale pin never shows; the giver's charges move to the receiver after, and the quota reconcile corrects a move cut off part way.                                                                                                                                                                    |
+| Publishing a version while a scan is running | Publishers then the catalogue. Publishing takes a claim on the draft, only while it holds the scanned hash with its scan done, and in the same batch moves the draft's bytes onto a charge for the version. Replace, edit and delete refuse a claimed draft. The catalogue then stores the version; then the draft goes. A cut-off publish resumes on the next try; the cron finishes a claim whose version was stored, and releases one whose wasn't.           |
+| Quota, draft cap and uploads a day           | Publishers: drafts, pictures, upload days and `charges` (one row per stored version that isn't blocked) are summed in the statement that reserves. A charge is written before its version; only the cron's reconcile, per publisher, drops or corrects charges, and never one younger than ten minutes, so a write on its way is never undercounted. Usage is overcounted, not undercounted, for at most a cron run.                                             |
+| Verified list and publisher marks            | Publishers, in one batch; the copies follow.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+**Reads that span databases** fan out to each catalogue in parallel and merge: the index, search,
+Discover, featured and collections, a publisher's page and own entries, the signer's and
+maintainers' queues, the scan's context and a download's hash lookup. Each fan-out is one query
+per catalogue (four today), each bounded as before.
+
+**The index and `since`.** Each catalogue keeps its own stamp, taken in the batch that makes a
+change visible, as before. The stamp an index answer carries is the **minimum** of the
+catalogues' stamps, each read before that catalogue's rows. Every change not yet in an answer has
+a stamp above its catalogue's stamp, so above the minimum: none is missed. A change already sent
+from a busier catalogue may be sent again, which a reader merges by key. So a quiet catalogue
+doesn't hold the minimum back, the cron takes a fresh stamp in every catalogue each run, which
+bounds resends to the last quarter hour. The wire stays an integer, so daemons already released
+keep working. A per-database vector cursor was the alternative: no resends, but a protocol change
+for every client. A single stamp source in another database was rejected: a stamp taken there
+and a row written later in a catalogue can't be one batch, so a reader could pass the stamp
+before the row lands and miss it. ETags remain the hash of the body.
+
+**Growth and when to shard further.** The cron records each database's size (D1's
+`size_after`) and every table's row count once a day, in `counts.database_sizes` and
+`counts.table_rows`. Expected growth and the next cut:
+
+| Database   | Grows with                                         | Expected                                     | Next cut, before 5 GB                                                      |
+| ---------- | -------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
+| Catalogues | Entries and versions (manifests are a few KB each) | ~5 KB per version: a million versions per GB | Split the type by the name's first letter, or move manifests to R2         |
+| Publishers | Publishers, pictures, drafts (bounded)             | ~2 KB per publisher                          | Pictures into their own database                                           |
+| Counts     | `downloads_daily`: one row per version per day     | 400 days × versions downloaded each day      | `downloads_daily` by month (`ace-market-counts-<yyyy-mm>`), pruned with it |
+| Moderation | Reports (capped at 500 open per entry), appeals    | Small                                        | Resolved reports older than a year to R2                                   |
+| Lists      | Nothing: a few rows each                           | Kilobytes                                    | None                                                                       |
+
+The Worker reads every database through one typed router (`src/store/databases.ts`): a
+catalogue by entry type, or a domain by name. Store modules take the one database they need.
 
 ## Open for the owner
 
