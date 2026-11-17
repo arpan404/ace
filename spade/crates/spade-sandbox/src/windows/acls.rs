@@ -174,17 +174,23 @@ impl Journal {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error),
         };
-        Ok(entries
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .is_ok_and(|entry| entry.path().extension().is_some_and(|x| x == "json"))
-            })
-            .map(|entry| {
-                let entry = entry?;
-                std::fs::read(entry.path()).and_then(|bytes| Self::parse(&bytes))
-            })
-            .collect())
+        Self::listed(entries.map(|entry| entry.map(|entry| entry.path())))
+    }
+
+    /// The journals among `entries` (a directory listing). Every entry is checked for an error
+    /// *before* any filtering: an entry the directory can't yield fails the whole listing, which
+    /// blocks every bot, rather than being dropped as "not a journal".
+    fn listed(
+        entries: impl Iterator<Item = std::io::Result<PathBuf>>,
+    ) -> std::io::Result<Vec<std::io::Result<Self>>> {
+        let mut journals = Vec::new();
+        for entry in entries {
+            let path = entry?;
+            if path.extension().is_some_and(|x| x == "json") {
+                journals.push(std::fs::read(&path).and_then(|bytes| Self::parse(&bytes)));
+            }
+        }
+        Ok(journals)
     }
 
     /// Whether this journal, if it is for `bot`, blocks the bot's next run: it isn't a live run
@@ -417,6 +423,33 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_entry_the_journal_store_cannot_list_blocks_instead_of_being_skipped() {
+        // A directory iteration error can't be produced on demand by a real file system, so the
+        // listing is driven through the same code with one entry that fails to be read. It must
+        // fail the whole listing (which blocks every bot), never be filtered away as "not a
+        // journal" while the readable ones go through.
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let container = Container::for_run("bot1", "run7");
+        let journal = Journal {
+            bot: "bot1".to_owned(),
+            container: container.clone(),
+            state: State::Active,
+            ..Journal::default()
+        };
+        journal
+            .store(dir.path())
+            .unwrap_or_else(|_| std::process::abort());
+        let good = Journal::file(dir.path(), &container);
+        let unreadable = std::io::Error::other("the directory could not be read further");
+        let listed = Journal::listed(vec![Ok(good.clone()), Err(unreadable)].into_iter());
+        assert!(listed.is_err(), "an iteration error must block: {listed:?}");
+        // Without the error the same listing reads the journal.
+        let fine =
+            Journal::listed(vec![Ok(good)].into_iter()).unwrap_or_else(|_| std::process::abort());
+        assert_eq!(fine.len(), 1);
+    }
 
     #[test]
     fn a_journal_round_trips_and_lists_and_gates() {
