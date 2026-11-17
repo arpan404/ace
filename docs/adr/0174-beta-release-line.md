@@ -27,21 +27,23 @@ owner says otherwise.
 
 **Names.** A beta is a GitHub prerelease on `arpan404/ace`. It is never marked latest.
 
-- Tag: `ace-beta-<YYYY-MM-DD>-<X.Y.Z>-<N>`, e.g. `ace-beta-2026-11-16-0.0.24-1`.
-  - `<YYYY-MM-DD>`: the build date, in UTC.
+- Tag: `ace-<X.Y.Z>-beta-<N>`, e.g. `ace-0.0.24-beta-1`.
   - `<X.Y.Z>`: the next version, the one the beta previews. By default it is the patch after
     `apps/desktop/package.json` at the built commit (the latest stable, since stable releases
     bump it): a beta built at 0.0.23 is a beta of 0.0.24. `release:beta build --version 0.1.0`
     names a later one instead; it must be greater than `package.json`'s version.
-  - `<N>`: one more than the number of beta tags with the same date and version, starting at 1.
-- Title: `ace beta 2026-11-16 (0.0.24, build 1)`.
-- The version inside the app is semver: `X.Y.Z-beta.<YYYYMMDD>.<N>`
-  (`0.0.24-beta.20261116.1`). `release:beta` sets it at build time and never edits
-  `package.json`.
+  - `<N>`: one more than the highest `N` among the existing `ace-<X.Y.Z>-beta-*` tags of that
+    version, starting at 1. It counts per version, across days. It is the highest, not a count,
+    so a deleted beta's number is never reused.
+- Title: `ace 0.0.24 beta 1`.
+- The version inside the app is semver: `X.Y.Z-beta.<N>` (`0.0.24-beta.1`). `release:beta`
+  sets it at build time and never edits `package.json`.
+- Only a tag that is exactly `ace-<X.Y.Z>-beta-<N>` is a beta. Any other `ace-…` tag or
+  prerelease is ignored. Stable stays `v<X.Y.Z>`.
 
-Because a beta carries the next version, semver orders every release: 0.0.23 <
-0.0.24-beta.20261116.1 < 0.0.24-beta.20261116.2 < 0.0.24. The date and build number sit in the
-prerelease part and compare numerically.
+Because a beta carries the next version, semver orders every release: 0.0.23 < 0.0.24-beta.1 <
+0.0.24-beta.2 < 0.0.24. The build number sits in the prerelease part and compares numerically,
+so 0.0.24-beta.10 > 0.0.24-beta.9.
 
 **Builds come from `origin/main`.** `release:beta` refuses a dirty checkout, untracked files git
 doesn't ignore (a build copies some folders whole, so they would ship), or a commit that isn't
@@ -51,7 +53,7 @@ on `main` are only appended, never reordered or reverted. A later stable release
 includes every migration a beta from an earlier commit ran.
 
 **The app picks the release, not electron-updater.** electron-updater's GitHub provider skips
-tags that aren't semver, so it can't see `ace-beta-…`. Instead a pure picker takes:
+tags that aren't semver, so it can't see `ace-0.0.24-beta-1`. Instead a pure picker takes:
 
 - the release list from GitHub's public releases API (no token), read page by page until it
   reaches a stable release (at most five pages of a hundred), with `/releases/latest` added
@@ -66,12 +68,12 @@ at that release with the generic provider:
 signature. Neither trust root changes.
 
 Releases are ordered by semver. A beta of 0.0.24 is newer than stable 0.0.23 and older than
-stable 0.0.24, and of two betas of 0.0.24 the later date, then the higher build number, is newer.
+stable 0.0.24, and of two betas of 0.0.24 the higher build number is newer.
 
 - **Stable** offers the newest stable release.
 - **Beta** offers the newest release of either line, so a beta install moves on to its
   version's stable release once that ships.
-- Drafts never count. Prereleases whose tags aren't `ace-beta-…` never count.
+- Drafts never count. Prereleases whose tags aren't exactly `ace-<X.Y.Z>-beta-<N>` never count.
 
 Stable installs from before this ADR use `/releases/latest`, which excludes prereleases. Their
 changelog skips tags that aren't semver. `ace update` (`tools/release/src/desktop-update.ts`)
@@ -129,7 +131,7 @@ backups aside). It would leave stable without the person's data.
   word. iOS follows later.
 
 **Publishing.** `bun run release:beta build` stages the build under
-`dist/releases/ace-beta-…`. `bun run release:beta publish` checks the staged hashes and that
+`dist/releases/<tag>` (`dist/releases/ace-0.0.24-beta-1`). `bun run release:beta publish` checks the staged hashes and that
 the commit is on GitHub. It then uploads a draft prerelease and publishes it, so no app sees a
 half-uploaded beta, as in `release:publish`. The owner's agents use the `publish-beta` skill.
 

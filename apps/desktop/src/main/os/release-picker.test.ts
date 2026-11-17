@@ -15,16 +15,17 @@ const stable = (version: string): ListedRelease => ({
 });
 const beta = (tag: string): ListedRelease => ({ tag, draft: false, prerelease: true, body: tag });
 
-// Stable 0.0.23 is out; betas preview 0.0.24, two of them on the 16th.
+// Stable 0.0.23 is out; betas preview 0.0.24, up to beta 10. Beta 9 of 0.0.23 came before it.
 const releases = [
   stable("0.0.22"),
   stable("0.0.23"),
-  beta("ace-beta-2026-11-15-0.0.24-3"),
-  beta("ace-beta-2026-11-16-0.0.24-1"),
-  beta("ace-beta-2026-11-16-0.0.24-2"),
-  beta("ace-beta-2026-11-01-0.0.23-9"),
+  beta("ace-0.0.24-beta-9"),
+  beta("ace-0.0.24-beta-1"),
+  beta("ace-0.0.24-beta-10"),
+  beta("ace-0.0.24-beta-2"),
+  beta("ace-0.0.23-beta-9"),
 ];
-const newestBeta = "ace-beta-2026-11-16-0.0.24-2";
+const newestBeta = "ace-0.0.24-beta-10";
 
 describe("the release on offer", () => {
   it.each([
@@ -32,33 +33,12 @@ describe("the release on offer", () => {
     ["Stable offers the newest stable", "0.0.22", "stable", releases, "v0.0.23", false],
     ["Stable never offers a beta", "0.0.23", "stable", releases, "current", false],
     ["a 0.0.24 beta outranks stable 0.0.23", "0.0.23", "beta", releases, newestBeta, false],
-    [
-      "the second beta of a day outranks the first",
-      "0.0.24-beta.20261116.1",
-      "beta",
-      releases,
-      newestBeta,
-      false,
-    ],
-    [
-      "a later date outranks a higher build number",
-      "0.0.24-beta.20261115.3",
-      "beta",
-      releases,
-      newestBeta,
-      false,
-    ],
-    [
-      "the newest beta is current on Beta",
-      "0.0.24-beta.20261116.2",
-      "beta",
-      releases,
-      "current",
-      false,
-    ],
+    ["a later beta outranks an earlier one", "0.0.24-beta.1", "beta", releases, newestBeta, false],
+    ["beta 10 outranks beta 9, numerically", "0.0.24-beta.9", "beta", releases, newestBeta, false],
+    ["the newest beta is current on Beta", "0.0.24-beta.10", "beta", releases, "current", false],
     [
       "stable 0.0.24 outranks every 0.0.24 beta",
-      "0.0.24-beta.20261116.2",
+      "0.0.24-beta.10",
       "beta",
       [...releases, stable("0.0.24")],
       "v0.0.24",
@@ -66,7 +46,7 @@ describe("the release on offer", () => {
     ],
     [
       "a beta install follows Stable onto its own version without the guard",
-      "0.0.24-beta.20261116.2",
+      "0.0.24-beta.10",
       "stable",
       [...releases, stable("0.0.24")],
       "v0.0.24",
@@ -74,7 +54,7 @@ describe("the release on offer", () => {
     ],
     [
       "Beta 0.0.24 → Stable 0.0.23 is a switch to an older release",
-      "0.0.24-beta.20261116.2",
+      "0.0.24-beta.10",
       "stable",
       releases,
       "v0.0.23",
@@ -112,7 +92,11 @@ describe("the release on offer", () => {
   });
 
   it.each([
-    ["a draft", { ...beta("ace-beta-2026-11-09-0.0.24-1"), draft: true }],
+    ["a draft", { ...beta("ace-0.0.30-beta-1"), draft: true }],
+    ["a dated beta tag", beta("ace-beta-2026-11-09-0.0.30-1")],
+    ["a beta tag whose build isn't a number", beta("ace-0.0.30-beta-x")],
+    ["an ace- prerelease that isn't a beta", beta("ace-0.0.30")],
+    ["an ace- release that isn't a beta", { ...beta("ace-0.0.30"), prerelease: false }],
     ["a draft stable", { ...stable("0.0.30"), draft: true }],
     [
       "a preview prerelease",
@@ -130,16 +114,17 @@ describe("the release on offer", () => {
 
   it("offers a beta under the version its app will report", () => {
     expect(pickRelease({ releases, installed: "0.0.23", line: "beta" })).toMatchObject({
-      release: { version: "0.0.24-beta.20261116.2", line: "beta" },
+      release: { version: "0.0.24-beta.10", line: "beta" },
     });
   });
 
   it("notes every release between the installed one and the offer, newest first", () => {
     const pick = pickRelease({ releases, installed: "0.0.23", line: "beta" });
     expect(pick.kind === "offer" ? pick.notes.map((note) => note.version) : []).toEqual([
-      "0.0.24-beta.20261116.2",
-      "0.0.24-beta.20261116.1",
-      "0.0.24-beta.20261115.3",
+      "0.0.24-beta.10",
+      "0.0.24-beta.9",
+      "0.0.24-beta.2",
+      "0.0.24-beta.1",
     ]);
   });
 

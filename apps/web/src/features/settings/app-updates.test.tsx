@@ -126,14 +126,14 @@ test("a browser shows no Updates row in Settings", async () => {
 
 test("the person picks the Beta line in Settings, and it checks that line at once", async () => {
   const machine = desktop(status({ state: "current" }), undefined, (line) =>
-    offer({ line, version: "1.0.0-beta.20261103.1" }),
+    offer({ line, version: "1.0.0-beta.1" }),
   );
   await harness().open("/settings/general");
   expect(await screen.findByText("Stable gets each release once it's ready.")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Beta" }));
   expect(machine.calls).toEqual(["line beta"]);
   expect(await screen.findByText("Beta gets builds of main between stable releases.")).toBeTruthy();
-  expect(screen.getByText("ace 1.0.0-beta.20261103.1 is available.")).toBeTruthy();
+  expect(screen.getByText("ace 1.0.0-beta.1 is available.")).toBeTruthy();
 });
 
 test("a beta that can't go back to stable says why in one sentence", async () => {
@@ -142,7 +142,7 @@ test("a beta that can't go back to stable says why in one sentence", async () =>
   desktop(
     status({
       state: "current",
-      currentVersion: "1.0.0-beta.20261103.1",
+      currentVersion: "1.0.0-beta.1",
       buildLine: "beta",
       line: "stable",
       blocked: why,

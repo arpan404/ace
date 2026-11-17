@@ -14,13 +14,13 @@ describe("where a beta is built", () => {
 });
 
 describe("the next beta", () => {
-  const now = Date.UTC(2026, 10, 16, 23, 30);
   const listing = [
     "aaa\trefs/tags/v0.0.23",
     "bbb\trefs/tags/v0.0.23^{}",
-    "ccc\trefs/tags/ace-beta-2026-11-16-0.0.24-1",
-    "ddd\trefs/tags/ace-beta-2026-11-16-0.0.24-1^{}",
-    "eee\trefs/tags/ace-beta-2026-11-15-0.0.24-4",
+    "ccc\trefs/tags/ace-0.0.24-beta-1",
+    "ddd\trefs/tags/ace-0.0.24-beta-1^{}",
+    "eee\trefs/tags/ace-0.0.24-beta-9",
+    "fff\trefs/tags/ace-beta-2026-11-15-0.0.24-40",
     "",
   ].join("\n");
   const tags = remoteTagNames(listing);
@@ -28,31 +28,29 @@ describe("the next beta", () => {
   it("reads each tag GitHub has once", () => {
     expect(tags).toEqual([
       "v0.0.23",
-      "ace-beta-2026-11-16-0.0.24-1",
-      "ace-beta-2026-11-15-0.0.24-4",
+      "ace-0.0.24-beta-1",
+      "ace-0.0.24-beta-9",
+      "ace-beta-2026-11-15-0.0.24-40",
     ]);
   });
 
-  it("previews the next patch, dated in UTC and numbered after that day's betas of it", () => {
-    expect(planBeta({ stable: "0.0.23", now, tags })).toEqual({
-      name: { date: "2026-11-16", version: "0.0.24", build: 2 },
-      tag: "ace-beta-2026-11-16-0.0.24-2",
-      version: "0.0.24-beta.20261116.2",
-      title: "ace beta 2026-11-16 (0.0.24, build 2)",
+  it("previews the next patch, numbered after the highest beta of it", () => {
+    expect(planBeta({ stable: "0.0.23", tags })).toEqual({
+      name: { version: "0.0.24", build: 10 },
+      tag: "ace-0.0.24-beta-10",
+      version: "0.0.24-beta.10",
+      title: "ace 0.0.24 beta 10",
     });
   });
 
-  it("starts at build 1 on a day with no betas of that version yet", () => {
-    const tomorrow = Date.UTC(2026, 10, 17, 0, 5);
-    expect(planBeta({ stable: "0.0.23", now: tomorrow, tags }).tag).toBe(
-      "ace-beta-2026-11-17-0.0.24-1",
-    );
+  it("starts at beta 1 for a version with no betas yet", () => {
+    expect(planBeta({ stable: "0.0.23", tags: ["v0.0.23"] }).tag).toBe("ace-0.0.24-beta-1");
   });
 
   it("previews a later version the person names, counted on its own", () => {
-    expect(planBeta({ stable: "0.0.23", version: "0.1.0", now, tags })).toMatchObject({
-      tag: "ace-beta-2026-11-16-0.1.0-1",
-      version: "0.1.0-beta.20261116.1",
+    expect(planBeta({ stable: "0.0.23", version: "0.1.0", tags })).toMatchObject({
+      tag: "ace-0.1.0-beta-1",
+      version: "0.1.0-beta.1",
     });
   });
 
@@ -61,20 +59,20 @@ describe("the next beta", () => {
     ["an older version", "0.0.22"],
     ["a prerelease", "0.0.24-rc.1"],
   ])("refuses --version as %s", (_what, version) => {
-    expect(() => planBeta({ stable: "0.0.23", version, now, tags })).toThrow(/--version/);
+    expect(() => planBeta({ stable: "0.0.23", version, tags })).toThrow(/--version/);
   });
 
   it("refuses to build on a version that isn't a stable release", () => {
-    expect(() => planBeta({ stable: "0.1.0-preview.1", now, tags: [] })).toThrow(/stable/);
+    expect(() => planBeta({ stable: "0.1.0-preview.1", tags: [] })).toThrow(/stable/);
   });
 });
 
 describe("which staged beta publishes", () => {
-  const one = "ace-beta-2026-11-16-0.0.24-1";
-  const two = "ace-beta-2026-11-16-0.0.24-2";
+  const one = "ace-0.0.24-beta-1";
+  const two = "ace-0.0.24-beta-2";
 
-  it("is the only one staged, beside stable releases", () => {
-    expect(stagedBeta(["v0.0.23", one], undefined)).toBe(one);
+  it("is the only beta staged, beside folders of any other name", () => {
+    expect(stagedBeta(["v0.0.23", "ace-beta-2026-11-16-0.0.24-1", one], undefined)).toBe(one);
   });
 
   it("must be named when several are staged, and must exist when named", () => {

@@ -1,5 +1,4 @@
 import {
-  betaDate,
   betaTag,
   betaTitle,
   betaVersion,
@@ -36,7 +35,7 @@ export function remoteTagNames(output: string): string[] {
 export interface BetaPlan {
   name: BetaName;
   tag: string;
-  /** The version the app is built as: `X.Y.Z-beta.<YYYYMMDD>.<N>`. */
+  /** The version the app is built as: `X.Y.Z-beta.<N>`. */
   version: string;
   title: string;
 }
@@ -44,13 +43,12 @@ export interface BetaPlan {
 /**
  * The next beta (ADR 0174). It previews the next version: the patch after `stable`
  * (`apps/desktop/package.json` at the built commit), or `version` when the person names one,
- * which must be a later X.Y.Z. It is dated `now` in UTC and numbered after the beta tags GitHub
- * already has for that date and version.
+ * which must be a later X.Y.Z. It is numbered after the highest beta tag GitHub already has for
+ * that version.
  */
 export function planBeta(input: {
   stable: string;
   version?: string | undefined;
-  now: number;
   tags: readonly string[];
 }): BetaPlan {
   if (!isStableVersion(input.stable))
@@ -61,8 +59,7 @@ export function planBeta(input: {
   if (!isStableVersion(version)) throw new Error(`--version ${version} is not an X.Y.Z version`);
   if (!isNewer(version, input.stable))
     throw new Error(`--version ${version} must be later than ${input.stable}, the last stable`);
-  const date = betaDate(input.now);
-  const name = { date, version, build: nextBetaBuild(input.tags, date, version) };
+  const name = { version, build: nextBetaBuild(input.tags, version) };
   return { name, tag: betaTag(name), version: betaVersion(name), title: betaTitle(name) };
 }
 

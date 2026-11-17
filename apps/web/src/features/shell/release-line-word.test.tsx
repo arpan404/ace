@@ -28,7 +28,7 @@ test.each([
 test("the desktop app says Beta for its own beta build, whatever daemon it is on", async () => {
   const status = {
     state: "current",
-    currentVersion: "1.0.0-beta.20261103.1",
+    currentVersion: "1.0.0-beta.1",
     version: null,
     releaseUrl: null,
     inPlace: true,

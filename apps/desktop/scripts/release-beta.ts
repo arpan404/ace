@@ -31,14 +31,14 @@ import {
 
 /**
  * Beta releases of the desktop app (ADR 0174): a signed, notarized macOS arm64 build of a commit
- * on `origin/main`, published as a GitHub prerelease tagged `ace-beta-<date>-<X.Y.Z>-<N>` and
+ * on `origin/main`, published as a GitHub prerelease tagged `ace-<X.Y.Z>-beta-<N>` and
  * never marked latest. Installed apps on the Beta line pick it up.
  *
  *   bun run release:beta build [--version 0.1.0]
  *   bun run release:beta publish [<tag>] [--notes-file notes.md]
  *
  * A beta previews the next version: the patch after `apps/desktop/package.json`, or a later
- * `--version`. `build` works out the tag and the app's version (`X.Y.Z-beta.<YYYYMMDD>.<N>`), sets that
+ * `--version`. `build` works out the tag and the app's version (`X.Y.Z-beta.<N>`), sets that
  * version for this build only (package.json is never edited), packages and verifies the app,
  * and stages the dmg, zip, `latest-mac.yml`, `ace-data.json` and their hashes under
  * `dist/releases/<tag>`. `publish` checks the staged hashes and that the commit is on
@@ -102,7 +102,6 @@ async function build(version: string | undefined): Promise<void> {
   const plan = planBeta({
     stable: appVersion(),
     version,
-    now: Date.now(),
     tags: remoteTagNames(tags.out),
   });
   if (githubReady() && tagExists(plan.tag))

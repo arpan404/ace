@@ -61,7 +61,7 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 ## Beta builds
 
 A beta is a signed macOS arm64 build of a commit on `origin/main`, published as a GitHub
-prerelease tagged `ace-beta-<YYYY-MM-DD>-<X.Y.Z>-<N>` and never marked latest
+prerelease tagged `ace-<X.Y.Z>-beta-<N>` (`ace-0.0.24-beta-1`) and never marked latest
 ([ADR 0174](adr/0174-beta-release-line.md)). Apps on the Beta line pick it up.
 
 ```sh
@@ -73,9 +73,9 @@ bun run release:beta publish <tag> --notes-file notes.md
 
 `build` refuses another platform or architecture, a dirty tree and a commit not on
 `origin/main`. A beta previews the next version: the patch after `apps/desktop/package.json`
-(0.0.23 → 0.0.24), or a later `--version`. It builds the app as `X.Y.Z-beta.<YYYYMMDD>.<N>`
-(`0.0.24-beta.20261116.1`) without touching
-`package.json`, with a BETA band on the Dock icon. `publish` uploads a draft prerelease, then
+(0.0.23 → 0.0.24), or a later `--version`. `N` is one more than the highest beta of that
+version on GitHub, across days. It builds the app as `X.Y.Z-beta.<N>` (`0.0.24-beta.1`), titled
+`ace 0.0.24 beta 1`, without touching `package.json`, with a BETA band on the Dock icon. `publish` uploads a draft prerelease, then
 publishes it.
 
 ## What people see

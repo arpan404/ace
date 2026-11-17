@@ -420,9 +420,9 @@ it("a remote request before the app has checked asks the feed first", async () =
 it("picking the Beta line checks it at once and offers its beta under its own release page", async () => {
   const app = setup();
   await app.controller.check("background");
-  const betaPage = "https://github.com/arpan404/ace/releases/tag/ace-beta-2026-11-03-1.0.0-1";
+  const betaPage = "https://github.com/arpan404/ace/releases/tag/ace-1.0.0-beta-1";
   app.lineFeed("beta", {
-    version: "1.0.0-beta.20261103.1",
+    version: "1.0.0-beta.1",
     notes: [],
     olderReleases: 0,
     releaseUrl: betaPage,
@@ -433,7 +433,7 @@ it("picking the Beta line checks it at once and offers its beta under its own re
     state: "available",
     line: "beta",
     buildLine: "stable",
-    version: "1.0.0-beta.20261103.1",
+    version: "1.0.0-beta.1",
     releaseUrl: betaPage,
     blocked: null,
   });

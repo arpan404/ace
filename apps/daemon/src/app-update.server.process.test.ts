@@ -144,7 +144,7 @@ test("the reply to the app's report says which data formats the home holds", asy
 });
 
 test("a beta daemon's welcome names the beta line, and any other build's the stable line", async () => {
-  const beta = await setup({ version: "0.0.23-beta.20261103.1" });
+  const beta = await setup({ version: "0.0.23-beta.1" });
   const betaClient = await beta.connect();
   expect(await next(betaClient, "welcome")).toMatchObject({ releaseLine: "beta" });
   const stable = await setup({ version: "0.0.23" });

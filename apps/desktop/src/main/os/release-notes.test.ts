@@ -47,13 +47,13 @@ it("a long release shows its first lines and counts the rest", () => {
 it("releases come through in the order given, and those without lines are dropped", () => {
   expect(
     noteGroups([
-      { version: "0.0.23-beta.20261104.1", note: "<ul><li>Newer change</li></ul>" },
+      { version: "0.0.23-beta.1", note: "<ul><li>Newer change</li></ul>" },
       { version: "1.1.5", note: "<p></p>" },
       { version: "0.0.23", note: "- Older change" },
     ]),
   ).toEqual({
     notes: [
-      { version: "0.0.23-beta.20261104.1", items: ["Newer change"], total: 1 },
+      { version: "0.0.23-beta.1", items: ["Newer change"], total: 1 },
       { version: "0.0.23", items: ["Older change"], total: 1 },
     ],
     olderReleases: 0,

@@ -6,7 +6,7 @@ import { feedEngine, type FeedUpdater } from "./update-engine.ts";
 const download = "https://github.test/download/";
 const stable023 = { tag_name: "v0.0.23", draft: false, prerelease: false, body: "- Stable" };
 const beta = (n: number) => ({
-  tag_name: `ace-beta-2026-11-16-0.0.24-${n}`,
+  tag_name: `ace-0.0.24-beta-${n}`,
   draft: false,
   prerelease: true,
   body: `- Beta ${n}`,
@@ -14,7 +14,7 @@ const beta = (n: number) => ({
 const versionOf = (url: string) => {
   const tag = decodeURIComponent(url.slice(download.length).replace(/\/$/, ""));
   const n = /-(\d+)$/.exec(tag)?.[1];
-  return tag.startsWith("v") ? tag.slice(1) : `0.0.24-beta.20261116.${n}`;
+  return tag.startsWith("v") ? tag.slice(1) : `0.0.24-beta.${n}`;
 };
 
 /**
@@ -109,16 +109,16 @@ describe("the update engine", () => {
   it("downloads the offer of its last successful check, even when a timed-out check finishes later", async () => {
     let list = [beta(1), stable023];
     const { subject, updater: u } = engine({ installed: "0.0.23", releases: () => list });
-    expect(await subject.check()).toMatchObject({ version: "0.0.24-beta.20261116.1" });
+    expect(await subject.check()).toMatchObject({ version: "0.0.24-beta.1" });
 
     // Beta 2 appears, but its check outlives the timeout, then finishes anyway.
     list = [beta(2), beta(1), stable023];
-    u.hold("ace-beta-2026-11-16-0.0.24-2");
+    u.hold("ace-0.0.24-beta-2");
     await expect(subject.check()).rejects.toThrow("timed out");
-    u.release("ace-beta-2026-11-16-0.0.24-2");
+    u.release("ace-0.0.24-beta-2");
 
     await subject.download(() => {});
-    expect(u.downloads).toEqual(["0.0.24-beta.20261116.1"]);
+    expect(u.downloads).toEqual(["0.0.24-beta.1"]);
   });
 
   it("waits out a check still running inside the updater before it downloads", async () => {
@@ -126,18 +126,18 @@ describe("the update engine", () => {
     const { subject, updater: u } = engine({ installed: "0.0.23", releases: () => list });
     await subject.check();
     list = [beta(2), beta(1), stable023];
-    u.hold("ace-beta-2026-11-16-0.0.24-2");
+    u.hold("ace-0.0.24-beta-2");
     await expect(subject.check()).rejects.toThrow("timed out");
     const downloading = subject.download(() => {});
-    u.release("ace-beta-2026-11-16-0.0.24-2");
+    u.release("ace-0.0.24-beta-2");
     await downloading;
-    expect(u.downloads).toEqual(["0.0.24-beta.20261116.1"]);
+    expect(u.downloads).toEqual(["0.0.24-beta.1"]);
   });
 
   it("allows a downgrade and keeps install-on-quit off only for a guarded switch back", async () => {
     const formats = { home: 1, daemon: 33, notify: 5, spade: 7 };
     const back = engine({
-      installed: "0.0.24-beta.20261116.1",
+      installed: "0.0.24-beta.1",
       line: "stable",
       releases: () => [beta(1), stable023],
       data: { "v0.0.23/ace-data.json": formats },
@@ -160,7 +160,7 @@ describe("the update engine", () => {
     const formats = { home: 1, daemon: 33, notify: 5, spade: 7 };
     let spade: number | null = null;
     const { subject } = engine({
-      installed: "0.0.24-beta.20261116.1",
+      installed: "0.0.24-beta.1",
       line: "stable",
       releases: () => [beta(1), stable023],
       data: { "v0.0.23/ace-data.json": formats },

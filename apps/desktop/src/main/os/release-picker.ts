@@ -10,7 +10,7 @@ import { isNewer } from "@ace/service/version";
 /**
  * Which release the app offers (ADR 0174), as pure decisions over GitHub's release list, the
  * installed version, the person's line and the data their home holds. electron-updater can't
- * pick: its GitHub provider skips tags that aren't semver (`ace-beta-…`). Releases order by
+ * pick: its GitHub provider skips tags that aren't semver (`ace-0.0.24-beta-1`). Releases order by
  * semver; a beta carries the next version. The shell (`release-feed.ts`) does the fetching.
  */
 
@@ -46,8 +46,9 @@ export function parseReleaseList(value: unknown): ListedRelease[] {
 }
 
 /**
- * Semver order (ADR 0174): a beta carries the next version, with its date and build number in
- * the prerelease part, so 0.0.23 < 0.0.24-beta.20261116.1 < 0.0.24-beta.20261116.2 < 0.0.24.
+ * Semver order (ADR 0174): a beta carries the next version, with its build number in the
+ * prerelease part, compared numerically, so 0.0.23 < 0.0.24-beta.1 < 0.0.24-beta.2 <
+ * 0.0.24-beta.10 < 0.0.24.
  * A version that isn't semver (a development build) sorts below every release.
  */
 const valid = (version: string) => ReleaseVersion.safeParse(version).success;
@@ -60,15 +61,16 @@ export function compareVersions(a: string, b: string): number {
 /** A release the app could install. */
 export interface Candidate {
   tag: string;
-  /** The version its app reports: `X.Y.Z`, or `X.Y.Z-beta.<YYYYMMDD>.<N>`. */
+  /** The version its app reports: `X.Y.Z`, or `X.Y.Z-beta.<N>`. */
   version: string;
   line: ReleaseLine;
   body: string;
 }
 
 /**
- * Releases that count: published stable `v<X.Y.Z>` releases and published `ace-beta-…` tags.
- * Drafts never count, nor prereleases under any other tag (previews, release candidates).
+ * Releases that count: published stable `v<X.Y.Z>` releases and published betas tagged exactly
+ * `ace-<X.Y.Z>-beta-<N>`. Drafts never count, nor any other `ace-…` tag, nor prereleases under
+ * any other tag (previews, release candidates).
  */
 export function candidates(releases: readonly ListedRelease[]): Candidate[] {
   return releases.flatMap((release): Candidate[] => {
