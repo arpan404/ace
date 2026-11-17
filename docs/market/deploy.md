@@ -7,21 +7,44 @@ in the repository deploys it or talks to a Cloudflare account.
 
 Run each command from `apps/market`.
 
-1. **Create the database and the bucket.**
+1. **Create the databases and the bucket.** The market keeps one D1 database per entry type
+   and one per shared domain (ADR 0173 §16):
+
+   | Database                | Binding             | Migrations              |
+   | ----------------------- | ------------------- | ----------------------- |
+   | `ace-market-suits`      | `MARKET_SUITS`      | `migrations/catalogue`  |
+   | `ace-market-skills`     | `MARKET_SKILLS`     | `migrations/catalogue`  |
+   | `ace-market-plugins`    | `MARKET_PLUGINS`    | `migrations/catalogue`  |
+   | `ace-market-bots`       | `MARKET_BOTS`       | `migrations/catalogue`  |
+   | `ace-market-publishers` | `MARKET_PUBLISHERS` | `migrations/publishers` |
+   | `ace-market-counts`     | `MARKET_COUNTS`     | `migrations/counts`     |
+   | `ace-market-moderation` | `MARKET_MODERATION` | `migrations/moderation` |
+   | `ace-market-lists`      | `MARKET_LISTS`      | `migrations/lists`      |
 
    ```sh
-   bunx wrangler d1 create ace-market
+   for name in suits skills plugins bots publishers counts moderation lists; do
+     bunx wrangler d1 create "ace-market-$name"
+   done
    bunx wrangler r2 bucket create ace-market-objects
    ```
 
-   Put the database id `d1 create` prints into `wrangler.jsonc`, under `env.production`
-   (`d1_databases[0].database_id`).
+   Put each id `d1 create` prints into `wrangler.jsonc`, under `env.production.d1_databases`, in
+   place of `REPLACE-WITH-<name>-ID`. The single `ace-market` database the Worker used before the
+   split held no data; once the new ones are deployed, delete it with
+   `bunx wrangler d1 delete ace-market`.
 
-2. **Apply the migrations.**
+2. **Apply the migrations**, each database from its own folder:
 
    ```sh
-   bunx wrangler d1 migrations apply MARKET --remote --env production
+   for binding in MARKET_SUITS MARKET_SKILLS MARKET_PLUGINS MARKET_BOTS \
+       MARKET_PUBLISHERS MARKET_COUNTS MARKET_MODERATION MARKET_LISTS; do
+     bunx wrangler d1 migrations apply "$binding" --remote --env production
+   done
    ```
+
+   Run the same loop after any change under `migrations/`. A later entry type (`ace-plugin`) is
+   a new database created from `migrations/catalogue`, a binding in `wrangler.jsonc` and an entry
+   in `catalogueBindings` (`src/store/databases.ts`).
 
 3. **Set the secrets and keys.**
 
@@ -82,7 +105,19 @@ Run each command from `apps/market`.
 
 6. **The cron** runs every quarter hour (`triggers.crons`): download totals, scan steps that
    didn't fit a request, trending in batches, verification re-checks and pruning, each step
-   bounded. Nothing else needs scheduling.
+   bounded. It also finishes any cross-database step a request was cut off in (publisher copies,
+   draft publishes, the withdrawn list, the quota ledger). Nothing else needs scheduling.
+
+7. **Watch the sizes.** Once a day the cron records every database's size and each table's
+   rows in the counts database. To read the latest:
+
+   ```sh
+   bunx wrangler d1 execute ace-market-counts --remote --env production --command \
+     "SELECT database, bytes FROM database_sizes WHERE day = (SELECT MAX(day) FROM database_sizes)"
+   ```
+
+   Split a database further before it nears 5 GB (D1 stops at 10 GB); ADR 0173 §16 names the
+   next cut for each.
 
 After changing `spade/config/templates.json`, rebuild the seed's recipes with
 `node scripts/build-seed.ts` and commit the result.
