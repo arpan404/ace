@@ -167,7 +167,8 @@ export class MediaConnection {
   start(): void {
     this.#reset();
     this.#attempt = 0;
-    void this.#open();
+    // #open retries or falls back to the main socket by itself.
+    void this.#open().catch(() => {});
   }
   /** The main session ended: its media connection ends with it. */
   stop(): void {
@@ -344,7 +345,8 @@ export class MediaConnection {
     const epoch = ++this.#epoch;
     this.#set({ state: "legacy", reason });
     this.#after(retryMs, () => {
-      if (epoch === this.#epoch) void this.#open();
+      // #open retries or falls back to the main socket by itself.
+      if (epoch === this.#epoch) void this.#open().catch(() => {});
     });
   }
   /** Runs `run` after `ms` unless cancelled first, or by `#reset` (a stop, a new attempt). */

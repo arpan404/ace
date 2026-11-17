@@ -190,14 +190,21 @@ export function spadeDirect(
       (result) =>
         !framed &&
         (result.kind === "unreachable" || (result.kind === "refused" && result.status === 401)),
-    ).then((result) => {
-      if (streams.get(streamId) !== stream) return;
-      streams.delete(streamId);
-      if (!result) return ended("unreachable");
-      if (result.kind === "aborted") return;
-      if (result.kind === "refused") return ended("refused", result.status);
-      ended(result.kind);
-    });
+    )
+      .then((result) => {
+        if (streams.get(streamId) !== stream) return;
+        streams.delete(streamId);
+        if (!result) return ended("unreachable");
+        if (result.kind === "aborted") return;
+        if (result.kind === "refused") return ended("refused", result.status);
+        ended(result.kind);
+      })
+      .catch(() => {
+        // A stream that could not be opened ends for its window as an unreachable Spade.
+        if (streams.get(streamId) !== stream) return;
+        streams.delete(streamId);
+        ended("unreachable");
+      });
   }
 
   function closeLive(streamId: string): void {

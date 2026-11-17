@@ -141,10 +141,13 @@ export class Subscriptions {
       if (entry.binding) {
         const loading = entry;
         loading.loading = true;
-        void loading.binding?.loaded.then(() => {
-          loading.loading = false;
-          this.#pump();
-        });
+        // `loaded` settles on its own deadline; only a throw in the pump can reject it.
+        void loading.binding?.loaded
+          .then(() => {
+            loading.loading = false;
+            this.#pump();
+          })
+          .catch(() => {});
       }
     }
     this.#cache.delete(threadId);
@@ -309,12 +312,15 @@ export class Subscriptions {
     const closing = this.#closing.get(entry.threadId) ?? new Set();
     closing.add(binding);
     this.#closing.set(entry.threadId, closing);
-    void written.finally(() => {
-      this.#checkpoints.delete(written);
-      closing.delete(binding);
-      if (!closing.size && this.#closing.get(entry.threadId) === closing)
-        this.#closing.delete(entry.threadId);
-    });
+    // A checkpoint that fails writes nothing; the next change writes the newest copy.
+    void written
+      .catch(() => {})
+      .finally(() => {
+        this.#checkpoints.delete(written);
+        closing.delete(binding);
+        if (!closing.size && this.#closing.get(entry.threadId) === closing)
+          this.#closing.delete(entry.threadId);
+      });
   }
   #evict(threadId: string, entry: Cached): void {
     this.#inactiveBytes -= entry.inactiveBytes;

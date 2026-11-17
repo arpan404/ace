@@ -66,7 +66,8 @@ export class ToolIconCache<Group extends string = ThreadId> {
     if ((this.retryAt.get(id) ?? 0) > this.now()) return;
     this.loading.add(id);
     if (ref) {
-      void this.settle(id, this.read(ref));
+      // A settle that fails leaves the step's glyph; the next ask tries again.
+      void this.settle(id, this.read(ref)).catch(() => {});
       return;
     }
     let steps = this.queue.get(threadId);
@@ -76,7 +77,8 @@ export class ToolIconCache<Group extends string = ThreadId> {
     this.scheduled = true;
     (this.options.defer ?? queueMicrotask)(() => {
       this.scheduled = false;
-      void this.flush();
+      // flush() retries a batch it could not resolve; a settle that fails leaves its glyph.
+      void this.flush().catch(() => {});
     });
   }
 
@@ -129,8 +131,11 @@ export class ToolIconCache<Group extends string = ThreadId> {
         batch.forEach((itemId, index) => {
           const id = stepKey(threadId, itemId);
           const result = icons[index];
-          if (result?.state === "found" && result.ref) void this.settle(id, this.read(result.ref));
-          else if (result?.state === "none") void this.settle(id, Promise.resolve(null));
+          // A settle that fails leaves the step's glyph; the next ask tries again.
+          if (result?.state === "found" && result.ref)
+            void this.settle(id, this.read(result.ref)).catch(() => {});
+          else if (result?.state === "none")
+            void this.settle(id, Promise.resolve(null)).catch(() => {});
           else this.later(id);
         });
       }

@@ -88,4 +88,5 @@ async function update(message: PopupRequest) {
   }
 }
 
-void update({ kind: "state" });
+// update() shows its own failure in the popup; a paint that throws leaves the last one.
+void update({ kind: "state" }).catch(() => {});

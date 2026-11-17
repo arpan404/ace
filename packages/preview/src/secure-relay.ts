@@ -28,7 +28,8 @@ export function previewRelayChannel(channel: {
         active = false;
         onClose();
       };
-      void channel.closed.then(finish);
+      // The receive loop below finishes too, so a rejected `closed` is covered.
+      void channel.closed.then(finish).catch(() => {});
       void (async () => {
         try {
           while (true) {
@@ -41,7 +42,7 @@ export function previewRelayChannel(channel: {
           channel.close();
           finish();
         }
-      })();
+      })().catch(() => {});
       return () => {
         active = false;
         channel.close();

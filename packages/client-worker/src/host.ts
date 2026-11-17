@@ -183,7 +183,8 @@ export class ClientHost {
       entry.linger = undefined;
       if (!entry.tabs.size) {
         entry.unwatch();
-        void entry.client.close();
+        // close() never rejects: a snapshot it cannot write is dropped.
+        void entry.client.close().catch(() => {});
       }
       entry = undefined;
     }
@@ -246,7 +247,8 @@ export class ClientHost {
       if (entry.tabs.size) return;
       if (this.#entries.get(entry.key) === entry) this.#entries.delete(entry.key);
       entry.unwatch();
-      void entry.client.close();
+      // close() never rejects: a snapshot it cannot write is dropped.
+      void entry.client.close().catch(() => {});
     });
   }
   #scheduleSweep(): void {
@@ -749,7 +751,8 @@ class Tab {
     try {
       this.#iterators.set(call, iterateArgs(client, method, args, controller.signal));
       this.#calls.set(call, controller);
-      void this.#next(call);
+      // #next posts its own read failure to the tab.
+      void this.#next(call).catch(() => {});
     } catch (error) {
       this.#post({ t: "failed", call, error: errorShape(error) });
     }
@@ -801,7 +804,8 @@ class Tab {
     this.#stopRoom?.();
     this.#stopRoom = undefined;
     for (const controller of this.#calls.values()) controller.abort();
-    for (const call of this.#iterators.keys()) void this.#stop(call);
+    // #stop swallows the iterator's own end failure.
+    for (const call of this.#iterators.keys()) void this.#stop(call).catch(() => {});
     this.#flushing?.();
     this.#flushing = undefined;
   }

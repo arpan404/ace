@@ -103,7 +103,8 @@ export class DaemonRuntime {
       if (options.sinceLaunch)
         options.log("info", message, { ...data, sinceLaunchMs: Math.round(options.sinceLaunch()) });
     };
-    void this.path.then(() => launchStep("The login shell's PATH is ready"));
+    // loginShellPath answers the current PATH when the shell fails: this cannot reject.
+    void this.path.then(() => launchStep("The login shell's PATH is ready")).catch(() => {});
     let looked = false;
     const source =
       this.target.kind === "remote" ? "remote" : this.target.kind === "fake" ? "fake" : "external";

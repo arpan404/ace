@@ -108,8 +108,8 @@ export class BackendConnection {
   setAvailable(available: boolean): void {
     if (available === this.wanted) return;
     this.wanted = available;
-    if (available) void this.connect();
-    else void this.disconnect();
+    if (available) void this.connect().catch((error: unknown) => this.ports.log(String(error)));
+    else void this.disconnect().catch((error: unknown) => this.ports.log(String(error)));
   }
 
   /** Writes to the registered socket, if there is one. */
@@ -142,7 +142,7 @@ export class BackendConnection {
     }
     if (!this.wanted || this.socket) return;
     this.attempt = 0;
-    void this.connect();
+    void this.connect().catch((error: unknown) => this.ports.log(String(error)));
   }
 
   /** Quit: unregister and close every view; resolves once they are closed. */
@@ -310,7 +310,7 @@ export class BackendConnection {
     const delay = Math.min(this.options.maxRetryMs, 1_000 * 2 ** this.attempt++);
     this.cancelRetry = this.ports.timers.set(delay, () => {
       this.cancelRetry = undefined;
-      void this.connect();
+      void this.connect().catch((error: unknown) => this.ports.log(String(error)));
     });
   }
 

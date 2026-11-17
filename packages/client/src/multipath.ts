@@ -208,11 +208,16 @@ export class Multipath {
   }
   /** The network changed (online, offline, another connection): check better paths now. */
   networkChanged(): void {
-    void this.#checkUpgrades();
+    // A check that fails leaves the paths as they are; the next cue checks again.
+    void this.#checkUpgrades().catch((error: unknown) =>
+      this.#options.report?.("path.upgrade_failed", { error: String(error) }),
+    );
   }
   /** Woken from sleep: the active path may be gone and a better one may be back. */
   wake(): void {
-    void this.#checkUpgrades();
+    void this.#checkUpgrades().catch((error: unknown) =>
+      this.#options.report?.("path.upgrade_failed", { error: String(error) }),
+    );
   }
   close(): void {
     this.#closed = true;
@@ -266,7 +271,8 @@ export class Multipath {
     this.#emit();
     this.#schedulePing();
     this.#scheduleUpgrade();
-    void this.#openStandby();
+    // A standby that fails to open rests its path and is sought again later.
+    void this.#openStandby().catch(() => {});
   }
   #healthOf(route: MachineRoute): PathHealth {
     return this.#health.get(route.path.key) ?? { failures: 0, restUntil: 0 };
@@ -308,19 +314,23 @@ export class Multipath {
     const sentAt = this.#elapsed();
     const heard = connection.heard;
     let answered = false;
-    void connection.ping().then(() => {
-      answered = true;
-      if (this.#active !== route) return;
-      // A sample no link gives (a clock fault) is left out rather than dragging the estimate.
-      const sample = rttSample(sentAt, this.#elapsed());
-      if (sample === undefined) return;
-      const health = this.#healthOf(route);
-      this.#health.set(route.path.key, {
-        ...health,
-        rttMs: smoothRtt(health.rttMs, sample),
-        rttAt: this.#options.now(),
-      });
-    });
+    // A ping that fails is a pong that never came; the deadline below counts the miss.
+    void connection
+      .ping()
+      .then(() => {
+        answered = true;
+        if (this.#active !== route) return;
+        // A sample no link gives (a clock fault) is left out rather than dragging the estimate.
+        const sample = rttSample(sentAt, this.#elapsed());
+        if (sample === undefined) return;
+        const health = this.#healthOf(route);
+        this.#health.set(route.path.key, {
+          ...health,
+          rttMs: smoothRtt(health.rttMs, sample),
+          rttAt: this.#options.now(),
+        });
+      })
+      .catch(() => {});
     this.#later(pongDeadline(this.#healthOf(route).rttMs), () => {
       if (this.#active !== route) return;
       // Anything heard proves the path alive; a pong queued behind a busy stream is late.
@@ -352,9 +362,13 @@ export class Multipath {
   }
   #scheduleUpgrade(): void {
     this.#later(pathTiming.upgradeProbeMs, () => {
-      void this.#checkUpgrades().finally(() => {
-        if (this.#active) this.#scheduleUpgrade();
-      });
+      void this.#checkUpgrades()
+        .catch((error: unknown) =>
+          this.#options.report?.("path.upgrade_failed", { error: String(error) }),
+        )
+        .finally(() => {
+          if (this.#active) this.#scheduleUpgrade();
+        });
     });
   }
   /** Probe better paths, best first, and switch to the first one worth it. */
@@ -534,7 +548,9 @@ export class Multipath {
    * new active path may want a standby of its own, which this opening held back.
    */
   #standbyAfter(opened: MachineRoute): void {
-    if (!this.#closed && this.#active && this.#active !== opened) void this.#openStandby();
+    // A standby that fails to open rests its path and is sought again later.
+    if (!this.#closed && this.#active && this.#active !== opened)
+      void this.#openStandby().catch(() => {});
   }
   /** The connection failed over onto the standby: it is the active path now. */
   #failedOver(code: number): void {
