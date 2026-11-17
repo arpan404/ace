@@ -79,6 +79,18 @@ test("Agent links draws the links between machines", async () => {
   await waitFor(() => expect(drawn.querySelector("[data-agent-link]")).not.toBeNull());
 }, 30_000);
 
+test("a column narrower than the map still draws it, scrolling sideways instead of listing", async () => {
+  globalThis.innerWidth = 430;
+  const app = withBuildServer();
+  await app.open("/settings/remote/map");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  for (const name of ["This Mac", "Build server", "iPhone 16 Pro", "iPad Air"])
+    expect(await node(name)).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Machines and devices" })).toBeNull();
+  const drawn = (await map()).closest("svg") ?? (await map());
+  expect(Number(drawn.getAttribute("width"))).toBeGreaterThan(430);
+}, 30_000);
+
 test("a narrow window lists the same machines and devices, and a row opens its details", async () => {
   globalThis.innerWidth = 390;
   const app = withBuildServer();
