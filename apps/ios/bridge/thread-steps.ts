@@ -46,6 +46,13 @@ interface Slot {
   again: boolean;
 }
 
+function sameMoments(a: readonly PlacedMoment[], b: readonly PlacedMoment[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((moment, at) => moment.id === b[at]?.id && moment.at === b[at]?.at)
+  );
+}
+
 function stepRow(store: ThreadSource, item: Parameters<typeof itemRow>[0], thought: string | null) {
   const row = { ...itemRow(item), ...itemDetail(item, stepContext(store, item)), thought };
   // Steps read as one line each; a long thought or command keeps a bounded head.
@@ -89,11 +96,17 @@ export class StepsFollower {
   /**
    * A log opened or its head came into view: hold its turn and read it, or show what was read.
    * `answers` are the head's answer ids, `moments` its restarts, waits and results landing. Opening
-   * one already open does nothing.
+   * one already open only takes the head's moments, which it may have gathered since.
    */
   open(ordinal: number, answers: readonly string[], moments: readonly PlacedMoment[] = []): void {
     let slot = this.#slots.get(ordinal);
-    if (slot?.release) return;
+    if (slot?.release) {
+      if (sameMoments(slot.moments, moments)) return;
+      slot.moments = moments;
+      slot.fresh = true;
+      this.#emit(ordinal);
+      return;
+    }
     if (slot) this.#slots.delete(ordinal);
     else
       slot = {

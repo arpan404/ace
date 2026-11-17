@@ -428,3 +428,64 @@ test("an opened restarted turn shows its restarts, wait and finished subagents i
   const loaded = (work?.log ?? []) as { kind: string; id: string }[];
   expect(loaded.map((row) => row.kind)).toEqual(header.log.map((row) => row.kind));
 });
+
+const shell = (item: string, command: string): Fact[] => [
+  facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } }),
+  facts.toolDone("root", item),
+];
+
+test("a log still open when its turn gathers another restart shows it when the head opens it again", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "resumed", workspaceId: "ace", title: "Resumed", provider: "claude" });
+  fake.apply("resumed", [
+    facts.rootAgent("claude"),
+    { type: "turn.started", agent: "root", nativeTurnId: "t1", trigger: "user" },
+    facts.message("root", "ask", "user", "Merge the PR"),
+    ...shell("checks", "gh pr checks 2106"),
+    { type: "turn.ended", agent: "root", nativeTurnId: "t1", outcome: "interrupted" },
+  ]);
+  const thread = open(connect(fake), "resumed");
+  const [head] = await heads(1);
+  if (!head) throw new Error("no settled head");
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  await ready(head.ordinal);
+  const header = () =>
+    native.frames.findLast(
+      (frame) => frame.type === "thread.steps" && frame.ordinal === head.ordinal,
+    ) as { log: { kind: string }[] };
+  expect(header().log.map((row) => row.kind)).not.toContain("moment");
+  // ace restarts and the same turn carries on, while its log is still held open.
+  fake.apply("resumed", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "restart-1",
+      draft: {
+        type: "notice",
+        level: "warning",
+        complete: true,
+        code: "restart_interrupted",
+        text: "Interrupted by a restart. Continuing.",
+        raw: [],
+      },
+    },
+    { type: "turn.started", agent: "root", nativeTurnId: "t2", trigger: "restart" },
+    ...shell("merge", "gh pr merge 2106 --squash"),
+    { type: "turn.ended", agent: "root", nativeTurnId: "t2", outcome: "completed" },
+  ]);
+  await until(
+    () =>
+      rows("thread.block").some(
+        (row) => row.kind === "work" && (row.moments as unknown[] | undefined)?.length,
+      ),
+    "the head's restart",
+  );
+  const [again] = await heads(1);
+  if (!again) throw new Error("no settled head");
+  expect(again.ordinal).toBe(head.ordinal);
+  thread.handle({ type: "steps.open", ordinal: again.ordinal, block: again.block });
+  await until(
+    () => header().log.some((row) => row.kind === "moment"),
+    "the restart in the opened log",
+  );
+});
