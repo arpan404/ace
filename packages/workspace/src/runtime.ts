@@ -82,7 +82,10 @@ export function workspaceRuntime(): WorkspaceRuntime {
     worker: (url) => startWorker(url, { execArgv: [] }),
     clock: {
       after(callback, milliseconds) {
-        const timer = setTimeout(callback, milliseconds);
+        const timer = setTimeout(() => {
+          // The timed work reports its own failure through whatever scheduled it.
+          void Promise.resolve(callback()).catch(() => {});
+        }, milliseconds);
         return () => clearTimeout(timer);
       },
       every(callback, milliseconds) {
