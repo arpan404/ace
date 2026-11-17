@@ -2,6 +2,7 @@ import { settleDecision, settlePolicy } from "@ace/projection";
 import type { SettingsService } from "@ace/settings";
 import { ThreadId } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import { HeldWrites } from "./held-writes.ts";
 
 export type OrganizerSchedule = (delay: number, work: () => void) => () => void;
 export const organizerSchedule: OrganizerSchedule = (delay, work) => {
@@ -23,16 +24,21 @@ export class ThreadOrganizer {
   private stopped = false;
   private retry = false;
   private policyRevision = 0;
+  /** Dirty marks a failed write (a full disk) kept off disk; the next sweep writes them first. */
+  private held: HeldWrites;
   constructor(
     store: Store,
     settings: SettingsService | undefined,
     now: () => number,
     schedule = organizerSchedule,
+    /** Hears each mark that could not be written and is held for the next sweep. */
+    report: (error: unknown) => void = () => {},
   ) {
     this.store = store;
     this.settings = settings;
     this.now = now;
     this.schedule = schedule;
+    this.held = new HeldWrites(report);
     store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS thread_settle_due(thread_id TEXT PRIMARY KEY, due INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS thread_settle_deadlines ON thread_settle_due(due);
@@ -42,13 +48,6 @@ export class ThreadOrganizer {
     this.unsubscribe = store.subscribe((events) => {
       for (const event of events) {
         const p = event.payload;
-        if (p.type === "thread.updated" && p.status) {
-          store.appendEvents(
-            event.threadId,
-            [{ type: "thread.client.updated", changes: { activityAt: event.at } }],
-            event.at,
-          );
-        }
         if (
           p.type === "queue.updated" ||
           p.type === "thread.created" ||
@@ -63,12 +62,16 @@ export class ThreadOrganizer {
               p.changes.settleWhenDone !== undefined ||
               p.changes.autoSettle !== undefined))
         ) {
-          store.atomic((db) =>
-            db
-              .prepare("INSERT OR IGNORE INTO thread_organizer_dirty VALUES (?)")
-              .run(event.threadId),
-          );
+          this.markDirty(event.threadId);
           this.arm(0);
+        }
+        // After the mark: a write that fails here (a full disk) must not cost the thread it.
+        if (p.type === "thread.updated" && p.status) {
+          store.appendEvents(
+            event.threadId,
+            [{ type: "thread.client.updated", changes: { activityAt: event.at } }],
+            event.at,
+          );
         }
       }
     });
@@ -83,18 +86,27 @@ export class ThreadOrganizer {
         )
           return;
         this.policyRevision++;
-        store.atomic((db) => {
-          if (layer.kind === "global")
-            db.exec("INSERT OR IGNORE INTO thread_organizer_dirty SELECT id FROM threads");
-          else if (layer.kind === "thread")
-            db.prepare(
-              "INSERT OR IGNORE INTO thread_organizer_dirty SELECT id FROM threads WHERE id=?",
-            ).run(layer.thread);
-          else
-            db.prepare(
-              "INSERT OR IGNORE INTO thread_organizer_dirty SELECT threads.id FROM threads JOIN workspaces ON workspace_id=workspaces.id WHERE workspaces.path=?",
-            ).run(layer.workspace);
-        });
+        if (layer.kind === "global") this.markAll();
+        else if (layer.kind === "thread")
+          this.held.run(`thread:${layer.thread}`, () =>
+            store.atomic((db) =>
+              db
+                .prepare(
+                  "INSERT OR IGNORE INTO thread_organizer_dirty SELECT id FROM threads WHERE id=?",
+                )
+                .run(layer.thread),
+            ),
+          );
+        else
+          this.held.run(`workspace:${layer.workspace}`, () =>
+            store.atomic((db) =>
+              db
+                .prepare(
+                  "INSERT OR IGNORE INTO thread_organizer_dirty SELECT threads.id FROM threads JOIN workspaces ON workspace_id=workspaces.id WHERE workspaces.path=?",
+                )
+                .run(layer.workspace),
+            ),
+          );
         this.arm(0);
       });
       void settings
@@ -105,9 +117,7 @@ export class ThreadOrganizer {
           },
           () => {
             this.policyRevision++;
-            store.atomic((db) =>
-              db.exec("INSERT OR IGNORE INTO thread_organizer_dirty SELECT id FROM threads"),
-            );
+            this.markAll();
             this.arm(0);
           },
         )
@@ -118,6 +128,29 @@ export class ThreadOrganizer {
         .catch(() => {});
     }
     this.arm(0);
+  }
+  /** Queue `id` for the next sweep; a mark the disk refuses is held, never dropped. */
+  private markDirty(id: string): void {
+    this.held.run(`thread:${id}`, () =>
+      this.store.atomic((db) =>
+        db.prepare("INSERT OR IGNORE INTO thread_organizer_dirty VALUES (?)").run(id),
+      ),
+    );
+  }
+  private markAll(): void {
+    this.held.run("all", () =>
+      this.store.atomic((db) =>
+        db.exec("INSERT OR IGNORE INTO thread_organizer_dirty SELECT id FROM threads"),
+      ),
+    );
+  }
+  /** Space is back (ADR 0174): write the held marks and sweep now rather than on the timer. */
+  resume(): void {
+    if (this.stopped) return;
+    // A sweep in progress may have met the full disk: one more runs after it.
+    const again = () => this.resume();
+    if (this.pending) void this.pending.then(again, again);
+    else void this.sweep().catch(() => {});
   }
   private arm(delay: number): void {
     if (this.stopped || this.pending) return;
@@ -177,6 +210,11 @@ export class ThreadOrganizer {
     this.cancel?.();
     this.pending = (async () => {
       await this.store.writable();
+      // Marks a full disk held back go in before the queue is read, so none waits a second pass.
+      if (!this.held.flush()) {
+        this.retry = true;
+        return;
+      }
       const ids = this.store.atomic((db) => {
         db.prepare(
           "INSERT OR IGNORE INTO thread_organizer_dirty SELECT thread_id FROM thread_settle_due WHERE due<=? ORDER BY due LIMIT 64",
@@ -197,9 +235,8 @@ export class ThreadOrganizer {
           await this.refresh(id);
         } catch (error) {
           this.retry = true;
-          this.store.atomic((db) =>
-            db.prepare("INSERT OR IGNORE INTO thread_organizer_dirty VALUES (?)").run(id),
-          );
+          // The requeue may fail for the same reason (a full disk); it is then held, not lost.
+          this.markDirty(id);
           throw error;
         }
       }

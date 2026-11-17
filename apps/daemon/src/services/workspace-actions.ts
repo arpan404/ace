@@ -34,6 +34,7 @@ export async function startWorkspaceActions({
   now,
   options,
   log,
+  diskFull,
 }: ServiceContext): Promise<void> {
   const explicitTimeout = options.workspaceActions?.preparationTimeoutMs;
   let configuredTimeout = explicitTimeout;
@@ -157,6 +158,8 @@ export async function startWorkspaceActions({
     now,
     undefined,
     (error) => {
+      // A due mark the disk refused is held and retried; the full disk itself is a condition.
+      if (diskFull?.observe(error)) return;
       const first = error instanceof RefreshTimeout && !timedOut.has(error.step);
       if (error instanceof RefreshTimeout) timedOut.add(error.step);
       log.log(
@@ -168,7 +171,11 @@ export async function startWorkspaceActions({
     undefined,
     startupQuietMs,
   );
-  resources.own(() => refresh.close(), "workspace refresh");
+  const stopResuming = diskFull?.onRoom(() => refresh.resume());
+  resources.own(() => {
+    stopResuming?.();
+    return refresh.close();
+  }, "workspace refresh");
 }
 export function createWorkspaceActionsSession(context: SocketContext): SocketService {
   const { options, authorize, send, canReadThread, connected, tasks } = context;

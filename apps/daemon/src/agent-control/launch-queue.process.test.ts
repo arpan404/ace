@@ -29,6 +29,9 @@ async function queued() {
 const stillStarting = () => {
   throw controlAdmissionError("engine_starting");
 };
+const providerOff = () => {
+  throw controlAdmissionError("provider_disabled");
+};
 
 test("a child launched while the engine is still starting waits in the queue instead of being refused", async () => {
   const { queue, children } = await queued();
@@ -89,9 +92,6 @@ test("a start the full disk rolls back leaves every child queued, while a start 
   for (const child of children) expect(queue.has(child)).toBe(true);
 
   disk.exec("PRAGMA max_page_count=1073741823");
-  const refused = () => {
-    throw controlAdmissionError("provider_disabled");
-  };
-  drainLaunches(store, queue, "parent", 1, refused, (child) => failed.push(child));
+  drainLaunches(store, queue, "parent", 1, providerOff, (child) => failed.push(child));
   expect(failed).toEqual(children);
 });
