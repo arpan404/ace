@@ -50,6 +50,7 @@
     "./bun-ffi": "./src/bun-ffi.ts",
     "./koffi": "./src/koffi.ts",
     "./worker": "./src/worker.ts",
+    "./unscoped": "./src/unscoped.ts",
     "./wire-shape": "./src/wire-shape.ts"
   },
   "scripts": {

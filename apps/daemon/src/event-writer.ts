@@ -23,6 +23,7 @@ import type { SearchIndex } from "@ace/search";
 import type { ToolResultStore } from "./tool-result-store.ts";
 import type { NativeImageStore } from "./native-image-store.ts";
 import type { MeasurementStore } from "./measurement-store.ts";
+import type { NeedsYouThreads } from "./needs-you-threads.ts";
 interface EventWriteSource {
   db: DatabaseSync;
   sequences: StreamSequences;
@@ -35,6 +36,7 @@ interface EventWriteSource {
   toolResults: ToolResultStore;
   nativeImages: NativeImageStore;
   measurements: MeasurementStore;
+  needsYou: NeedsYouThreads;
   statement(sql: string): StatementSync;
   getThread(id: ThreadId): Thread | undefined;
   /** The shared frozen thread and a private copy, made when first read, from one lookup. */
@@ -159,6 +161,7 @@ export class EventWriter {
       if (!delta) {
         updateThread(thread, event);
         this.writeThread(checkout?.base, thread, event.payload);
+        this.source.needsYou.observe(thread);
       }
       event.payload = this.source.payloads.cap(event.payload, threadId);
       this.source.payloads.persist(event);

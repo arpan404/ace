@@ -20,7 +20,7 @@ export interface VersionKey extends EntryKey {
 }
 
 export type Route =
-  // The catalog (ADR 0168 §3) and Discover (ADR 0173 §6): anyone.
+  // The catalog (ADR 0168 §3) and Discover (ADR 0174 §6): anyone.
   | { kind: "index" }
   | { kind: "search" }
   | { kind: "categories" }
@@ -36,9 +36,9 @@ export type Route =
   | { kind: "publisher"; handle: string }
   | { kind: "avatar"; hash: string }
   | { kind: "preview"; hash: string }
-  // Anonymous, rate-limited (ADR 0173 §7).
+  // Anonymous, rate-limited (ADR 0174 §7).
   | { kind: "report" }
-  // Publishing with a market grant (ADR 0168 §7, ADR 0173 §2, §5).
+  // Publishing with a market grant (ADR 0168 §7, ADR 0174 §2, §5).
   | ({ kind: "publish" } & EntryKey)
   | ({ kind: "withdraw" } & VersionKey)
   | { kind: "me" }
@@ -73,7 +73,7 @@ export type Route =
   | ({ kind: "me-appeal" } & VersionKey)
   | { kind: "me-transfer-accept"; id: string }
   | { kind: "me-transfer-decline"; id: string }
-  // The signer, behind its token (ADR 0168 §6, ADR 0173 §9, §10, §13).
+  // The signer, behind its token (ADR 0168 §6, ADR 0174 §9, §10, §13).
   | { kind: "signer-pending" }
   | { kind: "signer-object"; hash: string }
   | ({ kind: "signer-version" } & VersionKey)
@@ -94,11 +94,7 @@ export type Route =
   | { kind: "signer-official" }
   | { kind: "signer-reports" }
   | { kind: "signer-report"; id: string }
-  | { kind: "signer-appeal"; id: string }
-  // The public web page.
-  | { kind: "page-home" }
-  | { kind: "page-search" }
-  | ({ kind: "page-entry" } & EntryKey);
+  | { kind: "signer-appeal"; id: string };
 
 export type Matched = { route: Route } | { refused: 404 | 405 };
 /** The routes one path names, by method. */

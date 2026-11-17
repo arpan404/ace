@@ -1,5 +1,5 @@
 /*
- * The publisher tiers ranking takes a little into account (ADR 0173 §15), in one place. Each is a
+ * The publisher tiers ranking takes a little into account (ADR 0174 §15), in one place. Each is a
  * bounded multiplier on a relevance or popularity score: a clearly more popular or more relevant
  * entry still outranks an official one, and among equals official ranks above verified above the
  * rest. Tiers never touch scanning, holds, blocks or the review before install.

@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/SignerPending.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "blocklist": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    },
+    "official": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    },
+    "verified": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    },
+    "versions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PendingVersion.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "withdrawals": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PendingWithdrawal.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "withdrawn": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    }
+  },
+  "required": [
+    "versions",
+    "withdrawals"
+  ],
+  "type": "object"
+}

@@ -22,6 +22,9 @@ export const budgetMs: Readonly<Record<string, number>> = {
  * Each covers code whose production runtime is not Bun.
  */
 export const nodeOnlySuites = [
+  // Node runs a worker's events in the async context that created it, which is the leak this
+  // guards against; Bun runs them in none, so only Node can show it.
+  "packages/provider-kit/src/worker-context.test.ts",
   // The Worker runs on Cloudflare's workerd. Wrangler's test harness refuses to forward requests
   // under Bun, whose fetch ignores the undici dispatcher Miniflare routes through.
   "apps/cloud/src/**/*.process.test.ts",

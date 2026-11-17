@@ -132,6 +132,8 @@ export function drainLaunches(
   slots: number,
   start: (launch: QueuedLaunch) => "started" | "skipped",
   failed: (child: ThreadId, error: unknown) => void,
+  /** Hears why the drain ended "later": a full or starting engine, or a full disk. */
+  later?: (error: unknown) => void,
 ): "drained" | "later" {
   let started = 0;
   // A cursor past each entry tried, so one left queued by a failure is not tried again here.
@@ -150,7 +152,10 @@ export function drainLaunches(
         });
         if (outcome === "started" && ++started >= slots) return "drained";
       } catch (error) {
-        if (startsLater(error)) return "later";
+        if (startsLater(error)) {
+          later?.(error);
+          return "later";
+        }
         failed(child, error);
       }
     }

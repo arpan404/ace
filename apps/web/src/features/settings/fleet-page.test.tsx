@@ -26,6 +26,15 @@ async function ready(scope: HTMLElement, name: string) {
   return within(scope).getByRole("button", { name });
 }
 
+/** From Fleet's overview, the one row for what's set the same on every machine. */
+async function openEveryMachine() {
+  const across = await region("Across machines");
+  await userEvent.click(within(across).getByRole("link", { name: "Same for every machine" }));
+  expect(
+    await screen.findByRole("heading", { name: "Same for every machine", level: 2 }),
+  ).toBeTruthy();
+}
+
 test("the overview lists every machine and device with its state, and a machine's row opens its page", async () => {
   const { app } = withBuildServer();
   await app.open("/settings/remote");
@@ -58,8 +67,10 @@ test("Link all links every machine with every other, both ways", async () => {
     expect(linkedHosts(app.daemon.services.fleet.links())).toEqual(["build"]);
     expect(linkedHosts(remote.services.fleet.links())).toEqual(["this-mac"]);
   });
-  expect(await within(machines).findByText("Linked")).toBeTruthy();
-  expect(within(machines).queryByRole("button", { name: "Link all machines" })).toBeNull();
+  await waitFor(() =>
+    expect(within(machines).queryByRole("button", { name: "Link all machines" })).toBeNull(),
+  );
+  expect(within(machines).queryByText(/Not linked|can't use/i)).toBeNull();
 }, 30_000);
 
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {
@@ -82,16 +93,16 @@ test("unlinking a machine on its page asks first, then removes both directions",
   app.daemon.linkTo(remote);
   remote.linkTo(app.daemon);
   await app.open("/settings/remote/build");
-  const agents = await region("Agents");
-  expect(await within(agents).findByText(/^Linked with /)).toBeTruthy();
-  await userEvent.click(within(agents).getByRole("button", { name: "Unlink" }));
+  const reached = await region("Reached through");
+  expect(await within(reached).findByText(/^Linked with /)).toBeTruthy();
+  await userEvent.click(within(reached).getByRole("button", { name: "Unlink" }));
   const dialog = await screen.findByRole("dialog", { name: "Unlink Build server?" });
   await userEvent.click(within(dialog).getByRole("button", { name: "Unlink" }));
   await waitFor(() => {
     expect(app.daemon.services.fleet.links()).toEqual([]);
     expect(remote.services.fleet.links()).toEqual([]);
   });
-  expect(await within(agents).findByRole("button", { name: "Link" })).toBeTruthy();
+  expect(await within(reached).findByRole("button", { name: "Link" })).toBeTruthy();
 }, 30_000);
 
 test("other machines' agents are set on every machine at once, and a machine that disagrees says so", async () => {
@@ -99,6 +110,7 @@ test("other machines' agents are set on every machine at once, and a machine tha
   remote.services.settings.seed({ "remote.agentAccess": "read" });
   await app.open("/settings/remote");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  await openEveryMachine();
   const working = await region("Working across machines");
   expect(await within(working).findByText("Differs")).toBeTruthy();
   const agents = within(working).getByRole("group", { name: "Agents from other machines" });
@@ -110,9 +122,9 @@ test("other machines' agents are set on every machine at once, and a machine tha
   await waitFor(() => expect(within(working).queryByText("Differs")).toBeNull());
 }, 30_000);
 
-test("turning remote access off under More options asks first while devices reach this computer", async () => {
+test("turning remote access off under More options on this computer's page asks first while devices reach it", async () => {
   const { app, remote } = withBuildServer();
-  await app.open("/settings/remote");
+  await app.open("/settings/remote/primary");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   await userEvent.click(await screen.findByText("More options"));
   const turnOff = await ready(document.body, "Turn off remote access");
@@ -131,14 +143,20 @@ test("turning remote access off under More options asks first while devices reac
   await waitFor(() => expect(app.daemon.services.settings.get("remote.enabled")).toBe(false));
   // It's this computer's remote access: the build server keeps its own.
   expect(remote.services.settings.get("remote.enabled")).not.toBe(false);
-  const reached = await region("How this computer is reached");
+  const reached = await region("Reached through");
   expect(await within(reached).findByText(/Off\. Nothing outside this computer/)).toBeTruthy();
 }, 30_000);
 
-test("each network turns on and off on this computer, asking before one that devices may use goes", async () => {
+test("each network turns on and off on this computer's page, asking before one that devices may use goes", async () => {
   const app = harness();
   await app.open("/settings/remote");
-  const reached = await region("How this computer is reached");
+  const machines = await region("Machines");
+  // This computer's row settles once its networks are read; then it opens its page.
+  await within(machines).findByText("Reached through Tailscale");
+  const own = within(machines).getByText("this computer").closest("[data-row]");
+  if (!(own instanceof HTMLElement)) throw new Error("No row for this computer");
+  await userEvent.click(within(own).getByRole("link"));
+  const reached = await region("Reached through");
   // The scenario's machine serves Tailscale; turning the LAN on keeps Tailscale.
   await userEvent.click(await ready(reached, "Turn on Local network"));
   await waitFor(() => expect(app.daemon.services.settings.get("remote.lan")).toBe(true));
@@ -161,7 +179,7 @@ test("on this computer's page, turning a network off still asks while its device
   // Devices, links and network status all fail, so nothing says what reaches this computer.
   app.daemon.failRequests("fleet.request");
   await app.open("/settings/remote/primary");
-  const reached = await region("How it's reached");
+  const reached = await region("Reached through");
   await userEvent.click(await ready(reached, "Turn off Tailscale"));
   const dialog = await screen.findByRole("dialog", {
     name: "Turn off Tailscale on this computer?",
@@ -176,7 +194,7 @@ test("on this computer's page, a failed refetch of its devices and links means t
   const queries = createQueryClient();
   const app = harness({ queryClient: queries });
   await app.open("/settings/remote/primary");
-  const reached = await region("How it's reached");
+  const reached = await region("Reached through");
   await ready(reached, "Turn off Tailscale");
   // Read once; then the machine stops answering fleet requests and they're read again.
   const fleetReads = () =>
@@ -205,9 +223,9 @@ test("on this computer's page, a failed refetch of its devices and links means t
   expect(app.daemon.services.settings.get("remote.tailscale")).toBe(true);
 }, 45_000);
 
-test("a relay of your own is added under More options and named once it serves", async () => {
+test("a relay of your own is added under More options on this computer's page and named once it serves", async () => {
   const app = harness();
-  await app.open("/settings/remote");
+  await app.open("/settings/remote/primary");
   const more = await screen.findByText("More options");
   await userEvent.click(more);
   await userEvent.click(await ready(more.closest("details") ?? document.body, "Add"));
@@ -259,6 +277,7 @@ test("moving threads and bringing ignored files are set on every machine", async
   const { app, remote } = withBuildServer();
   await app.open("/settings/remote");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  await openEveryMachine();
   const working = await region("Working across machines");
   expect(
     await within(working).findByText(

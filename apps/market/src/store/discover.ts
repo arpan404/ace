@@ -12,11 +12,11 @@ import { officialPublisher } from "./lists.ts";
 import { collections } from "./maintainers.ts";
 
 /*
- * Discover's answers (ADR 0173 §6): one body from what the cron ranked and the maintainers
+ * Discover's answers (ADR 0174 §6): one body from what the cron ranked and the maintainers
  * curated, and search with its sorts. Entries are index-shaped. Featured and collections are
  * editorial and never boosted; the tiers touch trending, top publishers, New and notable's ties
  * and search. Nothing here is per reader. Entries come from every catalogue, rankings from the
- * counts database, curation from the lists database (ADR 0173 §16).
+ * counts database, curation from the lists database (ADR 0174 §16).
  */
 
 const key = (entry: { type: string; name: string }) => `${entry.type}/${entry.name}`;

@@ -3,7 +3,7 @@ import { stampValue, takeStamp } from "./entries.ts";
 import type { ListedCopy } from "./read.ts";
 
 /*
- * Download totals (ADR 0168 §3, §10; ADR 0173 §6, §16), in the counts database. A download only
+ * Download totals (ADR 0168 §3, §10; ADR 0174 §6, §16), in the counts database. A download only
  * counts: every listed version with the fetched bytes gets one more in its total
  * (`version_totals`) and its day (`downloads_daily`, kept 400 days, for publishers' signals),
  * and the entry ranking credits for the bytes (`creditedCopy`: the first listed with them, so

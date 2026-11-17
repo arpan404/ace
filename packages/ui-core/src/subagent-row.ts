@@ -28,7 +28,7 @@ const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 export function subagentDetail(
   entry: Pick<
     SubagentEntry,
-    "state" | "agentId" | "result" | "slotLimit" | "slotsInUse" | "queuePosition"
+    "state" | "agentId" | "result" | "slotLimit" | "slotsInUse" | "queuePosition" | "waitingFor"
   >,
   agent: Pick<Agent, "status"> | undefined,
   toolTitle: string | undefined,
@@ -52,6 +52,8 @@ export function subagentDetail(
 
 /** Why a queued subagent hasn't started, in its row and its own thread. */
 export const queuedDetail = "Starts when a running agent finishes";
+/** Why it hasn't started while the machine's disk is too full (ADR 0176). */
+export const diskWaitDetail = "Waiting for disk space";
 
 /** A queued child's place, as the daemon reports it: slot limit, slots in use, queue place. */
 export interface QueuePlace {
@@ -92,7 +94,9 @@ export function queuedDetailFor(place: {
   slotLimit?: number | undefined;
   slotsInUse?: number | undefined;
   queuePosition?: number | undefined;
+  waitingFor?: "storage" | undefined;
 }): string {
+  if (place.waitingFor === "storage") return diskWaitDetail;
   if (
     place.slotLimit === undefined ||
     place.slotsInUse === undefined ||

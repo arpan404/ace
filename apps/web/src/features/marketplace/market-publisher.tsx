@@ -6,7 +6,7 @@ import { Avatar, Verified } from "./market-marks.tsx";
 import { useMarketDiscover, useMarketPicture, useMarketPublisher } from "./market-publishing.ts";
 
 /*
- * A collection, and a publisher's page (ADR 0173 §3, §6): their head (picture, name and seal,
+ * A collection, and a publisher's page (ADR 0174 §3, §6): their head (picture, name and seal,
  * handle, when they joined, bio and links), what they pinned, then their looks, bots and tools.
  * Drawn from the daemon's answer; without one, the page says it can't be shown.
  */

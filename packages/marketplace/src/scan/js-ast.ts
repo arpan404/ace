@@ -1,7 +1,7 @@
 import { parse } from "@babel/parser";
 
 /*
- * JavaScript and TypeScript as the scanner reads them (ADR 0173 §8): one real parser, shared by
+ * JavaScript and TypeScript as the scanner reads them (ADR 0174 §8): one real parser, shared by
  * the data-flow rules and the Suit scene allowlist. Pure, no I/O, the same on the Worker, the
  * signer and the device. A file the parser can't read is answered as `undefined`, and the caller
  * must treat that as a finding, never as a pass.

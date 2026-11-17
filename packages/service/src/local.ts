@@ -102,7 +102,10 @@ async function removeCmdInstallation<T>(dataDir: string, result: T): Promise<T> 
     stdio: "ignore",
     windowsHide: true,
     windowsVerbatimArguments: true,
-  }).unref();
+  })
+    // Best-effort cleanup: a cmd.exe that cannot start leaves the folders, never an unheard error.
+    .once("error", () => {})
+    .unref();
   return result;
 }
 

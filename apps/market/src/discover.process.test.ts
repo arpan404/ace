@@ -6,7 +6,7 @@ import { download, everyRow, publishLive } from "./testing/discover-harness.ts";
 import { signals } from "./store/me-transfers.ts";
 
 /*
- * Discover (ADR 0173 §6) through the Worker: anonymous download counting into hourly and daily
+ * Discover (ADR 0174 §6) through the Worker: anonymous download counting into hourly and daily
  * totals, the Discover body after the cron ranked, and search's sorts. Nothing per reader.
  */
 

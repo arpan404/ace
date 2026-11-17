@@ -113,6 +113,7 @@ export type {
 } from "./marketplace-wire.ts";
 export type { MarketPublishSeed } from "./marketplace-publish.ts";
 export { marketPublishFixture } from "./marketplace-publish-fixture.ts";
+export { marketPickFixture, type MarketPickSeed } from "./marketplace-pick.ts";
 export { accountList } from "./catalog/accounts.ts";
 export type { FakeAccount, FakeQuotaWindow } from "./catalog/accounts.ts";
 export { FakeUsage, type UsageSessionTotal, type UsageSource } from "./catalog/usage.ts";

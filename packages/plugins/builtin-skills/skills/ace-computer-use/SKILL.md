@@ -101,4 +101,4 @@ sim_* drives the iOS simulators and Android emulators on this machine. Paired ma
 4. `sim_screenshot` for a visual check, with or without the live view; `sim_logs` for a log tail.
 5. `sim_stop` when you finish, so the person and other threads can use it.
 
-`stale_ref` means the element has gone: read again; `lease_required` means call `sim_start` again, or wait while the person holds it. From a shell, `ace sim … --thread <your thread>` runs the same tools with the same refs (`ace sim --help`).
+`stale_ref` means the element has gone: read again; `lease_required` means call `sim_start` again, or wait while the person holds it. From a shell, `ace sim …` runs the same tools with the same refs and knows your thread from `ACE_THREAD_ID` (pass `--thread` where it isn't set). It prints short text; add `--json` to parse it. Exit 2 means a person holds the device (`ace sim --help`, `ace help sim act`).

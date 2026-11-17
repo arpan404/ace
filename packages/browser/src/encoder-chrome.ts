@@ -66,9 +66,11 @@ export class EncoderChrome {
         throw error;
       }
       // A crashed or killed encoder ends its captures; the next capture starts another.
-      void lease.instance.exited.then(() => {
-        if (release()) events.ended();
-      });
+      void lease.instance.exited
+        .then(() => {
+          if (release()) events.ended();
+        })
+        .catch(() => {});
       return {
         encodes: (specs) => handle.encodes(specs),
         keyframe: (encode) => handle.keyframe(encode),

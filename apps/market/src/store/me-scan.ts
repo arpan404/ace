@@ -19,7 +19,7 @@ import { fromCatalogues, type Databases } from "./databases.ts";
 import { verifiedNames } from "./profiles.ts";
 
 /*
- * Running the scanner on the Worker (ADR 0173 §8): what it compares names against, the reports in
+ * Running the scanner on the Worker (ADR 0174 §8): what it compares names against, the reports in
  * R2, and one budgeted step at a time. Each step reads the draft's archive again from R2; the
  * scanner's own resumable state is kept in `scan_jobs`.
  */

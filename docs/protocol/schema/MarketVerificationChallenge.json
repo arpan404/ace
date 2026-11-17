@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketVerificationChallenge.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "expiresAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "domain",
+        "github"
+      ],
+      "type": "string"
+    },
+    "problem": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "waiting",
+        "passed",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "subject": {
+      "maxLength": 253,
+      "type": "string"
+    },
+    "token": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "subject",
+    "token",
+    "expiresAt",
+    "state"
+  ],
+  "type": "object"
+}

@@ -5,7 +5,7 @@ import { text as decodeText } from "../listing.ts";
 import { normaliseText } from "./text.ts";
 
 /*
- * The `known-bad` check (ADR 0173 §8): the maintainers' signed blocklist, run on the same bytes
+ * The `known-bad` check (ADR 0174 §8): the maintainers' signed blocklist, run on the same bytes
  * everywhere. A whole version by its content `hash`, a single file by its sha256, and a literal
  * pattern matched case-insensitively over each text file after the scanner's unicode folding. Any
  * match blocks. Pure.

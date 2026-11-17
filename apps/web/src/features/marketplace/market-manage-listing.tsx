@@ -6,7 +6,7 @@ import { findingSentences } from "./market-model.ts";
 import { useListingCategories } from "./market-publish-port.ts";
 
 /*
- * An entry's listing words, edited in place (ADR 0173 §5): name, one line, description and
+ * An entry's listing words, edited in place (ADR 0174 §5): name, one line, description and
  * categories. An edit the scan holds waits for a maintainer; the page says so with what it found.
  */
 

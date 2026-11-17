@@ -157,6 +157,23 @@ describe("MediaSupervisor", () => {
     expect(h.events.egress.map((frame) => decodeEgress(frame).handle)).toEqual([7]);
   });
 
+  it("a consumer that throws on one egress frame still gets the next, and the failure is logged", async () => {
+    const delivered: Uint8Array[] = [];
+    const logged: string[] = [];
+    const h = await running({
+      onEgress: (frame) => {
+        delivered.push(frame);
+        if (delivered.length === 1) throw new Error("viewer went away");
+      },
+      log: (_level, message) => void logged.push(message),
+    });
+    const egress = h.host.last.lane("egress");
+    const two = new Uint8Array([...egressUnit(4), ...egressUnit(4)]);
+    expect(() => egress.source.emit(two)).not.toThrow();
+    expect(delivered).toHaveLength(2);
+    expect(logged).toContain("ace-media frame handler failed");
+  });
+
   it("kills a child that never sends ready within 5 s and restarts it after backoff", async () => {
     const h = harness();
     h.host.behaviour.ready = false;

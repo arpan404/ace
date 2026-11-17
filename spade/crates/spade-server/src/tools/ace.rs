@@ -212,6 +212,10 @@ pub(crate) fn tools(
         .map(|tool| {
             Arc::new(AceCall {
                 def: def(tool),
+                declared: tool
+                    .meta
+                    .get(spade_core::effect::ACE_EFFECT_KEY)
+                    .and_then(spade_core::effect::Effect::declared),
                 client: client.clone(),
                 bots: bots.cloned(),
             }) as Arc<dyn Tool>
@@ -221,6 +225,8 @@ pub(crate) fn tools(
 
 struct AceCall {
     def: ToolDef,
+    /// What ace declares the tool does, beyond its risk (ADR 0171).
+    declared: Option<spade_core::effect::Effect>,
     client: Arc<AceTools>,
     bots: Option<EngineHandle>,
 }
@@ -235,6 +241,7 @@ impl Tool for AceCall {
         Some(spade_core::effect::ace(
             &self.def.spec.name,
             self.def.risk,
+            self.declared,
             arguments,
         ))
     }
@@ -281,6 +288,7 @@ mod tests {
             risk,
             annotated: true,
             open_world: None,
+            meta: Map::new(),
         }
     }
 

@@ -92,7 +92,8 @@ export class StreamOwners {
   async close(): Promise<void> {
     this.#closed = true;
     this.#owners.clear();
-    await this.#running;
+    // A refused update already failed its own caller; closing only waits for it to end.
+    await this.#running?.catch(() => {});
   }
 
   async #drain(): Promise<StreamResult> {

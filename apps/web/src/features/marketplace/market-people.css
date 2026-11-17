@@ -1,6 +1,6 @@
 /*
  * People in the Marketplace modal: a bot's sample conversation, publisher and own profiles, and
- * the publish flow's steps, choices, checks and listing form (ADR 0173).
+ * the publish flow's steps, choices, checks and listing form (ADR 0174).
  */
 @layer components {
   /* A sample conversation, drawn as Spade draws one. */

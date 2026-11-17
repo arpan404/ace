@@ -102,9 +102,10 @@ export async function builtinSkillRecovery(
   return async (
     providersRecovered: Promise<void>,
     report: (error: unknown) => void,
+    signal?: AbortSignal,
   ): Promise<void> => {
     await providersRecovered;
-    if (!names.length) return;
+    if (!names.length || signal?.aborted) return;
     let pinned: PinnedDirectory;
     try {
       pinned = PinnedDirectory.atBoundary(base);
@@ -114,7 +115,7 @@ export async function builtinSkillRecovery(
     }
     try {
       const order = rotateSkillRoots(names, readSkillCursor(pinned, cursorName));
-      const last = await collect(base, order, runtime, report);
+      const last = await collect(base, order, runtime, report, signal);
       if (last) writeSkillCursor(pinned, cursorName, last);
     } catch (error) {
       report(error);
@@ -130,12 +131,14 @@ async function collect(
   order: readonly string[],
   runtime: SkillProcessRuntime,
   report: (error: unknown) => void,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   let inspected = 0;
   let removed = 0;
   let last: string | undefined;
   for (const name of order) {
-    if (inspected >= limits.inspections || removed >= limits.removals) break;
+    // Shutdown stops between folders: what is left waits for the next start.
+    if (inspected >= limits.inspections || removed >= limits.removals || signal?.aborted) break;
     inspected += 1;
     last = name;
     const root = join(base, name);

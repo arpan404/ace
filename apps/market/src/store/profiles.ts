@@ -8,7 +8,7 @@ import { fromCatalogues, type Databases } from "./databases.ts";
 import { storedBytesSql } from "./me-limits.ts";
 
 /*
- * Publishers' profiles in the publishers database (ADR 0173 §3, §16): handles, skeletons,
+ * Publishers' profiles in the publishers database (ADR 0174 §3, §16): handles, skeletons,
  * retired handles, pins, avatars, and the pictures they stored, charged to their quota. Pictures
  * and their tombstones stay together here; only whether a listing still names a picture is read
  * from the catalogues.
@@ -224,7 +224,7 @@ export async function setAvatar(db: D1Database, id: string, sha256: string): Pro
 export const pictureGraceMs = 24 * 3_600_000;
 
 /**
- * Charges a picture's bytes to the publisher before they are written (ADR 0173 §9), in the one
+ * Charges a picture's bytes to the publisher before they are written (ADR 0174 §9), in the one
  * statement that checks they fit beside its versions, drafts and other pictures. The same
  * picture again is charged once. In the same batch the row drops any claim the cron holds on
  * the key, so the cron won't delete bytes a row now holds. False when it doesn't fit, or while
@@ -343,7 +343,7 @@ export type PictureClaim = { key: string; generation: number };
 const unheld = (key: string) => `NOT EXISTS (SELECT 1 FROM pictures WHERE pictures.key = ${key})`;
 
 /**
- * The cron's first step on R2 objects it found past the grace period (ADR 0173 §1): each one no
+ * The cron's first step on R2 objects it found past the grace period (ADR 0174 §1): each one no
  * picture row holds gets a claim owned by this run, in one statement that checks. Nothing is
  * deleted yet; an upload that charges the key before the next step drops the claim. A key
  * already claimed keeps its claim and its owner.

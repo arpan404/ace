@@ -8,7 +8,8 @@
     "./opencode-auth": "./src/opencode-auth.ts",
     "./labels": "./src/labels.ts",
     "./availability": "./src/availability.ts",
-    "./acp-instances": "./src/acp-instances.ts"
+    "./acp-instances": "./src/acp-instances.ts",
+    "./home-wait": "./src/home-wait.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

@@ -56,6 +56,7 @@ import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.pr
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
 import { Route as SettingsRemoteIndexRouteImport } from "./routes/settings.remote.index"
 import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.remote.$machine"
+import { Route as SettingsRemoteEveryMachineRouteImport } from "./routes/settings.remote.every-machine"
 import { Route as SettingsRemoteMapRouteImport } from "./routes/settings.remote.map"
 import { Route as SettingsSpadeIndexRouteImport } from "./routes/settings.spade.index"
 import { Route as SettingsSpadeAppsRouteImport } from "./routes/settings.spade.apps"
@@ -69,6 +70,7 @@ import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
 import { Route as HomePullsProjectNewRouteImport } from "./routes/_home.pulls_.$project.new"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
+import { Route as SettingsRemoteMachineAppsRouteImport } from "./routes/settings.remote.$machine_.apps"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
 const HomeRoute = HomeRouteImport.update({
@@ -308,6 +310,12 @@ const SettingsRemoteMachineRoute = SettingsRemoteMachineRouteImport.update({
   path: "/remote/$machine",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsRemoteEveryMachineRoute =
+  SettingsRemoteEveryMachineRouteImport.update({
+    id: "/remote/every-machine",
+    path: "/remote/every-machine",
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const SettingsRemoteMapRoute = SettingsRemoteMapRouteImport.update({
   id: "/remote/map",
   path: "/remote/map",
@@ -373,6 +381,12 @@ const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
   path: "/t/$threadId/fork",
   getParentRoute: () => HomeRoute,
 } as any)
+const SettingsRemoteMachineAppsRoute =
+  SettingsRemoteMachineAppsRouteImport.update({
+    id: "/remote/$machine_/apps",
+    path: "/remote/$machine/apps",
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const HomeTThreadIdAgentsAgentIdRoute =
   HomeTThreadIdAgentsAgentIdRouteImport.update({
     id: "/t/$threadId_/agents/$agentId",
@@ -424,6 +438,7 @@ export interface FileRoutesByFullPath {
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
@@ -440,6 +455,7 @@ export interface FileRoutesByFullPath {
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
+  "/settings/remote/$machine/apps": typeof SettingsRemoteMachineAppsRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
@@ -482,6 +498,7 @@ export interface FileRoutesByTo {
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
@@ -498,6 +515,7 @@ export interface FileRoutesByTo {
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
+  "/settings/remote/$machine/apps": typeof SettingsRemoteMachineAppsRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesById {
@@ -546,6 +564,7 @@ export interface FileRoutesById {
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
@@ -562,6 +581,7 @@ export interface FileRoutesById {
   "/_home/pulls_/$project/$number": typeof HomePullsProjectNumberRoute
   "/_home/pulls_/$project/new": typeof HomePullsProjectNewRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
+  "/settings/remote/$machine_/apps": typeof SettingsRemoteMachineAppsRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRouteTypes {
@@ -610,6 +630,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/every-machine"
     | "/settings/remote/map"
     | "/settings/spade/apps"
     | "/settings/spade/models"
@@ -626,6 +647,7 @@ export interface FileRouteTypes {
     | "/pulls/$project/$number"
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
+    | "/settings/remote/$machine/apps"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -668,6 +690,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/every-machine"
     | "/settings/remote/map"
     | "/settings/spade/apps"
     | "/settings/spade/models"
@@ -684,6 +707,7 @@ export interface FileRouteTypes {
     | "/pulls/$project/$number"
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
+    | "/settings/remote/$machine/apps"
     | "/t/$threadId/agents/$agentId"
   id:
     | "__root__"
@@ -731,6 +755,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/every-machine"
     | "/settings/remote/map"
     | "/settings/spade/apps"
     | "/settings/spade/models"
@@ -747,6 +772,7 @@ export interface FileRouteTypes {
     | "/_home/pulls_/$project/$number"
     | "/_home/pulls_/$project/new"
     | "/_home/t/$threadId_/fork"
+    | "/settings/remote/$machine_/apps"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
 }
@@ -1092,6 +1118,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsRemoteMachineRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/remote/every-machine": {
+      id: "/settings/remote/every-machine"
+      path: "/remote/every-machine"
+      fullPath: "/settings/remote/every-machine"
+      preLoaderRoute: typeof SettingsRemoteEveryMachineRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/remote/map": {
       id: "/settings/remote/map"
       path: "/remote/map"
@@ -1183,6 +1216,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomeTThreadIdForkRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/settings/remote/$machine_/apps": {
+      id: "/settings/remote/$machine_/apps"
+      path: "/remote/$machine/apps"
+      fullPath: "/settings/remote/$machine/apps"
+      preLoaderRoute: typeof SettingsRemoteMachineAppsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/_home/t/$threadId_/agents/$agentId": {
       id: "/_home/t/$threadId_/agents/$agentId"
       path: "/t/$threadId/agents/$agentId"
@@ -1268,6 +1308,7 @@ interface SettingsRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
   SettingsRemoteMachineRoute: typeof SettingsRemoteMachineRoute
+  SettingsRemoteEveryMachineRoute: typeof SettingsRemoteEveryMachineRoute
   SettingsRemoteMapRoute: typeof SettingsRemoteMapRoute
   SettingsSpadeAppsRoute: typeof SettingsSpadeAppsRoute
   SettingsSpadeModelsRoute: typeof SettingsSpadeModelsRoute
@@ -1276,6 +1317,7 @@ interface SettingsRouteChildren {
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
   SettingsRemoteIndexRoute: typeof SettingsRemoteIndexRoute
   SettingsSpadeIndexRoute: typeof SettingsSpadeIndexRoute
+  SettingsRemoteMachineAppsRoute: typeof SettingsRemoteMachineAppsRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -1297,6 +1339,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
   SettingsRemoteMachineRoute: SettingsRemoteMachineRoute,
+  SettingsRemoteEveryMachineRoute: SettingsRemoteEveryMachineRoute,
   SettingsRemoteMapRoute: SettingsRemoteMapRoute,
   SettingsSpadeAppsRoute: SettingsSpadeAppsRoute,
   SettingsSpadeModelsRoute: SettingsSpadeModelsRoute,
@@ -1305,6 +1348,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
   SettingsRemoteIndexRoute: SettingsRemoteIndexRoute,
   SettingsSpadeIndexRoute: SettingsSpadeIndexRoute,
+  SettingsRemoteMachineAppsRoute: SettingsRemoteMachineAppsRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

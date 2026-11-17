@@ -81,6 +81,7 @@ import { MachineCodes } from "./account-access/machine-codes.ts";
 import { SqlitePairingCodes } from "./pairing-codes.ts";
 import { migrate, schemaVersion } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
+import { NeedsYouThreads } from "./needs-you-threads.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
@@ -117,7 +118,7 @@ export class Store {
   readonly pairingCodes: SqlitePairingCodes;
   readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
-  private readonly usageReplay: UsageReplay;
+  readonly usageReplay: UsageReplay;
   private readonly searchReplay: SearchReplay;
   private readonly usageListeners = new Set<() => void>();
   readonly search: SearchIndex;
@@ -127,6 +128,8 @@ export class Store {
   private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
   readonly measurements: MeasurementStore;
+  /** Threads waiting on a person now, kept current by the event writer (`ace request list`). */
+  readonly needsYou = new NeedsYouThreads(this);
   readonly toolResults: ToolResultStore;
   readonly nativeImages: NativeImageStore;
   private readonly history: HistoryIndex;
@@ -409,6 +412,7 @@ export class Store {
         toolResults: this.toolResults,
         nativeImages: this.nativeImages,
         measurements: this.measurements,
+        needsYou: this.needsYou,
         statement: (sql) => this.statement(sql),
         getThread: (id) => this.getThread(id),
         checkoutThread: (id) => this.threads.checkout(id),
@@ -510,24 +514,18 @@ export class Store {
    */
   onWrite(hook: Listener): () => void {
     this.writeHooks.add(hook);
-    return () => {
-      this.writeHooks.delete(hook);
-    };
+    return () => void this.writeHooks.delete(hook);
   }
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return () => void this.listeners.delete(listener);
   }
   /** Wake analytics on committed events and durable deletion tombstones. */
   subscribeUsage(listener: () => void): () => void {
     if (this.usageListeners.size >= 16 && !this.usageListeners.has(listener))
       throw new Error("Usage subscription capacity reached");
     this.usageListeners.add(listener);
-    return () => {
-      this.usageListeners.delete(listener);
-    };
+    return () => void this.usageListeners.delete(listener);
   }
   headSeq(): number {
     return this.streaming.head();
@@ -1486,6 +1484,7 @@ export class Store {
       this.recordDataDeletion(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);
+      this.needsYou.forget(id);
     });
     this.threadReads.forget(id);
   }

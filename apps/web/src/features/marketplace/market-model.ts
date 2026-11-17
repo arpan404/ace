@@ -112,10 +112,13 @@ export class MarketFailure extends Error {
   readonly code: string;
   /** The scan that refused it, when a scan did (`blocked`). */
   readonly scan: MarketScanReport | undefined;
-  constructor(code: string, scan?: MarketScanReport) {
+  /** The daemon's own words for why, when it gave them. */
+  readonly detail: string | undefined;
+  constructor(code: string, scan?: MarketScanReport, detail?: string) {
     super(`marketplace: ${code}`);
     this.code = code;
     this.scan = scan;
+    this.detail = detail;
   }
 }
 

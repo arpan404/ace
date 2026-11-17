@@ -12,6 +12,7 @@ import { type Signed } from "@ace/protocol/marketplace";
 import { SuitLibrary } from "../suits/library.ts";
 import { pluginPort } from "./plugin-port.ts";
 import { MarketplaceService } from "./service.ts";
+import type { PickPorts } from "./pick.ts";
 import { spadePort } from "./spade-port.ts";
 
 /*
@@ -344,6 +345,8 @@ export async function gitCatalog(
 export async function marketplaceHarness(options: {
   origin: string;
   spade: ReturnType<typeof fakeSpade> extends Promise<infer T> ? T : never;
+  /** What the publish picker reads; a test sets the person's own skills and plugins. */
+  pick?: PickPorts;
 }) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-market-")));
   let clock = 1_700_000_000_000;
@@ -391,6 +394,7 @@ export async function marketplaceHarness(options: {
       }),
       plugins: () => pluginPort(() => plugins),
       spade: spadePort(options.spade.connection),
+      pick: options.pick,
       schedule: () => () => {},
       allowLocalGit: true,
     });

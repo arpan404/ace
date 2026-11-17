@@ -56,8 +56,16 @@ it("a daemon whose session lapsed gets one only for its own origin and account",
   expect(planHandover(lapsed("user_a"), { [other]: session })).toBeUndefined();
 });
 
-it("a daemon's own lapsed sign-in, one under way, or one it can't check is left alone", () => {
-  expect(planHandover(lapsed("user_a", "login"), { [origin]: session })).toBeUndefined();
+it("a daemon whose own sign-in lapsed gets the app's session on that same account", () => {
+  expect(planHandover(lapsed("user_a", "login"), { [origin]: session })).toEqual({
+    origin,
+    token: session,
+    expected: "held",
+    sameAccountAs: "user_a",
+  });
+});
+
+it("a sign-in under way on the daemon, or one it can't check, is left alone", () => {
   const loggingIn = {
     ...signedOut,
     login: { url: `${origin}/login`, expiresAt: 2_000_000_000_000 },

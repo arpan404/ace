@@ -1,6 +1,6 @@
 # The market scanner
 
-The scanner (ADR 0173 §8) is one pure module the Worker, the signer and the device all run on the
+The scanner (ADR 0174 §8) is one pure module the Worker, the signer and the device all run on the
 same bytes. Each **check** answers `pass`, `warn` or `block` from its findings; each **finding** is
 one plain sentence with a path and line where it has one (`scripts/setup.sh line 4 downloads a
 script and runs it`). It reads in budgeted steps so a Worker request never reads more than it may,
@@ -98,7 +98,7 @@ catch rather than chase.
 Detection counts a sample as caught when `disposition` returns something other than `list` for an
 ordinary publisher (`newPublisher: false`), i.e. the scan blocked or held it, never relying on a
 new-publisher hold. The thresholds the tests enforce are at least 95% detection and zero benign
-blocks. With the **policy layer** (ADR 0173 §8) every version carrying runnable content is held for
+blocks. With the **policy layer** (ADR 0174 §8) every version carrying runnable content is held for
 a maintainer, so most benign samples (skills with scripts, plugins with executions, Suits with
 scenes) now **hold** rather than list, and only pure data (prose skills, data-only Suits) passes:
 of the 95 benign samples, **0 are blocked**, 23 pass (pure data) and 72 are held (runnable,

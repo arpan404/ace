@@ -54,6 +54,13 @@ export function retainedFailure(
       title:
         "The previous provider session could not be resumed. Start a new thread and include the context you need.",
     };
+  // A home folder that never answered startup's check: never run on another account instead.
+  if (details?.code === "account_home_unanswered")
+    return {
+      code: "account_home_unanswered",
+      title:
+        "This account's folder isn't answering, so ace didn't start the turn on it or on another account. Your message is kept; resume once the folder answers.",
+    };
   if (unavailable)
     return {
       code: "model_unavailable",

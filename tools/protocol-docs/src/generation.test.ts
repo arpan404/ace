@@ -160,6 +160,19 @@ it("exports declared semantic rules and rejects invalid examples", () => {
   );
 });
 
+it("documents a normalization the schema declares in words, and still refuses one it doesn't", () => {
+  const rule = "Leading and trailing whitespace is removed before the length limits apply.";
+  const declared = z.string().trim().min(1).max(8).meta({ "x-ace-constraint": rule });
+  const converted = convertSchemas([{ name: "Declared", schema: declared }]);
+  expect(canonical(converted.schemas.Declared)).toContain(rule);
+  expect(() => convertSchemas([{ name: "Bare", schema: z.string().trim().min(1) }])).toThrow(
+    "Schema Bare: Unsupported overwrite at root",
+  );
+  // The marketplace's typed text is documented with its rule, and so is the wire around it.
+  expect(canonical(snapshot.schemas.AppealAnswer)).toContain(rule);
+  expect(snapshot.schemas.ClientMessage).toBeDefined();
+});
+
 it("derives ids and the version from matching hello and welcome literals", () => {
   const client = z.union([
     z.object({ type: z.literal("hello"), protocolVersion: z.literal(2) }),

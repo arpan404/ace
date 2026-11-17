@@ -1,8 +1,9 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ModelCatalog, openModelStorage, normalizeCodex, createModelDiscovery } from "@ace/models";
 import { rm } from "node:fs/promises";
+import { openRegistryIndex } from "@ace/accounts";
 import { AccountManagement } from "./account-management.ts";
 import { harness } from "./account-management-test-support.ts";
 
@@ -119,6 +120,62 @@ test("a missing CLI at account restoration keeps the last good models beside a d
   } finally {
     await management?.close();
     await catalog?.close();
+    await f.close();
+  }
+});
+
+test("each managed account is restored as its own folder answers, not after every other account's", async () => {
+  const f = await harness();
+  let catalog: ModelCatalog | undefined;
+  let management: AccountManagement | undefined;
+  let registry: Awaited<ReturnType<typeof openRegistryIndex>> | undefined;
+  const answer = Promise.withResolvers<void>();
+  try {
+    const added = [await f.add(), await f.add()].toSorted((a, b) => a.id.localeCompare(b.id));
+    const [working, silent] = added;
+    if (!working || !silent) throw new Error("Accounts were not added");
+    for (const account of added) await f.flow(account.id, "login");
+    await f.management.close();
+    // Restart: the folder checked last hasn't answered, and its patience never runs out.
+    registry = await openRegistryIndex(join(f.dataDir, "accounts.sqlite"), undefined, f.dataDir, {
+      check: (instance, next) =>
+        instance.id === silent.id ? answer.promise.then(() => next(instance)) : next(instance),
+      after: () => () => {},
+    });
+    await registry.checked(working.id);
+    const restarted = new ModelCatalog({
+      storage: openModelStorage(join(f.dataDir, "models-restarted.sqlite")),
+      now: () => 100,
+      deadline: () => () => {},
+      discover: async () => {
+        throw new Error("offline");
+      },
+    });
+    catalog = restarted;
+    management = new AccountManagement({
+      registry,
+      accounts: f.accounts,
+      dataDir: f.dataDir,
+      env: f.env,
+      now: () => 100,
+      id: randomUUID,
+      models: () => restarted,
+    });
+    const initialized = management.initialize();
+    await vi.waitFor(() =>
+      expect(restarted.list({ instance: working.id }).instances).toHaveLength(1),
+    );
+    expect(restarted.list({ instance: silent.id }).instances).toHaveLength(0);
+    await initialized;
+    answer.resolve();
+    await vi.waitFor(() =>
+      expect(restarted.list({ instance: silent.id }).instances).toHaveLength(1),
+    );
+  } finally {
+    answer.resolve();
+    await management?.close();
+    await catalog?.close();
+    registry?.close();
     await f.close();
   }
 });

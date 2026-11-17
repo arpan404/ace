@@ -1,14 +1,15 @@
 # Deploying the market Worker
 
-`apps/market` is ace's marketplace at `market.acehq.dev` (ADR 0168, ADR 0173): the catalog API,
-Discover, publishers' profiles and publishing, the scan pipeline, the signer's routes, and the
-public web page. Deploying it is the owner's step; nothing
-in the repository deploys it or talks to a Cloudflare account.
+`apps/market` is ace's marketplace at `market.acehq.dev` (ADR 0168, ADR 0174): the catalog API,
+Discover, publishers' profiles and publishing, the scan pipeline, and the signer's routes. The
+Worker serves the API only: the public web page was removed at the owner's request, `GET /` answers a
+small JSON body and any other path outside `/v1` is a JSON 404. Deploying it is the owner's step;
+nothing in the repository deploys it or talks to a Cloudflare account.
 
 Run each command from `apps/market`.
 
 1. **Create the databases and the bucket.** The market keeps one D1 database per entry type
-   and one per shared domain (ADR 0173 §16):
+   and one per shared domain (ADR 0174 §16):
 
    | Database                | Binding             | Migrations              |
    | ----------------------- | ------------------- | ----------------------- |
@@ -67,7 +68,7 @@ Run each command from `apps/market`.
    `wrangler.jsonc`) and must name `cloud.acehq.dev` as their issuer (`ACE_GRANT_ISSUER` changes
    it, for a staging backend). Leave `ACE_GRANT_KEYS` unset in production. ace cloud must be
    deployed with its migration `0003_session_signed_in.sql` first: market grants carry the
-   session's sign-in time and a verified email (ADR 0173 §2), and an older backend's grants are
+   session's sign-in time and a verified email (ADR 0174 §2), and an older backend's grants are
    refused.
 
    The rate-limit bindings (`READS`, `PUBLISHES`, `DOWNLOADS`, `REPORTS`) need nothing beyond
@@ -93,7 +94,7 @@ Run each command from `apps/market`.
    ```
 
    Before the seed, put ace's own account on the official list, so it publishes as `ace`
-   (ADR 0173 §14):
+   (ADR 0174 §14):
 
    ```sh
    ACE_MARKET_SIGNER_TOKEN=<signer token> ace market official add <account id> --key <key file>
@@ -116,7 +117,7 @@ Run each command from `apps/market`.
      "SELECT database, bytes FROM database_sizes WHERE day = (SELECT MAX(day) FROM database_sizes)"
    ```
 
-   Split a database further before it nears 5 GB (D1 stops at 10 GB); ADR 0173 §16 names the
+   Split a database further before it nears 5 GB (D1 stops at 10 GB); ADR 0174 §16 names the
    next cut for each.
 
 After changing `spade/config/templates.json`, rebuild the seed's recipes with

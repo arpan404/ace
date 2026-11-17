@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketPublisherPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "downloads": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "official": {
+      "type": "boolean"
+    },
+    "pinned": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "profile": {
+      "$ref": "https://ace.local/protocol/v1/MarketProfile.json"
+    }
+  },
+  "required": [
+    "profile",
+    "pinned",
+    "entries",
+    "downloads"
+  ],
+  "type": "object"
+}

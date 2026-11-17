@@ -28,6 +28,8 @@ export interface SubagentEntry {
   slotLimit?: number | undefined;
   slotsInUse?: number | undefined;
   queuePosition?: number | undefined;
+  /** What it waits for besides a slot: the machine's disk too full to start it. */
+  waitingFor?: "storage" | undefined;
   startedAt: number;
   endedAt?: number | undefined;
   /** The first line of its final result, once it has one. */
@@ -170,8 +172,19 @@ function queuedLaunch(launch: Launch): boolean {
 /** Where a queued launch stands, from its waiting status; undefined once it runs or aged out. */
 function queuePlace(
   launch: Launch | undefined,
-): { slotLimit: number; slotsInUse: number; queuePosition: number } | undefined {
+):
+  | { slotLimit?: number; slotsInUse?: number; queuePosition?: number; waitingFor?: "storage" }
+  | undefined {
   const status = launch?.status;
+  // Waiting for disk space says more than the slot place, and comes without one too.
+  if (status?.state === "waiting" && status.waitingFor === "storage")
+    return { ...queueSlots(status), waitingFor: "storage" };
+  return queueSlots(status);
+}
+
+function queueSlots(
+  status: Launch["status"] | undefined,
+): { slotLimit: number; slotsInUse: number; queuePosition: number } | undefined {
   if (
     status?.state !== "waiting" ||
     status.slotLimit === undefined ||
@@ -288,6 +301,7 @@ export function subagentEntriesEqual(
         entry.slotLimit === other.slotLimit &&
         entry.slotsInUse === other.slotsInUse &&
         entry.queuePosition === other.queuePosition &&
+        entry.waitingFor === other.waitingFor &&
         entry.startedAt === other.startedAt &&
         entry.endedAt === other.endedAt &&
         entry.result === other.result

@@ -10,7 +10,7 @@ import {
 } from "./testing/publisher-harness.ts";
 
 /*
- * Publisher profiles and verification through the Worker (ADR 0173 §3, §13): handles, lookalikes,
+ * Publisher profiles and verification through the Worker (ADR 0174 §3, §13): handles, lookalikes,
  * retired handles, links, avatars, the public profile and proof tokens. No check here reaches
  * the network: proof fetches are tested over a fake fetch in verify-proofs.test.ts.
  */

@@ -6,7 +6,7 @@ import { benignSplitSamples, splitIntentSamples } from "./corpus-r4-intent.ts";
 import { scanEntry, type ScanContext } from "./index.ts";
 
 /*
- * Execution intent spans a document (ADR 0173 §8, fail closed): a download or a decode anywhere
+ * Execution intent spans a document (ADR 0174 §8, fail closed): a download or a decode anywhere
  * in an instruction source, paired with a run anywhere in it, holds the source at the run line.
  * A doc link beside a concrete safe command, or a pinned install, stays a pass.
  */

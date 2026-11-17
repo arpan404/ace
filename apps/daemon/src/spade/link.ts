@@ -46,6 +46,8 @@ export interface SpadeLinkOptions {
    */
   pollMs?: { waiting: number; ready: number; idle?: number };
   healthTimeoutMs?: number;
+  /** A look that failed (a listener threw): reported, and the next look is still scheduled. */
+  report?: (error: unknown) => void;
 }
 export interface SpadeReady {
   connection: SpadeConnection;
@@ -187,9 +189,11 @@ export class SpadeLink {
       });
       return this.next;
     }
-    this.running = this.look().finally(() => {
-      this.running = undefined;
-    });
+    this.running = this.look()
+      .catch((error: unknown) => this.lookFailed(error))
+      .finally(() => {
+        this.running = undefined;
+      });
     return this.running;
   }
   async close(): Promise<void> {
@@ -275,6 +279,28 @@ export class SpadeLink {
       void this.refresh();
     });
   }
+  /**
+   * Each listener hears `value` whatever the others do: one that throws (its socket's store
+   * unreadable) is reported, and the rest are still told.
+   */
+  private tell<T>(listeners: Iterable<(value: T) => void>, value: T): void {
+    for (const listener of listeners)
+      try {
+        listener(value);
+      } catch (error) {
+        this.options.report?.(error);
+      }
+  }
+  /** A failed look never ends the daemon or the polling: it is reported and tried again. */
+  private lookFailed(error: unknown): void {
+    this.options.report?.(error);
+    if (this.closed || !this.facts.enabled) return;
+    const poll = { ...defaultPoll, ...this.options.pollMs };
+    this.cancelTimer?.();
+    this.cancelTimer = this.options.runtime.after(poll.waiting, () => {
+      void this.refresh();
+    });
+  }
   private apply(
     facts: SpadeFacts,
     answering: { endpoint: SpadeEndpoint; token: string } | undefined,
@@ -297,16 +323,16 @@ export class SpadeLink {
     const before = JSON.stringify(this.status());
     this.current = spadeState(facts);
     this.announce(before);
-    if (arrived) for (const listener of this.arrivals) listener(arrived);
+    if (arrived) this.tell(this.arrivals, arrived);
   }
   private leave(): void {
     const left = this.live;
     this.live = undefined;
-    if (left) for (const listener of this.endings) listener(left.generation);
+    if (left) this.tell(this.endings, left.generation);
   }
   private announce(before: string): void {
     const status = this.status();
     if (JSON.stringify(status) === before) return;
-    for (const listener of this.listeners) listener(status);
+    this.tell(this.listeners, status);
   }
 }

@@ -1,0 +1,99 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketFeedEntryWire.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "byAce": {
+      "type": "boolean",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "categories": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketCategoryId.json"
+      },
+      "maxItems": 3,
+      "type": "array",
+      "x-ace-constraint": "Items that don't parse are dropped; a value that isn't a list reads as none."
+    },
+    "deprecated": {
+      "maxLength": 500,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "downloads": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "keywords": {
+      "items": {
+        "maxLength": 40,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array",
+      "x-ace-constraint": "Items that don't parse are dropped; a value that isn't a list reads as none."
+    },
+    "line": {
+      "maxLength": 300,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "previews": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+      },
+      "maxItems": 4,
+      "type": "array",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "publisher": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisher.json",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "reviewed": {
+      "type": "boolean",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketWireType.json"
+    },
+    "updated": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "verified": {
+      "type": "boolean",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    }
+  },
+  "required": [
+    "type",
+    "name",
+    "line",
+    "categories",
+    "keywords",
+    "reviewed",
+    "byAce",
+    "updated",
+    "downloads",
+    "verified"
+  ],
+  "type": "object"
+}

@@ -1,11 +1,15 @@
-import { DaemonHealth, PairingResponse } from "@ace/protocol";
+import { z } from "zod";
+import { DaemonHealth, Device, PairingResponse } from "@ace/protocol";
 import { accessRequest } from "../client-access.ts";
 import { readLocalToken } from "../local-token.ts";
-import { hostConnection } from "./connection.ts";
+import { hostConnection, reachLocalDaemon } from "./connection.ts";
+import { deviceIds, deviceListLines, pairingLines } from "./render/device.ts";
 import { terminalQr } from "./qr.ts";
 import { option, validateArgs, type Args } from "./args.ts";
-import { result } from "./io.ts";
-import { CliFailure } from "./output.ts";
+import { emit, result } from "./io.ts";
+import { CliFailure, usageFailure } from "./output.ts";
+const Devices = z.array(Device.loose());
+const Revoked = z.looseObject({ revoked: z.boolean() });
 const durations: Record<string, { ms: number; words: string }> = {
   "5m": { ms: 5 * 60_000, words: "5 minutes" },
   "1h": { ms: 60 * 60_000, words: "1 hour" },
@@ -19,7 +23,8 @@ function duration(args: Args, name: string) {
   const value = option(args, name);
   if (value === undefined) return undefined;
   const known = durations[value];
-  if (!known) throw new CliFailure("refused", `--${name} takes 5m, 1h, 24h, 1d, 7d or 30d`);
+  if (!known)
+    throw usageFailure(`--${name} takes 5m, 1h, 24h, 1d, 7d or 30d.`, { argument: `--${name}` });
   return known;
 }
 export async function accessCommand(args: Args, home: string) {
@@ -48,42 +53,61 @@ export async function accessCommand(args: Args, home: string) {
       throw error;
     }
   }
-  const { origin, token } = hostConnection(home);
-  if (command === "pair") {
-    validateArgs(args, ["label", "ttl", "device-ttl"], 1, 2);
-    const label = option(args, "label");
-    const ttl = duration(args, "ttl");
-    const deviceTtl = duration(args, "device-ttl");
-    const paired = PairingResponse.parse(
-      await accessRequest(origin, "/v1/pairings", {
-        method: "POST",
-        token,
-        body: {
-          ...(args.words[1] ? { scopes: args.words[1].split(",") } : {}),
-          ...(label ? { label } : {}),
-          ...(ttl ? { ttlMs: ttl.ms } : {}),
-          ...(deviceTtl ? { deviceTtlMs: deviceTtl.ms } : {}),
-        },
-      }),
-    );
-    const access = deviceTtl ? ` The device keeps access for ${deviceTtl.words}.` : "";
-    return result(
-      args,
-      args.flags.json || args.flags.jq
-        ? paired
-        : `${paired.url}\nValid for ${ttl?.words ?? "5 minutes"}, single use.${access}\n${terminalQr(paired.url)}`,
-    );
+  throw new CliFailure("refused", `Unknown access command ${command ?? ""}.`);
+}
+
+/** `ace device list|pair|revoke`: who is paired with this machine (ADR 0176 §7). */
+export async function deviceCommand(
+  args: Args,
+  home: string,
+  verb: "list" | "pair" | "revoke",
+  now: () => number = Date.now,
+) {
+  const { origin, token } = await reachLocalDaemon(home);
+  if (verb === "list") {
+    const devices = Devices.parse(await accessRequest(origin, "/v1/devices", { token }));
+    return emit(args, devices, {
+      human: (list) => deviceListLines(list, now()),
+      quiet: deviceIds,
+    });
   }
-  const verb = args.words[1];
-  validateArgs(args, [], verb === "revoke" ? 3 : 2);
-  if (verb === "list") return result(args, await accessRequest(origin, "/v1/devices", { token }));
-  if (verb === "revoke" && args.words[2])
-    return result(
-      args,
-      await accessRequest(origin, `/v1/devices/${encodeURIComponent(args.words[2])}`, {
-        method: "DELETE",
-        token,
-      }),
-    );
-  throw new CliFailure("refused", "Usage: ace devices list|revoke ID");
+  if (verb === "revoke") {
+    const id = args.words[0] ?? "";
+    try {
+      const revoked = Revoked.parse(
+        await accessRequest(origin, `/v1/devices/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+          token,
+        }),
+      );
+      return emit(args, revoked, { human: () => `Revoked ${id}.`, quiet: () => [] });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("HTTP 404"))
+        throw new CliFailure("refused", `No paired device ${id}.`, undefined, {
+          code: "not_found",
+          hint: "See them with ace device list.",
+        });
+      throw error;
+    }
+  }
+  const label = option(args, "label");
+  const ttl = duration(args, "ttl");
+  const deviceTtl = duration(args, "device-ttl");
+  const paired = PairingResponse.parse(
+    await accessRequest(origin, "/v1/pairings", {
+      method: "POST",
+      token,
+      body: {
+        ...(args.words[0] ? { scopes: args.words[0].split(",") } : {}),
+        ...(label ? { label } : {}),
+        ...(ttl ? { ttlMs: ttl.ms } : {}),
+        ...(deviceTtl ? { deviceTtlMs: deviceTtl.ms } : {}),
+      },
+    }),
+  );
+  return emit(args, paired, {
+    human: (value) =>
+      pairingLines(value, ttl?.words ?? "5 minutes", deviceTtl?.words, terminalQr(value.url)),
+    quiet: (value) => [value.url],
+  });
 }

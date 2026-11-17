@@ -46,7 +46,8 @@ test("invalid jq syntax refuses before admission and a data-dependent filter com
       "(",
       "--json",
     ]);
-    expect(bad.code).toBe(4);
+    // A filter that doesn't compile is the caller's mistake: a usage error.
+    expect(bad.code).toBe(64);
     expect(f.daemon.store.listThreads()).toHaveLength(before);
     const good = await invoke(home, [
       "run",
