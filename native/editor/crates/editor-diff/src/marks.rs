@@ -27,29 +27,41 @@ pub struct Mark {
 }
 
 pub(super) fn marks(original: &str, current: &str) -> Vec<Mark> {
-    let before = lines::split(original);
-    let after = lines::split(current);
+    let before: Vec<&str> = lines::split(original).collect();
+    let after: Vec<&str> = lines::split(current).collect();
+    let (prefix, suffix) = lines::shared_ends(&before, &after);
+    let before_middle = &before[prefix..before.len() - suffix];
+    let after_middle = &after[prefix..after.len() - suffix];
+
     let mut input: InternedInput<&str> = InternedInput::default();
-    input.reserve(before.len() as u32, after.len() as u32);
-    input.update_before(before.iter().copied());
-    input.update_after(after.iter().copied());
+    input.reserve(before_middle.len() as u32, after_middle.len() as u32);
+    input.update_before(before_middle.iter().copied());
+    input.update_after(after_middle.iter().copied());
 
     let mut diff = Diff::compute(Algorithm::Histogram, &input);
     diff.postprocess_lines(&input);
 
     let mut marks = Vec::new();
     for hunk in diff.hunks() {
-        push_hunk_marks(&hunk, after.len(), &mut marks);
+        push_hunk_marks(&hunk, prefix, after.len(), &mut marks);
     }
     marks
 }
 
 /// Marks one changed block: its lines pair up as modifications for as long as both sides
 /// have one, the rest are additions, and left-over removals land on the line below.
-fn push_hunk_marks(hunk: &imara_diff::Hunk, line_count: usize, marks: &mut Vec<Mark>) {
+///
+/// The diff only covered the lines between the shared ends, so `prefix` moves a block's
+/// position in that middle to a line of the whole text.
+fn push_hunk_marks(
+    hunk: &imara_diff::Hunk,
+    prefix: usize,
+    line_count: usize,
+    marks: &mut Vec<Mark>,
+) {
     let removed = (hunk.before.end - hunk.before.start) as usize;
     let added = (hunk.after.end - hunk.after.start) as usize;
-    let start = hunk.after.start as usize;
+    let start = prefix + hunk.after.start as usize;
     for offset in 0..added {
         let kind = if offset < removed {
             MarkKind::Modified
