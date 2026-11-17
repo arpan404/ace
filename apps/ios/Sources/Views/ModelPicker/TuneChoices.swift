@@ -15,8 +15,9 @@ struct TuneChoiceRow: Equatable {
     var defaultLevel: Level? { levels.first(where: \.isDefault) }
 }
 
-/// What the model sheet's Effort and Speed rows show for the model it would run on. A row is
-/// there only when its model has more than one level to choose.
+/// What the model sheet's Effort and Speed rows show for the model it would run on. A thread's row
+/// is there only when its model has more than one level to choose. New thread always shows Effort
+/// for its model: a single level fixed, or a line saying the model has none.
 struct TuneChoices: Equatable {
     var effort: TuneChoiceRow?
     var speed: TuneChoiceRow?
@@ -36,15 +37,35 @@ struct TuneChoices: Equatable {
     }
 
     /// New thread's model: its own levels, the picked ones selected, else its defaults. A new
-    /// thread starts with them, so nothing blocks a row.
+    /// thread starts with them, so nothing blocks a row the model can change.
     static func model(_ model: ComposeAgent.Model, effort: String?, speed: String?) -> TuneChoices {
         let efforts = model.efforts.map { TuneChoiceRow.Level(id: $0.id, label: $0.label, isDefault: $0.id == model.defaultEffort) }
         let speedDefault = model.defaultSpeed ?? "standard"
         let speeds = (model.speeds ?? []).map { TuneChoiceRow.Level(id: $0.speed, label: $0.label, isDefault: $0.speed == speedDefault) }
         let pickedEffort = efforts.contains { $0.id == effort } ? effort : nil
         let pickedSpeed = speeds.contains { $0.id == speed } ? speed : nil
-        return TuneChoices(effort: row(efforts, selected: pickedEffort ?? model.defaultEffort ?? efforts.first?.id ?? "", reason: ""),
+        // The bridge sends `defaultEffort` resolved the way a new thread starts (`resolveEffort`),
+        // so the row and pill show the effort the thread is created with.
+        let selected = pickedEffort ?? model.defaultEffort ?? efforts.first?.id ?? ""
+        return TuneChoices(effort: row(efforts, selected: selected, reason: "") ?? fixed(efforts, selected: selected),
                            speed: row(speeds, selected: pickedSpeed ?? speedDefault, reason: ""), footer: nil)
+    }
+
+    /// New thread's model pill after the model's name: the effort it starts at in brief ("Med"),
+    /// and a speed other than standard. Nil when the model has no levels to name.
+    static func brief(_ model: ComposeAgent.Model, effort: String?, speed: String?) -> String? {
+        let shown = Self.model(model, effort: effort, speed: speed)
+        let level = shown.effort.flatMap { row in row.levels.first { $0.id == row.selected } }
+        let effortWord = level.map { $0.label == "Medium" ? "Med" : $0.label }
+        let speedWord = shown.speed.flatMap { row in row.levels.first { $0.id == row.selected && $0.id != "standard" } }?.label
+        let parts = [effortWord, speedWord].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Effort a model can't change: its one level, or none at all, said in the row's note.
+    private static func fixed(_ levels: [TuneChoiceRow.Level], selected: String) -> TuneChoiceRow {
+        TuneChoiceRow(levels: levels, selected: selected,
+                      reason: levels.isEmpty ? "This model has no effort levels" : "The only level this model has")
     }
 
     private static func row(_ levels: [TuneChoiceRow.Level], selected: String, reason: String) -> TuneChoiceRow? {
