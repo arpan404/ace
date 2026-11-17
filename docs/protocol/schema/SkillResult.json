@@ -172,6 +172,63 @@
     },
     {
       "properties": {
+        "files": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SkillFile.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "kind": {
+          "const": "files",
+          "type": "string"
+        },
+        "omitted": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SkillFileOmitted.json"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "files",
+        "omitted"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "content": {
+          "maxLength": 1398104,
+          "type": "string"
+        },
+        "file": {
+          "$ref": "https://ace.local/protocol/v1/SkillFile.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "kind": {
+          "const": "file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "file",
+        "content"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "code": {
           "$ref": "https://ace.local/protocol/v1/SkillErrorCode.json"
         },

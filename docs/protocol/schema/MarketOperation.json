@@ -1,0 +1,381 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "sources",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "addSource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "address"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "op": {
+          "const": "removeSource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "op": {
+          "const": "setSource",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "op": {
+          "const": "refresh",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "https://ace.local/protocol/v1/MarketCategoryId.json"
+        },
+        "limit": {
+          "default": 50,
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "search",
+          "type": "string"
+        },
+        "query": {
+          "default": "",
+          "maxLength": 200,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "type": {
+          "maxLength": 40,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "home",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "read",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "type": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "source",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "prepare",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "type": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "op",
+        "source",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketReviewId.json"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 100000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "readReview",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "choices": {
+          "$ref": "https://ace.local/protocol/v1/MarketInstallChoices.json",
+          "default": {
+            "bots": [],
+            "needs": {},
+            "startRoutines": false
+          }
+        },
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketReviewId.json"
+        },
+        "op": {
+          "const": "install",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id",
+        "hash"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/MarketReviewId.json"
+        },
+        "op": {
+          "const": "cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "installed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "prepareUpdate",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "op",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "remove",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "op",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "turnOn",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "op",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "spadeSkills",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
+          "const": "spadeSkillFiles",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "name"
+      ],
+      "type": "object"
+    }
+  ]
+}

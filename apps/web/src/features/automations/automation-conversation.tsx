@@ -24,6 +24,7 @@ import { EditDialog } from "./edit-dialog.tsx";
 import { normalizeDaemonKey } from "@/features/automation-data/index.ts";
 import { describeWhen, localTimeZone } from "@/features/automation-schedule/index.ts";
 import { useAutomationControls } from "./use-automation-controls.ts";
+import { WebhookPanel } from "./webhook-panel.tsx";
 import { useAutomation } from "@/features/automation-data/index.ts";
 import { part } from "@/lib/suit-part.ts";
 
@@ -181,6 +182,17 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
                 />
               </div>
             </header>
+            {automation.trigger.kind === "webhook" && (
+              <WebhookPanel
+                automationId={automation.id}
+                source={controls.source}
+                webhook={entry.webhook}
+                runsAt={
+                  entry.owner ? { thread: true } : { thread: false, access: automation.access }
+                }
+                disabled={controls.busy || !controls.ready}
+              />
+            )}
             <div className="mt-6 flex justify-end">
               <div
                 aria-label="Prompt"

@@ -81,7 +81,12 @@ import { FleetRequest, FleetResult } from "./fleet.ts";
 import { OutsideRequest, OutsideResult, OutsideState } from "./outside-clients.ts";
 import { LockedUseRequest, LockedUseServerMessage } from "./locked-use.ts";
 import { PreviewRequest, PreviewResult, PreviewSuggestions } from "./preview-client.ts";
-import { AutomationRequest, AutomationResponse } from "./automations.ts";
+import {
+  AutomationRequest,
+  AutomationResponse,
+  AutomationWebhookRequest,
+  AutomationWebhookResponse,
+} from "./automations.ts";
 import {
   TerminalRequest,
   TerminalCredit,
@@ -254,6 +259,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...OnboardingRequest.options,
   PreviewRequest,
   ...AutomationRequest.options,
+  AutomationWebhookRequest,
   ...ActivityReadsRequest.options,
   VerifyRequest,
   QueueGet,
@@ -372,6 +378,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   PreviewResult,
   PreviewSuggestions,
   AutomationResponse,
+  AutomationWebhookResponse,
   ActivityReadsResult,
   ActivityReadsChanged,
   VerifyResult,

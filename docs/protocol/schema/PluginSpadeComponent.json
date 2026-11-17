@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginSpadeComponent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PluginSpadeFile.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "kind": {
+      "enum": [
+        "skill",
+        "command",
+        "agent",
+        "rule"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "omitted": {
+      "maxLength": 200,
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 262144,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "name",
+    "path",
+    "description"
+  ],
+  "type": "object"
+}

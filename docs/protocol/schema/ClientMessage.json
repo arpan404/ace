@@ -779,6 +779,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AutomationWebhookRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ActivityReadsGet.json"
     },
     {
@@ -822,6 +825,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SuitReportMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MarketClientMessage.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthRequest.json"

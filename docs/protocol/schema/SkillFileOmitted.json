@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillFileOmitted.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "too_large",
+        "too_many",
+        "too_deep",
+        "not_a_file"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "reason"
+  ],
+  "type": "object"
+}
