@@ -20,7 +20,7 @@ export async function guardChromium(profile: string) {
     if (value === "ready") ready.resolve();
     else ready.reject(new Error("Invalid Chromium guardian readiness"));
   });
-  child.once("error", (error) => {
+  child.on("error", (error) => {
     ready.reject(error);
     exited.reject(error);
   });

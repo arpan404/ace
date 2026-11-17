@@ -207,7 +207,10 @@ class UserTabs {
       );
       if (!opener || owned.has(key) || this.adopting.has(key) || this.refused.has(key)) continue;
       this.adopting.add(key);
-      void this.adoptPopup(popup, opener).finally(() => this.adopting.delete(key));
+      // A popup that could not be adopted stays the person's; the link goes on.
+      void this.adoptPopup(popup, opener)
+        .catch(() => {})
+        .finally(() => this.adopting.delete(key));
     }
   }
   private async adoptPopup(ref: UserTabRef, opener: string): Promise<void> {
