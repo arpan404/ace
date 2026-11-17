@@ -87,3 +87,25 @@ test("sibling providers both settle before a failure is reported, and each failu
     message: "Antigravity launch could not be resolved; Cursor SDK unreadable",
   });
 });
+
+test("a Claude adapter that fails to load keeps neither Codex nor Cursor out, and both failures are named", async () => {
+  const registry = new AdapterRegistry();
+  const failure = await discoverAdapters(
+    async () => ({ claude: installed, codex: installed, opencode: absent, cursor: absent }),
+    async () => {
+      throw new Error("Claude adapter failed to load");
+    },
+    async () => {
+      throw new Error("Antigravity launch could not be resolved");
+    },
+    {},
+    async () => ({ installed: true, supported: true }),
+    registry,
+  ).catch((error: unknown) => error);
+  expect(registry.has("codex")).toBe(true);
+  expect(registry.has("cursor")).toBe(true);
+  expect(registry.has("claude")).toBe(false);
+  expect(failure).toMatchObject({
+    message: "Antigravity launch could not be resolved; Claude adapter failed to load",
+  });
+});

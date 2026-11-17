@@ -22,12 +22,17 @@ export async function discoverAdapters(
     sdkDiscovery(cursorOptions.discovery),
     additional ? additional(registry) : registerPi(registry),
   ]);
-  const failures = [clis, sdkRead, extra].flatMap((result) =>
+  // Each provider registers on its own: a Claude adapter that fails to load never keeps Codex,
+  // OpenCode or Cursor out, and every failure, read or registration, is reported together.
+  const registered = await Promise.allSettled([
+    ...(clis.status === "fulfilled" ? cliRegistrations(registry, clis.value, claudeAdapter) : []),
+    ...(sdkRead.status === "fulfilled"
+      ? [registerCursorSdk(registry, sdkRead.value, cursorOptions)]
+      : []),
+  ]);
+  const failures = [clis, sdkRead, extra, ...registered].flatMap((result) =>
     result.status === "rejected" ? [result.reason] : [],
   );
-  if (clis.status === "fulfilled") await registerClis(registry, clis.value, claudeAdapter);
-  if (sdkRead.status === "fulfilled")
-    await registerCursorSdk(registry, sdkRead.value, cursorOptions);
   if (failures.length) throw discoveryFailure(failures);
   return registry;
 }
@@ -51,32 +56,44 @@ function discoveryFailure(failures: readonly unknown[]): unknown {
   return new AggregateError(reasons, messages.join("; "));
 }
 
-async function registerClis(
+/** One registration per installed CLI, each settling on its own. */
+function cliRegistrations(
   registry: AdapterRegistry,
   { claude, codex, opencode }: Awaited<ReturnType<typeof discoverProviders>>,
   claudeAdapter?: (cli: DiscoveryResult) => ProviderAdapter | Promise<ProviderAdapter>,
-): Promise<void> {
-  if (claude.installed && !registry.has("claude")) {
-    const { createClaudeAdapter } = await import("@ace/adapter-claude");
-    registry.register(
-      (await claudeAdapter?.(claude)) ??
-        createClaudeAdapter(claude.path ? { executable: claude.path } : {}),
-      claude,
+): Promise<void>[] {
+  const registrations: Promise<void>[] = [];
+  if (claude.installed && !registry.has("claude"))
+    registrations.push(
+      (async () => {
+        const adapter =
+          (await claudeAdapter?.(claude)) ??
+          (await import("@ace/adapter-claude")).createClaudeAdapter(
+            claude.path ? { executable: claude.path } : {},
+          );
+        registry.register(adapter, claude);
+      })(),
     );
-  }
-  if (codex.installed && !registry.has("codex")) {
-    const { createCodexAdapter } = await import("@ace/adapter-codex");
-    registry.register(createCodexAdapter({ cli: codex }), codex);
-  }
-  if (opencode.installed && !registry.has("opencode")) {
-    const { createOpenCodeAdapter } = await import("@ace/adapter-opencode");
-    registry.register(
-      createOpenCodeAdapter({
-        discovery: opencode.path ? { overrides: { opencode: opencode.path } } : {},
-      }),
-      opencode,
+  if (codex.installed && !registry.has("codex"))
+    registrations.push(
+      (async () => {
+        const { createCodexAdapter } = await import("@ace/adapter-codex");
+        registry.register(createCodexAdapter({ cli: codex }), codex);
+      })(),
     );
-  }
+  if (opencode.installed && !registry.has("opencode"))
+    registrations.push(
+      (async () => {
+        const { createOpenCodeAdapter } = await import("@ace/adapter-opencode");
+        registry.register(
+          createOpenCodeAdapter({
+            discovery: opencode.path ? { overrides: { opencode: opencode.path } } : {},
+          }),
+          opencode,
+        );
+      })(),
+    );
+  return registrations;
 }
 
 async function registerCursorSdk(
