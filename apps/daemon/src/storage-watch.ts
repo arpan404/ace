@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { logError, logFields } from "@ace/diagnostics";
 import type { MaintenanceHold } from "@ace/protocol";
 import { freeBytesOf, isDiskFull, type DiskSpace } from "./sqlite-failure.ts";
+import type { StorageReserve } from "./storage-reserve.ts";
 import {
   nextStorageState,
   roomToResume,
@@ -40,6 +41,8 @@ export interface StorageWatchOptions {
    * refused write began is lifted, since free space does not show a quota. Tests inject one.
    */
   probe?: (home: string) => void;
+  /** Space kept for ace itself: removed when the disk fills, written again once it has room. */
+  reserve?: StorageReserve;
 }
 
 const probeBytes = 1024 * 1024;
@@ -133,12 +136,14 @@ export class StorageWatch {
   check(): void {
     if (this.closed) return;
     this.cancel?.();
-    const bytes = freeBytesOf(this.options.home, this.options.diskSpace);
+    const bytes = this.freeBytes();
     const before = this.state;
     this.apply({ kind: "free", bytes });
     // A hold a refused write began lifts only once a write goes through again (a quota).
     if (bytes !== null && this.state.unproven && roomToResume(bytes, this.levels))
       this.apply({ kind: "probe", ok: this.probe(), bytes });
+    // Free space already counts the reserve as taken, so with new work let in it goes back.
+    if (!this.state.full && bytes !== null) this.options.reserve?.restore();
     if (this.state.full && !before.full)
       this.options.log.log(
         "error",
@@ -148,6 +153,15 @@ export class StorageWatch {
     else if (this.state.low && !before.low && !this.state.full)
       this.options.log.log("warn", "Disk space is low", logFields([["freeBytes", bytes]]));
     this.schedule();
+  }
+  /**
+   * Free bytes as the person has them: space ace freed from its own reserve is ace's, so a
+   * released reserve never reads as room (it would lift the hold it was released for).
+   */
+  private freeBytes(): number | null {
+    const bytes = freeBytesOf(this.options.home, this.options.diskSpace);
+    if (bytes === null) return null;
+    return Math.max(0, bytes - (this.options.reserve?.missing() ?? 0));
   }
   /** Whether a probe write went through. Only a full disk fails it, never another error. */
   private probe(): boolean {
@@ -173,6 +187,9 @@ export class StorageWatch {
     this.state = nextStorageState(before, fact, this.levels);
     if (this.state.full === before.full) return;
     if (this.state.full) {
+      // What ace kept back lets its own stores and held writes go through (`storage-reserve.ts`).
+      if (this.options.reserve?.release())
+        this.options.log.log("info", "Released the space ace keeps for a full disk");
       for (const hold of this.holds) hold.enter("storage");
       // Read again soon rather than on the roomy interval.
       this.cancel?.();

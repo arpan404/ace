@@ -45,6 +45,26 @@ A full disk is a daemon-wide condition, `storage`, that ace enters and leaves by
 - **A child waits, it does not fail.** A delegated child whose start the full disk rolls back
   stays queued, as when the engine has no room, and starts on the next retry once space is back.
   Its parent keeps showing it waiting.
+- **Starting on a full disk.** On a disk with no free block SQLite can't open a WAL database
+  at all, not even to read: a clean close removed its `-wal` and `-shm` files and they can't be
+  made again. So ace keeps a reserve, a 16 MiB file `storage-reserve` in ACE_HOME, written while
+  there is room (`storage-reserve.ts`). A daemon that starts with free space under `pauseBelow`
+  removes it before anything else opens, and the storage watch removes it whenever the hold is
+  entered. The daemon then comes up as usual with the hold on: reads work, new work waits, and
+  its own first writes and held writes have room. The watch never counts a removed reserve as
+  free space, so only space the person frees lifts the hold; once it lifts, the reserve is
+  written again. The home's lock takes its exclusive transaction with an in-memory journal, so
+  taking it makes no file, and only a lock another daemon holds is reported as one. A home with
+  no reserve yet (the first start after upgrading) on a disk with no block left still can't
+  start: its stores fail to open with `DiskFullAtStartError`, which names the free space,
+  instead of "unable to open database file". Nothing can be logged or published there either.
+  This sits under ADR 0175: the lock and the event store stay fatal to a start, and the reserve
+  is what lets them open.
+- **Children wait while held.** A child another machine delegates here checks admission as a
+  local one does: while new work is held it queues and its caller is told so; nothing starts it
+  until admission reopens, which drains the queue at once. Retries while held, or after a start
+  the full disk rolled back, back off from 1 s to 30 s. While the storage hold lasts, a queued
+  child, local or remote, reads "Waiting for disk space" (`QueueFacts.waitingFor`).
 - **Unhandled rejections.** A disk-full rejection that nobody caught is logged and the daemon
   keeps running, as with store contention. The failed operation's transaction has already rolled
   back, and with new work held nothing builds on it. Crashing instead only restarts into the same

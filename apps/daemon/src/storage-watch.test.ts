@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -6,6 +6,7 @@ import { MaintenanceGate } from "@ace/service";
 import { Command } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { StorageWatch } from "./storage-watch.ts";
+import { storageReserve } from "./storage-reserve.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -16,7 +17,7 @@ const MiB = 1024 * 1024;
 const levels = { pauseBelow: 256 * MiB, resumeAt: 512 * MiB, warnBelow: 1024 * MiB };
 
 /** A watch on a real temp database whose growth a test can cap, with time and space by hand. */
-function setup(freeMiB = 10_000) {
+function setup(freeMiB = 10_000, reserveMiB?: number) {
   const home = mkdtempSync(join(tmpdir(), "ace-storage-watch-"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
   const db = new DatabaseSync(join(home, "events.sqlite"));
@@ -35,6 +36,7 @@ function setup(freeMiB = 10_000) {
     },
     log: { log: (level, message) => lines.push({ level, message }) },
     levels,
+    ...(reserveMiB === undefined ? {} : { reserve: storageReserve(home, reserveMiB * MiB) }),
     // The probe writes where the test's disk is: the capped database.
     probe: () => db.prepare("INSERT INTO t VALUES (?)").run("x".repeat(8192)),
   });
@@ -43,6 +45,7 @@ function setup(freeMiB = 10_000) {
   watch.attach(gate);
   watch.start();
   return {
+    home,
     watch,
     gate,
     lines,
@@ -176,4 +179,22 @@ test("a quota free space can't show keeps new work held until a write goes throu
   state.unfill();
   expect(state.tick()).toBe(5_000);
   expect(state.gate.status().holds).toEqual([]);
+});
+
+test("ace's reserve goes when the disk fills, never counts as room, and comes back once there is room", () => {
+  const state = setup(10_000, 1);
+  const reserve = join(state.home, "storage-reserve");
+  expect(statSync(reserve).size).toBe(MiB);
+  state.setFree(100);
+  state.tick();
+  expect(existsSync(reserve)).toBe(false);
+  expect(state.gate.status().holds).toEqual(["storage"]);
+  // The volume reads the freed megabyte, but it is ace's: still not the person's room.
+  state.setFree(512);
+  state.tick();
+  expect(state.gate.status().holds).toEqual(["storage"]);
+  state.setFree(513);
+  state.tick();
+  expect(state.gate.status().holds).toEqual([]);
+  expect(statSync(reserve).size).toBe(MiB);
 });

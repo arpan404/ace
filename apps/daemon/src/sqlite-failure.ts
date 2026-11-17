@@ -55,6 +55,36 @@ export function isDiskFull(error: unknown): boolean {
   return false;
 }
 
+/** A store ace can't open because the disk holding ACE_HOME has no room left at all. */
+export class DiskFullAtStartError extends Error {
+  override name = "DiskFullAtStartError";
+}
+
+/**
+ * Opens a store at startup. A disk with no free block at all keeps SQLite from making the files a
+ * WAL database needs, so it can't be opened, even to read (ADR 0174). That failure is said as
+ * what it is, with the free space, instead of "unable to open database file".
+ */
+export function openAtStart<T>(
+  open: () => T,
+  home: string,
+  diskSpace: DiskSpace = systemDiskSpace,
+  roomBelow = 256 * 1024 * 1024,
+): T {
+  try {
+    return open();
+  } catch (error) {
+    const free = freeBytesOf(home, diskSpace);
+    if (sqliteStorageFailure(error) === undefined || free === null || free >= roomBelow)
+      throw error;
+    throw new DiskFullAtStartError(
+      `The disk holding ${home} is full (${free} bytes free): ace can't open its data until ` +
+        "space is freed there.",
+      { cause: error },
+    );
+  }
+}
+
 /**
  * Log fields for a storage failure the user can act on: the SQLite code and the free bytes
  * on the volume holding ACE_HOME (null when the volume cannot be read either). Undefined

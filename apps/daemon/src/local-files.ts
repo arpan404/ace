@@ -40,18 +40,31 @@ export function acquireLock(dataDir: string): () => void {
   // Kernel locks disappear on crash; the lock database must never be unlinked.
   const lock = new DatabaseSync(join(dataDir, "daemon-lock.sqlite"));
   try {
+    // The lock is the kernel's lock on this file; its journal is kept in memory, so taking it
+    // creates no file and works on a full disk too (ADR 0174). The table is made once, ever.
     lock.exec(
-      "PRAGMA busy_timeout=0; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS owner (pid INTEGER)",
+      "PRAGMA busy_timeout=0; PRAGMA journal_mode=MEMORY; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS owner (pid INTEGER)",
     );
-    writeFileSync(path, owner, { mode: 0o600 });
   } catch (error) {
     lock.close();
-    throw new DaemonLockHeldError(
-      `Cannot acquire daemon lock in ${dataDir}. Another daemon owns it.`,
-      {
-        cause: error,
-      },
-    );
+    // Only a lock someone else holds is another daemon; anything else is said as it is.
+    if (sqliteBusy(error))
+      throw new DaemonLockHeldError(
+        `Cannot acquire daemon lock in ${dataDir}. Another daemon owns it.`,
+        { cause: error },
+      );
+    throw error;
+  }
+  try {
+    writeFileSync(path, owner, { mode: 0o600 });
+  } catch {
+    // The name of the holder only (a full disk can refuse it). A stale one would name an old
+    // pid, so it goes; readers take no file as no holder named.
+    try {
+      unlinkSync(path);
+    } catch {
+      /* None was there. */
+    }
   }
   let released = false;
   return () => {
@@ -59,10 +72,18 @@ export function acquireLock(dataDir: string): () => void {
     released = true;
     try {
       if (readFileSync(path, "utf8") === owner) unlinkSync(path);
+    } catch {
+      /* Never written, or already gone. */
     } finally {
       lock.close();
     }
   };
+}
+
+/** SQLITE_BUSY or SQLITE_LOCKED: another connection holds the lock. */
+function sqliteBusy(error: unknown): boolean {
+  const code: unknown = error instanceof Error ? Reflect.get(error, "errcode") : undefined;
+  return typeof code === "number" && ((code & 0xff) === 5 || (code & 0xff) === 6);
 }
 export function loadToken(dataDir: string): { token: string; tokenPath: string } {
   const tokenPath = join(dataDir, "daemon-token");
