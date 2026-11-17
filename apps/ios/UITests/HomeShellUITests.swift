@@ -230,13 +230,13 @@ import XCTest
         let row = app.buttons["thread.ios-form"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
-        let places = ["sidebar.threads", "sidebar.chats", "sidebar.search", "sidebar.review", "sidebar.place.automations",
+        let places = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.review", "sidebar.place.automations",
                       "sidebar.place.skills", "sidebar.place.settings"].map { app.buttons[$0] }
         XCTAssertTrue(places[0].waitForExistence(timeout: 10))
-        // Left to right in the rail's order, with no Spade and no tab bar beside the list.
+        // Left to right in the rail's order, Spade after Chats while the machine shows it, and
+        // no tab bar beside the list.
         let xs = places.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
-        XCTAssertFalse(app.buttons["sidebar.spade"].exists)
         XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
         capture("ipad-sidebar")
         // Code review is a place of its own: pull requests and issues, the list beside them kept.
