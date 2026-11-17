@@ -1,11 +1,15 @@
 import SwiftUI
 
-/// Which machine, project and list Code review shows, kept by the home screen so the page opens
-/// where the person left it, whether it is the iPad's place or the phone's sheet.
+/// Where Code review was left: its machine, project and list, each list's filters, the search
+/// and the pages pushed on it. The home screen keeps it, so the page opens where the person left
+/// it, whether it is the iPad's place or the phone's sheet, closed and opened again.
 struct CodeReviewScope: Equatable {
     var machine = ""
     var project = ""
     var kind = ForgeKind.pulls
+    var filters = ForgeListFilters()
+    var query = ""
+    var path: [ForgeRoute] = []
 }
 
 /// Home's Code review, the web rail's place for pull requests and issues: Pull requests, Issues
@@ -21,18 +25,17 @@ struct CodeReviewTab: View {
     var pair: (() -> Void)?
     /// Closes the page where it opens over the home screen; nil where it is a place of its own.
     var close: (() -> Void)?
-    @State private var path: [ForgeRoute] = []
-    @State private var query = ""
 
     var body: some View {
-        NavigationStack(path: $path) {
-            ForgeHome(inbox: inbox, machine: $scope.machine, project: $scope.project, query: query, kind: $scope.kind,
-                      actions: ForgeTabActions(open: { path.append($0) }, openThread: openThread, startThread: startThread),
+        NavigationStack(path: $scope.path) {
+            ForgeHome(inbox: inbox, machine: $scope.machine, project: $scope.project, query: scope.query, kind: $scope.kind,
+                      filters: $scope.filters,
+                      actions: ForgeTabActions(open: { scope.path.append($0) }, openThread: openThread, startThread: startThread),
                       openMachines: openMachines, pair: pair)
-                .searchable(text: $query, prompt: Text(prompt))
+                .searchable(text: $scope.query, prompt: Text(prompt))
                 .modifier(ProjectDefaultsHook(inbox: inbox))
                 .navigationDestination(for: ForgeRoute.self) { route in
-                    ForgePage(inbox: inbox, route: route, open: { path.append($0) }, openThread: openThread,
+                    ForgePage(inbox: inbox, route: route, open: { scope.path.append($0) }, openThread: openThread,
                               startThread: inbox.canStartThreads ? startThread : nil)
                 }
                 .toolbar {

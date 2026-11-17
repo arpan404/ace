@@ -275,16 +275,44 @@ import XCTest
         XCTAssertTrue(app.buttons["forge.kind.issues"].isSelected)
     }
 
+    func testCodeReviewClosedAndOpenedAgainKeepsItsSearchAndOpenPullRequest() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
+        let app = launch()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        app.buttons["inbox.review"].tap()
+        let row = app.buttons["forge.pull.245"]
+        XCTAssertTrue(row.waitForExistence(timeout: 25))
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("settings")
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        let header = app.descendants(matching: .any)["forge.pull.header"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 20))
+        app.buttons["review.close"].tap()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
+        // Opened again on the pull request the person had open, with the search behind it.
+        app.buttons["inbox.review"].tap()
+        XCTAssertTrue(header.waitForExistence(timeout: 20))
+        app.tapBack()
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertEqual(app.searchFields.firstMatch.value as? String, "settings")
+    }
+
     func testCodeReviewWithNoComputerPairedOffersPairing() {
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        // A regular-width iPad holds Code review in the sidebar rather than the top bar.
+        if !phone { XCUIDevice.shared.orientation = .landscapeLeft }
         let app = XCUIApplication()
         // A fresh install: no computer paired, no fixture connected.
         app.launchArguments = ["--spike", "--spike-unpaired"]
         app.launchWithArguments()
         defer { app.terminate() }
-        let review = app.buttons["inbox.review"]
+        let review = app.buttons[phone ? "inbox.review" : "sidebar.review"]
         XCTAssertTrue(review.waitForExistence(timeout: 30))
         review.tap()
-        XCTAssertTrue(app.buttons["review.close"].waitForExistence(timeout: 10))
+        if phone { XCTAssertTrue(app.buttons["review.close"].waitForExistence(timeout: 10)) }
         // Never skeletons forever: the way to pair a computer.
         XCTAssertTrue(app.buttons["inbox.empty.pair"].waitForExistence(timeout: 20))
         capture("code-review-unpaired")
