@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectCheckoutFacts.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "remotes": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "repository": {
+      "type": "boolean"
+    },
+    "subpath": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "repository",
+    "remotes",
+    "subpath"
+  ],
+  "type": "object"
+}

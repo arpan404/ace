@@ -263,6 +263,62 @@
     },
     {
       "properties": {
+        "identityId": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "type": {
+          "const": "workspace.identity.link",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId",
+        "identityId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "workspace.identity.unlink",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "from": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "into": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        },
+        "type": {
+          "const": "workspace.identity.merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "from",
+        "into"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "type": {
           "const": "workspace.git.lock.clear",
           "type": "string"

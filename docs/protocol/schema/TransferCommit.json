@@ -48,6 +48,25 @@
       "pattern": "^[a-f0-9]{40,64}$",
       "type": "string"
     },
+    "identity": {
+      "properties": {
+        "aliases": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ProjectIdentityId.json"
+        }
+      },
+      "required": [
+        "id",
+        "aliases"
+      ],
+      "type": "object"
+    },
     "ignored": {
       "properties": {
         "bytes": {

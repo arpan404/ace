@@ -12,9 +12,12 @@ import { WorkspaceId } from "./ids.ts";
 
 /** A logical project's id: a UUID in lower-case canonical form, so two spellings never differ. */
 export const ProjectIdentityId = z
-  .uuid()
-  .regex(/^[0-9a-f-]+$/)
-  .meta({ "x-ace-constraint": "A UUID in lower-case canonical form." });
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  .meta({
+    "x-ace-constraint": "A UUID in lower-case canonical form.",
+    examples: ["5e1f0c2a-7d1b-4c7e-9a0e-2f6b8d4c1a90"],
+  });
 export type ProjectIdentityId = z.infer<typeof ProjectIdentityId>;
 
 /**
