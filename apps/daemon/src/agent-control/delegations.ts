@@ -10,7 +10,13 @@ export { controlCommandId } from "./command-id.ts";
 import { delegationCommandPolicy } from "./command-policy.ts";
 import { childResultPrompt, launchSlots } from "@ace/orchestrator";
 import { LaunchQueue, drainLaunches, startOrQueue } from "./launch-queue.ts";
-import { childStatus, queuedChildStatus, unlaunchedResult } from "./child-status.ts";
+import {
+  childStatus,
+  diskWait,
+  queuedChildStatus,
+  unlaunchedResult,
+  type QueuedFacts,
+} from "./child-status.ts";
 import type { AccountRegistry } from "@ace/accounts";
 import { accountForName, registeredAccounts } from "./account-names.ts";
 import { namedAccountId } from "./selection.ts";
@@ -22,7 +28,6 @@ import {
   DelegationPolicy,
   DelegationRequest,
   type DelegationRecord,
-  type QueueFacts,
   type WorkspaceId,
   type McpAttribution,
   type DelegationOutcome,
@@ -85,6 +90,8 @@ export interface DelegationDependencies {
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
+  /** Whether the disk is too full for new work (the `storage` hold, ADR 0176), read live. */
+  storageFull?(): boolean;
   /**
    * Brings the provider's installation and login facts up to date before admission reads
    * them (`provider-facts.ts`): no client may be watching to have refreshed them.
@@ -881,19 +888,35 @@ export class DelegationService {
     return running - held.length;
   }
   /** Where a queued child stands: the parent's slot limit, slots in use and its queue place. */
-  queueFacts(childId: ThreadId): QueueFacts | undefined {
+  queueFacts(childId: ThreadId): QueuedFacts | undefined {
     const edge = this.journal.get(childId);
     if (!edge || edge.phase !== "created" || !this.launches.has(childId)) return undefined;
+    // While the disk is full, that is what every queued child waits for first (ADR 0176).
+    const disk = this.deps.storageFull?.() ? diskWait : undefined;
     // With no limit a child waits only for engine room: it has no slot place to show.
     const limit = this.limit();
-    if (limit === undefined) return undefined;
+    if (limit === undefined) return disk;
     const position = this.launches.ordered(edge.parentId).indexOf(childId) + 1;
-    if (position < 1) return undefined;
+    if (position < 1) return disk;
     return {
       slotLimit: limit,
       slotsInUse: this.running(edge.parentId),
       queuePosition: position,
+      ...disk,
     };
+  }
+  /**
+   * The disk filled or was freed: each queued child's facts and its parent's view say so. Done
+   * on a best-effort basis, since the disk may refuse the write; `agents_status` reads it live.
+   */
+  storageChanged(): void {
+    if (this.closed) return;
+    for (const parent of this.launches.parents())
+      try {
+        this.refreshQueue(ThreadId.parse(parent));
+      } catch (error) {
+        this.report(error);
+      }
   }
   /**
    * After the head of a parent's queue starts, the rest move up: rewrite their queued facts so
@@ -906,19 +929,21 @@ export class DelegationService {
     const inUse = this.running(parent);
     // A cleared limit leaves no slot place to show: earlier facts are removed.
     const limit = this.limit();
-    const stale: { edge: DelegationRecord; facts: QueueFacts | undefined; text: string }[] = [];
+    const disk = this.deps.storageFull?.() ? diskWait : undefined;
+    const stale: { edge: DelegationRecord; facts: QueuedFacts | undefined; text: string }[] = [];
     for (const [index, childId] of order.entries()) {
       const edge = this.journal.get(childId);
       if (!edge || edge.phase !== "created") continue;
-      const facts: QueueFacts | undefined =
+      const facts: QueuedFacts | undefined =
         limit === undefined
-          ? undefined
-          : { slotLimit: limit, slotsInUse: inUse, queuePosition: index + 1 };
+          ? disk
+          : { slotLimit: limit, slotsInUse: inUse, queuePosition: index + 1, ...disk };
       const current = this.deps.store.getThread(childId)?.queuedLaunch;
       if (
         current?.slotLimit === facts?.slotLimit &&
         current?.slotsInUse === facts?.slotsInUse &&
-        current?.queuePosition === facts?.queuePosition
+        current?.queuePosition === facts?.queuePosition &&
+        current?.waitingFor === facts?.waitingFor
       )
         continue;
       stale.push({ edge, facts, text: current?.text ?? edge.request.task });
@@ -937,7 +962,7 @@ export class DelegationService {
     });
   }
   /** A queued child reads as waiting, so its parent never looks done while it waits. */
-  private showQueued(edge: DelegationRecord, facts?: QueueFacts | undefined): void {
+  private showQueued(edge: DelegationRecord, facts?: QueuedFacts | undefined): void {
     const child = this.deps.store.getThread(edge.childId);
     if (!child) return;
     const queued = { ...child, status: queuedChildStatus(facts ?? this.queueFacts(edge.childId)) };

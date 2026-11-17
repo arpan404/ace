@@ -11,7 +11,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/MaintenanceHold.json"
       },
-      "maxItems": 4,
+      "maxItems": 5,
       "type": "array"
     },
     "waiting": {

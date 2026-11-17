@@ -1370,7 +1370,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| holds | yes | array | {"maxItems":4,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
+| holds | yes | array | {"maxItems":5,"items":{"$ref":"https://ace.local/protocol/v1/MaintenanceHold.json"}} |
 | busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | waiting | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 
@@ -9124,22 +9124,11 @@ Example:
 ```json
 {
   "generation": 0,
-  "outcome": {
-    "before": null,
-    "failure": {
-      "accountLabel": "example",
-      "code": "example",
-      "message": "example"
-    },
-    "outcome": "completed",
-    "result": "example",
-    "threadId": "example",
-    "truncated": true
-  },
   "state": "unresponsive",
   "status": {
     "on": "queue",
-    "state": "waiting"
+    "state": "waiting",
+    "waitingFor": "storage"
   },
   "threadId": "example"
 }
@@ -10624,119 +10613,94 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 1,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "agentChildren": {},
     "agents": {},
     "backgroundTasks": {},
+    "contextMeters": {},
+    "entitiesBefore": {},
     "interactions": {},
     "itemOrder": [],
-    "itemSeqs": {},
     "items": {},
+    "itemsBefore": null,
     "kind": "thread",
-    "partial": {
-      "previews": []
-    },
     "runs": {},
-    "seq": 9,
+    "seq": 1,
     "thread": {
-      "acpAgentId": "example",
-      "activityAt": 0,
-      "autoSettle": false,
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": true,
+          "planMode": false,
+          "resume": false
+        },
+        "coverage": "generic",
+        "mcp": "http",
+        "modeSelection": false,
+        "modelSelection": true,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "visibility": "limited"
+      },
       "createdAt": 5,
-      "delegatedBy": "example",
-      "delegatedFrom": {
-        "hostId": "example",
-        "hostName": "example",
-        "provider": "example",
-        "threadId": "example"
-      },
-      "deletedAt": 1,
-      "details": {
-        "base": {
-          "fetch": "unreachable",
-          "head": "934c3ba327d5fedb6915c33d401f95b78cd68569e5fa564699a45d754",
-          "ref": "example"
-        },
-        "behind": 2,
-        "continuedOn": {
-          "at": 1,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "head": null,
-        "linkedIssues": [],
-        "worktree": "example",
-        "worktreeMissing": true,
-        "worktreeSetup": {
-          "at": 8,
-          "details": [],
-          "state": "failed"
-        }
-      },
-      "effectiveCapabilities": {
-        "backgroundTaskControl": false,
-        "backgroundVisibility": "partial",
-        "fork": true,
-        "forkMode": "context-handoff",
-        "goals": false,
-        "imageInput": true,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "permissions": {
-          "modes": [],
-          "nativeAutoReview": true,
-          "toolGate": true
-        },
-        "planMode": true,
-        "resume": true,
-        "rewindFiles": false,
-        "steer": true,
-        "steeringMode": "interrupt-restart",
-        "subagentTranscripts": true,
-        "tokenUsage": true
-      },
-      "execution": {
-        "provider": "opencode"
-      },
-      "handoff": {
-        "bytes": 1,
-        "sourceThreadId": "example",
-        "truncated": true
-      },
-      "hasSentMessage": true,
-      "host": "spade-bot",
+      "hasSentMessage": false,
+      "host": "spade",
       "id": "example",
       "imported": {
-        "importedAt": 7,
+        "importedAt": 0,
         "instanceId": "example",
         "native": {
+          "acpAgentId": "example",
           "nativeId": "example",
-          "provider": "cursor"
+          "provider": "antigravity"
         },
         "sourceId": "example"
       },
-      "listOrder": 7,
-      "pinned": false,
-      "prSettledKey": "example",
-      "provider": "antigravity",
-      "readAt": 3,
-      "rootAgentId": "example",
+      "instanceId": "example",
+      "listOrder": 0,
+      "pinOrder": 3,
+      "provider": "acp",
       "settleWhenDone": true,
-      "settledReason": "pr_closed",
+      "settledReason": "manual",
       "snoozeWake": {
-        "on": "needs_you"
+        "on": "pr",
+        "prs": [
+          {
+            "checks": "failed",
+            "head": "example",
+            "pr": "example",
+            "state": "draft",
+            "updatedAt": 3
+          }
+        ]
       },
-      "snoozedUntil": 0,
+      "snoozeWoke": {
+        "at": 4,
+        "on": "needs_you",
+        "outcome": "finished"
+      },
       "status": {
-        "state": "new"
+        "interactions": 9,
+        "state": "needs_you"
+      },
+      "switch": {
+        "at": 2,
+        "error": "example",
+        "lossy": false,
+        "selection": {
+          "instanceId": "example",
+          "provider": "antigravity"
+        },
+        "state": "applied"
       },
       "title": "example",
+      "titleSource": "generated",
       "unread": true,
-      "updatedAt": 5,
+      "updatedAt": 6,
       "workspaceId": "example"
     },
     "usage": {}
@@ -17026,14 +16990,11 @@ Example:
   "childThreadId": "example",
   "complete": true,
   "createdAt": 0,
-  "generation": 5,
+  "generation": 8,
   "id": "example",
-  "machine": {
-    "machine": "example",
-    "name": "example"
-  },
   "nativeId": "example",
   "origin": "ace",
+  "outcome": null,
   "phase": "settled",
   "provider": "acp",
   "role": "example",
@@ -17044,7 +17005,7 @@ Example:
   },
   "title": "example",
   "type": "delegation.started",
-  "updatedAt": 9
+  "updatedAt": 5
 }
 ```
 
@@ -19322,6 +19283,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 | result | no | string | {"maxLength":4096} |
 | truncated | no | boolean |  |
 | last | no | string | {"maxLength":160} |
@@ -19336,6 +19298,7 @@ Example:
 
 ```json
 {
+  "contact": "unconfirmed",
   "elapsedSeconds": 9,
   "failure": {
     "accountId": "example",
@@ -19343,19 +19306,19 @@ Example:
     "code": "example",
     "message": "example"
   },
+  "last": "example",
   "machine": "example",
   "queuePosition": 5,
   "requests": [],
-  "result": "example",
   "state": "failed",
   "status": {
-    "on": "rate_limit",
-    "queuePosition": 7,
-    "slotsInUse": 5,
+    "on": "network",
+    "slotLimit": 7,
     "state": "waiting"
   },
   "threadId": "example",
-  "title": "example"
+  "title": "example",
+  "waitingFor": "storage"
 }
 ```
 
@@ -19784,12 +19747,12 @@ Example:
 
 [JSON Schema](schema/MaintenanceHold.json), input validation.
 
-Type: ["user","update","kill","stop"]. See JSON Schema for constraints.
+Type: ["user","update","kill","stop","storage"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"update"
+"kill"
 ```
 
 ## MaintenanceStatus
@@ -19801,7 +19764,7 @@ Example:
 | draining | yes | boolean |  |
 | blockers | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | waiting | no | integer | {"minimum":0,"maximum":9007199254740991} |
-| holds | no | array | {"maxItems":4,"items":{"type":"string","enum":["user","update","kill","stop"]}} |
+| holds | no | array | {"maxItems":5,"items":{"type":"string","enum":["user","update","kill","stop","storage"]}} |
 
 Example:
 
@@ -25779,6 +25742,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 | elapsedSeconds | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | needs | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | ask | no | string | {"maxLength":100} |
@@ -25792,11 +25756,10 @@ Example:
 
 ```json
 {
-  "ask": "example",
-  "elapsedSeconds": 9,
+  "elapsedSeconds": 7,
   "id": "example",
   "last": "example",
-  "notice": "example",
+  "needs": 1,
   "parent": "example",
   "result": "example",
   "role": "example",
@@ -31314,6 +31277,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 
 Example:
 
@@ -31365,6 +31329,7 @@ Example:
 | slotLimit | yes | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 
 Example:
 
@@ -39116,10 +39081,8 @@ Example:
   "interactions": {},
   "itemOrder": [],
   "items": {},
+  "itemsBefore": null,
   "kind": "thread",
-  "partial": {
-    "previews": []
-  },
   "runs": {},
   "seq": 1,
   "thread": {
@@ -43856,6 +43819,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 
 Example:
 
@@ -46900,6 +46864,7 @@ Example:
 | slotLimit | no | integer | {"minimum":1,"maximum":64} |
 | slotsInUse | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | queuePosition | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| waitingFor | no | ["storage"] |  |
 | result | no | string | {"maxLength":4096} |
 | truncated | no | boolean |  |
 | last | no | string | {"maxLength":160} |
@@ -46911,14 +46876,15 @@ Example:
 
 ```json
 {
-  "contact": "lost",
   "elapsedSeconds": 9,
-  "last": "example",
+  "machine": "example",
+  "needs": [],
   "slotLimit": 5,
   "state": "done",
   "step": "example",
   "threadId": "example",
-  "title": "example"
+  "title": "example",
+  "truncated": false
 }
 ```
 

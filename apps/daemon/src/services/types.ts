@@ -194,5 +194,11 @@ export interface ServiceContext {
    * from the start; the server shares the same gate.
    */
   maintenance?: MaintenanceGate;
+  /** Hears failures that may be a full disk, which holds new work until space is back. */
+  diskFull?: {
+    observe(error: unknown): boolean;
+    /** Runs `listener` each time space comes back; returns its removal. */
+    onRoom(listener: () => void): () => void;
+  };
   onListen: ((server: Awaited<ReturnType<typeof startServer>>) => void | Promise<void>)[];
 }

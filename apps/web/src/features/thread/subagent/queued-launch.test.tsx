@@ -4,7 +4,12 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-function queuedWorld(queue?: { slotLimit: number; slotsInUse: number; queuePosition: number }) {
+function queuedWorld(queue?: {
+  slotLimit?: number;
+  slotsInUse?: number;
+  queuePosition?: number;
+  waitingFor?: "storage";
+}) {
   const app = harness({ clock: () => 10 * 60_000 });
   app.daemon.createThread({
     id: "queue-parent",
@@ -37,4 +42,11 @@ test("a queued thread without queue facts keeps the old line", async () => {
   const line = await screen.findByText(/Starts when a running agent finishes/);
   expect(line.textContent).toContain("Queued. Starts when a running agent finishes");
   expect(line.textContent).toContain("or when you send it a message.");
+});
+
+test("a thread queued while the disk is full says only that it waits for disk space", async () => {
+  const app = queuedWorld({ slotLimit: 4, slotsInUse: 4, queuePosition: 2, waitingFor: "storage" });
+  await app.open("/t/queued-child");
+  const line = await screen.findByText(/Waiting for disk space/);
+  expect(line.textContent).toBe("Waiting for disk space.");
 });

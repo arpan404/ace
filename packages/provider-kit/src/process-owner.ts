@@ -125,9 +125,18 @@ export function registerGroup(
   if (ownersSize() === 0) process.on("exit", cleanup);
   owned.set(pid, { stop, destroy: end });
 }
+/**
+ * Ownership ends even when a journal cannot record it. This runs in exit listeners, where a
+ * throw would be uncaught and end the daemon (a full disk did, through the inventory's delete).
+ */
 export function unregisterGroup(pid: number): void {
   owned.delete(pid);
-  for (const journal of journals) journal.remove(pid);
+  for (const journal of journals)
+    try {
+      journal.remove(pid);
+    } catch (error) {
+      process.emitWarning(`Could not record that process ${pid} exited: ${String(error)}`);
+    }
   if (ownersSize() === 0) process.removeListener("exit", cleanup);
 }
 

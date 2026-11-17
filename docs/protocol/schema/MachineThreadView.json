@@ -97,6 +97,12 @@
     },
     "truncated": {
       "type": "boolean"
+    },
+    "waitingFor": {
+      "enum": [
+        "storage"
+      ],
+      "type": "string"
     }
   },
   "required": [
