@@ -38,7 +38,8 @@ import Testing
         // Back-to-back restarts or a limit's wait: from its start to its end, said once.
         let span = EventClock.words(at: at, until: at + 7 * 60_000, locale: english, timeZone: utc)
         #expect(span != single)
-        #expect(span.hasPrefix(single.components(separatedBy: " ").first ?? single))
+        // The start's hour and minute lead; the day period ("AM", after a narrow space) is said once.
+        #expect(span.hasPrefix(String(single.prefix { $0.isNumber || $0 == ":" })))
         #expect(span.contains("–"))
         #expect(EventClock.words(at: 0, locale: english, timeZone: utc) == "")
     }
