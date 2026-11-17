@@ -72,16 +72,21 @@ impl Confine for Security {
         // keeps the review path, unconfined — Spade asks first.
         #[cfg(windows)]
         {
-            use spade_sandbox::policy::real;
-            let real_all = |paths: &[PathBuf]| paths.iter().map(|p| real(p)).collect::<Vec<_>>();
-            let plugin_real = plugin_root.as_ref().map(|p| real(p));
-            if !spade_sandbox::windows::containable(
-                &real_all(&consented_paths),
-                &real_all(&toolchain_dirs),
-                plugin_real.as_deref(),
-                &real(&self.spade_data),
-                &real(&self.home),
-            ) {
+            let workspace = policy.workspace.clone();
+            let scratch = policy.scratch.clone();
+            let plugin_real = plugin_root.as_ref().map(|p| spade_sandbox::policy::real(p));
+            let data = spade_sandbox::policy::real(&self.spade_data);
+            let roots = Self::windows_system_roots();
+            let spec = spade_sandbox::windows::Containability {
+                workspace: &workspace,
+                scratch: &scratch,
+                consented: &consented_paths,
+                toolchains: &toolchain_dirs,
+                plugin_root: plugin_real.as_deref(),
+                spade_data: &data,
+                system_roots: &roots,
+            };
+            if !spade_sandbox::windows::containable(&spec) {
                 return Ok(Confinement::NeedsReview(
                     "it needs folders outside Spade's own".to_owned(),
                 ));
@@ -253,9 +258,20 @@ impl Drop for RunHold {
 
 #[cfg(windows)]
 impl Security {
-    /// Whether this bot's commands can be contained on Windows: it has no consented folders and no
-    /// toolchain under the person's home folder, so Spade changes no ACLs on the person's folders.
-    /// A run that needs them keeps the review path. Plugin folders are checked per run in `confine`.
+    /// The known system roots a toolchain may live in without an ACL change (readable by every app
+    /// package): the Windows directory and the two Program Files folders.
+    fn windows_system_roots() -> Vec<PathBuf> {
+        ["SystemRoot", "ProgramFiles", "ProgramFiles(x86)"]
+            .iter()
+            .filter_map(|name| std::env::var_os(name))
+            .map(|value| spade_sandbox::policy::real(Path::new(&value)))
+            .collect()
+    }
+
+    /// Whether this bot's commands can be contained on Windows: its workspace is inside Spade's data
+    /// directory, it has no consented folders, and every toolchain is inside Spade's data or a known
+    /// system root — all proven by file identity. A run that needs the person's folders keeps the
+    /// review path. Plugin folders and scratch are checked per run in `confine`.
     pub(crate) fn windows_containable(&self, bot: &str) -> bool {
         use spade_sandbox::policy::real;
         let consented: Vec<PathBuf> = self
@@ -273,13 +289,18 @@ impl Security {
             .iter()
             .map(|path| real(Path::new(path)))
             .collect();
-        spade_sandbox::windows::containable(
-            &consented,
-            &toolchains,
-            None,
-            &real(&self.spade_data),
-            &real(&self.home),
-        )
+        let workspace = real(&self.workspaces.join(bot));
+        let data = real(&self.spade_data);
+        let roots = Self::windows_system_roots();
+        spade_sandbox::windows::containable(&spade_sandbox::windows::Containability {
+            workspace: &workspace,
+            scratch: &[],
+            consented: &consented,
+            toolchains: &toolchains,
+            plugin_root: None,
+            spade_data: &data,
+            system_roots: &roots,
+        })
     }
 
     /// Starts the daemon-side egress-bridge acceptor for this run and points the command's proxy

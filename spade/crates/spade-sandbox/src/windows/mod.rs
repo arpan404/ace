@@ -128,33 +128,68 @@ pub fn grants(policy: &Policy, spade_data: &std::path::Path) -> Vec<Grant> {
     grants
 }
 
-/// Whether a run can be **contained** on Windows (ADR 0167 Windows narrowing). Spade only ever
-/// edits ACLs on folders it owns, so a run is containable only when it needs no ACL changes on the
-/// person's folders:
-/// - it has no **consented folders** (a person's project or Documents the person granted — always
-///   the person's, so never containable here, whatever their location);
-/// - every **toolchain** is either under Spade's data directory (a copy Spade controls) or outside
-///   the person's home folder (a system location such as `Program Files` or `Windows`, already
-///   readable by every app package, so no ACL is needed);
-/// - a **plugin folder**, when the run has one, is under Spade's data directory.
-///
-/// A run that fails any of these keeps the review path; a brokered file-access path for the
-/// person's folders is future work.
-pub fn containable(
-    consented: &[std::path::PathBuf],
-    toolchains: &[std::path::PathBuf],
-    plugin_root: Option<&std::path::Path>,
-    spade_data: &std::path::Path,
-    home: &std::path::Path,
-) -> bool {
-    consented.is_empty()
-        && toolchains
-            .iter()
-            .all(|path| under(path, spade_data) || !under(path, home))
-        && plugin_root.is_none_or(|root| under(root, spade_data))
+/// What a run would touch, for deciding whether it can be contained on Windows.
+#[cfg(windows)]
+pub struct Containability<'a> {
+    /// The workspace: must exist and be inside Spade's data directory.
+    pub workspace: &'a std::path::Path,
+    /// Spade's own per-run folders (scratch): each must be inside Spade's data directory.
+    pub scratch: &'a [std::path::PathBuf],
+    /// The person's consented folders: any one makes the run not containable.
+    pub consented: &'a [std::path::PathBuf],
+    /// Toolchains: each must be inside Spade's data directory or a known system root.
+    pub toolchains: &'a [std::path::PathBuf],
+    /// A plugin's folder, when the run has one: must be inside Spade's data directory.
+    pub plugin_root: Option<&'a std::path::Path>,
+    /// Spade's data directory (the only tree Spade owns and may ACL).
+    pub spade_data: &'a std::path::Path,
+    /// Known system roots a toolchain may live in (`%SystemRoot%`, `Program Files`,
+    /// `Program Files (x86)`), already readable by every app package.
+    pub system_roots: &'a [std::path::PathBuf],
 }
 
-/// Whether `path` is `root` or inside it.
+/// Whether a run can be **contained** on Windows (ADR 0167 Windows narrowing; review round 3 item
+/// 5). Spade only ever edits ACLs on folders it owns, so a run is containable only when it needs no
+/// ACL changes on the person's folders. Ancestry is **proven by opening each place relative to a
+/// pinned handle and comparing file identity**, not by string prefix: a toolchain on another drive,
+/// a UNC path, or one reached through a junction does not pass, and a required place that is missing
+/// fails. A run that isn't containable keeps the review path; a brokered file-access path for the
+/// person's folders is future work.
+#[cfg(windows)]
+pub fn containable(spec: &Containability) -> bool {
+    use spade_sandbox_windows::fs::Object;
+    let within = |root: &std::path::Path, path: &std::path::Path| {
+        Object::within(root, path).unwrap_or(false)
+    };
+    // The person's own folders are never containable, wherever they are.
+    if !spec.consented.is_empty() {
+        return false;
+    }
+    // Every Spade-owned grant must be proven inside Spade's data directory.
+    if !within(spec.spade_data, spec.workspace) {
+        return false;
+    }
+    if !spec
+        .scratch
+        .iter()
+        .all(|path| within(spec.spade_data, path))
+    {
+        return false;
+    }
+    if spec
+        .plugin_root
+        .is_some_and(|root| !within(spec.spade_data, root))
+    {
+        return false;
+    }
+    // Each toolchain is inside Spade's data, or inside a known system root.
+    spec.toolchains.iter().all(|toolchain| {
+        within(spec.spade_data, toolchain)
+            || spec.system_roots.iter().any(|root| within(root, toolchain))
+    })
+}
+
+/// Whether `path` is `root` or inside it (used to pick which grants `grants` emits ACLs for).
 fn under(path: &std::path::Path, root: &std::path::Path) -> bool {
     path == root || path.starts_with(root)
 }
@@ -232,50 +267,6 @@ mod tests {
         assert!(grants.iter().all(|g| g.path != home.join(".cargo/bin")));
     }
 
-    #[test]
-    fn a_run_is_containable_only_without_the_persons_folders() {
-        use std::path::PathBuf;
-        let data = PathBuf::from(r"C:\ProgramData\spade");
-        let home = PathBuf::from(r"C:\Users\p");
-
-        // No consented folders, a system toolchain: containable.
-        assert!(containable(
-            &[],
-            &[PathBuf::from(r"C:\Program Files\rust\bin")],
-            None,
-            &data,
-            &home,
-        ));
-        // A consented folder makes it not containable, wherever it is.
-        assert!(!containable(
-            &[PathBuf::from(r"D:\projects\app")],
-            &[],
-            None,
-            &data,
-            &home,
-        ));
-        // A toolchain under the person's home is not containable.
-        assert!(!containable(
-            &[],
-            &[home.join(".cargo/bin")],
-            None,
-            &data,
-            &home,
-        ));
-        // A plugin folder outside Spade's data is not containable; one inside is fine.
-        assert!(!containable(
-            &[],
-            &[],
-            Some(&home.join(".ace/plugins/p")),
-            &data,
-            &home
-        ));
-        assert!(containable(
-            &[],
-            &[],
-            Some(&data.join("plugins/p")),
-            &data,
-            &home
-        ));
-    }
+    // `containable` now proves ancestry by file identity (real handles), so it is exercised on a
+    // real file system in the Windows real-process tests (`windows_sandbox.rs`), not here.
 }

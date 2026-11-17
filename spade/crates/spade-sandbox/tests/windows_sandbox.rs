@@ -726,3 +726,108 @@ fn the_launcher_fails_closed_when_the_in_container_bridge_cannot_bind() {
         "the run must fail closed when the bridge can't bind its loopback port, not run the command"
     );
 }
+
+// ---- Group F: containability proven by file identity, not string prefix (review 3, item 5) ----
+
+#[test]
+fn only_spade_owned_and_system_toolchains_are_containable() {
+    use spade_sandbox::policy::real;
+    use spade_sandbox::windows::{Containability, containable};
+
+    // Spade's own data directory, with a workspace and a scratch folder inside it.
+    let data_dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let spade_data = real(data_dir.path());
+    let workspace = spade_data.join("workspace/bot1");
+    std::fs::create_dir_all(&workspace).unwrap_or_else(|_| std::process::abort());
+    let scratch = spade_data.join("terminal/bot1");
+    std::fs::create_dir_all(&scratch).unwrap_or_else(|_| std::process::abort());
+
+    // A known system root and a toolchain that really lives inside it.
+    let system_root = real(Path::new(
+        &std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned()),
+    ));
+    let system_tool = system_root.join("System32");
+    let system_roots = [system_root.clone()];
+
+    // A folder that is neither under Spade's data nor under any system root.
+    let outside = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let outside_tool = outside.path().join("bin");
+    std::fs::create_dir_all(&outside_tool).unwrap_or_else(|_| std::process::abort());
+
+    let spec = |workspace: &Path,
+                scratch: &[PathBuf],
+                consented: &[PathBuf],
+                toolchains: &[PathBuf]|
+     -> bool {
+        containable(&Containability {
+            workspace,
+            scratch,
+            consented,
+            toolchains,
+            plugin_root: None,
+            spade_data: &spade_data,
+            system_roots: &system_roots,
+        })
+    };
+
+    use std::slice::from_ref;
+    let owned_scratch = from_ref(&scratch);
+    let system = from_ref(&system_tool);
+    let consented_person = outside.path().to_path_buf();
+
+    // Baseline: an owned workspace and scratch, with a toolchain in a known system root.
+    assert!(
+        spec(&workspace, owned_scratch, &[], system),
+        "an owned workspace and a system-root toolchain are containable"
+    );
+
+    // A toolchain on another tree (not under Spade's data, not under a system root) is refused,
+    // even though a string prefix of Spade's data would never have matched it anyway — identity
+    // proves it, so a path on another drive or a UNC path is refused the same way.
+    assert!(
+        !spec(&workspace, owned_scratch, &[], from_ref(&outside_tool)),
+        "a toolchain outside Spade's data and every system root is not containable"
+    );
+
+    // Any consented folder of the person's makes the run not containable.
+    assert!(
+        !spec(
+            &workspace,
+            owned_scratch,
+            from_ref(&consented_person),
+            system
+        ),
+        "a consented person folder is never containable"
+    );
+
+    // A workspace that is not inside Spade's data is refused.
+    assert!(
+        !spec(outside.path(), &[], &[], system),
+        "a workspace outside Spade's data is not containable"
+    );
+
+    // A scratch folder outside Spade's data is refused.
+    assert!(
+        !spec(&workspace, from_ref(&outside_tool), &[], system),
+        "a scratch folder outside Spade's data is not containable"
+    );
+
+    // A required place that is missing fails: identity can't be proven for a path that isn't there.
+    assert!(
+        !spec(&spade_data.join("gone"), &[], &[], system),
+        "a missing workspace is not containable"
+    );
+
+    // A toolchain reached through a junction that lands inside Spade's data is refused: the walk
+    // meets a reparse point and refuses it, so a junction can't smuggle a path past the check.
+    let junc = outside.path().join("jtool");
+    junction(&junc, &workspace);
+    assert!(
+        Object::open(&junc).is_ok(),
+        "the junction resolves for a plain open"
+    );
+    assert!(
+        !spec(&workspace, owned_scratch, &[], from_ref(&junc)),
+        "a toolchain behind a junction into Spade's data is not containable"
+    );
+}

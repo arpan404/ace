@@ -73,6 +73,37 @@ impl Object {
         Ok(object)
     }
 
+    /// Whether `candidate` is `root` or inside it, **proven by file identity, not by string
+    /// prefix**: `root` is opened pinned to get its `(volume, file id)`, and `candidate` is walked
+    /// pinned, checking each component against it. A reparse point in either path, a `candidate`
+    /// that doesn't exist, or a `root` that doesn't exist is an error — so a toolchain on another
+    /// drive, behind a junction, or missing is never mistaken for being inside `root`.
+    pub fn within(root: &Path, candidate: &Path) -> std::io::Result<bool> {
+        let root_id = Self::open_pinned(root)?.info()?.id;
+        let (volume, components) = pinned_parts(candidate)?;
+        let mut object = Self::open_root(&volume, TRAVERSE)?;
+        let info = object.info()?;
+        if info.reparse {
+            return Err(reparse_refused());
+        }
+        if info.id == root_id {
+            return Ok(true);
+        }
+        let last = components.len().saturating_sub(1);
+        for (index, name) in components.iter().enumerate() {
+            let access = if index == last { ACCESS } else { TRAVERSE };
+            object = object.child(name, access)?;
+            let info = object.info()?;
+            if info.reparse {
+                return Err(reparse_refused());
+            }
+            if info.id == root_id {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Opens the object with volume serial and file id `(volume, file_id)`, using `on_drive`
     /// (any path on that volume) to reach the volume. The object is found by its id even if it was
     /// renamed or moved since it was granted, so a revocation reaches the right object. The caller
