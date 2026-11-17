@@ -1,3 +1,5 @@
+import { guardedSetting } from "../answer-gate.ts";
+import { CliFailure } from "./output.ts";
 import { readFile } from "node:fs/promises";
 import type { CliConfigEntry } from "@ace/protocol/cli-outputs";
 import type { SettingsKey } from "@ace/protocol";
@@ -80,6 +82,17 @@ export async function configSet(
     return configGet(args, home, name);
   }
   return withPort(args, home, name, async (port) => {
+    // Written straight to the file, it would skip the daemon's fresh-sign-in rule for it.
+    if (!port.live && guardedSetting(entry.key))
+      throw new CliFailure(
+        "needs-human",
+        `${name} changes only through a running ace, after a fresh sign-in.`,
+        undefined,
+        {
+          code: "reauth",
+          hint: "Change it in the app, or start ace (ace start), sign in again (ace login) and set it within 10 minutes.",
+        },
+      );
     if (value === undefined) await port.unset(entry.key);
     else await port.set(entry.key, value);
     return configEntry(name, entry, await port.get(entry.key), port.live);

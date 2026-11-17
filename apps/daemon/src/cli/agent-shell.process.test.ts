@@ -111,3 +111,21 @@ test("ace help agents says agents never answer requests", async () => {
   expect(output.code).toBe(0);
   expect(output.stdout).toContain("Agents never answer requests");
 });
+
+test("with ace down, Ask me before agents publish isn't changed behind the daemon's back", async () => {
+  const env = await home();
+  const guarded = await run(env, [
+    "config",
+    "set",
+    "market.askBeforeAgentPublish",
+    "off",
+    "--json",
+  ]);
+  expect(guarded.code).toBe(2);
+  expect(CliError.parse(JSON.parse(guarded.stdout)).code).toBe("reauth");
+  const read = await run(env, ["config", "get", "market.askBeforeAgentPublish", "--json"]);
+  expect(read.stdout).not.toContain('"value":true');
+  // Other settings still change offline, as before.
+  const other = await run(env, ["config", "set", "logs.maxBytes", "10MB", "--json"]);
+  expect(other.code, other.stderr).toBe(0);
+});

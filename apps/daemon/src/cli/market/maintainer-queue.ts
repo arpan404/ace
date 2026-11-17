@@ -102,7 +102,12 @@ async function readQueue(io: SignerIo): Promise<Queue> {
 }
 
 async function reviewCommand(args: Args): Promise<void> {
-  validateArgs(args, ["key", "url", "by-ace", "not-reviewed", "show", "approve", "block"], 2, 3);
+  validateArgs(
+    args,
+    ["key", "url", "dev-market", "by-ace", "not-reviewed", "show", "approve", "block"],
+    2,
+    3,
+  );
   const io = signerIo(marketUrl(args));
   if (args.words.length === 2) {
     const queue = await readQueue(io);
@@ -148,7 +153,7 @@ async function reviewCommand(args: Args): Promise<void> {
 async function reportsCommand(args: Args): Promise<void> {
   const io = signerIo(marketUrl(args));
   if (args.words[2] === "resolve") {
-    validateArgs(args, ["url", "state", "note"], 4, 4);
+    validateArgs(args, ["url", "dev-market", "state", "note"], 4, 4);
     const state = MarketReportState.exclude(["open"]).safeParse(option(args, "state"));
     if (!state.success)
       throw new CliFailure("refused", "Pass --state dismissed, kept, withdrawn or blocked");
@@ -164,7 +169,7 @@ async function reportsCommand(args: Args): Promise<void> {
       args.flags.json ? { ok: true } : `Report ${args.words[3]} is ${state.data}.`,
     );
   }
-  validateArgs(args, ["url"], 2, 2);
+  validateArgs(args, ["url", "dev-market"], 2, 2);
   const { reports } = MarketReportsBody.parse(await io.get("/v1/signer/reports"));
   if (args.flags.json) return print(args, reports);
   const lines = reports.map(
@@ -187,7 +192,7 @@ async function collectionCommand(args: Args): Promise<void> {
     }),
   );
   if (action === "list") {
-    validateArgs(args, ["url"], 3, 3);
+    validateArgs(args, ["url", "dev-market"], 3, 3);
     if (args.flags.json) return print(args, current);
     const lines = current.map(
       (collection) =>
@@ -198,7 +203,7 @@ async function collectionCommand(args: Args): Promise<void> {
   let next: MarketCollection[];
   const id = args.words[3] ?? "";
   if (action === "put") {
-    validateArgs(args, ["url", "title", "line"], 5, 28);
+    validateArgs(args, ["url", "dev-market", "title", "line"], 5, 28);
     const collection: MarketCollection = {
       id,
       title: needed(args, "title", "Give the collection a --title"),
@@ -208,7 +213,7 @@ async function collectionCommand(args: Args): Promise<void> {
     const at = current.findIndex((item) => item.id === id);
     next = at === -1 ? [...current, collection] : current.with(at, collection);
   } else if (action === "remove") {
-    validateArgs(args, ["url"], 4, 4);
+    validateArgs(args, ["url", "dev-market"], 4, 4);
     if (!current.some((item) => item.id === id))
       throw new CliFailure("refused", `There's no collection ${id}`);
     next = current.filter((item) => item.id !== id);
@@ -221,7 +226,7 @@ async function collectionCommand(args: Args): Promise<void> {
 }
 
 async function publisherCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url", "key", "suspend", "restore", "withdraw-all"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "key", "suspend", "restore", "withdraw-all"], 3, 3);
   const handle = args.words[2] ?? "";
   const io = signerIo(marketUrl(args));
   const suspend = option(args, "suspend");
@@ -253,7 +258,7 @@ async function publisherCommand(args: Args): Promise<void> {
 }
 
 async function blockCommand(verb: string, args: Args): Promise<void> {
-  validateArgs(args, ["url", "key", "reason"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "key", "reason"], 3, 3);
   const subject = args.words[2] ?? "";
   const reason = needed(args, "reason", "Say why with --reason; publishers and devices show it");
   let change: BlocklistChange;
@@ -276,7 +281,7 @@ async function blockCommand(verb: string, args: Args): Promise<void> {
 }
 
 async function appealsCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url"], 2, 2);
+  validateArgs(args, ["url", "dev-market"], 2, 2);
   const { appeals } = await readQueue(signerIo(marketUrl(args)));
   if (args.flags.json) return print(args, appeals);
   const lines = queueSentences({ held: [], listings: [], verifications: [], appeals });
@@ -284,7 +289,7 @@ async function appealsCommand(args: Args): Promise<void> {
 }
 
 async function appealCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url", "answer", "approve", "keep"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "answer", "approve", "keep"], 3, 3);
   const answer = needed(args, "answer", "Answer the publisher with --answer");
   if ((args.flags.approve === true) === (args.flags.keep === true))
     throw new CliFailure("refused", "Pass one of --approve or --keep");
@@ -304,7 +309,7 @@ async function appealCommand(args: Args): Promise<void> {
 }
 
 async function verifyCommand(verb: string, args: Args): Promise<void> {
-  validateArgs(args, ["url", "key", "reason"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "key", "reason"], 3, 3);
   const handle = args.words[2] ?? "";
   const reason = needed(args, "reason", "Say why with --reason");
   const key = await readKey(option(args, "key"));
@@ -327,7 +332,7 @@ const newPublisherId = () =>
   `pub_${[...crypto.getRandomValues(new Uint8Array(12))].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 
 async function officialCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url", "key"], 4, 4);
+  validateArgs(args, ["url", "dev-market", "key"], 4, 4);
   const action = args.words[2];
   if (action !== "add" && action !== "remove")
     throw new CliFailure("refused", "Use ace market official add|remove ACCOUNT");

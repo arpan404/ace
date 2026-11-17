@@ -56,7 +56,7 @@ export async function maintainerCommand(args: Args): Promise<void> {
       return print(args, { file: path, publicKey: marketPublicKey(key) });
     }
     case "sign": {
-      validateArgs(args, ["key", "url"], 2, 2);
+      validateArgs(args, ["key", "url", "dev-market"], 2, 2);
       const key = await readKey(option(args, "key"));
       const report = await signPending(signerIo(marketUrl(args)), key, now, trustedWith(key));
       await print(args, report);
@@ -65,7 +65,7 @@ export async function maintainerCommand(args: Args): Promise<void> {
       return;
     }
     case "feature": {
-      validateArgs(args, ["url"], 2, 26);
+      validateArgs(args, ["url", "dev-market"], 2, 26);
       const entries = args.words.slice(2).map((word) => {
         const [type = "", name = ""] = word.split("/");
         return { type: MarketEntryType.parse(type), name: MarketEntryName.parse(name) };
@@ -76,7 +76,7 @@ export async function maintainerCommand(args: Args): Promise<void> {
       return print(args, { ok: true, featured: entries.length });
     }
     case "revoke": {
-      validateArgs(args, ["key", "url", "reason"], 3, 3);
+      validateArgs(args, ["key", "url", "dev-market", "reason"], 3, 3);
       const hash = args.words[2] ?? "";
       const reason = option(args, "reason");
       if (!/^[a-f0-9]{64}$/.test(hash))

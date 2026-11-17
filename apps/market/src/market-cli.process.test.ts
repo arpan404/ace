@@ -39,7 +39,7 @@ afterAll(async () => {
 
 /** `ace market …`; resolves with its output, rejects with it when the command fails. */
 async function ace(...words: string[]): Promise<string> {
-  const { stdout } = await run("bun", [cli, "market", ...words, "--url", market.url.origin], {
+  const { stdout } = await run("bun", [cli, "market", ...words, "--dev-market", market.url.origin], {
     env: {
       PATH: process.env["PATH"] ?? "",
       HOME: home,

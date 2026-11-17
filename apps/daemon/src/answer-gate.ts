@@ -55,6 +55,11 @@ export async function hostAnswerRefusal(
 /** Settings an agent could use to loosen what the person is asked. */
 const guardedSettings: ReadonlySet<string> = new Set(["market.askBeforeAgentPublish"]);
 
+/** Whether changing `key` needs the app, a paired device or a fresh ace sign-in. */
+export function guardedSetting(key: string): boolean {
+  return guardedSettings.has(key);
+}
+
 /**
  * Why a settings write is refused, or undefined when it may run. An agent's device never
  * changes the person's settings; "Ask me before agents publish" over the host token needs a

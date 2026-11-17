@@ -1678,7 +1678,9 @@ request too.
 Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.
 
 ace market maintainer COMMAND talks to market.acehq.dev directly, never through the daemon
-or an ace account. --json and --jq work as everywhere.
+or an ace account, and sends the signer token there only. A development market must be
+named with --dev-market URL (https, or http on this machine). --json and --jq work as
+everywhere.
 
   keygen KEY_FILE [--id ID]            a signing key; prints its public half
   sign --key KEY_FILE                  re-scan, then sign, hold or block what waits

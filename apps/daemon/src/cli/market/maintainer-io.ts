@@ -11,7 +11,7 @@ import {
 } from "@ace/marketplace";
 import type { SignerIo } from "@ace/marketplace/signer";
 import { option, type Args } from "../args.ts";
-import { CliFailure } from "../output.ts";
+import { CliFailure, usageFailure } from "../output.ts";
 
 /* What every maintainer tool shares: the signing key, the market's address and the signer's io. */
 
@@ -34,11 +34,39 @@ export async function readKey(path: string | undefined): Promise<MarketSigningKe
   return marketSigningKey(file.id, decodeBase64url(file.privateKey));
 }
 
+/**
+ * Where the maintainer tools send ACE_MARKET_SIGNER_TOKEN: market.acehq.dev, or a development
+ * market named on purpose with `--dev-market`. The old `--url` may only name market.acehq.dev,
+ * so a mistyped or planted origin never receives the token.
+ */
 export function marketUrl(args: Args): URL {
-  const url = new URL(option(args, "url") ?? marketOrigin);
-  if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost")
-    throw new CliFailure("refused", "The market is reached over https only");
+  const dev = option(args, "dev-market");
+  if (dev !== undefined) {
+    const url = parsed(dev, "--dev-market");
+    const loopback =
+      url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+      throw usageFailure("--dev-market takes an https origin, or http on this machine.", {
+        argument: "--dev-market",
+      });
+    return url;
+  }
+  const named = option(args, "url");
+  const url = new URL(marketOrigin);
+  if (named !== undefined && parsed(named, "--url").origin !== url.origin)
+    throw usageFailure(`The signer token goes only to ${url.host}, not ${named}.`, {
+      argument: "--url",
+      hint: "For a development market, name it with --dev-market URL.",
+    });
   return url;
+}
+
+function parsed(value: string, flag: string): URL {
+  try {
+    return new URL(value);
+  } catch {
+    throw usageFailure(`${flag} takes a URL, like https://market.example.`, { argument: flag });
+  }
 }
 
 async function answered(response: Response): Promise<Response> {

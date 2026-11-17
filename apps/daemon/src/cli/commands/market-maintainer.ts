@@ -7,7 +7,11 @@ import type { ArgSpec, CommandSpec, FlagSpec } from "./spec.ts";
  * the window: the publisher's `market appeal` sends it on (`run/market.ts`).
  */
 
-const url: FlagSpec = { name: "url", value: "URL", summary: "Another market origin" };
+const url: FlagSpec = {
+  name: "dev-market",
+  value: "URL",
+  summary: "A development market instead of market.acehq.dev; the signer token goes there",
+};
 const key: FlagSpec = { name: "key", value: "KEY_FILE", summary: "The signing key file" };
 const reason: FlagSpec = { name: "reason", value: "TEXT", summary: "Why; publishers see it" };
 
@@ -27,7 +31,10 @@ function maintainer(
     hidden: true,
     offline: true,
     args,
-    flags,
+    // The old `--url`, kept so it can say where the signer token goes now.
+    flags: flags.includes(url)
+      ? [...flags, { name: "url", value: "URL", summary: "market.acehq.dev only", hidden: true }]
+      : flags,
     aliases: verb === "appeal" ? [] : [{ words: ["market", verb], deprecatedSince: since }],
   };
 }
