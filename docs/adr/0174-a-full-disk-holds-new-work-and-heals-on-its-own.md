@@ -33,6 +33,9 @@ A full disk is a daemon-wide condition, `storage`, that ace enters and leaves by
   hold is released, deferred work starts as on any reopen, and anything put off (process
   inventory deletes) is retried. The gap between 256 and 512 MiB keeps one freed file from
   flapping admission.
+- **A full disk is a retry, not a failure.** `isStoreRetry` counts it, as it counts contention:
+  a thread actor applying provider frames waits and tries again instead of stopping the session,
+  and so do the other writers that already retried on a busy store.
 - **Best-effort bookkeeping keeps its intent.** A process inventory delete that fails is kept in
   memory and retried. If the daemon dies first, recovery at the next start finds the process
   gone and removes the row, as it does today.

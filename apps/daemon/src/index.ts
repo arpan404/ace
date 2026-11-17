@@ -185,7 +185,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     installRejectionGuard(
       process,
       log,
-      (reason) => isStoreRetry(reason) || storage.observe(reason),
+      (reason) => storage.observe(reason) || isStoreRetry(reason),
     ),
   );
   let stopping: Stopping | undefined;

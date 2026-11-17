@@ -1,3 +1,5 @@
+import { isDiskFull } from "./sqlite-failure.ts";
+
 /** SQLite contention is transient; an admission retry must precede stateful translation. */
 export function isStoreBusy(error: unknown): boolean {
   return (
@@ -18,7 +20,10 @@ export class LiveWriteRetry extends Error {
   }
 }
 
-/** Whether a write failed only for now and the same operation may be retried later. */
+/**
+ * Whether a write failed only for now and the same operation may be retried later. A full disk
+ * counts (ADR 0174): SQLite has rolled the write back, and it succeeds once space is freed.
+ */
 export function isStoreRetry(error: unknown): boolean {
-  return isStoreBusy(error) || error instanceof LiveWriteRetry;
+  return isStoreBusy(error) || error instanceof LiveWriteRetry || isDiskFull(error);
 }
