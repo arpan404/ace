@@ -8,7 +8,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ThreadId } from "@ace/protocol";
 import { spawnNativePty } from "@ace/terminal";
+import { z } from "zod";
 import { expect, test } from "vitest";
 import { daemonFixture } from "../../agent-control/daemon-test-support.ts";
 
@@ -83,7 +85,27 @@ test("the home in a terminal opens, attaches, answers an approval and gives the 
   const home = join(f.h.home, "daemon");
   const empty = mkdtempSync(join(tmpdir(), "ace-home-pty-"));
   try {
-    await f.h.emit(f.caller.threadId, {
+    // The approval sits on a scripted Claude child, whose script takes a resolution as a real
+    // provider does; the daemon then closes the request itself.
+    const spawned = await invoke(home, empty, [
+      "task",
+      "spawn",
+      "Synthetic approval",
+      "--parent",
+      f.caller.threadId,
+      "--provider",
+      "claude",
+      "--role",
+      "Synthetic approval",
+      "--json",
+    ]);
+    expect(spawned.code, spawned.stderr).toBe(0);
+    const child = ThreadId.parse(
+      z.object({ data: z.object({ threadId: z.string() }) }).parse(JSON.parse(spawned.stdout)).data
+        .threadId,
+    );
+    await f.daemon.engine?.flush();
+    await f.h.emit(child, {
       type: "interaction.opened",
       agent: "root",
       interaction: "permission",
@@ -99,26 +121,30 @@ test("the home in a terminal opens, attaches, answers an approval and gives the 
     });
     await f.daemon.engine?.flush();
     const terminal = openPty(home, empty);
-    // The home: the thread that needs the person leads the list, with its mark.
+    // The home: the thread that needs the person carries the mark, with the keys under it.
     await terminal.waitFor("◆");
     await terminal.waitFor("q quit");
-    // Enter attaches to it; the request strip offers its answers as keys.
-    terminal.pty.write("\r");
+    // r walks the open requests; the strip offers the answers as keys.
+    terminal.pty.write("r");
     await terminal.waitFor("y Allow once");
     terminal.pty.write("y");
+    // The decision is claimed only once the request closed in the daemon.
     await terminal.waitFor("Allow once: Synthetic permission");
-    // The answer travels through the client's outbox; read until the daemon has it.
-    await expect
-      .poll(
-        async () => {
-          await f.daemon.engine?.flush();
-          const read = await invoke(home, empty, ["thread", "show", f.caller.threadId, "--json"]);
-          const interactions: unknown = JSON.parse(read.stdout).interactions;
-          return interactions;
-        },
-        { timeout: 10_000, interval: 250 },
-      )
-      .toEqual(expect.arrayContaining([expect.objectContaining({ state: "resolved" })]));
+    const read = await invoke(home, empty, ["thread", "show", child, "--json"]);
+    expect(read.code, read.stderr).toBe(0);
+    expect(JSON.parse(read.stdout).interactions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          state: "resolved",
+          resolution: { kind: "approval", optionId: "yes" },
+        }),
+      ]),
+    );
+    // Back home, Enter attaches to the selected thread: its composer and keys draw.
+    terminal.pty.write("\x1b");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    terminal.pty.write("\r");
+    await terminal.waitFor("esc home · /steer");
     // A signal from outside: the terminal comes back (paste mode off, cursor shown) with one
     // line saying where the person was, and the exit code says it was interrupted.
     process.kill(terminal.pty.pid, "SIGINT");
@@ -126,8 +152,7 @@ test("the home in a terminal opens, attaches, answers an approval and gives the 
     const output = terminal.output();
     expect(output.lastIndexOf("\x1b[?2004l")).toBeGreaterThan(output.lastIndexOf("\x1b[?2004h"));
     expect(output.lastIndexOf("\x1b[?25h")).toBeGreaterThan(output.lastIndexOf("\x1b[?25l"));
-    expect(output).toContain(`Detached from`);
-    expect(output).toContain(`ace chat ${f.caller.threadId}`);
+    expect(output).toMatch(/Detached from .+\. Back with ace chat \S+\./);
   } finally {
     await f.daemon.close();
     rmSync(empty, { recursive: true, force: true });

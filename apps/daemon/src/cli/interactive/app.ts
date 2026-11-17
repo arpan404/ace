@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ClientError, type Client } from "@ace/client";
+import { ClientError, type Client, type ThreadSubscription } from "@ace/client";
 import { ThreadId, type CommandPayload, type ProviderKind } from "@ace/protocol";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import type { Args } from "../args.ts";
@@ -10,6 +10,7 @@ import type { Key } from "../tui/keys.ts";
 import { paint } from "../tui/paint.ts";
 import { openTerminal, type Terminal } from "../tui/terminal.ts";
 import { editText, placeWords, runInPlace } from "./actions.ts";
+import { answerOutcome } from "./answer-outcome.ts";
 import { attachKey, attachStart, type AttachState } from "./attach-model.ts";
 import { attachView } from "./attach-view.ts";
 import type { Effect } from "./effects.ts";
@@ -106,8 +107,40 @@ export async function runApp(start: AppStart): Promise<void> {
   };
   const flash = (text: string) => {
     if (screen === "attach") attach = { ...attach, notice: text };
+    else if (screen === "requests") requests = { ...requests, notice: text };
     else home = { ...home, notice: text };
     schedule();
+  };
+  // Answers the daemon admitted, followed until their request closes (`answerOutcome`).
+  const answers: {
+    id: string;
+    lease: ThreadSubscription;
+    stop: () => void;
+    sentAt: number;
+    done: string;
+  }[] = [];
+  /** A request whose answer didn't land shows again in the requests walk. */
+  const unhide = (id: string) => {
+    requests = { ...requests, answered: requests.answered.filter((answered) => answered !== id) };
+  };
+  const checkAnswers = () => {
+    // Backwards, since a settled answer leaves the list.
+    for (let index = answers.length - 1; index >= 0; index--) {
+      const answer = answers[index];
+      if (!answer) continue;
+      const outcome = answerOutcome({
+        state: answer.lease.store.interaction(answer.id)?.state,
+        sentAt: answer.sentAt,
+        now: Date.now(),
+        done: answer.done,
+      });
+      if (outcome.kind === "waiting") continue;
+      answers.splice(index, 1);
+      answer.stop();
+      answer.lease.release();
+      if (outcome.kind === "failed") unhide(answer.id);
+      flash(outcome.text);
+    }
   };
 
   // Redraws coalesce: a burst of store changes is one frame.
@@ -179,6 +212,7 @@ export async function runApp(start: AppStart): Promise<void> {
   }
 
   function render(): void {
+    checkAnswers();
     if (screen === "offline") {
       terminal.draw({
         lines: [
@@ -256,15 +290,41 @@ export async function runApp(start: AppStart): Promise<void> {
     schedule();
   }
 
+  /** The thread an open request belongs to, from the stores the views follow. */
+  function requestThread(id: string): string | undefined {
+    const listed = live?.requests().find((open) => open.interaction.id === id);
+    if (listed) return listed.interaction.threadId;
+    const reader = live?.followed("attach")?.store;
+    const own = reader?.interaction(id);
+    return own?.threadId;
+  }
+
   async function submit(payload: CommandPayload, doneText: string): Promise<void> {
     if (!session) return;
     const { command } = await import("../mutations.ts");
+    const answering = payload.type === "interaction.resolve" ? payload.interactionId : undefined;
+    const thread = answering ? requestThread(answering) : undefined;
+    if (answering) flash("Sending your answer…");
     try {
       await command(session.client, payload, randomUUID(), session.signal);
-      if (doneText) flash(doneText);
     } catch (error) {
+      if (answering) unhide(answering);
       flash(error instanceof Error ? error.message : "That didn't go through.");
+      return;
     }
+    // Admitted isn't answered: the words wait for the request to close.
+    if (answering && thread) {
+      const lease = session.client.thread(thread);
+      answers.push({
+        id: answering,
+        lease,
+        stop: lease.store.observe(schedule),
+        sentAt: Date.now(),
+        done: doneText,
+      });
+      return schedule();
+    }
+    if (doneText) flash(doneText);
   }
 
   async function send(text: string, delivery: "queue" | "steer"): Promise<void> {
@@ -510,6 +570,10 @@ export async function runApp(start: AppStart): Promise<void> {
     stopKeys();
     stopResize();
     stopSignal();
+    for (const answer of answers) {
+      answer.stop();
+      answer.lease.release();
+    }
     live?.close();
     terminal.close(message || undefined);
     await session?.close().catch(() => {});
