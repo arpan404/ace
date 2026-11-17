@@ -71,24 +71,46 @@ On a remote, --project takes a project id from ace project list; paths are refus
   {
     name: "publishing",
     summary: "Publishing Suits, skills and bots to the market",
-    text: `  ace market check ./my-suit --type suit     the market's checks, locally
-  ace market publish suit ./my-suit --draft  upload a draft and read its scan
-  ace market draft publish DRAFT             publish it
-  ace market status                          your entries and where each version is
+    text: `  ace market check ./my-suit --type suit                 the market's checks, here
+  ace market publish suit ./my-suit --version 1.2.0 --draft
+                                                         a draft and its scan
+  ace market draft publish DRAFT                         publish it
+  ace market status                                      your entries and their versions
+  ace market describe suit/my-suit --title "My Suit"     the listing's words
 
 Publishing needs this machine signed in to your ace account (ace login). Withdrawing,
-transferring and handle changes ask you to sign in again first.`,
+transferring, handle changes, editing a verified profile and verification ask you to sign
+in again first (exit 2, code reauth, without a terminal).
+
+From an agent (ACE_THREAD_ID set, or ace's market_publish tool), publishing follows your
+provider's permissions. Withdraw, transfer, handle changes, deleting an entry, verified
+profile edits, verification and installing are yours: ace asks you in the agent's thread
+and the command exits 2 with code person_only and the request's id; --yes doesn't change
+that. Settings › Beta › Ask me before agents publish makes every agent publish such a
+request too.`,
   },
   {
     name: "market-maintainer",
     summary: "The market's maintainer tools",
-    text: `Maintainer tools: ace market maintainer COMMAND. They need ACE_MARKET_SIGNER_TOKEN and a
-signing key, and talk to market.acehq.dev directly, never through the daemon.
+    text: `Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.
 
-  keygen sign review feature revoke reports collection publisher block block-file
-  block-pattern appeals appeal verify unverify official
+ace market maintainer COMMAND talks to market.acehq.dev directly, never through the daemon
+or an ace account. --json and --jq work as everywhere.
 
-ace help market maintainer COMMAND for one.`,
+  keygen KEY_FILE [--id ID]            a signing key; prints its public half
+  sign --key KEY_FILE                  re-scan, then sign, hold or block what waits
+  review [TYPE/NAME@VERSION]           the queue, or one version: --show, --approve, --block
+  feature TYPE/NAME…                   the featured list
+  revoke HASH --reason TEXT            withdraw bytes wherever they're listed
+  reports [resolve ID --state STATE]   open reports
+  collection list|put|remove           curated collections
+  publisher HANDLE --suspend|--restore|--withdraw-all
+  block|block-file|block-pattern       the signed blocklist
+  appeals | appeal ID --answer TEXT --approve|--keep
+  verify|unverify HANDLE --reason TEXT
+  official add|remove ACCOUNT
+
+The old ace market VERB spellings still work for now.`,
   },
   {
     name: "scripting",

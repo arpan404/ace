@@ -120,6 +120,11 @@ export interface ToolMetadata {
   title?: string;
   description: string;
   riskClass?: RiskClass;
+  /**
+   * What the tool does, in Spade's words (ADR 0171 decision 3), when ace's risk says too little:
+   * `publish` for a tool that publishes. Sent as `_meta["ace/effect"]`.
+   */
+  effect?: "read" | "publish";
   /** Deletes, overwrites or spends: the only ace tools a provider should gate itself. */
   destructive?: boolean;
   /** Reaches past this machine (the web, a remote service). Defaults to external-effect risk. */
@@ -341,6 +346,7 @@ export class ToolRegistry {
       _meta: {
         "ace/timeoutMs": timeoutMs,
         "ace/riskClass": risk,
+        ...(metadata.effect ? { "ace/effect": metadata.effect } : {}),
         // Antigravity (1.4.2, CLI and ACP server) loads tools carrying its own key in full and
         // reaches the rest through its call_mcp_tool.
         ...(claudeAlwaysLoaded.has(bareToolName(name)) ? { "anthropic/alwaysLoad": true } : {}),

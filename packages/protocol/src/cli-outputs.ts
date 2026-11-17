@@ -32,6 +32,16 @@ import { CliCommandHelp, CliCommandTree, CliVersionOutput } from "./cli-output.t
 import { cliMachineOutputs } from "./cli-outputs-machine.ts";
 import { DaemonHealth } from "./release.ts";
 import { cliAccessOutputs } from "./cli-outputs-access.ts";
+import {
+  MarketDiscover,
+  MarketEntryDetail,
+  MarketEntrySummary,
+  MarketInstalled,
+  MarketPublishAnswer,
+  MarketPublisherPage,
+  MarketReview,
+  MarketSource,
+} from "./marketplace.ts";
 
 /**
  * Each command's `--json` success value, by the `output` key in the CLI's command table
@@ -128,6 +138,31 @@ export const CliStatus = z.union([
   }),
   CliDaemonDown,
 ]);
+/** `ace market search`: one page of entries. */
+export const CliMarketSearch = z.object({
+  entries: z.array(MarketEntrySummary),
+  total: z.number().int().nonnegative(),
+  readAt: z.number().int().nonnegative().optional(),
+});
+/** `ace market show`: an entry's page, or a publisher's. */
+export const CliMarketShow = z.union([
+  z.object({ kind: z.literal("entry"), entry: MarketEntryDetail }),
+  z.object({ kind: z.literal("publisher"), page: MarketPublisherPage }),
+]);
+/** `ace market install`: the review it was installed from, and what landed. */
+export const CliMarketInstall = z.object({
+  review: MarketReview,
+  installed: MarketInstalled.optional(),
+});
+/** `ace market check`: the local checks passed. */
+export const CliMarketCheck = z.object({
+  type: z.string(),
+  name: z.string(),
+  hash: z.string(),
+  files: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+  problems: z.array(z.object({ path: z.string().optional(), message: z.string() }).loose()),
+});
 
 export const cliOutputs = {
   help: z.union([CliCommandTree, CliCommandHelp]),
@@ -150,5 +185,16 @@ export const cliOutputs = {
   receipt: CliReceipt,
   ...cliAccessOutputs,
   ...cliMachineOutputs,
+  "market.discover": MarketDiscover,
+  "market.search": CliMarketSearch,
+  "market.show": CliMarketShow,
+  "market.install": CliMarketInstall,
+  "market.update": z.object({ updated: z.array(CliMarketInstall) }),
+  "market.done": z.object({ ok: z.literal(true), installed: MarketInstalled.optional() }),
+  "market.installed": z.object({ installed: z.array(MarketInstalled) }),
+  "market.sources": z.object({ sources: z.array(MarketSource) }),
+  "market.check": CliMarketCheck,
+  /** Publishing: the market's answer as it is (ADR 0176 §12.5). */
+  "market.publish": MarketPublishAnswer,
 } satisfies Record<string, z.ZodType>;
 export * from "./cli-outputs-machine.ts";

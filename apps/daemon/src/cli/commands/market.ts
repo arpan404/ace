@@ -1,5 +1,7 @@
 import { grammarRelease as since } from "./flags.ts";
-import type { ArgSpec, CommandSpec, FlagSpec, NounSpec } from "./spec.ts";
+import { marketMaintainerCommands } from "./market-maintainer.ts";
+import { marketPublishCommands } from "./market-publish.ts";
+import type { CommandSpec, FlagSpec, NounSpec } from "./spec.ts";
 
 /** The market for people, publishers and maintainers (ADR 0176 §11, §12). */
 export const marketNouns: readonly NounSpec[] = [
@@ -10,146 +12,174 @@ export const marketNouns: readonly NounSpec[] = [
   },
 ];
 
-const url: FlagSpec = { name: "url", value: "URL", summary: "Another market origin" };
-const key: FlagSpec = { name: "key", value: "KEY_FILE", summary: "The signing key file" };
-const reason: FlagSpec = { name: "reason", value: "TEXT", summary: "Why; publishers see it" };
+const ref = { name: "REF", summary: "TYPE/NAME, such as suit/dusk-harbor", required: true };
+const source: FlagSpec = { name: "source", value: "SOURCE", summary: "market or git:ID" };
+const entryType: FlagSpec = {
+  name: "type",
+  value: "TYPE",
+  summary: "suit, spade-skill, spade-plugin or spade-bot",
+};
+const sourceArg = { name: "SOURCE", summary: "The source's id: market or git:ID", required: true };
 
-/** The signer's tools (ADR 0168 §6–7, 0174 §10), hidden and kept apart (decision 7). */
-function maintainer(
-  verb: string,
-  summary: string,
-  flags: readonly FlagSpec[],
-  args: readonly ArgSpec[] = [],
-): CommandSpec {
+function sourceVerb(verb: string, summary: string, arg?: typeof sourceArg): CommandSpec {
   return {
-    id: `market.maintainer.${verb}`,
-    words: ["market", "maintainer", verb],
+    id: `market.source.${verb}`,
+    words: ["market", "source", verb],
     summary,
-    description: "Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.",
     group: "spade-market",
-    hidden: true,
-    offline: true,
-    args,
-    flags,
-    aliases: [{ words: ["market", verb], deprecatedSince: since }],
+    mutates: verb !== "list",
+    nounDefault: verb === "list",
+    output: "market.sources",
+    ...(arg ? { args: [arg] } : {}),
   };
 }
-const rest = (name: string, summary: string) => [{ name, summary, variadic: true }];
+
+const peopleCommands: readonly CommandSpec[] = [
+  {
+    id: "market.discover",
+    words: ["market", "discover"],
+    summary: "What's featured, new and trending, and how to find more",
+    group: "spade-market",
+    nounDefault: true,
+    output: "market.discover",
+    description:
+      "Every market command goes through this machine's daemon, so its sources, signature checks and ace account are used. Maintainer tools: ace help market-maintainer",
+  },
+  {
+    id: "market.search",
+    words: ["market", "search"],
+    summary: "Search the market",
+    group: "spade-market",
+    args: [
+      { name: "QUERY", summary: "Words to look for; everything when omitted", variadic: true },
+    ],
+    flags: [
+      entryType,
+      { name: "category", value: "CATEGORY", summary: "One category, such as dev-tools" },
+      source,
+      { name: "limit", value: "N", summary: "At most N entries (50)" },
+    ],
+    examples: [{ command: "ace market search linear --type spade-plugin", summary: "Plugins" }],
+    output: "market.search",
+  },
+  {
+    id: "market.show",
+    words: ["market", "show"],
+    summary: "An entry: what it is, who publishes it, its versions; or a publisher's page",
+    group: "spade-market",
+    args: [{ name: "REF", summary: "TYPE/NAME or @HANDLE", required: true }],
+    flags: [source],
+    output: "market.show",
+  },
+  {
+    id: "market.install",
+    words: ["market", "install"],
+    summary: "Read an entry's review, then install it",
+    description:
+      "The review prints first: what it is, who published it, what it can run and reach, and what the scan found. Without a terminal, --yes installs with the review's defaults (no routines started). From an agent, installing is the person's: ace asks them in the thread.",
+    group: "spade-market",
+    args: [ref],
+    flags: [{ name: "version", value: "VERSION", summary: "This version, not the newest" }, source],
+    mutates: true,
+    output: "market.install",
+    exits: [
+      { code: 2, when: "it needs your yes, or it's yours to do (from an agent)" },
+      { code: 4, when: "the review is blocked" },
+    ],
+  },
+  {
+    id: "market.update",
+    words: ["market", "update"],
+    summary: "Read what changed, then update installed entries",
+    group: "spade-market",
+    args: [{ name: "REF", summary: "TYPE/NAME; every update with --all", variadic: true }],
+    flags: [{ name: "all", summary: "Every entry with an update" }],
+    mutates: true,
+    output: "market.update",
+    exits: [
+      { code: 2, when: "it needs your yes, or it's yours to do (from an agent)" },
+      { code: 4, when: "a review is blocked" },
+    ],
+  },
+  {
+    id: "market.remove",
+    words: ["market", "remove"],
+    summary: "Remove an installed entry",
+    group: "spade-market",
+    args: [ref],
+    mutates: true,
+    output: "market.done",
+  },
+  {
+    id: "market.restore",
+    words: ["market", "restore"],
+    summary: "Turn a withdrawn or turned-off entry back on, from its pinned files",
+    group: "spade-market",
+    args: [ref],
+    mutates: true,
+    output: "market.done",
+  },
+  {
+    id: "market.installed",
+    words: ["market", "installed"],
+    summary: "What's installed from the market",
+    group: "spade-market",
+    flags: [{ name: "updates", summary: "Only entries with an update" }],
+    output: "market.installed",
+  },
+  sourceVerb("list", "Where entries come from"),
+  {
+    ...sourceVerb("add", "Add a git catalog as a source"),
+    args: [{ name: "ADDRESS", summary: "The catalog's https address", required: true }],
+  },
+  sourceVerb("remove", "Remove a source", sourceArg),
+  sourceVerb("on", "Turn a source on", sourceArg),
+  sourceVerb("off", "Turn a source off", sourceArg),
+  {
+    ...sourceVerb("refresh", "Read sources again now"),
+    args: [{ name: "SOURCE", summary: "One source; every source when omitted" }],
+  },
+  {
+    id: "market.report",
+    words: ["market", "report"],
+    summary: "Report an entry to ace's maintainers",
+    group: "spade-market",
+    args: [{ name: "REF", summary: "TYPE/NAME or TYPE/NAME@VERSION", required: true }],
+    flags: [
+      {
+        name: "reason",
+        value: "REASON",
+        summary: "What's wrong",
+        choices: ["malware", "impersonation", "spam", "copyright", "harmful", "other"],
+      },
+      { name: "note", value: "TEXT", summary: "What you saw" },
+    ],
+    mutates: true,
+    output: "market.done",
+  },
+];
+
+/** Old `ace marketplace check` is `ace market check`. */
+const checkCommand: CommandSpec = {
+  id: "market.check",
+  words: ["market", "check"],
+  summary: "The market's checks on a folder, before publishing",
+  description: "Runs here, with no account and no daemon.",
+  group: "spade-market",
+  offline: true,
+  args: [{ name: "PATH", summary: "The folder; this one when omitted" }],
+  flags: [
+    entryType,
+    { name: "name", value: "NAME", summary: "The entry's name; the folder's otherwise" },
+  ],
+  aliases: [{ words: ["marketplace", "check"], deprecatedSince: since }],
+  output: "market.check",
+  exits: [{ code: 1, when: "a check found a problem" }],
+};
 
 export const marketCommands: readonly CommandSpec[] = [
-  {
-    id: "market.check",
-    words: ["market", "check"],
-    summary: "The market's checks on a folder, before publishing",
-    group: "spade-market",
-    offline: true,
-    args: [{ name: "PATH", summary: "The folder; this one when omitted" }],
-    flags: [
-      { name: "type", value: "TYPE", summary: "suit, spade-skill, spade-plugin or spade-bot" },
-      { name: "name", value: "NAME", summary: "The entry's name, when the folder doesn't say" },
-    ],
-    aliases: [{ words: ["marketplace", "check"], deprecatedSince: since }],
-    exits: [{ code: 1, when: "a check found a problem" }],
-  },
-  maintainer(
-    "keygen",
-    "Make a signing key and print its public half",
-    [{ name: "id", value: "ID", summary: "The key's id" }],
-    [{ name: "KEY_FILE", summary: "Where to write the key", required: true }],
-  ),
-  maintainer("sign", "Re-scan, then sign, hold or block what waits", [key, url]),
-  maintainer(
-    "review",
-    "What waits for a maintainer, or one version's review",
-    [
-      key,
-      url,
-      { name: "by-ace", summary: "Mark it reviewed by ace" },
-      { name: "not-reviewed", summary: "Mark it not reviewed" },
-      { name: "show", summary: "Show the version" },
-      { name: "approve", summary: "Approve the held version" },
-      { name: "block", value: "REASON", summary: "Block the version" },
-    ],
-    [{ name: "REF", summary: "TYPE/NAME@VERSION" }],
-  ),
-  maintainer("feature", "Set the featured list", [url], rest("REF", "TYPE/NAME, in order")),
-  maintainer(
-    "revoke",
-    "Withdraw bytes wherever they're listed",
-    [key, url, reason],
-    [{ name: "HASH", summary: "The bytes' hash", required: true }],
-  ),
-  maintainer(
-    "reports",
-    "Open reports, or resolve one",
-    [
-      url,
-      { name: "state", value: "STATE", summary: "dismissed, kept, withdrawn or blocked" },
-      { name: "note", value: "TEXT", summary: "A note for the reporter" },
-    ],
-    rest("ARGS", "resolve ID"),
-  ),
-  maintainer(
-    "collection",
-    "Curated collections",
-    [
-      url,
-      { name: "title", value: "TEXT", summary: "The collection's title" },
-      { name: "line", value: "TEXT", summary: "Its one line" },
-    ],
-    rest("ARGS", "list | put ID TYPE/NAME… | remove ID"),
-  ),
-  maintainer(
-    "publisher",
-    "Suspend, restore or withdraw a publisher",
-    [
-      url,
-      key,
-      { name: "suspend", value: "REASON", summary: "Suspend the publisher" },
-      { name: "restore", summary: "Restore the publisher" },
-      { name: "withdraw-all", value: "REASON", summary: "Withdraw everything they published" },
-    ],
-    [{ name: "HANDLE", summary: "The publisher's handle", required: true }],
-  ),
-  ...(["block", "block-file", "block-pattern"] as const).map((verb) =>
-    maintainer(
-      verb,
-      verb === "block"
-        ? "Block bytes by hash"
-        : verb === "block-file"
-          ? "Block a file by SHA-256"
-          : "Block a pattern",
-      [url, key, reason],
-      [{ name: "SUBJECT", summary: "The hash or pattern", required: true }],
-    ),
-  ),
-  maintainer("appeals", "Open appeals", [url]),
-  maintainer(
-    "appeal",
-    "Answer an appeal",
-    [
-      url,
-      { name: "answer", value: "TEXT", summary: "Your answer to the publisher" },
-      { name: "approve", summary: "Approve the appeal" },
-      { name: "keep", summary: "Keep the decision" },
-    ],
-    [{ name: "ID", summary: "The appeal id", required: true }],
-  ),
-  ...(["verify", "unverify"] as const).map((verb) =>
-    maintainer(
-      verb,
-      verb === "verify" ? "Verify a publisher" : "Remove a publisher's verification",
-      [url, key, reason],
-      [{ name: "HANDLE", summary: "The publisher's handle", required: true }],
-    ),
-  ),
-  maintainer(
-    "official",
-    "Add or remove an official account",
-    [url, key],
-    [
-      { name: "ACTION", summary: "add or remove", required: true },
-      { name: "ACCOUNT", summary: "The account id", required: true },
-    ],
-  ),
+  ...peopleCommands,
+  checkCommand,
+  ...marketPublishCommands,
+  ...marketMaintainerCommands,
 ];

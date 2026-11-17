@@ -873,12 +873,16 @@ export class Engine {
   }
   /** A host operation failed after its command was accepted: show the error in the thread. */
   hostError(threadId: ThreadId, key: string, text: string): void {
+    this.hostNotice(threadId, key, text, "error");
+  }
+  /** What a host operation the person ran did, as a notice in the thread. */
+  hostNotice(threadId: ThreadId, key: string, text: string, level: "info" | "error"): void {
     this.actor(threadId).apply([
       {
         type: "item.upsert",
         agent: this.repo.requireState(threadId).rootKey ?? "root",
         item: key,
-        draft: { type: "notice", level: "error", text, complete: true },
+        draft: { type: "notice", level, text, complete: true },
       },
     ]);
   }
