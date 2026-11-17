@@ -1,5 +1,8 @@
-import { createContext, use, useState, useSyncExternalStore } from "react";
-import { useLayout } from "@/lib/layout.tsx";
+import { useThreadMeta } from "@ace/client-react";
+import { createContext, use, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { useLayoutServices, type SessionKey } from "@/lib/layout.tsx";
+import { useVisibleParent } from "@/lib/spade-host.ts";
+import { createWorkCardTrees, type WorkCardMemory, type WorkCardTrees } from "./work-card-trees.ts";
 
 /*
  * Whether the thread's Work card is open, and where it fits. The header's details icon and the
@@ -24,6 +27,8 @@ export interface WorkCardStore {
   setOpen(open: boolean): void;
   toggle(): void;
   setSide(side: boolean): void;
+  /** Follow a tree's remembered choice, live, until the returned stop. */
+  follow(memory: WorkCardMemory): () => void;
 }
 
 /** The card's width, from the floating surface both placements share. */
@@ -70,23 +75,17 @@ export function workCardColumnWidth(areaWidth: number, column: number): number {
   return Math.min(column, areaWidth - workCardWidth - workCardGaps);
 }
 
-export interface WorkCardMemory {
-  /** The person left the card open. */
-  open: boolean;
-  /** The person opened or closed the card; kept for the next thread screen. */
-  remember(open: boolean): void;
-}
-
 /**
  * The card a thread screen starts with. Only the person's own open or close is remembered: a
  * card left open docks again whenever the area has room beside the column, on this screen or
- * the next. A docked card squeezed out by a narrow area closes rather than jumping into the
- * header's popover, and comes back when the room does; a remembered card never comes back as
- * the popover, which would cover the transcript on its own.
+ * another of the tree. A docked card squeezed out by a narrow area closes rather than jumping
+ * into the header's popover, and comes back when the room does; a remembered card never comes
+ * back as the popover, which would cover the transcript on its own.
  */
-export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
+export function createWorkCardStore(initial?: WorkCardMemory): WorkCardStore {
   let state: WorkCardState = { open: false, side: false };
-  let wanted = memory?.open ?? false;
+  let memory = initial;
+  let wanted = memory?.open() ?? false;
   const listeners = new Set<() => void>();
   let button: HTMLButtonElement | null = null;
   let area: HTMLElement | null = null;
@@ -99,6 +98,11 @@ export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
     if (open !== wanted) memory?.remember(open);
     wanted = open;
     set({ ...state, open });
+  };
+  // The choice made elsewhere in the tree: shown where the card docks, never as the popover.
+  const sync = (open: boolean) => {
+    wanted = open;
+    if (state.side || !open) set({ ...state, open });
   };
   return {
     button: () => button,
@@ -122,26 +126,58 @@ export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
       const open = side ? state.open || wanted : state.open && !state.side;
       set({ open, side });
     },
+    follow(next) {
+      memory = next;
+      sync(next.open());
+      const stop = next.subscribe?.(() => sync(next.open()));
+      return () => {
+        stop?.();
+        if (memory === next) memory = undefined;
+      };
+    },
   };
 }
 
-const openKey = "ace.thread.workCardOpen";
+const treesKey: SessionKey<WorkCardTrees> = { name: "workCardTrees" };
 
 /**
- * A thread screen's card store that remembers, on this device, whether the card was left open:
- * moving to another thread and back keeps it where the person left it.
+ * A thread screen's card store that follows its tree's choice on this device (`work-card-trees`):
+ * the main thread, its subagents and its delegates open and close the card together, and moving
+ * between them, or to another thread and back, keeps it where the person left it.
  */
-export function useRememberedWorkCardStore(): WorkCardStore {
-  const { storage } = useLayout();
-  const [store] = useState(() =>
-    createWorkCardStore({
-      open: storage?.getItem(openKey) === "1",
-      remember: (open) => {
-        storage?.setItem(openKey, open ? "1" : "0");
-      },
-    }),
-  );
+export function useTreeWorkCardStore(threadId: string): WorkCardStore {
+  const { storage, sessionValue } = useLayoutServices();
+  const trees = sessionValue(treesKey, () => createWorkCardTrees(storage));
+  const tree = useWorkCardTree(threadId);
+  const [store] = useState(() => createWorkCardStore(trees.memory(tree)));
+  useLayoutEffect(() => store.follow(trees.memory(tree)), [store, trees, tree]);
   return store;
+}
+
+interface Hop {
+  /** The parent here, to walk on from. */
+  next: string | undefined;
+  /** The parent here or on a paired machine: the tree's main thread if nothing is above it. */
+  top: string | undefined;
+}
+
+function useHop(threadId: string | undefined): Hop {
+  const meta = useThreadMeta(threadId);
+  const local = useVisibleParent(meta?.delegatedBy);
+  return { next: local, top: local ?? meta?.delegatedFrom?.threadId };
+}
+
+/**
+ * The main thread of `threadId`'s tree: up through the threads that delegated it, three levels
+ * at most (deeper chains share the third ancestor's choice). A parent on a paired machine ends
+ * the walk; its id names the same thread there. Spade's hidden host is no parent, so a thread
+ * Spade delegated is a tree of its own.
+ */
+export function useWorkCardTree(threadId: string): string {
+  const first = useHop(threadId);
+  const second = useHop(first.next);
+  const third = useHop(second.next);
+  return third.top ?? second.top ?? first.top ?? threadId;
 }
 
 export const WorkCardContext = createContext<WorkCardStore | null>(null);

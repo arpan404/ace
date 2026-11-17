@@ -39,7 +39,7 @@ import { SubagentCrumb } from "../header/thread-crumb.tsx";
 import { DeferredWorkPopover, WorkButton } from "../header/work-button.tsx";
 
 import { DeferredStepDetail } from "../items/deferred-step-detail.ts";
-import { useRememberedWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
+import { useTreeWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
 import { WorkSide } from "../header/work-side.tsx";
 import { AskParentRetry } from "./ask-parent-retry.tsx";
 import { SubagentFocusProvider } from "./focus.ts";
@@ -73,7 +73,7 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   // An unnamed subagent goes by its task, as its row in the Summary does.
   const { name } = useAgentIdentity(threadId, agent);
   const root = !parent || parent.origin === "root";
-  const details = useRememberedWorkCardStore();
+  const details = useTreeWorkCardStore(threadId);
   // An opened step's detail and the details icon's popover, so neither waits on first open.
   useEffect(
     () =>
