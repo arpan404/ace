@@ -76,12 +76,14 @@ import XCTest
         askToForget(app, machine)
         screenshot("profile-forget")
         dismissDialog(app)
+        XCTAssertTrue(app.buttons["account.machine.forget.confirm"].waitForNonExistence(timeout: 5), "Cancel closes the question")
         let afterCancelledForget = try await accountRequests(settling: [])
         XCTAssertEqual(afterCancelledForget, [], "cancelling Forget sends nothing")
         XCTAssertTrue(machine.exists, "the machine stays until Forget is confirmed")
 
         askToForget(app, machine)
-        app.buttons["account.machine.forget.confirm"].tap()
+        // iOS 26 lists a popover's button twice, one inside the other, with one frame.
+        app.buttons["account.machine.forget.confirm"].firstMatch.tap()
         let forgot = ["kind": "forget", "hostId": studio]
         let afterForget = try await accountRequests(settling: [forgot])
         XCTAssertEqual(afterForget, [forgot], "Forget sends one request, for studio")
@@ -94,12 +96,13 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Your threads and drafts stay on this device."].waitForExistence(timeout: 5))
         screenshot("profile-sign-out")
         dismissDialog(app)
+        XCTAssertTrue(app.buttons["account.signOut.confirm"].waitForNonExistence(timeout: 5), "Cancel closes the question")
         let afterCancelledSignOut = try await accountRequests(settling: [forgot])
         XCTAssertEqual(afterCancelledSignOut, [forgot], "cancelling Sign out sends nothing")
         XCTAssertTrue(signOut.exists, "still signed in until Sign out is confirmed")
 
         signOut.tap()
-        let confirm = app.buttons["account.signOut.confirm"]
+        let confirm = app.buttons["account.signOut.confirm"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
         let signedOut = [forgot, ["kind": "signOut"]]
