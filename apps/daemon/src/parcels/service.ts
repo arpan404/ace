@@ -87,8 +87,10 @@ export function startParcels(context: ServiceContext): void {
   const relay = new RelayLink({
     connect: options.parcels?.connectRelay ?? connectClientViaRelay,
     // ace's relay admits only devices on the machine's own account (ADR 0111).
-    deviceGrant: async (deviceId, signal) =>
-      services.relayDeviceGrant?.(deviceId, signal).catch(() => undefined),
+    // Only ace's own relay ever gets an account grant: a relay a paired machine names is not
+    // trusted with one (it could replay it), and is reached without a grant.
+    deviceGrant: async (deviceId, url, signal) =>
+      services.relayDeviceGrant?.(deviceId, url, signal).catch(() => undefined),
     schedule,
   });
   resources.own(() => relay.close());
@@ -99,6 +101,7 @@ export function startParcels(context: ServiceContext): void {
     now,
   });
   const room = () => Math.max(0, QUOTA_BYTES - rows.heldBytes());
+  const pollMs = options.parcels?.pollMs ?? options.machines?.pollMs ?? 2000;
   const statement = (sql: string) => store.statement(sql);
   const thread = (id: string): SenderThread | undefined => {
     const parsed = ThreadId.safeParse(id);
@@ -187,8 +190,12 @@ export function startParcels(context: ServiceContext): void {
     deliver,
     arrived,
     room,
+    reopenChild: (id) => {
+      const parsed = ThreadId.safeParse(id);
+      if (parsed.success) services.machines?.children.reopen(parsed.data);
+    },
     now,
-    sleep,
+    schedule,
     log: record("info"),
   });
   resources.own(() => sender.close());
@@ -216,6 +223,7 @@ export function startParcels(context: ServiceContext): void {
     arrived,
     room,
     now,
+    pollMs,
     log: record("warn"),
   });
   const target = parcelTarget({
@@ -247,7 +255,11 @@ export function startParcels(context: ServiceContext): void {
     const at = now();
     for (const row of rows.staleOutbox(at - PARCEL_DEADLINE_MS))
       sender.settle(row.parcelId, "failed", "Its parent didn't collect it within a day.");
-    for (const row of rows.expiredIn(at - KEEP_MS)) {
+    // Arrivals their sender abandoned free their space after a day; delivered ones after a week.
+    for (const row of [
+      ...rows.staleReceiving(at - PARCEL_DEADLINE_MS),
+      ...rows.expiredIn(at - KEEP_MS),
+    ]) {
       await files.removeIn(row.parcelId);
       rows.updateIn(row.parcelId, { state: "cancelled", held: 0 }, at);
     }
@@ -255,31 +267,29 @@ export function startParcels(context: ServiceContext): void {
     for (const row of rows.unnotifiedIn()) arrived(row);
     sender.kick();
   };
-  const pollMs = options.parcels?.pollMs ?? options.machines?.pollMs ?? 2000;
   const stopping = new AbortController();
   resources.own(() => stopping.abort());
-  let lastSweep = 0;
-  const loop = async () => {
-    while (!stopping.signal.aborted) {
-      await sleep(pollMs, stopping.signal);
-      if (stopping.signal.aborted) return;
-      await puller.round(stopping.signal).catch(() => {});
-      if (now() - lastSweep >= Math.min(SWEEP_MS, pollMs * 30)) {
-        lastSweep = now();
-        await sweep().catch((error: unknown) =>
-          record("warn")("Parcel sweep failed", { error: String(error) }),
-        );
+  // Collecting and sweeping run on their own: a long pull never holds up expiry or retries.
+  const every = (ms: number, work: () => Promise<void>, failed: string) => {
+    void (async () => {
+      while (!stopping.signal.aborted) {
+        await sleep(ms, stopping.signal);
+        if (stopping.signal.aborted) return;
+        await work().catch((error: unknown) => record("warn")(failed, { error: String(error) }));
       }
-    }
+    })();
   };
   void services.engine
     ?.ready()
-    .then(() => {
-      lastSweep = now();
-      return sweep();
+    .then(async () => {
+      await sender.recoverLocal();
+      await sweep();
     })
     .catch((error: unknown) => record("warn")("Parcels not recovered", { error: String(error) }))
-    .finally(() => void loop());
+    .finally(() => {
+      every(pollMs, () => puller.round(stopping.signal), "Parcels not collected");
+      every(Math.min(SWEEP_MS, pollMs * 30), sweep, "Parcel sweep failed");
+    });
 
   const described = (profile: RemoteProfile, description: MachineDescription) => {
     const paths = (description.paths ?? []).flatMap((entry) => {

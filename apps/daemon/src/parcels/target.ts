@@ -139,6 +139,9 @@ export function parcelTarget(deps: ParcelTargetDeps) {
         throw new TargetRefusal("invalid", "That chunk runs past the parcel's size.");
       return { state: row.state, offset: held };
     }
+    // Space is counted by bytes held, so it is checked as they come.
+    if (bytes.length > deps.room())
+      throw new TargetRefusal("unavailable", "This machine has no room for that parcel now.");
     await deps.files.append(row.parcelId, call.offset, bytes);
     deps.rows.updateIn(row.parcelId, { held: held + bytes.length }, deps.now());
     return { state: "receiving", offset: held + bytes.length };

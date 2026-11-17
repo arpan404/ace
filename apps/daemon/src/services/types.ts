@@ -87,7 +87,7 @@ export interface Services {
    * the server; undefined while it isn't signed in (ADR 0182).
    */
   relayDeviceGrant?:
-    | ((deviceId: string, signal: AbortSignal) => Promise<string | undefined>)
+    | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
     | undefined;
   /** Projects and threads other machines send here (ADR 0101). */
   transferTarget?: import("../transfers/http.ts").TransferTarget;

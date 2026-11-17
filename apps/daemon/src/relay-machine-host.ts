@@ -49,9 +49,9 @@ export async function serveRelayMachineCalls(
           .catch(() => {});
         return;
       }
+      // A finishing call hands its slot straight to this one.
       await new Promise<void>((resolve) => waiting.push(resolve));
-    }
-    running++;
+    } else running++;
     try {
       const device = options.device();
       const target = options.target();
@@ -76,8 +76,9 @@ export async function serveRelayMachineCalls(
         .send({ type: "machine.answer", id: call.id, status: 500, body: { error: "unavailable" } })
         .catch(() => {});
     } finally {
-      running--;
-      waiting.shift()?.();
+      const next = waiting.shift();
+      if (next) next();
+      else running--;
     }
   };
   for await (const frame of channel.frames()) {

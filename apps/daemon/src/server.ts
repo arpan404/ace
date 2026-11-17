@@ -194,8 +194,10 @@ export async function startServer(options: ServerOptions): Promise<{
   };
   // Paired machines learn where else this one answers from `describe` (ADR 0182).
   options.servedPaths = () => pairedMachinePaths(access.remoteStatus(), access.pairing());
-  options.relayDeviceGrant = async (deviceId, signal) => {
+  options.relayDeviceGrant = async (deviceId, url, signal) => {
     const account = options.machineAccount;
+    // A grant goes only to ace's own relay: any other address a machine names could replay it.
+    if (!isHostedRelay(url, options.remoteConfig?.hostedRelayUrl)) return undefined;
     if (!account?.status().signedIn) return undefined;
     return account.deviceGrant(deviceId, signal);
   };

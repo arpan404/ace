@@ -148,7 +148,9 @@ export function projectRelative(saveAs: string): string | undefined {
   const clean = normalize(saveAs);
   if (clean === "." || clean.startsWith("..")) return undefined;
   const parts = clean.split(sep);
-  if (parts.some((part) => part === ".." || part === ".git" || part === "")) return undefined;
+  // `.git` in any case: macOS and Windows disks usually don't tell `.GIT` from `.git`.
+  if (parts.some((part) => part === ".." || part.toLowerCase() === ".git" || part === ""))
+    return undefined;
   return clean;
 }
 

@@ -29,12 +29,20 @@ export interface ParcelPullerDeps {
   arrived(row: InRow): void;
   room(): number;
   now(): number;
+  /** How often a round runs, so a rest is counted in rounds. */
+  pollMs: number;
   log(message: string, fields: Record<string, unknown>): void;
 }
 
 const CALL_MS = 30_000;
 /** Asking for waiting parcels is short: an unreachable machine mustn't hold up the round. */
 const OUTBOX_MS = 5_000;
+const MAX_RESTARTS = 3;
+/**
+ * An unreachable machine is asked again after at most this long: a parent's data mustn't wait
+ * long once the machine is back, and an unanswered ask is cut off at OUTBOX_MS anyway.
+ */
+const MAX_REST_MS = 10_000;
 
 /**
  * Parcels children on other machines sent back to their parents here (ADR 0182). The machine
@@ -47,7 +55,10 @@ export class ParcelPuller {
   private deps: ParcelPullerDeps;
   private busy = false;
   /** Machines that failed lately, and when to ask them again. */
-  private resting = new Map<string, { failures: number; until: number }>();
+  /** Machines that failed lately: how often in a row, and rounds left before asking again. */
+  private resting = new Map<string, { failures: number; rounds: number }>();
+  /** Parcels whose bytes failed their digest, and how often. */
+  private restarts = new Map<string, number>();
   constructor(deps: ParcelPullerDeps) {
     this.deps = deps;
   }
@@ -76,7 +87,10 @@ export class ParcelPuller {
         const asker = machines.get(profile.name);
         if (!asker || signal.aborted) continue;
         const rest = this.resting.get(profile.name);
-        if (rest && rest.until > this.deps.now()) continue;
+        if (rest && rest.rounds > 0) {
+          rest.rounds--;
+          continue;
+        }
         try {
           await this.machine(profile, asker, signal);
           this.resting.delete(profile.name);
@@ -84,7 +98,7 @@ export class ParcelPuller {
           const failures = (rest?.failures ?? 0) + 1;
           this.resting.set(profile.name, {
             failures,
-            until: this.deps.now() + retryDelay(failures),
+            rounds: Math.ceil(Math.min(MAX_REST_MS, retryDelay(failures)) / this.deps.pollMs),
           });
           if (!(error instanceof MachineFailure) || error.kind === "refused")
             this.deps.log("Parcels couldn't be collected", {
@@ -124,7 +138,21 @@ export class ParcelPuller {
     }
     let row = deps.rows.in(parcel.parcelId);
     if (!row) {
-      if (parcel.size > deps.room()) return;
+      // One that can't fit is refused, so it doesn't sit in that machine's outbox for a day.
+      if (parcel.size > deps.room()) {
+        await this.call(
+          profile,
+          entry.to,
+          {
+            action: "ack",
+            parcelId: parcel.parcelId,
+            outcome: "refused",
+            reason: "Its parent's machine has no room for it.",
+          },
+          signal,
+        ).catch(() => {});
+        return;
+      }
       const now = deps.now();
       deps.rows.insertIn({
         parcelId: parcel.parcelId,
@@ -164,7 +192,25 @@ export class ParcelPuller {
         await deps.files.finish(row.parcelId, parcel.name, parcel.size, parcel.sha256);
       } catch (error) {
         if (error instanceof ParcelFileError && error.code === "corrupt") {
+          // Read again from the start, a few times at most; then it is refused.
+          const restarts = (this.restarts.get(row.parcelId) ?? 0) + 1;
+          this.restarts.set(row.parcelId, restarts);
           deps.rows.updateIn(row.parcelId, { held: 0 }, deps.now());
+          if (restarts > MAX_RESTARTS) {
+            this.restarts.delete(row.parcelId);
+            deps.rows.updateIn(row.parcelId, { state: "cancelled" }, deps.now());
+            await this.call(
+              profile,
+              entry.to,
+              {
+                action: "ack",
+                parcelId: parcel.parcelId,
+                outcome: "refused",
+                reason: "Its bytes kept arriving damaged.",
+              },
+              signal,
+            ).catch(() => {});
+          }
           return;
         }
         throw error;

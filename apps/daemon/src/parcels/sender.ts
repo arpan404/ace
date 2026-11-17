@@ -56,8 +56,14 @@ export interface ParcelSenderDeps {
   arrived(row: InRow): void;
   /** Bytes still free under the parcel quota. */
   room(): number;
+  /**
+   * A child on another machine that is about to get data: open again in the parent's tree, as
+   * a message to it does, since the parcel's notice starts a new turn there.
+   */
+  reopenChild(id: string): void;
   now(): number;
-  sleep(ms: number, signal: AbortSignal): Promise<void>;
+  /** Runs `run` after `ms`; returns its cancel. */
+  schedule(ms: number, run: () => void): () => void;
   log(message: string, fields: Record<string, unknown>): void;
 }
 
@@ -91,6 +97,8 @@ type Plan =
 const CALL_MS = 30_000;
 const PARALLEL = 4;
 const MAX_RESTARTS = 3;
+/** A result tried this many times without reaching its thread ends its hold anyway. */
+const MAX_REPORT_TRIES = 20;
 
 function refuse(code: "invalid_arguments" | "not_found" | "machine_forbidden", detail: string) {
   return new AgentControlError(code, code, undefined, detail);
@@ -104,6 +112,12 @@ function refuse(code: "invalid_arguments" | "not_found" | "machine_forbidden", d
 export class ParcelSender {
   private deps: ParcelSenderDeps;
   private running = new Map<string, AbortController>();
+  /** Parcels being cancelled: no push starts for them meanwhile. */
+  private cancelling = new Set<string>();
+  /** Results that couldn't be handed over yet, by parcel: how often it was tried. */
+  private reportTries = new Map<string, number>();
+  /** The next wake for parcels waiting out a retry, if one is set. */
+  private wake: { at: number; stop: () => void } | undefined;
   private closed = new AbortController();
   constructor(deps: ParcelSenderDeps) {
     this.deps = deps;
@@ -174,7 +188,10 @@ export class ParcelSender {
       title: `Sending ${name.data} to ${plan.route === "local" ? "a thread here" : plan.route === "outbox" ? "its parent" : plan.machine}`,
     });
     if (plan.route === "local") await this.local(row);
-    else if (plan.route === "push") this.kick();
+    else if (plan.route === "push") {
+      deps.reopenChild(plan.to);
+      this.kick();
+    }
     return {
       parcelId,
       to: plan.to,
@@ -256,12 +273,17 @@ export class ParcelSender {
     if (landed) deps.arrived(landed);
     this.settle(row.parcelId, "delivered");
   }
-  /** Starts work on pushed parcels that are due, at most a few at once. */
-  kick(): void {
+  /**
+   * Starts pushes that are due, at most a few at once. One waiting out a retry holds no slot:
+   * a wake is set for the earliest of them instead.
+   */
+  kick(dueBy?: number): void {
     if (this.closed.signal.aborted) return;
-    for (const row of this.deps.rows.unsettledOut()) {
+    const now = this.deps.now();
+    // A wake set for `dueBy` makes due what it was set for, whatever the clock reads by then.
+    for (const row of this.deps.rows.duePushes(Math.max(now, dueBy ?? now))) {
       if (this.running.size >= PARALLEL) return;
-      if (row.route !== "push" || this.running.has(row.parcelId)) continue;
+      if (this.running.has(row.parcelId) || this.cancelling.has(row.parcelId)) continue;
       const stop = new AbortController();
       this.running.set(row.parcelId, stop);
       void this.push(row.parcelId, AbortSignal.any([stop.signal, this.closed.signal]))
@@ -272,6 +294,32 @@ export class ParcelSender {
           this.running.delete(row.parcelId);
           this.kick();
         });
+    }
+    const next = this.deps.rows.nextPushAt(now);
+    if (next === undefined || (this.wake && this.wake.at <= next)) return;
+    this.wake?.stop();
+    const at = next;
+    this.wake = {
+      at,
+      stop: this.deps.schedule(Math.max(0, at - now), () => {
+        if (this.wake?.at === at) this.wake = undefined;
+        this.kick(at);
+      }),
+    };
+  }
+  /** Copies to threads here that a restart cut off: done again, or settled when they landed. */
+  async recoverLocal(): Promise<void> {
+    for (const row of this.deps.rows.unsettledLocal()) {
+      const landed = this.deps.rows.in(row.parcelId);
+      if (landed?.state === "delivered") {
+        this.settle(row.parcelId, "delivered");
+        continue;
+      }
+      if (landed) {
+        await this.deps.files.removeIn(row.parcelId);
+        this.deps.rows.removeIn(row.parcelId);
+      }
+      await this.local(row);
     }
   }
   private async call(row: OutRow, profile: RemoteProfile, parcel: ParcelCall, signal: AbortSignal) {
@@ -303,9 +351,6 @@ export class ParcelSender {
         this.settle(parcelId, "failed", `${row.machine} couldn't be reached for a day.`);
         return;
       }
-      const wait = row.nextAt - deps.now();
-      if (wait > 0) await deps.sleep(wait, signal);
-      if (signal.aborted) return;
       try {
         let answer = await this.call(
           row,
@@ -357,12 +402,14 @@ export class ParcelSender {
           this.settle(parcelId, "failed", error.message.slice(0, 300));
           return;
         }
+        // Tried again once its wait is over, without holding a slot meanwhile.
         const attempts = (deps.rows.out(parcelId)?.attempts ?? row.attempts) + 1;
         deps.rows.updateOut(
           parcelId,
           { attempts, nextAt: deps.now() + retryDelay(attempts) },
           deps.now(),
         );
+        return;
       }
     }
   }
@@ -371,9 +418,21 @@ export class ParcelSender {
     const { deps } = this;
     const row = deps.rows.out(parcelId);
     if (!row || (row.state !== "sending" && row.state !== "waiting")) return;
+    this.cancelling.add(parcelId);
+    try {
+      await this.cancelNow(row);
+    } finally {
+      this.cancelling.delete(parcelId);
+    }
+  }
+  private async cancelNow(row: OutRow): Promise<void> {
+    const { deps } = this;
+    const { parcelId } = row;
     this.running.get(parcelId)?.abort();
     if (row.route === "push") {
-      const profile = deps.profiles().find((entry) => entry.name === row.machine);
+      const profile = deps
+        .profiles()
+        .find((entry) => entry.name === row.machine && (entry.hostId ?? entry.id) === row.hostId);
       const answer = profile
         ? await this.call(
             row,
@@ -405,6 +464,14 @@ export class ParcelSender {
     if (!row || row.delivered) return;
     try {
       deps.deliver(row.fromThread, `parcel-result:${row.parcelId}`, resultText(row));
+    } catch {
+      // Not ready yet: told on a later sweep. One that keeps failing stops holding its place.
+      const tries = (this.reportTries.get(parcelId) ?? 0) + 1;
+      this.reportTries.set(parcelId, tries);
+      if (tries < MAX_REPORT_TRIES) return;
+    }
+    this.reportTries.delete(parcelId);
+    try {
       deps.hold(row.fromThread, row.fromAgent, `ace-parcel:${row.parcelId}`, {
         status:
           row.state === "delivered"
@@ -413,12 +480,13 @@ export class ParcelSender {
               ? "stopped"
               : "failed",
       });
-      deps.rows.markOutDelivered(row.parcelId);
     } catch {
-      // Not ready yet: told on the next start, never dropped.
+      // The thread or its agent is gone: there is no hold left to end.
     }
+    deps.rows.markOutDelivered(row.parcelId);
   }
   close(): void {
     this.closed.abort();
+    this.wake?.stop();
   }
 }

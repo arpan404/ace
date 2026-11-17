@@ -163,12 +163,28 @@ export class ParcelRows {
     const raw = this.store.statement("SELECT * FROM parcel_out WHERE parcel_id=?").get(parcelId);
     return raw ? outRow(raw) : undefined;
   }
-  /** Outgoing parcels still moving, oldest first, at most `limit`. */
-  unsettledOut(limit = 64): OutRow[] {
+  /** Pushes due now, the longest waiting first. */
+  duePushes(now: number, limit = 16): OutRow[] {
     return this.store
       .statement(
-        "SELECT * FROM parcel_out WHERE state IN ('sending','waiting') ORDER BY created_at LIMIT ?",
+        "SELECT * FROM parcel_out WHERE route='push' AND state='sending' AND next_at <= ? ORDER BY next_at LIMIT ?",
       )
+      .all(now, limit)
+      .map(outRow);
+  }
+  /** When the next push waiting out a retry is due, if any is. */
+  nextPushAt(now: number): number | undefined {
+    const row = this.store
+      .statement(
+        "SELECT MIN(next_at) AS at FROM parcel_out WHERE route='push' AND state='sending' AND next_at > ?",
+      )
+      .get(now);
+    return row?.["at"] === null || row?.["at"] === undefined ? undefined : num(row["at"]);
+  }
+  /** Copies to threads here still unsettled: a restart cut them off. */
+  unsettledLocal(limit = 64): OutRow[] {
+    return this.store
+      .statement("SELECT * FROM parcel_out WHERE route='local' AND state='sending' LIMIT ?")
       .all(limit)
       .map(outRow);
   }
@@ -259,6 +275,18 @@ export class ParcelRows {
       .statement("UPDATE parcel_in SET state=?,held=?,notified=?,updated_at=? WHERE parcel_id=?")
       .run(next.state, next.held, next.notified ? 1 : 0, now, parcelId);
   }
+  removeIn(parcelId: string): void {
+    this.store.statement("DELETE FROM parcel_in WHERE parcel_id=?").run(parcelId);
+  }
+  /** Parcels still arriving with no progress since before `before`: abandoned by their sender. */
+  staleReceiving(before: number, limit = 32): InRow[] {
+    return this.store
+      .statement(
+        "SELECT * FROM parcel_in WHERE state='receiving' AND updated_at < ? ORDER BY updated_at LIMIT ?",
+      )
+      .all(before, limit)
+      .map(inRow);
+  }
   /** Delivered parcels whose thread hasn't been told yet. */
   unnotifiedIn(limit = 64): InRow[] {
     return this.store
@@ -286,7 +314,7 @@ export class ParcelRows {
     const row = this.store
       .statement(
         `SELECT (SELECT COALESCE(SUM(json_extract(facts,'$.size')),0) FROM parcel_out WHERE state IN ('sending','waiting'))
-          + (SELECT COALESCE(SUM(json_extract(facts,'$.size')),0) FROM parcel_in WHERE state IN ('receiving','delivered')) AS n`,
+          + (SELECT COALESCE(SUM(CASE state WHEN 'delivered' THEN json_extract(facts,'$.size') ELSE held END),0) FROM parcel_in WHERE state IN ('receiving','delivered')) AS n`,
       )
       .get();
     return num(row?.["n"]);

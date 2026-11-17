@@ -37,3 +37,14 @@ Coordinated with project-identity builder (ADRs 0178/0179; owns transfers/_, pro
   Fixes found on the way: client-side `channel.flowControl()`; connect deadline no longer kills open streams.
 - One-off run (not committed) with the saved link pointed at 10.0.0.59 (LAN) and 100.83.149.99
   (this machine's Tailscale address): both delivered 500 KiB intact. Same host, so not across the tailnet tunnel.
+
+## Review fixes (independent reviewer, 10 findings), applied uncommitted on top of d1a599970
+
+1 grant only to this machine's hosted relay origin (server.ts isHostedRelay); 2 push reopens remote child;
+3 local copies recovered at start, kick takes only due pushes; 4 retry wait releases the slot (wake timer);
+5 result reports give up after 20 tries, hold end separate; 6 O_NONBLOCK source open (FIFO);
+7 receiving space counted by held bytes, abandoned arrivals expire after 24h, per-chunk room check;
+8 saveAs makes folders one at a time with realpath checks, .git case-insensitive; 9 sweep and pull on separate
+loops, pull restart cap 3, no-room pulls refused; 10 relay host slot handoff, cancel blocks re-kick, cancel checks hostId.
+Pending: typecheck/lint, rerun unit + 3 process tests, full check, PR.
+Known main-side failure: check:builtins stale lock for skills/ace-computer-use (main commit 9eecd03d1), not this branch.

@@ -122,7 +122,15 @@ describe("a received parcel is saved only inside the project", () => {
     expect(projectRelative("inputs/data.csv")).toBe("inputs/data.csv");
   });
   it("refuses leaving the project, absolute paths, the root itself and .git", () => {
-    for (const path of ["../x", "a/../../x", "/etc/passwd", ".", ".git/config", "a/.git/hooks/x"])
+    for (const path of [
+      "../x",
+      "a/../../x",
+      "/etc/passwd",
+      ".",
+      ".git/config",
+      "a/.git/hooks/x",
+      ".GIT/config",
+    ])
       expect(projectRelative(path), path).toBeUndefined();
   });
 });

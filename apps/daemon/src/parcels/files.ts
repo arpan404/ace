@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, mkdir, open, realpath, rename, rm, stat } from "node:fs/promises";
-import { dirname, join, relative, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 import { maxParcelBytes } from "@ace/protocol";
 
 /** A parcel's bytes could not be staged, read or placed; `message` is safe to show the agent. */
@@ -65,7 +65,11 @@ export class ParcelFiles {
         }
         if (!inside(root, resolved))
           throw new ParcelFileError("invalid", "path must name a file inside this project.");
-        const input = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
+        // Non-blocking, so a named pipe can't hold the open; its type is refused just below.
+        const input = await open(
+          resolved,
+          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+        ).catch(() => {
           throw new ParcelFileError("not_found", `Couldn't open ${source.path}.`);
         });
         try {
@@ -186,12 +190,21 @@ export class ParcelFiles {
     relativePath: string,
   ): Promise<string> {
     const root = await realpath(project);
-    const destination = join(root, relativePath);
-    await mkdir(dirname(destination), { recursive: true });
-    const parent = await realpath(dirname(destination));
-    if (parent !== root && !inside(root, parent))
-      throw new ParcelFileError("invalid", "saveAs must stay inside this project.");
-    const final = join(parent, destination.slice(dirname(destination).length + 1));
+    // Folder by folder, each checked to resolve inside the project before the next is made, so
+    // a link in the path can't get anything made outside it.
+    const parts = relativePath.split(sep);
+    const fileName = parts.pop() ?? "";
+    let parent = root;
+    for (const part of parts) {
+      const next = join(parent, part);
+      await mkdir(next).catch((error: unknown) => {
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      });
+      parent = await realpath(next);
+      if (!inside(root, parent))
+        throw new ParcelFileError("invalid", "saveAs must stay inside this project.");
+    }
+    const final = join(parent, fileName);
     const input = await open(this.placed(parcelId, name), "r");
     let output;
     try {
@@ -202,7 +215,7 @@ export class ParcelFiles {
       );
     } catch (error) {
       await input.close();
-      if ((error as NodeJS.ErrnoException).code === "EEXIST")
+      if (error instanceof Error && "code" in error && error.code === "EEXIST")
         throw new ParcelFileError("exists", `${relativePath} already exists; pick a new path.`);
       throw error;
     }

@@ -47,7 +47,7 @@ export interface ServerOptions {
   servedPaths?: (() => import("@ace/protocol").MachinePath[]) | undefined;
   /** Set by the server: a device grant for ace's relay, while signed in (ADR 0182). */
   relayDeviceGrant?:
-    | ((deviceId: string, signal: AbortSignal) => Promise<string | undefined>)
+    | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
     | undefined;
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("./transfers/service.ts").DaemonTransfers;

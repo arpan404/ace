@@ -16,8 +16,11 @@ export interface RelayLinkDeps {
     grant?: string;
     signal?: AbortSignal;
   }): Promise<ClientChannel>;
-  /** An account device grant for ace's hosted relay, or undefined when this machine can't get one. */
-  deviceGrant(deviceId: string, signal: AbortSignal): Promise<string | undefined>;
+  /**
+   * An account device grant for ace's hosted relay at `url`, or undefined when this machine
+   * can't get one or `url` isn't ace's relay as this machine knows it.
+   */
+  deviceGrant(deviceId: string, url: string, signal: AbortSignal): Promise<string | undefined>;
   /** Time for idle closes. */
   schedule(ms: number, run: () => void): () => void;
 }
@@ -71,7 +74,7 @@ export class RelayLink {
     let channel: ClientChannel;
     try {
       const grant = target.hosted
-        ? await this.deps.deviceGrant(target.deviceId, opening.signal)
+        ? await this.deps.deviceGrant(target.deviceId, target.url, opening.signal)
         : undefined;
       if (target.hosted && !grant)
         throw new MachineFailure("offline", undefined, "Not signed in to ace for its relay");
