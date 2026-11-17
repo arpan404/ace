@@ -11,6 +11,8 @@ export interface RelayAccess {
   account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
   onRefused?: (error: RelayRefusedError) => void;
   onRegistration?: (registered: boolean) => void;
+  /** Aborted when the relays close: a registration still waiting on the relay is given up. */
+  signal?: AbortSignal;
 }
 
 /** A running relay registration: resolved once the relay confirmed it, until `close`. */
@@ -64,6 +66,8 @@ export function remoteRelays(deps: {
 }) {
   const { options } = deps;
   const entries = new Map<string, Entry>();
+  // Closing never waits on the network: it gives up any registration still under way.
+  const shutdown = new AbortController();
   let keys: KeyPair | undefined;
   const hostKeys = async () => {
     const config = options.remoteConfig;
@@ -90,6 +94,7 @@ export function remoteRelays(deps: {
       Object.assign(entry, { state: "waiting", error: signInForRelay, retryable: false });
       return;
     }
+    if (shutdown.signal.aborted) return;
     let started: RelayHandle | undefined;
     // Events from this registration only, while it is the one running for this entry.
     const current = () => entries.get(plan.key) === entry && started && entry.handle === started;
@@ -120,12 +125,20 @@ export function remoteRelays(deps: {
             if (registered) show(entry, { state: "on", error: undefined, retryable: true });
             else show(entry, { state: "waiting", error: relayReconnecting(plan), retryable: true });
           },
+          signal: shutdown.signal,
         },
       );
       if (!started) throw new Error("The relay didn't start");
+      // Registered just as the relays closed: this one stops too, rather than outliving them.
+      if (shutdown.signal.aborted) {
+        await started.close();
+        return;
+      }
       entry.handle = started;
       show(entry, { state: "on", error: undefined, retryable: true });
     } catch (failure) {
+      // Given up by `close`: nothing failed, and nothing is shown or logged.
+      if (shutdown.signal.aborted) return;
       const refused = failure instanceof RelayRefusedError;
       // ace's relay refuses a machine whose account it can't confirm: that waits for a sign-in.
       // A self-hosted relay's own refusal (an allowlist) is tried again.
@@ -156,6 +169,7 @@ export function remoteRelays(deps: {
      * the person. `retryRefused` also tries those again, as an account change does.
      */
     async apply(plans: readonly RelayPlan[], retryRefused = false): Promise<void> {
+      if (shutdown.signal.aborted) return;
       const wanted = new Set(plans.map((plan) => plan.key));
       for (const [key, entry] of entries)
         if (!wanted.has(key)) {
@@ -164,6 +178,7 @@ export function remoteRelays(deps: {
         }
       publish();
       for (const plan of plans) {
+        if (shutdown.signal.aborted) return;
         let entry = entries.get(plan.key);
         if (entry?.handle) continue;
         if (entry && !entry.retryable && !retryRefused) continue;
@@ -199,7 +214,13 @@ export function remoteRelays(deps: {
     selfHosted(): boolean {
       return [...entries.values()].some((entry) => entry.handle && !entry.plan.hosted);
     },
+    /**
+     * Stops every registration. One still waiting on the relay is given up at once (its
+     * connection aborted), never awaited: the relay drops a registration that never finished,
+     * and nothing local was written for it. No relay starts after this.
+     */
     async close(withdrawLinks: boolean): Promise<void> {
+      shutdown.abort();
       for (const entry of entries.values()) await stop(entry, withdrawLinks);
       entries.clear();
       publish();
