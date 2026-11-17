@@ -4,6 +4,7 @@ import {
   interruptedTurn,
   oneTurnWork,
   replayCursor,
+  seedRestartedTurn,
   watchingRelay,
   type FakeDaemon,
 } from "@ace/fake-daemon";
@@ -12,7 +13,8 @@ import {
  * Work logs for the spike daemon, the same scenarios the web's transcript tests play: a turn
  * working through grouped steps, one settled into "Worked for" with prose between its steps, a
  * group of background commands, parallel steps with one in flight, an interrupted turn and a
- * failed one. No provider process runs.
+ * failed one, and a turn ace restarted and a usage limit held, finished and still working. No
+ * provider process runs.
  */
 
 const minute = 60_000;
@@ -34,6 +36,8 @@ export function seedWorkLogs(daemon: FakeDaemon): void {
   new ScenarioPlayer(daemon, interruptedTurn("ios-log-interrupted"), {
     agoMs: 8 * minute,
   }).runUntilBlocked();
+  // Restarted three times and held by a usage limit: one turn, its moments inside "Worked for".
+  seedRestartedTurn(daemon, "ios-log-restarted");
   parallel(daemon);
   failed(daemon);
   stopped(daemon);

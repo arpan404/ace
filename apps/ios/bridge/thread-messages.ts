@@ -283,7 +283,7 @@ export function momentRow(
   const items = itemIds.flatMap((id) => store.item(id) ?? []);
   const line = momentLine(moment, items, since);
   if (!line) return null;
-  return flatten(
+  const row = flatten(
     {
       kind: "event",
       line: { icon: line.icon, text: line.text },
@@ -292,6 +292,8 @@ export function momentRow(
     },
     items[0],
   );
+  // A span ("9:23–9:30 AM") ends where its last restart or the wait did; 0 for one moment.
+  return { ...row, until: line.to > line.from ? line.to : 0 };
 }
 
 /** Whether a block's item is drawn as an event: everything but the person's own bubble. */

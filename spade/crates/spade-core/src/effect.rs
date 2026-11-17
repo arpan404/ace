@@ -560,6 +560,8 @@ pub fn blocked(output: &str) -> Option<Blocked> {
         ("(-600)", Blocked::App),
         ("LSOpenURLsWithRole", Blocked::App),
         ("Operation not permitted", Blocked::Files),
+        // Linux's Landlock refuses a file with `EACCES`.
+        ("Permission denied", Blocked::Files),
         ("sandbox-exec:", Blocked::Files),
     ];
     MARKERS

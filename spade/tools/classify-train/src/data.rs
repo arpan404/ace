@@ -126,9 +126,9 @@ fn compose(command: String, half: Half, rng: &mut Rng) -> String {
         return command;
     }
     if rng.chance(0.5) {
-        format!("{}{command}", expand(rng.pick(PREFIXES), half, rng))
+        format!("{}{command}", expand(rng.pick::<&str>(PREFIXES), half, rng))
     } else {
-        format!("{command}{}", expand(rng.pick(SUFFIXES), half, rng))
+        format!("{command}{}", expand(rng.pick::<&str>(SUFFIXES), half, rng))
     }
 }
 
@@ -295,7 +295,7 @@ fn fill(val: Val, half: Half, rng: &mut Rng) -> Value {
         Val::Command(effect) => {
             let families: Vec<_> = FAMILIES.iter().filter(|f| f.label == effect).collect();
             let family = rng.pick(&families);
-            json!(expand(rng.pick(family.variants), half, rng))
+            json!(expand(rng.pick::<&str>(family.variants), half, rng))
         }
     }
 }

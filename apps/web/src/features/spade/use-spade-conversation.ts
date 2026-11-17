@@ -92,6 +92,12 @@ export function useSpadeConversation(conversation: string) {
         body: { allowed, always },
       });
     },
+    /** A plugin asking to run outside the sandbox (ADR 0167): `always` keeps it for its version. */
+    answerOutside(id: string, allowed: boolean, always: boolean): Promise<string> {
+      return spadeHttp(client, "POST", `${path}/plugin_outside/${segment(id)}`, {
+        body: { allowed, always },
+      });
+    },
     /**
      * A card of questions (ADR 0154): its answers, Answer later, or Never mind. A 400 names the
      * question and the rule it broke, in Spade's words (`SpadeRequestError`'s message).

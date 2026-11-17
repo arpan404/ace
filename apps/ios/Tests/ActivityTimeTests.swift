@@ -27,4 +27,49 @@ import Testing
         // A daemon clock slightly ahead never reads as negative time.
         #expect(ActivityTime.running(since: now.addingTimeInterval(4), now: now) == "0s")
     }
+    @Test func aMomentRowReadsOneTimeOrTheSpanItCovered() {
+        let utc = TimeZone(identifier: "UTC")!
+        let at = Date(timeIntervalSince1970: 1_763_285_000).timeIntervalSince1970 * 1000
+        let single = EventClock.words(at: at, locale: english, timeZone: utc)
+        #expect(single.contains(":"))
+        // No end, an end before it, or one inside the same minute: the one time.
+        #expect(EventClock.words(at: at, until: 0, locale: english, timeZone: utc) == single)
+        #expect(EventClock.words(at: at, until: at + 10_000, locale: english, timeZone: utc) == single)
+        // Back-to-back restarts or a limit's wait: from its start to its end, said once.
+        let span = EventClock.words(at: at, until: at + 7 * 60_000, locale: english, timeZone: utc)
+        #expect(span != single)
+        // The start's hour and minute lead; the day period ("AM", after a narrow space) is said once.
+        #expect(span.hasPrefix(String(single.prefix { $0.isNumber || $0 == ":" })))
+        #expect(span.contains("–"))
+        #expect(EventClock.words(at: 0, locale: english, timeZone: utc) == "")
+    }
+    private func command(settled: Bool, startedAt: Double?, awaiting: Bool? = nil) -> StepLine {
+        StepLine(icon: "command", verb: settled ? "Ran" : "Running", target: "bun run lint", note: "", settled: settled,
+                 failed: false, needsYou: false, added: nil, removed: nil, awaiting: awaiting, startedAt: startedAt)
+    }
+    @Test func aStepInFlightCountsUpFromItsStartAndShimmersUnlessMotionIsReduced() {
+        let started = now.addingTimeInterval(-7).timeIntervalSince1970 * 1000
+        let running = StepInFlight(step: command(settled: false, startedAt: started))
+        #expect(running.elapsed(now: now) == "7s")
+        #expect(running.elapsed(now: now.addingTimeInterval(87)) == "1m 34s")
+        #expect(running.shimmers(reduceMotion: false))
+        #expect(!running.shimmers(reduceMotion: true))
+    }
+    @Test func aStepThatSettledOrWaitsOnApprovalNeitherShimmersNorCounts() {
+        let started = now.addingTimeInterval(-7).timeIntervalSince1970 * 1000
+        for step in [command(settled: true, startedAt: started), command(settled: false, startedAt: started, awaiting: true)] {
+            #expect(StepInFlight(step: step).elapsed(now: now) == nil)
+            #expect(!StepInFlight(step: step).shimmers(reduceMotion: false))
+        }
+        // A running step whose start the bridge didn't send still shimmers, with no time.
+        let unknown = StepInFlight(step: command(settled: false, startedAt: nil))
+        #expect(unknown.elapsed(now: now) == nil)
+        #expect(unknown.shimmers(reduceMotion: false))
+    }
+    @Test func theShimmerBandCrossesTheWordsOncePerPeriod() {
+        let start = Date(timeIntervalSinceReferenceDate: 100 * Shimmer.period)
+        #expect(Shimmer.phase(at: start) == 0)
+        #expect(abs(Shimmer.phase(at: start.addingTimeInterval(Shimmer.period / 2)) - 0.5) < 0.0001)
+        #expect(Shimmer.phase(at: start.addingTimeInterval(Shimmer.period)) == 0)
+    }
 }

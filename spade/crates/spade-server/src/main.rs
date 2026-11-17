@@ -64,12 +64,42 @@ fn main() -> std::process::ExitCode {
         );
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
-    // Linux's sandbox launcher (ADR 0167): applies a Landlock plan to itself, then runs the
-    // command in its place.
+    // Linux's sandbox launcher (ADR 0167): applies a plan to the command it starts and
+    // supervises its network calls; and the check its probe runs inside a sandbox.
+    if let Some(code) = spade_sandbox::linux::dispatch(&args) {
+        return code;
+    }
+    // Windows' sandbox launcher (ADR 0167): creates the command inside its AppContainer and job,
+    // then waits. The daemon spawns this with the command's stdio piped.
+    #[cfg(windows)]
     if let Some(flag) = args.first()
-        && flag == spade_sandbox::linux::LAUNCHER_ARG
+        && flag == spade_sandbox::windows::run::LAUNCHER_ARG
     {
-        return sandbox_exec(&args[1..]);
+        return std::process::ExitCode::from(spade_sandbox::windows::run::launcher_main(
+            &args[1..],
+        ));
+    }
+    // Windows' in-container egress bridge (ADR 0167 decision 3): a loopback listener the command's
+    // proxy points at, forwarding to the daemon over a named pipe. Started by the launcher inside
+    // the container; runs until the job closes.
+    #[cfg(windows)]
+    if let Some(flag) = args.first()
+        && flag == "sandbox-net-bridge"
+    {
+        let pipe = args.get(1).and_then(|a| a.to_str()).unwrap_or_default();
+        let port = args
+            .get(2)
+            .and_then(|a| a.to_str())
+            .and_then(|a| a.parse::<u16>().ok())
+            .unwrap_or_default();
+        let ready = args
+            .get(3)
+            .and_then(|a| a.to_str())
+            .and_then(|a| a.parse::<isize>().ok())
+            .unwrap_or_default();
+        return std::process::ExitCode::from(spade_sandbox::windows::bridge::in_container(
+            pipe, port, ready,
+        ));
     }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
@@ -556,31 +586,5 @@ fn limits(config: &Config) -> Limits {
         context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
         knowledge_bytes: config.knowledge_bytes.unwrap_or(defaults.knowledge_bytes),
         ..defaults
-    }
-}
-
-/// `spade sandbox-exec <plan> <program> <args>…`: answers only when the command can't start.
-fn sandbox_exec(args: &[std::ffi::OsString]) -> std::process::ExitCode {
-    let refused = |why: &str| {
-        eprintln!("spade sandbox-exec: {why}");
-        std::process::ExitCode::from(126)
-    };
-    let (Some(plan), Some(program)) = (args.first(), args.get(1)) else {
-        return refused("a plan and a program are needed");
-    };
-    #[cfg(all(target_os = "linux", feature = "landlock"))]
-    {
-        let Some(plan) = plan
-            .to_str()
-            .and_then(|text| serde_json::from_str::<spade_sandbox::linux::Plan>(text).ok())
-        else {
-            return refused("the plan doesn't parse");
-        };
-        refused(&spade_sandbox::linux::exec(&plan, program, &args[2..]))
-    }
-    #[cfg(not(all(target_os = "linux", feature = "landlock")))]
-    {
-        let _ = (plan, program);
-        refused("this build has no Linux sandbox")
     }
 }

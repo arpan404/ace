@@ -92,8 +92,12 @@ fn view(security: &Security, id: &str) -> Value {
         })
         .collect();
     let held = security.effective(id);
+    // Whether this bot's commands are contained, and the plain line for why not when the machine
+    // has a sandbox but this bot's runs keep the review path (on Windows: network or its folders).
+    let (contained, reason) = security.bot_containment(id);
     json!({
-        "contained": security.contains(),
+        "contained": contained,
+        "reason": reason,
         "commands": held.commands,
         "network": held.network,
         "plugin_network": held.plugin_network,

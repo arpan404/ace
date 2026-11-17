@@ -4,6 +4,7 @@ import type {
   SpadeQuestionCard,
   SpadeReplyEntry,
   SpadeAskKind,
+  SpadeOutsideAsk,
   SpadeRequest,
 } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
@@ -114,7 +115,12 @@ type SpadeBubbleOf =
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
       state: "open";
-    };
+    }
+  /**
+   * A plugin's server or hook asking to run outside the sandbox (ADR 0167), open until the
+   * person answers: Allow (once), Always for this plugin version, or Deny.
+   */
+  | ({ kind: "plugin-outside"; key: string } & SpadeOutsideAsk);
 
 /** Why a reply failed, as its bubble says it. */
 export interface SpadeBubbleFailure {
@@ -283,6 +289,9 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   for (const approval of view.approvals)
     if (!shown.has(approval.callId))
       bubbles.push(askBubble({ ...approval, answer: undefined, always: false }, "", approval));
+  // Plugins asking to run outside the sandbox: not any reply's, so at the end, while open.
+  for (const outside of view.outsideAsks)
+    bubbles.push({ kind: "plugin-outside", key: `outside:${outside.id}`, ...outside });
   return bubbles;
 }
 

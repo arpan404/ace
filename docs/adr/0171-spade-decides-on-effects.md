@@ -173,6 +173,18 @@ changed after it was reviewed.`). A terminal command is also held to the folder 
   helper reads its bot's answer for the same tool. A name two sourced tools would be offered
   under (two servers, or names cut to a provider's limit) is offered for neither.
 
+## Amendment 2: Linux gets decision 1 (2026-11-17)
+
+Replaces decision 6 for Linux. Linux's sandbox now holds files and network
+([ADR 0167](0167-spade-security-boundaries.md) amendment 1: Landlock, plus a seccomp filter whose
+supervisor makes every `connect`, `bind` and `listen` itself). Where Spade's probe finds Landlock
+(ABI 1 or later), the filter and the proxy all working, Linux reports `contained` and decision 1
+applies there as on macOS: a sandboxed command runs without the classifier or the reviewer, and
+decision 5's outside path is the way out. Landlock refuses a file with `EACCES`, so "Permission
+denied" joins the sandbox-failure markers. On a kernel without Landlock, or where the filter
+can't run, Linux keeps the review path with a one-line reason in the sandbox status. Windows is
+unchanged.
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { turnStepsStoreIn } from "@ace/client/kept-turn-steps";
 import { forgetNativeTurnSteps, nativeReadSnapshots } from "./read-snapshots.ts";
 import { nativeStore } from "./snapshot-store-fixture.ts";
-import { facts } from "@ace/fake-daemon";
+import { facts, seedRestartedTurn } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import {
   connect,
@@ -375,3 +375,117 @@ test.each([false, true])(
     visit.back();
   },
 );
+
+test("an opened restarted turn shows its restarts, wait and finished subagents in place among its steps", async () => {
+  const fake = fixture();
+  seedRestartedTurn(fake, "restarted");
+  const thread = open(connect(fake), "restarted");
+  const [head] = await heads(1);
+  if (!head) throw new Error("no settled head");
+  // Folded, the head says nothing about the restarts: its moments travel on it, unshown.
+  const work = rows("thread.block").find((row) => row.kind === "work" && row.ordinal !== null);
+  const moments = (work?.moments ?? []) as {
+    id: string;
+    event: { text: string; at: number; until: number };
+  }[];
+  expect(moments.map((moment) => moment.event.text)).toEqual([
+    "Restarted twice, continued",
+    "Restarted, continued",
+    "2 subagents finished",
+    "Waited for the usage limit",
+  ]);
+  // Back-to-back restarts and the wait read as spans; one restart and the results as one time.
+  expect(moments.map(({ event }) => event.until > event.at)).toEqual([true, false, false, true]);
+  expect(rows("thread.block").filter((row) => row.kind === "event")).toEqual([]);
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  await ready(head.ordinal);
+  const header = native.frames.findLast(
+    (frame) => frame.type === "thread.steps" && frame.ordinal === head.ordinal,
+  ) as { log: { kind: string; id: string }[] };
+  const words = new Map(moments.map((moment) => [moment.id, moment.event.text]));
+  const shown = native.frames
+    .filter((frame) => frame.type === "thread.stepsPage" && frame.ordinal === head.ordinal)
+    .flatMap((frame) => frame.rows as { id: string; text: string }[]);
+  const text = new Map(shown.map((row) => [row.id, row.text]));
+  const read = (row: { kind: string; id: string; items?: string[] }) =>
+    row.kind === "moment"
+      ? `moment: ${words.get(row.id)}`
+      : (row.items ?? [row.id]).map((id) => text.get(id)).join(" + ");
+  expect(header.log.map(read)).toEqual([
+    "gh pr list --author @me",
+    "Three PRs are open. Checking their reviews.",
+    "gh pr checks 2106",
+    "moment: Restarted twice, continued",
+    "ace restarted again. Checking which children are still working, the simulator lock, and the open PRs.",
+    "Edit test-on-arpans-mac.md",
+    "moment: Restarted, continued",
+    "gh pr merge 2113 --squash",
+    "moment: 2 subagents finished",
+    "moment: Waited for the usage limit",
+    "bun run bench:stall",
+  ]);
+  // The head's own log, drawn when the daemon can't be read, places them the same way.
+  const loaded = (work?.log ?? []) as { kind: string; id: string }[];
+  expect(loaded.map((row) => row.kind)).toEqual(header.log.map((row) => row.kind));
+});
+
+const shell = (item: string, command: string): Fact[] => [
+  facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } }),
+  facts.toolDone("root", item),
+];
+
+test("a log still open when its turn gathers another restart shows it when the head opens it again", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "resumed", workspaceId: "ace", title: "Resumed", provider: "claude" });
+  fake.apply("resumed", [
+    facts.rootAgent("claude"),
+    { type: "turn.started", agent: "root", nativeTurnId: "t1", trigger: "user" },
+    facts.message("root", "ask", "user", "Merge the PR"),
+    ...shell("checks", "gh pr checks 2106"),
+    { type: "turn.ended", agent: "root", nativeTurnId: "t1", outcome: "interrupted" },
+  ]);
+  const thread = open(connect(fake), "resumed");
+  const [head] = await heads(1);
+  if (!head) throw new Error("no settled head");
+  thread.handle({ type: "steps.open", ordinal: head.ordinal, block: head.block });
+  await ready(head.ordinal);
+  const header = () =>
+    native.frames.findLast(
+      (frame) => frame.type === "thread.steps" && frame.ordinal === head.ordinal,
+    ) as { log: { kind: string }[] };
+  expect(header().log.map((row) => row.kind)).not.toContain("moment");
+  // ace restarts and the same turn carries on, while its log is still held open.
+  fake.apply("resumed", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "restart-1",
+      draft: {
+        type: "notice",
+        level: "warning",
+        complete: true,
+        code: "restart_interrupted",
+        text: "Interrupted by a restart. Continuing.",
+        raw: [],
+      },
+    },
+    { type: "turn.started", agent: "root", nativeTurnId: "t2", trigger: "restart" },
+    ...shell("merge", "gh pr merge 2106 --squash"),
+    { type: "turn.ended", agent: "root", nativeTurnId: "t2", outcome: "completed" },
+  ]);
+  await until(
+    () =>
+      rows("thread.block").some(
+        (row) => row.kind === "work" && (row.moments as unknown[] | undefined)?.length,
+      ),
+    "the head's restart",
+  );
+  const [again] = await heads(1);
+  if (!again) throw new Error("no settled head");
+  expect(again.ordinal).toBe(head.ordinal);
+  thread.handle({ type: "steps.open", ordinal: again.ordinal, block: again.block });
+  await until(
+    () => header().log.some((row) => row.kind === "moment"),
+    "the restart in the opened log",
+  );
+});
