@@ -291,8 +291,10 @@ import XCTest
         let header = app.descendants(matching: .any)["forge.pull.header"].firstMatch
         XCTAssertTrue(header.waitForExistence(timeout: 20))
         // A pushed page shows Back, not Close: the sheet is dragged down from its top.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07))
-            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
+        let bar = app.navigationBars.firstMatch
+        let top = bar.exists ? bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            : app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+        top.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         // Opened again on the pull request the person had open, with the search behind it.
         app.buttons["inbox.review"].tap()
