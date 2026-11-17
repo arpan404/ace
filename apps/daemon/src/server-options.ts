@@ -32,6 +32,11 @@ import type { Store } from "./store.ts";
 export interface ServerOptions {
   externalMcp?: import("./external-mcp/server.ts").ExternalMcp;
   shutdown?: import("./shutdown-receipt.ts").ShutdownControl;
+  /**
+   * The daemon's lifetime, aborted as it begins to stop. A stop that comes while the server
+   * starts gives up what waits on the network then (a relay registration nobody answers).
+   */
+  lifetime?: AbortSignal | undefined;
   cliControl?: ReturnType<typeof import("./services/cli-control.ts").cliControl>;
   storage?: import("./storage/service.ts").StorageService;
   sourceControl?: import("./source-control.ts").SourceControl;

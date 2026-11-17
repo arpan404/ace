@@ -24,6 +24,7 @@ async function controlled(connect: (access: RelayAccess) => Promise<void>) {
   homes.push(home);
   const logged: string[] = [];
   const opened: RelayAccess[] = [];
+  let stopped = 0;
   const relays = remoteRelays({
     options: {
       remoteConfig: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
@@ -32,14 +33,19 @@ async function controlled(connect: (access: RelayAccess) => Promise<void>) {
     connect: async (_relay, access) => {
       opened.push(access);
       await connect(access);
-      return { relayHostId: "host", close: async () => {} };
+      return {
+        relayHostId: "host",
+        close: async () => {
+          stopped++;
+        },
+      };
     },
     machineName: async () => "Studio",
     serialize: (work) => work(),
     clearPending: () => {},
   });
   const state = () => relays.view().map((view) => ({ state: view.state, error: view.error }));
-  return { relays, state, logged, opened };
+  return { relays, state, logged, opened, stopped: () => stopped };
 }
 
 it("a relay is on only while its registration holds, and waits with a plain reason while it registers again", async () => {
@@ -94,4 +100,35 @@ it("a registration that was stopped can't change the one that replaced it", asyn
   expect(opened).toHaveLength(2);
   stale?.(false);
   expect(state()).toEqual([{ state: "on", error: undefined }]);
+});
+
+it("closing gives up a registration the relay never answers, quietly, and starts nothing after", async () => {
+  // As a real connection does: it waits on the relay until its signal gives it up.
+  const { relays, state, logged, opened } = await controlled(
+    (access) =>
+      new Promise((_resolve, reject) =>
+        access.signal?.addEventListener("abort", () => reject(new Error("Connection closed"))),
+      ),
+  );
+  const applying = relays.apply([plan]);
+  await expect.poll(() => opened.length).toBe(1);
+  await relays.close(false);
+  await applying;
+  expect(state()).toEqual([]);
+  expect(logged).toEqual([]);
+  await relays.apply([plan]);
+  expect(opened).toHaveLength(1);
+  expect(relays.relayHostId()).toBeUndefined();
+});
+
+it("a registration the relay confirms just as the relays close is stopped, not kept", async () => {
+  const answer = Promise.withResolvers<void>();
+  const { relays, opened, stopped } = await controlled(() => answer.promise);
+  const applying = relays.apply([plan]);
+  await expect.poll(() => opened.length).toBe(1);
+  await relays.close(false);
+  answer.resolve();
+  await applying;
+  expect(stopped()).toBe(1);
+  expect(relays.relayHostId()).toBeUndefined();
 });
