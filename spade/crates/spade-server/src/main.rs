@@ -71,6 +71,14 @@ fn main() -> std::process::ExitCode {
     {
         return sandbox_exec(&args[1..]);
     }
+    // Windows' sandbox launcher (ADR 0167): creates the command inside its AppContainer and job,
+    // then waits. The daemon spawns this with the command's stdio piped.
+    #[cfg(windows)]
+    if let Some(flag) = args.first()
+        && flag == spade_sandbox::windows::run::LAUNCHER_ARG
+    {
+        return std::process::ExitCode::from(spade_sandbox::windows::run::launcher_main(&args[1..]));
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {

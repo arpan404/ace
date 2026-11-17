@@ -58,11 +58,27 @@ impl Confine for Security {
         std::fs::create_dir_all(&policy.temp).map_err(|error| {
             format!("the sandbox's temporary folder could not be made: {error}")
         })?;
+        // Windows: grant the bot's AppContainer SID on the policy's places (and deny the
+        // credential list inside any granted folder), recorded so a later run or a crash can
+        // take the grants back (ADR 0167, ACL hygiene). Done before the launch, fail closed.
+        #[cfg(windows)]
+        {
+            let container = spade_sandbox::windows::Container::for_bot(&bot);
+            let grants = spade_sandbox::windows::grants(&policy);
+            spade_sandbox::windows::acls::reconcile(&self.acl_dir(), &container, &grants).map_err(
+                |error| format!("the sandbox's permissions could not be set: {error}"),
+            )?;
+        }
         let (path_first, mut env) = toolchains::env(&toolchain_dirs, &|p: &Path| p.is_dir());
         env.push((
             "TMPDIR".to_owned(),
             policy.temp.to_string_lossy().into_owned(),
         ));
+        // Windows commands read TEMP/TMP, not TMPDIR.
+        #[cfg(windows)]
+        for name in ["TEMP", "TMP"] {
+            env.push((name.to_owned(), policy.temp.to_string_lossy().into_owned()));
+        }
         if let Some(ticket) = &ticket {
             env.extend(ticket.env());
         }

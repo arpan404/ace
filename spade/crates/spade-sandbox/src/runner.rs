@@ -247,32 +247,62 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use super::*;
+    use crate::windows::{self, Container};
 
-    /// Designed (ADR 0167 decision 1: an AppContainer per bot, ACLs on its folders, the job
-    /// object Spade already uses), not built: commands keep today's reviews.
-    pub(super) fn probe(_launcher: Option<&Path>) -> Status {
-        Status {
-            platform: "windows",
-            mechanism: Mechanism::None,
-            files: Coverage::None,
-            network: Coverage::None,
-            reason: Some(
-                "Spade's Windows sandbox (AppContainer) isn't built yet, so commands are \
-                 reviewed as before."
-                    .to_owned(),
-            ),
+    /// AppContainer per bot (ADR 0167 decision 1): the profile is created per run and its SID is
+    /// ACL'd onto the policy's folders by the daemon, a job holds the tree, and the egress proxy
+    /// carries the network through a loopback bridge. Files are held by the mechanism alone;
+    /// whether the network is held depends on the proxy, which the daemon ANDs in. Probing makes
+    /// and deletes a throwaway profile: if that fails (AppContainers disabled), there is no
+    /// sandbox and commands keep today's reviews.
+    pub(super) fn probe(launcher: Option<&Path>) -> Status {
+        if launcher.is_none() {
+            return Status::none("Spade's own program could not be found to start the sandbox.");
+        }
+        let probe = Container {
+            name: format!("spade.probe.{}", uuid::Uuid::new_v4().simple()),
+            display: "Spade sandbox probe".to_owned(),
+        };
+        match spade_sandbox_windows::profile::ensure(&probe.name, &probe.display) {
+            Ok(_) => {
+                let _ = spade_sandbox_windows::profile::delete(&probe.name);
+                Status {
+                    platform: "windows",
+                    mechanism: Mechanism::AppContainer,
+                    files: Coverage::Contained,
+                    // The AppContainer and the loopback bridge carry every connection through the
+                    // proxy; the daemon reports `contained` only while the proxy also listens.
+                    network: Coverage::Contained,
+                    reason: None,
+                }
+            }
+            Err(error) => Status::none(&format!(
+                "Windows wouldn't make an AppContainer profile on this machine: {error}."
+            )),
         }
     }
 
     pub(super) fn wrap(
-        _launcher: Option<&Path>,
-        _policy: &Policy,
-        _program: &Path,
-        _args: &[OsString],
+        launcher: Option<&Path>,
+        policy: &Policy,
+        program: &Path,
+        args: &[OsString],
     ) -> Result<Launch, Unavailable> {
-        Err(Unavailable(
-            "Spade's Windows sandbox isn't built yet".to_owned(),
-        ))
+        let launcher =
+            launcher.ok_or_else(|| Unavailable("Spade's own program is unknown".to_owned()))?;
+        let bot = policy
+            .workspace
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| Unavailable("the bot's workspace has no name".to_owned()))?;
+        let plan = windows::plan(
+            Container::for_bot(bot),
+            windows::run::DEFAULT_ACTIVE_PROCESSES,
+            windows::run::DEFAULT_MEMORY_BYTES,
+        );
+        let (program, args) =
+            windows::run::wrap(launcher, &plan, program, args).map_err(Unavailable)?;
+        Ok(Launch { program, args })
     }
 }
 
