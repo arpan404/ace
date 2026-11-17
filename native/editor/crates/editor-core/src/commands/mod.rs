@@ -10,6 +10,21 @@ mod typing;
 use crate::buffer::Buffer;
 use crate::position::Position;
 use crate::selection::Selection;
+use crate::transaction::{Edit, EditSet};
+
+/// Joins overlapping deletion ranges, so two carets inside one word or grapheme delete it once.
+pub(crate) fn deletion_set(edits: Vec<Edit>) -> EditSet {
+    let mut edits = edits;
+    edits.sort_by_key(|edit| edit.start);
+    let mut merged: Vec<Edit> = Vec::with_capacity(edits.len());
+    for edit in edits {
+        match merged.last_mut() {
+            Some(last) if edit.start < last.end => last.end = last.end.max(edit.end),
+            _ => merged.push(edit),
+        }
+    }
+    EditSet::new(merged)
+}
 
 /// The lines a selection touches, as a half-open range.
 ///

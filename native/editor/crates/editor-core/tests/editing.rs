@@ -85,6 +85,11 @@ fn a_typing_run_at_several_cursors_undoes_as_one_step() {
             Selection::caret(Position::new(1, 1)),
         ]
     );
+
+    document.redo().expect("the typing run");
+    assert_eq!(document.text(), "axyb\ncxyd");
+    assert_eq!(document.selections()[0].head, Position::new(0, 3));
+    assert_eq!(document.selections()[1].head, Position::new(1, 3));
 }
 
 #[test]
@@ -130,6 +135,36 @@ fn backspace_removes_one_grapheme_cluster() {
 
     assert_eq!(document.text(), "a");
     assert_eq!(document.selections()[0].head, Position::new(0, 1));
+}
+
+#[test]
+fn backspace_at_two_points_inside_one_grapheme_deletes_it_once() {
+    let mut document = Document::new("a\u{1f44d}\u{1f3fd}b");
+    document.set_selections(vec![
+        Selection::caret(Position::new(0, 3)),
+        Selection::caret(Position::new(0, 5)),
+    ]);
+
+    document.backspace();
+
+    assert_eq!(document.text(), "ab");
+    assert_eq!(document.selections().len(), 1);
+    assert_eq!(document.selections()[0].head, Position::new(0, 1));
+}
+
+#[test]
+fn deleting_a_word_at_two_carets_in_one_word_deletes_it_once() {
+    let mut document = Document::new("foobar");
+    document.set_selections(vec![
+        Selection::caret(Position::new(0, 3)),
+        Selection::caret(Position::new(0, 6)),
+    ]);
+
+    document.delete_word_backward();
+
+    assert_eq!(document.text(), "");
+    assert_eq!(document.selections().len(), 1);
+    assert_eq!(document.selections()[0].head, Position::new(0, 0));
 }
 
 #[test]

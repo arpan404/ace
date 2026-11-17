@@ -2,6 +2,7 @@
 
 //! Typing, newlines, backspace and word deletion.
 
+use super::deletion_set;
 use crate::document::Document;
 use crate::transaction::{Applied, Edit, EditSet};
 
@@ -72,7 +73,7 @@ impl Document {
                 });
             }
         }
-        self.apply_edits(EditSet::new(raw), false)
+        self.apply_edits(deletion_set(raw), false)
     }
 
     /// Deletes the selected text, or the word before each caret plus the whitespace before it.
@@ -96,6 +97,6 @@ impl Document {
                 });
             }
         }
-        self.apply_edits(EditSet::new(raw), false)
+        self.apply_edits(deletion_set(raw), false)
     }
 }

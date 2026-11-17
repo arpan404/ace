@@ -107,6 +107,16 @@ fn outdent_removes_a_tab_or_up_to_two_spaces() {
 }
 
 #[test]
+fn crlf_survives_line_movement() {
+    let mut document = Document::new("a\r\nb\r\nc\r\n");
+    document.set_selections(vec![Selection::caret(Position::new(1, 0))]);
+
+    document.move_lines_down();
+
+    assert_eq!(document.text(), "a\r\nc\r\nb\r\n");
+}
+
+#[test]
 fn toggle_comment_on_mixed_lines() {
     let mut document = Document::new("fn a() {}\n  // fn b() {}\n\tfn c() {}");
     let selection = Selection::new(Position::new(0, 0), Position::new(2, 10));
