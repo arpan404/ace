@@ -1,0 +1,120 @@
+import { expect, test } from "vitest";
+import type { ThreadId } from "@ace/protocol";
+import { setup } from "./test-support.ts";
+import { end, start } from "../engine/test-support.ts";
+
+/*
+ * A parent thread deleted, then purged by storage cleanup, keeps its `threads` tombstone but has
+ * no engine state. Its children's edges must never be reported to it: recovery that did so threw
+ * "Missing engine state" at every start and took agent control down with it.
+ */
+
+type Harness = ReturnType<typeof setup>;
+
+const stopsOnLimit = [
+  { type: "retry", agent: "root", on: "rate_limit", until: 5000, message: "Quota exhausted" },
+  { ...end, outcome: "failed", error: { kind: "quota", message: "Quota exhausted" } },
+] as const;
+
+/** The thread is deleted (tombstoned), as the person's delete or storage cleanup leaves it. */
+async function markDeleted(h: Harness, id: ThreadId) {
+  await h.engine.stopForDeletion(id);
+  h.store.appendEvents(
+    id,
+    [{ type: "thread.client.updated", changes: { deletedAt: h.clock.now(), autoSettleAt: null } }],
+    h.clock.now(),
+  );
+}
+
+/** Storage cleanup removes the deleted thread's data, its engine state included. */
+function purge(h: Harness, id: ThreadId) {
+  h.store.atomic(() => h.store.purgeThreadData(id));
+  h.engine.forgetPurged(id);
+  expect(h.engine.hasState(id)).toBe(false);
+}
+
+const missingState = (h: Harness) =>
+  h.errors.filter((error) => String(error).includes("Missing engine state"));
+
+/** Agent control still serves a live thread: a new parent delegates and its child starts. */
+async function delegatesAgain(h: Harness) {
+  const other = await h.parent();
+  const next = h.delegate(other, "after-recovery");
+  await h.engine.flush();
+  expect(h.service.journal.get(next.childId)?.phase).toBe("running");
+}
+
+test("agent control starts when a purged parent's settled child is still limited", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  await h.emit(child.childId, ...stopsOnLimit);
+  expect(h.store.getThread(child.childId)?.status.state).toBe("limited");
+  expect(h.service.journal.get(child.childId)?.phase).toBe("settled");
+
+  h.engine.prepareDeletion(parent.threadId, "delete-parent");
+  await markDeleted(h, parent.threadId);
+  purge(h, parent.threadId);
+
+  // Recovery reads the settled child again (revived: it is limited, not done).
+  h.restartOwner();
+  expect(h.service.journal.get(child.childId)).toMatchObject({ phase: "settled" });
+  // The child's next run is never counted as work its gone parent waits on.
+  await h.emit(child.childId, start);
+  expect(h.service.journal.get(child.childId)).toMatchObject({ phase: "settled" });
+  expect(missingState(h)).toEqual([]);
+  await delegatesAgain(h);
+});
+
+test("an open child edge whose parent was purged while agent control was down settles as cancelled at the next start", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  expect(h.service.journal.get(child.childId)?.phase).toBe("running");
+
+  // Agent control is down: nothing observes the deletion, so the edge stays open in the journal.
+  h.service.close();
+  await markDeleted(h, parent.threadId);
+  purge(h, parent.threadId);
+  expect(h.service.journal.active().map((edge) => edge.childId)).toEqual([child.childId]);
+
+  h.restartOwner();
+  expect(h.service.journal.get(child.childId)).toMatchObject({
+    phase: "settled",
+    outcome: { outcome: "cancelled" },
+  });
+  // The child's own thread is left as it was: still working, never shown done.
+  expect(h.store.getThread(child.childId)?.status.state).toBe("working");
+  // Nothing is owed to the parent that is gone, so no wake is left to retry.
+  expect(h.service.journal.nextWake()).toBeUndefined();
+  expect(missingState(h)).toEqual([]);
+  await delegatesAgain(h);
+});
+
+test("deleting a parent settles its open child edges, so the child ending after the purge reports to nothing", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  // The deletion policy cancels the child, but its provider has not stopped it yet.
+  h.ignoreNextInterrupts(1);
+  h.engine.prepareDeletion(parent.threadId, "delete-parent");
+  expect(h.service.journal.get(child.childId)?.phase).toBe("cancelling");
+
+  await markDeleted(h, parent.threadId);
+  expect(h.service.journal.get(child.childId)).toMatchObject({
+    phase: "settled",
+    outcome: { outcome: "cancelled" },
+  });
+  expect(h.store.getThread(child.childId)?.status.state).toBe("working");
+
+  purge(h, parent.threadId);
+  await h.complete(child.childId, "Finished anyway.");
+  expect(h.store.getThread(child.childId)?.status.state).toBe("done");
+  expect(h.service.journal.nextWake()).toBeUndefined();
+  h.restartOwner();
+  expect(missingState(h)).toEqual([]);
+  await delegatesAgain(h);
+});

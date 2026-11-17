@@ -56,6 +56,7 @@ import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
 import { modelLoadBudget, type ModelLoadBudget } from "./model-load-budget.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
+import { parentGone } from "./parent-gone.ts";
 import {
   executionModelId,
   matchesModel,
@@ -228,11 +229,16 @@ export class DelegationService {
     for (const participant of this.journal.activeParticipants()) {
       this.reconcileConversation(participant.thread_id);
     }
-    for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
-      this.sync.reconcile(edge);
-      // A notice a crash or a refused send left unsent goes now.
-      this.limits.recheck([edge.childId]);
-    }
+    // One edge that can't be recovered is reported; it never stops the others or the service.
+    for (const edge of [...this.journal.active(), ...this.journal.revived()])
+      try {
+        if (this.sync.orphaned(edge)) continue;
+        this.sync.reconcile(edge);
+        // A notice a crash or a refused send left unsent goes now.
+        this.limits.recheck([edge.childId]);
+      } catch (error) {
+        this.report(error);
+      }
     this.pumpAll();
     this.arm();
   }
@@ -1035,7 +1041,10 @@ export class DelegationService {
     };
     this.journal.settle(edge, result, this.deps.clock.now() + this.policy.coalesceMs);
     const thread = this.deps.store.getThread(edge.childId);
-    if (thread) {
+    if (
+      thread &&
+      !parentGone((id) => this.deps.store.getThread(id), this.deps.engine, edge.parentId)
+    ) {
       const shown = { ...thread, status: childStatus(edge, thread) };
       this.deps.engine.updateChild(edge.parentId, shown);
       this.deps.engine.delegationStarted(edge, shown);
@@ -1381,7 +1390,7 @@ export class DelegationService {
       try {
         this.deps.store.atomic(() => {
           const parent = this.deps.store.getThread(next.parent_id);
-          if (!parent) {
+          if (!parent || parentGone(() => parent, this.deps.engine, next.parent_id)) {
             this.journal.discard(next.parent_id);
             return;
           }

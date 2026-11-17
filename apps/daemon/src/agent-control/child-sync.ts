@@ -1,12 +1,18 @@
 import {
   type CommandPayload,
   type CommandResult,
+  type DelegationOutcome,
   type DelegationPolicy,
   type DelegationRecord,
   type Event,
   type ThreadId,
 } from "@ace/protocol";
-import { childStatus, queuedChildStatus, type QueuedFacts } from "./child-status.ts";
+import {
+  childStatus,
+  queuedChildStatus,
+  unlaunchedResult,
+  type QueuedFacts,
+} from "./child-status.ts";
 import { controlCommandId } from "./command-id.ts";
 import type { DelegationDependencies } from "./delegations.ts";
 import { threadAccount } from "./failure-account.ts";
@@ -16,6 +22,7 @@ import type { LaunchQueue } from "./launch-queue.ts";
 import type { LimitNotices } from "./limit-notices.ts";
 import { childStoppedOnLimit } from "./limit-settlement.ts";
 import { deliveryNotice, type DeliveryNotice } from "./message-notices.ts";
+import { parentGone } from "./parent-gone.ts";
 import { threadOutcome } from "./results.ts";
 import type { OutcomeWaiters } from "./waiters.ts";
 
@@ -57,6 +64,16 @@ export class ChildSync {
     let statuses = false;
     for (const event of events) {
       statuses ||= event.payload.type === "thread.updated" && !queueFactsTouch(event);
+      // A deleted thread takes no more results: its open children's edges settle now, so none is
+      // left for a later restart to report to a parent whose data may be purged by then.
+      if (
+        event.payload.type === "thread.client.updated" &&
+        event.payload.changes.deletedAt !== undefined &&
+        event.payload.changes.deletedAt !== null
+      ) {
+        this.parentDeleted(event.threadId);
+        changed = true;
+      }
       const notice = deliveryNotice(event);
       if (notice) this.ports.noticeSender(event.threadId, notice);
       if (event.payload.type === "run.started") this.ports.clearDeliveredNotice(event.threadId);
@@ -152,7 +169,45 @@ export class ChildSync {
       return;
     this.ports.deps.store.atomic(() => this.ports.journal.revive(edge));
   }
+  /**
+   * True when the edge's parent is gone (deleted, or its engine state purged), after settling
+   * the edge if it was open: nothing is reported to that parent, so nothing calls the engine for
+   * it. An open edge settles as cancelled with its wake suppressed; a settled one is never
+   * revived for it. The child's own thread is left as it is: the deletion policy already stopped
+   * what it was going to stop, and nothing here shows the child done.
+   */
+  orphaned(edge: DelegationRecord): boolean {
+    const { store, engine } = this.ports.deps;
+    if (!parentGone((id) => store.getThread(id), engine, edge.parentId)) return false;
+    if (edge.phase === "settled") return true;
+    const thread = store.getThread(edge.childId);
+    store.atomic(() => {
+      this.ports.journal.suppressWake(edge.childId);
+      let outcome: DelegationOutcome;
+      if (edge.phase === "created" || !thread) {
+        this.ports.launches.take(edge.childId);
+        if (thread?.queuedLaunch)
+          store.appendEvents(edge.childId, [{ type: "thread.updated", queuedLaunch: null }]);
+        outcome = {
+          threadId: edge.childId,
+          outcome: "cancelled",
+          result: unlaunchedResult("cancelled"),
+          truncated: false,
+          before: null,
+        };
+      } else outcome = threadOutcome(store, thread, true);
+      this.ports.journal.settle(edge, outcome, this.ports.now());
+      this.ports.waiters.deliver(edge.childId, outcome);
+    });
+    return true;
+  }
+  /** Settles every open edge under a thread just deleted; its results are never delivered. */
+  private parentDeleted(parent: ThreadId) {
+    for (const edge of this.ports.journal.liveChildren(parent)) this.orphaned(edge);
+    this.ports.deps.store.atomic(() => this.ports.journal.discard(parent));
+  }
   reconcile(edge: DelegationRecord) {
+    if (this.orphaned(edge)) return;
     const thread = this.ports.deps.store.getThread(edge.childId);
     if (!thread) return;
     this.ports.deps.store.atomic(() => {
