@@ -87,7 +87,7 @@ a line-level incremental API (see "markit"); the editor never carries a second h
 
 ### files-safe
 
-Crates: `cap-std`, `thiserror`. API:
+Crates: `cap-std`, `cap-fs-ext`, `thiserror`. API:
 
 ```rust
 pub struct Root;                                     // Clone, Send, Sync
@@ -97,15 +97,38 @@ impl Root {
     pub fn dir(&self) -> &cap_std::fs::Dir;              // capability handle for I/O crates
     pub fn check(rel: &str) -> Result<&str, Error>;      // syntax only (rule 5); "" is the root
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, Error>; // absolute, symlinks resolved,
-                                                         // PATH_ESCAPE if it leaves the root
+                                                         // PATH_ESCAPE if it leaves the root;
+                                                         // read-only walkers only
+    pub fn open_dir(&self, rel: &str) -> Result<cap_std::fs::Dir, Error>; // handle to that folder
+    pub fn open_parent(&self, rel: &str)
+        -> Result<(cap_std::fs::Dir, String), Error>;    // parent handle plus the leaf name
     pub fn relative(&self, absolute: &Path) -> Option<String>;  // inverse; None outside root
 }
 ```
 
-On Windows also reject `\`, drive prefixes, reserved names (`CON`, `NUL`, ...) and trailing dots
-or spaces. Acceptance: `rejects_dot_dot_and_absolute_paths`, `rejects_symlink_that_leaves_root`,
-`follows_symlink_that_stays_inside_root`, `resolves_missing_leaf_under_existing_parent`,
-`relative_round_trips_resolve`, `root_must_be_a_directory`.
+Every lookup starts at `root.dir()` and steps down segment by segment with `symlink_metadata`,
+`read_link_contents` and `open_dir_nofollow`; no lookup is driven by a path string. An absolute
+link target is compared as text against the root (canonical and as opened) and its remainder is
+walked from the root again, so nothing outside the root is ever stat'd. `resolve` returns the
+names the disk stores, and `relative` only returns strings `check` accepts. If the folder behind
+the handle is no longer what `path()` names (the root was moved and replaced by a link), every
+call is `PATH_CHANGED`.
+
+I/O goes through handles, never through a resolved path: `open_dir` for a folder and
+`open_parent` for a leaf (which is returned as a name and never followed, so a dangling link is a
+file to delete, not a target to resolve). Mutations create with `O_EXCL`/no-follow through the
+parent handle. `resolve` is for read-only walkers such as a lister, the path index or a content
+search.
+
+On Windows also reject `\`, `:`, `~` (8.3 short names), drive prefixes, reserved device names
+(`CON`, `NUL`, `COM1`, `COM¹`, ...) and trailing dots or spaces, matching
+`packages/workspace/src/path-policy.ts`. Acceptance: `rejects_dot_dot_and_absolute_paths`,
+`rejects_symlink_that_leaves_root`, `follows_symlink_that_stays_inside_root`,
+`resolves_missing_leaf_under_existing_parent`, `relative_round_trips_resolve`,
+`root_must_be_a_directory`, `refuses_a_root_that_was_moved_and_replaced_by_a_link`,
+`refuses_an_absolute_link_that_climbs_out`, `refuses_an_inside_link_that_reaches_an_outside_link`,
+`open_parent_never_follows_the_leaf`, `returns_the_name_the_folder_stores`.
+
 
 ### files-list
 
