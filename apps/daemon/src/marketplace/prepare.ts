@@ -3,10 +3,10 @@ import {
   MarketEntryType,
   type MarketProblem,
   type MarketPublisher,
+  type MarketScanReport,
 } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
-  EntryBody,
   hashFiles,
   manifestMismatch,
   readArchive,
@@ -15,37 +15,42 @@ import {
   typeLimits,
   verifyManifest,
   verifyReviewMark,
-  VersionBody,
   recipeEntries,
   type ArchiveFile,
-  type MarketKeySet,
   type WithdrawalTarget,
 } from "@ace/marketplace";
+import { EntryBody, VersionBody, type MarketKeySet } from "@ace/protocol/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
+import { scanEntry, type ScanContext } from "@ace/marketplace/scan";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
 import type { PreparedEntry } from "./review.ts";
 import type { MarketStore, StoredSource } from "./store.ts";
+import type { Badges } from "./trust.ts";
 import { TurnedOff } from "./turned-off.ts";
 
 /*
  * Fetching one version for review (ADR 0168 §6, §8). Everything the device decides, it decides
  * itself: the manifest's signature against the keys this build ships, the archive against the
- * manifest, the withdrawn list, then the type's checks again on the bytes. Nothing in the entry
+ * manifest, the withdrawn list, the type's checks again on the bytes, then ADR 0173's scan of
+ * those exact bytes, whose block refuses whatever the market said. Nothing in the entry
  * runs: bytes are read into memory and checked, never executed.
  */
 
 export class Refused extends Error {
   override name = "Refused";
   readonly problems: MarketProblem[];
-  readonly code: "refused" | "not_found" | "unavailable";
+  readonly code: "refused" | "not_found" | "unavailable" | "blocked";
+  /** The device's scan, when it is what refused (`blocked`). */
+  readonly scan: MarketScanReport | undefined;
   constructor(
     message: string,
-    options: { problems?: MarketProblem[]; code?: Refused["code"] } = {},
+    options: { problems?: MarketProblem[]; code?: Refused["code"]; scan?: MarketScanReport } = {},
   ) {
     super(message);
     this.problems = options.problems ?? [];
     this.code = options.code ?? "refused";
+    this.scan = options.scan;
   }
 }
 
@@ -57,6 +62,10 @@ export interface PreparePorts {
   withdrawal: (target: WithdrawalTarget) => string | undefined;
   /** ADR 0014's review of a plugin from these bytes. */
   preparePlugin: (input: PluginFilesInput) => Promise<PluginReview>;
+  /** Who the signed lists this device verified mark as verified or official. */
+  badges: Badges;
+  /** What the scan compares against: the local index, the verified list, the blocklist. */
+  scanContext: (publisher: MarketPublisher | undefined) => ScanContext;
 }
 
 /** What ADR 0014's manager needs to review a plugin from bytes the marketplace verified. */
@@ -110,6 +119,24 @@ export async function prepareEntry(
     throw new Refused(`${name} doesn't pass ace's checks`, { problems: checked.problems });
   if (checked.hash !== fetched.hash)
     throw new Refused("The files don't match the hash they were offered under");
+  // ADR 0173 §8: the device scans the exact bytes it verified, and refuses a block even when
+  // the market listed and signed them. Warns and notes go to the review.
+  const scan = scanEntry({
+    type: entryType,
+    name,
+    files: checked.files,
+    listing: checked.listing,
+    inspection: checked.inspection,
+    context: ports.scanContext(fetched.publisher),
+  });
+  if (scan.verdict === "block")
+    throw new Refused(
+      `${type}/${name} ${fetched.version} was refused by ace's scan on this device`,
+      {
+        code: "blocked",
+        scan,
+      },
+    );
   const pluginInput: PluginFilesInput | undefined =
     entryType === "spade-plugin"
       ? {
@@ -136,6 +163,9 @@ export async function prepareEntry(
     checked,
     plugin,
     pluginInput,
+    scan,
+    ...(fetched.deprecated ? { deprecated: fetched.deprecated } : {}),
+    ...(fetched.unlisted ? { unlisted: true } : {}),
   };
 }
 
@@ -151,6 +181,8 @@ interface Fetched {
   /** The plugin manager's pin: a git commit, or the hash's first 40 digits for the market. */
   commit: string;
   origin: { repository: string; ref: string };
+  deprecated?: string | undefined;
+  unlisted?: boolean | undefined;
 }
 
 async function fromMarket(
@@ -188,7 +220,6 @@ async function fromMarket(
   const reason = withdrawn({ version, hash: manifest.hash });
   if (reason) throw new Refused(`This version was withdrawn: ${reason}`);
   let reviewed = false;
-  let byAce = false;
   if (body.data.review) {
     let mark;
     try {
@@ -201,8 +232,9 @@ async function fromMarket(
     if (mark.hash !== manifest.hash || mark.type !== type || mark.name !== name)
       throw new Refused("The review mark is for other bytes");
     reviewed = mark.reviewed;
-    byAce = mark.byAce;
   }
+  // "By ace" only for the official list's publisher (ADR 0173 §14); the mark's flag is display.
+  const byAce = ports.badges.official(manifest.publisher.id);
   let files: ArchiveFile[];
   try {
     files = readArchive(await http.object(manifest.hash), typeLimits[type]);
@@ -223,6 +255,8 @@ async function fromMarket(
     byAce,
     commit: manifest.hash.slice(0, 40),
     origin: { repository: `${http.origin}/v1/entries/${type}/${name}`, ref: version },
+    deprecated: page.data.versions.find((item) => item.version === version)?.deprecated,
+    unlisted: page.data.unlisted,
   };
 }
 
@@ -280,6 +314,8 @@ export async function prepareWithBrings(
         if (thrown instanceof Refused)
           throw new Refused(`${brought.type}/${brought.name}: ${thrown.message}`, {
             problems: thrown.problems,
+            code: thrown.code === "blocked" ? "blocked" : "refused",
+            ...(thrown.scan ? { scan: thrown.scan } : {}),
           });
         throw thrown;
       });

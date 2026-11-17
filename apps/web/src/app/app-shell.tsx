@@ -29,6 +29,7 @@ import {
   useSeenWhileOpen,
 } from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
+import { MarketHost, MarketRailButton } from "@/features/marketplace/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
 import {
   AppSidebar,
@@ -138,6 +139,9 @@ export function AppShell() {
                     <LocalBoundary label="search" fallback={null}>
                       <SearchHost />
                     </LocalBoundary>
+                    <LocalBoundary label="the Marketplace" fallback={null}>
+                      <MarketHost />
+                    </LocalBoundary>
                     <LocalBoundary label="the project picker" fallback={null}>
                       <MoveToProjectHost />
                     </LocalBoundary>
@@ -236,9 +240,20 @@ const spadeNav = (current: boolean, to: string, search: object) => (
   <SpadeNav current={current} to={to} search={search} />
 );
 
+/** The Marketplace in the rail: it opens its modal over the page. */
+const marketNav = <MarketRailButton />;
+
 /** The sidebar with what other slices own: the thread list, Code review's, Usage's and Spade's places. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} forge={forgeNav} usage={usageNav} spade={spadeNav} />;
+  return (
+    <AppSidebar
+      threads={threads}
+      forge={forgeNav}
+      usage={usageNav}
+      spade={spadeNav}
+      market={marketNav}
+    />
+  );
 }
 
 function ShellHotkeys() {

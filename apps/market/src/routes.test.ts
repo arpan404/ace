@@ -32,6 +32,53 @@ describe("routing", () => {
       { kind: "signer-review", type: "suit", name: "tarn", version: "1.0.0" },
     ],
     ["PUT", "/v1/signer/featured", { kind: "signer-featured" }],
+    ["GET", "/v1/discover", { kind: "discover" }],
+    ["GET", "/v1/blocklist", { kind: "blocklist" }],
+    ["GET", "/v1/verified", { kind: "verified" }],
+    ["GET", "/v1/publishers/harbour-works", { kind: "publisher", handle: "harbour-works" }],
+    ["GET", `/v1/avatars/${hash}`, { kind: "avatar", hash }],
+    ["POST", "/v1/reports", { kind: "report" }],
+    ["GET", "/v1/me", { kind: "me" }],
+    ["POST", "/v1/me/profile", { kind: "me-profile-create" }],
+    ["PUT", "/v1/me/profile", { kind: "me-profile-edit" }],
+    ["PUT", "/v1/me/handle", { kind: "me-handle" }],
+    ["POST", "/v1/me/verification/check", { kind: "me-verification-check" }],
+    ["POST", "/v1/me/drafts", { kind: "me-draft-create" }],
+    ["PATCH", "/v1/me/drafts/drf_abcdefgh12", { kind: "me-draft-patch", id: "drf_abcdefgh12" }],
+    ["DELETE", "/v1/me/drafts/drf_abcdefgh12", { kind: "me-draft-delete", id: "drf_abcdefgh12" }],
+    [
+      "POST",
+      "/v1/me/drafts/drf_abcdefgh12/publish",
+      { kind: "me-draft-publish", id: "drf_abcdefgh12" },
+    ],
+    ["DELETE", "/v1/me/entries/suit/tarn", { kind: "me-entry-delete", type: "suit", name: "tarn" }],
+    [
+      "PUT",
+      "/v1/me/entries/suit/tarn/previews/2",
+      { kind: "me-preview", type: "suit", name: "tarn", index: 2 },
+    ],
+    [
+      "DELETE",
+      "/v1/me/entries/suit/tarn/versions/1.0.0/deprecation",
+      { kind: "me-undeprecate", type: "suit", name: "tarn", version: "1.0.0" },
+    ],
+    [
+      "POST",
+      "/v1/me/transfers/trf_abcdefgh12/accept",
+      { kind: "me-transfer-accept", id: "trf_abcdefgh12" },
+    ],
+    [
+      "PUT",
+      "/v1/signer/holds/suit/tarn/1.0.0",
+      { kind: "signer-hold", type: "suit", name: "tarn", version: "1.0.0" },
+    ],
+    [
+      "PUT",
+      "/v1/signer/listings/suit/tarn",
+      { kind: "signer-listing", type: "suit", name: "tarn" },
+    ],
+    ["GET", "/v1/signer/publishers/tester", { kind: "signer-publisher-read", handle: "tester" }],
+    ["PUT", "/v1/signer/verified", { kind: "signer-verified" }],
     ["GET", "/", { kind: "page-home" }],
     ["GET", "/search", { kind: "page-search" }],
     ["GET", "/suit/tarn", { kind: "page-entry", type: "suit", name: "tarn" }],
@@ -47,6 +94,9 @@ describe("routing", () => {
     ["an encoded path", "/v1/entries/suit/..%2Fsecret"],
     ["a trailing segment", "/v1/index/more"],
     ["an unknown page", "/suit/tarn/extra"],
+    ["a draft id of the wrong shape", "/v1/me/drafts/../../x"],
+    ["a fifth listing picture", "/v1/me/entries/suit/tarn/previews/4"],
+    ["an unknown action on a version", "/v1/me/entries/suit/tarn/versions/1.0.0/delete"],
   ])("names nothing for %s", (_label, path) => {
     expect(matchRoute("GET", path)).toEqual({ refused: 404 });
   });
@@ -54,5 +104,6 @@ describe("routing", () => {
   it("refuses a known path with another method", () => {
     expect(matchRoute("POST", "/v1/index")).toEqual({ refused: 405 });
     expect(matchRoute("GET", "/v1/signer/featured")).toEqual({ refused: 405 });
+    expect(matchRoute("POST", "/v1/me/drafts/drf_abcdefgh12")).toEqual({ refused: 405 });
   });
 });

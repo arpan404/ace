@@ -492,7 +492,50 @@ test("Spade's conversation names its messages and faces", async () => {
   await waitFor(() => expect(missing(spadeScreen)).toEqual([]));
 });
 
+const marketScreen = [
+  "dialog",
+  "page-toolbar",
+  "search-field",
+  "tab",
+  "market-hero",
+  "market-stage",
+  "market-try",
+] as const;
+
+test("the Marketplace modal names its bar, hero, stages and Try it's bar", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/chats?market=discover"] });
+  const app = harness({ history });
+  app.daemon.seedServices({
+    marketplace: {
+      entries: [
+        {
+          summary: {
+            source: "market",
+            type: "suit",
+            name: "harbour-dusk",
+            title: "Harbour dusk",
+            line: "Navy water and a warm lamp.",
+            categories: [],
+            keywords: [],
+            version: "1.0.0",
+            reviewed: true,
+            byAce: false,
+            updated: 1,
+            downloads: 3,
+            supported: true,
+          },
+        },
+      ],
+      featured: [{ type: "suit", name: "harbour-dusk" }],
+    },
+  });
+  await app.open("/chats?market=discover");
+  await screen.findByRole("dialog", { name: "Marketplace" });
+  await waitFor(() => expect(missing(marketScreen)).toEqual([]));
+});
+
 const coverage = [
+  marketScreen,
   codeReviewPages,
   workingThread,
   settledThread,
