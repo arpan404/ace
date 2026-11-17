@@ -37,6 +37,8 @@ export const basicCommands: readonly CommandSpec[] = [
     id: "completion",
     words: ["completion"],
     summary: "Tab completion for bash, zsh, fish or PowerShell",
+    description:
+      "Completes commands, flags and choices, and asks the running daemon for thread ids, project names, open request ids and Spade bot names; zsh, fish and PowerShell show each with a thread's title or a project's folder beside it. With ace down, or no answer within 300 ms, it completes what the command table knows. Completion never starts ace, never prompts and never writes.",
     group: "basics",
     offline: true,
     args: [{ name: "SHELL", summary: "bash, zsh, fish, powershell, or install", required: true }],
