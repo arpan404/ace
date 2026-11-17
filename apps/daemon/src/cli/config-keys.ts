@@ -1,57 +1,196 @@
-import { LogMaxBytes, RetentionDays, type SettingsEntry } from "@ace/protocol";
+import { z } from "zod";
+import { JsonValue, SettingsValues, type SettingsEntry, type SettingsKey } from "@ace/protocol";
+import type { CliConfigEntry } from "@ace/protocol/cli-outputs";
 import { parseByteSize } from "@ace/diagnostics/log-policy";
-import { CliFailure } from "./output.ts";
+import { keyAliases, settingEnv, settingSummaries, unsettable } from "./config-catalog.ts";
+import { CliFailure, usageFailure } from "./output.ts";
+import { nearest } from "./suggest.ts";
 
-/** CLI names for host settings, the saved key behind each and its overriding variable. */
-export const configKeys = {
-  "retention-days": {
-    key: "storage.retentionDays",
-    env: "ACE_RETENTION_DAYS",
-    parse: (raw: string) => RetentionDays.safeParse(/^\d+$/.test(raw) ? Number(raw) : NaN),
-    format: (value: number) => `${value} days`,
-    hint: "a whole number of days from 1 to 3650",
-  },
-  "log-cap": {
-    key: "logs.maxBytes",
-    env: "ACE_LOG_MAX_BYTES",
-    parse: (raw: string) => LogMaxBytes.safeParse(parseByteSize(raw) ?? NaN),
-    format: (value: number) => formatBytes(value),
-    hint: "a size from 1m to 64g, such as 512m or 1g",
-  },
-  "preparation-timeout": {
-    key: "worktree.preparationTimeoutMs",
-    env: "ACE_WORKTREE_PREPARATION_TIMEOUT_MS",
-    parse: (raw: string) => {
-      if (!/^\d+$/.test(raw)) return { success: false as const };
-      const ms = Number(raw);
-      return Number.isInteger(ms) && ms >= 60_000 && ms <= 3_600_000
-        ? { success: true as const, data: ms }
-        : { success: false as const };
-    },
-    format: (value: number) => (value % 60_000 === 0 ? `${value / 60_000} minutes` : `${value} ms`),
-    hint: "milliseconds from 60000 to 3600000, such as 600000 for 10 minutes",
-  },
-} as const;
-export type ConfigName = keyof typeof configKeys;
-export const configNames: readonly ConfigName[] = [
-  "retention-days",
-  "log-cap",
-  "preparation-timeout",
-];
+/**
+ * `ace config` keys (ADR 0176 §7): every global setting the app's Settings writes, by its
+ * settings key, plus the first CLI's three short names. Pure: values are parsed from the
+ * command line and checked against the same schema the daemon checks them with again.
+ */
 
-export function configName(raw: string | undefined): ConfigName {
-  if (raw === "retention-days" || raw === "log-cap" || raw === "preparation-timeout") return raw;
-  throw new CliFailure(
-    "refused",
-    "Use a setting name: retention-days, log-cap or preparation-timeout",
-  );
+export type ConfigKind = "switch" | "choice" | "number" | "text" | "list" | "file";
+
+export interface ConfigKey {
+  readonly key: SettingsKey;
+  readonly summary: string;
+  readonly kind: ConfigKind;
+  /** `none` clears it to null. */
+  readonly nullable: boolean;
+  readonly choices?: readonly string[];
+  /** What it takes, for the error and `ace config get`: "on or off". */
+  readonly takes: string;
+  readonly env?: string;
 }
-/** Validate before any effect; the daemon validates again with the same schema. */
-export function configValue(name: ConfigName, raw: string | undefined): number {
-  const parsed = raw === undefined ? undefined : configKeys[name].parse(raw);
-  if (!parsed?.success) throw new CliFailure("refused", `${name} must be ${configKeys[name].hint}`);
-  return parsed.data;
+
+const shape: Readonly<Record<SettingsKey, z.ZodType>> = SettingsValues.shape;
+const keyNames = Object.keys(shape).filter((name): name is SettingsKey => name in shape);
+
+function describe(key: SettingsKey, summary: string): ConfigKey {
+  let schema: z.core.$ZodType = shape[key];
+  const nullable = schema instanceof z.ZodNullable;
+  if (schema instanceof z.ZodNullable) schema = schema.unwrap();
+  const base = { key, summary, nullable, ...(settingEnv[key] ? { env: settingEnv[key] } : {}) };
+  const orNone = nullable ? ", or none" : "";
+  if (schema instanceof z.ZodBoolean) return { ...base, kind: "switch", takes: "on or off" };
+  if (schema instanceof z.ZodEnum) {
+    const choices = schema.options.map(String);
+    return { ...base, kind: "choice", choices, takes: `${choiceWords(choices)}${orNone}` };
+  }
+  if (schema instanceof z.ZodNumber) {
+    const { minValue, maxValue } = schema;
+    const range = minValue !== null && maxValue !== null ? ` from ${minValue} to ${maxValue}` : "";
+    return { ...base, kind: "number", takes: `a whole number${range}${orNone}` };
+  }
+  if (schema instanceof z.ZodString) return { ...base, kind: "text", takes: `text${orNone}` };
+  if (schema instanceof z.ZodArray && schema.element instanceof z.ZodString)
+    return { ...base, kind: "list", takes: "a comma-separated list; empty for none" };
+  return { ...base, kind: "file", takes: `@FILE, a JSON file${orNone}` };
 }
+
+function choiceWords(choices: readonly string[]): string {
+  if (choices.length < 2) return choices.join("");
+  return `${choices.slice(0, -1).join(", ")} or ${choices.at(-1)}`;
+}
+
+/** Every key `ace config` lists, in the schema's order (the order Settings shows them in). */
+export const configKeys: readonly ConfigKey[] = keyNames.flatMap((key) => {
+  const summary = settingSummaries[key];
+  return summary && !unsettable[key] ? [describe(key, summary)] : [];
+});
+const byKey = new Map(configKeys.map((entry) => [entry.key, entry]));
+
+/** The three short names read the way the first CLI printed them. */
+const shortTakes: Readonly<Partial<Record<SettingsKey, string>>> = {
+  "storage.retentionDays": "a whole number of days from 1 to 3650",
+  "logs.maxBytes": "a size from 1m to 64g, such as 512m or 1g",
+  "worktree.preparationTimeoutMs":
+    "milliseconds from 60000 to 3600000, such as 600000 for 10 minutes",
+};
+
+/** A typed name, as a key; unknown names are a usage error with the nearest key. */
+export function resolveConfigKey(name: string): ConfigKey {
+  const key = keyAliases[name] ?? name;
+  const found = byKey.get(key as SettingsKey);
+  if (found)
+    return shortTakes[found.key] ? { ...found, takes: shortTakes[found.key] ?? "" } : found;
+  const reason = unsettable[key as SettingsKey];
+  if (reason)
+    throw new CliFailure("refused", `${key} ${reason}.`, undefined, {
+      code: "refused",
+      argument: "KEY",
+      hint: "See the settings you can change with ace config list.",
+    });
+  const suggestion = nearest(name, [...byKey.keys(), ...Object.keys(keyAliases)]);
+  throw usageFailure(`ace has no setting ${name}.`, {
+    code: "bad_argument",
+    argument: "KEY",
+    hint: suggestion
+      ? `Did you mean ${suggestion}? See every setting with ace config list.`
+      : "See every setting with ace config list.",
+  });
+}
+
+const switchWords: Readonly<Record<string, boolean>> = {
+  on: true,
+  off: false,
+  true: true,
+  false: false,
+  yes: true,
+  no: false,
+};
+
+/**
+ * The value `raw` stands for, checked against the setting's schema. `@FILE` reads JSON from a
+ * file (for structured settings); `readFile` is the only way out of this function.
+ */
+export async function parseConfigValue(
+  entry: ConfigKey,
+  name: string,
+  raw: string,
+  readFile: (path: string) => Promise<string>,
+): Promise<JsonValue> {
+  const candidate = await candidateValue(entry, raw, readFile);
+  const checked = shape[entry.key].safeParse(candidate);
+  if (checked.success) return JsonValue.parse(checked.data);
+  throw usageFailure(`${name} must be ${entry.takes}.`, {
+    code: "bad_argument",
+    argument: "VALUE",
+    hint: `${entry.summary}. See it with ace config get ${name}.`,
+  });
+}
+
+async function candidateValue(
+  entry: ConfigKey,
+  raw: string,
+  readFile: (path: string) => Promise<string>,
+): Promise<unknown> {
+  const text = raw.trim();
+  if (entry.nullable && text.toLowerCase() === "none") return null;
+  if (text.startsWith("@")) return readJson(text.slice(1), readFile);
+  switch (entry.kind) {
+    case "switch":
+      return switchWords[text.toLowerCase()];
+    case "choice":
+    case "text":
+      return raw;
+    case "number":
+      if (entry.key === "logs.maxBytes") return parseByteSize(text) ?? Number.NaN;
+      return /^\d+$/.test(text) ? Number(text) : Number.NaN;
+    case "list":
+      return text
+        ? text
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : [];
+    case "file":
+      return undefined;
+  }
+}
+
+async function readJson(path: string, readFile: (path: string) => Promise<string>) {
+  let text: string;
+  try {
+    text = await readFile(path);
+  } catch {
+    throw usageFailure(`Couldn't read ${path}.`, {
+      code: "bad_argument",
+      argument: "VALUE",
+      hint: "Pass @FILE with the path of a JSON file.",
+    });
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw usageFailure(`${path} isn't JSON.`, {
+      code: "bad_argument",
+      argument: "VALUE",
+      hint: "Write the value as JSON in that file.",
+    });
+  }
+}
+
+/** A value as a person reads it: on/off, none, sizes and durations for the short names. */
+export function formatConfigValue(key: SettingsKey, value: unknown): string {
+  if (value === null) return "none";
+  if (typeof value === "boolean") return value ? "on" : "off";
+  if (typeof value === "number") {
+    if (key === "storage.retentionDays") return `${value} days`;
+    if (key === "logs.maxBytes") return formatBytes(value);
+    if (key === "worktree.preparationTimeoutMs")
+      return value % 60_000 === 0 ? `${value / 60_000} minutes` : `${value} ms`;
+    return String(value);
+  }
+  if (typeof value === "string") return value === "" ? "(empty)" : value;
+  if (Array.isArray(value) && value.every((item) => typeof item === "string"))
+    return value.length ? value.join(", ") : "none";
+  return JSON.stringify(value);
+}
+
 function formatBytes(bytes: number): string {
   for (const [unit, scale] of [
     ["GiB", 1024 ** 3],
@@ -62,41 +201,20 @@ function formatBytes(bytes: number): string {
   return `${bytes} bytes`;
 }
 
-export interface ConfigReport {
-  setting: ConfigName;
-  key: string;
-  /** The value the daemon enforces. */
-  value: number;
-  source: "default" | "saved" | "environment";
-  /** Set when an environment variable overrides the saved value. */
-  overriddenBy?: string;
-  /** False when no daemon was reachable: the saved value applies when it next starts. */
-  live: boolean;
-}
-export function configReport(name: ConfigName, entry: SettingsEntry, live: boolean): ConfigReport {
-  const value = entry.value;
-  if (typeof value !== "number") throw new CliFailure("uncertain", "The daemon returned no value");
+/** What `ace config` reports for one setting, from the entry the settings service resolved. */
+export function configEntry(
+  name: string,
+  entry: ConfigKey,
+  resolved: Pick<SettingsEntry, "value" | "provenance">,
+  live: boolean,
+): CliConfigEntry {
+  const environment = resolved.provenance === "environment";
   return {
     setting: name,
-    key: configKeys[name].key,
-    value,
-    source:
-      entry.provenance === "environment"
-        ? "environment"
-        : entry.provenance === "defaults"
-          ? "default"
-          : "saved",
-    ...(entry.provenance === "environment" ? { overriddenBy: configKeys[name].env } : {}),
+    key: entry.key,
+    value: resolved.value,
+    source: environment ? "environment" : resolved.provenance === "defaults" ? "default" : "saved",
+    ...(environment && entry.env ? { overriddenBy: entry.env } : {}),
     live,
   };
-}
-export function describeConfig(report: ConfigReport, saved?: number): string {
-  const format = (value: number) => configKeys[report.setting].format(value);
-  const lines = [`${report.setting}: ${format(report.value)} (${report.source})`];
-  if (report.overriddenBy)
-    lines.push(
-      `${report.overriddenBy} overrides the saved value${saved === undefined ? "" : ` (${format(saved)} saved)`}. Unset it to use the saved value.`,
-    );
-  if (!report.live) lines.push("The daemon is not running; it applies this when it starts.");
-  return lines.join("\n");
 }

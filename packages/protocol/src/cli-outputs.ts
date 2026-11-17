@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CliTaskStatus, CliTree } from "./cli-control.ts";
 import { CliCommandHelp, CliCommandTree, CliVersionOutput } from "./cli-output.ts";
+import { cliMachineOutputs } from "./cli-outputs-machine.ts";
 import { DaemonHealth } from "./release.ts";
 import { cliAccessOutputs } from "./cli-outputs-access.ts";
 
@@ -46,4 +47,6 @@ export const cliOutputs = {
   "thread.status": CliTaskStatus,
   receipt: CliReceipt,
   ...cliAccessOutputs,
+  ...cliMachineOutputs,
 } satisfies Record<string, z.ZodType>;
+export * from "./cli-outputs-machine.ts";

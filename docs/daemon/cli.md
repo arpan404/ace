@@ -290,10 +290,18 @@ The daemon's health.
 
 The daemon's recent log.
 
+One line per record. With --follow it keeps printing; with --json it prints the records as JSON (one line each with --follow).
+
 - `-f, --follow`: Keep printing as it changes; JSON Lines with --json
 - `--limit N`: At most N results
 
 Shortcut: `ace logs`.
+
+    ace logs --limit 20
+    # The last 20 records
+
+    ace logs --follow --json
+    # Records as JSON Lines, as they come
 
 ### `ace daemon token`
 
@@ -327,7 +335,7 @@ What ace's data uses on disk.
 
 ### `ace storage plan [flags]`
 
-Plan a cleanup to review.
+Plan a cleanup to review, without removing anything.
 
 - `--threads`: Settled threads' history
 - `--worktrees`: Worktrees of settled threads
@@ -335,19 +343,31 @@ Plan a cleanup to review.
 - `--logs`: Old logs
 - `--attachments`: Attached files
 - `--caches`: Caches ace can rebuild
-- `--older-than DURATION`: Only what's older than this, e.g. 30d
+- `--older-than DURATION`: Only what's older than this, like 30d
+- `--force-item ID`: Also remove this protected item from the plan (needs --dry-run first)
+- `--retention @FILE`: Days to keep per kind, from a JSON file
+
+    ace storage plan --logs --older-than 14d
+    # Logs older than two weeks
+
+    ace storage plan --retention @keep.json
+    # Your own retention
 
 ### `ace storage clean [flags]`
 
 Plan a cleanup, show it, ask, then apply it.
 
+On a terminal it asks before removing anything. Anywhere else it needs --yes, or --dry-run to only show the plan.
+
 - `--threads`: Settled threads' history
 - `--worktrees`: Worktrees of settled threads
 - `--artifacts`: Screenshots, recordings and other artifacts
 - `--logs`: Old logs
 - `--attachments`: Attached files
 - `--caches`: Caches ace can rebuild
-- `--older-than DURATION`: Only what's older than this, e.g. 30d
+- `--older-than DURATION`: Only what's older than this, like 30d
+- `--force-item ID`: Also remove this protected item from the plan (needs --dry-run first)
+- `--retention @FILE`: Days to keep per kind, from a JSON file
 - `--dry-run`: Show the plan; change nothing
 
     ace storage clean --logs --older-than 30d
@@ -356,11 +376,14 @@ Plan a cleanup, show it, ask, then apply it.
     ace storage clean --threads --dry-run
     # See what would go
 
+    ace storage clean --caches --yes
+    # From a script
+
 ### `ace storage apply PLAN [flags]`
 
 Apply a reviewed cleanup plan.
 
-- `PLAN`: The plan id
+- `PLAN`: The plan id ace storage plan printed
 
 - `--revision REVISION`: The plan revision you reviewed
 
@@ -368,35 +391,56 @@ Apply a reviewed cleanup plan.
 
 Where a cleanup plan stands.
 
-- `PLAN`: The plan id
+- `PLAN`: The plan id ace storage plan printed
 
 ### `ace storage compact [flags]`
 
-Compact ace's database.
+Give the database's free space back to the disk.
 
 - `--abandon ID`: Give up a compaction that's stuck
 
+### `ace config list`
+
+Every setting and its value.
+
 ### `ace config get [KEY]`
 
-A setting's value, or every setting.
+One setting: its value, what it does and what it takes.
 
-- `KEY`: The setting; every one when omitted
+- `KEY`: A setting, like threads.useWorktree (ace config list shows them all)
 
 ### `ace config set KEY VALUE`
 
 Change a setting.
 
-- `KEY`: The setting
-- `VALUE`: Its new value
+- `KEY`: A setting, like threads.useWorktree (ace config list shows them all)
+- `VALUE`: Its new value; @FILE for a JSON one
+
+    ace config set threads.useWorktree off
+    # Threads start in the project
+
+    ace config set providers.default claude
+    # New threads use Claude
+
+    ace config set retention-days 60
+    # Keep idle data for 60 days
+
+### `ace config unset KEY`
+
+Put a setting back to its default.
+
+- `KEY`: A setting, like threads.useWorktree (ace config list shows them all)
 
 ### `ace doctor [flags]`
 
 Check ace, then repair what's broken.
 
+Works with the daemon down. On a terminal it offers a checklist of repairs, and triage when findings remain.
+
 - `--fix`: Apply the recommended repairs
 - `--dry-run`: Plan repairs without running them
 - `--all`: Run every check, not only the quick ones
-- `--provider PROVIDER`: codex, claude, cursor, opencode, antigravity or pi
+- `--provider PROVIDER`: The agent to hand it to: claude, codex, cursor or opencode
 
 ### `ace doctor bundle PATH [flags]`
 
@@ -410,7 +454,9 @@ Write a redacted support bundle.
 
 Hand what's broken to an agent, with the facts it needs.
 
-- `--provider PROVIDER`: codex, claude, cursor, opencode, antigravity or pi
+Writes what an agent needs to know about this machine to a folder, then starts the agent there. Works with ace broken.
+
+- `--provider PROVIDER`: The agent to hand it to: claude, codex, cursor or opencode
 - `--print`: Print the playbook instead of starting
 
 ## Providers and access
@@ -693,13 +739,44 @@ Turn a client's sign-in away.
 
 ## Spade and the market
 
+### `ace spade status`
+
+Whether Spade is on, and how it is.
+
 ### `ace spade on`
 
 Turn Spade on.
 
+While Settings › Beta hides Spade, this turns that on too: it asks once on a terminal, and needs --yes anywhere else.
+
 ### `ace spade off`
 
-Turn Spade off.
+Turn Spade off; its data is kept.
+
+### `ace spade bot list`
+
+Spade's bots, and what each is doing.
+
+### `ace spade bot show BOT`
+
+One bot: its task, model and latest message.
+
+- `BOT`: A bot's id or name
+
+### `ace spade chat [BOT] [TEXT|-]`
+
+Talk with a bot (Spade's main bot by default).
+
+With TEXT it sends one message and prints the reply. Without it, on a terminal, it is a conversation: type a line, read the answer, Ctrl-C to leave.
+
+- `BOT`: A bot's id or name; Spade's main bot when omitted
+- `TEXT`: One message to send; - reads it from stdin
+
+    ace spade chat
+    # A conversation with Spade
+
+    ace spade chat writer "Draft the release notes"
+    # One message
 
 ### `ace feature list`
 
@@ -721,6 +798,12 @@ Turn a Beta feature off.
 
 Your automations.
 
+### `ace automation show AUTOMATION`
+
+One automation: its trigger, next run and last run.
+
+- `AUTOMATION`: The automation id
+
 ### `ace automation run AUTOMATION [flags]`
 
 Run an automation now.
@@ -728,6 +811,29 @@ Run an automation now.
 - `AUTOMATION`: The automation id
 
 - `--variables @FILE`: Its variables, from a JSON file
+- `--message TEXT`: Extra instructions for this run only
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+    ace automation run nightly
+    # Now
+
+    ace automation run release --variables @vars.json
+    # With variables
+
+### `ace automation create DEFINITION [flags]`
+
+Save an automation from a JSON definition.
+
+- `DEFINITION`: @FILE: the automation as JSON (ace automation show ID --json shows one)
+
+- `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+### `ace automation remove AUTOMATION [flags]`
+
+Delete an automation.
+
+- `AUTOMATION`: The automation id
+
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
 
 ### `ace market check [PATH] [flags]`

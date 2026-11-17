@@ -1,4 +1,5 @@
-import { follow, grammarRelease as since, limit, providerName } from "./flags.ts";
+import { follow, grammarRelease as since, limit } from "./flags.ts";
+import { configCommands, storageCommands } from "./machine-storage.ts";
 import type { CommandSpec, FlagSpec, NounSpec } from "./spec.ts";
 
 /** The daemon, its service, storage, settings and repair (ADR 0176 §7, This machine). */
@@ -10,22 +11,13 @@ export const machineNouns: readonly NounSpec[] = [
   { name: "doctor", summary: "Check ace and repair what's broken", group: "machine" },
 ];
 
-const kinds: readonly FlagSpec[] = [
-  { name: "threads", summary: "Settled threads' history" },
-  { name: "worktrees", summary: "Worktrees of settled threads" },
-  { name: "artifacts", summary: "Screenshots, recordings and other artifacts" },
-  { name: "logs", summary: "Old logs" },
-  { name: "attachments", summary: "Attached files" },
-  { name: "caches", summary: "Caches ace can rebuild" },
-];
-const planFlags: readonly FlagSpec[] = [
-  ...kinds,
-  { name: "older-than", value: "DURATION", summary: "Only what's older than this, e.g. 30d" },
-  { name: "kinds", value: "KIND,…", summary: "Kinds as one list", hidden: true },
-  { name: "retention", value: "JSON", summary: "Retention as JSON", hidden: true },
-  { name: "force-items", value: "JSON", summary: "Protected items as JSON", hidden: true },
-];
-const planArg = { name: "PLAN", summary: "The plan id", required: true } as const;
+/** Triage and doctor hand work to one of these agent CLIs (ADR 0092). */
+const triageProvider: FlagSpec = {
+  name: "provider",
+  value: "PROVIDER",
+  summary: "The agent to hand it to: claude, codex, cursor or opencode",
+  choices: ["claude", "codex", "cursor", "opencode"],
+};
 
 const serviceSummaries = {
   install: "Run ace at login (launchd, systemd or Task Scheduler)",
@@ -44,6 +36,7 @@ function serviceCommand(verb: keyof typeof serviceSummaries): CommandSpec {
     offline: true,
     mutates: verb !== "status",
     nounDefault: verb === "status",
+    output: "service",
   };
   return verb === "install"
     ? { ...base, flags: [{ name: "linger", summary: "Keep running after logout (Linux)" }] }
@@ -98,8 +91,15 @@ export const machineCommands: readonly CommandSpec[] = [
     summary: "The daemon's recent log",
     group: "machine",
     offline: true,
+    description:
+      "One line per record. With --follow it keeps printing; with --json it prints the records as JSON (one line each with --follow).",
     flags: [follow, limit, { name: "f", summary: "Same as --follow", hidden: true }],
     aliases: [{ words: ["logs"] }],
+    output: "daemon.logs",
+    examples: [
+      { command: "ace logs --limit 20", summary: "The last 20 records" },
+      { command: "ace logs --follow --json", summary: "Records as JSON Lines, as they come" },
+    ],
   },
   {
     id: "daemon.token",
@@ -108,93 +108,11 @@ export const machineCommands: readonly CommandSpec[] = [
     group: "machine",
     offline: true,
     aliases: [{ words: ["token"], deprecatedSince: since }],
+    output: "daemon.token",
   },
   ...(["install", "uninstall", "start", "stop", "status"] as const).map(serviceCommand),
-  {
-    id: "storage.usage",
-    words: ["storage", "usage"],
-    summary: "What ace's data uses on disk",
-    group: "machine",
-    nounDefault: true,
-    output: "storage.usage",
-  },
-  {
-    id: "storage.plan",
-    words: ["storage", "plan"],
-    summary: "Plan a cleanup to review",
-    group: "machine",
-    flags: planFlags,
-    output: "storage.plan",
-  },
-  {
-    id: "storage.clean",
-    words: ["storage", "clean"],
-    summary: "Plan a cleanup, show it, ask, then apply it",
-    group: "machine",
-    mutates: true,
-    flags: [...planFlags, { name: "dry-run", summary: "Show the plan; change nothing" }],
-    aliases: [
-      {
-        words: ["clean"],
-        deprecatedSince: since,
-        byFlag: { compact: "storage.compact" },
-      },
-    ],
-    examples: [
-      { command: "ace storage clean --logs --older-than 30d", summary: "Old logs" },
-      { command: "ace storage clean --threads --dry-run", summary: "See what would go" },
-    ],
-  },
-  {
-    id: "storage.apply",
-    words: ["storage", "apply"],
-    summary: "Apply a reviewed cleanup plan",
-    group: "machine",
-    mutates: true,
-    args: [planArg],
-    flags: [{ name: "revision", value: "REVISION", summary: "The plan revision you reviewed" }],
-    aliases: [{ words: ["clean", "apply"], deprecatedSince: since }],
-  },
-  {
-    id: "storage.status",
-    words: ["storage", "status"],
-    summary: "Where a cleanup plan stands",
-    group: "machine",
-    args: [planArg],
-    aliases: [{ words: ["clean", "status"], deprecatedSince: since }],
-  },
-  {
-    id: "storage.compact",
-    words: ["storage", "compact"],
-    summary: "Compact ace's database",
-    group: "machine",
-    mutates: true,
-    flags: [
-      { name: "abandon", value: "ID", summary: "Give up a compaction that's stuck" },
-      { name: "compact", summary: "The old ace clean --compact", hidden: true },
-    ],
-  },
-  {
-    id: "config.get",
-    words: ["config", "get"],
-    summary: "A setting's value, or every setting",
-    group: "machine",
-    offline: true,
-    nounDefault: true,
-    args: [{ name: "KEY", summary: "The setting; every one when omitted" }],
-  },
-  {
-    id: "config.set",
-    words: ["config", "set"],
-    summary: "Change a setting",
-    group: "machine",
-    offline: true,
-    mutates: true,
-    args: [
-      { name: "KEY", summary: "The setting", required: true },
-      { name: "VALUE", summary: "Its new value", required: true },
-    ],
-  },
+  ...storageCommands,
+  ...configCommands,
   {
     id: "doctor",
     words: ["doctor"],
@@ -205,8 +123,13 @@ export const machineCommands: readonly CommandSpec[] = [
       { name: "fix", summary: "Apply the recommended repairs" },
       { name: "dry-run", summary: "Plan repairs without running them" },
       { name: "all", summary: "Run every check, not only the quick ones" },
-      providerName,
+      triageProvider,
     ],
+    description:
+      "Works with the daemon down. On a terminal it offers a checklist of repairs, and triage when findings remain.",
+    output: "doctor",
+    exits: [{ code: 1, when: "a check failed, or a repair did" }],
+    seeAlso: ["triage", "doctor bundle"],
   },
   {
     id: "doctor.bundle",
@@ -217,6 +140,7 @@ export const machineCommands: readonly CommandSpec[] = [
     args: [{ name: "PATH", summary: "Where to write it", required: true }],
     flags: [{ name: "include-threads", summary: "Include thread transcripts" }],
     aliases: [{ words: ["support-bundle"], deprecatedSince: since }],
+    output: "doctor.bundle",
   },
   {
     id: "triage",
@@ -224,7 +148,11 @@ export const machineCommands: readonly CommandSpec[] = [
     summary: "Hand what's broken to an agent, with the facts it needs",
     group: "machine",
     offline: true,
-    flags: [providerName, { name: "print", summary: "Print the playbook instead of starting" }],
+    description:
+      "Writes what an agent needs to know about this machine to a folder, then starts the agent there. Works with ace broken.",
+    flags: [triageProvider, { name: "print", summary: "Print the playbook instead of starting" }],
+    output: "triage",
+    seeAlso: ["doctor"],
   },
   ...(["update", "supervise", "migrate-check", "spade-follow", "install-artifact"] as const).map(
     (word): CommandSpec => ({

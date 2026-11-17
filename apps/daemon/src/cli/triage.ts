@@ -51,10 +51,10 @@ export async function triageCommand(
 ): Promise<void> {
   validateArgs(args, ["provider", "print"], 1);
   if (args.flags.remote)
-    throw new CliFailure(
-      "refused",
-      "Triage runs on this computer. Run ace triage on the affected host.",
-    );
+    throw new CliFailure("refused", "Triage runs only on this computer, not a remote.", undefined, {
+      code: "refused",
+      hint: "Run ace triage on the affected machine.",
+    });
   const providerValue = option(args, "provider");
   const provider = providerValue === undefined ? undefined : TriageProvider.parse(providerValue);
   if (!interactive(args)) {
