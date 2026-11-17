@@ -11,7 +11,7 @@ The plumbing underneath is careful: idempotency keys, outbox replay, whole-tree 
 report done early, triage that works with ace broken. The surface on top grew command by command
 with no shared grammar, no per-command help, and a human mode that mostly prints JSON.
 
-The redesign that answers this audit is [docs/adr/drafts/cli-redesign.md](../adr/drafts/cli-redesign.md).
+The redesign that answers this audit is [docs/adr/0176-one-cli-grammar-interactive-home-and-market.md](../adr/0176-one-cli-grammar-interactive-home-and-market.md).
 
 ## 1. How a command runs today
 
@@ -142,10 +142,10 @@ directly). "Human output" says what a person sees without `--json`.
 | Command                                                                                                                                                             | What it does                                                                                                                                                                          | Daemon | Human output                   |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------------------------------ |
 | `ace marketplace check PATH --type TYPE [--name N]`                                                                                                                 | Runs the market's upload checks on a local folder.                                                                                                                                    | none   | Pass sentence or problem lines |
-| `ace market keygen\|sign\|review\|feature\|revoke\|reports\|collection\|publisher\|block\|block-file\|block-pattern\|appeals\|appeal\|verify\|unverify\|official …` | **Maintainer tools only** (ADR 0168 §6–7, 0173 §10): sign pending versions, the review queue, blocks, verification, the official list. Need `ACE_MARKET_SIGNER_TOKEN` and a key file. | market | Sentences or JSON              |
+| `ace market keygen\|sign\|review\|feature\|revoke\|reports\|collection\|publisher\|block\|block-file\|block-pattern\|appeals\|appeal\|verify\|unverify\|official …` | **Maintainer tools only** (ADR 0168 §6–7, 0174 §10): sign pending versions, the review queue, blocks, verification, the official list. Need `ACE_MARKET_SIGNER_TOKEN` and a key file. | market | Sentences or JSON              |
 
 There is no way for a person to search, install, update or remove anything from the market on the
-CLI, and no way to publish. ADR 0173 says "a publisher can upload a version from the CLI";
+CLI, and no way to publish. ADR 0174 says "a publisher can upload a version from the CLI";
 that command doesn't exist. The daemon already has every operation a CLI needs
 (`marketplace.request`: `search`, `read`, `prepare`, `readReview`, `install`, `installed`,
 `prepareUpdate`, `remove`, `turnOn`, `discover`, `publisher`, `report` and `publish` with 30
@@ -284,7 +284,7 @@ there or with ace features on spade.", "Sign in to publish."
 | Models and their catalogue (ADR 0036)                                                             | Inside the huge `capabilities` JSON                                   |
 | Other machines: list them, work on one (ADR 0101, 0111)                                           | Remote profiles only, and only by hand or pairing link                |
 | The marketplace: Discover, search, install with review, updates, remove, sources, reports         | None                                                                  |
-| Publishing: drafts, checks as sentences, publish, listing, versions, withdraw, profile (ADR 0173) | `marketplace check` only                                              |
+| Publishing: drafts, checks as sentences, publish, listing, versions, withdraw, profile (ADR 0174) | `marketplace check` only                                              |
 | Spade: chat with a bot, bots, routines, questions waiting for later                               | `spade on\|off` only                                                  |
 | Skills library (ADR 0103), Suits (ADR 0150)                                                       | None                                                                  |
 | Automations: create, edit, remove (ADR 0015)                                                      | `list` and `run` only                                                 |
@@ -318,7 +318,7 @@ tells them to) and could call any other command; Spade's bots reach ace through 
    desktop app, are not what an agent probing the CLI expects.
 9. **Rules that hold whoever runs the command.** An agent's shell runs `ace` with the person's
    local authority (it can read the host token). Publishing, withdrawing and other actions the
-   market treats as sensitive (ADR 0173 §2) need rules in the daemon that an agent can't satisfy
+   market treats as sensitive (ADR 0174 §2) need rules in the daemon that an agent can't satisfy
    by passing `--yes`.
 
 ## 6. What to keep

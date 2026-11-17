@@ -1,15 +1,15 @@
-# Draft: One grammar for the ace CLI, an interactive home, and the market from the terminal
+# 0176: One grammar for the ace CLI, an interactive home, and the market from the terminal
 
-Date: 2026-11-17. Status: **proposed**, waiting for the owner's review; it takes a number from
-`origin/main` when approved. Amends [ADR 0072](../0072-headless-cli.md) (the headless CLI): its
-grammar, help, output and exit-code sections. Keeps [ADR 0092](../0092-triage-and-doctor-repairs.md)
-(triage and doctor) whole. Builds on [ADR 0168](../0168-ace-marketplace.md) and
-[ADR 0173](../0173-market-publishers-discovery-and-scanning.md) (the market and its account-only
-writes), [ADR 0171](../0171-spade-decides-on-effects.md) (Spade's effect rules),
-[ADR 0122](../0122-outside-mcp-clients.md) (outside MCP clients) and
-[ADR 0111](../0111-account-machine-access.md) (the ace account on a machine).
+Status: accepted. Date: 2026-11-17. Decided by: the owner (2026-11-17: every recommendation of the
+draft, recorded under "The owner's decisions" at the end). Amends [ADR 0072](0072-headless-cli.md) (the headless CLI): its
+grammar, help, output and exit-code sections. Keeps [ADR 0092](0092-triage-and-doctor-repairs.md)
+(triage and doctor) whole. Builds on [ADR 0168](0168-ace-marketplace.md) and
+[ADR 0174](0174-market-publishers-discovery-and-scanning.md) (the market and its account-only
+writes), [ADR 0171](0171-spade-decides-on-effects.md) (Spade's effect rules),
+[ADR 0122](0122-outside-mcp-clients.md) (outside MCP clients) and
+[ADR 0111](0111-account-machine-access.md) (the ace account on a machine).
 
-The audit this answers is [docs/cli/audit.md](../../cli/audit.md). The mockup is
+The audit this answers is [docs/cli/audit.md](../cli/audit.md). The mockup is
 `~/.ace/spade-mockups/ace-cli-v1/index.html`.
 
 ## Context
@@ -116,7 +116,7 @@ The default provider is the person's default from Settings, no longer always Cod
 
 - **Human** is the default, whether or not stdout is a terminal, so a script's output doesn't
   change when it's piped. Each command has a renderer that prints words and aligned columns in
-  the [design language](../../design/design-language.md)'s voice: state, not chrome. Lists follow
+  the [design language](../design/design-language.md)'s voice: state, not chrome. Lists follow
   the app's order (pinned, needs you, running, finished unseen, the rest) with no section labels.
   A status shows as one glyph in its state's colour (`◆` an approval, `?` a question and `✦` a
   model to choose, all needs-you amber; `✕` failed, `◌` working with
@@ -308,7 +308,7 @@ in `--json` or `--quiet` mode. Then the alias prints a usage error naming the ne
 
 | Today                                                                                                                                                               | New                                                                                                         | Alias                                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `ace` (no words, starts the daemon)                                                                                                                                 | Terminal: the interactive home. Otherwise the overview, exit 0. Starting the daemon is `ace start`          | none: see Open question 2                                                                                                   |
+| `ace` (no words, starts the daemon)                                                                                                                                 | Terminal: the interactive home. Otherwise the overview, exit 0. Starting the daemon is `ace start`          | none (decision 2)                                                                                                           |
 | `ace start`, `ace serve`, `ace stop`                                                                                                                                | `ace daemon start\|serve\|stop`                                                                             | permanent                                                                                                                   |
 | `ace status`                                                                                                                                                        | `ace status` (additive fields); raw health also at `ace daemon status`                                      | permanent                                                                                                                   |
 | `ace token`                                                                                                                                                         | `ace daemon token`                                                                                          | yes                                                                                                                         |
@@ -464,7 +464,7 @@ ace starts every agent session, so it gives the session's environment three vari
 
 These are hints for an honest caller, **not a security boundary**: an agent runs as the person and
 can unset them or read the host token. What keeps the person in control is the daemon's rules
-(§12.5), the market's fresh-sign-in rule for sensitive actions (ADR 0173 §2), and the provider's
+(§12.5), the market's fresh-sign-in rule for sensitive actions (ADR 0174 §2), and the provider's
 own permissions over the shell command. Each provider's shell must be checked to inherit these
 variables (Codex's `shell_environment_policy`, Claude Code's Bash tool, Cursor, OpenCode, Pi,
 Antigravity) before the CLI relies on them; where one doesn't, the agent passes `--thread` and
@@ -551,7 +551,7 @@ is `listing` plus `preview`, and so on. The CLI adds no market logic. `check` ru
 2. **Local checks first.** The same checks the market runs. Problems print as `path:line:
    sentence` and exit 1 before anything is uploaded.
 3. **The draft.** The daemon mints a market grant through this machine's ace account for this one
-   request (ADR 0173 §2) and uploads. The market's scan comes back as sentences: notes and warnings
+   request (ADR 0174 §2) and uploads. The market's scan comes back as sentences: notes and warnings
    are listed; a block exits 1 with code `blocked`, keeps the draft, and says how to appeal.
 4. **Confirm.** On a terminal: "Publish suit/dusk-harbor 1.2.0 as @arpan? Listed, 14 files, 220
    KB. The scan found 1 note." with `y Publish`, `n Keep as draft`. Without a terminal `--yes` is
@@ -566,9 +566,9 @@ is `listing` plus `preview`, and so on. The CLI adds no market logic. `check` ru
   CLI offers to sign in now (the `ace login` flow) and then carries on.
 - **Sensitive actions** (withdraw, transfer and accepting one, changing the handle, editing a
   verified profile, applying for verification) need a sign-in within ten minutes (`reauth`, ADR
-  0173 §2). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
+  0174 §2). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
   once the new session is recorded. Without a terminal: exit 2, code `reauth`. The CLI never holds
-  a grant: the daemon mints one per request and drops it, as ADR 0173 requires.
+  a grant: the daemon mints one per request and drops it, as ADR 0174 requires.
 - `suspended`, `quota`, `forbidden` and `conflict` exit 4 with the market's sentence.
 
 #### 12.4 Errors a publisher reads
@@ -594,7 +594,7 @@ person's tool and the fallback for a shell.
   asks you to withdraw suit/dusk-harbor 1.2.0: the colours fail contrast." with `Withdraw…` and
   `Dismiss`. `Withdraw…` runs it under the person's hand, with the fresh sign-in if needed. Only a
   person's device answers it; no agent, MCP grant or Spade bot can. This doesn't gate an ace tool:
-  the market itself refuses these without the person's recent sign-in (ADR 0173 §2).
+  the market itself refuses these without the person's recent sign-in (ADR 0174 §2).
 - **Spade** uses the same two tools through its ace connection. Under ADR 0171 decision 3, ace
   declares their effects in the tool list it gives Spade: `market_read` is `read` and
   `market_publish` is `publish`, so Spade's reviewer looks at every publish (decision 4). The
@@ -698,7 +698,7 @@ table's flag definitions. Every file stays under the 400-line aim.
   Spade's sandboxed bots can't reach the host token. Rejected for MCP-first.
 - **The person approves every agent publish in ace.** Safest, but it adds ace's own gate to an
   ace tool, against the rule that ace tools follow the provider's permissions, and Spade already
-  reviews publishes. Left as Open question 1.
+  reviews publishes. Rejected as the default (decision 1); the "Ask me before agents publish" setting offers it.
 
 ## Consequences
 
@@ -739,27 +739,25 @@ test per wiring.
   reaches the draft, and `withdraw` from a shell with `ACE_THREAD_ID` set exits 2 with a request
   id; every alias of §8 reaches the same daemon operation as its new form.
 
-## Open for the owner
+## The owner's decisions
 
-1. **Should every publish an agent makes come to you first?** Today's rule is that ace tools
-   follow the provider's permission mode, and Spade's reviewer looks at its publishes. A publish
-   is public, in your name, and can only be withdrawn, never deleted. **Recommended: no.** Keep
-   the provider's permissions and Spade's reviewer for publishing, and person-only for withdraw,
-   transfer, handle, delete, verification and install (§12.5). A new publisher's first version is
-   held for a maintainer anyway (ADR 0173 open question 1). Add a setting "Ask me before agents
-   publish", off by default, if you want the choice.
-2. **Bare `ace` without a terminal.** Today it starts a foreground daemon. **Recommended:** print
-   the overview and exit 0 from the first release. Nothing in ace calls bare `ace`, and an agent
-   probing `ace` shouldn't start a daemon. The alternative is one release of starting the daemon
-   with a notice.
-3. **Exit 64 for usage errors.** **Recommended: yes.** Agents need to tell their own mistake from a
-   refusal. The cost is that a script testing `== 4` for a typo changes.
-4. **The interactive home's look.** **Recommended:** inline, as in the mockup, not full-screen.
-   You keep your scrollback and it reads like the rest of the terminal.
-5. **`ace chat` vs `ace thread attach`.** **Recommended:** keep `ace chat` as the shortcut people
-   use, since it starts a new conversation as well as attaching to one.
-6. **The deprecation window.** **Recommended:** two minor releases with a notice, then one with a
-   usage error, then removal. The machine entry points of §8 never retire.
-7. **The maintainer tools' home.** **Recommended:** `ace market maintainer …` in the same binary,
-   hidden from `ace help`. The alternative is a separate maintainer-only script in `tools/`,
-   which keeps them out of every release but needs its own install.
+The owner took every recommendation on 2026-11-17, and asked for a CLI that covers what the app
+does.
+
+1. **Agents' publishes don't come to the person first.** Publishing follows the provider's
+   permission mode, plus Spade's reviewer for bots. Withdraw, transfer (offering and accepting),
+   handle changes, deleting an entry, verified-profile edits, verification and installing are
+   person-only (§12.5). A global setting, **"Ask me before agents publish"**
+   (`market.askBeforeAgentPublish`), off by default, turns every agent publish into a request in the
+   asking thread's strip that only a person's device answers.
+2. **Bare `ace` without a terminal prints the overview and exits 0**, from this release. Nothing in
+   ace calls bare `ace`; starting the daemon is `ace start`.
+3. **Usage errors exit 64.**
+4. **The interactive home is inline**, drawn below the prompt in the terminal's scrollback, never
+   full-screen.
+5. **`ace chat` stays** as the shortcut for `ace thread attach`.
+6. **Deprecation:** an old spelling prints a notice for two minor releases after its replacement
+   ships, then is a usage error naming the new command for one release, then is removed. While ace
+   is versioned `0.0.N`, each release counts as a minor release. The machine entry points of §8
+   never retire.
+7. **Maintainer tools live under the hidden `ace market maintainer …`** in the same binary.
