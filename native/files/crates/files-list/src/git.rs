@@ -2,8 +2,10 @@
 
 //! Finds the ignore files git itself would read for a checkout.
 //!
-//! Everything here is best effort: a checkout without git, an unreadable config or an unknown
-//! config value means "no such file", never a failed listing.
+//! A checkout root can sit anywhere inside a repository, so the repository top (the folder that
+//! holds `.git`) is found by walking up from the root and never looked past. Everything here is
+//! best effort: no repository, an unreadable config or an unknown config value means "no such
+//! file", never a failed listing.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -11,9 +13,18 @@ use std::path::{Path, PathBuf};
 /// Config files are read up to this much; anything longer is not a git config ace cares about.
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 
-/// The repository's git directory, following the `.git` file that worktrees and submodules use.
-pub(crate) fn git_dir(root: &Path) -> Option<PathBuf> {
-    let dot = root.join(".git");
+/// The nearest folder at or above `dir` that holds `.git`, with the git directory it names.
+///
+/// `None` when `dir` is not inside a repository, in which case only the root's own `.gitignore`
+/// applies and nothing above it is read.
+pub(crate) fn repository(dir: &Path) -> Option<(PathBuf, PathBuf)> {
+    dir.ancestors()
+        .find_map(|folder| git_dir_at(folder).map(|git| (folder.to_path_buf(), git)))
+}
+
+/// A folder's git directory, following the `.git` file that worktrees and submodules use.
+fn git_dir_at(folder: &Path) -> Option<PathBuf> {
+    let dot = folder.join(".git");
     if dot.is_dir() {
         return Some(dot);
     }
@@ -29,21 +40,21 @@ pub(crate) fn git_dir(root: &Path) -> Option<PathBuf> {
     Some(if path.is_absolute() {
         path.to_path_buf()
     } else {
-        root.join(path)
+        folder.join(path)
     })
 }
 
 /// `<git-dir>/info/exclude`, which git applies to every repository but never commits.
-pub(crate) fn info_exclude(root: &Path) -> Option<PathBuf> {
-    let path = git_dir(root)?.join("info").join("exclude");
+pub(crate) fn info_exclude(git_dir: &Path) -> Option<PathBuf> {
+    let path = git_dir.join("info").join("exclude");
     path.is_file().then_some(path)
 }
 
 /// The file named by `core.excludesFile` in the repository's own config, when it sets one.
-pub(crate) fn excludes_file(root: &Path) -> Option<PathBuf> {
-    let config = read_bounded(&git_dir(root)?.join("config"))?;
+pub(crate) fn excludes_file(git_dir: &Path, base: &Path) -> Option<PathBuf> {
+    let config = read_bounded(&git_dir.join("config"))?;
     let value = parse_core_excludes_file(&config)?;
-    resolve_path(&value, root)
+    resolve_path(&value, base)
 }
 
 /// The last `core.excludesFile` value in a config file, in git's *section, key = value* form.
@@ -76,8 +87,8 @@ fn parse_core_excludes_file(config: &str) -> Option<String> {
     None
 }
 
-/// Git expands a leading `~/`; a relative value is taken from the checkout root.
-fn resolve_path(value: &str, root: &Path) -> Option<PathBuf> {
+/// Git expands a leading `~/`; a relative value is taken from the repository top.
+fn resolve_path(value: &str, base: &Path) -> Option<PathBuf> {
     if let Some(rest) = value.strip_prefix("~/") {
         let home = std::env::var_os("HOME")?;
         return Some(PathBuf::from(home).join(rest));
@@ -86,7 +97,7 @@ fn resolve_path(value: &str, root: &Path) -> Option<PathBuf> {
     Some(if path.is_absolute() {
         path.to_path_buf()
     } else {
-        root.join(path)
+        base.join(path)
     })
 }
 
