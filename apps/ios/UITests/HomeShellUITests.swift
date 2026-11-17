@@ -304,6 +304,7 @@ import XCTest
         XCTAssertEqual(review.label, "Code review")
         // Beside the scope button, to its left.
         XCTAssertLessThan(review.frame.midX, app.buttons["inbox.projects"].frame.midX)
+        capture("projects-top-bar")
         review.tap()
         let issues = app.buttons["forge.kind.issues"]
         XCTAssertTrue(issues.waitForExistence(timeout: 20))
