@@ -24,10 +24,18 @@ pub fn exec(plan: &Plan, program: &std::ffi::OsStr, args: &[OsString]) -> Result
         active_processes: plan.active_processes,
         memory_bytes: usize::try_from(plan.memory_bytes).unwrap_or(usize::MAX),
     };
+    let bridge = plan
+        .bridge
+        .as_ref()
+        .map(|bridge| spade_sandbox_windows::launch::Bridge {
+            pipe: bridge.pipe.clone(),
+            port: bridge.port,
+        });
     spade_sandbox_windows::launch::run(
         &plan.container.name,
         &plan.container.display,
         limits,
+        bridge,
         program,
         args,
     )

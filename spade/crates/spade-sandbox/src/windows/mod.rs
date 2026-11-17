@@ -5,6 +5,7 @@
 //! and lives in [`acls`] and [`run`]; the `unsafe` system calls are in `spade-sandbox-windows`.
 
 pub mod acls;
+pub mod bridge;
 pub mod run;
 
 use std::path::PathBuf;
@@ -72,6 +73,17 @@ pub struct Plan {
     pub active_processes: u32,
     /// The run tree's memory ceiling, in bytes.
     pub memory_bytes: u64,
+    /// The egress bridge, when the run has network: the loopback port its proxy points at and the
+    /// named pipe it forwards to. `None` leaves the run with no network.
+    #[serde(default)]
+    pub bridge: Option<Bridge>,
+}
+
+/// The in-container egress bridge the launcher starts (ADR 0167 decision 3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Bridge {
+    pub pipe: String,
+    pub port: u16,
 }
 
 /// Every place a policy grants or denies, in the order they must be applied: allows first, then
@@ -109,11 +121,17 @@ pub fn grants(policy: &Policy) -> Vec<Grant> {
 
 /// The plan for `policy` and `limits`, for the bot whose workspace is `policy.workspace`'s last
 /// component.
-pub fn plan(container: Container, active_processes: u32, memory_bytes: u64) -> Plan {
+pub fn plan(
+    container: Container,
+    active_processes: u32,
+    memory_bytes: u64,
+    bridge: Option<Bridge>,
+) -> Plan {
     Plan {
         container,
         active_processes,
         memory_bytes,
+        bridge,
     }
 }
 

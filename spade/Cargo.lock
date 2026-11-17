@@ -3575,6 +3575,7 @@ dependencies = [
  "spade-mcp",
  "spade-models",
  "spade-sandbox",
+ "spade-sandbox-windows",
  "spade-search",
  "spade-server",
  "spade-store",

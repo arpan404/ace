@@ -104,6 +104,11 @@ impl Runner {
         &self.status
     }
 
+    /// Spade's own binary, used as the sandbox launcher (Linux and Windows).
+    pub fn launcher(&self) -> Option<&Path> {
+        self.launcher.as_deref()
+    }
+
     /// `program args` started under `policy`.
     pub fn wrap(
         &self,

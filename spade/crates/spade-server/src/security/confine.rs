@@ -62,13 +62,15 @@ impl Confine for Security {
         // credential list inside any granted folder), recorded so a later run or a crash can
         // take the grants back (ADR 0167, ACL hygiene). Done before the launch, fail closed.
         #[cfg(windows)]
-        {
+        let sid = {
             let container = spade_sandbox::windows::Container::for_bot(&bot);
-            let grants = spade_sandbox::windows::grants(&policy);
-            spade_sandbox::windows::acls::reconcile(&self.acl_dir(), &container, &grants).map_err(
-                |error| format!("the sandbox's permissions could not be set: {error}"),
-            )?;
-        }
+            spade_sandbox::windows::acls::reconcile(
+                &self.acl_dir(),
+                &container,
+                &spade_sandbox::windows::grants(&policy),
+            )
+            .map_err(|error| format!("the sandbox's permissions could not be set: {error}"))?
+        };
         let (path_first, mut env) = toolchains::env(&toolchain_dirs, &|p: &Path| p.is_dir());
         env.push((
             "TMPDIR".to_owned(),
@@ -79,20 +81,53 @@ impl Confine for Security {
         for name in ["TEMP", "TMP"] {
             env.push((name.to_owned(), policy.temp.to_string_lossy().into_owned()));
         }
+
+        // Windows reaches the proxy through a per-run egress bridge (ADR 0167 decision 3): a
+        // loopback listener inside the container (`HTTP_PROXY` points at it) that forwards over a
+        // named pipe to the daemon-side acceptor started here. Elsewhere the proxy is on loopback.
+        #[cfg(windows)]
+        let (bridge_spec, bridge_hold) = self.windows_bridge(&ticket, &run, &sid, &mut env);
+        #[cfg(not(windows))]
         if let Some(ticket) = &ticket {
             env.extend(ticket.env());
         }
+
         let runner = self.runner.clone();
-        Ok(Some(Confined {
-            launch: Box::new(move |program, args| {
-                runner
-                    .wrap(&policy, program, args)
-                    .map(|launch| (launch.program, launch.args))
+        #[cfg(windows)]
+        let launch: crate::workspace::shell::Launcher = {
+            let launcher = runner.launcher().map(std::path::Path::to_path_buf);
+            let plan = spade_sandbox::windows::plan(
+                spade_sandbox::windows::Container::for_bot(&bot),
+                spade_sandbox::windows::run::DEFAULT_ACTIVE_PROCESSES,
+                spade_sandbox::windows::run::DEFAULT_MEMORY_BYTES,
+                bridge_spec,
+            );
+            Box::new(move |program: &Path, args: &[std::ffi::OsString]| {
+                let launcher = launcher
+                    .clone()
+                    .ok_or_else(|| "Spade's own program is unknown".to_owned())?;
+                spade_sandbox::windows::run::wrap(&launcher, &plan, program, args)
                     .map_err(|error| format!("the sandbox could not start: {error}"))
-            }),
+            })
+        };
+        #[cfg(not(windows))]
+        let launch: crate::workspace::shell::Launcher = Box::new(move |program, args| {
+            runner
+                .wrap(&policy, program, args)
+                .map(|launch| (launch.program, launch.args))
+                .map_err(|error| format!("the sandbox could not start: {error}"))
+        });
+
+        #[cfg(windows)]
+        let hold: Box<dyn std::any::Any + Send + Sync> = Box::new((ticket, bridge_hold));
+        #[cfg(not(windows))]
+        let hold: Box<dyn std::any::Any + Send + Sync> = Box::new(ticket);
+
+        Ok(Some(Confined {
+            launch,
             env,
             path_first,
-            hold: Box::new(ticket),
+            hold,
         }))
     }
 
@@ -118,4 +153,58 @@ impl Confine for Security {
         }
         Some(self.before_unreviewed(&self.bot_of(home)?))
     }
+}
+
+/// Ends a run's egress-bridge acceptor when the run ends (dropped with its ticket).
+#[cfg(windows)]
+pub(crate) struct BridgeHold(tokio::sync::watch::Sender<bool>);
+
+#[cfg(windows)]
+impl Drop for BridgeHold {
+    fn drop(&mut self) {
+        let _ = self.0.send(true);
+    }
+}
+
+#[cfg(windows)]
+impl Security {
+    /// Starts the daemon-side egress-bridge acceptor for this run and points the command's proxy
+    /// variables at the in-container bridge's loopback port. Returns the bridge for the plan and a
+    /// hold that stops the acceptor when the run ends. No ticket (network off) means no bridge.
+    fn windows_bridge(
+        &self,
+        ticket: &Option<spade_sandbox::egress::Ticket>,
+        run: &str,
+        sid: &spade_sandbox_windows::sid::Sid,
+        env: &mut Vec<(String, String)>,
+    ) -> (Option<spade_sandbox::windows::Bridge>, Option<BridgeHold>) {
+        let (Some(ticket), Some(proxy)) = (ticket, self.proxy.as_ref()) else {
+            return (None, None);
+        };
+        let Some(port) = free_loopback_port() else {
+            return (None, None);
+        };
+        let pipe = format!("spade-egress-{run}-{}", uuid::Uuid::new_v4().simple());
+        let (stop, stop_rx) = tokio::sync::watch::channel(false);
+        tokio::spawn(spade_sandbox::windows::bridge::serve(
+            pipe.clone(),
+            sid.clone(),
+            proxy.port(),
+            stop_rx,
+        ));
+        env.extend(ticket.env_on(port));
+        (
+            Some(spade_sandbox::windows::Bridge { pipe, port }),
+            Some(BridgeHold(stop)),
+        )
+    }
+}
+
+/// A free loopback TCP port (bound then released; a small race is tolerated and fails closed).
+#[cfg(windows)]
+fn free_loopback_port() -> Option<u16> {
+    std::net::TcpListener::bind(("127.0.0.1", 0))
+        .ok()
+        .and_then(|listener| listener.local_addr().ok())
+        .map(|addr| addr.port())
 }
