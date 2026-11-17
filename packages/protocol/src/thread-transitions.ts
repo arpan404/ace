@@ -209,6 +209,11 @@ export const QueueFacts = z.object({
   slotsInUse: z.number().int().nonnegative(),
   /** This child's place in its parent's queue, oldest first. */
   queuePosition: z.number().int().positive(),
+  /**
+   * What the child waits for besides a slot: `storage`, the machine's disk too full to start it
+   * (ADR 0174). It starts on its own once space is freed. Older clients ignore it.
+   */
+  waitingFor: z.enum(["storage"]).optional(),
 });
 export type QueueFacts = z.infer<typeof QueueFacts>;
 /**

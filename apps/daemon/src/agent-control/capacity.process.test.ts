@@ -202,3 +202,36 @@ test("a queued child whose start meets a full disk stays queued, keeps its paren
   expect(h.store.getThread(second.childId)?.status.state).toBe("working");
   expect(h.inputs.get(second.childId)?.join("\n")).toContain("Implement safely");
 });
+
+test("a queued child says it waits for disk space while the disk is full, and its place again once space is back", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const parent = await h.parent();
+  h.delegate(parent, "running");
+  const queued = h.delegate(parent, "queued");
+  await h.engine.flush();
+  const row = () =>
+    h.service.monitor.snapshot(parent).children.find((c) => c.id === queued.childId);
+  // The parent's subagent row reads the child's status off its launch item.
+  const shown = () => {
+    const launch = Object.values(h.store.snapshotThread(parent.threadId).items).find(
+      (item) => item.type === "delegation.started" && item.childThreadId === queued.childId,
+    );
+    return launch?.type === "delegation.started" ? launch.status : undefined;
+  };
+
+  h.setStorageFull(true);
+  // What agents_status reads, what the parent shows and what the child's own page reads.
+  expect(row()).toMatchObject({
+    state: "queued",
+    step: "Waiting for disk space",
+    waitingFor: "storage",
+  });
+  expect(shown()).toMatchObject({ on: "queue", waitingFor: "storage" });
+  expect(h.store.getThread(queued.childId)?.queuedLaunch).toMatchObject({ waitingFor: "storage" });
+
+  h.setStorageFull(false);
+  expect(row()?.step).toBe("queued: position 1, 1 of 1 run slots in use");
+  expect(row()?.waitingFor).toBeUndefined();
+  expect(shown()).not.toHaveProperty("waitingFor");
+  expect(h.store.getThread(queued.childId)?.queuedLaunch).not.toHaveProperty("waitingFor");
+});

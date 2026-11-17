@@ -286,6 +286,7 @@ function ThreadScreen(props: {
                     slotLimit={meta.queuedLaunch.slotLimit}
                     slotsInUse={meta.queuedLaunch.slotsInUse}
                     queuePosition={meta.queuedLaunch.queuePosition}
+                    waitingFor={meta.queuedLaunch.waitingFor}
                   />
                 ) : (
                   <div className="col-start-1 row-start-1 min-h-0 min-w-0">
