@@ -1,7 +1,7 @@
 import { GRANT_LIFETIME_MS, signMarketGrant } from "@ace/account-grant";
 import { writeArchive, type ArchiveFile } from "@ace/marketplace";
 import type { MarketEntryType } from "@ace/protocol/marketplace";
-import { grantKey, manifestFor, put, type Market } from "./harness.ts";
+import { approveHeld, grantKey, manifestFor, put, type Market } from "./harness.ts";
 
 /*
  * Acting as a publisher through the market's HTTP API (ADR 0173): grants with chosen claims,
@@ -155,6 +155,8 @@ export async function liveVersion(
   const published = await draftAndPublish(market, account, upload);
   if (published.status !== 201)
     throw new Error(`publish failed: ${published.status} ${await published.text()}`);
+  // A runnable version is held for a maintainer (ADR 0173 §8 policy); release it before signing.
+  await approveHeld(market, upload.type, upload.name, upload.version ?? "1.0.0");
   await sign(market, upload, { id: publisher.id, name: publisher.handle });
 }
 

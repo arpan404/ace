@@ -10,6 +10,19 @@ import { disposition, scanEntry, type ScanContext } from "./index.ts";
  */
 
 const context: ScanContext = { entries: [], verified: [] };
+const suitJson = (id: string, scene = false) =>
+  JSON.stringify({
+    format: 1,
+    id,
+    name: "Harbour dusk",
+    description: "Slate panels.",
+    version: "1",
+    base: "ace",
+    light: {},
+    dark: {},
+    ...(scene ? { scenes: { app: "scene.js" } } : {}),
+  });
+
 const ordinary = { newPublisher: false, firstVersion: false, official: false, approved: false };
 const skillMd = (name: string, body = "This skill explains a small chore in prose.") =>
   `---\nname: ${name}\ndescription: Does a small chore.\n---\n# ${name}\n\n${body}\n`;
@@ -56,18 +69,6 @@ describe("runnable content is held, pure data lists", () => {
   });
 
   it("holds a Suit with a scene, lists one without", () => {
-    const suitJson = (id: string, scene = false) =>
-      JSON.stringify({
-        format: 1,
-        id,
-        name: "Harbour dusk",
-        description: "Slate panels.",
-        version: "1",
-        base: "ace",
-        light: {},
-        dark: {},
-        ...(scene ? { scenes: { app: "scene.js" } } : {}),
-      });
     const withScene = scan("suit", "lively", {
       "suit.json": suitJson("lively", true),
       "scene.js": "export function scene(ctx) { ctx.fillRect(0, 0, 4, 4); }",
