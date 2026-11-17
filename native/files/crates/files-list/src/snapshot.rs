@@ -131,10 +131,12 @@ fn item_for(
     } else {
         kind_of(&file_type)
     };
-    let is_dir = matches!(kind, Kind::Directory);
-    if hidden.hides(&path, is_dir) {
+    // The hide patterns are the caller's: `build/` should hide a symlink to a folder too. Git's
+    // ignore rules below are stricter, because git treats symlinks as files whatever they point at.
+    if hidden.hides(&path, kind.is_directory()) {
         return Ok(None);
     }
+    let is_dir = matches!(kind, Kind::Directory);
     Ok(Some(Item {
         ignored: rules.folder_ignored() || rules.ignored(&name, is_dir),
         folded: sort::fold(&name),

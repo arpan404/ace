@@ -209,3 +209,17 @@ fn lists_sizes_and_times_inside_a_subfolder() {
     assert_eq!(beta.size, 2);
     assert!(beta.mtime_ms > 0);
 }
+
+#[cfg(unix)]
+#[test]
+fn hide_patterns_treat_a_symlinked_folder_as_a_folder() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    folder(root, "real");
+    support::symlink(root, "alias", "real");
+    support::write(root, "notes.txt", "x");
+
+    let listing = first_page(&lister(root), "", &options_with_hide(100, &["alias/"]));
+
+    assert_eq!(names(&listing.entries), ["real", "notes.txt"]);
+}
