@@ -13,7 +13,7 @@ use std::ffi::{OsStr, OsString};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 
 use windows::Win32::Foundation::{HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation};
-use windows::Win32::Security::SECURITY_CAPABILITIES;
+use windows::Win32::Security::{SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES};
 use windows::Win32::System::Console::{
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
 };
@@ -31,11 +31,37 @@ use windows::Win32::System::Threading::{
 /// AppContainer. Defined here because the `windows` crate gates it behind a feature module we don't
 /// otherwise use.
 const ALL_APPLICATION_PACKAGES_OPT_OUT: u32 = 1;
+/// Value of `SE_GROUP_ENABLED` (`winnt.h`): a capability the token holds is enabled. Defined here
+/// for the same reason.
+const SE_GROUP_ENABLED: u32 = 4;
 use windows::core::{PCWSTR, PWSTR};
 
 use crate::job::{Job, Limits};
 use crate::profile;
 use crate::sid::Sid;
+
+/// The token a run's processes get: a Less Privileged AppContainer or a plain one, and the
+/// capability SIDs it holds (none by default). A capability reaches only what an ACE names it on.
+#[derive(Debug, Clone, Default)]
+pub struct Token {
+    pub lpac: bool,
+    pub capabilities: Vec<Sid>,
+}
+
+impl Token {
+    /// A Less Privileged AppContainer holding no capability.
+    pub fn lpac() -> Self {
+        Self {
+            lpac: true,
+            capabilities: Vec::new(),
+        }
+    }
+
+    /// A plain AppContainer holding no capability.
+    pub fn plain() -> Self {
+        Self::default()
+    }
+}
 
 /// The in-container egress bridge: the loopback port the command's proxy points at, and the named
 /// pipe it forwards to.
@@ -70,18 +96,21 @@ pub fn run_with(
     args: &[OsString],
 ) -> std::io::Result<u32> {
     // A run with no network is a Less Privileged AppContainer; a networked run is not.
-    let lpac = bridge.is_none();
+    let token = if bridge.is_none() {
+        Token::lpac()
+    } else {
+        Token::plain()
+    };
     run_in(
-        lpac, name, display, limits, bridge, bridge_exe, program, args,
+        &token, name, display, limits, bridge, bridge_exe, program, args,
     )
 }
 
-/// [`run_with`], with the token chosen explicitly: a Less Privileged AppContainer (`lpac`) or a
-/// plain one. Production goes through [`run`]/[`run_with`], which choose by network; tests use
-/// this to check a boundary under both tokens.
+/// [`run_with`], with the token chosen explicitly (`token`): LPAC or plain, and its capabilities.
+/// Production goes through [`run`]/[`run_with`]; tests use this to check a boundary under each.
 #[allow(clippy::too_many_arguments)]
 pub fn run_in(
-    lpac: bool,
+    token: &Token,
     name: &str,
     display: &str,
     limits: Limits,
@@ -98,7 +127,7 @@ pub fn run_in(
     // network directly, past the proxy. So a networked run can only be a plain no-capability
     // AppContainer, which keeps ambient app-package read access; Spade therefore never reports such
     // a run `contained` (it keeps the review path), and only LPAC runs are. See ADR 0167.
-    let mut caps = Capabilities::new(&sid, lpac)?;
+    let mut caps = Capabilities::new(&sid, token)?;
     let job = Job::create(limits)?;
 
     // The bridge first, so its loopback endpoint is up before the command runs. No inherited
@@ -205,20 +234,39 @@ fn spawn_bridge(
 /// and Spade does not report it `contained`.
 struct Capabilities {
     _sid: Sid,
+    /// The capability SIDs and their attribute entries, held while the list points at them.
+    _held: Vec<Sid>,
+    _entries: Box<[SID_AND_ATTRIBUTES]>,
     caps: Box<SECURITY_CAPABILITIES>,
     policy: Option<Box<u32>>,
     buffer: Vec<u8>,
 }
 
 impl Capabilities {
-    fn new(sid: &Sid, lpac: bool) -> std::io::Result<Self> {
+    fn new(sid: &Sid, token: &Token) -> std::io::Result<Self> {
+        let held = token.capabilities.clone();
+        let mut entries: Box<[SID_AND_ATTRIBUTES]> = held
+            .iter()
+            .map(|cap| SID_AND_ATTRIBUTES {
+                Sid: cap.as_psid(),
+                Attributes: SE_GROUP_ENABLED,
+            })
+            .collect();
+        let count = u32::try_from(entries.len())
+            .map_err(|_| std::io::Error::other("too many capabilities"))?;
         let caps = Box::new(SECURITY_CAPABILITIES {
             AppContainerSid: sid.as_psid(),
-            Capabilities: std::ptr::null_mut(),
-            CapabilityCount: 0,
+            Capabilities: if entries.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                entries.as_mut_ptr()
+            },
+            CapabilityCount: count,
             Reserved: 0,
         });
-        let policy = lpac.then(|| Box::new(ALL_APPLICATION_PACKAGES_OPT_OUT));
+        let policy = token
+            .lpac
+            .then(|| Box::new(ALL_APPLICATION_PACKAGES_OPT_OUT));
         // One attribute for the SID, plus the LPAC policy when this run has no network.
         let count = 1 + u32::from(policy.is_some());
         let mut size = 0usize;
@@ -260,6 +308,8 @@ impl Capabilities {
         }
         Ok(Self {
             _sid: sid.clone(),
+            _held: held,
+            _entries: entries,
             caps,
             policy,
             buffer,
