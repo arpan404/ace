@@ -97,6 +97,16 @@ export function createCursorAuthSession(context: SocketContext): SocketService {
           .then((event) => {
             if (context.connected() && context.authorize(scope)) context.send(event);
           })
+          .catch((error: unknown) => {
+            context.options.log?.(error);
+            if (context.connected())
+              context.send({
+                type: "cursor.auth.error",
+                requestId: request.requestId,
+                code: "unavailable",
+                reason: "service_unavailable",
+              });
+          })
           .finally(() => {
             pending--;
             context.tasks.delete(task);
