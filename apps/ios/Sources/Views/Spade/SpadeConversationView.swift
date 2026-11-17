@@ -45,7 +45,6 @@ struct SpadeConversationView: View {
         .safeAreaInset(edge: .bottom) { composer }
         .navigationTitle(bot?.name ?? HomeTabs.title(.spade))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarVisibility(.hidden, for: .tabBar)
         .background(AceDesign.Surface.background)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sends)
         .sensoryFeedback(AceDesign.Haptic.stop, trigger: stops)

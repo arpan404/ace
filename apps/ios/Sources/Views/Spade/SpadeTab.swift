@@ -8,6 +8,9 @@ struct SpadeTab: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
+    /// The system tab bar is this page's (a phone): it shows over the list and steps away for a
+    /// conversation, as Threads' does for a page.
+    let tabBar: Bool
     @State private var machine: String?
     @State private var path: [String] = []
     @State private var watch = SpadeWatch()
@@ -37,6 +40,7 @@ struct SpadeTab: View {
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
             watch.release(hold)
         }
+        .modifier(HomeTabBar(shown: tabBar && path.isEmpty))
         .onChange(of: session?.hostId) { path = [] }
     }
 

@@ -198,11 +198,10 @@ struct InboxView: View {
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {
-        SpadeTab(inbox: inbox, chosen: tab == .spade)
+        SpadeTab(inbox: inbox, chosen: tab == .spade, tabBar: sizeClass != .regular)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
             }
-            .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
 
     /// Code review: pull requests and issues, a home tab of their own as the web rail's place.
