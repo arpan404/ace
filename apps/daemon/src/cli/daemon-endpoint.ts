@@ -58,7 +58,7 @@ export const tcpProbe: Probe = (host, port, ms) =>
     });
   });
 
-/** "ace isn't running.", code `daemon_down`, exit 4 (ADR 0176 §4). */
+/** "ace isn't running.", code `daemon_down`, exit 4 (ADR 0178 §4). */
 export function daemonDown(): CliFailure {
   return new CliFailure("refused", "ace isn't running.", undefined, {
     code: "daemon_down",

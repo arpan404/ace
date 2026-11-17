@@ -2,7 +2,7 @@ import { follow, grammarRelease as since, limit } from "./flags.ts";
 import { configCommands, storageCommands } from "./machine-storage.ts";
 import type { CommandSpec, FlagSpec, NounSpec } from "./spec.ts";
 
-/** The daemon, its service, storage, settings and repair (ADR 0176 §7, This machine). */
+/** The daemon, its service, storage, settings and repair (ADR 0178 §7, This machine). */
 export const machineNouns: readonly NounSpec[] = [
   { name: "daemon", summary: "The ace daemon on this machine", group: "machine" },
   { name: "service", summary: "Run ace at login", group: "machine" },

@@ -2,7 +2,7 @@ import { accessCommands, accessNouns } from "./access.ts";
 import { grammarRelease as since, limit, providerName } from "./flags.ts";
 import type { CommandSpec, NounSpec } from "./spec.ts";
 
-/** Provider CLIs, models, the ace account and who can reach this machine (ADR 0176 §7). */
+/** Provider CLIs, models, the ace account and who can reach this machine (ADR 0178 §7). */
 export const providerNouns: readonly NounSpec[] = [
   {
     name: "provider",

@@ -24,7 +24,7 @@ import { useOrganizeOverlay, useOrganizer, useOrganizerState } from "@/features/
 import { usePendingActions } from "@/lib/pending-actions.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { machineRow } from "@/lib/machine-threads.ts";
-import { useSidebarDevice } from "./device-filter-state.ts";
+import { inScope, useSidebarDevice } from "./device-filter-state.ts";
 
 /** How Home orders the threads below Pinned (Settings › Agents › Sort threads). */
 export function useHomeSort(): HomeSort {
@@ -162,7 +162,7 @@ export function useHomeList(
       const own = read(reader);
       const all = others.length ? [...own, ...others] : own;
       const onDevice = device
-        ? all.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
+        ? all.filter((entry) => inScope(device, machineRow(entry.id)?.hostId ?? ownDevice))
         : all;
       const project = state.project;
       const work = onDevice.filter(

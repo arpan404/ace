@@ -10,7 +10,7 @@ import {
 } from "./request-answer.ts";
 
 /**
- * Attach's keys (ADR 0176 §9). Pure. Typing goes to the composer (`›`), Enter sends it to the
+ * Attach's keys (ADR 0178 §9). Pure. Typing goes to the composer (`›`), Enter sends it to the
  * queue and `/steer`, `/stop`, `/model`, `/resume` and `/quit` keep their meaning; while a
  * request is open and the composer is empty, `y`, `n` and `a` answer it; `Esc` goes home.
  * With the composer empty, `↑` and `↓` walk the thread's "Worked for" lines and `↵` on one

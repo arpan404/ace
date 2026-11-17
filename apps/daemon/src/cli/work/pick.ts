@@ -5,7 +5,7 @@ import { requestSentence } from "../render/request.ts";
 import type { ThreadRow } from "./rows.ts";
 
 /**
- * Asking for what's missing (ADR 0176 §9): on a terminal a picker, naming the argument that
+ * Asking for what's missing (ADR 0178 §9): on a terminal a picker, naming the argument that
  * would have supplied it; anywhere else a usage error (exit 64) naming it. Nothing here reads
  * stdin unless a person is at the terminal.
  */

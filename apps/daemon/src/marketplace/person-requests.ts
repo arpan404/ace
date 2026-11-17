@@ -6,7 +6,7 @@ import type { Store } from "../store.ts";
 import type { PersonAsk } from "./agent-gate.ts";
 
 /*
- * A person-only market action an agent asked for (ADR 0176 §12.5): a request in the asking
+ * A person-only market action an agent asked for (ADR 0178 §12.5): a request in the asking
  * thread's strip, in the person's words, with the action and Dismiss. Only a person's device
  * answers it (an agent or ace's reviewer is refused). The action then runs as the person, with
  * this machine's market grant, and what it did shows in the thread. Never starts a turn.

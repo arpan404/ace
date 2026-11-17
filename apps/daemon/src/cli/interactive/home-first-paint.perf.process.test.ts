@@ -1,5 +1,5 @@
 /**
- * The interactive home's first paint (ADR 0176 §9's budget): bare `ace` in a real
+ * The interactive home's first paint (ADR 0178 §9's budget): bare `ace` in a real
  * pseudo-terminal draws the last run's rows within 150 ms of starting. A process test because
  * the budget covers the runtime's start and every module the CLI loads before its first
  * frame, which only a real process on a real terminal measures. No daemon runs, so nothing but

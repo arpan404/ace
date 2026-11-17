@@ -1,7 +1,7 @@
 import type { ArgSpec, CommandSpec, FlagSpec } from "./spec.ts";
 
 /*
- * Publishing (ADR 0176 §12.1): each command is one `publish` action of `MarketPublishAction`.
+ * Publishing (ADR 0178 §12.1): each command is one `publish` action of `MarketPublishAction`.
  * Publishing needs this machine signed in to an ace account; the sensitive ones (withdraw,
  * transfer, handle, verified profile, verification) need a recent sign-in. From an agent, those
  * and deleting an entry are the person's: ace asks them in the agent's thread.

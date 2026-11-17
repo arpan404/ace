@@ -10,7 +10,7 @@ import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 
 /**
- * The work commands against a real daemon on a temp home (ADR 0176 §7, §8, §9): old spellings
+ * The work commands against a real daemon on a temp home (ADR 0178 §7, §8, §9): old spellings
  * reach the same daemon operation as the new ones, `request answer` resolves a question, and
  * nothing prompts without a terminal. Scripted providers only; HOME is an empty temp folder.
  */

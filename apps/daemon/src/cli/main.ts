@@ -31,7 +31,7 @@ export function processTerminal(flags: Readonly<Record<string, string | true>>):
 }
 
 /**
- * One run of `ace` (ADR 0176): read the line against the command table, then run the one
+ * One run of `ace` (ADR 0178): read the line against the command table, then run the one
  * command it names. Every failure leaves through `reportFailure`, with its exit code.
  */
 export async function main(input: readonly string[]): Promise<void> {
@@ -110,7 +110,7 @@ export async function main(input: readonly string[]): Promise<void> {
 
 /** `--help` and `--version` answer before anything runs, whatever command they follow. */
 function earlyAnswer(parsed: Parsed): { id: string; words: string[] } | undefined {
-  // `ace thread --help` is the noun's page, not its default command's (ADR 0176 §5).
+  // `ace thread --help` is the noun's page, not its default command's (ADR 0178 §5).
   if (parsed.flags.help && parsed.command.id !== "help")
     return {
       id: "help",
@@ -145,7 +145,7 @@ async function checkAlias(parsed: Parsed, terminal: Terminal): Promise<void> {
 
 /**
  * Asks a person for a missing argument; anywhere else it is a usage error naming it, so
- * nothing ever waits for input nobody can give (ADR 0176 §9).
+ * nothing ever waits for input nobody can give (ADR 0178 §9).
  */
 async function fillMissing(parsed: Parsed, args: Args): Promise<string[]> {
   const usage = `ace ${parsed.command.words.join(" ")}`;

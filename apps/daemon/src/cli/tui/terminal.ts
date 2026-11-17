@@ -3,7 +3,7 @@ import { decodeKeys, type Key } from "./keys.ts";
 import { clearFrame, drawFrame, emptyDrawn, showCursor, type Drawn, type Frame } from "./frame.ts";
 
 /**
- * The TUI's only I/O (ADR 0176 §9): raw mode, keys, the terminal's size, redrawing the inline
+ * The TUI's only I/O (ADR 0178 §9): raw mode, keys, the terminal's size, redrawing the inline
  * region in place, and putting the terminal back as it was on every way out: a normal quit,
  * Ctrl-C, SIGTERM, SIGINT from outside, an exception, or the process exiting.
  */

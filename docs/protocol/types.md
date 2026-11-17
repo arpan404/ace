@@ -4073,11 +4073,18 @@ Example:
 | report | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateReport.json"},{"type":"null"}]} |
 | reportedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | instruction | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateInstruction.json"},{"type":"null"}]} |
+| homeData | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/HomeData.json"},{"x-ace-constraint":"A value this build can't read is ignored, as if absent.","$ref":"https://ace.local/protocol/v1/HomeData.json"}]} |
 
 Example:
 
 ```json
 {
+  "homeData": {
+    "daemon": null,
+    "home": 7,
+    "notify": null,
+    "spade": null
+  },
   "report": {
     "available": null,
     "downloaded": true,
@@ -11637,6 +11644,7 @@ Example:
 | grantTtlMs | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | ticket | no | object | {"properties":{"ticket":{"type":"string","pattern":"^[0-9a-f]{64}$"},"ttlMs":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["ticket","ttlMs"]} |
 | relayHandshakes | no | array | {"maxItems":8,"items":{"type":"string","maxLength":16}} |
+| releaseLine | no | string | {"minLength":1,"maxLength":32} |
 
 Example:
 
@@ -16569,6 +16577,30 @@ Example:
 ```json
 {
   "decision": "approve"
+}
+```
+
+## HomeData
+
+[JSON Schema](schema/HomeData.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| home | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":1000000},{"type":"null"}]} |
+| daemon | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":1000000},{"type":"null"}]} |
+| notify | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":1000000},{"type":"null"}]} |
+| spade | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":1000000},{"type":"null"}]} |
+| unreadable | no | array | {"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":64}} |
+
+Example:
+
+```json
+{
+  "daemon": null,
+  "home": null,
+  "notify": 4,
+  "spade": null,
+  "unreadable": []
 }
 ```
 
@@ -33075,6 +33107,28 @@ Example:
     }
   },
   "type": "registry.result"
+}
+```
+
+## ReleaseData
+
+[JSON Schema](schema/ReleaseData.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| home | yes | integer | {"minimum":0,"maximum":1000000} |
+| daemon | yes | integer | {"minimum":0,"maximum":1000000} |
+| notify | yes | integer | {"minimum":0,"maximum":1000000} |
+| spade | yes | integer | {"minimum":0,"maximum":1000000} |
+
+Example:
+
+```json
+{
+  "daemon": 3,
+  "home": 6,
+  "notify": 3,
+  "spade": 4
 }
 ```
 

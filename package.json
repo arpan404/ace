@@ -57,6 +57,8 @@
     "release:doctor": "node apps/desktop/scripts/release.ts doctor",
     "release:build": "node apps/desktop/scripts/release.ts build",
     "release:publish": "node apps/desktop/scripts/release.ts publish",
+    "release:data": "node apps/desktop/scripts/release.ts data",
+    "release:beta": "node apps/desktop/scripts/release-beta.ts",
     "smoke:real": "node tools/real-smoke/src/cli.ts",
     "typecheck:clean": "node scripts/typecheck.ts --clean"
   },

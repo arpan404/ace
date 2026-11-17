@@ -4,7 +4,7 @@ import type { AliasSpec, ArgSpec, CommandSpec, FlagSpec } from "./commands/spec.
 import type { CommandTable } from "./commands/table.ts";
 import { nearest } from "./suggest.ts";
 
-/** A command line read against the command table (ADR 0176 §1–§2). Pure. */
+/** A command line read against the command table (ADR 0178 §1–§2). Pure. */
 export interface Parsed {
   readonly kind: "command";
   readonly command: CommandSpec;

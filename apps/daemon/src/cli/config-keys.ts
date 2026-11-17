@@ -7,7 +7,7 @@ import { CliFailure, usageFailure } from "./output.ts";
 import { nearest } from "./suggest.ts";
 
 /**
- * `ace config` keys (ADR 0176 §7): every global setting the app's Settings writes, by its
+ * `ace config` keys (ADR 0178 §7): every global setting the app's Settings writes, by its
  * settings key, plus the first CLI's three short names. Pure: values are parsed from the
  * command line and checked against the same schema the daemon checks them with again.
  */

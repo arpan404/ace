@@ -2,7 +2,7 @@ import type { Client } from "@ace/client";
 import type { RefReader, RefSource } from "./completion-live.ts";
 
 /**
- * This machine's daemon as completion's reference source (ADR 0176 §6). Reaching it reads the
+ * This machine's daemon as completion's reference source (ADR 0178 §6). Reaching it reads the
  * endpoint file and probes the port, and only when something listens loads the client; each read
  * then opens a read-only connection, asks one question and closes. It never starts the daemon,
  * never prompts and never writes.

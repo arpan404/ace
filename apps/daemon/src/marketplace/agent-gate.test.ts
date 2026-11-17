@@ -13,7 +13,7 @@ const publish = (
 const entry = { type: "suit", name: "dusk-harbor" } as const;
 
 describe("which market requests an agent may make itself", () => {
-  // The allowlist (ADR 0176 §12.5): reads, local checks, the draft-and-publish flow, status and
+  // The allowlist (ADR 0178 §12.5): reads, local checks, the draft-and-publish flow, status and
   // versions. Everything else is the person's, so an operation added later starts as theirs.
   const theirs: [string, MarketOperation][] = [
     [

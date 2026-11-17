@@ -48,6 +48,11 @@ async function openSheet(row: string, title: string) {
   return sheet;
 }
 
+/** Fleet's "Same for every machine" page, where one choice lands on every connected machine. */
+async function openAcrossMachines() {
+  await userEvent.click(await screen.findByRole("link", { name: "Same for every machine" }));
+}
+
 async function openMachine(name: string) {
   await userEvent.click(
     within(await screen.findByRole("region", { name: "Machines" })).getByRole("link", { name }),
@@ -57,6 +62,7 @@ async function openMachine(name: string) {
 
 test("from the overview, a choice lands on every link on every connected machine", async () => {
   await threeLinkedMachines();
+  await openAcrossMachines();
   const sheet = await openSheet("What they may use", "What other machines' agents may use");
   expect(pressed(sheet, "Commands")).toEqual(["Off"]);
   // Commands says plainly what it gives away.
@@ -70,6 +76,7 @@ test("from the overview, a choice lands on every link on every connected machine
   );
   await waitFor(() => expect(pressed(sheet, "Commands")).toEqual(["Read"]));
   await userEvent.click(within(sheet).getByRole("button", { name: "Done" }));
+  await userEvent.click(screen.getByRole("link", { name: "Back to Fleet" }));
   for (const name of ["Build server", "Test server"]) {
     const agents = await openMachine(name);
     // Both ways: its agents on the others, and theirs on it.
@@ -88,7 +95,7 @@ test("from a machine's page, a choice changes that machine's links alone", async
   await threeLinkedMachines();
   await openMachine("Build server");
   const sheet = await openSheet(
-    "Your other machines' agents on Build server",
+    "What they may use here",
     "What other machines' agents may use on Build server",
   );
   await userEvent.click(
@@ -101,10 +108,12 @@ test("from a machine's page, a choice changes that machine's links alone", async
   await userEvent.click(screen.getByRole("link", { name: "Back to Fleet" }));
 
   // The other machines keep theirs, so across the fleet it now differs.
+  await openAcrossMachines();
   const overview = await openSheet("What they may use", "What other machines' agents may use");
   expect(pressed(overview, "Computer use")).toEqual([]);
   expect(within(overview).getByText(/^Differs between machines\. See and use/)).toBeTruthy();
   await userEvent.click(within(overview).getByRole("button", { name: "Done" }));
+  await userEvent.click(screen.getByRole("link", { name: "Back to Fleet" }));
   const testServer = await openMachine("Test server");
   expect(
     await within(testServer).findByText(

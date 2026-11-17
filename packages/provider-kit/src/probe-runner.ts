@@ -24,6 +24,7 @@ export function createProbeRunner(
         command: request.command,
         args: request.args,
         env,
+        ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
         name: "cli-probe",
         maxOutputBytes: request.maxBytes,
       });

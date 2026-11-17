@@ -1,4 +1,9 @@
 import { spawnInteractive } from "@ace/provider-kit/process";
+import {
+  ENV_NAME_LIMIT,
+  ENV_VALUE_LIMIT,
+  environmentLaunchError,
+} from "@ace/provider-kit/process-env";
 import { ProviderInstance } from "@ace/protocol/accounts";
 import { AcpIdentity } from "@ace/protocol";
 import { z } from "zod";
@@ -8,8 +13,9 @@ export const AcpLoginPlan = z.object({
   command: z.string().min(1).max(4096),
   args: z.array(z.string().max(4096)).max(64),
   env: z
-    .record(z.string().max(256), z.string().max(32768).optional())
-    .refine((env) => Object.keys(env).length <= 512),
+    .record(z.string().max(ENV_NAME_LIMIT), z.string().max(ENV_VALUE_LIMIT).optional())
+    // Only an environment a process can start with: anything larger fails at launch anyway.
+    .refine((env) => environmentLaunchError(env) === undefined),
 });
 export type AcpLoginPlan = z.infer<typeof AcpLoginPlan>;
 export type AcpLoginResolver = (

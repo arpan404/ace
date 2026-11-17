@@ -11,7 +11,7 @@ import { parseCommandLine } from "./parse.ts";
 /*
  * Golden `--json` for This machine and Spade with the daemon down: each command line runs the
  * way `ace` runs it, against a temp home, and what it prints is checked against the schema its
- * table entry names (ADR 0176 §3).
+ * table entry names (ADR 0178 §3).
  */
 
 let home = "";

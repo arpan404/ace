@@ -33,6 +33,19 @@ export function worktreeClean(): boolean {
   return status.ok && status.out === "";
 }
 
+/**
+ * Untracked files git doesn't ignore. A build copies some folders whole (builtin skills, Suits),
+ * so such a file would ship in a build that claims to be its commit's.
+ */
+export function untrackedFiles(): string[] {
+  const status = capture("git", ["status", "--porcelain", "--untracked-files=all"]);
+  if (!status.ok) throw new Error(`git status failed: ${status.out}`);
+  return status.out
+    .split("\n")
+    .filter((line) => line.startsWith("?? "))
+    .map((line) => line.slice(3));
+}
+
 /** Whether GitHub has the commit, so a release tag can point at it. */
 export function pushed(commit: string): boolean {
   capture("git", ["fetch", "--quiet", "origin"]);

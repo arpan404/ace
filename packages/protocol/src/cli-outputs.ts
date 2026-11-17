@@ -45,7 +45,7 @@ import {
 
 /**
  * Each command's `--json` success value, by the `output` key in the CLI's command table
- * (ADR 0176 §3). `ace help COMMAND --schema` prints one as JSON Schema. Adding a field is not
+ * (ADR 0178 §3). `ace help COMMAND --schema` prints one as JSON Schema. Adding a field is not
  * a breaking change; renaming or removing one goes through the CLI's deprecation window.
  */
 
@@ -194,7 +194,7 @@ export const cliOutputs = {
   "market.installed": z.object({ installed: z.array(MarketInstalled) }),
   "market.sources": z.object({ sources: z.array(MarketSource) }),
   "market.check": CliMarketCheck,
-  /** Publishing: the market's answer as it is (ADR 0176 §12.5). */
+  /** Publishing: the market's answer as it is (ADR 0178 §12.5). */
   "market.publish": MarketPublishAnswer,
 } satisfies Record<string, z.ZodType>;
 export * from "./cli-outputs-machine.ts";

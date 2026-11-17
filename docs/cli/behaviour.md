@@ -1,7 +1,7 @@
 # How the CLI's commands behave
 
 Notes on behaviour behind the commands: idempotency, waits, chat, remotes, storage and repair. They
-use the spellings from before [ADR 0176](../adr/0176-one-cli-grammar-interactive-home-and-market.md);
+use the spellings from before [ADR 0178](../adr/0178-one-cli-grammar-interactive-home-and-market.md);
 §8 there maps each to its new name, and [the command reference](../daemon/cli.md) is generated from
 the command table.
 

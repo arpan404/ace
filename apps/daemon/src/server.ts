@@ -67,6 +67,7 @@ import { unreachable, type ReachFacts } from "./external-mcp/reach.ts";
 import { remoteDeflate } from "./compression-policy.ts";
 import { RELAY_NK_HANDSHAKE } from "@ace/protocol";
 import { answerEarly } from "./relay-nk/early-reads.ts";
+import { releaseLineOf } from "@ace/service/release-line";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -134,6 +135,8 @@ export async function startServer(options: ServerOptions): Promise<{
   // A daemon started in the middle of an update holds until recovery releases it.
   if (options.maintenance || maintenance.held("update")) updateHold.persist();
   const appUpdate = options.appUpdate ?? new AppUpdateBoard(runtime);
+  /** The build's release line, told in every welcome (ADR 0177). */
+  const releaseLine = releaseLineOf(options.version ?? "development");
   const machineUpdates = options.machineUpdate
     ? await createMachineUpdates({
         config: options.machineUpdate,
@@ -183,6 +186,7 @@ export async function startServer(options: ServerOptions): Promise<{
       : {}),
     ready: () => ready,
     appUpdate,
+    ...(options.homeData ? { homeData: options.homeData } : {}),
     updateHold,
   };
   const { local, remoteHttp } = httpChains(options, auth, access, maintenance, () => preview);
@@ -371,7 +375,7 @@ export async function startServer(options: ServerOptions): Promise<{
       return activeDevice(current, auth.now()) && allows(current, scope);
     };
     // Authenticated with the daemon's token file on loopback: the person's whole authority, which
-    // any process able to read the file has (ADR 0176 §12.5).
+    // any process able to read the file has (ADR 0178 §12.5).
     const hostCredential = () =>
       relayed === undefined &&
       accountAdmitted === undefined &&
@@ -675,6 +679,7 @@ export async function startServer(options: ServerOptions): Promise<{
           ...(next ? { ticket: next } : {}),
           // Announced only where the pinned key authenticates it: over the relay.
           ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
+          releaseLine,
         });
         if (!early) for (const service of sessions) service.welcomed?.();
         else {

@@ -1,7 +1,7 @@
 import { after, grammarRelease as since, idempotencyKey, limit } from "./flags.ts";
 import type { CommandSpec, FlagSpec } from "./spec.ts";
 
-/** Requests (what needs the person) and projects (ADR 0176 §7, Work). */
+/** Requests (what needs the person) and projects (ADR 0178 §7, Work). */
 
 const requestArg = {
   name: "REQUEST",

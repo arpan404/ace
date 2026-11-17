@@ -2,7 +2,7 @@ import type { Client } from "@ace/client";
 import type { Args } from "../args.ts";
 import { prepareHome, withSession, type CommandContext, type Handlers } from "./context.ts";
 
-/** `ace storage …` and `ace config …` (ADR 0176 §7). */
+/** `ace storage …` and `ace config …` (ADR 0178 §7). */
 
 type StorageRun = (args: Args, client: Client, signal: AbortSignal) => Promise<void>;
 

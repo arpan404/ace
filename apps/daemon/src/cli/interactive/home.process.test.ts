@@ -1,5 +1,5 @@
 /**
- * The interactive home in a real pseudo-terminal (ADR 0176 §9, §Tests). A process test because
+ * The interactive home in a real pseudo-terminal (ADR 0178 §9, §Tests). A process test because
  * raw mode, the inline redraw and restoring the terminal after a signal only exist with a real
  * terminal on the other end; the views and reducers have their own unit tests.
  */

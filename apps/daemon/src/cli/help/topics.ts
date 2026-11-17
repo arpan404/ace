@@ -1,7 +1,7 @@
 import type { CliOutcome } from "@ace/protocol/cli-output";
 import type { TopicSpec } from "../commands/spec.ts";
 
-/** What each exit code means (ADR 0176 §4); `ace help exit-codes` and `help --json` print it. */
+/** What each exit code means (ADR 0178 §4); `ace help exit-codes` and `help --json` print it. */
 export const exitCodeMeanings: readonly { code: number; name: CliOutcome; means: string }[] = [
   { code: 0, name: "ok", means: "Done" },
   { code: 1, name: "failed", means: "The work or check failed" },

@@ -7,7 +7,7 @@ import { CliError } from "@ace/protocol/cli-output";
 import { afterEach, describe, expect, test } from "vitest";
 
 /*
- * The real CLI against an empty temp home with no daemon (ADR 0176 §10, §12.5): in an agent's
+ * The real CLI against an empty temp home with no daemon (ADR 0178 §10, §12.5): in an agent's
  * shell it refuses what is the person's before it reaches for a daemon (exit 2, never the 4 of
  * "ace isn't running"), and off a terminal nobody can answer a request.
  */

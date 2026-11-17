@@ -13,7 +13,7 @@ import { requestsKey, requestsStart, threadRequests } from "./requests.ts";
 
 /**
  * Keys to the current screen's model, and the effects the models ask for, carried out against
- * the daemon and the terminal (ADR 0176 §9).
+ * the daemon and the terminal (ADR 0178 §9).
  */
 export async function onKey(app: App, commands: Commands, key: Key): Promise<void> {
   if (app.screen === "offline") return offlineKey(app, key);

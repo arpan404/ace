@@ -3,7 +3,7 @@ import { CliFailure } from "./output.ts";
 import { typedConfirms } from "./person-gate.ts";
 
 /**
- * Questions for a person at a terminal (ADR 0176 §9), on `@clack/prompts`. Callers ask only
+ * Questions for a person at a terminal (ADR 0178 §9), on `@clack/prompts`. Callers ask only
  * when `Args.interactive` is true; each question names the flag that would have answered it,
  * so the person learns the scripted form.
  */

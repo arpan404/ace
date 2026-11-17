@@ -36,7 +36,7 @@ function outcome(code: string): Outcome {
 
 /**
  * `ace sim`: one sim_* tool call for the thread's agent. Short text by default, one compact
- * JSON line with --json (ADR 0176 §8). `thread` is --thread or ACE_THREAD_ID.
+ * JSON line with --json (ADR 0178 §8). `thread` is --thread or ACE_THREAD_ID.
  */
 export async function simCommand(
   args: Args,

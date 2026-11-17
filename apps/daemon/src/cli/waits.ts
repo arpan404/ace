@@ -211,7 +211,7 @@ export async function waitThreads(
 
 /**
  * `--follow` on a terminal: one line each time the thread's state changes, then its outcome
- * over the whole tree (ADR 0176 §2). JSON Lines are `waitThread`'s stream.
+ * over the whole tree (ADR 0178 §2). JSON Lines are `waitThread`'s stream.
  */
 export async function followThread(args: Args, client: Client, id: string, signal: AbortSignal) {
   let last = "";

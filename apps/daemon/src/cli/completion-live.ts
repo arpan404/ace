@@ -3,7 +3,7 @@ import type { CommandTable } from "./commands/table.ts";
 import { completionSlot, type Candidate } from "./completion.ts";
 
 /**
- * Live references for tab completion (ADR 0176 §6): a slot the command table marks with a
+ * Live references for tab completion (ADR 0178 §6): a slot the command table marks with a
  * `ref` also offers what the running daemon holds. The daemon gets a short budget; with none
  * running, an error, or no answer in time, completion offers what the table knows and nothing
  * more. Never a prompt, a start or a write: the source only reads.
@@ -28,7 +28,7 @@ export interface RefReader {
   bots(signal: AbortSignal): Promise<readonly { id: string; name: string; task?: string }[]>;
 }
 
-/** How long completion waits for the daemon (ADR 0176 §6). */
+/** How long completion waits for the daemon (ADR 0178 §6). */
 export const liveBudgetMs = 300;
 
 /** The candidates for a slot of `kind`, from the source. */
