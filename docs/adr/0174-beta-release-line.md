@@ -19,7 +19,8 @@ daemon that cannot start.
 **One app, two lines.** Beta is a release line of the normal ace app: same bundle id, same
 install, same `~/.ace`. There is no separate dev app and no second data home. A person picks
 the line in Settings › General › Updates: **Stable** or **Beta**. A stable build starts on
-Stable, a beta build on Beta.
+Stable, a beta build on Beta. The first build that runs saves its line as the person's choice,
+so a beta install stays on Beta after it updates to a stable release.
 
 **macOS arm64 only.** `release:beta` refuses any other platform or architecture until the
 owner says otherwise.
@@ -42,8 +43,9 @@ Because a beta carries the next version, semver orders every release: 0.0.23 <
 0.0.24-beta.20261116.1 < 0.0.24-beta.20261116.2 < 0.0.24. The date and build number sit in the
 prerelease part and compare numerically.
 
-**Builds come from `origin/main`.** `release:beta` refuses a dirty checkout or a commit that
-isn't on `origin/main`, and it signs and notarizes the same way `release:build` does. Squirrel.Mac
+**Builds come from `origin/main`.** `release:beta` refuses a dirty checkout, untracked files git
+doesn't ignore (a build copies some folders whole, so they would ship), or a commit that isn't
+on `origin/main`, and it signs and notarizes the same way `release:build` does. Squirrel.Mac
 installs in place only when the update is signed with the running app's Developer ID. Migrations
 on `main` are only appended, never reordered or reverted. A later stable release therefore
 includes every migration a beta from an earlier commit ran.
@@ -51,7 +53,9 @@ includes every migration a beta from an earlier commit ran.
 **The app picks the release, not electron-updater.** electron-updater's GitHub provider skips
 tags that aren't semver, so it can't see `ace-beta-…`. Instead a pure picker takes:
 
-- the release list from GitHub's public releases API (no token);
+- the release list from GitHub's public releases API (no token), read page by page until it
+  reaches a stable release (at most five pages of a hundred), with `/releases/latest` added
+  when those pages hold none;
 - the installed version and line;
 - the data formats the home holds.
 
@@ -81,10 +85,14 @@ upload `ace-data.json`:
 ```
 
 The fields are `HOME_FORMAT_VERSION`, the daemon's `schemaVersion`, notify's `FORMAT` and
-Spade's migration count, as built. The daemon reports what the home holds: the format marker,
+Spade's migration count, as built. Spade's number comes from the server binary the release
+ships (`spade --schema-version`); the build stops if it differs from what `spade/` at the commit
+migrates to, which catches a stale prebuilt `ACE_SPADE_SERVER_BIN`. The daemon reports what the home holds: the format marker,
 the event database's version from its `schema_version` table (the daemon keeps its schema
 there, not in `PRAGMA user_version`), and the notification and Spade databases' `user_version`.
-It reads each database read-only, so a committed migration still in the WAL counts.
+It reads each database read-only, so a committed migration still in the WAL counts. A file the
+home lacks reads as null and never blocks; a file that is there but can't be read (locked,
+damaged, timed out) is named as unreadable, and blocks any switch to an older release.
 
 **The guarded switch.** Moving to an older release, whether that's Beta → Stable (0.0.24-beta.…
 → 0.0.23) or a downgrade within a line, is offered only when every number in the target's `ace-data.json` is at least
@@ -92,6 +100,12 @@ the number in the home.
 
 - When it is, the picker offers that release and the shell allows the downgrade for that
   install only. electron-updater's `allowDowngrade` is on for that switch and nothing else.
+- The guard runs again, on what the daemon reads in the home then, right before the download
+  and right before any install: Restart, `ace update apply`, and an install asked from another
+  client. A release it now refuses is dropped, and Settings says why. Spade starting for the
+  first time after the check is the case this catches.
+- A switch to an older release never installs on quit, and on macOS it reaches Squirrel only
+  when the person's Restart installs it, after that last guard.
 - When it isn't, the switch is not offered, and Settings says why in one sentence: "Stable can't
   read this beta's data yet. You can switch once stable reaches a newer release."
 - The block lifts on its own once a stable release ships with those migrations.
