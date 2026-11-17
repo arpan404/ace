@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The places outside the thread lists, as the web's rail lists them: Pull requests, Issues,
 /// Automations, Skills, Usage, History, Archived, Machines and Settings. Search shows them before a query; the iPad
-/// sidebar's rail shows the same places as glyphs. Spade stays out until it launches
-/// (`HomeTabs.showsSpade`): it comes back as a tab, not a place.
+/// sidebar's rail shows the same places as glyphs. Spade isn't one of them: it is a
+/// tab while a machine shows it (`HomeTabs`).
 enum SearchPlace: String, CaseIterable, Identifiable {
     case pulls, issues, automations, skills, usage, history, archived, machines, settings
 

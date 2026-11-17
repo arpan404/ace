@@ -568,7 +568,8 @@ test("Beta's media pipeline switch reads in web's words and turns both settings 
   const p = await ports();
   const shown = await page(p, "beta");
   expect(shown.title).toBe("Beta");
-  expect(shown.sections[0]?.footer).toMatch(/^Encodes and streams live video with ace-media/);
+  const video = shown.sections.find((section) => section.id === "video");
+  expect(video?.footer).toMatch(/^Encodes and streams live video with ace-media/);
   expect(pipeline(shown)).toMatchObject({
     title: "New media pipeline",
     control: { kind: "toggle" },
@@ -586,6 +587,30 @@ test("Beta's media pipeline switch reads in web's words and turns both settings 
   expect(written.ok).toBe(true);
   expect(written.page && pipeline(written.page).value).toBe(true);
   expect(media(p.daemon)).toEqual({ encode: "auto", delivery: "auto" });
+});
+
+test("Beta's Spade switch shows the machine's setting, and turning it off saves it there", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("beta.spade", true);
+  const shown = await page(p, "beta");
+  // As web lists Settings › Beta: the features first, then video.
+  expect(shown.sections.map((section) => section.id)).toEqual(["features", "video"]);
+  expect(row(shown, "beta.spade")).toMatchObject({
+    title: "Spade",
+    control: { kind: "toggle" },
+    value: true,
+  });
+
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.spade",
+    value: false,
+  });
+
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("beta.spade")).toBe(false);
+  expect(row(await page(p, "beta"), "beta.spade").value).toBe(false);
 });
 
 test("a half-on pipeline shows off, says only part is on, and turning it off sets both back", async () => {

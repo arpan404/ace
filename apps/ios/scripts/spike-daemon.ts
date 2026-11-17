@@ -1,4 +1,5 @@
 import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
+import { seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -288,6 +289,7 @@ seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 seedChats(daemon);
 seedOutside(daemon, Date.now());
+seedSpade(daemon, Date.now());
 // Opt-in, so other UI tests keep the list they expect: `ACE_IOS_SPIKE_ROUTING=1`.
 if (process.env.ACE_IOS_SPIKE_ROUTING === "1") seedRouting(daemon, details, machineName);
 // GitHub pull requests, issues and notifications for the Pulls tab.
@@ -402,6 +404,11 @@ const server = Bun.serve<SpikeSocketData>({
         "home",
       ] as const satisfies OutsideScenario[];
       outsideScenario(daemon, z.enum(kinds).parse(await request.json()));
+      return Response.json({ ok: true });
+    }
+    if (path === "/review/spade" && request.method === "POST") {
+      const kinds = ["off", "on", "stream"] as const satisfies SpadeScenario[];
+      spadeScenario(daemon, z.enum(kinds).parse(await request.json()));
       return Response.json({ ok: true });
     }
     if (path === "/review/many" && request.method === "POST") {
