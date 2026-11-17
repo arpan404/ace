@@ -31,6 +31,7 @@ import {
 } from "./landing.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 import type { Store } from "../store.ts";
+import type { TransferIdentities } from "./identity.ts";
 
 export interface IncomingDeps {
   store: Store;
@@ -41,6 +42,8 @@ export interface IncomingDeps {
   archive: TransferArchive;
   projects: TargetProjects;
   threads: TargetThreadStarter;
+  /** Logical project identity (ADR 0180); without it, this target says it keeps none. */
+  identities?: TransferIdentities | undefined;
   now(): number;
   log(message: string, fields: Record<string, unknown>): void;
 }
@@ -154,6 +157,7 @@ export class IncomingTransfers {
       // Always present: this machine takes ignored files.
       ignoredOffset: receiving ? await fileBytes(this.ignoredFile(record.transferId)) : 0,
       ...(record.hasOrigin === undefined ? {} : { hasOrigin: record.hasOrigin }),
+      ...(this.deps.identities ? { identity: true as const } : {}),
       ...(record.result ? { result: record.result } : {}),
       ...(record.error ? { error: record.error } : {}),
     };
@@ -223,6 +227,33 @@ export class IncomingTransfers {
   private landingSource(deviceId: string, begin: TransferBegin) {
     if (!begin.sourceWorkspaceId) return undefined;
     return { hostId: begin.origin.hostId, workspaceId: begin.sourceWorkspaceId, deviceId };
+  }
+  /**
+   * A registration here in the sender's logical project that the method can land in: for
+   * `remote`, one whose origin is the source's; for a bundle, a repository; for an archive, a
+   * plain folder. None that fits leaves the earlier rules (same origin, earlier copy) to choose.
+   */
+  private async identityLanding(
+    record: IncomingRecord,
+    identity: NonNullable<TransferCommit["identity"]>,
+  ): Promise<WorkspaceId | undefined> {
+    const holders = this.deps.identities?.holders(identity) ?? [];
+    for (const holder of holders) {
+      try {
+        if (record.method === "remote") {
+          const wanted = record.begin.remote?.normalized;
+          const origin = await this.deps.git.transferOrigin(holder.path);
+          if (wanted && origin?.normalized === wanted) return holder.workspaceId;
+          continue;
+        }
+        const checkout = await this.deps.git.sourceCheckout(holder.path);
+        if ((checkout.kind === "checkout") === (record.method === "bundle"))
+          return holder.workspaceId;
+      } catch {
+        /* One that can't be read is not a landing. */
+      }
+    }
+    return undefined;
   }
   /** A project here whose origin is the same repository. */
   private sameOrigin(normalized: string): Promise<WorkspaceId | undefined> {
@@ -295,7 +326,15 @@ export class IncomingTransfers {
         return this.view(this.owned(device, call.transferId));
       }
     }
-    this.rows.update(call.transferId, { state: "importing", commit: call }, this.deps.now());
+    // The sender's logical project lands in its registration here, where that fits the method.
+    const byIdentity = call.identity
+      ? await this.identityLanding(record, call.identity)
+      : undefined;
+    this.rows.update(
+      call.transferId,
+      { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
+      this.deps.now(),
+    );
     const importing = this.owned(device, call.transferId);
     this.import(importing);
     return this.view(importing);
@@ -411,8 +450,19 @@ export class IncomingTransfers {
     }
   }
   /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
-  private finish(record: IncomingRecord, result: NonNullable<IncomingRecord["result"]>): void {
+  private finish(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>): void {
     const source = this.landingSource(record.deviceId, record.begin);
+    const identity = record.commit?.identity;
+    // Made by this landing: it takes the sender's identity; a reused one keeps any it has.
+    const conflict =
+      identity && this.deps.identities
+        ? this.deps.identities.adopt(
+            landed.workspaceId,
+            identity,
+            record.registeredId === landed.workspaceId,
+          )
+        : undefined;
+    const result = conflict ? { ...landed, identityConflict: conflict } : landed;
     // The row and the record of where the project landed commit together.
     const complete = () =>
       this.deps.store.atomic(() => {

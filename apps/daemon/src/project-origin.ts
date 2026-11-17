@@ -1,4 +1,4 @@
-import type { WorkspaceId } from "@ace/protocol";
+import type { ProjectCheckoutFacts, ProjectIdentitySuggestion, WorkspaceId } from "@ace/protocol";
 
 /** A checkout's `origin` fetch URL and its `normalizeRemoteUrl` key. */
 export interface Origin {
@@ -6,50 +6,112 @@ export interface Origin {
   normalized: string;
 }
 
-/** Reads a checkout's `origin`, as `@ace/git`'s `GitTransfer.transferOrigin` does. */
-export interface OriginReader {
-  transferOrigin(path: string): Promise<Origin | undefined>;
+/** What a checkout is of: every remote's key and its folder inside the work tree. */
+export interface Checkout {
+  remotes: string[];
+  subpath: string;
 }
 
-/** The most projects one lookup reads `origin` for. */
-const lookupLimit = 64;
+/** Reads a checkout's `origin` and remotes, as `@ace/git`'s `GitTransfer` does. */
+export interface OriginReader {
+  transferOrigin(path: string): Promise<Origin | undefined>;
+  checkoutFacts(path: string): Promise<Checkout | undefined>;
+}
+
+/** A registration a lookup may pick. */
+export interface Candidate {
+  workspaceId: WorkspaceId;
+  path: string;
+}
+
 /** How many checkouts one lookup reads at once. */
 const lookupWidth = 8;
 
 /**
- * The first of `projects` (in their order) whose `origin` is the same repository as
- * `normalized` (a `normalizeRemoteUrl` key). Checkouts are read several at a time, and reading
- * stops once nothing earlier is left to beat a match. One whose origin can't be read is
- * skipped, not fatal.
+ * Visit `list` in order, `lookupWidth` at a time, until `visit` says stop: every item before
+ * the one that stopped it has been visited. One whose read fails is skipped, not fatal.
  */
-export async function sameOriginProject(
-  git: OriginReader,
-  projects: readonly { workspaceId: WorkspaceId; path: string }[],
-  normalized: string,
-): Promise<WorkspaceId | undefined> {
-  const list = projects.slice(0, lookupLimit);
+async function each<T>(list: readonly T[], visit: (item: T, index: number) => Promise<boolean>) {
   let next = 0;
-  let found = list.length;
+  let stopped = false;
   const read = async () => {
-    while (next < found) {
+    while (!stopped && next < list.length) {
       const index = next++;
-      const project = list[index];
-      if (!project) return;
-      const origin = await git.transferOrigin(project.path).catch(() => undefined);
-      if (origin?.normalized === normalized) found = Math.min(found, index);
+      const item = list[index];
+      if (item === undefined) return;
+      if (await visit(item, index).catch(() => false)) stopped = true;
     }
   };
   await Promise.all(Array.from({ length: Math.min(lookupWidth, list.length) }, read));
-  return list[found]?.workspaceId;
 }
 
 /**
- * `origin` reads kept for `ttlMs` per checkout, and shared while one is in flight, so moving
- * New thread between machines asks Git once per checkout rather than on every move. A remote
- * changed meanwhile is seen once its entry expires.
+ * The registration whose `origin` is the same repository as `normalized` (a
+ * `normalizeRemoteUrl` key), among every one of `projects`, which come most recently used
+ * first: the first at `subpath` inside the repository ("" is its top), else the first match at
+ * all. Reading stops at the first at `subpath`, once nothing before it is left to beat it.
+ */
+export async function sameOriginProject(
+  git: OriginReader,
+  projects: readonly Candidate[],
+  normalized: string,
+  subpath = "",
+): Promise<WorkspaceId | undefined> {
+  let exact = projects.length;
+  let any = projects.length;
+  await each(projects, async (project, index) => {
+    if (index > exact) return true;
+    const origin = await git.transferOrigin(project.path);
+    if (origin?.normalized !== normalized) return false;
+    any = Math.min(any, index);
+    const facts = await git.checkoutFacts(project.path);
+    if (facts?.subpath !== subpath) return false;
+    exact = Math.min(exact, index);
+    return true;
+  });
+  return projects[exact]?.workspaceId ?? projects[any]?.workspaceId;
+}
+
+/** A registration's checkout facts; a plain folder reads as one with no repository. */
+export async function checkoutOf(git: OriginReader, path: string): Promise<ProjectCheckoutFacts> {
+  const facts = await git.checkoutFacts(path);
+  return facts ? { repository: true, ...facts } : { repository: false, remotes: [], subpath: "" };
+}
+
+/**
+ * Which of `projects` may be the same logical project as a checkout with `remotes` at
+ * `subpath`: one that shares any remote and sits at the same subpath, in `projects`' order. A
+ * shared remote at another subpath (another folder of a monorepo) is not one.
+ */
+export async function identitySuggestions(
+  git: OriginReader,
+  projects: readonly Candidate[],
+  remotes: readonly string[],
+  subpath: string,
+): Promise<ProjectIdentitySuggestion[]> {
+  const wanted = new Set(remotes);
+  if (!wanted.size) return [];
+  const found: { index: number; suggestion: ProjectIdentitySuggestion }[] = [];
+  await each(projects, async (project, index) => {
+    const facts = await git.checkoutFacts(project.path);
+    if (!facts || facts.subpath !== subpath) return false;
+    const shared = facts.remotes.filter((remote) => wanted.has(remote));
+    if (!shared.length) return false;
+    const sameRemotes = shared.length === wanted.size && facts.remotes.length === wanted.size;
+    found.push({ index, suggestion: { workspaceId: project.workspaceId, shared, sameRemotes } });
+    return false;
+  });
+  return found.toSorted((a, b) => a.index - b.index).map((entry) => entry.suggestion);
+}
+
+/**
+ * `origin` and remote reads kept for `ttlMs` per checkout, and shared while one is in flight,
+ * so moving New thread between machines or paging suggestions asks Git once per checkout
+ * rather than on every ask. A remote changed meanwhile is seen once its entry expires.
  */
 export class OriginCache implements OriginReader {
-  private readonly entries = new Map<string, { at: number; origin: Promise<Origin | undefined> }>();
+  private readonly origins = new Map<string, { at: number; value: Promise<Origin | undefined> }>();
+  private readonly facts = new Map<string, { at: number; value: Promise<Checkout | undefined> }>();
   private readonly git: OriginReader;
   private readonly now: () => number;
   private readonly ttlMs: number;
@@ -59,15 +121,25 @@ export class OriginCache implements OriginReader {
     this.ttlMs = ttlMs;
   }
   transferOrigin(path: string): Promise<Origin | undefined> {
+    return this.kept(this.origins, path, () => this.git.transferOrigin(path));
+  }
+  checkoutFacts(path: string): Promise<Checkout | undefined> {
+    return this.kept(this.facts, path, () => this.git.checkoutFacts(path));
+  }
+  private kept<T>(
+    entries: Map<string, { at: number; value: Promise<T> }>,
+    path: string,
+    read: () => Promise<T>,
+  ): Promise<T> {
     const at = this.now();
-    const kept = this.entries.get(path);
-    if (kept && at - kept.at < this.ttlMs) return kept.origin;
-    const origin = this.git.transferOrigin(path);
-    this.entries.set(path, { at, origin });
+    const kept = entries.get(path);
+    if (kept && at - kept.at < this.ttlMs) return kept.value;
+    const value = read();
+    entries.set(path, { at, value });
     // A failed read isn't kept: the next one asks Git again.
-    origin.catch(() => {
-      if (this.entries.get(path)?.origin === origin) this.entries.delete(path);
+    value.catch(() => {
+      if (entries.get(path)?.value === value) entries.delete(path);
     });
-    return origin;
+    return value;
   }
 }

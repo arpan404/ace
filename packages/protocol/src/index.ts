@@ -151,6 +151,7 @@ export * from "./history.ts";
 
 export * from "./badge-color.ts";
 export * from "./projects.ts";
+export * from "./project-identity.ts";
 export * from "./project-notes.ts";
 export * from "./project-repositories.ts";
 export * from "./forge-capabilities.ts";

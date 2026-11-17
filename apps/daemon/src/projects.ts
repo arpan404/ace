@@ -46,6 +46,8 @@ import type { Store } from "./store.ts";
 export interface ProjectsOptions {
   /** Ids for project notes the person adds in Edit project. */
   noteId?: () => string;
+  /** Logical project ids (ADR 0180) for new registrations and unlinks. */
+  identityId?: () => string;
   sourceControl?: SourceControl;
   home?: string;
   /** Monotonic clock at the filesystem I/O boundary, for scan budgets and cache expiry. */
@@ -108,7 +110,7 @@ export class Projects {
     this.paths = new ProjectPaths(this.home, options.roots ?? (async () => []));
     this.git = new GitService({ timeoutMs: 600_000, ...options.git });
     this.metadataGit = new GitService({ ...options.git, timeoutMs: 10_000 });
-    this.catalog = new ProjectStorage(store, now);
+    this.catalog = new ProjectStorage(store, now, options.identityId);
     this.picker = new ProjectPicker(
       this.paths,
       this.catalog,
@@ -447,6 +449,23 @@ export class Projects {
             return { ok: true, workspace: this.catalog.rename(p.workspaceId, p.name) };
           await this.removeProject(input, p.workspaceId, p.stopRunning, allowed);
           return { ok: true };
+        }
+        if (p.type === "workspace.identity.merge") {
+          this.check(allowed);
+          this.catalog.merge(p.from, p.into);
+          return { ok: true };
+        }
+        if (p.type === "workspace.identity.link" || p.type === "workspace.identity.unlink") {
+          const project = this.catalog.get(p.workspaceId);
+          if (project.kind === "chat") throw new ProjectError("chat_project");
+          this.check(allowed);
+          return {
+            ok: true,
+            workspace:
+              p.type === "workspace.identity.link"
+                ? this.catalog.link(p.workspaceId, p.identityId)
+                : this.catalog.unlink(p.workspaceId),
+          };
         }
         if (p.type === "workspace.publish") {
           if (!this.publications) throw new ProjectError("publication_unavailable");

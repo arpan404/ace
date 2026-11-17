@@ -10,6 +10,7 @@ import {
   ProjectInspection,
   ProjectsResult,
   WorkspaceId,
+  type ProjectCheckoutFacts,
   type CommandPayload,
   type CommandResult,
   type ProjectsRequest,
@@ -17,6 +18,7 @@ import {
   WorkspaceCloneProgress,
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
+import { FakeIdentities } from "./project-identities.ts";
 
 type Directory = {
   favicon?: string;
@@ -47,6 +49,8 @@ export class FakeProjects {
   private hasOwnedWork: (id: string) => boolean;
   private projects = new Map<string, Project>();
   private nextProject = 0;
+  /** Logical project identity (ADR 0180); `enabled` false speaks as an older daemon. */
+  readonly identities = new FakeIdentities();
   private publications = new Map<string, RepositoryPublication>();
   publication(id: string) {
     return this.publications.get(id) ?? null;
@@ -152,7 +156,67 @@ export class FakeProjects {
     };
   }
   private emit(message: WorkspaceChanged | WorkspaceCloneProgress): void {
-    for (const listener of this.listeners) listener(message);
+    const sent =
+      message.type === "workspace.changed" && message.workspace
+        ? { ...message, workspace: this.decorate(message.workspace) }
+        : message;
+    for (const listener of this.listeners) listener(sent);
+  }
+  /** A project as the daemon reports it: with its logical identity and when it was last used. */
+  private decorate(project: Project): Project {
+    const { identity: _identity, openedAt: _openedAt, ...plain } = project;
+    if (!this.identities.enabled) return plain;
+    const identity = this.identities.identity(project.id);
+    const openedAt = this.opened.get(project.path);
+    return {
+      ...plain,
+      ...(identity ? { identity } : {}),
+      ...(openedAt === undefined ? {} : { openedAt }),
+    };
+  }
+  /** Mark the project used now, as starting work in it does (tests). */
+  touch(id: string, at = this.context.now()): void {
+    const project = this.projects.get(id);
+    if (project) this.opened.set(project.path, at);
+  }
+  /** What a project is a checkout of, as `workspace.checkout` answers. */
+  checkout(id: string): ProjectCheckoutFacts | undefined {
+    const project = this.get(id);
+    if (!project) return undefined;
+    let top = project.path;
+    while (top !== "/" && !this.directories.get(top)?.git)
+      top = top.slice(0, top.lastIndexOf("/")) || "/";
+    const directory = this.directories.get(top);
+    if (!directory?.git) return { repository: false, remotes: [], subpath: "" };
+    return {
+      repository: true,
+      remotes: directory.remote ? [normalizeRemoteUrl(directory.remote)] : [],
+      subpath: project.path === top ? "" : project.path.slice(top.length + 1),
+    };
+  }
+  /** `workspaces.identitySuggestions`, as the daemon pages it. */
+  identitySuggestions(remotes: readonly string[], subpath: string, after = "", limit = 32) {
+    this.seed();
+    if (!remotes.length)
+      return { kind: "identitySuggestions" as const, suggestions: [], next: null };
+    const wanted = new Set(remotes);
+    const all = [...this.projects.values()]
+      .filter((project) => project.kind === undefined && project.id > after)
+      .toSorted((a, b) => (a.id < b.id ? -1 : 1));
+    const page = all.slice(0, limit);
+    const suggestions = page.flatMap((project) => {
+      const facts = this.checkout(project.id);
+      if (!facts || facts.subpath !== subpath) return [];
+      const shared = facts.remotes.filter((remote) => wanted.has(remote));
+      if (!shared.length) return [];
+      const sameRemotes = shared.length === wanted.size && facts.remotes.length === wanted.size;
+      return [{ workspaceId: project.id, shared, sameRemotes }];
+    });
+    return {
+      kind: "identitySuggestions" as const,
+      suggestions,
+      next: all.length > limit ? (page.at(-1)?.id ?? null) : null,
+    };
   }
   private seed(): void {
     for (const thread of this.context.threads()) {
@@ -220,7 +284,8 @@ export class FakeProjects {
   }
   get(id: string): Project | undefined {
     this.seed();
-    return this.projects.get(id);
+    const project = this.projects.get(id);
+    return project && this.decorate(project);
   }
   isRemoved(id: string): boolean {
     return this.removed.has(id);
@@ -235,7 +300,7 @@ export class FakeProjects {
       .toSorted((a, b) => (a.id < b.id ? -1 : 1));
     return {
       kind: "workspaces" as const,
-      workspaces: projects.slice(0, limit),
+      workspaces: projects.slice(0, limit).map((project) => this.decorate(project)),
       ...(projects.length > limit ? { next: projects[limit - 1]?.id } : {}),
     };
   }
@@ -300,6 +365,7 @@ export class FakeProjects {
       defaultIcon: this.directories.get(path)?.favicon,
     });
     const added = !this.projects.has(id);
+    if (!existing) this.identities.created(id);
     this.projects.delete(id);
     this.projects.set(id, project);
     this.opened.set(path, this.context.now());
@@ -311,7 +377,38 @@ export class FakeProjects {
         change: added ? "added" : "updated",
         workspace: project,
       });
-    return { ok: true, workspace: project, inspection: this.inspection(path) };
+    return { ok: true, workspace: this.decorate(project), inspection: this.inspection(path) };
+  }
+  private identityCommand(
+    p: Extract<
+      ProjectCommand,
+      { type: "workspace.identity.link" | "workspace.identity.unlink" | "workspace.identity.merge" }
+    >,
+  ): Omit<CommandResult, "commandId"> {
+    // An older daemon never answers a command it can't parse; the client asks first.
+    if (!this.identities.enabled) return { ok: false, error: "invalid_message" };
+    if (p.type === "workspace.identity.merge") {
+      for (const id of this.identities.merge(p.from, p.into)) this.changed(id);
+      return { ok: true };
+    }
+    const project = this.projects.get(p.workspaceId);
+    if (!project || this.removed.has(project.id)) throw new Error("workspace_not_found");
+    if (project.kind === "chat") throw new Error("chat_project");
+    if (p.type === "workspace.identity.unlink") this.identities.unlink(project.id);
+    if (p.type === "workspace.identity.link" && !this.identities.link(project.id, p.identityId))
+      return { ok: true, workspace: this.decorate(project) };
+    this.changed(project.id);
+    return { ok: true, workspace: this.decorate(project) };
+  }
+  private changed(id: string): void {
+    const workspace = this.projects.get(id);
+    if (workspace && !this.removed.has(id))
+      this.emit({
+        type: "workspace.changed",
+        workspaceId: workspace.id,
+        change: "updated",
+        workspace,
+      });
   }
   /** What a transfer sends from: whether the project is a Git repository, and its origin. */
   source(id: string): { name: string; git: boolean; origin?: string } | undefined {
@@ -394,6 +491,12 @@ export class FakeProjects {
     const p = decoded.data;
     this.seed();
     try {
+      if (
+        p.type === "workspace.identity.link" ||
+        p.type === "workspace.identity.unlink" ||
+        p.type === "workspace.identity.merge"
+      )
+        return this.identityCommand(p);
       if (p.type === "workspace.root.add") {
         const path = this.realpath(p.path.replace(/\/+$/, "") || "/");
         if (!path.startsWith("/") || path.split("/").includes(".."))

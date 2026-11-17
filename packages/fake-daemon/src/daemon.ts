@@ -335,6 +335,10 @@ export class FakeDaemon implements Host {
       this.services.settings,
       () => this.services.providerStatuses,
     );
+    // Each fake machine mints its own logical project ids, as each daemon does (ADR 0180).
+    this.servicesWire.workspace.projects.identities.reseed(this.hostId);
+    if (options.projectIdentity === false)
+      this.servicesWire.workspace.projects.identities.enabled = false;
     this.review = new FakeReviewDesk(
       options.clock,
       (threadId, text, requestId) =>
