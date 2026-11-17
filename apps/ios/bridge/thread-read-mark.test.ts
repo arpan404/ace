@@ -12,8 +12,12 @@ import { ReadMark, readDwellMs } from "./thread-read-mark.ts";
 afterEach(reset);
 
 /** A reader on a clock the test turns, with what it sent the daemon. */
-function reader(start: { cursor?: number; unread?: boolean } = {}) {
-  const state = { cursor: start.cursor ?? 10, unread: start.unread ?? false, now: 0 };
+function reader(start: { cursor?: number; unread?: boolean | undefined } = {}) {
+  const state = {
+    cursor: start.cursor ?? 10,
+    unread: "unread" in start ? start.unread : false,
+    now: 0,
+  };
   const timers = new Set<{ at: number; run: () => void }>();
   const sent: string[] = [];
   const mark = new ReadMark({
@@ -92,6 +96,33 @@ test("a thread marked unread by hand is read again when this visit reaches its e
   mark.atEnd(true);
   wait(readDwellMs);
   expect(sent).toEqual(["read", "markRead 10"]);
+});
+
+test("a thread marked unread by hand whose inbox entry arrives after the dwell is read when it arrives", () => {
+  const { mark, state, sent, wait } = reader({ cursor: 10, unread: undefined });
+  mark.atEnd(true);
+  wait(readDwellMs);
+  expect(sent).toEqual(["markRead 10"]);
+  state.unread = true;
+  mark.listed();
+  expect(sent).toEqual(["markRead 10", "read"]);
+  // The visit's chance is spent: a Mark unread chosen now stands.
+  state.unread = true;
+  mark.listed();
+  expect(sent).toEqual(["markRead 10", "read"]);
+});
+
+test("an inbox entry that arrives after the reader left the end waits for the next arrival there", () => {
+  const { mark, state, sent, wait } = reader({ cursor: 10, unread: undefined });
+  mark.atEnd(true);
+  wait(readDwellMs);
+  mark.atEnd(false);
+  state.unread = true;
+  mark.listed();
+  expect(sent).toEqual(["markRead 10"]);
+  mark.atEnd(true);
+  wait(readDwellMs);
+  expect(sent).toEqual(["markRead 10", "read"]);
 });
 
 test("Mark unread chosen while reading stands until the thread is opened again", () => {

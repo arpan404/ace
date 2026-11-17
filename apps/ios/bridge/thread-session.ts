@@ -145,14 +145,15 @@ export class ThreadSession {
     // group never reads done while a child the list knows is newer still works.
     const list = client.threads();
     this.#blocks = followBlocks(store, put, undefined, (id) => listedSubagentState(list.store, id));
-    const stopList = list.store.observe(() => this.#blocks.relist());
-    this.#releaseList = () => {
-      stopList();
-      list.release();
-    };
     this.#readMark = new ReadMark({
       cursor: () => store.cursor,
-      markedUnread: () => list.store.thread(threadId)?.unread === true,
+      // Only the daemon's list: a copy from disk or one it hasn't confirmed may be stale.
+      markedUnread: () => {
+        const listed = list.store;
+        if (!listed.loaded || listed.syncing || listed.unconfirmed) return undefined;
+        const entry = listed.thread(threadId);
+        return entry && entry.unread === true;
+      },
       markRead: (lastSeenSeq) =>
         void client.markThreadRead({ threadId: this.#threadId, lastSeenSeq }).catch(() => {}),
       clearUnread: () =>
@@ -161,6 +162,14 @@ export class ThreadSession {
           .catch(() => {}),
       schedule: (ms, run) => scheduler.set(ms, run),
     });
+    const stopList = list.store.observe(() => {
+      this.#blocks.relist();
+      this.#readMark.listed();
+    });
+    this.#releaseList = () => {
+      stopList();
+      list.release();
+    };
     this.#pill = new PillFollower(store, put);
     this.#queue = new QueueFollower(
       client,
