@@ -78,7 +78,7 @@ it("starts in the foreground and exposes status, a redeemable QR URL, device lis
   const output = await ready;
   expect(output).toContain("ace daemon: ws://127.0.0.1:");
   const [statusOutput, pairingOutput] = await Promise.all([
-    cli(directory, ["status"]),
+    cli(directory, ["status", "--json"]),
     cli(directory, ["pair", "read"]),
   ]);
   const status = JSON.parse(statusOutput.stdout);
@@ -97,16 +97,16 @@ it("starts in the foreground and exposes status, a redeemable QR URL, device lis
   const desktop = DeviceCredential.parse(
     JSON.parse(readFileSync(join(directory, "browser-desktop.json"), "utf8")),
   );
-  expect(JSON.parse((await cli(directory, ["devices", "list"])).stdout)).toMatchObject(
+  expect(JSON.parse((await cli(directory, ["devices", "list", "--json"])).stdout)).toMatchObject(
     expect.arrayContaining([
       expect.objectContaining({ id: paired.device.id, name: "Phone", revokedAt: null }),
       expect.objectContaining({ id: desktop.device.id, scopes: ["desktop"], revokedAt: null }),
     ]),
   );
   expect(
-    JSON.parse((await cli(directory, ["devices", "revoke", paired.device.id])).stdout),
+    JSON.parse((await cli(directory, ["devices", "revoke", paired.device.id, "--json"])).stdout),
   ).toEqual({ revoked: true });
-  expect(JSON.parse((await cli(directory, ["devices", "list"])).stdout)).toMatchObject(
+  expect(JSON.parse((await cli(directory, ["devices", "list", "--json"])).stdout)).toMatchObject(
     expect.arrayContaining([
       expect.objectContaining({ id: paired.device.id, revokedAt: expect.any(Number) }),
       expect.objectContaining({ id: desktop.device.id, scopes: ["desktop"], revokedAt: null }),

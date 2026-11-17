@@ -34,7 +34,7 @@ test("headless pairing persists a remote profile, hides its token and reads thro
     const pairing = await f.pairing();
     const redeemed = await invoke(
       home,
-      ["pair", "redeem", "--profile", "test-host", "--json"],
+      ["pair", "redeem", "-", "--profile", "test-host", "--json"],
       {},
       pairing.url,
     );
