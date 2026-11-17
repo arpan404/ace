@@ -56,8 +56,6 @@ struct ThreadView: View {
     @State private var behind = false
     /// Each Scroll to end the person taps.
     @State private var jumps = 0
-    /// What the feed tells the turn rail over it: the reader's turn and the keyboard.
-    @State private var railPlace = TurnRailPlace()
     /// The question card's picks and page, kept here so a reply typed below keeps them.
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
@@ -124,8 +122,7 @@ struct ThreadView: View {
                                                 openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, keyboard: keyboardRide, behind: $behind, jumps: jumps, railPlace: railPlace)
-            .modifier(TurnRailOverlay(model: model, threadId: thread.id, behind: behind, place: railPlace, bottom: barHeight))
+                         barHeight: barHeight, keyboard: keyboardRide, behind: $behind, jumps: jumps)
             .markdownShelf(threadId: thread.id)
     }
 
