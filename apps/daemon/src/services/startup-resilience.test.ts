@@ -367,3 +367,44 @@ test("a service an essential one requires stops the start under its own name whe
   expect(failure).toBeInstanceOf(EssentialServiceError);
   expect(failure).toMatchObject({ service: "accounts" });
 });
+
+test("a resource a timed-out start acquires after cleanup fences the retry until it is freed", async () => {
+  const clock = fakeClock();
+  const acquired = Promise.withResolvers<void>();
+  const freed = Promise.withResolvers<void>();
+  let starts = 0;
+  const running: string[][] = [];
+  const marker = startupAttempts({
+    read: () => undefined,
+    write: (text) => running.push(JSON.parse(text).running),
+  });
+  const subject = startup({
+    timeoutMs: 100,
+    cleanupTimeoutMs: 100,
+    retryDelaysMs: [1_000, 1_000, 1_000],
+    schedule: clock.schedule,
+    onAttempt: marker.onAttempt,
+  });
+  const starting = subject.start([
+    service("devices", async (context) => {
+      starts++;
+      if (starts > 1) return;
+      // Still connecting when the deadline passes and its (empty) cleanup has run.
+      await acquired.promise;
+      context.resources.own(() => freed.promise);
+    }),
+  ]);
+  await clock.advance(100);
+  await starting;
+  await subject.listening(server);
+  acquired.resolve();
+  await clock.advance(1_000);
+  expect(starts).toBe(1);
+  expect(running.at(-1)).toEqual(["devices"]);
+
+  freed.resolve();
+  await clock.advance(1_000);
+  expect(starts).toBe(2);
+  expect(state(subject, "devices")).toBe("ready");
+  expect(running.at(-1)).toEqual([]);
+});

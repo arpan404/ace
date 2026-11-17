@@ -233,7 +233,8 @@ export class ServiceStartup {
       return [];
     }
     this.record(name, { name, state: "starting" });
-    const resources = new Resources();
+    // A disposer the start registers after cleanup began counts as this service's work too.
+    const resources = new Resources({ lateWork: (work) => this.hold(name, work) });
     const controller = new AbortController();
     const published: Partial<Services> = {};
     let committed = false;
