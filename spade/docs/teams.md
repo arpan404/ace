@@ -254,7 +254,9 @@ removed again. A newer recipe never changes the bot.
 **Recipe** is the bot as a marketplace recipe (`spade-bot` version 2, ADR 0168 §5), which the
 daemon reads to publish it: name, task, character face, `fast` when it runs on the person's fast
 model else `capable`, its scheduled routines, the marketplace skills it has loaded, the plugins it
-is allowed, and a need for each connector it is allowed (by catalogue id, else its https address).
+is allowed, and a need for each catalogue connector it is allowed, by id with generic words. A
+custom connector is never named; `left_out` says the bot uses one. A bot installed from the
+marketplace is refused (`400`): it isn't the person's to publish.
 Never a grant, model id, webhook secret, conversation or the bot's notes. Other routines, its
 heartbeat, a picture and every-connector access are named in `left_out`. `400` for Spade itself or
 a recipe holding something shaped like a secret; `404` unknown.

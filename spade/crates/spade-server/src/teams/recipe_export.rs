@@ -3,8 +3,9 @@
 //!
 //! The recipe holds the bot's name, task, face, model kind (`fast` when it runs on the person's
 //! fast model, else `capable`), its scheduled routines, the marketplace skills it has used, the
-//! plugins it is allowed, and needs derived from its grants: each connector it is allowed, by
-//! catalogue id or https address. It never holds a grant, a key, a token, a webhook secret, a
+//! plugins it is allowed, and needs derived from its grants: each catalogue connector it is
+//! allowed, by id, with generic words. A custom connector is never named; `left_out` says one
+//! was. A bot installed from the marketplace is refused: it isn't the person's to publish. It never holds a grant, a key, a token, a webhook secret, a
 //! model id, a conversation or the bot's notes about the person. What a recipe can't carry is
 //! named in `left_out`. A recipe holding anything shaped like a secret is refused, so the person
 //! takes it out before publishing.
@@ -73,6 +74,12 @@ pub fn export_recipe(
         .ok_or(PortableError::NotFound)?;
     if agent.kind != BOT {
         return Err(invalid("Spade itself isn't published as a recipe"));
+    }
+    // A bot made from a recipe is someone else's work; only bots the person made are theirs.
+    if engine.bot_recipe(id).is_some() {
+        return Err(invalid(
+            "This bot was installed from the marketplace, so it isn't yours to publish",
+        ));
     }
     let mut left_out = Vec::new();
 
@@ -213,28 +220,29 @@ fn connector_needs(hub: &Connectors, agent: &str, left_out: &mut Vec<String>) ->
     };
     let views = hub.list();
     let mut needs = Vec::new();
+    let mut custom = 0;
     for id in ids {
         let Some(view) = views.iter().find(|v| v.id == id) else {
             continue;
         };
-        let why = format!("{} is allowed for this bot.", view.name.trim());
-        let why: String = why.chars().take(500).collect();
-        let need = match view.catalogue.as_deref() {
-            Some(catalogue) => json!({ "id": catalogue, "why": why, "required": true }),
-            None if view.url.starts_with("https://") && !view.local => {
-                json!({ "url": view.url, "why": why, "required": true })
-            }
-            None => {
-                left_out.push(format!(
-                    "{} is a server on your own machine or network, so a recipe can't ask for it.",
-                    view.name
-                ));
-                continue;
-            }
+        // Only a catalogue app is named, by its id, with words that say nothing of the person's
+        // own setup; a custom app's name and address stay home.
+        let Some(catalogue) = view.catalogue.as_deref() else {
+            custom += 1;
+            continue;
         };
+        let need = json!({ "id": catalogue, "why": "The bot uses this app.", "required": true });
         if needs.len() < MOST_CONNECTORS && !needs.contains(&need) {
             needs.push(need);
         }
+    }
+    match custom {
+        0 => {}
+        1 => left_out
+            .push("It uses a custom app you added, which a recipe can't ask for.".to_owned()),
+        n => left_out.push(format!(
+            "It uses {n} custom apps you added, which a recipe can't ask for."
+        )),
     }
     needs
 }

@@ -144,22 +144,66 @@ async fn furnished_spade() -> Result<(Spade, FakeConnector)> {
     Ok((spade, app))
 }
 
-#[tokio::test]
-async fn a_bot_exports_as_a_recipe_that_asks_for_what_it_was_granted() -> Result {
-    let (spade, _app) = furnished_spade().await?;
+/// A bot the person made, with a face, a fast model, a routine, a catalogue connector, a custom
+/// one, and a plugin. Answers its id.
+async fn own_bot(spade: &Spade) -> Result<String> {
+    let custom = FakeConnector::start(Vec::new()).await;
+    custom.accept_token("api-key-2");
+    let (status, body) = spade
+        .post(
+            "/v1/connectors",
+            json!({ "url": custom.url(), "name": "Private CRM", "local": true, "token": "api-key-2" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let custom_id = body["connector"]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (_, listed) = spade.get("/v1/connectors").await?;
+    let mail_id = listed["connectors"]
+        .as_array()
+        .and_then(|all| all.iter().find(|c| c["catalogue"] == "fakemail"))
+        .map(id)
+        .unwrap_or_default();
     let (status, made) = spade
         .post(
             "/v1/agents",
-            json!({
-                "recipe": recipe(),
-                "from_recipe": { "source": "market", "name": "inbox", "version": "1.0.0" },
-                "grants": { "connectors": ["fakemail"], "plugins": ["mail-tools"], "skills": [] },
-                "start_routines": false,
-            }),
+            json!({ "name": "Inbox", "task": recipe()["task"], "model": "fake/cheap",
+                    "avatar": recipe()["face"] }),
         )
         .await?;
     assert_eq!(status, 201, "{made}");
     let bot = id(&made["agent"]);
+    let (status, body) = spade
+        .post(
+            &format!("/v1/agents/{bot}/routines"),
+            json!({ "name": "Morning sort", "instruction": "Sort the mail.",
+                    "trigger": { "kind": "schedule", "schedule": "weekdays at 8:00" } }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{bot}/connectors"),
+            json!({ "all": false, "connectors": [mail_id, custom_id] }),
+        )
+        .await?;
+    assert!(status < 300, "{body}");
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{bot}/plugins"),
+            json!({ "plugins": ["mail-tools"] }),
+        )
+        .await?;
+    assert!(status < 300, "{body}");
+    Ok(bot)
+}
+
+#[tokio::test]
+async fn a_bot_exports_as_a_recipe_that_asks_for_what_it_was_granted() -> Result {
+    let (spade, _app) = furnished_spade().await?;
+    let bot = own_bot(&spade).await?;
     // A webhook routine has a secret, and can't be part of a recipe.
     let (status, body) = spade
         .post(
@@ -182,10 +226,6 @@ async fn a_bot_exports_as_a_recipe_that_asks_for_what_it_was_granted() -> Result
     assert_eq!(out["model"], "fast", "it runs on the person's fast model");
     assert_eq!(out["routines"], recipe()["routines"]);
     assert_eq!(out["plugins"], json!(["spade-plugin/mail-tools"]));
-    assert_eq!(
-        out["needs"]["connectors"],
-        json!([{ "id": "fakemail", "why": "Fake Mail is allowed for this bot.", "required": true }])
-    );
     assert_eq!(out["notes"], json!([]), "the bot's notes stay home");
     let left_out = exported["left_out"].to_string();
     assert!(left_out.contains("Hook"), "{left_out}");
@@ -224,6 +264,58 @@ async fn a_bot_exports_as_a_recipe_that_asks_for_what_it_was_granted() -> Result
     assert_eq!(status, 201, "{remade}");
     assert_eq!(remade["agent"]["task"], recipe()["task"]);
     assert_eq!(remade["agent"]["model"], "fake/cheap");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_recipe_asks_for_catalogue_apps_by_id_alone_and_never_names_a_custom_one() -> Result {
+    let (spade, app) = furnished_spade().await?;
+    let bot = own_bot(&spade).await?;
+    let (status, exported) = spade.get(&format!("/v1/agents/{bot}/recipe")).await?;
+    assert_eq!(status, 200, "{exported}");
+    assert_eq!(
+        exported["recipe"]["needs"]["connectors"],
+        json!([{ "id": "fakemail", "why": "The bot uses this app.", "required": true }])
+    );
+    let text = exported["recipe"].to_string();
+    for absent in [
+        "Private CRM",
+        "Fake Mail",
+        "127.0.0.1",
+        "url",
+        app.url().as_str(),
+    ] {
+        assert!(
+            !text.contains(absent),
+            "the recipe holds {absent:?}: {text}"
+        );
+    }
+    let left_out = exported["left_out"].to_string();
+    assert!(left_out.contains("a custom app you added"), "{left_out}");
+    assert!(!left_out.contains("Private CRM"), "{left_out}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_bot_installed_from_the_marketplace_is_not_the_persons_to_publish() -> Result {
+    let (spade, _app) = furnished_spade().await?;
+    let (status, made) = spade
+        .post(
+            "/v1/agents",
+            json!({
+                "recipe": recipe(),
+                "from_recipe": { "source": "market", "name": "inbox", "version": "1.0.0" },
+                "grants": { "connectors": [], "plugins": [], "skills": [] },
+                "start_routines": false,
+            }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let (status, body) = spade
+        .get(&format!("/v1/agents/{}/recipe", id(&made["agent"])))
+        .await?;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.to_string().contains("marketplace"), "{body}");
     Ok(())
 }
 
@@ -316,5 +408,80 @@ async fn a_skill_written_in_spade_gives_its_files_for_publishing() -> Result {
         .get("/v1/skills/sks_00000000000000000000/files")
         .await?;
     assert_eq!(status, 404);
+    Ok(())
+}
+
+/// A Spade with a skill store holding one skill written in Spade; answers its folder and id.
+async fn with_spade_skill() -> Result<(Spade, tempfile::TempDir, std::path::PathBuf, String)> {
+    let dir = tempfile::tempdir()?;
+    let root = dir.path().join("skills");
+    let store = SkillStore::open(
+        root.clone(),
+        Store::open(&dir.path().join("spade.db"))?,
+        Arc::new(SystemClock),
+        None,
+    );
+    let library: Arc<dyn SkillLibrary> = store.clone();
+    let made = library
+        .create("release-notes", "Writes release notes", "Group by area.\n")
+        .await
+        .map_err(|e| e.to_string())?;
+    let spade = Spade::start_with(
+        Vec::new(),
+        Vec::new(),
+        Options {
+            skill_store: Some(store),
+            ..Options::default()
+        },
+    )
+    .await?;
+    Ok((spade, dir, root, made))
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_skill_whose_skill_md_is_a_link_out_of_it_gives_nothing() -> Result {
+    let (spade, dir, root, made) = with_spade_skill().await?;
+    let outside = dir.path().join("private.txt");
+    std::fs::write(&outside, "the person's private notes")?;
+    let skill_md = root.join(&made).join("SKILL.md");
+    std::fs::remove_file(&skill_md)?;
+    std::os::unix::fs::symlink(&outside, &skill_md)?;
+    let (status, body) = spade.get(&format!("/v1/skills/{made}/files")).await?;
+    assert_eq!(status, 422, "{body}");
+    assert!(!body.to_string().contains("private notes"), "{body}");
+    assert!(!body.to_string().contains("dGhlIHBlcnNvbi"), "{body}");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_skill_folder_that_is_a_link_gives_nothing() -> Result {
+    let (spade, dir, root, made) = with_spade_skill().await?;
+    let elsewhere = dir.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere)?;
+    std::fs::write(
+        elsewhere.join("SKILL.md"),
+        "---\nname: release-notes\n---\nsecret plans\n",
+    )?;
+    let folder = root.join(&made);
+    std::fs::remove_dir_all(&folder)?;
+    std::os::unix::fs::symlink(&elsewhere, &folder)?;
+    let (status, body) = spade.get(&format!("/v1/skills/{made}/files")).await?;
+    assert_eq!(status, 422, "{body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_oversized_skill_md_is_refused_rather_than_read_whole() -> Result {
+    let (spade, _dir, root, made) = with_spade_skill().await?;
+    let big = format!(
+        "---\nname: release-notes\n---\n{}",
+        "x".repeat(2 * 1024 * 1024)
+    );
+    std::fs::write(root.join(&made).join("SKILL.md"), big)?;
+    let (status, body) = spade.get(&format!("/v1/skills/{made}/files")).await?;
+    assert_eq!(status, 422, "{body}");
+    assert!(body.to_string().contains("larger"), "{body}");
     Ok(())
 }
