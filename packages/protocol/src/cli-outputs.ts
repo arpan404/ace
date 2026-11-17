@@ -1,11 +1,33 @@
 import { z } from "zod";
 import { CliOpenRequest, CliRequestList, CliTaskStatus, CliTree } from "./cli-control.ts";
 import { ThreadStatus } from "./thread-status.ts";
-import { Thread } from "./thread.ts";
-import { Item } from "./items.ts";
 import { Interaction } from "./interactions.ts";
 import { Project } from "./projects.ts";
-import { ThreadListEntry, ThreadListWindow } from "./wire-core.ts";
+import { ThreadListWindow } from "./wire-core.ts";
+import { ProviderKind } from "./provider-data.ts";
+
+/**
+ * A thread as the daemon sends it (`Thread`, `ThreadListEntry`), named by the fields a script
+ * reads. The rest of the daemon's fields come along unchanged; the full shapes carry
+ * transforms JSON Schema can't express, so `--schema` describes them this way.
+ */
+const CliThreadFacts = z.looseObject({
+  id: z.string(),
+  workspaceId: z.string(),
+  title: z.string(),
+  provider: ProviderKind,
+  status: ThreadStatus,
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+/** A transcript item as the daemon sends it (`Item`), by the fields every item has. */
+const CliItemFacts = z.looseObject({
+  id: z.string(),
+  type: z.string(),
+  agentId: z.string(),
+  createdAt: z.number(),
+});
 import { CliCommandHelp, CliCommandTree, CliVersionOutput } from "./cli-output.ts";
 import { DaemonHealth } from "./release.ts";
 
@@ -60,7 +82,7 @@ export const CliThreadRow = z.object({
 
 /** `ace thread list`: the threads in the app's order, their rows, and the next page. */
 export const CliThreadList = z.object({
-  threads: z.array(ThreadListEntry),
+  threads: z.array(CliThreadFacts),
   rows: z.array(CliThreadRow),
   next: z.string().nullable(),
   window: ThreadListWindow.optional(),
@@ -68,8 +90,8 @@ export const CliThreadList = z.object({
 
 /** `ace thread show`: the thread, a bounded window of items and its requests. */
 export const CliThreadShow = z.object({
-  thread: Thread.loose(),
-  items: z.array(Item),
+  thread: CliThreadFacts,
+  items: z.array(CliItemFacts),
   itemsBefore: z.number().nullable(),
   interactions: z.array(Interaction),
 });

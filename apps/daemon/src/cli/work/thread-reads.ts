@@ -1,4 +1,4 @@
-import { CliTaskStatus, CliTree, ThreadId, type Item, type ThreadListEntry } from "@ace/protocol";
+import { CliTaskStatus, CliTree, ThreadId, type Item } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { treeOutcome } from "../../work-outcome.ts";
 import { CliFailure, usageFailure, type Outcome } from "../output.ts";
@@ -15,7 +15,7 @@ import {
 } from "./daemon.ts";
 import { colourOn, limitFlag, show, stringFlag, terminalWidth } from "./output.ts";
 import { missing, pickThread } from "./pick.ts";
-import { pageRows, threadRows, unseenWindowMs, type ThreadRow } from "./rows.ts";
+import { pageRows, threadListJson, threadRows, unseenWindowMs } from "./rows.ts";
 
 /** Rows of the thread list, in the app's order (the I/O around `threadRows`). */
 export async function listRows(
@@ -57,16 +57,7 @@ export async function threadList(context: CommandContext): Promise<void> {
       want: 500,
     });
     const page = pageRows(rows, limit, after);
-    const byId = new Map<string, ThreadListEntry>(list.entries.map((entry) => [entry.id, entry]));
-    const value = {
-      threads: page.rows.flatMap((row) => {
-        const entry = byId.get(row.threadId);
-        return entry ? [entry] : [];
-      }),
-      rows: page.rows.map(publicRow),
-      next: page.next,
-      ...(list.window ? { window: list.window } : {}),
-    };
+    const value = threadListJson(list.entries, page, list.window);
     const command = ["ace thread list", ...flagWords(args.flags)].join(" ");
     await show(args, value, {
       human: () =>
@@ -77,12 +68,6 @@ export async function threadList(context: CommandContext): Promise<void> {
       quiet: () => page.rows.map((row) => row.threadId),
     });
   });
-}
-
-/** A row as `--json` carries it: the state in words, not how a terminal draws it. */
-function publicRow(row: ThreadRow) {
-  const { icon: _icon, tone: _tone, ...rest } = row;
-  return Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
 }
 
 function flagWords(flags: Readonly<Record<string, string | true>>): string[] {
@@ -113,7 +98,8 @@ export async function treeOf(client: Client, id: ThreadId, signal: AbortSignal):
     { signal },
   );
   if (!response.result.ok) {
-    if (response.result.code === "not_found")
+    // A thread the daemon doesn't hold reads the same as one this device may not read.
+    if (response.result.code === "not_found" || response.result.code === "forbidden")
       throw new CliFailure("refused", `No thread ${id} on this machine.`, undefined, {
         code: "not_found",
         argument: "THREAD",

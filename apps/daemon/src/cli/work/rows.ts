@@ -1,4 +1,4 @@
-import type { ThreadListEntry } from "@ace/protocol";
+import type { ThreadListEntry, ThreadListWindow } from "@ace/protocol";
 import {
   activityOf,
   arrange,
@@ -157,4 +157,28 @@ export function pageRows(
   const page = rows.slice(start, start + limit);
   const last = page.at(-1);
   return { rows: page, next: start + limit < rows.length && last ? last.threadId : null };
+}
+
+/** A row as `--json` carries it: the state in words, not how a terminal draws it. */
+function publicRow(row: ThreadRow) {
+  const { icon: _icon, tone: _tone, ...rest } = row;
+  return Object.fromEntries(Object.entries(rest).filter(([, value]) => value !== undefined));
+}
+
+/** `ace thread list --json`: the page's list entries in order, their rows, the next cursor. */
+export function threadListJson(
+  entries: readonly ThreadListEntry[],
+  page: { rows: readonly ThreadRow[]; next: string | null },
+  window: ThreadListWindow | undefined,
+) {
+  const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));
+  return {
+    threads: page.rows.flatMap((row) => {
+      const entry = byId.get(row.threadId);
+      return entry ? [entry] : [];
+    }),
+    rows: page.rows.map(publicRow),
+    next: page.next,
+    ...(window ? { window } : {}),
+  };
 }

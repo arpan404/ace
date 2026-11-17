@@ -210,7 +210,12 @@ export async function withThread<T>(
       signal,
     );
     if (lease.store.error) {
-      if (/not.?found|unknown/i.test(`${lease.store.error.code} ${lease.store.error.message}`))
+      // The daemon answers a thread it doesn't hold the same as one this device can't read.
+      if (
+        /not.?found|unknown|read_denied/i.test(
+          `${lease.store.error.code} ${lease.store.error.message}`,
+        )
+      )
         throw new CliFailure("refused", `No thread ${id} on this machine.`, undefined, {
           code: "not_found",
           argument: "THREAD",

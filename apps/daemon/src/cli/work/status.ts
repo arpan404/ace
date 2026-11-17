@@ -48,11 +48,7 @@ export async function statusCommand(context: CommandContext): Promise<void> {
       .catch(() => undefined),
     workCounts(context).catch(() => undefined),
   ]);
-  const value = {
-    ...health,
-    ...(account ? { account } : {}),
-    ...counts,
-  };
+  const value = statusJson(health, account, counts);
   await show(context.args, value, {
     human: () =>
       statusLines({
@@ -87,4 +83,13 @@ async function workCounts(context: CommandContext) {
   } finally {
     await session.close();
   }
+}
+
+/** `ace status --json` with the daemon up: its health untouched, then the extras it could read. */
+export function statusJson<T extends object>(
+  health: T,
+  account: { signedIn: boolean; email?: string } | undefined,
+  counts: { needsYou: number; working: number } | undefined,
+) {
+  return { ...health, ...(account ? { account } : {}), ...counts };
 }
