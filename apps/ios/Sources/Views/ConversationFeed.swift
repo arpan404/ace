@@ -83,9 +83,6 @@ struct ConversationFeed: View {
     @State private var feedFrame: CGRect = .zero
     /// The edge that holds still while lazy rows correct their heights (`TranscriptGrowthAnchor`).
     @State private var growth = TranscriptGrowthAnchor()
-    /// Bumped as each older page lands and as the feed comes to rest while the bottom is held: the
-    /// older page's hold ends a second after the last bump.
-    @State private var olderQuiet = 0
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
     /// The viewport controller owns the follow mode; the feed never keeps its
@@ -214,8 +211,8 @@ struct ConversationFeed: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0 }
         .coordinateSpace(name: Self.viewportSpace)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
-        // Rows measuring above the screen don't move it while a thread opens at its end or an
-        // older page lands (`TranscriptGrowthAnchor`).
+        // Rows measuring above the screen don't move it while a thread opens at its end
+        // (`TranscriptGrowthAnchor`).
         .defaultScrollAnchor(growth.keepsEnd ? .bottom : nil, for: .sizeChanges)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.bottom, for: .alignment)
@@ -283,7 +280,6 @@ struct ConversationFeed: View {
                 // After the follow mode above: where the scroll came to rest is held, and a
                 // correction owed while it ran is made (`TranscriptPlaceKeeper`).
                 keep(.phase(.idle), proxy: proxy)
-                if growth.keepsEnd { olderQuiet += 1 }
                 restack(rows: TranscriptFeedRow.rows(shown).count, moving: false, replaced: false, proxy: proxy)
                 updateBehind()
                 pageIfNeeded(proxy)
@@ -383,20 +379,8 @@ struct ConversationFeed: View {
             .modifier(SpacerCounts(before: extent.before, after: extent.after))
             .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
             .onChange(of: reading.loading) { _, loading in
-                if loading, reading.operation == "older" {
-                    growth.olderRequested()
-                    TranscriptJumpHooks.begin("older")
-                }
-                if !loading, reading.operation == "older" { olderQuiet += 1 }
+                if loading, reading.operation == "older" { TranscriptJumpHooks.begin("older") }
                 if !loading { pageIfNeeded(proxy) }
-            }
-            // A page that lands mid-fling joins the feed when the fling comes to rest, and its rows
-            // measure within a few frames of that; then new rows below grow under a held top again.
-            .task(id: olderQuiet) {
-                guard olderQuiet > 0 else { return }
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled, !reading.loading, !intent.active, !intent.animating else { return }
-                growth.olderSettled()
             }
             .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
                 restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
@@ -521,8 +505,7 @@ struct ConversationFeed: View {
                 now: model.now())
             switch correction {
             case .shift:
-                // The held bottom already keeps the rows on screen where they were.
-                if !growth.keepsEnd, let held = viewport.held,
+                if let held = viewport.held,
                     placeRowAtTop(held.rowID, top: held.top, proxy: proxy) {
                     viewport.noteCorrectionApplied()
                     keep(.placedHeldRow, proxy: proxy)
@@ -801,7 +784,7 @@ struct ConversationFeed: View {
         return TranscriptPlaceKeeper.Facts(held: viewport.held, inset: intent.metrics.topInset,
             mayCapture: viewport.mode == .reading && !viewport.isAiming && !restoring,
             mayCorrect: viewport.canCorrect && !viewport.isAiming && !restoring && viewport.mode != .following
-                && !UIAccessibility.isVoiceOverRunning && !growth.keepsEnd)
+                && !UIAccessibility.isVoiceOverRunning)
     }
     /// Hands `event` to the place keeper and does what it decides: hold a row, or scroll one back.
     /// Pure-geometry drift (async Markdown and media sizing) is corrected there, bounded by the
