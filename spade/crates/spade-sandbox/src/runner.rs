@@ -23,7 +23,8 @@ pub enum Mechanism {
 #[serde(rename_all = "snake_case")]
 pub enum Coverage {
     Contained,
-    /// Some of it: Linux's Landlock holds TCP but not UDP, raw or Unix sockets.
+    /// Some of it: Linux's Landlock alone (where its network filter can't run) holds TCP ports
+    /// but not addresses, UDP, raw or Unix sockets.
     Partial,
     None,
 }
@@ -35,6 +36,8 @@ pub struct Status {
     pub mechanism: Mechanism,
     pub files: Coverage,
     pub network: Coverage,
+    /// Linux: the Landlock ABI the kernel enforces.
+    pub landlock_abi: Option<u8>,
     /// Why a boundary isn't held, in a sentence the person reads.
     pub reason: Option<String>,
 }
@@ -57,6 +60,7 @@ impl Status {
             mechanism: Mechanism::None,
             files: Coverage::None,
             network: Coverage::None,
+            landlock_abi: None,
             reason: Some(reason.to_owned()),
         }
     }
@@ -119,7 +123,13 @@ impl Runner {
                     .unwrap_or_else(|| "this machine has no sandbox".to_owned()),
             ));
         }
-        platform::wrap(self.launcher.as_deref(), policy, program, args)
+        platform::wrap(
+            &self.status,
+            self.launcher.as_deref(),
+            policy,
+            program,
+            args,
+        )
     }
 }
 
@@ -158,6 +168,7 @@ mod platform {
                 mechanism: Mechanism::Seatbelt,
                 files: Coverage::Contained,
                 network: Coverage::Contained,
+                landlock_abi: None,
                 reason: None,
             },
             _ => Status::none("macOS refused Spade's sandbox profile on this Mac."),
@@ -172,6 +183,7 @@ mod platform {
     }
 
     pub(super) fn wrap(
+        _status: &Status,
         _launcher: Option<&Path>,
         policy: &Policy,
         program: &Path,
@@ -190,31 +202,53 @@ mod platform {
 #[cfg(target_os = "linux")]
 mod platform {
     use super::*;
+    use crate::linux::Network;
 
     #[cfg(feature = "landlock")]
     pub(super) fn probe(launcher: Option<&Path>) -> Status {
-        if launcher.is_none() {
+        let Some(launcher) = launcher else {
             return Status::none("Spade's own program could not be found to start the sandbox.");
+        };
+        if !crate::linux::landlock_supported() {
+            return Status::none(
+                "This Linux kernel doesn't enforce Landlock, so commands are reviewed as before.",
+            );
         }
-        match crate::linux::supported() {
-            (true, network) => Status {
-                platform: "linux",
-                mechanism: Mechanism::Landlock,
-                files: Coverage::Contained,
-                // Landlock holds TCP connects (ABI 4) but not UDP, raw or Unix sockets: until
-                // a seccomp filter closes those, the network is only partly held.
-                network: if network {
+        match crate::linux::probe(launcher) {
+            Ok(probed) => status(&probed),
+            Err(why) => Status::none(&format!(
+                "Spade's Linux sandbox could not start here ({why}), so commands are reviewed \
+                 as before."
+            )),
+        }
+    }
+
+    /// What a probe that ran found: files held by Landlock, the network by the filter or (only
+    /// in part) by Landlock's TCP rules.
+    #[cfg(feature = "landlock")]
+    pub(super) fn status(probed: &crate::linux::Probed) -> Status {
+        let (network, reason) = match &probed.filtered {
+            Ok(()) => (Coverage::Contained, None),
+            Err(why) => (
+                // TCP ports are held from ABI 4.
+                if probed.abi >= 4 {
                     Coverage::Partial
                 } else {
                     Coverage::None
                 },
-                reason: Some(
-                    "Linux holds files; the network is held only in part until Spade filters \
-                     UDP and Unix sockets."
-                        .to_owned(),
-                ),
-            },
-            (false, _) => Status::none("This Linux kernel doesn't enforce Landlock."),
+                Some(format!(
+                    "Linux holds files, but Spade's network filter could not start here ({why}), \
+                     so commands are reviewed as before."
+                )),
+            ),
+        };
+        Status {
+            platform: "linux",
+            mechanism: Mechanism::Landlock,
+            files: Coverage::Contained,
+            network,
+            landlock_abi: Some(probed.abi),
+            reason,
         }
     }
 
@@ -224,6 +258,7 @@ mod platform {
     }
 
     pub(super) fn wrap(
+        status: &Status,
         launcher: Option<&Path>,
         policy: &Policy,
         program: &Path,
@@ -231,7 +266,13 @@ mod platform {
     ) -> Result<Launch, Unavailable> {
         let launcher =
             launcher.ok_or_else(|| Unavailable("Spade's own program is unknown".to_owned()))?;
-        let plan = crate::linux::plan(policy);
+        // The filter where the probe found it holds; Landlock alone where it couldn't run.
+        let network = if status.network == Coverage::Contained {
+            Network::Filtered
+        } else {
+            Network::Landlock
+        };
+        let plan = crate::linux::plan(policy, network);
         let plan = serde_json::to_string(&plan)
             .map_err(|error| Unavailable(format!("the sandbox plan: {error}")))?;
         let mut all: Vec<OsString> = vec![crate::linux::LAUNCHER_ARG.into(), plan.into()];
@@ -256,6 +297,7 @@ mod platform {
             mechanism: Mechanism::None,
             files: Coverage::None,
             network: Coverage::None,
+            landlock_abi: None,
             reason: Some(
                 "Spade's Windows sandbox (AppContainer) isn't built yet, so commands are \
                  reviewed as before."
@@ -265,6 +307,7 @@ mod platform {
     }
 
     pub(super) fn wrap(
+        _status: &Status,
         _launcher: Option<&Path>,
         _policy: &Policy,
         _program: &Path,
@@ -285,6 +328,7 @@ mod platform {
     }
 
     pub(super) fn wrap(
+        _status: &Status,
         _launcher: Option<&Path>,
         _policy: &Policy,
         _program: &Path,
@@ -319,6 +363,7 @@ mod tests {
             mechanism: Mechanism::Landlock,
             files: Coverage::Contained,
             network: Coverage::Partial,
+            landlock_abi: Some(4),
             reason: None,
         };
         assert!(status.usable() && !status.contains());

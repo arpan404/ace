@@ -1,89 +1,23 @@
-//! Linux's sandbox (ADR 0167 decision 1): a Landlock ruleset that Spade's own binary, started as
-//! a launcher (`spade sandbox-exec <plan> <program> <args>…`), applies to itself before it runs
-//! the command. Landlock only allows: it has no rule that denies inside an allowed folder. So a
-//! readable place holding something on the deny-list is opened child by child around it
-//! ([`carve`]).
+//! Carving (ADR 0167 decision 1): Landlock only allows, it has no rule that denies inside an
+//! allowed folder. So a readable place holding something on the deny-list is opened child by
+//! child around it. Carving works on opened objects, never on path text alone: each place is
+//! opened without following a link, a link met while carving is skipped (never followed, never
+//! granted), an object that *is* a denied one (same device and inode, a hard link included) is
+//! left out, a file met while carving that has another name is left out too, and the very
+//! descriptors carving opened are the ones the rules are installed on, so nothing can be swapped
+//! in between. Pure over [`Fs`]; [`RealFs`] needs Linux.
 //!
-//! Carving works on opened objects, never on path text alone: each place is opened without
-//! following a link, a link met while carving is skipped (never followed, never granted), an
-//! object that *is* a denied one (same device and inode, a hard link included) is left out, and
-//! the very descriptors carving opened are the ones the rules are installed on, so nothing can be
-//! swapped in between. The plan and the carving are pure over [`Fs`] and tested everywhere;
-//! applying them needs Linux and the `landlock` feature.
+//! A rule on a file holds its inode, whatever the path, so a granted hard link would open every
+//! other name of the file as well (`~/.ssh/id_ed25519` through a link to it beside a toolchain's
+//! credentials). Where its other names are can't be known, so such a file is never granted alone.
+//! Inside a folder that is granted whole, a hard link reads as the folder's (as on macOS), but the
+//! rule stays on the folder and opens no other name.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
-use crate::policy::Policy;
-
-/// The launcher's first argument.
-pub const LAUNCHER_ARG: &str = "sandbox-exec";
-
-/// System folders a command reads and runs from. The home folder, `/root`, `/mnt`, `/media`,
-/// `/srv`, `/run`, `/tmp` and the rest of `/var` are not among them, so they stay hidden.
-const SYSTEM: &[&str] = &[
-    "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/etc", "/opt", "/nix", "/snap",
-    "/var/lib", "/proc", "/sys", "/dev",
-];
-
-/// Device nodes a command may write.
-const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/tty", "/dev/pts"];
-
-/// One place to open, with what may not be reached inside it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Root {
-    pub path: PathBuf,
-    pub write: bool,
-    /// Places inside (or equal to) it that stay closed.
-    pub deny: Vec<PathBuf>,
-}
-
-/// What the launcher applies: its roots and the one port it may connect to.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Plan {
-    pub roots: Vec<Root>,
-    pub proxy_port: Option<u16>,
-}
-
-/// The plan for `policy`. Pure: what is opened, and around what, is decided by the launcher.
-pub fn plan(policy: &Policy) -> Plan {
-    let mut roots = Vec::new();
-    let mut add = |paths: &mut dyn Iterator<Item = PathBuf>, write: bool, deny: &[PathBuf]| {
-        for path in paths {
-            roots.push(Root {
-                path,
-                write,
-                deny: deny.to_vec(),
-            });
-        }
-    };
-    add(&mut SYSTEM.iter().map(PathBuf::from), false, &policy.deny);
-    add(&mut policy.read.iter().cloned(), false, &policy.deny);
-    add(&mut policy.write.iter().cloned(), true, &policy.deny);
-    // A plugin's folder sits inside ace's data, which is denied: only credentials stay closed.
-    add(&mut policy.reopen.iter().cloned(), false, &policy.secrets);
-    // The workspace is inside Spade's data folder: only denied places inside it are closed.
-    let inside: Vec<PathBuf> = policy
-        .deny
-        .iter()
-        .filter(|d| d.starts_with(&policy.workspace) && **d != policy.workspace)
-        .cloned()
-        .collect();
-    add(
-        &mut std::iter::once(policy.workspace.clone()),
-        true,
-        &inside,
-    );
-    add(&mut policy.scratch.iter().cloned(), true, &policy.secrets);
-    add(&mut DEVICES.iter().map(PathBuf::from), true, &[]);
-    Plan {
-        roots,
-        proxy_port: policy.proxy_port,
-    }
-}
+use super::Root;
 
 /// What an opened object is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +42,8 @@ pub trait Fs {
     fn id(&self, handle: &Self::Handle) -> Option<(u64, u64)>;
     /// The device and inode of the object at `path`, links followed (a denied place).
     fn id_of(&self, path: &Path) -> Option<(u64, u64)>;
+    /// How many names the opened object has (its hard links).
+    fn names_of(&self, handle: &Self::Handle) -> u64;
 }
 
 /// `root` as opened objects Landlock may grant: the root itself when nothing denied is inside
@@ -147,6 +83,8 @@ fn walk<F: Fs>(
     for name in fs.names(&handle) {
         match fs.child(&handle, &name) {
             Some((_, Kind::Link)) | None => {}
+            // Granted alone, a file with another name would open that name too.
+            Some((child, Kind::File)) if fs.names_of(&child) > 1 => {}
             Some((child, child_kind)) => {
                 walk(fs, root, denied, path.join(&name), child, child_kind, out);
             }
@@ -205,6 +143,13 @@ impl Fs for RealFs {
         use std::os::unix::fs::MetadataExt;
         std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
     }
+
+    // `st_nlink` is narrower than `u64` on some targets.
+    #[allow(clippy::unnecessary_cast)]
+    fn names_of(&self, handle: &Self::Handle) -> u64 {
+        // Unknown counts as shared: the file is left out.
+        rustix::fs::fstat(handle).map_or(u64::MAX, |stat| stat.st_nlink as u64)
+    }
 }
 
 /// Opens `name` beside `dir` as itself (`O_PATH | O_NOFOLLOW`), with what it is.
@@ -227,72 +172,6 @@ fn open_at(
         _ => Kind::File,
     };
     Some((fd, kind))
-}
-
-/// Carves `plan`, applies it to this process and runs `program` in its place. Answers only on
-/// failure.
-#[cfg(all(target_os = "linux", feature = "landlock"))]
-pub fn exec(plan: &Plan, program: &std::ffi::OsStr, args: &[std::ffi::OsString]) -> String {
-    use std::os::unix::process::CommandExt;
-
-    match restrict(plan) {
-        Ok(()) => {
-            let error = std::process::Command::new(program).args(args).exec();
-            format!("the command could not start: {error}")
-        }
-        Err(error) => format!("the sandbox could not be applied: {error}"),
-    }
-}
-
-#[cfg(all(target_os = "linux", feature = "landlock"))]
-fn restrict(plan: &Plan) -> Result<(), landlock::RulesetError> {
-    use landlock::{
-        ABI, Access, AccessFs, AccessNet, NetPort, PathBeneath, Ruleset, RulesetAttr,
-        RulesetCreatedAttr,
-    };
-
-    let abi = ABI::V5;
-    // Every TCP connect is handled, so with no port in the plan none is allowed.
-    let mut created = Ruleset::default()
-        .handle_access(AccessFs::from_all(abi))?
-        .handle_access(AccessNet::ConnectTcp)?
-        .create()?;
-    for root in &plan.roots {
-        let access = if root.write {
-            AccessFs::from_all(abi)
-        } else {
-            AccessFs::from_read(abi)
-        };
-        // The descriptors carving opened are the ones the rules hold.
-        for (_, fd) in carve(&RealFs, root) {
-            created = created.add_rule(PathBeneath::new(fd, access))?;
-        }
-    }
-    if let Some(port) = plan.proxy_port {
-        created = created.add_rule(NetPort::new(port, AccessNet::ConnectTcp))?;
-    }
-    created.restrict_self()?;
-    Ok(())
-}
-
-/// Whether this kernel enforces Landlock for files and for TCP connects.
-#[cfg(all(target_os = "linux", feature = "landlock"))]
-pub fn supported() -> (bool, bool) {
-    use landlock::{
-        ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr,
-    };
-
-    let files = Ruleset::default()
-        .set_compatibility(CompatLevel::HardRequirement)
-        .handle_access(AccessFs::from_all(ABI::V1))
-        .and_then(|r| r.create())
-        .is_ok();
-    let network = Ruleset::default()
-        .set_compatibility(CompatLevel::HardRequirement)
-        .handle_access(AccessNet::ConnectTcp)
-        .and_then(|r| r.create())
-        .is_ok();
-    (files, network)
 }
 
 #[cfg(test)]
@@ -357,6 +236,14 @@ mod tests {
             let target = self.links.get(path).map_or(path, PathBuf::as_path);
             self.id(&target.to_path_buf())
         }
+
+        fn names_of(&self, handle: &PathBuf) -> u64 {
+            let Some((Kind::File, id)) = self.kinds.get(handle) else {
+                return 1;
+            };
+            let same = |(kind, other): &(Kind, u64)| *kind == Kind::File && other == id;
+            u64::try_from(self.kinds.values().filter(|v| same(v)).count()).unwrap_or(u64::MAX)
+        }
     }
 
     fn root(path: &str, deny: &[&str]) -> Root {
@@ -415,53 +302,27 @@ mod tests {
     }
 
     #[test]
+    fn a_file_with_another_name_is_never_granted_alone() {
+        // ~/.cargo/copy is a hard link to ~/.ssh/id: a rule on it would open ~/.ssh/id too.
+        let tree = home().file("/h/.cargo/copy", 3);
+        let root = root("/h/.cargo", &["/h/.ssh", "/h/.cargo/credentials.toml"]);
+        assert_eq!(granted(&tree, &root), vec![PathBuf::from("/h/.cargo/bin")]);
+        // A file with one name beside a denied one is granted.
+        let tree = home().file("/h/.cargo/config.toml", 9);
+        assert_eq!(
+            granted(&tree, &root),
+            vec![
+                PathBuf::from("/h/.cargo/bin"),
+                PathBuf::from("/h/.cargo/config.toml")
+            ]
+        );
+    }
+
+    #[test]
     fn a_hard_link_to_a_denied_file_is_left_out_as_the_same_object() {
         // ~/.cargo/copy is the same inode as ~/.ssh/id.
         let tree = home().file("/h/.cargo/copy", 3);
         let root = root("/h/.cargo", &["/h/.ssh/id", "/h/.cargo/credentials.toml"]);
         assert_eq!(granted(&tree, &root), vec![PathBuf::from("/h/.cargo/bin")]);
-    }
-
-    #[test]
-    fn the_plan_writes_only_the_workspace_granted_folders_scratch_and_devices() {
-        let policy = Policy {
-            workspace: "/h/spade/workspace/b1".into(),
-            temp: "/h/spade/workspace/b1/.spade/tmp".into(),
-            write: vec!["/h/code".into()],
-            read: vec!["/h/.cargo".into()],
-            hide: vec!["/h".into()],
-            deny: vec!["/h/.cargo/credentials.toml".into(), "/h/spade".into()],
-            secrets: vec!["/h/.cargo/credentials.toml".into()],
-            reopen: vec![],
-            scratch: vec!["/h/spade/terminal/b1".into()],
-            proxy_port: Some(4100),
-        };
-        let plan = plan(&policy);
-        let written: Vec<&Path> = plan
-            .roots
-            .iter()
-            .filter(|r| r.write)
-            .map(|r| r.path.as_path())
-            .collect();
-        assert_eq!(
-            written,
-            vec![
-                Path::new("/h/code"),
-                Path::new("/h/spade/workspace/b1"),
-                Path::new("/h/spade/terminal/b1"),
-                Path::new("/dev/null"),
-                Path::new("/dev/zero"),
-                Path::new("/dev/tty"),
-                Path::new("/dev/pts"),
-            ]
-        );
-        let workspace = plan
-            .roots
-            .iter()
-            .find(|r| r.path == Path::new("/h/spade/workspace/b1"));
-        assert_eq!(workspace.map(|r| r.deny.len()), Some(0));
-        let cargo = plan.roots.iter().find(|r| r.path == Path::new("/h/.cargo"));
-        assert_eq!(cargo.map(|r| r.deny.clone()), Some(policy.deny.clone()));
-        assert_eq!(plan.proxy_port, Some(4100));
     }
 }
