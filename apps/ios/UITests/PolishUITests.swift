@@ -70,8 +70,9 @@ import XCTest
         screenshot("profile-signed-in")
 
         machine.swipeLeft()
-        let forget = app.buttons["account.machine.forget.fixture-studio"]
-        XCTAssertTrue(forget.waitForExistence(timeout: 5))
+        // A swipe action's button keeps its label, not its identifier.
+        let forget = app.buttons["Forget"].firstMatch
+        XCTAssertTrue(forget.waitForExistence(timeout: 5), "swiping the row offers Forget")
         forget.tap()
         XCTAssertTrue(app.staticTexts["Forget studio?"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["account.machine.forget.confirm"].exists)

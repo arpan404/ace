@@ -216,7 +216,6 @@ struct AceAccountView: View {
     private func forget(_ machine: AceMachine) -> some View {
         Button("Forget") { forgetting = machine }
             .tint(AceDesign.Ink.destructive)
-            .accessibilityIdentifier("account.machine.forget.\(machine.hostId)")
     }
 
     private static func name(_ machine: AceMachine) -> String { machine.name.isEmpty ? "Machine" : machine.name }
