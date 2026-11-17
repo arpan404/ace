@@ -65,7 +65,7 @@ impl Lister {
         let hidden = Hidden::build(self.root.path(), &options.hide)?;
         let rules = self.rules_for(dir)?;
         let snapshot = self.snapshot(dir, &rules, &hidden)?;
-        let total = snapshot.entries.len();
+        let total = snapshot.total();
         let offset = match cursor {
             None => 0,
             Some(cursor) => {
@@ -95,7 +95,7 @@ impl Lister {
             .encode()
         });
         Ok(Page {
-            entries: snapshot.entries[offset..end].to_vec(),
+            entries: snapshot.entries(offset..end),
             next_cursor,
             total,
         })
