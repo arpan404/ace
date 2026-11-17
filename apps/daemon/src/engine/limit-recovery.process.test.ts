@@ -256,6 +256,29 @@ test("a deadline this build can't read is put off on its own, and another thread
   expect(failures).toHaveLength(2);
 });
 
+test("a queued message whose trigger a newer build wrote is skipped at start, never stopping the engine", async () => {
+  const { h, id } = await limitedThread();
+  h.store.atomic((db) =>
+    db
+      .prepare(
+        "UPDATE intents SET trigger='future_trigger' WHERE thread_id=? AND status IN ('pending','queued')",
+      )
+      .run(id),
+  );
+  const failures: unknown[] = [];
+  const recovered = await restart(h, { onError: (error) => failures.push(error) });
+  await expect(recovered.ready()).resolves.toBeUndefined();
+  expect(failures.map(String).join("\n")).toContain(id);
+  // Its rows stay for a build that reads them.
+  expect(
+    h.store.atomic((db) =>
+      db
+        .prepare("SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND trigger='future_trigger'")
+        .get(id),
+    )?.n,
+  ).toBeGreaterThan(0);
+});
+
 test("a resetless limit refuses a timed action, and the person's next message is sent, not held", async () => {
   const frames = scriptFrames();
   const h = await fixture(
