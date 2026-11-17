@@ -94,7 +94,6 @@ export class ReadMarkScenario {
       facts.message("root", "answer", "assistant", "The replay limit is 200 now."),
       facts.endTurn("root"),
     ]);
-    this.#daemon.checkouts.seed(threadId, path, after);
     this.#daemon.workspace.setDetails(threadId, {
       worktree: `/tmp/ace-ios-spike/worktrees/${threadId}`,
       head: "6".repeat(40),
@@ -103,6 +102,8 @@ export class ReadMarkScenario {
       diff: { files: 1, additions: 1, deletions: 1 },
       repository: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
     });
+    // After its details: a checkout is found by the thread's own worktree.
+    this.#daemon.checkouts.seed(threadId, path, after);
     this.#daemon.workspace.setGitStatus(threadId, [
       { path, status: "modified", additions: 1, deletions: 1, binary: false },
     ]);
