@@ -240,8 +240,8 @@ filesystem and network isolation are both required.
 ## Amendment 1: Linux's sandbox, as built (2026-11-17)
 
 Replaces the Linux bullet of decision 1, the Linux part of decision 9 and the last consequence.
-Linux now holds files and network, so it counts as `contained` and ADR 0171's sandboxed path
-(no classifier, no reviewer) applies there as on macOS.
+Linux counts as `contained` only when files, network and signals are held. Only then does
+ADR 0171's sandboxed path (no classifier, no reviewer) apply there as on macOS.
 
 1. **The launcher stays outside as the run's supervisor.** `spade sandbox-exec <plan> <program>
 <args>…` carves the plan's roots (opening each place it grants), lowers its limits, and starts
@@ -299,8 +299,38 @@ Linux now holds files and network, so it counts as `contained` and ADR 0171's sa
    says why in one sentence.
 6. **What it doesn't hold.** `/proc` stays readable, so the command lines and status of the
    person's other processes are visible (their memory, environment, files and working folders
-   are not: Landlock refuses ptrace access to processes outside the sandbox). Below ABI 6 a
-   command can signal the person's other processes. A hard link to a credential that the person
+   are not: Landlock refuses ptrace access to processes outside the sandbox). Below ABI 6,
+   signals require the private PID namespace described below. A hard link to a credential the person
    put inside a folder granted whole reads as that folder's file (as on macOS). Builds need
    `libseccomp-dev` and the machine needs `libseccomp.so.2`, which Ubuntu, Debian, Fedora and Arch
    ship as part of systemd.
+
+### Hardening before Linux ships
+
+- Files require Landlock ABI 3 or newer, which adds the truncate right. ABI 1 and 2
+  report `files: partial` with a plain reason and retain command reviews. Refusing the
+  path-based `truncate` syscall alone does not contain `open(O_TRUNC)` or `ftruncate`.
+- The supervisor refuses AF_UNSPEC connects. It duplicates the socket, keys a shared lock
+  by its device and inode from `fstat`, and holds that lock from the address check through
+  the operation. A successful supervised bind records permission to listen. `listen`
+  requires that record and checks `getsockname` under the same lock. Unix sockets must
+  likewise have been bound by this supervisor in the workspace. Retained descriptors
+  prevent inode reuse from inheriting permission; the descriptor limit bounds this state
+  and exhaustion refuses further operations.
+- PID-targeted resource and scheduling calls are notified and continued only for PID 0 or
+  the caller's process ID. `setpriority` and `ioprio_set` permit only process selectors,
+  never groups or users; `kcmp` checks both PIDs. `setrlimit` has no target PID and already
+  acts only on the caller. `process_madvise` is refused entirely: checking an fd and then
+  continuing would race the caller's fd table. No pointer or fd-based target is continued.
+- Below Landlock ABI 6, a filtered launch first starts util-linux `/usr/bin/unshare` with a
+  private user, PID and mount namespace and a fresh `/proc`. It maps the person's current
+  UID, forks the launcher as namespace init, and kills that init if unshare dies. This happens before confinement. The existing supervisor reaps the namespace's
+  children. PID namespaces make outside processes unaddressable by all signal syscalls,
+  including process-group and queued signals, without a second process-tree tracker or
+  pidfd emulation of thread-directed signals. The filter prevents further namespace changes.
+  ABI 6 and newer use Landlock signal scoping instead, without requiring user namespaces.
+- The real filtered probe exercises the same namespace setup on old kernels. If user
+  namespaces, util-linux or its mount setup are unavailable, it fails and falls back to
+  Landlock alone: `signals: partial` below ABI 6, and reviews remain. `contains()` requires
+  all three coverage fields to be contained and Linux ABI at least 3. A filtered launch
+  retries setup on every run and refuses to start the command if it fails.

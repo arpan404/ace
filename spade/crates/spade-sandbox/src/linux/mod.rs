@@ -22,6 +22,8 @@ pub mod net;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod launch;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
+mod namespace;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
 mod seccomp;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod supervise;

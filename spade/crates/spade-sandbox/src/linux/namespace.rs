@@ -1,0 +1,59 @@
+//! Old kernels need PID namespaces to contain every form of signal sending.
+use std::ffi::OsString;
+use std::io::Read;
+use std::os::unix::process::ExitStatusExt;
+use std::process::{Command, ExitCode};
+
+pub fn run(args: &[OsString]) -> Result<ExitCode, String> {
+    // Init opens and unlinks this before starting the command. Both ends retain a CLOEXEC
+    // descriptor, inaccessible through the command's Landlock domain, even with /tmp granted.
+    let mut ending = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
+    let mut signals = signal_hook::iterator::Signals::new([
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGQUIT,
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGHUP,
+    ])
+    .map_err(|e| e.to_string())?;
+    let mut child = Command::new("/usr/bin/unshare")
+        .args([
+            "--user",
+            "--map-current-user",
+            "--pid",
+            "--fork",
+            "--mount-proc",
+            "--kill-child",
+        ])
+        .arg(std::env::current_exe().map_err(|e| e.to_string())?)
+        .arg(super::LAUNCHER_ARG)
+        .arg("--private-pid-init")
+        .arg(ending.path())
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("signals need a private PID namespace: {e}"))?;
+    let pid = rustix::process::Pid::from_child(&child);
+    std::thread::spawn(move || {
+        for signal in signals.forever() {
+            let forwarded = match signal {
+                signal_hook::consts::SIGTERM => Some(rustix::process::Signal::TERM),
+                signal_hook::consts::SIGHUP => Some(rustix::process::Signal::HUP),
+                _ => None,
+            };
+            if let Some(signal) = forwarded {
+                let _ = rustix::process::kill_process(pid, signal);
+            }
+        }
+    });
+    let status = child.wait().map_err(|e| e.to_string())?;
+    let mut signal = String::new();
+    ending
+        .read_to_string(&mut signal)
+        .map_err(|e| e.to_string())?;
+    if let Some(signal) = signal.trim().parse::<i32>().ok().or(status.signal()) {
+        let _ = signal_hook::low_level::emulate_default_handler(signal);
+        return Ok(ExitCode::from(1));
+    }
+    Ok(ExitCode::from(
+        u8::try_from(status.code().unwrap_or(126)).unwrap_or(126),
+    ))
+}

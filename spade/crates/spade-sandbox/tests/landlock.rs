@@ -188,6 +188,7 @@ fn a_runs_exit_code_and_ending_signal_come_through_the_launcher() {
     let world = world();
     let policy = policy(&world, None);
     assert_eq!(run(&policy, "exit 7").0, 7);
+    assert_eq!(run(&policy, "exit 143").0, 143);
     let out = linux::output(&policy, "kill -TERM $$");
     assert_eq!(
         std::os::unix::process::ExitStatusExt::signal(&out.status),

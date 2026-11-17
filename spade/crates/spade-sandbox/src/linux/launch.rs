@@ -31,6 +31,13 @@ const MORE_TASKS: u64 = 4_096;
 
 /// Applies `plan` around `program args` and answers its exit.
 pub fn main(args: &[OsString]) -> ExitCode {
+    let namespaced = args.first().is_some_and(|a| a == "--private-pid-init");
+    let marker = if namespaced { args.get(1) } else { None };
+    let args = if namespaced {
+        args.get(2..).unwrap_or_default()
+    } else {
+        args
+    };
     let refused = |why: &str| {
         eprintln!("spade sandbox-exec: {why}");
         ExitCode::from(126)
@@ -44,7 +51,38 @@ pub fn main(args: &[OsString]) -> ExitCode {
     else {
         return refused("the plan doesn't parse");
     };
-    match run(&plan, program, &args[2..]) {
+    if namespaced && rustix::process::getpid().as_raw_nonzero().get() != 1 {
+        return refused("the signal supervisor must be the private PID namespace's init");
+    }
+    // Detect ABI on a disposable thread, so the launcher itself remains unrestricted.
+    let abi = std::thread::spawn(|| {
+        Ruleset::default()
+            .handle_access(AccessFs::from_all(ABI_WANTED))
+            .and_then(|r| r.create())
+            .and_then(|r| r.restrict_self())
+            .map(|s| effective(&s.landlock))
+            .unwrap_or(0)
+    })
+    .join()
+    .unwrap_or(0);
+    if plan.network == Network::Filtered && abi < 6 && !namespaced {
+        // util-linux creates the user, mount and PID namespaces before this launcher starts
+        // threads or installs restrictions. Its init is the supervisor, which reaps children.
+        return super::namespace::run(args).unwrap_or_else(|why| refused(&why));
+    }
+    let ending = if let Some(path) = marker {
+        let file = std::fs::OpenOptions::new().write(true).open(path);
+        if let Err(e) = std::fs::remove_file(path) {
+            return refused(&e.to_string());
+        }
+        match file {
+            Ok(file) => Some(file),
+            Err(e) => return refused(&e.to_string()),
+        }
+    } else {
+        None
+    };
+    match run(&plan, program, &args[2..], ending) {
         Ok(code) => code,
         Err(why) => refused(&why),
     }
@@ -56,7 +94,12 @@ enum Started {
     Failed(String),
 }
 
-fn run(plan: &Plan, program: &OsStr, args: &[OsString]) -> Result<ExitCode, String> {
+fn run(
+    plan: &Plan,
+    program: &OsStr,
+    args: &[OsString],
+    ending: Option<std::fs::File>,
+) -> Result<ExitCode, String> {
     let ruleset = ruleset(plan).map_err(|e| format!("the sandbox could not be applied: {e}"))?;
     limit().map_err(|e| format!("the sandbox's limits could not be set: {e}"))?;
     // What the command leaves running stays the launcher's, so the supervisor may still reach
@@ -104,7 +147,7 @@ fn run(plan: &Plan, program: &OsStr, args: &[OsString]) -> Result<ExitCode, Stri
             }
         }
     });
-    Ok(reap(pid))
+    Ok(reap(pid, ending))
 }
 
 /// The thread that becomes the sandbox: applies the ruleset and the filter to itself, then
@@ -217,7 +260,7 @@ fn limit() -> rustix::io::Result<()> {
 }
 
 /// Waits for `pid`, reaping what the launcher adopted, and ends as it ended.
-fn reap(pid: Pid) -> ExitCode {
+fn reap(pid: Pid, mut ending: Option<std::fs::File>) -> ExitCode {
     loop {
         match rustix::process::wait(WaitOptions::empty()) {
             Ok(Some((reaped, status))) if reaped == pid => {
@@ -225,6 +268,15 @@ fn reap(pid: Pid) -> ExitCode {
                     return ExitCode::from(u8::try_from(code & 0xff).unwrap_or(1));
                 }
                 if let Some(signal) = status.terminating_signal() {
+                    if let Some(file) = ending.as_mut() {
+                        use std::io::Write;
+                        // PID namespace init cannot die from its own default SIGTERM. Tell
+                        // the outer launcher, which restores the real signal after waiting.
+                        if writeln!(file, "{signal}").is_err() {
+                            return ExitCode::from(126);
+                        }
+                        return ExitCode::from(128 + signal as u8);
+                    }
                     // Ends the launcher the same way, so its own parent sees the signal.
                     let _ = signal_hook::low_level::emulate_default_handler(signal);
                     return ExitCode::from(u8::try_from(128 + (signal & 0x7f)).unwrap_or(1));

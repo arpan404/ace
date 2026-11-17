@@ -36,6 +36,8 @@ pub struct Status {
     pub mechanism: Mechanism,
     pub files: Coverage,
     pub network: Coverage,
+    /// Whether signals are isolated from processes outside this sandbox.
+    pub signals: Coverage,
     /// Linux: the Landlock ABI the kernel enforces.
     pub landlock_abi: Option<u8>,
     /// Why a boundary isn't held, in a sentence the person reads.
@@ -43,10 +45,13 @@ pub struct Status {
 }
 
 impl Status {
-    /// Files and network both held: a run is contained and the reviews ADR 0167 decision 8 drops
+    /// Files, network and signals held: a run is contained and the reviews ADR 0167 decision 8 drops
     /// may go.
     pub fn contains(&self) -> bool {
-        self.files == Coverage::Contained && self.network == Coverage::Contained
+        self.files == Coverage::Contained
+            && self.network == Coverage::Contained
+            && self.signals == Coverage::Contained
+            && (self.platform != "linux" || self.landlock_abi.is_some_and(|abi| abi >= 3))
     }
 
     /// Commands can be started under a policy at all (perhaps only partly held).
@@ -60,6 +65,7 @@ impl Status {
             mechanism: Mechanism::None,
             files: Coverage::None,
             network: Coverage::None,
+            signals: Coverage::None,
             landlock_abi: None,
             reason: Some(reason.to_owned()),
         }
@@ -168,6 +174,7 @@ mod platform {
                 mechanism: Mechanism::Seatbelt,
                 files: Coverage::Contained,
                 network: Coverage::Contained,
+                signals: Coverage::Contained,
                 landlock_abi: None,
                 reason: None,
             },
@@ -228,6 +235,7 @@ mod platform {
     #[cfg(feature = "landlock")]
     pub(super) fn status(probed: &crate::linux::Probed) -> Status {
         let (network, reason) = match &probed.filtered {
+            // Below ABI 6 the filtered probe can succeed only inside a private PID namespace.
             Ok(()) => (Coverage::Contained, None),
             Err(why) => (
                 // TCP ports are held from ABI 4.
@@ -237,16 +245,31 @@ mod platform {
                     Coverage::None
                 },
                 Some(format!(
-                    "Linux holds files, but Spade's network filter could not start here ({why}), \
+                    "Spade's network filter or signal isolation could not start here ({why}), \
                      so commands are reviewed as before."
                 )),
             ),
         };
+        let files = if probed.abi >= 3 {
+            Coverage::Contained
+        } else {
+            Coverage::Partial
+        };
+        let reason = if probed.abi < 3 {
+            Some("Linux's Landlock ABI is below 3 and cannot contain file truncation, so commands keep reviews.".to_owned())
+        } else {
+            reason
+        };
         Status {
             platform: "linux",
             mechanism: Mechanism::Landlock,
-            files: Coverage::Contained,
+            files,
             network,
+            signals: if probed.abi >= 6 || probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
             landlock_abi: Some(probed.abi),
             reason,
         }
@@ -297,6 +320,7 @@ mod platform {
             mechanism: Mechanism::None,
             files: Coverage::None,
             network: Coverage::None,
+            signals: Coverage::None,
             landlock_abi: None,
             reason: Some(
                 "Spade's Windows sandbox (AppContainer) isn't built yet, so commands are \
@@ -357,17 +381,54 @@ mod tests {
     }
 
     #[test]
-    fn only_both_boundaries_held_count_as_contained() {
+    fn only_all_boundaries_held_count_as_contained() {
         let mut status = Status {
             platform: "linux",
             mechanism: Mechanism::Landlock,
             files: Coverage::Contained,
             network: Coverage::Partial,
+            signals: Coverage::Contained,
             landlock_abi: Some(4),
             reason: None,
         };
         assert!(status.usable() && !status.contains());
         status.network = Coverage::Contained;
         assert!(status.contains());
+        status.signals = Coverage::Partial;
+        assert!(!status.contains());
+    }
+}
+
+#[cfg(all(test, target_os = "linux", feature = "landlock"))]
+mod linux_status_tests {
+    use super::*;
+    #[test]
+    fn old_abis_keep_reviews_until_files_network_and_signals_are_held() {
+        for abi in 1..=9 {
+            for filtered in [Ok(()), Err("unavailable".to_owned())] {
+                let status = platform::status(&crate::linux::Probed {
+                    abi,
+                    filtered: filtered.clone(),
+                });
+                assert_eq!(
+                    status.contains(),
+                    abi >= 3 && filtered.is_ok(),
+                    "{status:?}"
+                );
+                assert_eq!(status.files == Coverage::Contained, abi >= 3);
+                assert_eq!(
+                    status.signals == Coverage::Contained,
+                    abi >= 6 || filtered.is_ok()
+                );
+                if abi < 3 {
+                    assert!(
+                        status
+                            .reason
+                            .as_deref()
+                            .is_some_and(|s| s.contains("truncation"))
+                    );
+                }
+            }
+        }
     }
 }

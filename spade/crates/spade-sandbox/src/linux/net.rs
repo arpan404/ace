@@ -7,6 +7,7 @@
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::path::{Component, Path, PathBuf};
 
+#[cfg(test)]
 const AF_UNSPEC: u16 = 0;
 const AF_UNIX: u16 = 1;
 const AF_INET: u16 = 2;
@@ -44,8 +45,6 @@ pub enum Verdict {
     /// Connect or bind to the Unix socket at this place in the workspace (absolute, without
     /// `.` or `..`). The supervisor opens it without following links.
     Unix(PathBuf),
-    /// Dissolve the socket's association (`connect` with `AF_UNSPEC`).
-    Unspec,
     Deny,
 }
 
@@ -59,8 +58,6 @@ pub fn decide(call: Call, bytes: &[u8], cwd: &Path, rules: &Rules) -> Verdict {
         (AF_INET, _) => inet(call, bytes, rules),
         (AF_INET6, _) => inet6(call, bytes, rules),
         (AF_UNIX, _) => unix(bytes, cwd, rules),
-        // Binding `AF_UNSPEC` is read as `0.0.0.0` by the kernel: every interface.
-        (AF_UNSPEC, Call::Connect) => Verdict::Unspec,
         _ => Verdict::Deny,
     }
 }
@@ -265,8 +262,8 @@ mod tests {
         assert_eq!(bind(&v6(Ipv6Addr::UNSPECIFIED, 3000)), Verdict::Deny);
         // `AF_UNSPEC` binds every interface.
         assert_eq!(bind(&AF_UNSPEC.to_ne_bytes()), Verdict::Deny);
-        // ...but connecting with it only dissolves an association.
-        assert_eq!(connect(&AF_UNSPEC.to_ne_bytes()), Verdict::Unspec);
+        // Disconnecting could invalidate a bind checked by another operation.
+        assert_eq!(connect(&AF_UNSPEC.to_ne_bytes()), Verdict::Deny);
     }
 
     #[test]

@@ -4,12 +4,14 @@
 //! itself, with the address it judged, never the command's own. Nothing the command does after
 //! the address was read can change where its socket goes. Every failure refuses the call.
 
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::os::fd::{AsFd, OwnedFd, RawFd};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use libseccomp::{ScmpNotifReq, ScmpNotifResp, ScmpNotifRespFlags, ScmpSyscall, notify_id_valid};
 use rustix::io::Errno;
@@ -20,6 +22,7 @@ use super::net::{self, Call, MAX_ADDRESS, Rules, Verdict};
 /// Answers notifications on `listener` until it closes.
 pub fn serve(listener: RawFd, rules: Rules) {
     let names = Names::new();
+    let sockets = Arc::new(Mutex::new(HashMap::new()));
     loop {
         let request = match ScmpNotifReq::receive(listener) {
             Ok(request) => request,
@@ -30,15 +33,61 @@ pub fn serve(listener: RawFd, rules: Rules) {
             Err(_) => return,
         };
         let rules = rules.clone();
+        let sockets = Arc::clone(&sockets);
         // A blocking connect to a Unix socket can wait; the next call isn't held behind it.
         // Past the process limit no thread starts and the call is refused.
         let handled = std::thread::Builder::new().spawn(move || {
-            let answer = handle(listener, &request, names, &rules);
+            if let Some(allowed) = self_target(&request) {
+                let response = if allowed {
+                    // Only scalar process ids are checked here, never pointers or fd numbers.
+                    ScmpNotifResp::new_val(request.id, 0, ScmpNotifRespFlags::CONTINUE)
+                } else {
+                    ScmpNotifResp::new_error(request.id, -1, ScmpNotifRespFlags::empty())
+                };
+                let _ = response.respond(listener);
+                return;
+            }
+            let answer = handle(listener, &request, names, &rules, &sockets);
             respond(listener, request.id, answer);
         });
         if handled.is_err() {
             respond(listener, request.id, Err(Errno::AGAIN));
         }
+    }
+}
+
+// Keep a descriptor with each entry: inode reuse can never inherit permission to listen.
+// The launcher's descriptor limit bounds this table; exhaustion refuses further operations.
+struct Socket {
+    fd: OwnedFd,
+    bound: Mutex<bool>,
+}
+type Sockets = Mutex<HashMap<(u64, u64), Arc<Socket>>>;
+
+fn self_target(request: &ScmpNotifReq) -> Option<bool> {
+    let a = request.data.args;
+    let name = |n| ScmpSyscall::from_name(n).ok() == Some(request.data.syscall);
+    let pid = thread_group(request.pid)? as u32 as u64;
+    let own = |n: u64| n == 0 || n == pid;
+    if [
+        "prlimit64",
+        "sched_setaffinity",
+        "sched_setscheduler",
+        "sched_setparam",
+        "pidfd_open",
+    ]
+    .iter()
+    .any(|n| name(n))
+    {
+        Some(own(a[0]))
+    } else if name("setpriority") {
+        Some(a[0] == 0 && own(a[1])) // PRIO_PROCESS only, never a group or user.
+    } else if name("ioprio_set") {
+        Some(a[0] == 1 && own(a[1])) // IOPRIO_WHO_PROCESS only.
+    } else if name("kcmp") {
+        Some(own(a[0]) && own(a[1]))
+    } else {
+        None
     }
 }
 
@@ -119,20 +168,36 @@ fn handle(
     request: &ScmpNotifReq,
     names: Names,
     rules: &Rules,
+    sockets: &Sockets,
 ) -> Result<(), Errno> {
     let args = request.data.args;
     let call = Some(request.data.syscall);
     let (caller, memory) = Caller::open(listener, request)?;
+    let duplicate = caller.socket(args[0])?;
+    let stat = rustix::fs::fstat(&duplicate)?;
+    #[allow(clippy::unnecessary_cast)]
+    let key = (stat.st_dev as u64, stat.st_ino as u64);
+    let socket = {
+        let mut table = sockets.lock().map_err(|_| Errno::PERM)?;
+        Arc::clone(table.entry(key).or_insert_with(|| {
+            Arc::new(Socket {
+                fd: duplicate,
+                bound: Mutex::new(false),
+            })
+        }))
+    };
+    let mut bound = socket.bound.lock().map_err(|_| Errno::PERM)?;
+    let socket = &socket.fd;
+    valid(listener, request.id)?;
     if call == names.listen {
-        let socket = caller.socket(args[0])?;
-        let local = rustix::net::getsockname(&socket)?;
+        let local = rustix::net::getsockname(socket)?;
         let unix = SocketAddrUnix::try_from(local.clone()).is_ok();
-        if !net::may_listen(inet(local), unix) {
+        if !*bound || !net::may_listen(inet(local), unix) {
             return Err(Errno::PERM);
         }
         // `listen`'s backlog is an `int`: its low 32 bits.
         let backlog = args[1] as u32 as i32;
-        return rustix::net::listen(&socket, backlog);
+        return rustix::net::listen(socket, backlog);
     }
     let kind = if call == names.connect {
         Call::Connect
@@ -152,8 +217,12 @@ fn handle(
     if verdict == Verdict::Deny {
         return Err(Errno::PERM);
     }
-    let socket = caller.socket(args[0])?;
-    act(kind, verdict, &socket, rules)
+    let binding = kind == Call::Bind;
+    act(kind, verdict, socket, rules)?;
+    if binding {
+        *bound = true;
+    }
+    Ok(())
 }
 
 fn inet(address: SocketAddrAny) -> Option<SocketAddr> {
@@ -172,7 +241,6 @@ fn act(kind: Call, verdict: Verdict, socket: &OwnedFd, rules: &Rules) -> Result<
             }
         }
         Verdict::Loopback(address) => rustix::net::bind(socket, &address),
-        Verdict::Unspec => rustix::net::connect_unspec(socket),
         Verdict::Unix(path) => unix(kind, &path, socket, &rules.sockets),
         Verdict::Deny => Err(Errno::PERM),
     }

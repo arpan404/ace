@@ -60,7 +60,6 @@ const REFUSED: &[&str] = &[
     "process_vm_readv",
     "process_vm_writev",
     "pidfd_getfd",
-    "kcmp",
     "bpf",
     "perf_event_open",
     "userfaultfd",
@@ -105,8 +104,20 @@ const REFUSED: &[&str] = &[
     "modify_ldt",
 ];
 
-/// Done by the supervisor on the command's socket.
-pub const SUPERVISED: &[&str] = &["connect", "bind", "listen"];
+/// Socket operations are performed by the supervisor; scalar PID targets are checked there.
+pub const SUPERVISED: &[&str] = &[
+    "connect",
+    "bind",
+    "listen",
+    "prlimit64",
+    "sched_setaffinity",
+    "sched_setscheduler",
+    "sched_setparam",
+    "setpriority",
+    "ioprio_set",
+    "kcmp",
+    "pidfd_open",
+];
 
 /// The filter. `landlock_truncates`: Landlock (ABI 3 and later) holds `truncate`.
 pub fn filter(
@@ -121,6 +132,9 @@ pub fn filter(
             ctx.add_rule(refuse, call)?;
         }
     }
+    // This fd-targeted call cannot safely be continued after checking a mutable fd table.
+    // An older libseccomp that cannot name it must fail the probe, never silently allow it.
+    ctx.add_rule(refuse, ScmpSyscall::from_name("process_madvise")?)?;
     if !landlock_truncates {
         ctx.add_rule(refuse, ScmpSyscall::from_name("truncate")?)?;
     }

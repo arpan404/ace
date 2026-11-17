@@ -20,7 +20,7 @@ Spade probes the sandbox once at start (`Runner::probe`). On macOS: the real pro
 throwaway folder running `/usr/bin/true`. On Linux: a real sandbox through the launcher on a
 throwaway folder, whose check (`spade sandbox-check`) writes in its workspace and not beside it,
 reaches a listener standing in for the proxy and can't open a UDP socket (see
-[Linux](#linux)). `SPADE_SANDBOX=off` turns it off. Without a sandbox that holds both files and
+[Linux](#linux)). `SPADE_SANDBOX=off` turns it off. Without a sandbox that holds files, signals and
 network, and the proxy listening, nothing about reviews changes.
 
 ## What a sandboxed run may touch
@@ -100,7 +100,8 @@ the command did: its code, or the same signal. A run that can't be confined answ
 **Landlock.** The highest ABI the kernel offers (asked at 9, used at what the kernel has),
 best effort, with `restrict_self` refused if nothing is enforced. Files as in the table above;
 TCP connects to the proxy's port only (ABI 4); signals and abstract Unix sockets scoped to the
-sandbox (ABI 6). The status carries `landlock_abi`.
+sandbox (ABI 6). File containment requires ABI 3 or newer. The status carries
+`landlock_abi` and `signals`; `contains()` requires files, network and signals to be contained.
 
 **The seccomp filter** (`linux/seccomp.rs`, libseccomp, this machine's architecture only; a call
 through another one kills the process). `EPERM` for:
@@ -108,7 +109,7 @@ through another one kills the process). `EPERM` for:
 | What                     | Calls                                                                                                                                                                                                                                              |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Sockets                  | `socket` of any family but `AF_UNIX`, `AF_INET`, `AF_INET6`; TCP only as `SOCK_STREAM` with protocol 0 or `IPPROTO_TCP`; Unix only stream or seqpacket (`socketpair` too); `MSG_FASTOPEN` on the send calls                                        |
-| Other processes          | `ptrace`, `process_vm_readv`, `process_vm_writev`, `pidfd_getfd`, `kcmp`                                                                                                                                                                           |
+| Other processes          | `ptrace`, `process_vm_readv`, `process_vm_writev`, `pidfd_getfd`, `process_madvise`                                                                                                                                                                           |
 | The kernel               | `bpf`, `perf_event_open`, `userfaultfd`, `keyctl`, `add_key`, `request_key`, `io_uring_*`, modules, `kexec_*`, `reboot`, `swapon`, `swapoff`, `acct`, `syslog`, `quotactl`, `iopl`, `ioperm`, `modify_ldt`                                         |
 | File systems, namespaces | `mount`, `umount2`, `move_mount`, `open_tree`, `fsopen`, `fsconfig`, `fsmount`, `fspick`, `mount_setattr`, `pivot_root`, `chroot`, `unshare`, `setns`, `clone` with a `CLONE_NEW*` flag, `open_by_handle_at`, `name_to_handle_at`, `fanotify_init` |
 | The terminal             | `ioctl` `TIOCSTI` and `TIOCLINUX`                                                                                                                                                                                                                  |
@@ -125,9 +126,16 @@ socket with `pidfd_getfd` and makes the call itself:
 
 | Call      | Allowed                                                                                                         | Done as                                                                                         |
 | --------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `connect` | `127.0.0.1:<proxy>`, `[::1]:<proxy>`, `[::ffff:127.0.0.1]:<proxy>`; a Unix socket in the workspace; `AF_UNSPEC` | `127.0.0.1:<proxy>` (`::ffff:127.0.0.1` on IPv6); the opened socket file's `/proc/self/fd` name |
+| `connect` | `127.0.0.1:<proxy>`, `[::1]:<proxy>`, `[::ffff:127.0.0.1]:<proxy>`; a Unix socket in the workspace | `127.0.0.1:<proxy>` (`::ffff:127.0.0.1` on IPv6); the opened socket file's `/proc/self/fd` name |
 | `bind`    | `127.0.0.0/8`, `::1`, mapped loopback, any port; a new Unix socket in the workspace                             | the judged address; `/proc/self/fd/<folder>/<name>`                                             |
 | `listen`  | a socket bound on loopback at a port, or a Unix socket                                                          | `listen` on that socket                                                                         |
+
+The supervisor refuses AF_UNSPEC connects and serializes each check and operation by the
+duplicated socket's inode. Listening requires a successful bind by this supervisor and a
+fresh address check under that lock. Descriptor retention prevents inode reuse from granting
+permission; exhaustion fails closed. PID-targeted resource and scheduling calls permit only
+PID 0 or self, with process selectors only; both `kcmp` targets are checked. `process_madvise`
+is refused entirely because its fd target could change before a continued call.
 
 Everything else is `EPERM`: other hosts and ports (the proxy's port at another address
 included), other loopback ports, DNS over TCP, Unix sockets outside the workspace or reached
@@ -146,17 +154,26 @@ environment carries no `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY` 
 `XDG_RUNTIME_DIR`. `xdg-open`, `gio open`, `notify-send`, `systemd-run --user` and any app a
 command starts can't reach the desktop. There is no grant for them yet.
 
-**Fallbacks.** The probe tries the filter, then Landlock alone:
+**Signals on older kernels.** Below ABI 6 the launcher first starts util-linux `unshare`
+with `--user --map-current-user --pid --fork --mount-proc --kill-child`, before installing
+restrictions. An unlinked status file lets the outer launcher preserve termination signals
+while distinguishing them from exit codes such as 143. The launcher is the new namespace's
+init. Outside processes cannot be signalled.
+If this setup fails, the filtered probe fails: signals are partial and commands keep reviews.
+ABI 6 and newer use Landlock's signal scoping.
+
+**Fallbacks.** The probe tries the filter, then Landlock alone. ABI 1 and 2 always report
+`files: partial` because they cannot contain truncation and commands keep reviews:
 
 | The machine                                                           | Status                                                    | Runs                    |
 | --------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------- |
-| Landlock and the filter hold                                          | `files: contained`, `network: contained`                  | Landlock and the filter |
+| Landlock ABI 3+, the filter and signal isolation hold | `files: contained`, `network: contained`, `signals: contained` | Landlock and the filter |
 | Landlock holds, the filter doesn't (no libseccomp listener, Yama 2–3) | `files: contained`, `network: partial` (ABI 4+) or `none` | Landlock alone          |
 | No Landlock (not built or not enabled, as Docker Desktop's kernel)    | `mechanism: none`                                         | as before, reviewed     |
 
 **Not held.** `/proc` stays readable, so other processes' command lines and status are visible
 (not their memory, environment, files or folders: Landlock refuses ptrace access outside the
-sandbox). Below ABI 6 a command can signal the person's other processes. A hard link to a
+sandbox). Below ABI 6, contained runs require a private PID namespace before confinement. A hard link to a
 credential put inside a folder granted whole reads as that folder's file, as on macOS. Listing
 another process's `/proc/<pid>/fd` shows numbers, not targets.
 
@@ -244,7 +261,7 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
 `spade_core::effect::route` ([autonomy.md](autonomy.md), "Where a call goes"), with these facts:
 
 - **Sandboxed** (`Runs::Sandbox`): a `shell` call, a terminal command, a service or a plugin
-  server's call that runs in a sandbox holding files and network here, with the proxy
+  server's call that runs in a sandbox holding files, signals and network here, with the proxy
   listening. It runs with no classifier, no credential word list and no review, untrusted
   content in view or not, unless its tool declares a payment, a send or an access change, or
   reads secrets. A checkpoint is taken first when one is due; when it can't be, the call is
@@ -304,7 +321,7 @@ Under `/v1`, with the bearer token. Only the person's API writes any of this; no
 
 | Method and path                             | Body                                   | Answer                                                                                                                                                                                                                                                                         |
 | ------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /security`                             |                                        | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network: contained\|partial\|none, reason}, proxy: {running, problem}, contained, defaults: [host], bots: {commands, network: Policy, plugin_network: Policy}, toolchains_found: [path]}`     |
+| `GET /security`                             |                                        | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network, signals: contained\|partial\|none, landlock_abi, reason}, proxy: {running, problem}, contained, defaults: [host], bots: {commands, network: Policy, plugin_network: Policy}, toolchains_found: [path]}`     |
 | `PUT /security/commands`                    | `{commands: sandboxed\|outside}`       | The machine's view; what bots without their own inherit                                                                                                                                                                                                                        |
 | `PUT /security/network`                     | `{mode, allow?, dropped?}`             | The machine's view; `400` as for a bot's                                                                                                                                                                                                                                       |
 | `PUT /security/plugin-network`              | `{mode, allow?, dropped?}`             | As above, for plugins                                                                                                                                                                                                                                                          |
