@@ -47,6 +47,36 @@ test("worker bootstrap and Show more fetch bounded server pages; unlisted select
   await vi.waitFor(() => expect(lease.store.loaded && lease.store.ids.length === 0).toBe(true));
 });
 
+test("a page of older threads is in the tab's list by the time Show more resolves there", async () => {
+  // The worker sends its changes once a frame; here a frame passes only when the test says.
+  const { daemon, tab, advance } = world(undefined, { frameMs: 16 });
+  const remote = tab();
+  await remote.start();
+  await vi.waitFor(() => expect(remote.state).toBe("ready"));
+  for (let i = 0; i < 45; i++) {
+    const id = `settled-${i}`;
+    daemon.createThread({ id, workspaceId: "repo", title: `Settled ${i}`, provider: "codex" });
+    daemon.updateThread(id, { status: { state: "done" } });
+    await remote.command({ type: "thread.settle", threadId: ThreadId.parse(id) });
+  }
+  const lease = remote.threads();
+  cleanups.push(lease.release);
+  await vi.waitFor(() => {
+    advance(16);
+    expect(lease.store.ids).toHaveLength(20);
+  });
+  // The tab judges a page by what its list holds once the call returns: a page that seems to
+  // bring nothing stops the paging, so it must already be there, its cursor moved on, without
+  // waiting for the next frame.
+  const cursor = lease.store.window?.before;
+  await remote.threadsMore();
+  expect(lease.store.ids).toHaveLength(40);
+  expect(lease.store.window?.before).not.toEqual(cursor);
+  await remote.threadsMore();
+  expect(lease.store.ids).toHaveLength(45);
+  expect(lease.store.window?.before).toBeNull();
+});
+
 test("archive has its own bounded window while Home stays live, and leaving archive releases its history", async () => {
   const { daemon, tab } = world();
   for (let i = 0; i < 45; i++) {
