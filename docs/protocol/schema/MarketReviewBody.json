@@ -1,0 +1,220 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketReviewBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fonts": {
+          "items": {
+            "maxLength": 120,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "passes": {
+          "type": "boolean"
+        },
+        "problems": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketProblem.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "scenes": {
+          "items": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "type": {
+          "const": "suit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "passes",
+        "problems",
+        "scenes",
+        "fonts",
+        "files"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "files": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "flagged": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skillName": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "type": {
+          "const": "spade-skill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "skillName",
+        "description",
+        "files",
+        "flagged"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "executions": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pluginName": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "const": "spade-plugin",
+          "type": "string"
+        },
+        "unsupported": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "pluginName",
+        "executions",
+        "unsupported"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "botName": {
+          "maxLength": 80,
+          "type": "string"
+        },
+        "brings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+              },
+              "type": {
+                "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+              },
+              "version": {
+                "maxLength": 64,
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "name",
+              "version"
+            ],
+            "type": "object"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "face": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "model": {
+          "enum": [
+            "fast",
+            "capable"
+          ],
+          "type": "string"
+        },
+        "needs": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketNeed.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "routines": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketRoutineRow.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "spadeReady": {
+          "type": "boolean"
+        },
+        "task": {
+          "maxLength": 8000,
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "type": {
+          "const": "spade-bot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "botName",
+        "task",
+        "model",
+        "routines",
+        "notes",
+        "brings",
+        "needs",
+        "spadeReady"
+      ],
+      "type": "object"
+    }
+  ]
+}

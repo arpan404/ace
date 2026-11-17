@@ -11,6 +11,7 @@ const Row = z.object({
     .pipe(StoredAccount),
   refresh: z.string(),
   expires: z.number(),
+  signed_in: z.number().default(0),
 });
 const stored = (account: AceAccount, pictureUrl: string | undefined) =>
   JSON.stringify(pictureUrl ? { ...account, pictureUrl } : account);
@@ -23,16 +24,27 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
       account: AceAccount,
       refresh: string,
       expires: number,
+      signedIn: number,
       pictureUrl?: string,
     ) {
       await db
-        .prepare("INSERT INTO sessions (token, account, refresh, expires) VALUES (?, ?, ?, ?)")
-        .bind(hash, stored(account, pictureUrl), await sealer.seal(refresh, hash), expires)
+        .prepare(
+          "INSERT INTO sessions (token, account, refresh, expires, signed_in) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(
+          hash,
+          stored(account, pictureUrl),
+          await sealer.seal(refresh, hash),
+          expires,
+          signedIn,
+        )
         .run();
     },
     async get(hash: string, now: number) {
       const raw = await db
-        .prepare("SELECT account, refresh, expires FROM sessions WHERE token = ? AND expires > ?")
+        .prepare(
+          "SELECT account, refresh, expires, signed_in FROM sessions WHERE token = ? AND expires > ?",
+        )
         .bind(hash, now)
         .first();
       if (!raw) return undefined;
@@ -42,6 +54,7 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
         account,
         pictureUrl,
         expiresAt: row.expires,
+        signedInAt: row.signed_in,
         refresh: () => sealer.open(row.refresh, hash),
       };
     },

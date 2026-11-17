@@ -1,48 +1,16 @@
 import type {
   MarketEntryDetail,
-  MarketEntrySummary,
-  MarketInstalled,
   MarketNeed,
   MarketReview,
+  MarketScanReport,
 } from "@ace/protocol/marketplace";
 import { MarketErrorCode } from "@ace/protocol/marketplace";
 
 /*
- * The marketplace's words and choices (ADR 0168 §12), pure: the type filter, how an entry is
- * named and bylined, what keeps it from installing, a failure as one plain sentence, and the
- * switches a recipe's review starts with.
+ * The marketplace's words and choices (ADR 0168 §12), pure: how a type is named, what keeps an
+ * entry from installing, a failure as one plain sentence, and the switches a recipe's review
+ * starts with.
  */
-
-/** The panel's type filter. `spade` is Spade's three types at once, as Spade's list opens it. */
-export const marketFilters = [
-  "all",
-  "suit",
-  "spade-skill",
-  "spade-plugin",
-  "spade-bot",
-  "spade",
-] as const;
-export type MarketFilter = (typeof marketFilters)[number];
-
-export const filterOptions: readonly { value: MarketFilter; label: string }[] = [
-  { value: "all", label: "Everything" },
-  { value: "suit", label: "Suits" },
-  { value: "spade-skill", label: "Skills" },
-  { value: "spade-plugin", label: "Plugins" },
-  { value: "spade-bot", label: "Bots" },
-  { value: "spade", label: "Skills, plugins and bots" },
-];
-
-/** Whether an entry of `type` shows under `filter`. */
-export function shownBy(filter: MarketFilter, type: string): boolean {
-  if (filter === "all") return true;
-  if (filter === "spade") return type.startsWith("spade-");
-  return type === filter;
-}
-
-/** The `type` a search sends for a filter: one type, or none and the rows narrowed after. */
-export const searchType = (filter: MarketFilter): string | undefined =>
-  filter === "all" || filter === "spade" ? undefined : filter;
 
 const typeWords: Readonly<Record<string, string>> = {
   suit: "Suit",
@@ -54,19 +22,6 @@ const typeWords: Readonly<Record<string, string>> = {
 
 /** "Suit", "Skill", "Plugin", "Bot"; an unknown type's own name. */
 export const typeWord = (type: string): string => typeWords[type] ?? type;
-
-/** The meta line under a row's title: its type, then who published it. */
-export function metaLine(entry: Pick<MarketEntrySummary, "type" | "publisher" | "byAce" | "from">) {
-  return [typeWord(entry.type), byline(entry)].filter(Boolean).join(" · ");
-}
-
-/** "By ace", "By harbour-co", or a git catalog's "From github.com/…". */
-export function byline(entry: Pick<MarketEntrySummary, "publisher" | "byAce" | "from">): string {
-  if (entry.byAce) return "By ace";
-  if (entry.publisher) return `By ${entry.publisher.name}`;
-  if (entry.from) return `From ${entry.from.replace(/^https:\/\//, "")}`;
-  return "";
-}
 
 /** Why an entry can't be installed now, in one sentence; undefined when it can. */
 export function installBlock(entry: MarketEntryDetail): string | undefined {
@@ -89,7 +44,15 @@ const sentence = (text: string) => {
 };
 
 /** What was being done when something failed, so its sentence can say so. */
-export type MarketStep = "read" | "review" | "install" | "remove" | "add" | "removeSource";
+export type MarketStep =
+  | "read"
+  | "review"
+  | "install"
+  | "remove"
+  | "add"
+  | "removeSource"
+  | "publish"
+  | "change";
 
 const stepFailed: Readonly<Record<MarketStep, string>> = {
   read: "The marketplace couldn't be read.",
@@ -98,6 +61,8 @@ const stepFailed: Readonly<Record<MarketStep, string>> = {
   remove: "It couldn't be removed.",
   add: "That catalog couldn't be added.",
   removeSource: "That catalog couldn't be removed.",
+  publish: "It couldn't be published. Try again.",
+  change: "The change didn't go through. Try again.",
 };
 
 /**
@@ -125,6 +90,18 @@ export function failureSentence(error: unknown, step: MarketStep): string {
       return "This review expired. Review it again.";
     case "busy":
       return "Another install is running. Try again in a moment.";
+    case "signed_out":
+      return "Sign in to publish.";
+    case "reauth":
+      return "Sign in again to do this.";
+    case "blocked":
+      return step === "review"
+        ? "ace's scan on this device refused it."
+        : "ace's scan refused it. Fix what it found, then try again.";
+    case "suspended":
+      return "Your publisher account is suspended.";
+    case "quota":
+      return "You've reached your publishing limit for now.";
     default:
       return stepFailed[step];
   }
@@ -133,10 +110,22 @@ export function failureSentence(error: unknown, step: MarketStep): string {
 /** The marketplace answered with an error, or with something other than what was asked. */
 export class MarketFailure extends Error {
   readonly code: string;
-  constructor(code: string) {
+  /** The scan that refused it, when a scan did (`blocked`). */
+  readonly scan: MarketScanReport | undefined;
+  constructor(code: string, scan?: MarketScanReport) {
     super(`marketplace: ${code}`);
     this.code = code;
+    this.scan = scan;
   }
+}
+
+/** A scan's findings as the sentences the person reads, blocks first. */
+export function findingSentences(scan: MarketScanReport | undefined): string[] {
+  if (!scan) return [];
+  const order = { block: 0, warn: 1, note: 2 } as const;
+  return scan.findings
+    .toSorted((a, b) => order[a.level] - order[b.level])
+    .map((finding) => sentence(finding.message));
 }
 
 /** A recipe's need switches as its review opens them: required ones on, optional ones off. */
@@ -209,14 +198,4 @@ export function canDoSentences(review: MarketReview): string[] {
         ...(body.tools ? [`Uses only these tools: ${body.tools.join(", ")}.`] : []),
       ];
   }
-}
-
-/** Installed entries the filter shows, with updates first. */
-export function installedRows(
-  installed: readonly MarketInstalled[],
-  filter: MarketFilter,
-): MarketInstalled[] {
-  return installed
-    .filter((item) => shownBy(filter, item.type))
-    .toSorted((a, b) => Number(!!b.update) - Number(!!a.update) || a.title.localeCompare(b.title));
 }

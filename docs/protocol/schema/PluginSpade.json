@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginSpade.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "components": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PluginSpadeComponent.json"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "executions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PluginExecution.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "install": {
+      "$ref": "https://ace.local/protocol/v1/PluginInstall.json"
+    },
+    "root": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "unsupported": {
+      "items": {
+        "maxLength": 8192,
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array"
+    }
+  },
+  "required": [
+    "install",
+    "enabled",
+    "root",
+    "components",
+    "executions",
+    "unsupported"
+  ],
+  "type": "object"
+}

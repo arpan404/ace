@@ -47,6 +47,7 @@ export {
 } from "./runs.ts";
 export {
   triggerKinds,
+  triggerKindsWithWebhook,
   cadences,
   weekdayChoices,
   syntaxChoices,

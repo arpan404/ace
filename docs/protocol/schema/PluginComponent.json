@@ -19,14 +19,14 @@
       "type": "string"
     },
     "name": {
-      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
     },
     "path": {
       "maxLength": 512,
       "type": "string"
     },
     "plugin": {
-      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
     },
     "providers": {
       "items": {

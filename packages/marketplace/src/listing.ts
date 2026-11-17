@@ -1,7 +1,8 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import {
-  MarketCategoryId,
+  MarketListingFile,
+  MarketNamedFile,
   type MarketEntryType,
   type MarketProblem,
 } from "@ace/protocol/marketplace";
@@ -13,14 +14,6 @@ import { listingBytes } from "./limits.ts";
  * beside them may set a title, one line, a longer description, up to three categories and some
  * keywords. Pure.
  */
-
-export const MarketListingFile = z.strictObject({
-  title: z.string().trim().min(1).max(120).optional(),
-  line: z.string().trim().max(300).optional(),
-  description: z.string().max(8192).optional(),
-  categories: z.array(MarketCategoryId).max(3).optional(),
-  keywords: z.array(z.string().trim().min(1).max(40)).max(16).optional(),
-});
 
 export interface Listing {
   title: string;
@@ -40,15 +33,9 @@ export function text(bytes: Uint8Array | undefined): string | undefined {
   }
 }
 
-const Named = z.looseObject({
-  name: z.string().max(200).optional().catch(undefined),
-  description: z.string().max(8192).optional().catch(undefined),
-  blurb: z.string().max(300).optional().catch(undefined),
-});
-
-function json(bytes: Uint8Array | undefined): z.infer<typeof Named> {
+function json(bytes: Uint8Array | undefined): z.infer<typeof MarketNamedFile> {
   try {
-    const parsed = Named.safeParse(JSON.parse(text(bytes) ?? ""));
+    const parsed = MarketNamedFile.safeParse(JSON.parse(text(bytes) ?? ""));
     return parsed.success ? parsed.data : {};
   } catch {
     return {};
@@ -127,7 +114,7 @@ export function describeEntry(
   files: ReadonlyMap<string, Uint8Array>,
 ): { listing: Listing; problems: MarketProblem[] } {
   const problems: MarketProblem[] = [];
-  let extra: z.infer<typeof MarketListingFile> = {};
+  let extra: MarketListingFile = {};
   const raw = files.get("market.json");
   if (raw) {
     if (raw.byteLength > listingBytes)

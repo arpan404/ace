@@ -37,6 +37,12 @@
         "automations.enabled": {
           "type": "boolean"
         },
+        "beta.marketplace": {
+          "type": "boolean"
+        },
+        "beta.spade": {
+          "type": "boolean"
+        },
         "browser.backend": {
           "enum": [
             "auto",
@@ -369,6 +375,9 @@
             }
           ]
         },
+        "remote.publicUrlWebhooks": {
+          "type": "boolean"
+        },
         "remote.relay": {
           "type": "boolean"
         },
@@ -384,10 +393,16 @@
           "type": "string",
           "x-ace-constraint": "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1."
         },
+        "remote.relayWebhooks": {
+          "type": "boolean"
+        },
         "remote.tailscale": {
           "type": "boolean"
         },
         "remote.tailscaleMcp": {
+          "type": "boolean"
+        },
+        "remote.tailscaleWebhooks": {
           "type": "boolean"
         },
         "remote.transferIgnoredFiles": {

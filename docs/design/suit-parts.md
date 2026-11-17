@@ -191,25 +191,25 @@ canvas is a `page` as well (`thread` or `chat`).
 
 `data-page` takes one value from `suitPages`:
 
-| `data-page`                   | Where                                                                                        |
-| ----------------------------- | -------------------------------------------------------------------------------------------- |
-| `thread`                      | A thread (and Home, which opens one), a subagent.                                            |
-| `chat`                        | A thread that is a chat.                                                                     |
-| `new-thread`                  | New thread, a fork being started, opening a folder.                                          |
-| `chats`                       | The Chats place with none open.                                                              |
-| `history`                     | History and Archived.                                                                        |
-| `inbox`                       | Code review's Inbox.                                                                         |
-| `pulls`, `pull`               | The pull request list; one pull request or a new one.                                        |
-| `issues`, `issue`             | The issue list; one issue or a new one.                                                      |
-| `review`                      | A pull request's Code tab (the review of its changes).                                       |
-| `automations`, `automation`   | Automations with none open; one automation or a new one.                                     |
-| `skills`, `skill`             | Skills' landing page; one skill or a new one.                                                |
-| `marketplace`                 | The Marketplace's lists: Featured, a category, search results, Installed, Updates, Catalogs. |
-| `market-entry`                | One marketplace entry's page, and its review before install (`data-variant` `review`).       |
-| `usage`                       | Usage.                                                                                       |
-| `spade`                       | Spade, a bot or a group's conversation, and their pages.                                     |
-| `settings`                    | Every Settings page.                                                                         |
-| `setup`, `sign-in`, `connect` | Provider setup; signing in and connecting to a machine (outside the main window's routes).   |
+| `data-page`                   | Where                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `thread`                      | A thread (and Home, which opens one), a subagent.                                          |
+| `chat`                        | A thread that is a chat.                                                                   |
+| `new-thread`                  | New thread, a fork being started, opening a folder.                                        |
+| `chats`                       | The Chats place with none open.                                                            |
+| `history`                     | History and Archived.                                                                      |
+| `inbox`                       | Code review's Inbox.                                                                       |
+| `pulls`, `pull`               | The pull request list; one pull request or a new one.                                      |
+| `issues`, `issue`             | The issue list; one issue or a new one.                                                    |
+| `review`                      | A pull request's Code tab (the review of its changes).                                     |
+| `automations`, `automation`   | Automations with none open; one automation or a new one.                                   |
+| `skills`, `skill`             | Skills' landing page; one skill or a new one.                                              |
+| `marketplace`                 | A place in the Marketplace modal: Discover, Looks, Bots, Tools, Apps, Installed, search.   |
+| `market-entry`                | A page pushed over a place: an entry, its review, a publisher, a collection, Catalogs.     |
+| `usage`                       | Usage.                                                                                     |
+| `spade`                       | Spade, a bot or a group's conversation, and their pages.                                   |
+| `settings`                    | Every Settings page.                                                                       |
+| `setup`, `sign-in`, `connect` | Provider setup; signing in and connecting to a machine (outside the main window's routes). |
 
 The route each address shows is listed in `apps/web/src/app/route-page.ts`;
 `apps/web/src/features/suits/suit-pages-drift.test.tsx` walks every route and fails when its
@@ -232,6 +232,27 @@ A Spade conversation (docs/design/spade.md) reuses the parts above; these are wh
 | `page-section`               | A section of the profile (Apps, Routines, Activity, …).                                  |                                                                | `profile`                                                            |
 | `tabs` / `tab`               | The computer's views.                                                                    | `selected` (tab)                                               | `computer` (tabs); the view's kind (tab)                             |
 | `list` / `list-row`          | Activity and its rows; a connected app, a routine, a file or folder.                     | activity: `working`, `done`, `failed`; routine: `checked` (on) | activity: the entry's kind; `connector`, `routine`, `file`, `folder` |
+
+## Marketplace
+
+The Marketplace is a modal over the app (ADR 0168), opened from the rail, Spade, New bot,
+Appearance and Skills, or by `?market=`. Each place or pushed page inside it is a `page` with its
+`data-page` (`marketplace`, `market-entry`).
+
+| Part           | Where                                                                                                  | States                      | Variants                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------- |
+| `dialog`       | The modal itself, 90% of the window, a full-screen sheet on a phone.                                   |                             | `market`                                                      |
+| `page-toolbar` | Its one bar: Marketplace, the places, search, Installed, you, Close.                                   |                             | `market`                                                      |
+| `tab`          | A place in the bar.                                                                                    | `selected` (the open place) |                                                               |
+| `search-field` | The bar's search.                                                                                      |                             | `market`                                                      |
+| `market-hero`  | Discover's featured hero: the slides and the picks beside or under them.                               |                             |                                                               |
+| `market-stage` | An entry's visual: a Suit as the ace window in its palette, a bot's face on its colour, a tool's name. |                             | `suit`, `bot`, `tool`                                         |
+| `card`         | A card in a shelf or grid; a collection; a top publisher.                                              |                             | `market-entry`, `market-collection`, `market-publisher`       |
+| `page-section` | A shelf or section of a page (Looks, Bots, Trending this week, …).                                     |                             | `market`                                                      |
+| `list-row`     | A search result, an installed entry, an app, a trending row.                                           |                             | `market`, `market-installed`, `market-app`, `market-trending` |
+| `avatar`       | A publisher's or your picture, or their initials.                                                      |                             |                                                               |
+| `market-try`   | Try it's floating bar while the app wears a Suit: its window, name, Undo and Keep it.                  |                             |                                                               |
+| `empty-state`  | A place or page with nothing to show.                                                                  |                             | `market`                                                      |
 
 ## Settings, account and connection pages
 
@@ -397,3 +418,6 @@ reduce-motion frame.
 - Version 1, 2026-11-15: the Marketplace's pages, `marketplace` (its lists) and `market-entry`
   (an entry and its review, `data-variant` `review`). Its panel rows are `nav-item`s, its entry
   rows `list-row`s in a `list` `market`, and a review's switches are `settings-row`s.
+- Version 1, 2026-11-16: the Marketplace became a modal (see "Marketplace"). Added
+  `market-hero`, `market-stage` and `market-try`; its panel's `nav-item`s are gone, and
+  `marketplace` / `market-entry` now name its places and pushed pages.

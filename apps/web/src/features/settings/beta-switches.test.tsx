@@ -15,19 +15,19 @@ test("the Marketplace switch on Settings › Beta saves the setting and hides or
   await app.open("/settings/beta");
   const toggle = await screen.findByRole("switch", { name: "Marketplace" });
   await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-  expect(within(rail()).getByRole("link", { name: "Marketplace" })).toBeTruthy();
+  expect(within(rail()).getByRole("button", { name: "Marketplace" })).toBeTruthy();
 
   await userEvent.click(toggle);
 
   await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(false));
   await waitFor(() =>
-    expect(within(rail()).queryByRole("link", { name: "Marketplace" })).toBeNull(),
+    expect(within(rail()).queryByRole("button", { name: "Marketplace" })).toBeNull(),
   );
 
   await userEvent.click(toggle);
 
   await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(true));
-  expect(await within(rail()).findByRole("link", { name: "Marketplace" })).toBeTruthy();
+  expect(await within(rail()).findByRole("button", { name: "Marketplace" })).toBeTruthy();
 });
 
 test("the Spade switch on Settings › Beta saves the setting and swaps Spade's place for its coming-soon mark", async () => {
@@ -49,25 +49,35 @@ test("the Spade switch on Settings › Beta saves the setting and swaps Spade's 
   expect(await within(rail()).findByRole("link", { name: "Spade" })).toBeTruthy();
 });
 
-test("a marketplace address opened while it is turned off leads home", async () => {
-  const history = createMemoryHistory({ initialEntries: ["/marketplace/installed"] });
-  const app = harness({ history });
-  marketplaceOff(app.daemon);
-  await app.open("/marketplace/installed");
-  await waitFor(() => expect(history.location.pathname).toBe("/"));
+test("a marketplace address opens the modal only while the marketplace is on", async () => {
+  for (const turnedOn of [true, false]) {
+    const history = createMemoryHistory({ initialEntries: ["/chats?market=installed"] });
+    const app = harness({ history });
+    if (!turnedOn) marketplaceOff(app.daemon);
+    const view = await app.open("/chats?market=installed");
+    await screen.findByRole("navigation", { name: "App" });
+    if (turnedOn) expect(await screen.findByRole("dialog", { name: "Marketplace" })).toBeTruthy();
+    else {
+      // Its setting has been read: the rail has no Marketplace, and no modal opened.
+      await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(false));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(screen.queryByRole("dialog", { name: "Marketplace" })).toBeNull();
+    }
+    view.unmount();
+  }
 });
 
 test("Appearance offers More Suits only while the marketplace is on", async () => {
   const on = harness();
   const shown = await on.open("/settings/appearance");
-  expect(await screen.findByRole("link", { name: "More Suits" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "More Suits" })).toBeTruthy();
   shown.unmount();
 
   const off = harness();
   marketplaceOff(off.daemon);
   await off.open("/settings/appearance");
   expect(await screen.findByRole("link", { name: "Make your own" })).toBeTruthy();
-  expect(screen.queryByRole("link", { name: "More Suits" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "More Suits" })).toBeNull();
 });
 
 test("the Skills Add menu offers the marketplace only while it is on", async () => {
@@ -87,7 +97,7 @@ const appsButton = async () => {
   const search = await screen.findByRole("button", { name: "Search conversations" });
   const head = search.parentElement;
   if (!head) throw new Error("Spade's list head is missing");
-  return within(head).queryByRole("link", { name: "Apps, plugins and skills" });
+  return within(head).queryByRole("button", { name: "Apps, plugins and skills" });
 };
 
 test("Spade's apps button leads to the marketplace while it is on", async () => {
@@ -121,8 +131,40 @@ test("New bot offers bots from the marketplace only while it is on", async () =>
     await openNew("New bot");
     // The templates' list, which ends with the way to the marketplace.
     expect(await screen.findByRole("button", { name: /^Morning digest/ })).toBeTruthy();
-    const link = screen.queryByRole("link", { name: "From the marketplace" });
+    const link = screen.queryByRole("button", { name: "From the marketplace" });
     expect(link !== null).toBe(turnedOn);
     cleanup();
+  }
+});
+
+/** The palette's Go to command (Settings › Beta's row also matches the word). */
+const option = () =>
+  screen.queryAllByRole("option").find((each) => each.textContent === "MarketplaceGo to");
+
+test("the command palette goes to the Marketplace only while it is on", async () => {
+  for (const turnedOn of [true, false]) {
+    const app = harness();
+    if (!turnedOn) marketplaceOff(app.daemon);
+    const view = await app.open("/chats");
+    await screen.findByRole("navigation", { name: "App" });
+    if (turnedOn) await within(rail()).findByRole("button", { name: "Marketplace" });
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    const search = await screen.findByRole(
+      "combobox",
+      { name: "Search commands" },
+      { timeout: 10000 },
+    );
+    await userEvent.type(search, "Marketplace");
+    if (turnedOn) {
+      await waitFor(() => expect(option()).toBeDefined());
+      const command = option();
+      if (command) await userEvent.click(command);
+      expect(await screen.findByRole("dialog", { name: "Marketplace" })).toBeTruthy();
+    } else {
+      // Settings › Beta has been read (Appearance's own link waits on it the same way).
+      await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+      expect(option()).toBeUndefined();
+    }
+    view.unmount();
   }
 });

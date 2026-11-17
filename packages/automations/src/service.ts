@@ -12,7 +12,14 @@ import {
   pausedRefusal,
   pausedResult,
 } from "./contracts.ts";
-import { renderPrompt, scheduledDeadline, recoverOccurrence, withRunNote } from "./decisions.ts";
+import {
+  renderPrompt,
+  runAccess,
+  scheduledDeadline,
+  recoverOccurrence,
+  withRunNote,
+  withWebhookNote,
+} from "./decisions.ts";
 import { normalizeAutomation } from "./definition.ts";
 import { Occurrence } from "./recurrence.ts";
 import { AutomationStore, type JobMetadata } from "./store.ts";
@@ -457,6 +464,7 @@ export class AutomationService {
     note?: string,
   ) {
     const id = kind === "manual" ? manualId(automation.id, event.key) : this.deps.id();
+    const access = runAccess(automation);
     let input: ExecutionInput | undefined;
     let failure: string | undefined;
     try {
@@ -467,11 +475,12 @@ export class AutomationService {
         provider: automation.provider,
         workspace: automation.workspace,
         worktree: automation.worktree,
-        prompt: withRunNote(renderPrompt(automation.prompt, event.variables), note),
+        prompt: withRunNote(webhookNote(automation, event, kind), note),
         ...(automation.model ? { model: automation.model } : {}),
         ...(automation.effort ? { effort: automation.effort } : {}),
         ...(automation.instance ? { instance: automation.instance } : {}),
-        ...(automation.access ? { access: automation.access } : {}),
+        ...(access ? { access } : {}),
+        ...(automation.trigger.kind === "webhook" && access ? { accessCeiling: access } : {}),
       };
     } catch (error) {
       failure = message(error);
@@ -833,4 +842,14 @@ export class AutomationService {
       };
     }
   }
+}
+
+/** The rendered prompt, with the outside-text note when a webhook delivery started the run. */
+function webhookNote(
+  automation: Automation,
+  event: AutomationEvent,
+  kind: AutomationRun["trigger"],
+): string {
+  const rendered = renderPrompt(automation.prompt, event.variables);
+  return kind === "webhook" ? withWebhookNote(rendered, automation.prompt) : rendered;
 }

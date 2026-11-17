@@ -388,6 +388,8 @@ export function describeTrigger(trigger: AutomationTrigger): string {
       return `When ${githubEvents[trigger.event]}${trigger.label ? ` (${trigger.label})` : ""} in ${trigger.repository}`;
     case "file":
       return `When ${list(trigger.paths)} change`;
+    case "webhook":
+      return "When its webhook is called";
   }
 }
 

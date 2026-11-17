@@ -55,7 +55,8 @@
         "schedule",
         "github",
         "file",
-        "manual"
+        "manual",
+        "webhook"
       ],
       "type": "string"
     }
