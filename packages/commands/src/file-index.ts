@@ -57,6 +57,8 @@ export class FileIndex {
   private readonly references = new Map<string, number>();
   private readonly jobs = new Map<string, Job>();
   private readonly scans = new Map<string, Scan>();
+  /** Paths whose diagnostic says their folder stopped responding, cleared once it answers. */
+  private readonly unanswered = new Set<string>();
   private readonly watch: (root: RegisteredRoot, path: string) => void;
   private readonly unwatch: (root: RegisteredRoot, path: string) => void;
   private readonly missing: (root: RegisteredRoot) => Promise<void>;
@@ -130,6 +132,7 @@ export class FileIndex {
     const id = this.sources.get(slot);
     if (id) this.removeSource(id);
     this.sources.delete(slot);
+    this.unanswered.delete(slot);
   }
   private async stopScan(slot: string): Promise<void> {
     const scan = this.scans.get(slot);
@@ -186,6 +189,7 @@ export class FileIndex {
       slot = key(root, path);
     this.counters.metadataChecks++;
     const stat = await this.io.stat(root, path);
+    if (this.unanswered.has(slot)) this.clearSource(slot);
     if (!stat) {
       if (path === root.path) {
         this.recovery.track(path, undefined);
@@ -369,15 +373,33 @@ export class FileIndex {
       if (!next) break;
       const [slot, job] = next;
       this.jobs.delete(slot);
-      if (job.kind === "inspect") await this.inspect(job);
-      else if (job.kind === "remove" || job.kind === "replace") await this.remove(job);
-      else await this.scan(job);
+      try {
+        if (job.kind === "inspect") await this.inspect(job);
+        else if (job.kind === "remove" || job.kind === "replace") await this.remove(job);
+        else await this.scan(job);
+      } catch {
+        this.failed(job);
+      }
     }
     return this.pending;
+  }
+  /**
+   * A call that failed without an answer, such as one into a folder that stopped responding,
+   * costs only its own path. Discovery goes on with the rest, and the path is tracked with an
+   * unknown version, so the recovery loop queues it again once the folder answers.
+   */
+  private failed(job: Job): void {
+    const node = this.nodes.get(key(job.root, job.path));
+    if (node) node.version = "";
+    this.recovery.track(job.path, undefined);
+    if (job.kind === "remove" || job.kind === "replace") return;
+    this.report(job.root, job.path, "Command folder stopped responding");
+    this.unanswered.add(key(job.root, job.path));
   }
   clear(): void {
     for (const source of this.sources.values()) this.removeSource(source);
     this.sources.clear();
+    this.unanswered.clear();
   }
   async close(): Promise<void> {
     this.stop();

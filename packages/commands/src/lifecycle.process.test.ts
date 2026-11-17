@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { CommandCatalog, CommandFiles, SecureCommandIo, type CommandFileIo } from "./index.ts";
+import { CommandFilesystemUnavailable } from "./posix-ops.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -235,4 +236,83 @@ it("unnamed nested directory notifications discover new snippets in that directo
     ok: true,
     plan: { kind: "prompt", provider: "claude", text: "New nested body" },
   });
+});
+
+/** Real files, where one folder's calls fail the way calls into a stuck mount do. */
+async function stallingFolder() {
+  const path = await home(),
+    root = join(path, "prompts"),
+    stuck = join(root, "stuck");
+  await mkdir(stuck, { recursive: true });
+  await writeFile(join(root, "fine.md"), "Fine body");
+  await writeFile(join(stuck, "later.md"), "Later body");
+  const real = new SecureCommandIo();
+  const state = { stalled: true };
+  const io: CommandFileIo = {
+    stat: (r, p) =>
+      state.stalled && p.startsWith(stuck)
+        ? Promise.reject(new CommandFilesystemUnavailable("Command folder is still not responding"))
+        : real.stat(r, p),
+    read: (r, p) => real.read(r, p),
+    directory: (r, p) => real.directory(r, p),
+    cancel: () => real.cancel(),
+    close: () => real.close(),
+  };
+  const catalog = new CommandCatalog(() => 0);
+  const recoveries: (() => Promise<boolean>)[] = [];
+  const files = new CommandFiles(catalog, [{ path: root, scope: "user", format: "library" }], {
+    io,
+    watch: () => () => {},
+    schedule(run) {
+      recoveries.push(run);
+      return () => {};
+    },
+  });
+  cleanups.push(() => files.close());
+  const target = { provider: "claude", instance: "personal", session: "test" } as const;
+  const names = () =>
+    catalog
+      .list(target, "", 100)
+      .commands.map((c) => c.name)
+      .filter((name) => name === "fine" || name === "stuck:later")
+      .toSorted();
+  const unanswered = () =>
+    catalog
+      .list(target, "", 100)
+      .diagnostics.filter((d) => d.message === "Command folder stopped responding");
+  return { files, stuck, state, recoveries, names, unanswered };
+}
+
+it("a folder that stops answering costs only its own commands, which return once it answers", async () => {
+  const { files, state, recoveries, names, unanswered } = await stallingFolder();
+  await files.start();
+  expect(names()).toEqual(["fine"]);
+  expect(unanswered()).toHaveLength(1);
+
+  state.stalled = false;
+  for (let i = 0; i < 3 && names().length < 2; i++) await recoveries[0]?.();
+  expect(names()).toEqual(["fine", "stuck:later"]);
+  expect(unanswered()).toHaveLength(0);
+});
+
+it("a watcher pass into a folder that stopped answering is reported, never an unhandled rejection", async () => {
+  const { files, stuck, state, unanswered } = await stallingFolder();
+  state.stalled = false;
+  await files.start();
+  const rejections: unknown[] = [];
+  const record = (reason: unknown) => rejections.push(reason);
+  process.on("unhandledRejection", record);
+  cleanups.push(async () => {
+    process.off("unhandledRejection", record);
+  });
+  state.stalled = true;
+  const reported = Promise.withResolvers<void>();
+  files.subscribe(() => {
+    if (unanswered().length) reported.resolve();
+  });
+  // A watcher event: discovery runs from a timer, with nobody awaiting it.
+  files.invalidate(join(stuck, "later.md"));
+  await reported.promise;
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(rejections).toEqual([]);
 });
