@@ -131,7 +131,7 @@ function wording(operation: MarketOperation, facts: AgentFacts): Wording {
     case "report":
       return { doing: `report ${ref(operation)}`, gerund: "Reporting", action: "Report…" };
     case "publish":
-      return publishWording(operation.request, facts);
+      return publishWording(operation.request);
     default:
       return {
         doing: `change the market (${operation.op})`,
@@ -141,7 +141,7 @@ function wording(operation: MarketOperation, facts: AgentFacts): Wording {
   }
 }
 
-function publishWording(request: PublishRequest, facts: AgentFacts): Wording {
+function publishWording(request: PublishRequest): Wording {
   switch (request.action) {
     case "withdraw":
       return {
