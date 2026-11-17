@@ -26,7 +26,8 @@ const browserFlags: readonly FlagSpec[] = [
 const browserThread = {
   name: "THREAD",
   summary: "The thread whose browser; defaults to ACE_THREAD_ID in an agent's shell",
-};
+  ref: "thread",
+} as const;
 const simArg = { name: "SIM", summary: "The simulator or emulator", required: true } as const;
 const simFlags: readonly FlagSpec[] = [
   threadRef,

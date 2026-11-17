@@ -63,6 +63,8 @@ The CLI's version.
 
 Tab completion for bash, zsh, fish or PowerShell.
 
+Completes commands, flags and choices, and asks the running daemon for thread ids, project names, open request ids and Spade bot names; zsh, fish and PowerShell show each with a thread's title or a project's folder beside it. With ace down, or no answer within 300 ms, it completes what the command table knows. Completion never starts ace, never prompts and never writes.
+
 - `SHELL`: bash, zsh, fish, powershell, or install
 
     ace completion install

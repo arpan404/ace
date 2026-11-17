@@ -6,11 +6,13 @@ import type { CommandSpec, FlagSpec } from "./spec.ts";
 const requestArg = {
   name: "REQUEST",
   summary: "A request id, or at least 6 characters of one; picked on a terminal when omitted",
+  ref: "request",
 } as const;
 const threadFlag: FlagSpec = {
   name: "thread",
   value: "THREAD",
   summary: "The thread whose one open request to answer",
+  ref: "thread",
 };
 const optionFlag: FlagSpec = {
   name: "option",
@@ -21,6 +23,7 @@ const hiddenRequest: FlagSpec = {
   name: "request",
   value: "REQUEST",
   summary: "Same as REQUEST",
+  ref: "request",
   hidden: true,
 };
 const feedback: FlagSpec = {
@@ -32,6 +35,7 @@ const projectArg = {
   name: "PROJECT",
   summary: "A project id, name or path",
   required: true,
+  ref: "project",
 } as const;
 
 export const requestCommands: readonly CommandSpec[] = [
@@ -199,7 +203,13 @@ export const projectCommands: readonly CommandSpec[] = [
     summary: "Open a project in the app",
     group: "work",
     mutates: true,
-    args: [{ name: "PROJECT", summary: "A project id, name or folder; this folder when omitted" }],
+    args: [
+      {
+        name: "PROJECT",
+        summary: "A project id, name or folder; this folder when omitted",
+        ref: "project",
+      },
+    ],
     flags: [{ name: "web", summary: "Open the web app, not the desktop app" }, idempotencyKey],
     aliases: [{ words: ["open"] }],
   },
