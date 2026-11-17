@@ -69,6 +69,33 @@ const SPECIFIERS: ReadonlyMap<string, ModuleId> = new Map<string, ModuleId>([
 export const moduleOfSpecifier = (specifier: string): ModuleId | undefined =>
   SPECIFIERS.get(specifier.replace(/^node:/, ""));
 
+/** Builtins whose members only compute over what they are given: their results are local values. */
+const PURE_BUILTINS = new Set([
+  "path",
+  "path/posix",
+  "path/win32",
+  "url",
+  "util",
+  "assert",
+  "events",
+  "string_decoder",
+  "querystring",
+  "punycode",
+  "buffer",
+  "stream",
+  "timers",
+  "timers/promises",
+]);
+
+/**
+ * Whether a specifier names a package the scanner doesn't track and can't prove harmless: not a
+ * relative path (the entry's own file, scanned in its turn), not a tracked module, not a pure builtin.
+ */
+export const foreignSpecifier = (specifier: string): boolean =>
+  !/^\.{1,2}(?:\/|$)/.test(specifier) &&
+  moduleOfSpecifier(specifier) === undefined &&
+  !PURE_BUILTINS.has(specifier.replace(/^node:/, ""));
+
 const GLOBALS = new Set(["globalThis", "global", "window", "self"]);
 /** Node wrappers that pass their inner value through unchanged. */
 const TRANSPARENT = new Set([
@@ -128,6 +155,8 @@ export interface ModuleBindings {
   truncated: boolean;
   /** Whether a name is bound to a tracked module (so a value-taint map should leave it alone). */
   isBound(name: string): boolean;
+  /** Whether a name is bound to a package the scanner doesn't track (`foreignSpecifier`). */
+  isForeign(name: string): boolean;
 }
 
 /**
@@ -184,6 +213,7 @@ const whole = (ref: ModuleRef) =>
  */
 export function bindModules(program: JsNode, walker: typeof walk = walk): ModuleBindings {
   const names = new Map<string, Ref>();
+  const foreign = new Set<string>();
   const requireNames = new Set(["require"]);
   /** Identifier nodes that are a binding's own name, never a read. */
   const declared = new WeakSet<JsNode>();
@@ -335,11 +365,13 @@ export function bindModules(program: JsNode, walker: typeof walk = walk): Module
     let changed = false;
     const complete = walker(program, (node) => {
       if (node.type === "ImportDeclaration") {
-        const id = moduleOfSpecifier(literalString(asNode(node.source)) ?? "");
+        const source = literalString(asNode(node.source)) ?? "";
+        const id = moduleOfSpecifier(source);
         for (const raw of (node.specifiers as unknown[] | undefined) ?? []) {
           const specifier = asNode(raw);
           const local = asNode(specifier?.local);
           if (!specifier || !local) continue;
+          if (foreignSpecifier(source)) foreign.add(nameOf(local) ?? "");
           if (specifier.type === "ImportSpecifier") {
             const imported = asNode(specifier.imported);
             const key = nameOf(imported) ?? literalString(imported) ?? "";
@@ -363,7 +395,11 @@ export function bindModules(program: JsNode, walker: typeof walk = walk): Module
           if (!requireNames.has(nameOf(id) ?? "")) changed = true;
           requireNames.add(nameOf(id) ?? "");
           if (id) declared.add(id);
-        } else changed = bindPattern(id, init ? rawRef(init) : undefined) || changed;
+        } else {
+          const loaded = init ? loadedSpecifier(init) : undefined;
+          if (loaded !== undefined && foreignSpecifier(loaded)) patternNames(id, foreign);
+          changed = bindPattern(id, init ? rawRef(init) : undefined) || changed;
+        }
       } else if (node.type === "AssignmentExpression" && node.operator === "=") {
         const right = asNode(node.right);
         const left = asNode(node.left);
@@ -426,7 +462,41 @@ export function bindModules(program: JsNode, walker: typeof walk = walk): Module
     unresolved: [...unresolved.values()],
     truncated,
     isBound: (name) => names.has(name),
+    isForeign: (name) => foreign.has(name),
   };
+}
+
+/** The literal specifier a `require(...)`/`import(...)` (awaited, or read off) loads. */
+function loadedSpecifier(input: JsNode): string | undefined {
+  let node: JsNode | undefined = input;
+  for (let depth = 0; node && depth < 8; depth++) {
+    if (node.type === "ImportExpression") return literalString(asNode(node.source));
+    if (node.type === "CallExpression") {
+      const callee = asNode(node.callee);
+      if (callee?.type === "Import" || nameOf(callee) === "require")
+        return literalString(asNode((node.arguments as unknown[] | undefined)?.[0]));
+      node = callee?.type === "MemberExpression" ? asNode(callee.object) : undefined;
+    } else if (node.type === "MemberExpression") node = asNode(node.object);
+    else if (TRANSPARENT.has(node.type)) node = asNode(node.expression) ?? asNode(node.argument);
+    else return undefined;
+  }
+  return undefined;
+}
+
+/** Every name a binding pattern declares, added to `into`. */
+export function patternNames(pattern: JsNode | undefined, into: Set<string>): void {
+  if (!pattern) return;
+  if (pattern.type === "Identifier") into.add(nameOf(pattern) ?? "");
+  else if (pattern.type === "AssignmentPattern") patternNames(asNode(pattern.left), into);
+  else if (pattern.type === "RestElement") patternNames(asNode(pattern.argument), into);
+  else if (pattern.type === "ObjectPattern")
+    for (const prop of (pattern.properties as unknown[] | undefined) ?? []) {
+      const property = asNode(prop);
+      patternNames(asNode(property?.value) ?? asNode(property?.argument), into);
+    }
+  else if (pattern.type === "ArrayPattern")
+    for (const element of (pattern.elements as unknown[] | undefined) ?? [])
+      patternNames(asNode(element), into);
 }
 
 function markDeclared(pattern: JsNode | undefined, declared: WeakSet<JsNode>): void {
