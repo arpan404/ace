@@ -470,7 +470,7 @@ describe("upload limits under concurrent uploads", () => {
       .prepare("INSERT INTO upload_days (publisher, day, count) VALUES (?1, ?2, 29)")
       .bind(owner.id, Math.floor(now / 86_400_000))
       .run();
-    const reservation = { publisher: owner.id, newPublisher: false, size: 10, now };
+    const reservation = { publisher: owner.id, tier: "established" as const, size: 10, now };
     const refusals = await Promise.all([
       reserveUpload(market.dbs.publishers, { ...reservation, newDraft: false }),
       reserveUpload(market.dbs.publishers, { ...reservation, newDraft: false }),
