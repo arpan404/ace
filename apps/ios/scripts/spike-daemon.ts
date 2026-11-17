@@ -51,6 +51,7 @@ import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
 import { seedAppUpdate, seedMachineUpdate, seedStorage } from "./storage-scenario.ts";
 import { seedSkills } from "./skills-scenario.ts";
+import { ReadMarkScenario } from "./read-mark-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -299,6 +300,7 @@ seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
 seedChanges(daemon, details);
+const readMarks = new ReadMarkScenario(daemon, details);
 seedWorkLogs(daemon);
 seedLongSteps(daemon);
 seedMessages(daemon, details);
@@ -499,6 +501,8 @@ const server = Bun.serve<SpikeSocketData>({
     if (accountReply) return accountReply;
     const devicesReply = devicesControl(daemon, request);
     if (devicesReply) return devicesReply;
+    const readMarkReply = await readMarks.control(request);
+    if (readMarkReply) return readMarkReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,
@@ -597,6 +601,7 @@ const server = Bun.serve<SpikeSocketData>({
         if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
+        readMarks.observe(data);
         poster.observe(data);
         if (answerScreenshot(data, (text) => socket.send(text), daemon)) return;
         connections.get(socket)?.receive(data);
