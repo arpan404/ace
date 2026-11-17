@@ -534,271 +534,267 @@ function main(target: DaemonTarget, crashDumps: string): void {
   app.on("window-all-closed", () => background.windowChanged());
   app.on("activate", () => open());
 
-  void app
-    .whenReady()
-    .then(async () => {
-      if (paths.devIcon) app.dock?.setIcon(paths.devIcon);
-      const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
-      const network = new DaemonNetwork();
-      if (runtime.target.kind === "remote") network.authorize(runtime.target.url);
-      if (devUrl && !app.isPackaged) network.authorize(new URL(devUrl).origin);
-      installDaemonNetwork(network);
-      // Windows and Linux load a dictionary per language: only the person's own (spellcheck.ts).
-      if (process.platform !== "darwin")
-        session.defaultSession.setSpellCheckerLanguages(
-          spellcheckLanguages(
-            app.getPreferredSystemLanguages(),
-            session.defaultSession.availableSpellCheckerLanguages,
-          ),
-        );
-      // The visualization session is locked while the renderer is served; both finish before the
-      // app window (the only place a visualization `<webview>` attaches) exists.
-      const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
-      const served =
-        devUrl && !app.isPackaged
-          ? (applyDevCsp(devUrl, remote, network), Promise.resolve(devUrl))
-          : serveRenderer(paths.renderer, remote, network);
-      [rendererUrl] = await Promise.all([served, isolateVisualizationSession()]);
+  // The app's startup: a failure is logged, and the app stays up without a window.
+  const ready = app.whenReady().then(async () => {
+    if (paths.devIcon) app.dock?.setIcon(paths.devIcon);
+    const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
+    const network = new DaemonNetwork();
+    if (runtime.target.kind === "remote") network.authorize(runtime.target.url);
+    if (devUrl && !app.isPackaged) network.authorize(new URL(devUrl).origin);
+    installDaemonNetwork(network);
+    // Windows and Linux load a dictionary per language: only the person's own (spellcheck.ts).
+    if (process.platform !== "darwin")
+      session.defaultSession.setSpellCheckerLanguages(
+        spellcheckLanguages(
+          app.getPreferredSystemLanguages(),
+          session.defaultSession.availableSpellCheckerLanguages,
+        ),
+      );
+    // The visualization session is locked while the renderer is served; both finish before the
+    // app window (the only place a visualization `<webview>` attaches) exists.
+    const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
+    const served =
+      devUrl && !app.isPackaged
+        ? (applyDevCsp(devUrl, remote, network), Promise.resolve(devUrl))
+        : serveRenderer(paths.renderer, remote, network);
+    [rendererUrl] = await Promise.all([served, isolateVisualizationSession()]);
 
-      // The page's hand-off once its daemon answers, and its reload after a missed one
-      // (`page-connection.ts`).
-      const handoff = createPageConnection({
-        connection: () => runtime.connection(),
-        onStatus: (listener) => runtime.onStatus(listener),
-        reload: () => window?.webContents.reload(),
-        handed: () =>
-          log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() }),
-      });
-      const connection = handoff.connection;
-      // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
-      // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
-      // and the agents in it, is left alone.
-      const reload = () => {
-        if (startFailed(runtime.current()))
-          void runtime
-            .restart()
-            .catch((error: unknown) =>
-              log("warn", `Could not restart the daemon: ${String(error)}`),
-            );
-        if (!window || window.isDestroyed()) open();
-        else window.webContents.reloadIgnoringCache();
-      };
-      /** The daemon's and the app's log folders in the file manager; false when none opened. */
-      const showLogs = async (): Promise<boolean> => {
-        const folders = logFolders(runtime.target, app.getPath("logs"), existsSync);
-        const opened = await Promise.all(folders.map((path) => shell.openPath(path)));
-        return opened.some((error) => error === "");
-      };
-      // The `ace` command belongs to the installed app; development builds never write one. It
-      // goes in the managed daemon's home, which `desktopTarget` already prepared: after a fresh
-      // start it lands in the new home, never in the backup. Then it goes on the terminal's PATH.
-      const shim =
-        app.isPackaged && target.kind === "managed"
-          ? installCliShim({
-              dataHome: target.home,
-              platform: process.platform,
-              node: paths.node,
-              entry: paths.daemonEntry,
-              appImage: process.platform === "linux" ? runningAppImage(process.env) : undefined,
-            }).then((result) => {
-              cliShim = result;
-              const line = cliShimLog(result);
-              const problem = result.state === "foreign" || result.state === "failed";
-              if (line) log(problem ? "warn" : "info", line);
-              return result;
-            })
-          : undefined;
-      if (app.isPackaged && target.kind === "managed")
-        void followDaemonWithSpade({
-          home: target.home,
-          resourcesPath: process.resourcesPath,
-          version: info.version,
-          platform: process.platform,
-          node: paths.node,
-          entry: paths.daemonEntry,
-          env: process.env,
-          daemonReady: () => runtime.local(),
-          log: logger("spade"),
-        }).catch((error: unknown) => log("warn", `Spade's update failed: ${String(error)}`));
-      const terminal = terminalCommand({
-        shim,
-        enabled: () => settings.get().terminalCommand,
-        save: async (on) => void (await settings.update({ terminalCommand: on })),
-        target: {
-          platform: process.platform,
-          home: homedir(),
-          env: {
-            SHELL:
-              process.env.SHELL || (process.platform === "win32" ? "" : userInfo().shell) || "",
-            ZDOTDIR: process.env.ZDOTDIR,
-            XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
-          },
-        },
-        launchPath: () => runtime.loginPath(),
-        // The GUI's own PATH could hold folders the shell no longer adds; ask the shell afresh.
-        freshPath: () => loginShellPath({ ...process.env, PATH: "/usr/bin:/bin" }),
-        log: (line) => log("info", line),
-      });
-      let terminalStatus: Awaited<ReturnType<typeof terminal.status>> | undefined;
-      void terminal
-        .status()
-        .then((status) => (terminalStatus = status))
-        .catch((error: unknown) =>
-          log("warn", `Could not read the terminal's status: ${String(error)}`),
-        );
-      let bindings: Readonly<Record<string, string>> | undefined;
-      const toolchains = bundledToolchains(import.meta.url);
-      // Spade beside this app's daemon, reached directly so it works while the daemon is down.
-      const spade = localSpade({
-        home: target.kind === "managed" || target.kind === "attach" ? target.home : undefined,
-        onChange: () => emit(contents(), "spade.endpoint.changed", undefined),
-      });
-      app.once("will-quit", spade.close);
-      const handlers = createHandlers({
-        spade: spade.direct,
-        info,
-        runtime,
-        settings,
-        background,
-        window: () => window,
-        toolchains: () => toolchains(process.env),
-        connection,
-        authorizeDaemon: (url) => network.authorize(url),
-        quit: () => app.quit(),
-        reload,
-        showLogs,
-        reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
-        desktopChecks: () =>
-          [cliShim && cliShimCheck(cliShim), terminalCommandCheck(terminalStatus)].filter(
-            (check) => check !== undefined,
-          ),
-        terminalCommand: {
-          status: () => terminal.status(),
-          set: async (on) => (terminalStatus = await terminal.set(on)),
-        },
-        openVisualization: (request) => void openVisualizationWindow(request),
-        updates,
-        shortcutHint: () =>
-          hyprlandShortcutHint({
-            env: process.env,
-            accelerator: settings.get().globalShortcut,
-            run: runProgram(trayCheckMs),
-          }),
-        sandbox: {
-          current: () => sandbox?.current() ?? { state: "hidden" },
-          setup: () => sandbox?.setup() ?? Promise.resolve({ state: "hidden" }),
-          hide: () => sandbox?.hide() ?? { state: "hidden" },
-          restart: () => {
-            relaunch = relaunchCommand(install, process.argv);
-            if (relaunch) app.quit();
-          },
-        },
-        setWindowBackground: (value) => {
-          if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
-          window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
-          // Windows: the caption buttons follow the page's theme, not only the OS scheme.
-          if (process.platform === "win32")
-            window.setTitleBarOverlay({
-              symbolColor: captionSymbolColor(
-                windowBackground(value, nativeTheme.shouldUseDarkColors),
-                nativeTheme.shouldUseDarkColors,
-              ),
-            });
-        },
-        updateKeymap: (next) => {
-          bindings = next;
-          installMenu();
-        },
-      });
-      const installMenu = () =>
-        Menu.setApplicationMenu(
-          Menu.buildFromTemplate(
-            applicationMenu({
-              platform: process.platform,
-              appName: app.name,
-              developer: !app.isPackaged,
-              bindings,
-              trigger: (id) => emit(contents(), "keymap.action", id),
-              checkForUpdates: () =>
-                void updates
-                  .check("person")
-                  .then((status) => emit(contents(), "updates.checked", status)),
-              openUrl: (url) => void shell.openExternal(url).catch(() => {}),
-              showLogs: () =>
-                void showLogs().catch((error: unknown) =>
-                  log("warn", `Could not show the logs: ${String(error)}`),
-                ),
-              // The focused window (a visualization's own window too), else the app window.
-              reload,
-              zoom: (change) =>
-                applyZoom(BrowserWindow.getFocusedWindow()?.webContents ?? contents(), change),
-            }),
-          ),
-        );
-      installMenu();
-      registerHandlers({
-        rendererUrl,
-        isAppWindow: (sender) => sender === window?.webContents,
-        handlers,
-        mark: operation.run,
-      });
-      nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
-      // Windows keeps toasts in the notification centre after their objects are gone (and after
-      // a restart). A click, button or reply on one that no live toast answered brings ace
-      // forward with its request still waiting (`activation.ts`).
-      if (process.platform === "win32")
-        Notification.handleActivation((details) => {
-          const at = Date.now();
-          setTimeout(() => {
-            if (toastActivationOutcome(details, background.toastHandledSince(at)) === "open")
-              open();
-          }, liveToastGraceMs);
-        });
-      runtime.onStatus((status) => emit(contents(), "daemon.status", status));
-      settings.onChange(applySettings);
-      powerMonitor.on("shutdown", () => {
-        systemShutdown = true;
-      });
-      // Plugged in again: checks leave their battery back-off.
-      powerMonitor.on("on-ac", () => updates.opened());
-      powerMonitor.on("resume", () => {
-        background.wake();
-        // Timers stall while the Mac sleeps; a wake is an opening too.
-        updates.opened();
-        emit(contents(), "system.resumed", undefined);
-      });
-
-      applySettings(settings.get());
-      // Launched at login with background mode on: daemon and tray only, no window.
-      const hidden = startHidden({
+    // The page's hand-off once its daemon answers, and its reload after a missed one
+    // (`page-connection.ts`).
+    const handoff = createPageConnection({
+      connection: () => runtime.connection(),
+      onStatus: (listener) => runtime.onStatus(listener),
+      reload: () => window?.webContents.reload(),
+      handed: () =>
+        log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() }),
+    });
+    const connection = handoff.connection;
+    // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
+    // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
+    // and the agents in it, is left alone.
+    const reload = () => {
+      if (startFailed(runtime.current()))
+        void runtime
+          .restart()
+          .catch((error: unknown) => log("warn", `Could not restart the daemon: ${String(error)}`));
+      if (!window || window.isDestroyed()) open();
+      else window.webContents.reloadIgnoringCache();
+    };
+    /** The daemon's and the app's log folders in the file manager; false when none opened. */
+    const showLogs = async (): Promise<boolean> => {
+      const folders = logFolders(runtime.target, app.getPath("logs"), existsSync);
+      const opened = await Promise.all(folders.map((path) => shell.openPath(path)));
+      return opened.some((error) => error === "");
+    };
+    // The `ace` command belongs to the installed app; development builds never write one. It
+    // goes in the managed daemon's home, which `desktopTarget` already prepared: after a fresh
+    // start it lands in the new home, never in the backup. Then it goes on the terminal's PATH.
+    const shim =
+      app.isPackaged && target.kind === "managed"
+        ? installCliShim({
+            dataHome: target.home,
+            platform: process.platform,
+            node: paths.node,
+            entry: paths.daemonEntry,
+            appImage: process.platform === "linux" ? runningAppImage(process.env) : undefined,
+          }).then((result) => {
+            cliShim = result;
+            const line = cliShimLog(result);
+            const problem = result.state === "foreign" || result.state === "failed";
+            if (line) log(problem ? "warn" : "info", line);
+            return result;
+          })
+        : undefined;
+    if (app.isPackaged && target.kind === "managed")
+      void followDaemonWithSpade({
+        home: target.home,
+        resourcesPath: process.resourcesPath,
+        version: info.version,
         platform: process.platform,
-        argv: process.argv,
-        wasOpenedAtLogin:
-          process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin,
-        background: settings.get().background,
+        node: paths.node,
+        entry: paths.daemonEntry,
+        env: process.env,
+        daemonReady: () => runtime.local(),
+        log: logger("spade"),
+      }).catch((error: unknown) => log("warn", `Spade's update failed: ${String(error)}`));
+    const terminal = terminalCommand({
+      shim,
+      enabled: () => settings.get().terminalCommand,
+      save: async (on) => void (await settings.update({ terminalCommand: on })),
+      target: {
+        platform: process.platform,
+        home: homedir(),
+        env: {
+          SHELL: process.env.SHELL || (process.platform === "win32" ? "" : userInfo().shell) || "",
+          ZDOTDIR: process.env.ZDOTDIR,
+          XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+        },
+      },
+      launchPath: () => runtime.loginPath(),
+      // The GUI's own PATH could hold folders the shell no longer adds; ask the shell afresh.
+      freshPath: () => loginShellPath({ ...process.env, PATH: "/usr/bin:/bin" }),
+      log: (line) => log("info", line),
+    });
+    let terminalStatus: Awaited<ReturnType<typeof terminal.status>> | undefined;
+    void terminal
+      .status()
+      .then((status) => (terminalStatus = status))
+      .catch((error: unknown) =>
+        log("warn", `Could not read the terminal's status: ${String(error)}`),
+      );
+    let bindings: Readonly<Record<string, string>> | undefined;
+    const toolchains = bundledToolchains(import.meta.url);
+    // Spade beside this app's daemon, reached directly so it works while the daemon is down.
+    const spade = localSpade({
+      home: target.kind === "managed" || target.kind === "attach" ? target.home : undefined,
+      onChange: () => emit(contents(), "spade.endpoint.changed", undefined),
+    });
+    app.once("will-quit", spade.close);
+    const handlers = createHandlers({
+      spade: spade.direct,
+      info,
+      runtime,
+      settings,
+      background,
+      window: () => window,
+      toolchains: () => toolchains(process.env),
+      connection,
+      authorizeDaemon: (url) => network.authorize(url),
+      quit: () => app.quit(),
+      reload,
+      showLogs,
+      reportDiagnostic: rendererReports({ log: logger("renderer"), now: Date.now }),
+      desktopChecks: () =>
+        [cliShim && cliShimCheck(cliShim), terminalCommandCheck(terminalStatus)].filter(
+          (check) => check !== undefined,
+        ),
+      terminalCommand: {
+        status: () => terminal.status(),
+        set: async (on) => (terminalStatus = await terminal.set(on)),
+      },
+      openVisualization: (request) => void openVisualizationWindow(request),
+      updates,
+      shortcutHint: () =>
+        hyprlandShortcutHint({
+          env: process.env,
+          accelerator: settings.get().globalShortcut,
+          run: runProgram(trayCheckMs),
+        }),
+      sandbox: {
+        current: () => sandbox?.current() ?? { state: "hidden" },
+        setup: () => sandbox?.setup() ?? Promise.resolve({ state: "hidden" }),
+        hide: () => sandbox?.hide() ?? { state: "hidden" },
+        restart: () => {
+          relaunch = relaunchCommand(install, process.argv);
+          if (relaunch) app.quit();
+        },
+      },
+      setWindowBackground: (value) => {
+        if (!backgrounds.set(value).changed || !window || window.isDestroyed()) return;
+        window.setBackgroundColor(windowBackground(value, nativeTheme.shouldUseDarkColors));
+        // Windows: the caption buttons follow the page's theme, not only the OS scheme.
+        if (process.platform === "win32")
+          window.setTitleBarOverlay({
+            symbolColor: captionSymbolColor(
+              windowBackground(value, nativeTheme.shouldUseDarkColors),
+              nativeTheme.shouldUseDarkColors,
+            ),
+          });
+      },
+      updateKeymap: (next) => {
+        bindings = next;
+        installMenu();
+      },
+    });
+    const installMenu = () =>
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(
+          applicationMenu({
+            platform: process.platform,
+            appName: app.name,
+            developer: !app.isPackaged,
+            bindings,
+            trigger: (id) => emit(contents(), "keymap.action", id),
+            checkForUpdates: () =>
+              void updates
+                .check("person")
+                .then((status) => emit(contents(), "updates.checked", status)),
+            openUrl: (url) => void shell.openExternal(url).catch(() => {}),
+            showLogs: () =>
+              void showLogs().catch((error: unknown) =>
+                log("warn", `Could not show the logs: ${String(error)}`),
+              ),
+            // The focused window (a visualization's own window too), else the app window.
+            reload,
+            zoom: (change) =>
+              applyZoom(BrowserWindow.getFocusedWindow()?.webContents ?? contents(), change),
+          }),
+        ),
+      );
+    installMenu();
+    registerHandlers({
+      rendererUrl,
+      isAppWindow: (sender) => sender === window?.webContents,
+      handlers,
+      mark: operation.run,
+    });
+    nativeTheme.on("updated", () => emit(contents(), "theme.changed", appearance()));
+    // Windows keeps toasts in the notification centre after their objects are gone (and after
+    // a restart). A click, button or reply on one that no live toast answered brings ace
+    // forward with its request still waiting (`activation.ts`).
+    if (process.platform === "win32")
+      Notification.handleActivation((details) => {
+        const at = Date.now();
+        setTimeout(() => {
+          if (toastActivationOutcome(details, background.toastHandledSince(at)) === "open") open();
+        }, liveToastGraceMs);
       });
-      if (!hidden) {
-        createWindow();
-        window?.webContents.once("did-finish-load", () =>
-          log("info", "The page loaded", { sinceLaunchMs: sinceLaunchMs() }),
-        );
-      }
-      // The background link follows the daemon from here on: it attaches whenever one is ready.
-      background.start();
-      // The daemon starts first: nothing the updater does can keep it from running.
-      void runtime
-        .start()
-        .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
-      try {
-        updates.start();
-      } catch (error) {
-        log("error", `Update checks failed to start: ${String(error)}`);
-      }
-      // Launched by `ace update apply` from the bundled CLI.
-      if (process.argv.includes(desktopUpdateArgument))
-        void updates
-          .apply()
-          .catch((error: unknown) => log("warn", `Applying the update failed: ${String(error)}`));
-    })
-    .catch((error: unknown) => log("error", `Desktop startup failed: ${String(error)}`));
+    runtime.onStatus((status) => emit(contents(), "daemon.status", status));
+    settings.onChange(applySettings);
+    powerMonitor.on("shutdown", () => {
+      systemShutdown = true;
+    });
+    // Plugged in again: checks leave their battery back-off.
+    powerMonitor.on("on-ac", () => updates.opened());
+    powerMonitor.on("resume", () => {
+      background.wake();
+      // Timers stall while the Mac sleeps; a wake is an opening too.
+      updates.opened();
+      emit(contents(), "system.resumed", undefined);
+    });
+
+    applySettings(settings.get());
+    // Launched at login with background mode on: daemon and tray only, no window.
+    const hidden = startHidden({
+      platform: process.platform,
+      argv: process.argv,
+      wasOpenedAtLogin:
+        process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin,
+      background: settings.get().background,
+    });
+    if (!hidden) {
+      createWindow();
+      window?.webContents.once("did-finish-load", () =>
+        log("info", "The page loaded", { sinceLaunchMs: sinceLaunchMs() }),
+      );
+    }
+    // The background link follows the daemon from here on: it attaches whenever one is ready.
+    background.start();
+    // The daemon starts first: nothing the updater does can keep it from running.
+    void runtime
+      .start()
+      .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
+    try {
+      updates.start();
+    } catch (error) {
+      log("error", `Update checks failed to start: ${String(error)}`);
+    }
+    // Launched by `ace update apply` from the bundled CLI.
+    if (process.argv.includes(desktopUpdateArgument))
+      void updates
+        .apply()
+        .catch((error: unknown) => log("warn", `Applying the update failed: ${String(error)}`));
+  });
+  // A startup that fails is logged; the app stays up with no window rather than dying.
+  void ready.catch((error: unknown) => log("error", `Desktop startup failed: ${String(error)}`));
 }
