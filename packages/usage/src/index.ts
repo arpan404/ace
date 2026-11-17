@@ -2,7 +2,7 @@ export { UsageStore } from "./store.ts";
 export { UsageWorker } from "./worker.ts";
 export { UsageSettings, PriceTable, ModelPrice, defaultPrices } from "./settings.ts";
 export { compactEvent, UsageEvent, UsageBatch, maxSkills } from "./events.ts";
-export { sessionTotalsFrom } from "./session-totals.ts";
+export { SessionTotalsFold } from "./session-totals.ts";
 export { backfillBatch, type UsageSink, type EventHistory } from "./backfill.ts";
 export { QuotaWindow, type QuotaReader } from "./quotas.ts";
 

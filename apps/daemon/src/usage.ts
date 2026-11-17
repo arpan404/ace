@@ -14,7 +14,7 @@ import {
   UsageSettings,
   QuotaWindow,
   backfillBatch,
-  sessionTotalsFrom,
+  SessionTotalsFold,
   type QuotaReader,
 } from "@ace/usage";
 import type { Store } from "./store.ts";
@@ -72,11 +72,14 @@ export interface UsageReplayFailure {
   retryInMs: number | null;
 }
 /**
- * Events the projection may trail the event head by and still count as caught up. Live use
- * keeps it within a page or two; beyond this the figures are marked as still filling in, and
- * inclusive session totals are read from the thread's own events instead of waiting.
+ * The most events behind a read's head that the read waits for the replay to project, up to
+ * `usageSettleMs`. Live use keeps the replay within a page or two. Further behind, a read doesn't
+ * wait: summaries answer marked as still filling in, and inclusive session totals are folded from
+ * the thread's own events.
  */
 export const usageFillingBacklog = 4096;
+/** How long a read waits for the replay to reach the head it captured. */
+export const usageSettleMs = 250;
 /** A thread's events read per main-thread slice when its session totals are read directly. */
 const sessionSliceEvents = 256;
 /** Failed background replay retries 1 s, 2 s, 4 s ... capped, then waits for new data. */
@@ -108,14 +111,23 @@ export function createDaemonUsage(
   // The worker owns the durable cursor, and only this replay advances it. Remembering its
   // last answer lets a store commit with no new events skip waking a retired isolate.
   let cursor: number | undefined;
+  // The furthest a committed page has reached, and reads waiting for it to reach their head.
+  let committed = 0;
+  const waiting = new Set<{ target: number; done(reached: boolean): void }>();
+  const advance = (next: number) => {
+    committed = Math.max(committed, next);
+    for (const entry of waiting) if (committed >= entry.target) entry.done(true);
+  };
   const sink = {
     async cursor() {
       cursor ??= await worker.cursor();
+      advance(cursor);
       return cursor;
     },
     async ingest(batch: Parameters<UsageWorker["ingest"]>[0]) {
       cursor = undefined;
       cursor = await worker.ingest(batch);
+      advance(cursor);
       return cursor;
     },
   };
@@ -177,14 +189,38 @@ export function createDaemonUsage(
       });
     return running;
   };
+  /**
+   * Whether the replay projects everything through `target` (a head the read captured) within
+   * `usageSettleMs`. It never follows a moving head and never waits on a far backlog; a failing
+   * page just lets the wait run out.
+   */
+  const reach = (target: number): Promise<boolean> => {
+    if (committed >= target) return Promise.resolve(true);
+    if (stopped || target - committed > usageFillingBacklog) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let cancel: (() => void) | undefined;
+      const entry = {
+        target,
+        done(reached: boolean) {
+          waiting.delete(entry);
+          cancel?.();
+          resolve(reached);
+        },
+      };
+      waiting.add(entry);
+      cancel = replayTimer.delay(() => entry.done(false), usageSettleMs);
+      schedule();
+    });
+  };
   const unsubscribe = store.subscribeUsage(schedule);
   const query = async (kind: "summary" | "series", input: UsageQuery) => {
     if (stopped) throw new Error("Usage service closed");
     const parsed = UsageQuery.parse(input);
-    let result = await worker[kind](parsed);
     const head = store.headSeq();
-    if (head - result.cursor > usageFillingBacklog)
-      result = { ...result, filling: { through: result.cursor, head } };
+    await reach(head);
+    let result = await worker[kind](parsed);
+    // Marked until everything committed when the read began is counted: the totals will grow.
+    if (result.cursor < head) result = { ...result, filling: { through: result.cursor, head } };
     if (providerAccounts && (parsed.filters.provider || parsed.filters.account)) {
       const response = await providerAccounts.handle({ type: "accounts.list", requestId: "usage" });
       if (response.type === "accounts.list")
@@ -212,11 +248,13 @@ export function createDaemonUsage(
     async sessionTotals(input: UsageSessionTotalsQuery) {
       const request = UsageSessionTotalsQuery.parse(input);
       if (stopped) throw new Error("Usage service closed");
-      if (store.headSeq() - (await worker.cursor()) > usageFillingBacklog) {
-        // The replay is far behind: fold this thread's own samples by the projection's rule
-        // rather than wait for all of history. Nothing is written, so nothing counts twice.
-        // The thread is read in index-bounded slices, yielding between them.
-        const samples = [];
+      if (await reach(store.headSeq()))
+        return UsageSessionTotalPage.parse(await worker.sessionTotalsFor(request));
+      // The replay is behind this read's head: fold this thread's own samples by the
+      // projection's rule rather than wait for history. Nothing is written, so nothing counts
+      // twice. The thread is read and folded in index-bounded slices, yielding between them.
+      const fold = new SessionTotalsFold(request);
+      try {
         store.flushLiveWrites();
         for (let after = 0; ;) {
           const slice = store.usageReplay.readSessionUsage(
@@ -225,15 +263,15 @@ export function createDaemonUsage(
             sessionSliceEvents,
           );
           if (slice.throughSeq === null) break;
-          samples.push(...slice.events);
+          fold.add(slice.events);
           after = slice.throughSeq;
           await new Promise<void>((resolve) => setImmediate(resolve));
           if (stopped) throw new Error("Usage service closed");
         }
-        return UsageSessionTotalPage.parse(sessionTotalsFrom(samples, request));
+        return UsageSessionTotalPage.parse(fold.list());
+      } finally {
+        fold.close();
       }
-      await catchUp();
-      return UsageSessionTotalPage.parse(await worker.sessionTotalsFor(request));
     },
     catchUp,
     async start() {
@@ -243,6 +281,7 @@ export function createDaemonUsage(
     },
     async close() {
       stopped = true;
+      for (const entry of waiting) entry.done(false);
       unsubscribe();
       retry?.();
       retry = undefined;

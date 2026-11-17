@@ -70,24 +70,32 @@ export class SessionTotals {
 }
 
 /**
- * One thread's inclusive totals from its own compact samples, by the rule the projection keeps
- * (`observe` per sample, then `list`), in a database that lives for this call. Bounded by the
- * thread, not history, and it writes nothing, so it can answer while the replay is behind.
+ * One thread's inclusive totals folded from its own compact samples, by the rule the projection
+ * keeps (`observe` per sample, then `list`), in a database that lives for this fold. Samples are
+ * added a slice at a time, so the caller can yield between slices and nothing holds the whole
+ * thread; it writes nothing, so it can answer while the replay is behind. Close it when done.
  */
-export function sessionTotalsFrom(events: Iterable<UsageEvent>, query: unknown) {
-  const request = SessionTotalsRequest.parse(query);
-  const db = new Database(":memory:");
-  try {
-    const totals = new SessionTotals(db);
+export class SessionTotalsFold {
+  private readonly db = new Database(":memory:");
+  private readonly totals: SessionTotals;
+  private readonly request: z.infer<typeof SessionTotalsRequest>;
+  constructor(query: unknown) {
+    this.request = SessionTotalsRequest.parse(query);
+    this.totals = new SessionTotals(this.db);
+  }
+  add(events: Iterable<UsageEvent>): void {
     for (const { threadId, at, payload } of events)
       if (
-        threadId === request.thread &&
+        threadId === this.request.thread &&
         payload.type === "usage.updated" &&
         (payload.usageScope === "provider_session" || payload.usageScope === "model_session")
       )
-        totals.observe(threadId, at, payload);
-    return totals.list(request);
-  } finally {
-    db.close();
+        this.totals.observe(threadId, at, payload);
+  }
+  list() {
+    return this.totals.list(this.request);
+  }
+  close(): void {
+    this.db.close();
   }
 }
