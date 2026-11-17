@@ -399,7 +399,7 @@ describe("supervised processes", () => {
       process.off("warning", warn);
     }
   });
-  it("a retained Windows tree that survives its forced stop fails the stop and stays owned", async () => {
+  it("a retained Windows tree that survives its forced stop stays owned until it is confirmed gone", async () => {
     const warnings: string[] = [];
     const unhandled: unknown[] = [];
     const warn = (warning: Error) => warnings.push(warning.message);
@@ -412,6 +412,8 @@ describe("supervised processes", () => {
       remove: (pid) => recorded.delete(pid),
     });
     let disposed = false;
+    let survivors = true;
+    const rechecks: { run: () => void; ms: number }[] = [];
     const proc = spawnRawSupervised({
       command: process.execPath,
       args: ["-e", "setInterval(() => {}, 1000)"],
@@ -423,12 +425,16 @@ describe("supervised processes", () => {
       windowsKillTree: () => {},
       windowsJobFactory: () => ({
         assign: () => {},
-        running: () => true,
+        running: () => survivors,
         terminate: () => {},
         dispose: () => {
           disposed = true;
         },
       }),
+      schedule: (run, ms) => {
+        rechecks.push({ run, ms });
+        return () => {};
+      },
     });
     try {
       // A voided stop (an abort listener) is reported, never left unhandled.
@@ -439,8 +445,21 @@ describe("supervised processes", () => {
       await expect.poll(() => warnings.join("\n")).toContain("survived its forced stop");
       await new Promise((resolve) => setImmediate(resolve));
       expect(unhandled).toEqual([]);
-    } finally {
+      // Still there at the first recheck: still owned, and a later stop still fails.
+      rechecks.shift()?.run();
+      expect(disposed).toBe(false);
+      await expect(proc.stop({ graceMs: 0 })).rejects.toThrow("survived its forced stop");
+      // The survivors exit; the next recheck, later, ends ownership and the job.
       if (proc.pid !== undefined) process.kill(proc.pid, "SIGKILL");
+      survivors = false;
+      const next = rechecks.shift();
+      expect(next?.ms).toBe(2_000);
+      next?.run();
+      expect(disposed).toBe(true);
+      expect(proc.pid !== undefined && recorded.has(proc.pid)).toBe(false);
+      expect(await proc.stop({ graceMs: 0 })).toMatchObject({ code: null });
+    } finally {
+      if (survivors && proc.pid !== undefined) process.kill(proc.pid, "SIGKILL");
       await proc.exited;
       stopObserving();
       process.off("warning", warn);

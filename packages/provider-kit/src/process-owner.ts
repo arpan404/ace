@@ -239,6 +239,10 @@ export function windowsSystemExecutable(name: string): string {
 /** How long a forced Windows tree stop may take before the stop fails instead of completing. */
 const forcedTreeStopMs = 5_000;
 
+/** A Windows tree is alive while its joined job has members, else while its leader runs. */
+export function windowsTreeRunning(pid: number, job?: Pick<WindowsJob, "running">): boolean {
+  return job?.running?.() ?? leaderRunning(pid);
+}
 function leaderRunning(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -260,7 +264,7 @@ export async function stopRetainedWindowsTree(
   killTree: WindowsKillTree = killWindowsTree,
   job?: Pick<WindowsJob, "running" | "terminate">,
 ): Promise<void> {
-  const running = () => job?.running?.() ?? leaderRunning(pid);
+  const running = () => windowsTreeRunning(pid, job);
   killTree(pid, false);
   const deadline = performance.now() + graceMs;
   while (running()) {

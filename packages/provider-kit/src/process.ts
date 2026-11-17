@@ -12,6 +12,7 @@ import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { registerGroup, signalTree, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
+import { windowsTreeRunning } from "./process-owner.ts";
 import { toWindowsCommand } from "./process-owner.ts";
 import {
   createKillOnCloseJob,
@@ -71,6 +72,11 @@ export type SpawnOptions = {
   windowsKillTree?: WindowsKillTree;
   /** Kernel containment for the Windows tree; an unavailable job keeps the tree stop. */
   windowsJobFactory?: WindowsJobFactory;
+  /**
+   * Runs `run` once after `ms`; returns a cancel. Rechecks a retained Windows tree that survived
+   * its stop. Defaults to an unref'd timer, so the recheck never keeps the daemon alive.
+   */
+  schedule?: (run: () => void, ms: number) => () => void;
   /** Opt in to dropping oversized stdout lines. Stderr and total budgets still kill. */
   onStdoutLineDropped?: (line: DroppedOutputLine) => void;
   onOutputLimit?: (error: Error) => void;
@@ -167,6 +173,14 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   let timer: ReturnType<typeof setTimeout> | undefined;
   let retainedStop: Promise<ProcessExit> | undefined;
   let retainedKill: ReturnType<typeof setTimeout> | undefined;
+  let cancelRecheck: (() => void) | undefined;
+  const schedule =
+    options.schedule ??
+    ((run: () => void, ms: number) => {
+      const recheck = setTimeout(run, ms);
+      recheck.unref?.();
+      return () => clearTimeout(recheck);
+    });
   /** When the current stop escalates to SIGKILL; a shorter later stop moves it earlier. */
   let killAt: number | undefined;
   const shortens = (graceMs: number) => {
@@ -237,19 +251,43 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
           // Resolves only once the tree is confirmed gone. A retained Windows tree has no group
           // owner to release it, so that confirmation releases ownership and its job handle.
           // Survivors stay owned and the stop rejects: the daemon's shutdown still ends them.
-          retainedStop = stopRetained(pid, graceMs).then(() => {
+          const ended = () => {
             clearTimeout(retainedKill);
+            cancelRecheck?.();
             if (windows) {
               unregisterGroup(pid);
               job?.dispose();
             }
+          };
+          retainedStop = stopRetained(pid, graceMs).then(() => {
+            ended();
             return exited;
           });
+          /*
+           * Survivors keep the group owned, and later stops keep failing, until the tree is
+           * confirmed gone. On Windows nothing else would ever notice that, so it is rechecked
+           * with backoff; then ownership and the job end, and later stops resolve.
+           */
+          const recheck = (delayMs: number) => {
+            cancelRecheck = schedule(() => {
+              cancelRecheck = undefined;
+              let running = true;
+              try {
+                running = windowsTreeRunning(pid, job);
+              } catch {
+                /* Unknown: still owned. */
+              }
+              if (running) return recheck(Math.min(delayMs * 2, 60_000));
+              ended();
+              retainedStop = exited;
+            }, delayMs);
+          };
           // stop() is often voided (abort listeners, timers). Every awaiting caller still sees
           // the failure; this only keeps it from going unheard.
-          retainedStop.catch((error: unknown) =>
-            process.emitWarning(`Could not stop process group ${pid}: ${String(error)}`),
-          );
+          retainedStop.catch((error: unknown) => {
+            process.emitWarning(`Could not stop process group ${pid}: ${String(error)}`);
+            if (windows) recheck(1_000);
+          });
         } else if (shortens(graceMs)) {
           // The group can outlive its leader, so this deadline survives the leader's exit.
           clearTimeout(retainedKill);
