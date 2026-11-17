@@ -2,26 +2,35 @@
 
 //! Searches one file and streams what it found to the caller's sink.
 
-use std::io;
-use std::path::Path;
-use std::sync::atomic::Ordering;
+use std::io::{self, Read};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use grep_matcher::Matcher;
 use grep_searcher::{Searcher, Sink, SinkMatch};
 
+use crate::open;
 use crate::preview;
 use crate::result::{FileMatches, LineMatch};
-use crate::walk::Shared;
+use crate::walk::{Shared, emit};
 
 /// Searches one file the walker handed over.
 ///
-/// A file that cannot be read, changes while the walk runs, or looks binary is skipped: one bad
-/// file in a checkout must not fail the whole search.
-pub(crate) fn search_file(searcher: &mut Searcher, shared: &Shared<'_>, path: &Path) {
-    let Some(relative) = shared.root.relative(path) else {
+/// The path is resolved through the root before it is opened, and the open refuses a symlink in
+/// the last path component, so a link swapped in after the walk cannot redirect the read. A file
+/// that cannot be read, changes while the walk runs, or looks binary is skipped: one bad file in
+/// a checkout must not fail the whole search, and its reserved match slots go back to the other
+/// walker threads.
+pub(crate) fn search_file(searcher: &mut Searcher, shared: &Shared<'_>, relative: &str) {
+    if shared.halted() {
+        return;
+    }
+    let Ok(resolved) = shared.root.resolve(relative) else {
         return;
     };
-    let Ok(metadata) = std::fs::metadata(path) else {
+    let Ok(file) = open::open(&resolved) else {
+        return;
+    };
+    let Ok(metadata) = file.metadata() else {
         return;
     };
     if !metadata.is_file() {
@@ -31,26 +40,64 @@ pub(crate) fn search_file(searcher: &mut Searcher, shared: &Shared<'_>, path: &P
     if shared.max_file_bytes > 0 && size > shared.max_file_bytes {
         return;
     }
+    let reader = CancelReader {
+        inner: file,
+        cancel: shared.cancel,
+    };
     let mut sink = FileSink::new(shared);
     if searcher
-        .search_path(&shared.matcher, path, &mut sink)
+        .search_reader(&shared.matcher, reader, &mut sink)
         .is_err()
     {
+        shared.release(sink.reserved);
         return;
     }
     if shared.cancel.load(Ordering::SeqCst) {
+        shared.release(sink.reserved);
         return;
     }
     shared.bytes.fetch_add(size, Ordering::Relaxed);
-    if sink.binary || sink.lines.is_empty() {
+    if sink.binary {
+        shared.release(sink.reserved);
         return;
     }
-    shared.files.fetch_add(1, Ordering::Relaxed);
-    if !(shared.sink)(FileMatches {
-        path: relative,
-        lines: sink.lines,
-    }) {
-        shared.stop.store(true, Ordering::SeqCst);
+    let FileSink {
+        lines,
+        reserved,
+        refused,
+        ..
+    } = sink;
+    if lines.is_empty() {
+        shared.refused.fetch_add(refused, Ordering::Relaxed);
+        shared.release(reserved);
+        return;
+    }
+    if emit(
+        shared,
+        FileMatches {
+            path: relative.to_owned(),
+            lines,
+        },
+    ) {
+        shared.refused.fetch_add(refused, Ordering::Relaxed);
+    } else {
+        shared.release(reserved);
+    }
+}
+
+/// A file reader that fails as soon as the caller cancels, so a search of a large file stops
+/// between two reads instead of after reading the whole thing.
+struct CancelReader<'a, R> {
+    inner: R,
+    cancel: &'a AtomicBool,
+}
+
+impl<R: Read> Read for CancelReader<'_, R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.cancel.load(Ordering::SeqCst) {
+            return Err(io::Error::other("search cancelled"));
+        }
+        self.inner.read(buffer)
     }
 }
 
@@ -58,6 +105,10 @@ pub(crate) fn search_file(searcher: &mut Searcher, shared: &Shared<'_>, path: &P
 struct FileSink<'a> {
     shared: &'a Shared<'a>,
     lines: Vec<LineMatch>,
+    /// Slots this file holds under the match cap.
+    reserved: u64,
+    /// Matches this file found but the cap refused.
+    refused: u64,
     binary: bool,
 }
 
@@ -66,6 +117,8 @@ impl<'a> FileSink<'a> {
         FileSink {
             shared,
             lines: Vec::new(),
+            reserved: 0,
+            refused: 0,
             binary: false,
         }
     }
@@ -88,18 +141,22 @@ impl Sink for FileSink<'_> {
         let bytes = matched.bytes();
         let shared = self.shared;
         let mut spans = Vec::new();
-        let mut capped = false;
+        let mut reserved = 0;
+        let mut refused = 0;
         let scanned = shared.matcher.find_iter(bytes, |found| {
             if shared.reserve() {
+                reserved += 1;
                 spans.push(found.start()..found.end());
                 true
             } else {
-                capped = true;
+                refused += 1;
                 false
             }
         });
+        self.reserved += reserved;
+        self.refused += refused;
         if scanned.is_err() || spans.is_empty() {
-            return Ok(!capped);
+            return Ok(refused == 0);
         }
         let (text, ranges) = preview::preview(bytes, &spans);
         self.lines.push(LineMatch {
@@ -107,7 +164,7 @@ impl Sink for FileSink<'_> {
             preview: text,
             ranges,
         });
-        Ok(!capped)
+        Ok(refused == 0)
     }
 
     fn binary_data(&mut self, _searcher: &Searcher, _offset: u64) -> Result<bool, io::Error> {

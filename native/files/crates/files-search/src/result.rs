@@ -29,7 +29,8 @@ pub struct Summary {
     pub files: u64,
     /// Bytes of file content handed to the searcher, including files with no match.
     pub bytes: u64,
-    /// Match occurrences reported to the sink.
+    /// Match occurrences counted. A match on a long line outside the preview window is counted
+    /// but not shown.
     pub matches: u64,
     /// True when matches existed beyond the limit and were not reported.
     pub limit_hit: bool,

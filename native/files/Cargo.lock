@@ -142,10 +142,12 @@ name = "files-search"
 version = "0.1.0"
 dependencies = [
  "files-safe",
+ "globset",
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "regex",
  "tempfile",
  "thiserror",

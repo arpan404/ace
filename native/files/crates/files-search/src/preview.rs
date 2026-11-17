@@ -7,7 +7,7 @@ use std::ops::Range;
 /// The most bytes of source text one preview carries.
 pub(crate) const PREVIEW_BYTES: usize = 400;
 
-/// Half of the leading padding kept before the first match when a line is too long to show.
+/// The leading padding kept before the first match on a line too long to show whole.
 const LEAD: usize = PREVIEW_BYTES / 5;
 
 /// A preview of `line`, plus each match's byte range inside that preview.
@@ -20,7 +20,9 @@ pub(crate) fn preview(line: &[u8], spans: &[Range<usize>]) -> (String, Vec<(u32,
     let text = String::from_utf8_lossy(&line[window.clone()]).into_owned();
     let mut ranges = Vec::with_capacity(spans.len());
     for span in spans {
-        if span.end < window.start || span.start > window.end {
+        // A span that only touches the window's edge shows no text; keeping it would add an
+        // empty range that points at nothing. A zero-width match survives only inside the window.
+        if span.end <= window.start || span.start >= window.end {
             continue;
         }
         let start = span.start.max(window.start);

@@ -24,9 +24,10 @@ pub struct Query {
     pub case: Case,
     /// Match only whole words, not substrings inside longer words.
     pub whole_word: bool,
-    /// Globs a file must match to be searched, relative to the root; empty means every file.
+    /// Globs a file's relative path must match to be searched: `*` for any characters and `**`
+    /// across folders. Empty means every file. A match never re-includes a file git ignores.
     pub include: Vec<String>,
-    /// Globs of files and folders to leave out, relative to the root.
+    /// Gitignore-style globs of files and folders to leave out, relative to the root.
     pub exclude: Vec<String>,
     /// Search files that git ignores as well (`.gitignore`, `.git/info/exclude`).
     pub include_ignored: bool,

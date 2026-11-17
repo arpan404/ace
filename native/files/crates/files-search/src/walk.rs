@@ -2,15 +2,19 @@
 
 //! Drives the parallel walk and turns each searched file into a sink call.
 
+use std::ffi::OsStr;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use files_safe::Root;
+use globset::GlobSet;
 use grep_regex::RegexMatcher;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder};
 use ignore::WalkBuilder;
 use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkState};
 
 use crate::error::Error;
+use crate::parents::Inherited;
 use crate::pattern::{self, Plan};
 use crate::query::Query;
 use crate::result::{FileMatches, Summary};
@@ -22,19 +26,25 @@ pub(crate) struct Shared<'a> {
     pub(crate) sink: &'a (dyn Fn(FileMatches) -> bool + Sync),
     pub(crate) cancel: &'a AtomicBool,
     pub(crate) matcher: RegexMatcher,
+    pub(crate) includes: Option<GlobSet>,
     pub(crate) max_file_bytes: u64,
     pub(crate) limit: u64,
     pub(crate) matches: AtomicU64,
+    pub(crate) refused: AtomicU64,
     pub(crate) files: AtomicU64,
     pub(crate) bytes: AtomicU64,
-    pub(crate) stop: AtomicBool,
-    pub(crate) limit_hit: AtomicBool,
+    pub(crate) sink_stopped: AtomicBool,
+    pub(crate) limit_stopped: AtomicBool,
+    /// True once the sink has returned `false`; held by whoever is calling the sink.
+    pub(crate) gate: Mutex<bool>,
 }
 
 impl Shared<'_> {
     /// Whether every walker thread should stop now.
     pub(crate) fn halted(&self) -> bool {
-        self.stop.load(Ordering::SeqCst) || self.cancel.load(Ordering::SeqCst)
+        self.sink_stopped.load(Ordering::SeqCst)
+            || self.limit_stopped.load(Ordering::SeqCst)
+            || self.cancel.load(Ordering::SeqCst)
     }
 
     /// Claims one slot under the match cap. False means the cap is used up.
@@ -42,8 +52,7 @@ impl Shared<'_> {
         let mut seen = self.matches.load(Ordering::Relaxed);
         loop {
             if seen >= self.limit {
-                self.limit_hit.store(true, Ordering::SeqCst);
-                self.stop.store(true, Ordering::SeqCst);
+                self.limit_stopped.store(true, Ordering::SeqCst);
                 return false;
             }
             match self.matches.compare_exchange_weak(
@@ -55,6 +64,25 @@ impl Shared<'_> {
                 Ok(_) => return true,
                 Err(actual) => seen = actual,
             }
+        }
+    }
+
+    /// Gives back slots claimed by a file that was dropped before its matches were reported.
+    pub(crate) fn release(&self, count: u64) {
+        if count == 0 {
+            return;
+        }
+        self.matches.fetch_sub(count, Ordering::SeqCst);
+        if self.matches.load(Ordering::SeqCst) < self.limit {
+            self.limit_stopped.store(false, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether an include glob admits this relative path.
+    pub(crate) fn accepts(&self, relative: &str) -> bool {
+        match &self.includes {
+            Some(includes) => includes.is_match(relative),
+            None => true,
         }
     }
 }
@@ -76,13 +104,21 @@ pub(crate) fn run(
         sink,
         cancel,
         matcher: plan.matcher,
+        includes: plan.includes,
         max_file_bytes: plan.max_file_bytes,
         limit: plan.limit,
         matches: AtomicU64::new(0),
+        refused: AtomicU64::new(0),
         files: AtomicU64::new(0),
         bytes: AtomicU64::new(0),
-        stop: AtomicBool::new(false),
-        limit_hit: AtomicBool::new(false),
+        sink_stopped: AtomicBool::new(false),
+        limit_stopped: AtomicBool::new(false),
+        gate: Mutex::new(false),
+    };
+    let inherited = if query.include_ignored {
+        None
+    } else {
+        Some(Inherited::find(root.path()))
     };
     let mut builder = WalkBuilder::new(root.path());
     builder
@@ -93,7 +129,8 @@ pub(crate) fn run(
         .git_global(false)
         .git_ignore(!query.include_ignored)
         .git_exclude(!query.include_ignored)
-        .ignore(!query.include_ignored);
+        .ignore(!query.include_ignored)
+        .filter_entry(move |entry| keeps(entry, inherited.as_ref()));
     builder
         .build_parallel()
         .visit(&mut Workers { shared: &shared });
@@ -104,8 +141,47 @@ pub(crate) fn run(
         files: shared.files.load(Ordering::SeqCst),
         bytes: shared.bytes.load(Ordering::SeqCst),
         matches: shared.matches.load(Ordering::SeqCst),
-        limit_hit: shared.limit_hit.load(Ordering::SeqCst),
+        limit_hit: shared.refused.load(Ordering::SeqCst) > 0,
     })
+}
+
+/// Whether the walk may hand this entry on: never inside `.git`, and never when a folder above
+/// the root ignores it.
+fn keeps(entry: &DirEntry, inherited: Option<&Inherited>) -> bool {
+    if entry.depth() == 0 {
+        return true;
+    }
+    if entry.file_name() == OsStr::new(".git") {
+        return false;
+    }
+    match inherited {
+        Some(inherited) => !inherited.ignores(
+            entry.path(),
+            entry.file_type().is_some_and(|kind| kind.is_dir()),
+        ),
+        None => true,
+    }
+}
+
+/// Hands one finished file to the caller's sink, one call at a time.
+///
+/// True means the file was delivered, even if the sink then asked to stop. False means an earlier
+/// call already returned `false`, so this file's slots must be given back instead.
+pub(crate) fn emit(shared: &Shared<'_>, file: FileMatches) -> bool {
+    let mut closed = match shared.gate.lock() {
+        Ok(closed) => closed,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if *closed {
+        shared.sink_stopped.store(true, Ordering::SeqCst);
+        return false;
+    }
+    shared.files.fetch_add(1, Ordering::Relaxed);
+    if !(shared.sink)(file) {
+        *closed = true;
+        shared.sink_stopped.store(true, Ordering::SeqCst);
+    }
+    true
 }
 
 /// Hands each walker thread a search visitor with its own reusable searcher.
@@ -137,13 +213,26 @@ impl ParallelVisitor for Worker<'_> {
             return WalkState::Continue;
         };
         if entry.file_type().is_some_and(|kind| kind.is_file()) {
-            search_file(&mut self.searcher, self.shared, entry.path());
+            self.search(&entry);
         }
         if self.shared.halted() {
             WalkState::Quit
         } else {
             WalkState::Continue
         }
+    }
+}
+
+impl Worker<'_> {
+    /// Searches one file the walker yielded, if the include globs admit it.
+    fn search(&mut self, entry: &DirEntry) {
+        let Some(relative) = self.shared.root.relative(entry.path()) else {
+            return;
+        };
+        if !self.shared.accepts(&relative) {
+            return;
+        }
+        search_file(&mut self.searcher, self.shared, &relative);
     }
 }
 
