@@ -75,17 +75,20 @@ pub fn run_with(
     };
 
     // The command is created suspended and put in the job *before* it is resumed, so the job holds
-    // it from its first instruction. If it can't be put in the job, it is killed, never left to
-    // run unheld: the run fails closed.
+    // it from its first instruction. If it can't be put in the job, or can't be resumed, it is
+    // killed and waited for, never left to run unheld: the run fails closed.
     let (process, thread) = create(&mut caps, program, args, true)?;
     let process_handle = HANDLE(process.as_raw_handle());
     if let Err(error) = job.assign(process.as_raw_handle()) {
-        // SAFETY: a live, still-suspended process handle; terminate it before returning.
-        let _ = unsafe { TerminateProcess(process_handle, 1) };
+        kill_and_wait(process_handle);
         return Err(error);
     }
-    // SAFETY: a live thread handle; resuming the one suspended thread of the command.
-    unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) };
+    // Resuming the one suspended thread is the command's start. `(u32::MAX)` means it failed.
+    // SAFETY: a live thread handle.
+    if unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) } == u32::MAX {
+        kill_and_wait(process_handle);
+        return Err(std::io::Error::other("the command could not be started"));
+    }
     drop(thread);
 
     // SAFETY: a live process handle; waits for the command to exit.
@@ -97,7 +100,19 @@ pub fn run_with(
     Ok(code)
 }
 
-/// `run`, for the bridge: the command line is `spade sandbox-net-bridge <pipe> <port>`.
+/// Terminates `process` and waits for it, so a failed setup leaves nothing suspended behind.
+fn kill_and_wait(process: HANDLE) {
+    // SAFETY: a live process handle; terminate then wait for it to be gone.
+    unsafe {
+        let _ = TerminateProcess(process, 1);
+        WaitForSingleObject(process, 5000);
+    }
+}
+
+/// `run`, for the bridge: `spade sandbox-net-bridge <pipe> <port> <ready-event>`. The bridge is
+/// put in the job, resumed, and then **must acknowledge that it bound its loopback port** by
+/// signalling the readiness event before the command is allowed to start. If it can't be held in
+/// the job, or doesn't bind in time, it is terminated and waited for and the run fails closed.
 fn spawn_bridge(
     caps: &mut Capabilities,
     job: &Job,
@@ -108,16 +123,33 @@ fn spawn_bridge(
         Some(exe) => exe.to_path_buf(),
         None => std::env::current_exe()?,
     };
+    let ready = crate::event::Ready::new()?;
     let args = [
         OsString::from("sandbox-net-bridge"),
         OsString::from(&bridge.pipe),
         OsString::from(bridge.port.to_string()),
+        OsString::from(ready.raw_value().to_string()),
     ];
     let (process, thread) = create(caps, exe.as_os_str(), &args, false)?;
-    job.assign(process.as_raw_handle())?;
+    let process_handle = HANDLE(process.as_raw_handle());
+    if let Err(error) = job.assign(process.as_raw_handle()) {
+        kill_and_wait(process_handle);
+        return Err(error);
+    }
     // SAFETY: a live thread handle; resuming the bridge's one suspended thread.
-    unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) };
+    if unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) } == u32::MAX {
+        kill_and_wait(process_handle);
+        return Err(std::io::Error::other(
+            "the egress bridge could not be started",
+        ));
+    }
     drop(thread);
+    if !ready.wait(5000) {
+        kill_and_wait(process_handle);
+        return Err(std::io::Error::other(
+            "the egress bridge did not bind its loopback port",
+        ));
+    }
     Ok(process)
 }
 
@@ -189,6 +221,7 @@ fn create(
     let mut info = STARTUPINFOEXW::default();
     info.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
     info.lpAttributeList = caps.list();
+    info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     if inherit_std {
         let (stdin, stdout, stderr) = std_handles()?;
         for handle in [stdin, stdout, stderr] {
@@ -196,23 +229,29 @@ fn create(
             let _ =
                 unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT) };
         }
-        info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         info.StartupInfo.hStdInput = stdin;
         info.StartupInfo.hStdOutput = stdout;
         info.StartupInfo.hStdError = stderr;
+    } else {
+        // The bridge gets no standard handles (so its output can't reach the command's streams),
+        // but it still inherits handles — its readiness event among them.
+        info.StartupInfo.hStdInput = HANDLE::default();
+        info.StartupInfo.hStdOutput = HANDLE::default();
+        info.StartupInfo.hStdError = HANDLE::default();
     }
 
     let mut line = command_line(program, args);
     let mut pi = PROCESS_INFORMATION::default();
     // SAFETY: `line` is a writable NUL-terminated wide buffer; `info`/`pi` are live locals; the
-    // attribute list and its SID live until after this returns.
+    // attribute list and its SID live until after this returns. `binherithandles` is true so the
+    // command inherits its standard handles, or the bridge its readiness event.
     unsafe {
         CreateProcessW(
             PCWSTR::null(),
             Some(PWSTR(line.as_mut_ptr())),
             None,
             None,
-            inherit_std,
+            true,
             EXTENDED_STARTUPINFO_PRESENT
                 | CREATE_SUSPENDED
                 | CREATE_NEW_PROCESS_GROUP

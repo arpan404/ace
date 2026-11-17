@@ -109,10 +109,12 @@ mod win {
         }
     }
 
-    /// The in-container side (`spade sandbox-net-bridge <pipe> <port>`): listen on
+    /// The in-container side (`spade sandbox-net-bridge <pipe> <port> <ready-event>`): listen on
     /// `127.0.0.1:<port>` and forward each connection to the daemon's pipe. Runs its own small
-    /// runtime; blocking entry point that returns a process exit code.
-    pub fn in_container(pipe_name: &str, port: u16) -> u8 {
+    /// runtime; blocking entry point that returns a process exit code. Once the loopback port is
+    /// bound it signals `ready_event` (inherited from the launcher), so the launcher knows the
+    /// bridge is listening before it lets the command start.
+    pub fn in_container(pipe_name: &str, port: u16, ready_event: isize) -> u8 {
         let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -127,6 +129,8 @@ mod win {
                     return 1;
                 }
             };
+            // The loopback port is up: tell the launcher so the command may start.
+            spade_sandbox_windows::event::signal_ready(ready_event);
             let path = super::pipe_path(pipe_name);
             loop {
                 let Ok((client, _)) = listener.accept().await else {

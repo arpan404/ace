@@ -94,8 +94,13 @@ fn main() -> std::process::ExitCode {
             .and_then(|a| a.to_str())
             .and_then(|a| a.parse::<u16>().ok())
             .unwrap_or_default();
+        let ready = args
+            .get(3)
+            .and_then(|a| a.to_str())
+            .and_then(|a| a.parse::<isize>().ok())
+            .unwrap_or_default();
         return std::process::ExitCode::from(spade_sandbox::windows::bridge::in_container(
-            pipe, port,
+            pipe, port, ready,
         ));
     }
     if let Some(flag) = args.first()

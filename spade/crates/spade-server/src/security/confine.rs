@@ -103,6 +103,14 @@ impl Confine for Security {
             ),
         )
         .map_err(|error| format!("the sandbox's permissions could not be set: {error}"))?;
+        // From here the run owns its rollback: if anything below fails (the bridge, the plan), this
+        // guard drops and takes back the grants and the profile. On success it moves into `hold`
+        // and cleans up when the run ends instead.
+        #[cfg(windows)]
+        let run_hold = RunHold {
+            acl_dir: self.acl_dir(),
+            container: container.clone(),
+        };
         let (path_first, mut env) = toolchains::env(&toolchain_dirs, &|p: &Path| p.is_dir());
         env.push((
             "TMPDIR".to_owned(),
@@ -153,16 +161,10 @@ impl Confine for Security {
         });
 
         // Windows: when the run ends (its processes gone, so no open handle survives revocation),
-        // the hold stops the bridge and takes back the run's ACL grants and its profile.
+        // the hold stops the bridge and takes back the run's ACL grants and its profile. The
+        // rollback guard made above now becomes that run-end cleanup.
         #[cfg(windows)]
-        let hold: Box<dyn std::any::Any + Send + Sync> = Box::new((
-            ticket,
-            bridge_hold,
-            RunHold {
-                acl_dir: self.acl_dir(),
-                container,
-            },
-        ));
+        let hold: Box<dyn std::any::Any + Send + Sync> = Box::new((ticket, bridge_hold, run_hold));
         #[cfg(not(windows))]
         let hold: Box<dyn std::any::Any + Send + Sync> = Box::new(ticket);
 

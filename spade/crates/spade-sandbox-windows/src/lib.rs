@@ -5,6 +5,8 @@
 #[cfg(windows)]
 pub mod acl;
 #[cfg(windows)]
+pub mod event;
+#[cfg(windows)]
 pub mod fs;
 #[cfg(windows)]
 pub mod job;

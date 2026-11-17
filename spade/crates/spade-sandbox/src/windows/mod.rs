@@ -180,7 +180,6 @@ mod tests {
     use super::*;
     use crate::policy::{Facts, Policy};
 
-
     #[test]
     fn a_container_name_is_stable_sanitised_and_capped() {
         let c = Container::for_bot("Bot/One#2");

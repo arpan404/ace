@@ -25,7 +25,12 @@ mod windows {
         match args.first().map(String::as_str) {
             Some("sandbox-net-bridge") => {
                 let port = rest.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
-                spade_sandbox::windows::bridge::in_container(rest.first().unwrap_or(&""), port)
+                let ready = rest.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
+                spade_sandbox::windows::bridge::in_container(
+                    rest.first().unwrap_or(&""),
+                    port,
+                    ready,
+                )
             }
             Some("connect") => connect(rest.first().copied().unwrap_or("")),
             Some("write") => match std::fs::write(rest.first().unwrap_or(&""), b"x") {

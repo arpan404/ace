@@ -30,8 +30,20 @@ pub fn ensure(name: &str, display: &str) -> std::io::Result<Sid> {
     sid
 }
 
-/// Deletes the profile named `name`; one that doesn't exist is already gone.
+/// Deletes the profile named `name`. One that doesn't exist is already gone, which counts as
+/// success so cleanup can treat "the profile is deleted" as a durable end state.
 pub fn delete(name: &str) -> std::io::Result<()> {
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NOT_FOUND};
+
     // SAFETY: a plain string in.
-    unsafe { DeleteAppContainerProfile(&HSTRING::from(name)) }.map_err(crate::io)
+    match unsafe { DeleteAppContainerProfile(&HSTRING::from(name)) } {
+        Ok(()) => Ok(()),
+        Err(error)
+            if error.code() == HRESULT::from_win32(ERROR_FILE_NOT_FOUND.0)
+                || error.code() == HRESULT::from_win32(ERROR_NOT_FOUND.0) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(crate::io(error)),
+    }
 }

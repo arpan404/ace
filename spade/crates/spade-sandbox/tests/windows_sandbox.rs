@@ -350,7 +350,7 @@ async fn the_bridge_splices_bytes_both_ways() {
     // The in-container bridge, run here as a plain process on a loopback port.
     let port = free_port();
     let pipe2 = pipe.clone();
-    std::thread::spawn(move || spade_sandbox::windows::bridge::in_container(&pipe2, port));
+    std::thread::spawn(move || spade_sandbox::windows::bridge::in_container(&pipe2, port, 0));
     std::thread::sleep(Duration::from_millis(300));
 
     let got = tokio::task::spawn_blocking(move || {
@@ -447,12 +447,47 @@ fn a_run_is_recovered_by_object_identity_even_after_the_folder_moves() {
         .unwrap_or_else(|_| std::process::abort()),
         "recovery should take the grant back from the moved object"
     );
+    // The journal is gone once every grant is taken back and the profile deleted.
     assert!(
-        acls::Journal::load(journal.path(), &container)
-            .granted
-            .is_empty()
+        acls::Journal::read(journal.path(), &container)
+            .unwrap_or_else(|_| std::process::abort())
+            .is_none()
     );
     assert!(!acls::stuck(journal.path(), "botM"));
+}
+
+#[test]
+fn cleanup_restores_an_owned_folder_and_removes_the_profile() {
+    let journal = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let work = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let folder = work.path().join("workspace");
+    std::fs::create_dir_all(&folder).unwrap_or_else(|_| std::process::abort());
+    let container = Container::for_run("botR", "run1");
+    let _p = with_profile(&container);
+    let grants = vec![WGrant {
+        path: folder.clone(),
+        access: WAccess::Write,
+    }];
+
+    let obj = Object::open_pinned(&folder).unwrap_or_else(|_| std::process::abort());
+    let sid = acls::reconcile(journal.path(), "botR", &container, &grants)
+        .unwrap_or_else(|_| std::process::abort());
+    assert!(acl::granted(&obj, &sid).unwrap_or_else(|_| std::process::abort()));
+
+    // Cleanup takes the grant back exactly: the folder has no ACE for the SID again, and the
+    // journal is gone (profile deleted).
+    acls::cleanup(journal.path(), &container).unwrap_or_else(|_| std::process::abort());
+    let obj = Object::open_pinned(&folder).unwrap_or_else(|_| std::process::abort());
+    assert!(
+        !acl::granted(&obj, &sid).unwrap_or_else(|_| std::process::abort()),
+        "cleanup should leave no ACE for the run's SID"
+    );
+    assert!(
+        acls::Journal::read(journal.path(), &container)
+            .unwrap_or_else(|_| std::process::abort())
+            .is_none(),
+        "the journal is removed only after revocation and profile deletion both succeed"
+    );
 }
 
 #[test]
@@ -649,4 +684,45 @@ async fn the_bridge_acceptor_acknowledges_success_and_failure() {
     );
     first.stop();
     second.stop();
+}
+
+#[test]
+fn the_launcher_fails_closed_when_the_in_container_bridge_cannot_bind() {
+    // Occupy the loopback port so the in-container bridge can't bind it and never acknowledges.
+    let occupied =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap_or_else(|_| std::process::abort());
+    let port = occupied
+        .local_addr()
+        .unwrap_or_else(|_| std::process::abort())
+        .port();
+
+    let (container, _profile) = container();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
+    grant(
+        helper().parent().unwrap_or_else(|| std::process::abort()),
+        &sid,
+        Access::Read,
+    );
+    let bridge = launch::Bridge {
+        pipe: format!("spade-noack-{}", uuid::Uuid::new_v4().simple()),
+        port,
+    };
+    let cmd = format!(
+        r"{}\System32\cmd.exe",
+        std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned())
+    );
+    let result = launch::run_with(
+        &container.name,
+        &container.display,
+        limits(),
+        Some(bridge),
+        Some(&helper()),
+        std::ffi::OsStr::new(&cmd),
+        &[OsString::from("/c"), OsString::from("exit 0")],
+    );
+    assert!(
+        result.is_err(),
+        "the run must fail closed when the bridge can't bind its loopback port, not run the command"
+    );
 }
