@@ -114,7 +114,9 @@ it("starts in the foreground and exposes status, a redeemable QR URL, device lis
   );
   child.kill("SIGTERM");
   expect((await exited)[0]).toBe(0);
-  expect(JSON.parse((await cli(directory, ["status", "--json"])).stdout)).toEqual({ running: false });
+  expect(JSON.parse((await cli(directory, ["status", "--json"])).stdout)).toEqual({
+    running: false,
+  });
 });
 it("doctor reuses provider-kit discovery with controlled CLI binaries and never sends prompts", async () => {
   const directory = home();
