@@ -13,6 +13,8 @@ const publish = (
 const entry = { type: "suit", name: "dusk-harbor" } as const;
 
 describe("which market requests an agent may make itself", () => {
+  // The allowlist (ADR 0176 §12.5): reads, local checks, the draft-and-publish flow, status and
+  // versions. Everything else is the person's, so an operation added later starts as theirs.
   const theirs: [string, MarketOperation][] = [
     [
       "a draft",
@@ -23,34 +25,20 @@ describe("which market requests an agent may make itself", () => {
         source: { kind: "suit", id: "dusk-harbor" },
       }),
     ],
+    ["reading a draft", publish({ action: "draftRead", id: "drf_abcdefgh" })],
+    ["deleting an unpublished draft", publish({ action: "draftDelete", id: "drf_abcdefgh" })],
     ["publishing a draft", publish({ action: "draftPublish", id: "drf_abcdefgh" })],
-    [
-      "listing words",
-      publish({
-        action: "listing",
-        ...entry,
-        listing: {
-          title: "Dusk",
-          line: "",
-          description: "",
-          categories: [],
-          keywords: [],
-          links: [],
-          previews: [],
-        },
-      }),
-    ],
-    [
-      "a deprecation",
-      publish({ action: "deprecate", ...entry, version: "1.2.0", note: "Use 2.0" }),
-    ],
-    ["an appeal", publish({ action: "appeal", ...entry, version: "1.2.0", note: "Fixed" })],
+    ["their status", publish({ action: "me" })],
+    ["an entry's versions", publish({ action: "entry", ...entry })],
     ["a search", { op: "search", query: "", offset: 0, limit: 50 }],
+    ["reading an entry", { op: "read", source: "market", ...entry }],
     ["preparing a review", { op: "prepare", source: "market", ...entry }],
-    ["an unverified profile edit", publish({ action: "editProfile", profile: { bio: "Hi" } })],
+    ["what's installed", { op: "installed" }],
+    ["the sources", { op: "sources" }],
+    ["discover", { op: "discover" }],
   ];
   it.each(theirs)("%s runs under the provider's permissions", (_what, operation) => {
-    expect(agentRoute(operation, { ...facts, verifiedProfile: false })).toEqual({ kind: "run" });
+    expect(agentRoute(operation, facts)).toEqual({ kind: "run" });
   });
 
   const persons: [string, MarketOperation][] = [
@@ -77,11 +65,45 @@ describe("which market requests an agent may make itself", () => {
       },
     ],
     ["turning a withdrawn entry back on", { op: "turnOn", ...entry }],
+    ["removing an installed entry", { op: "remove", ...entry }],
+    ["adding a source", { op: "addSource", address: "https://example.com/market" }],
+    ["removing a source", { op: "removeSource", id: "market" }],
+    ["turning a source off", { op: "setSource", id: "market", enabled: false }],
+    ["turning a source on", { op: "setSource", id: "market", enabled: true }],
+    ["hiding an entry", publish({ action: "visibility", ...entry, visibility: "unlisted" })],
+    ["choosing the latest version", publish({ action: "latest", ...entry, version: "1.0.0" })],
+    ["archiving", publish({ action: "archive", ...entry, archived: true })],
+    [
+      "listing words",
+      publish({
+        action: "listing",
+        ...entry,
+        listing: {
+          title: "Dusk",
+          line: "",
+          description: "",
+          categories: [],
+          keywords: [],
+          links: [],
+          previews: [],
+        },
+      }),
+    ],
+    [
+      "a deprecation",
+      publish({ action: "deprecate", ...entry, version: "1.2.0", note: "Use 2.0" }),
+    ],
+    ["an appeal", publish({ action: "appeal", ...entry, version: "1.2.0", note: "Fixed" })],
+    ["any profile edit", publish({ action: "editProfile", profile: { bio: "Hi" } })],
+    ["a report", { op: "report", ...entry, reason: "malware", note: "" }],
   ];
   it.each(persons)("%s is the person's, asked in their words", (_what, operation) => {
     const route = agentRoute(operation, facts);
     expect(route.kind).toBe("person");
-    if (route.kind === "person") expect(route.ask.title).toMatch(/^Codex asks you to /);
+    if (route.kind === "person") {
+      expect(route.ask.title).toMatch(/^Codex asks you to \S/);
+      expect(route.ask.refusal).toMatch(/ is yours to do\. ace asked you in this thread\.$/);
+    }
   });
 
   it("names what it withdraws and why, as the strip says it", () => {
@@ -102,12 +124,6 @@ describe("which market requests an agent may make itself", () => {
         refusal: "Withdrawing is yours to do. ace asked you in this thread.",
       },
     });
-  });
-
-  it("a verified profile's edit is the person's, and so is one whose mark isn't known", () => {
-    const edit = publish({ action: "editProfile", profile: { bio: "Hi" } });
-    expect(agentRoute(edit, { ...facts, verifiedProfile: true }).kind).toBe("person");
-    expect(agentRoute(edit, facts).kind).toBe("person");
   });
 
   it("Ask me before agents publish makes publishing a draft the person's, and nothing else", () => {

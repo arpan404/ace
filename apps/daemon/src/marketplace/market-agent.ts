@@ -12,6 +12,23 @@ import type { MarketplaceService } from "./service.ts";
 /** The setting that turns every agent publish into the person's request (ADR 0176 decision 1). */
 export const askBeforeAgentPublishKey = "market.askBeforeAgentPublish";
 
+/**
+ * "Ask me before agents publish", failing closed (ADR 0176 decision 1): off only when the
+ * person's setting reads off. Settings not loaded yet, a read that fails, or a value that isn't
+ * a boolean count as on, so a broken settings file never lets an agent publish unasked.
+ */
+export async function askBeforeAgentPublish(
+  settings: Pick<SettingsService, "get"> | undefined,
+): Promise<boolean> {
+  if (!settings) return true;
+  try {
+    const read = await settings.get(askBeforeAgentPublishKey);
+    return read.value !== false;
+  } catch {
+    return true;
+  }
+}
+
 export interface MarketAgentDeps {
   readonly marketplace: MarketplaceService;
   readonly store: Store;
@@ -65,14 +82,7 @@ export class MarketAgent {
       {
         run: (next) => this.asPerson(next),
         requests: () => this.requests,
-        askBeforePublish: async () => {
-          try {
-            const read = await this.deps.settings()?.get(askBeforeAgentPublishKey);
-            return read?.value === true;
-          } catch {
-            return false;
-          }
-        },
+        askBeforePublish: () => askBeforeAgentPublish(this.deps.settings()),
         agentName: (thread) => {
           const id = ThreadId.safeParse(thread);
           const provider = id.success ? this.deps.store.getThread(id.data)?.provider : undefined;

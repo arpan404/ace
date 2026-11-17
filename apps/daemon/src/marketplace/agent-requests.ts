@@ -1,5 +1,5 @@
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
-import { agentRoute, needsVerifiedFact, type AgentFacts } from "./agent-gate.ts";
+import { agentRoute, type AgentFacts } from "./agent-gate.ts";
 import type { MarketPersonRequests } from "./person-requests.ts";
 
 /*
@@ -12,7 +12,7 @@ export interface AgentMarketDeps {
   /** Runs an operation through the marketplace with this machine's grant. */
   run(operation: MarketOperation): Promise<MarketResult>;
   requests(): Pick<MarketPersonRequests, "open"> | undefined;
-  /** `market.askBeforeAgentPublish`; off when it can't be read. */
+  /** `market.askBeforeAgentPublish`; on when it can't be read (fails closed). */
   askBeforePublish(): Promise<boolean>;
   /** The product name of the agent in `threadId`: "Codex". */
   agentName(threadId: string): string;
@@ -34,11 +34,6 @@ export async function agentMarketRequest(
       install = { review: page.review };
       facts.installing = `${page.review.type}/${page.review.name} ${page.review.version}`;
     }
-  }
-  if (needsVerifiedFact(operation)) {
-    const me = await deps.run({ op: "publish", request: { action: "me" } });
-    if (me.op === "publish" && me.answer.kind === "me")
-      facts.verifiedProfile = me.answer.me.profile?.verified ?? false;
   }
   const route = agentRoute(operation, facts);
   if (route.kind === "run") return deps.run(operation);

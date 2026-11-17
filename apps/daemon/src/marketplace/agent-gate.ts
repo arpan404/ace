@@ -1,12 +1,52 @@
 import type { MarketOperation } from "@ace/protocol/marketplace";
 
 /*
- * Which market requests an agent may make itself (ADR 0176 §12.5, owner decision 1). Publishing
- * follows the provider's permissions; withdrawing, transfers, handle changes, deleting an entry,
- * verified-profile edits, verification and installing are the person's. Asked for one, ace opens
- * a request in the asking thread's strip instead, which only a person's device answers. With
- * "Ask me before agents publish" on, publishing a draft is the person's too. Pure.
+ * Which market requests an agent may make itself (ADR 0176 §12.5, owner decision 1). An
+ * allowlist: reads, local checks, the draft-and-publish flow, its status and versions. Every
+ * other operation, including any added later, is the person's: ace opens a request in the
+ * asking thread's strip, which only a person answers. With "Ask me before agents publish" on,
+ * publishing a draft is the person's too. Pure.
  */
+
+/** Operations an agent may run under its provider's permissions. */
+const agentOperations: ReadonlySet<MarketOperation["op"]> = new Set<MarketOperation["op"]>([
+  "sources",
+  "search",
+  "home",
+  "read",
+  "prepare",
+  "prepareUpdate",
+  "readReview",
+  "cancel",
+  "installed",
+  "refresh",
+  "spadeSkills",
+  "spadeSkillFiles",
+  "discover",
+  "publisher",
+  "picture",
+  "publishables",
+  "botRecipe",
+  "privacyCheck",
+]);
+
+type PublishRequest = Extract<MarketOperation, { op: "publish" }>["request"];
+
+/** Publishing actions an agent may take: its drafts, publishing one, its status and versions. */
+const agentPublishActions: ReadonlySet<PublishRequest["action"]> = new Set<
+  PublishRequest["action"]
+>([
+  "me",
+  "entry",
+  "signals",
+  "verification",
+  "draftCreate",
+  "draftCheck",
+  "draftRead",
+  "draftUpdate",
+  "draftDelete",
+  "draftPublish",
+]);
 
 /** What the gate knows besides the operation. */
 export interface AgentFacts {
@@ -14,8 +54,6 @@ export interface AgentFacts {
   readonly agent: string;
   /** Settings: `market.askBeforeAgentPublish`. */
   readonly askBeforePublish: boolean;
-  /** For a profile edit: whether the profile carries ace's verified mark; unknown counts as yes. */
-  readonly verifiedProfile?: boolean | undefined;
   /** For an install: what it installs, "spade-plugin/linear-sync 0.4.1", from its review. */
   readonly installing?: string | undefined;
 }
@@ -48,7 +86,15 @@ interface Wording {
 const ref = (key: { type: string; name: string; version?: string | undefined }) =>
   `${key.type}/${key.name}${key.version ? ` ${key.version}` : ""}`;
 
-function wording(operation: MarketOperation, facts: AgentFacts): Wording | undefined {
+/** Whether `operation` is on the agents' allowlist, given the person's settings. */
+export function agentMayRun(operation: MarketOperation, askBeforePublish: boolean): boolean {
+  if (operation.op !== "publish") return agentOperations.has(operation.op);
+  const action = operation.request.action;
+  if (action === "draftPublish") return !askBeforePublish;
+  return agentPublishActions.has(action);
+}
+
+function wording(operation: MarketOperation, facts: AgentFacts): Wording {
   switch (operation.op) {
     case "install":
       return {
@@ -62,12 +108,40 @@ function wording(operation: MarketOperation, facts: AgentFacts): Wording | undef
         gerund: "Turning it back on",
         action: "Turn on…",
       };
+    case "remove":
+      return { doing: `remove ${ref(operation)}`, gerund: "Removing it", action: "Remove…" };
+    case "addSource":
+      return {
+        doing: `add the market source ${operation.address}`,
+        gerund: "Adding a source",
+        action: "Add…",
+      };
+    case "removeSource":
+      return {
+        doing: `remove the market source ${operation.id}`,
+        gerund: "Removing a source",
+        action: "Remove…",
+      };
+    case "setSource":
+      return {
+        doing: `turn the market source ${operation.id} ${operation.enabled ? "on" : "off"}`,
+        gerund: "Changing a source",
+        action: operation.enabled ? "Turn on…" : "Turn off…",
+      };
+    case "report":
+      return { doing: `report ${ref(operation)}`, gerund: "Reporting", action: "Report…" };
     case "publish":
-      break;
+      return publishWording(operation.request, facts);
     default:
-      return undefined;
+      return {
+        doing: `change the market (${operation.op})`,
+        gerund: "This change",
+        action: "Allow…",
+      };
   }
-  const request = operation.request;
+}
+
+function publishWording(request: PublishRequest, facts: AgentFacts): Wording {
   switch (request.action) {
     case "withdraw":
       return {
@@ -102,14 +176,15 @@ function wording(operation: MarketOperation, facts: AgentFacts): Wording | undef
       };
     case "deleteEntry":
       return { doing: `delete ${ref(request)}`, gerund: "Deleting an entry", action: "Delete…" };
+    case "createProfile":
     case "editProfile":
-      return facts.verifiedProfile === false
-        ? undefined
-        : {
-            doing: "edit your verified profile",
-            gerund: "Editing a verified profile",
-            action: "Edit…",
-          };
+    case "setAvatar":
+    case "setPins":
+      return {
+        doing: "change your publisher profile",
+        gerund: "Changing your profile",
+        action: "Change…",
+      };
     case "applyVerification":
       return {
         doing: "apply for verification",
@@ -123,18 +198,71 @@ function wording(operation: MarketOperation, facts: AgentFacts): Wording | undef
         action: "Check…",
       };
     case "draftPublish":
-      return facts.askBeforePublish
-        ? { doing: `publish draft ${request.id}`, gerund: "Publishing", action: "Publish…" }
-        : undefined;
+      return {
+        doing: `publish draft ${request.id}`,
+        gerund: "Publishing",
+        action: "Publish…",
+      };
+    case "visibility":
+      return {
+        doing: `make ${ref(request)} ${request.visibility}`,
+        gerund: "Changing who sees it",
+        action: "Change…",
+      };
+    case "latest":
+      return {
+        doing: request.version
+          ? `make ${request.version} the latest of ${ref(request)}`
+          : `let the market choose the latest of ${ref(request)}`,
+        gerund: "Choosing the latest version",
+        action: "Change…",
+      };
+    case "archive":
+      return {
+        doing: `${request.archived ? "archive" : "unarchive"} ${ref(request)}`,
+        gerund: request.archived ? "Archiving" : "Unarchiving",
+        action: request.archived ? "Archive…" : "Unarchive…",
+      };
+    case "listing":
+    case "preview":
+      return {
+        doing: `change the listing of ${ref(request)}`,
+        gerund: "Changing a listing",
+        action: "Change…",
+      };
+    case "changelog":
+      return {
+        doing: `change the changelog of ${ref(request)}`,
+        gerund: "Changing a changelog",
+        action: "Change…",
+      };
+    case "deprecate":
+      return {
+        doing: `deprecate ${ref(request)}`,
+        gerund: "Deprecating",
+        action: "Deprecate…",
+        why: request.note,
+      };
+    case "appeal":
+      return {
+        doing: `appeal for ${ref(request)}`,
+        gerund: "Appealing",
+        action: "Appeal…",
+        why: request.note,
+      };
     default:
-      return undefined;
+      return {
+        doing: `change your market publications (${request.action})`,
+        gerund: "This change",
+        action: "Allow…",
+      };
   }
 }
 
 /** Whether an agent's market request runs, or becomes the person's request. */
 export function agentRoute(operation: MarketOperation, facts: AgentFacts): AgentRoute {
+  if (agentMayRun(operation, facts.askBeforePublish)) return run;
   const words = wording(operation, facts);
-  if (!words) return run;
   const why = words.why?.trim().replace(/[.\s]+$/, "");
   return {
     kind: "person",
@@ -144,9 +272,4 @@ export function agentRoute(operation: MarketOperation, facts: AgentFacts): Agent
       refusal: `${words.gerund} is yours to do. ace asked you in this thread.`,
     },
   };
-}
-
-/** Whether answering `operation` needs the profile's verified mark first (a profile edit). */
-export function needsVerifiedFact(operation: MarketOperation): boolean {
-  return operation.op === "publish" && operation.request.action === "editProfile";
 }
