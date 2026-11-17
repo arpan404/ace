@@ -1,3 +1,4 @@
+import { agentAnswerRefusal } from "../answer-gate.ts";
 import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
@@ -404,6 +405,8 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   );
   engine.bindHostInteractions(
     (command) =>
+      // Agents never answer the person's requests: approvals, plans, elicitations.
+      agentAnswerRefusal(command, (id) => store.getInteraction(id)?.request.kind) ??
       services.asks?.resolve(command) ??
       services.browserHelp?.resolve(command) ??
       services.marketAgent?.requests.resolve(command),

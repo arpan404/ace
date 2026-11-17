@@ -98,6 +98,15 @@ export class MarketPersonRequests {
     return interactionId;
   }
 
+  /** Whether `interactionId` is an open person-only market request. */
+  isPending(interactionId: string): boolean {
+    return (
+      this.deps.store.atomic((db) =>
+        db.prepare("SELECT 1 FROM market_person_pending WHERE interaction_id=?").get(interactionId),
+      ) !== undefined
+    );
+  }
+
   /** Host-interaction hook: only a person's answer to an open market request is handled here. */
   resolve(command: Command): CommandResult | undefined {
     if (command.payload.type !== "interaction.resolve") return;

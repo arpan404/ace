@@ -5,7 +5,9 @@ import type { SettingsService } from "@ace/settings";
 import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
+import { grantSignedInAt } from "@ace/account-grant";
 import { agentMarketRequest } from "./agent-requests.ts";
+import { signedInRecently } from "./fresh-sign-in.ts";
 import { MarketPersonRequests } from "./person-requests.ts";
 import type { MarketplaceService } from "./service.ts";
 
@@ -22,9 +24,7 @@ export interface SettingReader {
  * person's setting reads off. Settings not loaded yet, a read that fails, or a value that isn't
  * a boolean count as on, so a broken settings file never lets an agent publish unasked.
  */
-export async function askBeforeAgentPublish(
-  settings: SettingReader | undefined,
-): Promise<boolean> {
+export async function askBeforeAgentPublish(settings: SettingReader | undefined): Promise<boolean> {
   if (!settings) return true;
   try {
     const read = await settings.get(askBeforeAgentPublishKey);
@@ -40,6 +40,7 @@ export interface MarketAgentDeps {
   engine(): Engine | undefined;
   settings(): SettingsService | undefined;
   id(): string;
+  now(): number;
 }
 
 /**
@@ -66,6 +67,22 @@ export class MarketAgent {
   /** The machine's ace account, once the daemon has loaded it. */
   bindAccount(account: MachineAccount, hostId: string): void {
     this.account = { account, hostId };
+  }
+
+  /**
+   * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
+   * read from the `authAt` of a market grant taken for the check. False when signed out or
+   * the account service can't be reached.
+   */
+  async freshSignIn(): Promise<boolean> {
+    const bound = this.account;
+    if (!bound) return false;
+    try {
+      const grant = await bound.account.marketGrant(bound.hostId);
+      return grant !== undefined && signedInRecently(grantSignedInAt(grant), this.deps.now());
+    } catch {
+      return false;
+    }
   }
 
   asPerson(operation: MarketOperation): Promise<MarketResult> {
