@@ -63,6 +63,41 @@ mod windows {
                 Err(_) => 6,
             },
             Some("hardlink-nt") => linked(spade_sandbox::windows::link::via_nt, &rest),
+            // What it can reach beyond files and network, each 0 reached, 2 not (ADR 0167 status).
+            // `sees <pid>`: lists it among the processes; `ends <pid>`: can open it to end it.
+            Some("sees") => {
+                let pid: u32 = rest.first().and_then(|p| p.parse().ok()).unwrap_or(0);
+                match spade_sandbox::windows::reach::visible_processes() {
+                    Ok(pids) if pids.contains(&pid) => 0,
+                    _ => 2,
+                }
+            }
+            Some("ends") => {
+                let pid: u32 = rest.first().and_then(|p| p.parse().ok()).unwrap_or(0);
+                if spade_sandbox::windows::reach::can_terminate(pid) {
+                    0
+                } else {
+                    2
+                }
+            }
+            Some("device") => {
+                if spade_sandbox::windows::reach::can_open_device(
+                    rest.first().copied().unwrap_or(""),
+                ) {
+                    0
+                } else {
+                    2
+                }
+            }
+            Some("event") => {
+                if spade_sandbox::windows::reach::can_open_event(
+                    rest.first().copied().unwrap_or(""),
+                ) {
+                    0
+                } else {
+                    2
+                }
+            }
             _ => 3,
         }
     }

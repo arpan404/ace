@@ -420,6 +420,13 @@ SID-scoped pipe. The acceptor makes its first pipe instance up front and **ackno
 the daemon waits for that and fails the run closed if the bridge can't come up, so a networked run
 is never started silently without its egress boundary.
 
+**The status's other boundaries.** The runner's status names `signals`, `syscalls`, `devices`, `ipc`
+and `processes` beside files and network (see [Linux](#linux)). On Windows each is measured held by
+the AppContainer (LPAC or plain): a contained run can't see or end a process of the person's
+outside it, open their named objects, or open a device they can. `syscalls` means the operation, as
+on macOS, not a syscall allowlist: every kernel object a run opens is checked against its container
+token, and the job bars the desktop, clipboard and global atoms.
+
 ## The egress proxy
 
 One listener on `127.0.0.1` at a free port. Each run gets a ticket whose token reaches it only in

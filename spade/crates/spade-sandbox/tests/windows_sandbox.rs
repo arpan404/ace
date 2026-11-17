@@ -1001,3 +1001,81 @@ fn a_contained_run_links_only_its_own_files_into_its_own_folders() {
         );
     }
 }
+
+// ---- Group H: what a contained run reaches beyond files and network (the runner's status) ----
+
+/// Devices an ordinary process of the person's may open, to ask a contained run about.
+const DEVICES: [&str; 5] = [
+    r"\\.\Beep",
+    r"\\.\Tcp",
+    r"\\.\Afd",
+    r"\\.\KsecDD",
+    r"\\.\Mup",
+];
+
+#[test]
+fn a_contained_run_cannot_see_or_end_other_processes_or_reach_devices_or_named_objects() {
+    // What the runner's status claims for Windows beyond files and network (`processes`,
+    // `signals`, `devices`, `ipc`), measured: a process of the person's outside the sandbox, one of
+    // their named objects, and a device they can open are all out of a contained run's reach,
+    // under the LPAC token and a plain AppContainer one alike.
+    use spade_sandbox::windows::reach;
+
+    // A process of the person's, outside any sandbox, and a named object of theirs.
+    let mut other = std::process::Command::new(format!(
+        r"{}\System32\cmd.exe",
+        std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned())
+    ))
+    .args(["/c", "ping -n 60 127.0.0.1 >nul"])
+    .spawn()
+    .unwrap_or_else(|_| std::process::abort());
+    let pid = other.id().to_string();
+    let event = format!(r"Local\spade-reach-{}", uuid::Uuid::new_v4().simple());
+    let _held = reach::make_event(&event).unwrap_or_else(|_| std::process::abort());
+
+    // The control: this test, outside the sandbox, reaches all of it.
+    let sees = reach::visible_processes()
+        .map(|pids| pids.contains(&other.id()))
+        .unwrap_or(false);
+    let devices: Vec<&str> = DEVICES
+        .into_iter()
+        .filter(|device| reach::can_open_device(device))
+        .collect();
+    assert!(sees && reach::can_terminate(other.id()) && reach::can_open_event(&event));
+    assert!(
+        !devices.is_empty(),
+        "no device to ask about: the control opened none"
+    );
+
+    for lpac in [true, false] {
+        let (container, _profile) = container();
+        let sid = profile::ensure(&container.name, &container.display)
+            .unwrap_or_else(|_| std::process::abort());
+        let run = |args: &[&str]| run_helper_as(&container, &sid, lpac, args);
+        let token = if lpac { "LPAC" } else { "plain AppContainer" };
+        let seen = run(&["sees", &pid]);
+        let ended = run(&["ends", &pid]);
+        let opened = run(&["event", &event]);
+        let reached: Vec<(&str, u32)> = devices
+            .iter()
+            .map(|device| (*device, run(&["device", device])))
+            .collect();
+        assert_eq!(
+            seen, 2,
+            "{token}: a contained run must not see another process"
+        );
+        assert_eq!(
+            ended, 2,
+            "{token}: a contained run must not be able to end another process"
+        );
+        assert_eq!(
+            opened, 2,
+            "{token}: a contained run must not open the person's named objects"
+        );
+        for (device, code) in reached {
+            assert_eq!(code, 2, "{token}: a contained run must not open {device}");
+        }
+    }
+    let _ = other.kill();
+    let _ = other.wait();
+}

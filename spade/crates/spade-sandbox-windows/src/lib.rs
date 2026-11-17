@@ -19,6 +19,8 @@ pub mod pipe;
 #[cfg(windows)]
 pub mod profile;
 #[cfg(windows)]
+pub mod reach;
+#[cfg(windows)]
 pub mod sid;
 
 /// A Windows error as an `io::Error`.

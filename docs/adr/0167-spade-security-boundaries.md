@@ -741,3 +741,16 @@ and asked for two more things, done test-first in the VM.
   both the LPAC and plain AppContainer tokens: a link between the run's own files is made; the
   person's file and a link into an ungranted folder are refused by Windows itself, and no
   destination link appears.
+
+### The status's other boundaries, beside Linux's (2026-11-17)
+
+Amendment 1 made the runner's status name every boundary — `files`, `network`, `signals`,
+`syscalls`, `devices`, `ipc`, `processes` — and `contained` needs all of them. On Windows each is
+held by the AppContainer, measured in the VM under the LPAC token and a plain one alike: a contained
+run can't see a process of the person's outside it (`processes`), can't open it to end it
+(`signals`), can't open their named objects (`ipc`), and can't open a device they can (`devices`).
+`syscalls` has no Windows counterpart to Linux's seccomp allowlist; as with macOS's Seatbelt the
+boundary is the operation rather than the call — every kernel object a run opens is checked against
+its container token, and the job bars the desktop, clipboard and global atoms — so it is reported
+held on that basis, not as a syscall filter. Which runs are contained is still decided per run
+(no network, Spade-owned folders).

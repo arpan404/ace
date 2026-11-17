@@ -133,6 +133,10 @@ pub fn grants(policy: &Policy, spade_data: &std::path::Path) -> Vec<Grant> {
 #[cfg(windows)]
 pub use spade_sandbox_windows::link;
 
+/// What a process can reach beyond files and the network, for the sandbox tests' measurements.
+#[cfg(windows)]
+pub use spade_sandbox_windows::reach;
+
 /// The line the person reads when a networked bot's commands keep the review path on Windows.
 /// Under a Less Privileged AppContainer `WSAStartup` fails, so a networked run would have to be a
 /// plain AppContainer, which keeps ambient read access to what every app package may read; such a

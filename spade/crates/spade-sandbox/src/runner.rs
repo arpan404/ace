@@ -401,11 +401,18 @@ mod platform {
                     // The daemon reports `contained` only while the proxy also listens, and only
                     // for a run with no network (a networked run keeps the review path).
                     network: Coverage::Contained,
+                    // Measured in the VM (`windows_sandbox.rs`, group H), under the LPAC token and
+                    // a plain AppContainer one: a contained run can't see or end a process of the
+                    // person's outside it, open their named objects, or open a device they can.
                     signals: Coverage::Contained,
-                    syscalls: Coverage::Contained,
                     devices: Coverage::Contained,
                     ipc: Coverage::Contained,
                     processes: Coverage::Contained,
+                    // Windows has no syscall allowlist like Linux's seccomp filter; as with macOS's
+                    // Seatbelt, the boundary is the operation, not the call: every kernel object a
+                    // run opens is checked against its container token (LPAC for a contained run),
+                    // and the job bars the desktop, clipboard and global atoms.
+                    syscalls: Coverage::Contained,
                     landlock_abi: None,
                     reason: None,
                 }
