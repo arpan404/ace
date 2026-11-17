@@ -167,7 +167,10 @@ export class Helper {
           .trim();
     });
     // Process close follows stdio draining, unlike frame-socket close.
-    void proc.exited.then(() => this.fail(this.transportError(new Error("Screen helper exited"))));
+    // `exited` reports the helper's exit and does not reject.
+    void proc.exited
+      .then(() => this.fail(this.transportError(new Error("Screen helper exited"))))
+      .catch(() => {});
   }
   static async open(options: HelperOptions): Promise<Helper> {
     if ((options.platform ?? process.platform) === "win32") {
@@ -473,10 +476,13 @@ export class Helper {
         // of it first. A pipe closed by a helper that keeps running still fails, a moment later.
         const settle = () => this.fail(error);
         const stopWaiting = (this.options.scheduler ?? nodeScheduler).schedule(settle, 1_000);
-        void this.proc.exited.then(() => {
-          stopWaiting();
-          settle();
-        });
+        // The timer reports the failure either way; `exited` does not reject.
+        void this.proc.exited
+          .then(() => {
+            stopWaiting();
+            settle();
+          })
+          .catch(() => {});
       });
     });
   }
@@ -511,8 +517,9 @@ export class Helper {
     try {
       this.options.onFailure(error);
     } finally {
-      void this.proc.stop({ graceMs: 0 });
-      void this.close();
+      // The helper is already failing: a stop or close that cannot finish reports nothing new.
+      void this.proc.stop({ graceMs: 0 }).catch(() => {});
+      void this.close().catch(() => {});
     }
   }
   diagnostics(): readonly unknown[] {

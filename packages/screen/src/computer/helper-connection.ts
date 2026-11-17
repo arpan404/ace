@@ -147,7 +147,8 @@ export class HelperConnection {
     }
     this.current = job;
     job.timing?.dequeue();
-    void this.write(job);
+    // write() settles its own job; a failed stdin write reaches kill through its callback.
+    void this.write(job).catch(() => {});
   }
 
   private async write(job: Job): Promise<void> {

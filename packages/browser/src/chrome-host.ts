@@ -116,7 +116,8 @@ export class ChromeHost {
   private retire(): void {
     const instance = this.instance;
     this.instance = undefined;
-    void instance?.stop();
+    // The process is on its way out either way; a failed stop leaves nothing to report to.
+    void instance?.stop().catch(() => {});
   }
 }
 

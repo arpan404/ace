@@ -375,7 +375,7 @@ export class BrowserService {
           return;
         // A recovery under way (or none needed) holds the callback; it retries on failure.
         if (!this.embedded || this.resumable.get(options.threadId) !== resume) return;
-        void resume();
+        void resume().catch((error) => this.options.onError?.(error));
       });
     /**
      * The desktop can't draw (its screen locked): its views give no live picture, so the pages
@@ -500,7 +500,8 @@ export class BrowserService {
           const lose = () => {
             if (owned.state.closed || signal.aborted) return;
             announce(url, reason);
-            if (lossPolicy === "headless") void resume();
+            if (lossPolicy === "headless")
+              void resume().catch((error) => this.options.onError?.(error));
           };
           // A dropped link (the backend unregistered) keeps the desktop's views for re-adoption;
           // a view that died with the link up is gone now.
@@ -641,7 +642,7 @@ export class BrowserService {
       if (preference === "auto") {
         this.handOffs.set(options.threadId, handOff);
         // The screen locked while this page was opening.
-        void handOff();
+        void handOff().catch((error) => this.options.onError?.(error));
       }
       return session;
     } catch (error) {
@@ -706,7 +707,8 @@ export class BrowserService {
   desktopDrawable(drawable: boolean): void {
     this.desktopCanDraw = drawable;
     if (drawable) return;
-    for (const handOff of this.handOffs.values()) void handOff();
+    for (const handOff of this.handOffs.values())
+      void handOff().catch((error) => this.options.onError?.(error));
   }
   registerEmbedded(transport: EmbeddedTransport): EmbeddedBackend {
     if (this.closing) throw new Error("Browser service shutting down");
@@ -725,7 +727,8 @@ export class BrowserService {
     // After this returns the caller sends the registration reply; requests follow it.
     queueMicrotask(() => {
       this.options.onEmbeddedRegistered?.();
-      for (const resume of this.resumable.values()) void resume();
+      for (const resume of this.resumable.values())
+        void resume().catch((error) => this.options.onError?.(error));
     });
     return backend;
   }

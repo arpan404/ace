@@ -59,9 +59,12 @@ export async function startSimulatorDigitizer(options: {
   // A helper that exits is let go at once, so no touch is written into a closing pipe.
   const adopt = (next: RawSupervisedProcess) => {
     child = next;
-    void next.exited.then(() => {
-      if (child === next) child = undefined;
-    });
+    // `exited` reports the helper's exit and does not reject.
+    void next.exited
+      .then(() => {
+        if (child === next) child = undefined;
+      })
+      .catch(() => {});
   };
   adopt(first);
   let stopped = false;
@@ -133,7 +136,8 @@ async function launch(options: {
     } else if (output.length > 4096) ready.resolve(false);
   };
   child.stdout.on("data", read);
-  void child.exited.then(() => ready.resolve(false));
+  // `exited` reports the helper's exit and does not reject.
+  void child.exited.then(() => ready.resolve(false)).catch(() => {});
   const cancel = options.runtime.after(3000, () => ready.resolve(false));
   const ok = await ready.promise;
   cancel();

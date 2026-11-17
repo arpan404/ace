@@ -102,7 +102,8 @@ export class ChromeVideo implements VideoHost {
         if (!this.captures.delete(id)) return;
         const stopped = evaluate(document, "aceVideo.stop", [id]).catch(() => {});
         this.stopping.add(stopped);
-        void stopped.finally(() => this.stopping.delete(stopped));
+        // `stopped` already swallows its own failure; only clearing the set is left.
+        void stopped.finally(() => this.stopping.delete(stopped)).catch(() => {});
       },
     };
   }
