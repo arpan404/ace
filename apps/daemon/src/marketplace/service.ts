@@ -1,41 +1,29 @@
 import { join } from "node:path";
-import type {
-  MarketInstalled,
-  MarketOperation,
-  MarketPublishAction,
-  MarketResult,
-} from "@ace/protocol/marketplace";
-import { privacySpans, withSentences, type WithdrawalTarget } from "@ace/marketplace";
-import { MarketPickType, type MarketKeySet, type MarketMe } from "@ace/protocol/marketplace";
-import type { GitRuntime } from "@ace/plugins";
-import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
-import { GitCatalogs } from "./git.ts";
-import { MarketHttp, MarketHttpError, type MarketFetch } from "./http.ts";
-import { undoJournal } from "./journal.ts";
-import {
-  installReview,
-  removeInstall,
-  turnOff,
-  turnOn,
-  type PluginPort,
-  type SpadePort,
-  type SuitPort,
-} from "./install.ts";
-import { learnWithdrawn, readWithdrawn, refreshSource, withdrawalOf } from "./listings.ts";
-import { applyBlocklist, blockedEntry, blockedFindings } from "./blocklist.ts";
+import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
+import { privacySpans, withSentences } from "@ace/marketplace";
+import { homeOf, publicInstall, readListed, searchListings } from "./browse.ts";
+import { applyBlocklist, turnOnUnlessBlocked } from "./blocklist.ts";
 import { discover, publisherPage, report } from "./discover.ts";
-import { checkDraft, confirmedArchive } from "./check.ts";
+import { GitCatalogs } from "./git.ts";
+import { MarketHttp } from "./http.ts";
+import { removeInstall } from "./install.ts";
+import { undoJournal } from "./journal.ts";
+import { readWithdrawn, refreshSource, type RowMarks } from "./listings.ts";
+import { marketError as error, thrownError } from "./market-error.ts";
+import { OpenReviews } from "./open-reviews.ts";
+import type { MarketplaceOptions, MarketRequestPorts } from "./options.ts";
 import { botRecipe, listPublishables, type PickPorts } from "./pick.ts";
-import { publishAction, type MarketGrantPort } from "./publish.ts";
+import { withMarketInstalls } from "./pick-ports.ts";
+import { MarketPictures } from "./pictures.ts";
+import { publishRequest } from "./publish-request.ts";
+import { saveGitSource, sourcesOf } from "./sources.ts";
+import { spadeSkillFiles, spadeSkills } from "./spade-skills.ts";
+import { MarketStore } from "./store.ts";
 import { badgesOf, Trust } from "./trust.ts";
-import type { MarketPublisher } from "@ace/protocol/marketplace";
-import type { ScanContext } from "@ace/marketplace/scan";
-import { newer, prepareWithBrings, Refused } from "./prepare.ts";
 import { TurnedOff } from "./turned-off.ts";
-import { MarketPictures, PictureRefused } from "./pictures.ts";
-import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
-import { MarketStore, verifiedKey, type StoredSource } from "./store.ts";
-import type { RowMarks } from "./listings.ts";
+import { markUpdates, turnOffWithdrawn } from "./upkeep.ts";
+
+export type { MarketPluginPort, MarketplaceOptions, MarketRequestPorts } from "./options.ts";
 
 /*
  * The daemon's marketplace (ADR 0168): the one fetcher and reviewer for every type and source.
@@ -43,80 +31,15 @@ import type { RowMarks } from "./listings.ts";
  * accepted bytes are pinned and checked on every read; each type lands with its owner.
  */
 
-/** The plugin manager as the marketplace uses it (`plugin-port.ts`). */
-export type MarketPluginPort = PluginPort;
-
-export interface MarketplaceOptions {
-  root: string;
-  now: () => number;
-  id: () => string;
-  fetch: MarketFetch;
-  /** https://market.acehq.dev; another origin only through the development setting. */
-  origin: string;
-  keys: MarketKeySet;
-  git: GitRuntime;
-  suits: () => SuitPort | undefined;
-  plugins: () => MarketPluginPort | undefined;
-  spade: SpadePort;
-  /** What the publish flow's picker reads: Spade's bots and skills, ace's skills, plugins. */
-  pick?: PickPorts | undefined;
-  /** Runs `run` after `ms`; returns its cancel. */
-  schedule: (run: () => void, ms: number) => () => void;
-  /**
-   * Settings › Beta's switch (`beta.marketplace`), read when each request and each queued job
-   * starts, before every network fetch and before every install step. On when absent.
-   */
-  enabled?: () => Promise<boolean>;
-  /** Tests add catalogs by local path; people add https addresses only. */
-  allowLocalGit?: boolean;
-}
-
-/** Draft sources read and checked on this machine before anything is uploaded. */
-const checkedKinds: ReadonlySet<string> = new Set([
-  "folder",
-  "spade-bot",
-  "spade-skill",
-  "ace-skill",
-  "plugin",
-]);
-
-const reviewLifetimeMs = 30 * 60_000;
 const staleMs = 60 * 60_000;
 const dayMs = 24 * 60 * 60_000;
-const maxPending = 32;
-
-interface Pending {
-  review: PreparedReview;
-  items: ReturnType<typeof buildReview>["items"];
-}
-
-const error = (
-  code: Extract<MarketResult, { op: "error" }>["code"],
-  message: string,
-  problems?: Refused["problems"],
-  scan?: Refused["scan"],
-): MarketResult => ({
-  op: "error",
-  code,
-  message: message.slice(0, 2000),
-  ...(problems?.length ? { problems: problems.slice(0, 200) } : {}),
-  ...(scan ? { scan } : {}),
-});
-
-/** What one request may use beyond the service's own ports. */
-export interface MarketRequestPorts {
-  /** Mints a market grant for a `publish` action; absent or undefined answers `signed_out`. */
-  grant?: MarketGrantPort | undefined;
-  /** The signed-in person's own name and email, which the privacy pass flags. */
-  names?: readonly string[] | undefined;
-}
 
 export class MarketplaceService {
   readonly #options: MarketplaceOptions;
   readonly #store: MarketStore;
   readonly #git: GitCatalogs;
   readonly #trust: Trust;
-  readonly #pending = new Map<string, Pending>();
+  readonly #reviews: OpenReviews;
   readonly #pictures = new MarketPictures();
   readonly #listeners = new Set<(counts: { installed: number; updates: number }) => void>();
   #queue: Promise<unknown> = Promise.resolve();
@@ -133,6 +56,21 @@ export class MarketplaceService {
       runtime: options.git,
       id: options.id,
       gate: () => this.#gate(),
+    });
+    this.#reviews = new OpenReviews({
+      store,
+      git: this.#git,
+      trust: this.#trust,
+      keys: options.keys,
+      now: options.now,
+      id: options.id,
+      spade: options.spade,
+      plugins: () => options.plugins(),
+      http: () => this.#http(),
+      installPorts: () => this.#installPorts(),
+      recover: () => this.#recover(),
+      enforceBlocklist: () => this.#enforceBlocklist(),
+      emit: () => this.#emit(),
     });
   }
 
@@ -208,13 +146,12 @@ export class MarketplaceService {
     };
   }
 
-  #badges() {
-    return badgesOf(this.#trust.current());
-  }
-
   /** What list rows' marks rest on: the signed lists and the manifests this device verified. */
   #marks(): RowMarks {
-    return { badges: this.#badges(), verified: this.#store.verifiedPublishers() };
+    return {
+      badges: badgesOf(this.#trust.current()),
+      verified: this.#store.verifiedPublishers(),
+    };
   }
 
   /** Every install not yet blocked, checked against the stored signed blocklist. */
@@ -256,154 +193,68 @@ export class MarketplaceService {
       await this.#gate();
       return await this.#handle(operation, ports);
     } catch (thrown) {
-      if (thrown instanceof Refused)
-        return error(thrown.code, thrown.message, thrown.problems, thrown.scan);
-      if (thrown instanceof TurnedOff) return error(thrown.code, thrown.message);
-      if (thrown instanceof PictureRefused) return error("refused", thrown.message);
-      if (thrown instanceof MarketHttpError && thrown.status === 404)
-        return error("not_found", thrown.message);
-      return error("failed", thrown instanceof Error ? thrown.message : "The marketplace failed");
+      return thrownError(thrown);
     }
   }
 
-  /**
-   * The picker's ports, answering what was installed from the marketplace or a git catalog
-   * (any source) from this service's own installs: those are never the person's to publish.
-   */
+  /** The picker's ports, answering what this service installed itself (`pick-ports.ts`). */
   #pick(names: readonly string[] = []): PickPorts | undefined {
     const pick = this.#options.pick;
-    if (!pick) return undefined;
-    const types = {
-      "spade-skill": ["spade-skill"],
-      "spade-plugin": ["spade-plugin", "ace-plugin"],
-    };
-    return {
-      ...pick,
-      names: async () => [...(await pick.names()), ...names],
-      installedFromMarket: (type, name) =>
-        this.#store
-          .installs()
-          .some((each) => each.name === name && types[type].includes(each.type)),
-    };
-  }
-
-  /**
-   * One publish action. A draft from something picked or a folder is checked on this machine
-   * first (`draftCheck`), and created only from the archive the person's confirmation of that
-   * check allows; nothing else of it reaches the market.
-   */
-  async #publish(request: MarketPublishAction, ports: MarketRequestPorts): Promise<MarketResult> {
-    const base = { http: this.#http(), grant: ports.grant };
-    const drafting =
-      request.action === "draftCheck" ||
-      request.action === "draftCreate" ||
-      request.action === "draftUpdate"
-        ? request
-        : undefined;
-    const source = drafting?.source;
-    if (!drafting || !source || !checkedKinds.has(source.kind))
-      return publishAction(base, this.#ownFolder(request));
-    const pick = this.#pick(ports.names);
-    if (!pick) return error("unavailable", "Publishing isn't set up on this machine");
-    // The publisher's page is asked for (minting a grant) only when it is needed, so a folder
-    // that can't be published is refused before any grant.
-    let asked: Promise<MarketMe> | undefined;
-    let failed: MarketResult | undefined;
-    const me = () =>
-      (asked ??= publishAction(base, { action: "me" }).then((mine) => {
-        if (mine.op === "publish" && mine.answer.kind === "me") return mine.answer.me;
-        failed =
-          mine.op === "error" ? mine : error("failed", "The market didn't answer who you are");
-        throw new Refused("The market didn't answer who you are");
-      }));
-    try {
-      return await this.#checked(drafting, source, pick, base, me);
-    } catch (thrown) {
-      // Signed out or unreachable while asking who the publisher is: say that, as any action does.
-      if (failed) return failed;
-      throw thrown;
-    }
-  }
-
-  async #checked(
-    drafting: Extract<
-      MarketPublishAction,
-      { action: "draftCheck" | "draftCreate" | "draftUpdate" }
-    >,
-    source: NonNullable<typeof drafting.source>,
-    pick: PickPorts,
-    base: Parameters<typeof publishAction>[0],
-    me: () => Promise<MarketMe>,
-  ): Promise<MarketResult> {
-    const draft =
-      drafting.action === "draftUpdate"
-        ? (await me()).drafts.find((each) => each.id === drafting.id)
-        : drafting;
-    if (!draft) return error("not_found", "There is no such draft");
-    const type = MarketPickType.safeParse(draft.type);
-    if (!type.success) return error("invalid", "Only a bot, a skill or a plugin is checked here");
-    const input = { type: type.data, name: draft.name, source, me };
-    if (drafting.action === "draftCheck") {
-      const check = await checkDraft(pick, input);
-      if (!check) return error("invalid", "There is nothing to check");
-      return { op: "publish", answer: { kind: "checked", check } };
-    }
-    const archive = await confirmedArchive(pick, { ...input, checked: drafting.checked });
-    return publishAction({ ...base, archive }, drafting);
-  }
-
-  /** A draft from one of the person's Suits names that Suit's folder on this machine. */
-  #ownFolder(action: MarketPublishAction): MarketPublishAction {
-    if (!("source" in action) || action.source?.kind !== "suit") return action;
-    const suits = this.#options.suits();
-    if (!suits) throw new Refused("Suits aren't running on this machine", { code: "not_found" });
-    return { ...action, source: { kind: "folder", path: suits.folder(action.source.id) } };
+    return pick ? withMarketInstalls(pick, this.#store, names) : undefined;
   }
 
   async #handle(operation: MarketOperation, ports: MarketRequestPorts): Promise<MarketResult> {
-    this.#sweep();
+    this.#reviews.sweep();
     switch (operation.op) {
       case "sources":
-        return this.#sources();
+        return sourcesOf(this.#store);
       case "addSource":
         return this.#serial(() => this.#addSource(operation.address));
       case "removeSource":
         if (operation.id === "market")
           return error("invalid", "market.acehq.dev can be turned off, not removed");
         await this.#serial(() => this.#store.removeSource(operation.id));
-        return this.#sources();
+        return sourcesOf(this.#store);
       case "setSource": {
         const source = this.#store.source(operation.id);
         if (!source) return error("not_found", "There is no such source");
         this.#store.saveSource({ ...source, enabled: operation.enabled });
-        return this.#sources();
+        return sourcesOf(this.#store);
       }
       case "refresh":
         await this.#serial(() => this.#refreshAll(operation.id));
-        return this.#sources();
+        return sourcesOf(this.#store);
       case "search":
-        return this.#search(operation);
+        this.#refreshIfStale();
+        return searchListings(this.#store, operation, this.#marks());
       case "home":
-        return this.#home();
+        this.#refreshIfStale();
+        return homeOf(this.#store, this.#installed(), this.#marks());
       case "read":
-        return this.#read(operation.source, operation.type, operation.name);
+        return readListed(
+          { store: this.#store, http: this.#http(), keys: this.#options.keys },
+          () => this.#marks(),
+          operation.source,
+          operation.type,
+          operation.name,
+        );
       case "prepare":
         return this.#serial(() =>
-          this.#prepare(operation.source, operation.type, operation.name, operation.version),
+          this.#reviews.prepare(
+            operation.source,
+            operation.type,
+            operation.name,
+            operation.version,
+          ),
         );
-      case "readReview": {
-        const pending = this.#pending.get(operation.id);
-        if (!pending) return error("expired", "That review has expired; prepare it again");
-        return {
-          op: "reviewPage",
-          review: buildReview(pending.review).review,
-          ...reviewPage(pending.items, operation.offset),
-        };
-      }
+      case "readReview":
+        return this.#reviews.read(operation.id, operation.offset);
       case "install":
-        return this.#serial(() => this.#install(operation.id, operation.hash, operation.choices));
+        return this.#serial(() =>
+          this.#reviews.install(operation.id, operation.hash, operation.choices),
+        );
       case "cancel":
-        await this.#cancel(operation.id);
+        await this.#reviews.cancel(operation.id);
         return { op: "done" };
       case "installed":
         return { op: "installed", installed: this.#installed() };
@@ -411,7 +262,7 @@ export class MarketplaceService {
         const install = this.#store.install(operation.type, operation.name);
         if (!install) return error("not_found", "That entry isn't installed");
         return this.#serial(() =>
-          this.#prepare(install.source, install.type, install.name, install.update),
+          this.#reviews.prepare(install.source, install.type, install.name, install.update),
         );
       }
       case "remove":
@@ -423,39 +274,11 @@ export class MarketplaceService {
           return { op: "done" };
         });
       case "turnOn":
-        return this.#serial(async () => {
-          const install = this.#store.install(operation.type, operation.name);
-          if (!install) return error("not_found", "That entry isn't installed");
-          if (install.state === "blocked") {
-            // Blocked bytes stay off while the newest verified blocklist still names them.
-            const found = await blockedFindings(
-              this.#installPorts(),
-              install,
-              this.#trust.current().blocklist,
-            );
-            if (found.length > 0) return error("blocked", install.reason ?? "This is blocked");
-          }
-          await turnOn(this.#installPorts(), install);
-          const { reason: _reason, ...rest } = install;
-          this.#store.saveInstall({ ...rest, state: "on" });
-          this.#emit();
-          return { op: "done", installed: publicInstall({ ...rest, state: "on" }) };
-        });
+        return this.#serial(() => this.#turnOn(operation.type, operation.name));
       case "spadeSkills":
-        return {
-          op: "spadeSkills",
-          skills: this.#store
-            .installs()
-            .filter((install) => install.type === "spade-skill" && install.state === "on")
-            .map((install) => ({
-              name: install.name,
-              version: install.version,
-              hash: install.hash,
-              description: install.description.slice(0, 1024),
-            })),
-        };
+        return spadeSkills(this.#store);
       case "spadeSkillFiles":
-        return this.#spadeFiles(operation.name, operation.path);
+        return spadeSkillFiles(this.#store, operation.name, operation.path);
       case "discover":
         return discover(
           {
@@ -473,7 +296,15 @@ export class MarketplaceService {
           operation.handle,
         );
       case "publish":
-        return this.#publish(operation.request, ports);
+        return publishRequest(
+          {
+            http: this.#http(),
+            grant: ports.grant,
+            pick: () => this.#pick(ports.names),
+            suits: () => this.#options.suits(),
+          },
+          operation.request,
+        );
       case "publishables": {
         const pick = this.#pick();
         if (!pick) return error("unavailable", "Publishing isn't set up on this machine");
@@ -504,52 +335,29 @@ export class MarketplaceService {
     }
   }
 
-  async #sources(): Promise<MarketResult> {
-    const sources: Extract<MarketResult, { op: "sources" }>["sources"] = [];
-    for (const source of this.#store.sources())
-      sources.push({
-        id: source.id,
-        kind: source.kind,
-        address: source.address,
-        enabled: source.enabled,
-        ...(source.readAt === undefined ? {} : { readAt: source.readAt }),
-        ...(source.problem ? { problem: source.problem } : {}),
-        entries: (await this.#store.listing(source.id)).entries.length,
-      });
-    return { op: "sources", sources };
+  async #turnOn(type: string, name: string): Promise<MarketResult> {
+    const install = this.#store.install(type, name);
+    if (!install) return error("not_found", "That entry isn't installed");
+    const on = await turnOnUnlessBlocked(
+      () => this.#installPorts(),
+      install,
+      this.#trust.current().blocklist,
+    );
+    if (!on) return error("blocked", install.reason ?? "This is blocked");
+    this.#emit();
+    return { op: "done", installed: publicInstall(on) };
   }
 
   async #addSource(address: string): Promise<MarketResult> {
-    const local = this.#options.allowLocalGit === true && address.startsWith("/");
-    if (!local) {
-      let url: URL;
-      try {
-        url = new URL(address);
-      } catch {
-        return error("invalid", "A catalog is added by its https git address");
-      }
-      if (url.protocol !== "https:" || url.username || url.password)
-        return error(
-          "invalid",
-          "A catalog is added by its https git address, with no password in it",
-        );
-    }
-    if (this.#store.sources().some((source) => source.address === address))
-      return error("conflict", "That catalog is already added");
-    if (this.#store.sources().length >= 32) return error("refused", "At most 32 sources");
-    const id = `git:${
-      this.#options
-        .id()
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "")
-        .slice(0, 32) || "catalog"
-    }`;
-    const source: StoredSource = { id, kind: "git", address, enabled: true };
-    this.#store.saveSource(source);
+    const source = saveGitSource(this.#store, address, {
+      id: this.#options.id,
+      allowLocalGit: this.#options.allowLocalGit === true,
+    });
+    if ("op" in source) return source;
     await refreshSource(this.#deps(), source);
     // The read may have learned a newer blocklist; what is installed answers to it now.
     if (await this.#enforceBlocklist().catch(() => false)) this.#emit();
-    return this.#sources();
+    return sourcesOf(this.#store);
   }
 
   async #refreshAll(id?: string): Promise<void> {
@@ -559,8 +367,10 @@ export class MarketplaceService {
       // Every refresh checks installs against the stored list, not only when a newer one
       // arrives, so a pass a failure or crash cut short is finished here.
       await this.#enforceBlocklist();
-      await this.#applyWithdrawals();
-      await this.#checkUpdates();
+      const withdrawn = readWithdrawn(this.#store);
+      await this.#reviews.cancelWithdrawn(withdrawn);
+      await turnOffWithdrawn(() => this.#installPorts(), this.#store, withdrawn);
+      await markUpdates(this.#store);
       this.#emit();
     })().finally(() => {
       this.#refreshing = undefined;
@@ -583,274 +393,7 @@ export class MarketplaceService {
       await undoJournal(this.#installPorts(), journal).catch(() => false);
   }
 
-  #transactionId(): string {
-    return `install-${this.#options
-      .id()
-      .replace(/[^a-zA-Z0-9-]/g, "")
-      .slice(0, 60)}`;
-  }
-
-  /**
-   * After an install was undone, the plugin reviews it accepted are spent: ask ADR 0014's
-   * manager for new ones over the same verified bytes, so the person can press Install again.
-   */
-  async #renewPluginReviews(review: PreparedReview): Promise<void> {
-    const plugins = this.#options.plugins();
-    if (!plugins) return;
-    for (const entry of [review, ...review.brings]) {
-      if (!entry.plugin || !entry.pluginInput) continue;
-      await plugins.cancel(entry.plugin.id).catch(() => {});
-      entry.plugin = await plugins.prepareFiles(entry.pluginInput).catch(() => entry.plugin);
-    }
-  }
-
-  async #applyWithdrawals(): Promise<void> {
-    const state = readWithdrawn(this.#store);
-    // A review of withdrawn bytes, or of a recipe that brings them, ends here.
-    for (const [id, pending] of this.#pending)
-      if (
-        [pending.review, ...pending.review.brings].some((entry) =>
-          withdrawalOf(state, entry.source, entry),
-        )
-      )
-        await this.#cancel(id);
-    for (const install of this.#store.installs()) {
-      const reason = withdrawalOf(state, install.source, install);
-      if (!reason || install.state !== "on" || install.type === "spade-bot") continue;
-      await turnOff(this.#installPorts(), install);
-      this.#store.saveInstall({ ...install, state: "withdrawn", reason: reason.slice(0, 500) });
-    }
-  }
-
-  /** Marks each installed entry its source offers a newer version of; never applies one. */
-  async #checkUpdates(): Promise<void> {
-    const listings = new Map<string, Awaited<ReturnType<MarketStore["listing"]>>>();
-    for (const install of this.#store.installs()) {
-      if (install.type === "spade-bot" || install.bundledBy) continue;
-      const listing = listings.get(install.source) ?? (await this.#store.listing(install.source));
-      listings.set(install.source, listing);
-      const listed = listing.entries.find(
-        (entry) => entry.type === install.type && entry.name === install.name,
-      );
-      const offered = listed?.version;
-      const update = offered && newer(offered, install.version) ? offered : undefined;
-      // The index says whether its latest version is deprecated: it speaks for the installed
-      // version only when that is the latest.
-      const deprecated =
-        install.source === "market" && listed?.version === install.version
-          ? listed.deprecated?.slice(0, 500)
-          : install.deprecated;
-      if (update !== install.update || deprecated !== install.deprecated) {
-        const { update: _old, deprecated: _note, ...rest } = install;
-        this.#store.saveInstall({
-          ...rest,
-          ...(update ? { update } : {}),
-          ...(deprecated ? { deprecated } : {}),
-        });
-      }
-    }
-  }
-
-  async #search(operation: Extract<MarketOperation, { op: "search" }>): Promise<MarketResult> {
-    this.#refreshIfStale();
-    return searchListings(this.#store, operation, this.#marks());
-  }
-
-  async #home(): Promise<MarketResult> {
-    this.#refreshIfStale();
-    return homeOf(this.#store, this.#installed(), this.#marks());
-  }
-
-  async #read(sourceId: string, type: string, name: string): Promise<MarketResult> {
-    const detail = await readEntry(
-      { store: this.#store, http: this.#http(), keys: this.#options.keys },
-      () => this.#marks(),
-      sourceId,
-      type,
-      name,
-    );
-    if (!detail) return error("not_found", `${type}/${name} isn't listed`);
-    const installed = this.#store.install(type, name);
-    if (installed && installed.source === sourceId) detail.installed = publicInstall(installed);
-    return { op: "read", entry: detail };
-  }
-
-  async #prepare(
-    sourceId: string,
-    type: string,
-    name: string,
-    version: string | undefined,
-  ): Promise<MarketResult> {
-    const source = this.#store.source(sourceId);
-    if (!source || !source.enabled) return error("not_found", "That source isn't on");
-    if (this.#pending.size >= maxPending)
-      return error("busy", "Too many reviews are open; finish or cancel one");
-    const plugins = this.#options.plugins();
-    const scanContext = await this.#scanContext();
-    const ports = {
-      badges: this.#badges(),
-      scanContext,
-      http: this.#http(),
-      git: this.#git,
-      keys: this.#options.keys,
-      withdrawal: (target: WithdrawalTarget) =>
-        withdrawalOf(readWithdrawn(this.#store), source.id, target),
-      preparePlugin: (input: Parameters<MarketPluginPort["prepareFiles"]>[0]) => {
-        if (!plugins) throw new Refused("Plugins aren't ready", { code: "unavailable" });
-        return plugins.prepareFiles(input);
-      },
-    };
-    const { entry, brings } = await prepareWithBrings(
-      ports,
-      this.#store,
-      source,
-      type,
-      name,
-      version,
-    );
-    // Each manifest prepare verified names its publisher: list rows may now show its marks.
-    for (const prepared of [entry, ...brings])
-      if (prepared.source === "market" && prepared.signed && prepared.publisher)
-        this.#store.saveVerifiedPublisher(verifiedKey(prepared), prepared.publisher.id);
-    const review: PreparedReview = {
-      ...entry,
-      id: this.#options
-        .id()
-        .replace(/[^a-zA-Z0-9-]/g, "")
-        .slice(0, 80),
-      expiresAt: this.#options.now() + reviewLifetimeMs,
-      brings,
-      spadeReady: entry.type === "spade-bot" ? this.#options.spade.ready() : true,
-    };
-    const built = buildReview(review);
-    this.#pending.set(review.id, { review, items: built.items });
-    return { op: "review", review: built.review };
-  }
-
-  /** What the device's scan compares against: every listed entry, the signed lists. */
-  async #scanContext(): Promise<(publisher: MarketPublisher | undefined) => ScanContext> {
-    const trust = this.#trust.current();
-    const badges = badgesOf(trust);
-    const entries: ScanContext["entries"][number][] = [];
-    for (const source of this.#store.sources())
-      for (const entry of (await this.#store.listing(source.id)).entries)
-        entries.push({
-          type: entry.type,
-          name: entry.name,
-          publisher: entry.publisher?.name ?? "",
-          downloads: entry.downloads,
-        });
-    const verified = (trust.verified?.publishers ?? []).map((publisher) => ({
-      handle: publisher.handle,
-      displayName: publisher.handle,
-    }));
-    return (publisher) => ({
-      entries,
-      verified,
-      ...(publisher
-        ? { publisher: { handle: publisher.name, official: badges.official(publisher.id) } }
-        : {}),
-      ...(trust.blocklist ? { blocklist: trust.blocklist } : {}),
-    });
-  }
-
-  async #install(
-    id: string,
-    hash: string,
-    choices: Parameters<typeof installReview>[2],
-  ): Promise<MarketResult> {
-    const pending = this.#pending.get(id);
-    if (!pending) return error("expired", "That review has expired; prepare it again");
-    if (pending.review.hash !== hash)
-      return error("conflict", "The review names other bytes than the install");
-    const built = buildReview(pending.review);
-    if (built.review.blocked) return error("refused", built.review.blocked);
-    if (pending.review.type === "spade-bot" && !this.#options.spade.ready())
-      return error("unavailable", "Spade isn't running. Start Spade to make this bot.");
-    await this.#recover();
-    // A withdrawal learned since the review counts: for the entry and for all it brings.
-    await learnWithdrawn(this.#store, this.#http(), this.#options.keys).catch(() => {});
-    const state = readWithdrawn(this.#store);
-    for (const entry of [pending.review, ...pending.review.brings]) {
-      const reason = withdrawalOf(state, entry.source, entry);
-      if (!reason) continue;
-      await this.#cancel(id);
-      return error(
-        "refused",
-        `${entry.type}/${entry.name} ${entry.version} was withdrawn: ${reason}`,
-      );
-    }
-    // So does a block: the bytes of the entry and of all it brings, against the newest list.
-    const learned = await this.#trust.learn(this.#http()).catch(() => undefined);
-    // A newer list also answers for what is already installed, not only for this install.
-    if (learned?.blocklist && (await this.#enforceBlocklist().catch(() => false))) this.#emit();
-    const blocked = blockedEntry(
-      [pending.review, ...pending.review.brings],
-      this.#trust.current().blocklist,
-    );
-    if (blocked) {
-      await this.#cancel(id);
-      return error("blocked", `Blocked by ace's market: ${blocked}`);
-    }
-    let installed;
-    try {
-      installed = await installReview(
-        this.#installPorts(),
-        pending.review,
-        choices,
-        this.#transactionId(),
-      );
-    } catch (thrown) {
-      await this.#renewPluginReviews(pending.review);
-      throw thrown;
-    }
-    this.#pending.delete(id);
-    if (pending.review.deprecated) {
-      installed = { ...installed, deprecated: pending.review.deprecated.slice(0, 500) };
-      this.#store.saveInstall(installed);
-    }
-    this.#emit();
-    return { op: "done", installed: publicInstall(installed) };
-  }
-
-  async #cancel(id: string): Promise<void> {
-    const pending = this.#pending.get(id);
-    this.#pending.delete(id);
-    if (!pending) return;
-    const plugins = this.#options.plugins();
-    for (const entry of [pending.review, ...pending.review.brings])
-      if (entry.plugin) await plugins?.cancel(entry.plugin.id).catch(() => {});
-  }
-
-  /** Reviews expire after 30 minutes, as ADR 0103's do. */
-  #sweep(): void {
-    const now = this.#options.now();
-    for (const [id, pending] of this.#pending)
-      if (pending.review.expiresAt <= now) void this.#cancel(id);
-  }
-
   #installed(): MarketInstalled[] {
     return this.#store.installs().map((install) => publicInstall(install));
-  }
-
-  async #spadeFiles(name: string, path: string | undefined): Promise<MarketResult> {
-    const install = this.#store.install("spade-skill", name);
-    if (!install || install.state !== "on")
-      return error("not_found", `There is no market skill ${name}`);
-    const files = await this.#store.pinned(install.hash, "spade-skill");
-    const list = install.files.map((file) => ({
-      path: file.path,
-      bytes: file.bytes,
-      hash: file.sha256,
-      executable: file.executable,
-    }));
-    if (path === undefined) return { op: "spadeSkillFiles", files: list };
-    const file = files.find((item) => item.path === path);
-    if (!file) return error("not_found", `${name} has no file ${path}`);
-    return {
-      op: "spadeSkillFiles",
-      files: list.filter((item) => item.path === path),
-      content: Buffer.from(file.content).toString("base64"),
-    };
   }
 }

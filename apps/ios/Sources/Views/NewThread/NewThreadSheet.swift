@@ -207,15 +207,10 @@ struct NewThreadSheet: View {
         guard let client, let project = draft.projectId, !draft.isChat else { return }
         client.composeAction(["kind": "branches", "workspaceId": project])
     }
-    /// The effort part of the model pill: the level in brief and a speed other than standard.
+    /// The effort part of the model pill, as the sheet's rows pick it (`TuneChoices.brief`).
     /// Nothing at all rather than a word that says nothing ("Default") when no level is known.
     private var tune: String? {
-        guard let model = choice.model else { return nil }
-        let effort = model.efforts.count > 1 ? model.efforts.first { $0.id == choice.effort }.map { $0.label == "Medium" ? "Med" : $0.label } : nil
-        let speedID = draft.speed ?? model.defaultSpeed ?? "standard"
-        let speed = (model.speeds ?? []).first { $0.speed == speedID && $0.speed != "standard" }?.label
-        let parts = [effort, speed].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        choice.model.map { TuneChoices.brief($0, effort: choice.effort, speed: draft.speed) }.flatMap { $0 }
     }
 
     /// What holds Send back, why the last start didn't save, and the issue or pull request the

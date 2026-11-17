@@ -5,6 +5,7 @@ import { openCodeNativeToolGuidance } from "./native-tools.ts";
 import { AceMcpLocations } from "./mcp-locations.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePolicy, withSpadeBot } from "./permission-policy.ts";
+import { settleEnvironment } from "./agent-env.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution, ExecutionSelection } from "@ace/protocol";
@@ -71,6 +72,8 @@ export class OpenCodeSession implements ProviderSession {
   private recoveryRead: Promise<void> | undefined;
   private ancestry: AncestryProbe;
   private recoveryStarted = 0;
+  /** What this thread's sessions' shell commands run with; absent without ace's variables. */
+  private shellEnvironment: Record<string, string> | undefined;
   get mcp() {
     return openCodeMcpControls(
       this.client,
@@ -88,7 +91,12 @@ export class OpenCodeSession implements ProviderSession {
       threadId: ctx.threadId,
       rootKey: ctx.rootKey ?? "root",
     });
-    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
+    this.shellEnvironment = server.shellEnvironment(ctx.agentEnv ?? {});
+    // A subagent's session is created and prompted before ace hears of it; the gate holds its
+    // tools until this sets its environment, and refuses them if it can't (agent-env.ts).
+    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "", (id) => {
+      void this.admitEnvironment(id);
+    });
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
     if (ctx.aceMcp)
       this.aceLocations = new AceMcpLocations({
@@ -229,6 +237,9 @@ export class OpenCodeSession implements ProviderSession {
           value: `${openCodeNativeToolGuidance}\n${developerInstructions("opencode", ctx.aceMcp.session?.())}`,
         });
       s.ownership.establish(info);
+      // Before any input: the server keeps it in memory only, so every open (a resume on a
+      // restarted daemon too) sets it again.
+      await s.applyEnvironment(info.id);
       await s.aceLocations?.ensure(info.location.directory);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;
@@ -257,6 +268,41 @@ export class OpenCodeSession implements ProviderSession {
       // Cleanup failure must not replace the cause that prevented opening.
       await s.close("shutdown").catch(() => {});
       throw failure;
+    }
+  }
+  /**
+   * Gives one of the thread's sessions its shell environment (agent-env.ts), then lets the gate
+   * run its tools. Throws when either fails.
+   */
+  private async applyEnvironment(sessionID: string): Promise<void> {
+    if (!this.shellEnvironment) return;
+    await this.client.session.environment({ sessionID, variables: this.shellEnvironment });
+    await settleEnvironment(this.client, this.server.runtime, this.directoryOf(sessionID), {
+      sessionID,
+      ok: true,
+    });
+  }
+  private directoryOf(sessionID: string): string {
+    return this.ownership.sessions.get(sessionID)?.directory ?? this.ctx.cwd;
+  }
+  /**
+   * A subagent joining the tree gets its thread's environment. When that fails it never runs a
+   * command with another: the gate refuses its tools (told so, or after its wait runs out), and
+   * ace stops it, saying why.
+   */
+  private async admitEnvironment(sessionID: string): Promise<void> {
+    try {
+      await this.applyEnvironment(sessionID);
+      return;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await settleEnvironment(this.client, this.server.runtime, this.directoryOf(sessionID), {
+        sessionID,
+        ok: false,
+        message: reason.slice(0, 1024),
+      }).catch(() => {});
+      await this.client.session.interrupt({ sessionID }).catch(() => {});
+      this.emit("note", "agent.environment", { type: "stopped", sessionID, message: reason });
     }
   }
   /**

@@ -33,7 +33,7 @@ async function sim(context: CommandContext, verb: string): Promise<void> {
 }
 
 async function cloud(context: CommandContext, verb: string): Promise<void> {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   await prepareHome(dataDir);
   return (await import("../cloud.ts")).cloudCommand(
     legacy(context, ["cloud", "codex", verb]),

@@ -37,7 +37,8 @@ import XCTest
         let threads = app.buttons["sidebar.threads"], chats = app.buttons["sidebar.chats"]
         XCTAssertTrue(threads.reachable)
         XCTAssertTrue(threads.isSelected)
-        XCTAssertFalse(app.buttons["sidebar.spade"].exists)
+        // The fixture's machine shows Spade (Settings › Beta), so its place follows Chats.
+        XCTAssertTrue(app.buttons["sidebar.spade"].reachable)
         // Chats shows its own list, and Threads comes back to its open thread.
         chats.tap()
         XCTAssertTrue(app.staticTexts["No chat open"].waitForExistence(timeout: 10))
@@ -170,7 +171,8 @@ import XCTest
 
     func testBackFromAPageOverTheThreadKeepsTheThreadOpen() throws {
         let app = launch()
-        open("thread.ios-browser", in: app)
+        // The fixture's inbox runs past the fold, and this row sits below it.
+        app.revealRow("thread.ios-browser").tap()
         XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
         app.buttons["thread.menu"].tap()
         app.threadMenuItem("thread.browser").tap()

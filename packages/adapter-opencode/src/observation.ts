@@ -20,6 +20,8 @@ const maxJsonBytes = 8 * 1024 * 1024;
 const maxEventBytes = maxProviderPayloadBytes;
 /** Larger response bodies are framed by size alone; a frame cannot exceed 1 MiB. */
 const maxObservedBodyBytes = 768 * 1024;
+/** A session's shell environment is the person's whole process environment: never recorded. */
+const unrecordedBody = /^\/api\/session\/[^/]+\/environment$/;
 export async function jsonResponse(response: Response): Promise<{ value: unknown; bytes: number }> {
   if (!response.headers.get("content-type")?.split(";")[0]?.trim().endsWith("/json")) {
     await response.body?.cancel();
@@ -98,6 +100,7 @@ export function observedFetch(
         throw new Error("OpenCode input exceeds byte limit");
       body = JSON.parse(init.body);
     }
+    if (unrecordedBody.test(url.pathname)) body = { variables: "[withheld]" };
     frame(
       "send",
       "http",

@@ -7,16 +7,13 @@ enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 /// what each is called, in the web rail's words: the thread list is Projects there. Code review is
 /// the web rail's place for pull requests and issues: a tab in a regular window, while a phone's
 /// tab bar leaves it to the Projects list's top bar so the lists keep their room. Spade, ace's
-/// cloud agent, is hidden until it launches: turning `showsSpade` on puts
-/// its tab back in its slot between Chats and Search, and its glyph in the iPad sidebar, with
-/// nothing else to lay out again.
+/// assistant, has its tab only while a paired machine shows it (Settings › Beta's Spade, ADR
+/// 0139), as the web rail shows its place: in its slot after Chats, and its glyph in the iPad
+/// sidebar, with nothing else to lay out again.
 enum HomeTabs {
-    /// Spade's tab, off until Spade launches.
-    static let showsSpade = false
-
     /// The places the iPad sidebar's foot switches between, in order; a phone's tab bar holds
     /// them but Code review.
-    static var switchable: [InboxTab] { [.threads, .chats] + (showsSpade ? [.spade] : []) + [.review, .search] }
+    static func switchable(spade: Bool) -> [InboxTab] { [.threads, .chats] + (spade ? [.spade] : []) + [.review, .search] }
 
     static func title(_ tab: InboxTab) -> String {
         switch tab {
@@ -29,7 +26,7 @@ enum HomeTabs {
         }
     }
 
-    /// Spade's tab glyph, until Spade launches with its own mark in the bar.
+    /// Spade's tab glyph; the iPad sidebar draws its own mark (`SpadeMark`).
     static let spadeSymbol = "suit.spade"
 
     /// The tab bar's glyph: ace's own icon (the one the iPad sidebar draws) at the bar's glyph
@@ -71,4 +68,9 @@ enum HomeTabs {
         #endif
         return false
     }
+}
+
+extension EnvironmentValues {
+    /// A paired machine shows Spade, so its tab and sidebar glyph are there (`HomeTabs`).
+    @Entry var showsSpade = false
 }
