@@ -5,9 +5,11 @@ import {
   betaVersion,
   isStableVersion,
   nextBetaBuild,
+  nextPatch,
   parseBetaTag,
   type BetaName,
 } from "@ace/service/release-line";
+import { isNewer } from "@ace/service/version";
 
 /**
  * What `bun run release:beta` builds and publishes (ADR 0174), as pure decisions. The script
@@ -40,24 +42,27 @@ export interface BetaPlan {
 }
 
 /**
- * The next beta of the stable `version` (`apps/desktop/package.json` at the built commit),
- * dated `now` in UTC, numbered after the beta tags GitHub already has.
+ * The next beta (ADR 0174). It previews the next version: the patch after `stable`
+ * (`apps/desktop/package.json` at the built commit), or `version` when the person names one,
+ * which must be a later X.Y.Z. It is dated `now` in UTC and numbered after the beta tags GitHub
+ * already has for that date and version.
  */
 export function planBeta(input: {
-  version: string;
+  stable: string;
+  version?: string | undefined;
   now: number;
   tags: readonly string[];
 }): BetaPlan {
-  if (!isStableVersion(input.version))
+  if (!isStableVersion(input.stable))
     throw new Error(
-      `apps/desktop/package.json is at ${input.version}; a beta builds on a stable X.Y.Z version`,
+      `apps/desktop/package.json is at ${input.stable}; a beta builds on a stable X.Y.Z version`,
     );
+  const version = input.version ?? nextPatch(input.stable);
+  if (!isStableVersion(version)) throw new Error(`--version ${version} is not an X.Y.Z version`);
+  if (!isNewer(version, input.stable))
+    throw new Error(`--version ${version} must be later than ${input.stable}, the last stable`);
   const date = betaDate(input.now);
-  const name = {
-    date,
-    version: input.version,
-    build: nextBetaBuild(input.tags, date, input.version),
-  };
+  const name = { date, version, build: nextBetaBuild(input.tags, date, version) };
   return { name, tag: betaTag(name), version: betaVersion(name), title: betaTitle(name) };
 }
 

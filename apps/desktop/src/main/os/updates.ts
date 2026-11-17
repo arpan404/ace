@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { HomeData } from "@ace/protocol";
 import type { ReleaseLine } from "@ace/service/release-line";
-import { isNewer } from "@ace/service/version";
 import { checkReleaseFeed, githubReleases } from "./release-feed.ts";
 import { noteGroups } from "./release-notes.ts";
 import type { UpdateEngine } from "./update-controller.ts";
@@ -76,9 +75,8 @@ export async function electronUpdateEngine(
       if (found.kind === "current") return undefined;
       if (found.kind === "blocked") return { blocked: found.message };
       autoUpdater.setFeedURL({ provider: "generic", url: found.feedUrl });
-      // Semver ranks a beta of 0.0.23 below 0.0.23, so stable → that beta is a "downgrade" to
-      // electron-updater too; otherwise only a switch the guard allowed goes down.
-      autoUpdater.allowDowngrade = found.older || semverAbove(options.version, found.version);
+      // Only a switch to an older release, which the guard has just allowed, goes down.
+      autoUpdater.allowDowngrade = found.older;
       const result = await within(
         autoUpdater.checkForUpdates(),
         updateCheckTimeoutMs,
@@ -145,14 +143,6 @@ function squirrelVerdict(squirrel: SquirrelEvents) {
   // Awaited only after the download; a refusal before then must not go unhandled.
   promise.catch(() => {});
   return { promise, dispose };
-}
-
-function semverAbove(version: string, than: string): boolean {
-  try {
-    return isNewer(version, than);
-  } catch {
-    return false;
-  }
 }
 
 function text(value: unknown): string {

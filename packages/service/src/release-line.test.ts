@@ -5,18 +5,19 @@ import {
   betaTitle,
   betaVersion,
   nextBetaBuild,
+  nextPatch,
   parseBetaTag,
   parseBetaVersion,
   releaseLineOf,
 } from "./release-line.ts";
 
-const beta = { date: "2026-11-03", version: "0.0.23", build: 1 };
+const beta = { date: "2026-11-16", version: "0.0.24", build: 1 };
 
 describe("beta names", () => {
   it("names a beta's tag, app version and title from one build", () => {
-    expect(betaTag(beta)).toBe("ace-beta-2026-11-03-0.0.23-1");
-    expect(betaVersion(beta)).toBe("0.0.23-beta.20261103.1");
-    expect(betaTitle(beta)).toBe("ace beta 2026-11-03 (0.0.23, build 1)");
+    expect(betaTag(beta)).toBe("ace-beta-2026-11-16-0.0.24-1");
+    expect(betaVersion(beta)).toBe("0.0.24-beta.20261116.1");
+    expect(betaTitle(beta)).toBe("ace beta 2026-11-16 (0.0.24, build 1)");
   });
 
   it("reads back the beta its tag and its app version name", () => {
@@ -56,6 +57,12 @@ describe("beta names", () => {
     expect(() => betaTag({ ...beta, build: 0 })).toThrow();
     expect(() => betaTag({ ...beta, date: "2026-11-3" })).toThrow();
     expect(() => betaVersion({ ...beta, version: "0.0.23-rc.1" })).toThrow();
+  });
+
+  it("previews the patch after the stable version by default", () => {
+    expect(nextPatch("0.0.23")).toBe("0.0.24");
+    expect(nextPatch("0.1.9")).toBe("0.1.10");
+    expect(() => nextPatch("0.0.24-beta.20261116.1")).toThrow();
   });
 
   it("dates a build in UTC, whatever the local time zone", () => {

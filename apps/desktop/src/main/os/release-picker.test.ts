@@ -15,63 +15,66 @@ const stable = (version: string): ListedRelease => ({
 });
 const beta = (tag: string): ListedRelease => ({ tag, draft: false, prerelease: true, body: tag });
 
+// Stable 0.0.23 is out; betas preview 0.0.24, two of them on the 16th.
 const releases = [
   stable("0.0.22"),
   stable("0.0.23"),
-  beta("ace-beta-2026-11-03-0.0.23-1"),
-  beta("ace-beta-2026-11-03-0.0.23-2"),
-  beta("ace-beta-2026-11-04-0.0.23-1"),
-  beta("ace-beta-2026-11-01-0.0.22-9"),
+  beta("ace-beta-2026-11-15-0.0.24-3"),
+  beta("ace-beta-2026-11-16-0.0.24-1"),
+  beta("ace-beta-2026-11-16-0.0.24-2"),
+  beta("ace-beta-2026-11-01-0.0.23-9"),
 ];
+const newestBeta = "ace-beta-2026-11-16-0.0.24-2";
 
 describe("the release on offer", () => {
   it.each([
     // [what, installed, line, list, offered tag or "current", older]
     ["Stable offers the newest stable", "0.0.22", "stable", releases, "v0.0.23", false],
     ["Stable never offers a beta", "0.0.23", "stable", releases, "current", false],
+    ["a 0.0.24 beta outranks stable 0.0.23", "0.0.23", "beta", releases, newestBeta, false],
     [
-      "Beta offers the newest of either line",
-      "0.0.23",
+      "the second beta of a day outranks the first",
+      "0.0.24-beta.20261116.1",
       "beta",
       releases,
-      "ace-beta-2026-11-04-0.0.23-1",
+      newestBeta,
       false,
     ],
     [
-      "a later date beats a higher build number",
-      "0.0.23-beta.20261103.2",
+      "a later date outranks a higher build number",
+      "0.0.24-beta.20261115.3",
       "beta",
       releases,
-      "ace-beta-2026-11-04-0.0.23-1",
+      newestBeta,
       false,
     ],
     [
       "the newest beta is current on Beta",
-      "0.0.23-beta.20261104.1",
+      "0.0.24-beta.20261116.2",
       "beta",
       releases,
       "current",
       false,
     ],
     [
-      "a beta install moves on to a newer stable",
-      "0.0.23-beta.20261104.1",
+      "stable 0.0.24 outranks every 0.0.24 beta",
+      "0.0.24-beta.20261116.2",
       "beta",
       [...releases, stable("0.0.24")],
       "v0.0.24",
       false,
     ],
     [
-      "a beta of 0.0.23 is newer than stable 0.0.23 and older than 0.0.24",
-      "0.0.23",
-      "beta",
-      [stable("0.0.23"), beta("ace-beta-2026-11-03-0.0.23-1")],
-      "ace-beta-2026-11-03-0.0.23-1",
+      "a beta install follows Stable onto its own version without the guard",
+      "0.0.24-beta.20261116.2",
+      "stable",
+      [...releases, stable("0.0.24")],
+      "v0.0.24",
       false,
     ],
     [
-      "Beta → Stable is a switch to an older release",
-      "0.0.23-beta.20261104.1",
+      "Beta 0.0.24 → Stable 0.0.23 is a switch to an older release",
+      "0.0.24-beta.20261116.2",
       "stable",
       releases,
       "v0.0.23",
@@ -93,6 +96,14 @@ describe("the release on offer", () => {
       "v0.0.10",
       false,
     ],
+    [
+      "a development build is offered the newest release",
+      "development",
+      "stable",
+      releases,
+      "v0.0.23",
+      false,
+    ],
     ["no releases means nothing to offer", "0.0.23", "beta", [], "current", false],
   ] as const)("%s", (_what, installed, line, list, offered, older) => {
     const pick = pickRelease({ releases: list, installed, line });
@@ -101,7 +112,7 @@ describe("the release on offer", () => {
   });
 
   it.each([
-    ["a draft", { ...beta("ace-beta-2026-11-09-0.0.23-1"), draft: true }],
+    ["a draft", { ...beta("ace-beta-2026-11-09-0.0.24-1"), draft: true }],
     ["a draft stable", { ...stable("0.0.30"), draft: true }],
     [
       "a preview prerelease",
@@ -119,15 +130,16 @@ describe("the release on offer", () => {
 
   it("offers a beta under the version its app will report", () => {
     expect(pickRelease({ releases, installed: "0.0.23", line: "beta" })).toMatchObject({
-      release: { version: "0.0.23-beta.20261104.1", line: "beta" },
+      release: { version: "0.0.24-beta.20261116.2", line: "beta" },
     });
   });
 
   it("notes every release between the installed one and the offer, newest first", () => {
-    const pick = pickRelease({ releases, installed: "0.0.23-beta.20261103.1", line: "beta" });
+    const pick = pickRelease({ releases, installed: "0.0.23", line: "beta" });
     expect(pick.kind === "offer" ? pick.notes.map((note) => note.version) : []).toEqual([
-      "0.0.23-beta.20261104.1",
-      "0.0.23-beta.20261103.2",
+      "0.0.24-beta.20261116.2",
+      "0.0.24-beta.20261116.1",
+      "0.0.24-beta.20261115.3",
     ]);
   });
 

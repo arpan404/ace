@@ -1,12 +1,14 @@
 /**
  * ace's two release lines and the names a beta goes by (ADR 0174). Pure: no clock, no I/O.
  *
- * - Tag: `ace-beta-<YYYY-MM-DD>-<X.Y.Z>-<N>`, e.g. `ace-beta-2026-11-03-0.0.23-1`.
- * - Version inside the app: `X.Y.Z-beta.<YYYYMMDD>.<N>`, e.g. `0.0.23-beta.20261103.1`.
- * - Title: `ace beta 2026-11-03 (0.0.23, build 1)`.
+ * - Tag: `ace-beta-<YYYY-MM-DD>-<X.Y.Z>-<N>`, e.g. `ace-beta-2026-11-16-0.0.24-1`.
+ * - Version inside the app: `X.Y.Z-beta.<YYYYMMDD>.<N>`, e.g. `0.0.24-beta.20261116.1`.
+ * - Title: `ace beta 2026-11-16 (0.0.24, build 1)`.
  *
- * `X.Y.Z` is the latest stable version (`apps/desktop/package.json` at the built commit), the
- * date is the build date in UTC and `N` counts that date's betas of that version from 1.
+ * `X.Y.Z` is the next version, the one the beta previews: by default the patch after
+ * `apps/desktop/package.json` at the built commit (0.0.23 → 0.0.24). The date is the build date
+ * in UTC and `N` counts that date's betas of that version from 1. Semver then orders every
+ * release: 0.0.23 < 0.0.24-beta.20261116.1 < 0.0.24-beta.20261116.2 < 0.0.24.
  */
 
 export type ReleaseLine = "stable" | "beta";
@@ -14,7 +16,7 @@ export type ReleaseLine = "stable" | "beta";
 export interface BetaName {
   /** The build date in UTC, `YYYY-MM-DD`. */
   date: string;
-  /** The stable version the beta builds on, `X.Y.Z`. */
+  /** The version the beta previews, `X.Y.Z`: the next stable release. */
   version: string;
   /** One more than the betas already tagged with this date and version; from 1. */
   build: number;
@@ -104,6 +106,13 @@ export function nextBetaBuild(tags: readonly string[], date: string, version: st
       highest = Math.max(highest, beta.build);
   }
   return highest + 1;
+}
+
+/** The patch after a stable version: the version a beta previews by default (0.0.23 → 0.0.24). */
+export function nextPatch(version: string): string {
+  if (!stablePattern.test(version)) throw new Error(`${version} is not a stable X.Y.Z version`);
+  const [x, y, z = "0"] = version.split(".");
+  return `${x}.${y}.${Number(z) + 1}`;
 }
 
 /** Whether `version` is a plain stable version, `X.Y.Z`. */

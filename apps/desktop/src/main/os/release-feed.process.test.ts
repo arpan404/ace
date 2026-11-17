@@ -81,9 +81,9 @@ const stable023: Release = {
   files: { "latest-mac.yml": feed("0.0.23"), "ace-data.json": data(63) },
 };
 const beta = (daemon: number): Release => ({
-  tag: "ace-beta-2026-11-03-0.0.23-1",
+  tag: "ace-beta-2026-11-16-0.0.24-1",
   prerelease: true,
-  files: { "latest-mac.yml": feed("0.0.23-beta.20261103.1"), "ace-data.json": data(daemon) },
+  files: { "latest-mac.yml": feed("0.0.24-beta.20261116.1"), "ace-data.json": data(daemon) },
 });
 const home = (daemon: number) => ({ home: 1, daemon, notify: 5, spade: 9 });
 
@@ -97,23 +97,39 @@ describe("the release feed against GitHub's shape", () => {
     });
     expect(result).toMatchObject({
       kind: "offer",
-      tag: "ace-beta-2026-11-03-0.0.23-1",
-      version: "0.0.23-beta.20261103.1",
+      tag: "ace-beta-2026-11-16-0.0.24-1",
+      version: "0.0.24-beta.20261116.1",
       older: false,
       notes: [
-        { version: "0.0.23-beta.20261103.1", note: "- Changes in ace-beta-2026-11-03-0.0.23-1" },
+        { version: "0.0.24-beta.20261116.1", note: "- Changes in ace-beta-2026-11-16-0.0.24-1" },
       ],
     });
     if (result.kind !== "offer") return;
     // What electron-updater's generic provider reads next, through GitHub's redirect.
     const yml = await (await fetch(`${result.feedUrl}latest-mac.yml`)).text();
-    expect(yml).toContain("version: 0.0.23-beta.20261103.1");
+    expect(yml).toContain("version: 0.0.24-beta.20261116.1");
+  });
+
+  it("moves a beta install onto its own version's stable without reading any release's data", async () => {
+    const stable024: Release = {
+      tag: "v0.0.24",
+      prerelease: false,
+      files: { "latest-mac.yml": feed("0.0.24"), "ace-data.json": data(64) },
+    };
+    const { ports, requests } = await github([stable024, beta(64), stable023]);
+    const result = await checkReleaseFeed(ports, {
+      installed: "0.0.24-beta.20261116.1",
+      line: "stable",
+      home: home(64),
+    });
+    expect(result).toMatchObject({ kind: "offer", tag: "v0.0.24", older: false });
+    expect(requests.some((path) => path.endsWith("ace-data.json"))).toBe(false);
   });
 
   it("lets a beta that changed no data go back to stable", async () => {
     const { ports } = await github([beta(63), stable023]);
     const result = await checkReleaseFeed(ports, {
-      installed: "0.0.23-beta.20261103.1",
+      installed: "0.0.24-beta.20261116.1",
       line: "stable",
       home: home(63),
     });
@@ -123,7 +139,7 @@ describe("the release feed against GitHub's shape", () => {
   it("keeps a beta that migrated on beta, and says why", async () => {
     const { ports } = await github([beta(64), stable023]);
     const result = await checkReleaseFeed(ports, {
-      installed: "0.0.23-beta.20261103.1",
+      installed: "0.0.24-beta.20261116.1",
       line: "stable",
       home: home(64),
     });
@@ -140,7 +156,7 @@ describe("the release feed against GitHub's shape", () => {
       { ...stable023, files: { "latest-mac.yml": feed("0.0.23") } },
     ]);
     const result = await checkReleaseFeed(ports, {
-      installed: "0.0.23-beta.20261103.1",
+      installed: "0.0.24-beta.20261116.1",
       line: "stable",
       home: home(63),
     });
