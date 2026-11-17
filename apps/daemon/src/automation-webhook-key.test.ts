@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -65,5 +66,26 @@ describe("the webhook key file", () => {
     writeFileSync(path, Buffer.alloc(16), { mode: 0o600 });
     expect(() => webhookSecrets(dir).seal("whsec_x", "a")).toThrow();
     expect(readFileSync(path).length).toBe(16);
+  });
+});
+
+describe("a key path that isn't a file", () => {
+  it.runIf(posix)("a FIFO at the key's path is refused at once instead of blocking", () => {
+    const dir = dataDir();
+    execFileSync("mkfifo", [join(dir, webhookKeyName)]);
+    // In a child process, so a blocking open fails the test by timeout, not by hanging it.
+    const script = `
+      const { webhookSecrets } = await import(${JSON.stringify(join(import.meta.dirname, "automation-webhook-key.ts"))});
+      const box = webhookSecrets(${JSON.stringify(dir)});
+      let sealed = "refused";
+      try { box.seal("whsec_x", "a"); sealed = "made"; } catch {}
+      console.log(JSON.stringify({ opened: box.open("v1.a.b.c", "a") ?? null, sealed }));
+    `;
+    const run = spawnSync(process.execPath, ["-e", script], { timeout: 10_000, encoding: "utf8" });
+    expect(run.signal).toBeNull();
+    expect(JSON.parse(run.stdout.trim().split("\n").at(-1) ?? "{}")).toEqual({
+      opened: null,
+      sealed: "refused",
+    });
   });
 });

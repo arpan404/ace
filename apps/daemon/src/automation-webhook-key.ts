@@ -17,6 +17,8 @@ const size = 32;
 const posix = process.platform !== "win32";
 /** Never through a symlink: the key must be this file, not one it points at. */
 const noFollow = constants.O_NOFOLLOW ?? 0;
+/** Never wait on the open: a FIFO left at the path would block the daemon until a writer came. */
+const noBlock = constants.O_NONBLOCK ?? 0;
 
 /**
  * The box both automation stores seal webhook secrets with. Its key is 32 random bytes in an
@@ -60,7 +62,7 @@ export function webhookSecrets(dataDir: string): SecretBox {
 function load(path: string): Uint8Array | undefined {
   let fd: number;
   try {
-    fd = openSync(path, constants.O_RDONLY | noFollow);
+    fd = openSync(path, constants.O_RDONLY | noFollow | noBlock);
   } catch (error) {
     if (code(error) === "ENOENT") return undefined;
     // ELOOP: a symlink, refused by O_NOFOLLOW.
