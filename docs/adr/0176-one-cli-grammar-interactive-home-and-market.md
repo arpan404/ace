@@ -82,7 +82,7 @@ Rules:
    is documented as such: `ace run` (`thread start`), `ace chat` (`thread attach`), `ace open`
    (`project open`), `ace login` / `ace logout` (`account login|logout`), `ace logs`
    (`daemon logs`), `ace status` (§7), and `ace start`, `ace serve` and `ace stop` (`daemon
-   start|serve|stop`). No other top-level words, except the rescue commands (`doctor`, `triage`)
+start|serve|stop`). No other top-level words, except the rescue commands (`doctor`, `triage`)
    and `help`, `version` and `completion`.
 
 ### 2. Global flags
@@ -137,8 +137,8 @@ The default provider is the person's default from Settings, no longer always Cod
 
 - `CliOutcome`: the exit names of §4, and `CliErrorCode`: the stable error codes.
 - `CliError`: `{ok: false, status: CliOutcome, code: CliErrorCode, error: string, hint?: string,
-  command?: string, argument?: string, retry?: {idempotencyKey: string}, admission?: unknown,
-  problems?: MarketProblem[]}`. `status`, `error` and `admission` keep ADR 0072's names, so
+command?: string, argument?: string, retry?: {idempotencyKey: string}, admission?: unknown,
+problems?: MarketProblem[]}`. `status`, `error` and `admission` keep ADR 0072's names, so
   existing callers keep parsing.
 - `CliCommandTree`: every command, its id (`thread.list`), summary, arguments, flags, examples,
   output schema id and whether it mutates. `ace help --json` prints it.
@@ -187,7 +187,7 @@ the next step. No codes or internal words in the first line.
 - Unknown commands and flags suggest the nearest match by edit distance over the command tree
   (§5): `Unknown command thraed. Did you mean ace thread?`
 - An uncertain outcome always prints the retry line: `Retry with --idempotency-key 7c1e… to make
-  sure it ran once.`
+sure it ran once.`
 
 ### 5. Help and discoverability
 
@@ -395,7 +395,7 @@ n new thread · r requests 3 · p projects · s Spade · m market · , settings 
   answer". Plans open in a pager, then `y Approve` / `n Ask for changes`.
 - **Spade** (`s`): the bots with their state, and what each asked and is waiting on. Answering a
   Spade question works here; a full conversation with a bot opens in the app until `ace spade
-  chat` lands (Phase 4).
+chat` lands (Phase 4).
 - **Market** (`m`): §11's search and install, as a list you type into.
 - **Settings** (`,`): the global settings as a list of key and value; `↵` edits one with its own
   hint and validation (the same `configKeys`-style table, widened to every setting), plus Beta
@@ -549,7 +549,7 @@ is `listing` plus `preview`, and so on. The CLI adds no market logic. `check` ru
    the person's own Suits (`{kind: "suit"}`). The name and version come from the entry's own
    manifest, as `check` reads it; `--name` and `--version` override.
 2. **Local checks first.** The same checks the market runs. Problems print as `path:line:
-   sentence` and exit 1 before anything is uploaded.
+sentence` and exit 1 before anything is uploaded.
 3. **The draft.** The daemon mints a market grant through this machine's ace account for this one
    request (ADR 0174 §2) and uploads. The market's scan comes back as sentences: notes and warnings
    are listed; a block exits 1 with code `blocked`, keeps the draft, and says how to appeal.

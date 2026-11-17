@@ -1,3 +1,5 @@
+import { cliExitCodes } from "@ace/protocol/cli-output";
+
 /**
  * Exit codes of the `ace` CLI (ADR 0072). Whatever starts the daemon (the desktop app, a
  * login service) reads them, so they live here rather than in the daemon.
@@ -8,16 +10,7 @@
  * (`@ace/provider-kit/incompatible-data`); its message names the file and the recovery.
  * `lock-held`: `ace start` could not take ACE_HOME's daemon lock because another daemon holds
  * it, usually one still starting up or shutting down.
+ * `usage`: the command line was wrong (ADR 0176): an unknown command or flag, or a missing or bad
+ * argument. 64 is sysexits' EX_USAGE.
  */
-export const exitCodes = {
-  ok: 0,
-  failed: 1,
-  "needs-human": 2,
-  timeout: 3,
-  refused: 4,
-  uncertain: 5,
-  "address-in-use": 6,
-  "lock-held": 7,
-  "newer-data": 65,
-  "incompatible-data": 66,
-} as const;
+export const exitCodes = cliExitCodes;
