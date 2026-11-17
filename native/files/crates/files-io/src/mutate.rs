@@ -2,23 +2,27 @@
 
 //! Mutations a file explorer needs: create, rename and remove inside the root.
 //!
-//! Delete and rename act on the last path segment itself, never through a symlink there: removing
-//! a link removes the link, not the file it points at. Reads and writes do follow the link, and
-//! `files-safe` refuses one that leaves the root.
+//! Every mutation is made through the handle of the folder that holds the entry, by name. The
+//! leaf is never followed: removing a link removes the link, not the file it points at, and
+//! renaming a link renames the link.
 
 use std::io::ErrorKind;
-use std::path::PathBuf;
 
 use files_safe::Root;
 
 use crate::Error;
-use crate::version::{entry_version, same_entry};
+use crate::handle::{self, Noclobber};
+use crate::version;
 
 /// Creates a folder. The parent must exist, and nothing may be there already.
 pub fn create_dir(root: &Root, path: &str) -> Result<(), Error> {
-    let absolute = root.resolve(path)?;
-    match std::fs::create_dir(&absolute) {
-        Ok(()) => Ok(()),
+    refuse_root(path)?;
+    let (dir, name) = root.open_parent(path)?;
+    match dir.create_dir(&name) {
+        Ok(()) => {
+            handle::sync(&dir)?;
+            Ok(())
+        }
         Err(error) if error.kind() == ErrorKind::AlreadyExists => Err(Error::Conflict {
             path: path.to_owned(),
             current: crate::stat_version(root, path)?,
@@ -33,50 +37,91 @@ pub fn create_dir(root: &Root, path: &str) -> Result<(), Error> {
 /// it names the same entry, so the rename is allowed and only the spelling changes. Moving
 /// something into itself or into its own subfolder is `INVALID_ARGUMENT`.
 pub fn rename(root: &Root, from: &str, to: &str, overwrite: bool) -> Result<(), Error> {
-    let source = leaf(root, from)?;
-    let destination = leaf(root, to)?;
-    if destination.starts_with(&source) {
+    refuse_root(from)?;
+    refuse_root(to)?;
+    if to == from
+        || to
+            .strip_prefix(from)
+            .is_some_and(|rest| rest.starts_with('/'))
+    {
         return Err(Error::InvalidArgument(format!("{to} is inside {from}")));
     }
-    let source_metadata = std::fs::symlink_metadata(&source)?;
-    if !overwrite {
-        match std::fs::symlink_metadata(&destination) {
-            Ok(metadata) => {
-                if !same_entry(&source, &source_metadata, &destination, &metadata)? {
-                    return Err(Error::Conflict {
-                        path: to.to_owned(),
-                        current: Some(entry_version(root, to, &destination, &metadata)?),
-                    });
-                }
+    let (from_dir, from_name) = root.open_parent(from)?;
+    let (to_dir, _) = root.open_parent(to)?;
+    // The name to move to is the caller's spelling, not the one on disk: on a volume that
+    // ignores case the two differ only in case, and the caller wants the new spelling stored.
+    let to_name = leaf_name(to);
+    // The entry being moved has to exist; the destination must not, unless asked.
+    from_dir.symlink_metadata(&from_name)?;
+    if overwrite {
+        from_dir.rename(&from_name, &to_dir, &to_name)?;
+        handle::sync(&from_dir)?;
+        handle::sync(&to_dir)?;
+        return Ok(());
+    }
+    match handle::rename_noclobber(&from_dir, &from_name, &to_dir, &to_name)? {
+        Noclobber::Done => {
+            handle::sync(&from_dir)?;
+            handle::sync(&to_dir)?;
+            Ok(())
+        }
+        Noclobber::Exists => {
+            if version::same_entry(&from_dir, &from_name, &to_dir, &to_name)? {
+                // One entry under two spellings on a case-insensitive volume: rename it so the
+                // spelling on disk changes.
+                from_dir.rename(&from_name, &to_dir, &to_name)?;
+                handle::sync(&from_dir)?;
+                return Ok(());
             }
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
+            Err(Error::Conflict {
+                path: to.to_owned(),
+                current: version::entry_version(root, &to_dir, &to_name, to)?,
+            })
+        }
+        Noclobber::Unsupported => {
+            // Without an atomic no-replace rename the check and the move cannot be one step.
+            match to_dir.symlink_metadata(&to_name) {
+                Ok(_) => Err(Error::Conflict {
+                    path: to.to_owned(),
+                    current: version::entry_version(root, &to_dir, &to_name, to)?,
+                }),
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    from_dir.rename(&from_name, &to_dir, &to_name)?;
+                    handle::sync(&from_dir)?;
+                    handle::sync(&to_dir)?;
+                    Ok(())
+                }
+                Err(error) => Err(error.into()),
+            }
         }
     }
-    std::fs::rename(&source, &destination)?;
-    Ok(())
+}
+
+/// The root itself is never created, renamed or removed.
+fn refuse_root(path: &str) -> Result<(), Error> {
+    if path.is_empty() {
+        Err(Error::InvalidArgument(path.to_owned()))
+    } else {
+        Ok(())
+    }
+}
+
+/// The last segment of a checked relative path.
+fn leaf_name(path: &str) -> String {
+    path.rsplit_once('/')
+        .map_or_else(|| path.to_owned(), |(_, name)| name.to_owned())
 }
 
 /// Deletes a file, a symlink, or a folder with everything inside it.
 pub fn remove(root: &Root, path: &str) -> Result<(), Error> {
-    let absolute = leaf(root, path)?;
-    let metadata = std::fs::symlink_metadata(&absolute)?;
+    refuse_root(path)?;
+    let (dir, name) = root.open_parent(path)?;
+    let metadata = dir.symlink_metadata(&name)?;
     if metadata.is_dir() {
-        std::fs::remove_dir_all(&absolute)?;
+        dir.remove_dir_all(&name)?;
     } else {
-        std::fs::remove_file(&absolute)?;
+        dir.remove_file(&name)?;
     }
+    handle::sync(&dir)?;
     Ok(())
-}
-
-/// The absolute path of `path` with its parent resolved and its last segment left alone.
-///
-/// The root itself is refused: it is never renamed or removed.
-fn leaf(root: &Root, path: &str) -> Result<PathBuf, Error> {
-    let checked = files_safe::Root::check(path)?;
-    if checked.is_empty() {
-        return Err(Error::InvalidArgument(path.to_owned()));
-    }
-    let (parent, name) = checked.rsplit_once('/').unwrap_or(("", checked));
-    Ok(root.resolve(parent)?.join(name))
 }

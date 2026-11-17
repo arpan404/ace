@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Range reads: the bytes an editor asks for, plus what it needs to decode and display them.
+//!
+//! The file is opened from its parent's handle and never from a path, so a link cannot be
+//! swapped between the check and the read. A final link is followed only where `files-safe`
+//! proves it stays inside the root.
 
-use std::fs::File;
-use std::io::ErrorKind;
 use std::io::{Read as _, Seek as _, SeekFrom};
 
 use files_safe::Root;
 
 use crate::Error;
+use cap_std::fs::File;
+
 use crate::encoding::{self, SAMPLE_BYTES};
-use crate::version::{version_of, version_of_handle};
+use crate::version;
 
 /// The slice of a file to return: `length` bytes starting at `offset`.
 #[derive(Debug, Clone, Copy)]
@@ -45,15 +49,14 @@ pub struct Read {
 /// A file that changes while it is being read is a `CONFLICT`, not a mix of old and new bytes:
 /// the caller re-reads from the version in the error, as a download does.
 pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
-    let absolute = root.resolve(path)?;
-    let metadata = std::fs::metadata(&absolute)?;
-    if !metadata.is_file() {
+    let (dir, name) = crate::handle::target_parent(root, path)?;
+    let mut file = dir.open(&name)?;
+    let opened = file.metadata()?;
+    if !opened.is_file() {
         return Err(Error::NotFile(path.to_owned()));
     }
-    let mut file = File::open(&absolute)?;
-    let opened = file.metadata()?;
     let size = opened.len();
-    let version = version_of_handle(&file, &opened)?;
+    let version = version::version_of(Some(&file), &opened)?;
     let head = head(&mut file)?;
     let detection = encoding::detect(&head, size > head.len() as u64);
     let oversized = range.max_size.is_some_and(|max| size > max);
@@ -65,15 +68,10 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
     } else {
         slice(&mut file, size, range)?
     };
-    let after = version_of_handle(&file, &file.metadata()?)?;
-    if after != version {
+    if version::version_of(Some(&file), &file.metadata()?)? != version {
         return Err(conflict(path, Some(version)));
     }
-    let current = match std::fs::symlink_metadata(&absolute) {
-        Ok(metadata) => Some(version_of(&absolute, &metadata)?),
-        Err(error) if error.kind() == ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
+    let current = current_version(root, path)?;
     if current.as_deref() != Some(version.as_str()) {
         return Err(conflict(path, current));
     }
@@ -87,6 +85,23 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
         bom: detection.bom,
         eof,
     })
+}
+
+/// The version the path names now, or `None` when the path no longer names a file.
+fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
+    let (dir, name) = match crate::handle::target_parent(root, path) {
+        Ok(found) => found,
+        Err(error) if error.code() == "NOT_FOUND" => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    match dir.symlink_metadata(&name) {
+        Ok(metadata) if metadata.is_file() => {
+            Ok(Some(version::version_of_entry(&dir, &name, &metadata)?))
+        }
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn conflict(path: &str, current: Option<String>) -> Error {

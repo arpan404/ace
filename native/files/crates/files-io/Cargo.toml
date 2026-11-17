@@ -13,15 +13,18 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+cap-fs-ext = "4"
+cap-std = "4"
 chardetng = "0.1"
 encoding_rs = "0.8"
 files-safe = { path = "../files-safe" }
+rustix = { version = "1", features = ["fs"] }
 sha2 = "0.10"
-tempfile = "3"
 thiserror = "2"
 
 [dev-dependencies]
 filetime = "0.2"
+tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

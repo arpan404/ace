@@ -43,6 +43,25 @@ fn rename_of_a_missing_file_is_not_found() {
 }
 
 #[test]
+fn rename_moves_between_folders_and_replaces_only_when_asked() {
+    let fixture = Fixture::new();
+    fixture.write("a/one.txt", b"one\n");
+    fixture.write("b/two.txt", b"two\n");
+
+    files_io::rename(fixture.root(), "a/one.txt", "b/three.txt", false).expect("move into b");
+    assert!(!fixture.exists("a/one.txt"));
+    assert_eq!(fixture.read("b/three.txt"), b"one\n");
+
+    let error = files_io::rename(fixture.root(), "b/three.txt", "b/two.txt", false)
+        .expect_err("b/two.txt exists");
+    assert_eq!(error.code(), "CONFLICT");
+
+    files_io::rename(fixture.root(), "b/three.txt", "b/two.txt", true).expect("replace");
+    assert_eq!(fixture.read("b/two.txt"), b"one\n");
+    assert!(!fixture.exists("b/three.txt"));
+}
+
+#[test]
 fn rename_into_its_own_subfolder_is_invalid() {
     let fixture = Fixture::new();
     fixture.write("dir/inside.txt", b"inside\n");

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! The version string stored with drafts, byte for byte what the TypeScript daemon prints.
+//!
+//! Versions come from the handle the bytes were read through, never from a path: on Unix the
+//! metadata carries the device, inode and both times, and on Windows the open handle is asked
+//! for the volume serial, file index and change time libuv reports.
 
-use std::fs::Metadata;
-use std::io::ErrorKind;
-use std::path::Path;
-
+use cap_std::fs::{Dir, File, Metadata, MetadataExt};
 use files_safe::Root;
 
 use crate::Error;
@@ -15,72 +16,96 @@ use crate::Error;
 /// Files carry their identity and times. Folders carry a digest of their whole tree, so a
 /// caller can guard a later change to either kind of entry the way the daemon does.
 pub fn stat_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
-    let absolute = match root.resolve(path) {
-        Ok(absolute) => absolute,
-        Err(files_safe::Error::Io(error)) if error.kind() == ErrorKind::NotFound => {
-            return Ok(None);
-        }
-        Err(error) => return Err(error.into()),
+    let (dir, name) = match crate::handle::target_parent(root, path) {
+        Ok(found) => found,
+        Err(error) if error.code() == "NOT_FOUND" => return Ok(None),
+        Err(error) => return Err(error),
     };
-    match std::fs::symlink_metadata(&absolute) {
-        Ok(metadata) => Ok(Some(entry_version(root, path, &absolute, &metadata)?)),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+    entry_version(root, &dir, &name, path)
 }
 
-/// The version of any entry: a file's own, or a folder's tree digest, which is what the daemon
-/// compares a caller's expected version against.
+/// The version of `name` in `dir`, or `None` when nothing is there. `path` is the caller's
+/// spelling, which names the entries a folder version digests and labels its errors.
 pub(crate) fn entry_version(
     root: &Root,
+    dir: &Dir,
+    name: &str,
     path: &str,
-    absolute: &Path,
-    metadata: &Metadata,
-) -> Result<String, Error> {
+) -> Result<Option<String>, Error> {
+    let metadata = match dir.symlink_metadata(name) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
     if metadata.is_dir() {
-        crate::tree::version(root, path, absolute, metadata)
-    } else {
-        version_of(absolute, metadata)
+        let folder = dir.open_dir(name)?;
+        return Ok(Some(crate::tree::version(root, path, &folder)?));
     }
+    Ok(Some(version_of(
+        entry_handle(dir, name, &metadata)?.as_ref(),
+        &metadata,
+    )?))
 }
 
-/// `{dev}:{ino}:{size}:{mtimeMs}:{ctimeMs}`, with every number printed the way JavaScript prints
-/// it, because the daemon may compare a version this process printed with one it printed itself.
-pub(crate) fn version_of(absolute: &Path, metadata: &Metadata) -> Result<String, Error> {
-    Ok(text(metadata, facts(absolute, metadata)?))
-}
-
-/// The version of bytes read through an open file. Its own handle, not the path, decides the
-/// identity and times, so a file swapped at the path cannot lend its version to older bytes.
-pub(crate) fn version_of_handle(
-    file: &std::fs::File,
+/// The version of `name` in `dir` from metadata the caller already read, with the handle Windows
+/// needs opened only there.
+pub(crate) fn version_of_entry(
+    dir: &Dir,
+    name: &str,
     metadata: &Metadata,
 ) -> Result<String, Error> {
-    Ok(text(metadata, facts_of_handle(file, metadata)?))
+    version_of(entry_handle(dir, name, metadata)?.as_ref(), metadata)
 }
 
-fn text(metadata: &Metadata, facts: Facts) -> String {
-    format!(
+/// The version of an entry from its metadata and, on Windows, a handle to it.
+pub(crate) fn version_of(handle: Option<&File>, metadata: &Metadata) -> Result<String, Error> {
+    let facts = facts(handle, metadata)?;
+    Ok(format!(
         "{}:{}:{}:{}:{}",
         js_number(facts.dev as f64),
         js_number(facts.ino as f64),
         js_number(metadata.len() as f64),
         js_number(facts.mtime),
         js_number(facts.ctime)
-    )
+    ))
 }
 
-/// Whether two paths name the same entry. A case-only rename on a case-insensitive volume finds
-/// the destination already "there" and must still be allowed.
+/// Whether `name` in `dir` still has the identity recorded in `metadata`.
+#[cfg(unix)]
+pub(crate) fn still(dir: &Dir, name: &str, metadata: &Metadata) -> Result<bool, Error> {
+    let again = dir.symlink_metadata(name)?;
+    Ok(identity(metadata) == identity(&again))
+}
+
+/// The identity a version is anchored on.
+#[cfg(unix)]
+pub(crate) fn identity(metadata: &Metadata) -> (u64, u64) {
+    (metadata.dev(), metadata.ino())
+}
+
+/// Whether two entries in their folders are the same entry, which a case-only rename on a
+/// case-insensitive volume needs. A link is compared as itself, never followed.
 pub(crate) fn same_entry(
-    left_path: &Path,
-    left: &Metadata,
-    right_path: &Path,
-    right: &Metadata,
+    left_dir: &Dir,
+    left_name: &str,
+    right_dir: &Dir,
+    right_name: &str,
 ) -> Result<bool, Error> {
-    let left = facts(left_path, left)?;
-    let right = facts(right_path, right)?;
+    let left = left_dir.symlink_metadata(left_name)?;
+    let right = right_dir.symlink_metadata(right_name)?;
+    let left = facts(entry_handle(left_dir, left_name, &left)?.as_ref(), &left)?;
+    let right = facts(
+        entry_handle(right_dir, right_name, &right)?.as_ref(),
+        &right,
+    )?;
     Ok(left.dev == right.dev && left.ino == right.ino)
+}
+
+/// A version with its last field removed: a rename changes the change time and nothing else a
+/// version records, so the daemon compares versions this way when it swaps a save into place.
+#[cfg(unix)]
+pub(crate) fn without_change_time(version: &str) -> &str {
+    version.rsplit_once(':').map_or(version, |(rest, _)| rest)
 }
 
 /// The identity and times a version is made of.
@@ -104,7 +129,8 @@ fn js_number(value: f64) -> String {
     if !(1e-6..1e21).contains(&magnitude) {
         let mut text = format!("{value:e}");
         if let Some(exponent) = text.find('e') {
-            if !text[exponent + 1..].starts_with('-') {
+            let positive = !text[exponent + 1..].starts_with('-');
+            if positive {
                 text.insert(exponent + 1, '+');
             }
         }
@@ -114,39 +140,33 @@ fn js_number(value: f64) -> String {
 }
 
 #[cfg(unix)]
-fn facts(_absolute: &Path, metadata: &Metadata) -> Result<Facts, Error> {
-    Ok(facts_of_metadata(metadata))
-}
-
-#[cfg(unix)]
-fn facts_of_handle(_file: &std::fs::File, metadata: &Metadata) -> Result<Facts, Error> {
-    Ok(facts_of_metadata(metadata))
-}
-
-#[cfg(unix)]
-fn facts_of_metadata(metadata: &Metadata) -> Facts {
-    use std::os::unix::fs::MetadataExt;
-    Facts {
+fn facts(_handle: Option<&File>, metadata: &Metadata) -> Result<Facts, Error> {
+    Ok(Facts {
         dev: metadata.dev(),
         ino: metadata.ino(),
         mtime: unix_millis(metadata.mtime(), metadata.mtime_nsec()),
         ctime: unix_millis(metadata.ctime(), metadata.ctime_nsec()),
-    }
+    })
+}
+
+/// The handle an entry's version needs on Windows; Unix reads everything from the metadata.
+#[cfg(unix)]
+fn entry_handle(_dir: &Dir, _name: &str, _metadata: &Metadata) -> Result<Option<File>, Error> {
+    Ok(None)
 }
 
 /// Windows has no `dev`/`ino`: the volume serial and the file index stand in for them, and only
 /// a handle can report them. The handle also carries the change time, which is what libuv puts
 /// in `ctimeMs`; the write time comes from the metadata beside it.
 #[cfg(windows)]
-fn facts(absolute: &Path, metadata: &Metadata) -> Result<Facts, Error> {
-    facts_of_handle(&open_attributes(absolute)?, metadata)
-}
-
-#[cfg(windows)]
-fn facts_of_handle(file: &std::fs::File, metadata: &Metadata) -> Result<Facts, Error> {
-    use std::os::windows::fs::MetadataExt;
-
-    let (dev, ino, change) = windows::handle_facts(file)?;
+fn facts(handle: Option<&File>, metadata: &Metadata) -> Result<Facts, Error> {
+    let handle = handle.ok_or_else(|| {
+        Error::Io(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "a Windows version needs the entry's handle",
+        ))
+    })?;
+    let (dev, ino, change) = windows::handle_facts(handle)?;
     Ok(Facts {
         dev,
         ino,
@@ -155,27 +175,16 @@ fn facts_of_handle(file: &std::fs::File, metadata: &Metadata) -> Result<Facts, E
     })
 }
 
-/// An attribute-only handle: no read or write access is requested, so a file the caller may not
-/// read still has a version. A folder needs `FILE_FLAG_BACKUP_SEMANTICS`; a reparse point is
-/// opened itself so its own identity is reported, and every share bit is set so no writer is
-/// blocked.
 #[cfg(windows)]
-fn open_attributes(absolute: &Path) -> Result<std::fs::File, Error> {
-    use std::os::windows::fs::OpenOptionsExt;
+fn entry_handle(dir: &Dir, name: &str, metadata: &Metadata) -> Result<Option<File>, Error> {
+    use cap_fs_ext::DirExt;
 
-    /// `FILE_FLAG_BACKUP_SEMANTICS`: a folder opens as a handle, which a plain open refuses.
-    const BACKUP_SEMANTICS: u32 = 0x0200_0000;
-    /// `FILE_FLAG_OPEN_REPARSE_POINT`: a link reports its own identity, like the metadata
-    /// beside it.
-    const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    /// `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`: never block another writer.
-    const SHARE_ALL: u32 = 0x0000_0007;
-
-    Ok(std::fs::OpenOptions::new()
-        .access_mode(0)
-        .share_mode(SHARE_ALL)
-        .custom_flags(BACKUP_SEMANTICS | OPEN_REPARSE_POINT)
-        .open(absolute)?)
+    if metadata.is_dir() {
+        return Ok(Some(crate::handle::dir_handle(
+            &dir.open_dir_nofollow(name)?,
+        )?));
+    }
+    Ok(Some(crate::handle::attribute_handle(dir, name)?))
 }
 
 /// The two calls that read a handle's identity and change time.
@@ -188,7 +197,8 @@ fn open_attributes(absolute: &Path) -> Result<std::fs::File, Error> {
 #[allow(unsafe_code)]
 mod windows {
     use std::ffi::c_void;
-    use std::fs::File;
+
+    use cap_std::fs::File;
     use std::mem::{size_of, zeroed};
     use std::os::windows::io::AsRawHandle;
 

@@ -3,11 +3,13 @@
 //! File I/O for ace-files: range reads with encoding detection, atomic writes guarded by the
 //! daemon's version string, and the create/rename/remove mutations the Files panel needs.
 //!
-//! Every path is `files-safe`'s: the caller passes a canonical root and a `/`-separated relative
-//! path, and anything that leaves the root is refused before a handle is opened.
+//! Every operation goes through a handle: `files-safe` walks to the folder that holds the entry
+//! and hands back the folder's capability and the entry's name, so no path string reaches the
+//! filesystem and a link rewritten mid-operation cannot redirect the work.
 
 mod encoding;
 mod error;
+mod handle;
 mod mutate;
 mod read;
 mod tree;
