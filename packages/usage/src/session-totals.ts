@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync as Database } from "@ace/provider-kit/sqlite";
 import type { UsageUpdated } from "@ace/protocol";
+import type { UsageEvent } from "./events.ts";
 
 export { UsageSessionTotal as SessionTotal } from "@ace/protocol";
 import {
@@ -64,5 +66,28 @@ export class SessionTotals {
   }
   delete(thread: string): void {
     this.remove.run(thread);
+  }
+}
+
+/**
+ * One thread's inclusive totals from its own compact samples, by the rule the projection keeps
+ * (`observe` per sample, then `list`), in a database that lives for this call. Bounded by the
+ * thread, not history, and it writes nothing, so it can answer while the replay is behind.
+ */
+export function sessionTotalsFrom(events: Iterable<UsageEvent>, query: unknown) {
+  const request = SessionTotalsRequest.parse(query);
+  const db = new Database(":memory:");
+  try {
+    const totals = new SessionTotals(db);
+    for (const { threadId, at, payload } of events)
+      if (
+        threadId === request.thread &&
+        payload.type === "usage.updated" &&
+        (payload.usageScope === "provider_session" || payload.usageScope === "model_session")
+      )
+        totals.observe(threadId, at, payload);
+    return totals.list(request);
+  } finally {
+    db.close();
   }
 }

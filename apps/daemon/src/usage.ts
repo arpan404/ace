@@ -14,10 +14,12 @@ import {
   UsageSettings,
   QuotaWindow,
   backfillBatch,
+  sessionTotalsFrom,
   type QuotaReader,
 } from "@ace/usage";
 import type { Store } from "./store.ts";
 import { includeUsageAccounts } from "./usage-accounts.ts";
+import type { UsageReplay } from "./usage-replay.ts";
 
 export interface UsageCommands {
   subscribeLimits?(
@@ -69,6 +71,12 @@ export interface UsageReplayFailure {
   /** When the next attempt runs, or null once replay waits for new usage data. */
   retryInMs: number | null;
 }
+/**
+ * Events the projection may trail the event head by and still count as caught up. Live use
+ * keeps it within a page or two; beyond this the figures are marked as still filling in, and
+ * inclusive session totals are read from the thread's own events instead of waiting.
+ */
+export const usageFillingBacklog = 4096;
 /** Failed background replay retries 1 s, 2 s, 4 s ... capped, then waits for new data. */
 export const usageReplayBackoff = { baseMs: 1000, capMs: 300_000, attempts: 12 };
 const defaultReplayTimer = {
@@ -78,9 +86,14 @@ const defaultReplayTimer = {
     return () => clearTimeout(timer);
   },
 };
+/** The event store reads usage makes: the replay's pages and one thread's session samples. */
+export type UsageHistory = Pick<
+  Store,
+  "subscribeUsage" | "readUsagePage" | "headSeq" | "flushLiveWrites"
+> & { readonly usageReplay: Pick<UsageReplay, "readSessionUsage"> };
 export function createDaemonUsage(
   dataDir: string,
-  store: Pick<Store, "subscribeUsage" | "readUsagePage">,
+  store: UsageHistory,
   settings: UsageSettings,
   onError: (error: unknown, failure?: UsageReplayFailure) => void,
   accounts?: QuotaReader,
@@ -167,6 +180,9 @@ export function createDaemonUsage(
     if (stopped) throw new Error("Usage service closed");
     const parsed = UsageQuery.parse(input);
     let result = await worker[kind](parsed);
+    const head = store.headSeq();
+    if (head - result.cursor > usageFillingBacklog)
+      result = { ...result, filling: { through: result.cursor, head } };
     if (providerAccounts && (parsed.filters.provider || parsed.filters.account)) {
       const response = await providerAccounts.handle({ type: "accounts.list", requestId: "usage" });
       if (response.type === "accounts.list")
@@ -193,6 +209,15 @@ export function createDaemonUsage(
     series: (input: UsageQuery) => query("series", input),
     async sessionTotals(input: UsageSessionTotalsQuery) {
       const request = UsageSessionTotalsQuery.parse(input);
+      if (stopped) throw new Error("Usage service closed");
+      if (store.headSeq() - (await worker.cursor()) > usageFillingBacklog) {
+        // The replay is far behind: fold this thread's own samples by the projection's rule
+        // rather than wait for all of history. Nothing is written, so nothing counts twice.
+        store.flushLiveWrites();
+        return UsageSessionTotalPage.parse(
+          sessionTotalsFrom(store.usageReplay.readSessionUsage(request.thread), request),
+        );
+      }
       await catchUp();
       return UsageSessionTotalPage.parse(await worker.sessionTotalsFor(request));
     },

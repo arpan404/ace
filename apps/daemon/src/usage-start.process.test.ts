@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger } from "@ace/diagnostics";
+import { UsageSettings } from "@ace/usage";
 import { EventPayload, ThreadId, UsageQuery } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { readConfig } from "./config.ts";
@@ -10,6 +11,7 @@ import { Resources } from "./services/resources.ts";
 import { ServiceStartup, type ServiceDefinition } from "./services/startup.ts";
 import { startUsage } from "./services/usage.ts";
 import { Store } from "./store.ts";
+import { createDaemonUsage, usageFillingBacklog } from "./usage.ts";
 
 // Process tier: the usage projection runs in its real worker thread on a real usage.sqlite.
 const at = Date.parse("2026-10-02T12:00Z");
@@ -147,4 +149,91 @@ test("usage is ready as soon as it opens on a long history, and its totals fill 
   await second.usage().catchUp();
   expect(await total(second.usage())).toBe(samples);
   await second.close();
+});
+
+test("while older history is still being counted, figures say so and a thread's session totals answer at once, exactly", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-usage-filling-"));
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(join(home, "events.sqlite"), undefined, { now: () => at });
+  cleanups.push(() => store.close());
+  seedHistory(store);
+  const sessionThread = ThreadId.parse("usage-session");
+  const otherThread = ThreadId.parse("usage-session-other");
+  const workspace = store.createWorkspace("/session", "Session");
+  for (const thread of [sessionThread, otherThread])
+    store.appendEvents(
+      thread,
+      [
+        EventPayload.parse({
+          type: "thread.created",
+          thread: {
+            id: thread,
+            workspaceId: workspace,
+            provider: "codex",
+            title: "Session",
+            status: { state: "new" },
+            createdAt: at,
+            updatedAt: at,
+          },
+        }),
+        // Inclusive snapshots grow; the total is the largest one, per key, scope and model.
+        ...[1, 3, 2].map((step) =>
+          EventPayload.parse({
+            type: "usage.updated",
+            agentId: `${thread}-root`,
+            inputTokens: step * (thread === sessionThread ? 100 : 7),
+            outputTokens: step * 10,
+            usageScope: "provider_session",
+            counterKey: "session",
+            model: "gpt-x",
+          }),
+        ),
+      ],
+      at,
+    );
+  expect(store.headSeq()).toBeGreaterThan(usageFillingBacklog);
+
+  // The replay is held where it is, as on a large home whose history isn't counted yet.
+  let held = true;
+  const usage = createDaemonUsage(
+    home,
+    {
+      subscribeUsage: (listener) => store.subscribeUsage(listener),
+      readUsagePage: (options) =>
+        held ? { throughSeq: options.afterSeq, events: [] } : store.readUsagePage(options),
+      headSeq: () => store.headSeq(),
+      flushLiveWrites: () => store.flushLiveWrites(),
+      usageReplay: store.usageReplay,
+    },
+    UsageSettings.parse({ timezone: "UTC" }),
+    () => {},
+    undefined,
+    () => at,
+  );
+  cleanups.push(() => usage.close());
+  await usage.start();
+
+  const filling = await usage.summary(query);
+  expect(filling.filling).toEqual({ through: 0, head: store.headSeq() });
+  const expected = [
+    {
+      counterKey: "session",
+      scope: "provider_session",
+      model: "gpt-x",
+      at,
+      inputTokens: 300,
+      outputTokens: 30,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheWrite1hTokens: 0,
+      costUsd: 0,
+    },
+  ];
+  expect(await usage.sessionTotals({ thread: sessionThread, limit: 100 })).toEqual(expected);
+
+  held = false;
+  await usage.catchUp();
+  expect((await usage.summary(query)).filling).toBeUndefined();
+  // The counted projection agrees with the answer given before it got there.
+  expect(await usage.sessionTotals({ thread: sessionThread, limit: 100 })).toEqual(expected);
 });

@@ -14,6 +14,7 @@ const Options = z.object({
     .default(512 * 1024),
 });
 const Row = z.object({ seq: z.number().int().positive(), bytes: z.number().int().nonnegative() });
+const SessionRow = z.object({ bytes: z.number().int().nonnegative(), entry: z.string() });
 const PageEnd = z.number().int().nonnegative();
 // SQLite extracts only analytics fields. Large title/cwd/native data never crosses into Node.
 const field = (path: string) => `json_extract(payload, '$.${path}')`;
@@ -85,6 +86,7 @@ export class UsageReplay {
   private readonly sizes;
   private readonly pageEnd;
   private readonly entry;
+  private readonly sessionSamples;
   constructor(db: DatabaseSync) {
     this.pageEnd = db.prepare(`SELECT seq FROM (
       SELECT seq FROM events WHERE seq>? AND seq<=?
@@ -95,6 +97,24 @@ export class UsageReplay {
     );
     this.entry = db.prepare(`SELECT ${eventEntry} AS entry FROM events WHERE seq=? AND ${relevant}
       UNION ALL SELECT ${deletionEntry} FROM usage_deletions WHERE seq=?`);
+    // A thread's inclusive snapshots since its last deletion, through events_thread_seq.
+    this.sessionSamples = db.prepare(`SELECT length(CAST(entry AS BLOB)) AS bytes, entry FROM (
+      SELECT seq, ${eventEntry} AS entry FROM events WHERE thread_id=? AND type='usage.updated'
+        AND seq>COALESCE((SELECT max(seq) FROM usage_deletions WHERE thread_id=?),0)
+        AND json_extract(payload,'$.usageScope') IN ('provider_session','model_session')
+    ) ORDER BY seq`);
+  }
+  /**
+   * One thread's inclusive usage samples as the replay projects them: a record too large or
+   * malformed for the replay is left out here too. Work is bounded by the thread's events.
+   */
+  *readSessionUsage(threadId: string): Generator<UsageEvent> {
+    for (const raw of this.sessionSamples.iterate(threadId, threadId)) {
+      const row = SessionRow.parse(raw);
+      if (row.bytes > 64 * 1024) continue;
+      const parsed = UsageEvent.safeParse(JSON.parse(row.entry));
+      if (parsed.success) yield parsed.data;
+    }
   }
   read(input: unknown, headSeq: number): { throughSeq: number; events: UsageEvent[] } {
     const q = Options.parse(input);

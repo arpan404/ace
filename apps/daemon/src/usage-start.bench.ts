@@ -31,6 +31,9 @@ try {
     subscribeUsage: () => () => {},
     readUsagePage: (options: { afterSeq: number; limit: number; maxBytes?: number }) =>
       replay.read(options, head),
+    headSeq: () => head,
+    flushLiveWrites: () => {},
+    usageReplay: replay,
   };
   const delay = monitorEventLoopDelay({ resolution: 5 });
   delay.enable();
