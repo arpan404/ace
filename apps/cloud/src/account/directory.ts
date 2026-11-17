@@ -1,5 +1,11 @@
 import { AceGrantRequest } from "@ace/protocol/ace-account";
-import { GRANT_LIFETIME_MS, signCloudGrant, signGrant, signMarketGrant } from "@ace/account-grant";
+import {
+  GRANT_LIFETIME_MS,
+  MARKET_GRANT_ISSUER,
+  signCloudGrant,
+  signGrant,
+  signMarketGrant,
+} from "@ace/account-grant";
 import type { GrantKeySet, GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
 import type { machineStore } from "./machines.ts";
@@ -19,8 +25,11 @@ export function directoryRoutes(deps: {
   keys: GrantKeySet;
   signingKey: GrantSigningKey;
   now: () => number;
+  /** The `iss` a market grant names: this backend's host. */
+  issuer?: string;
 }) {
   const { sessions, machines, keys, signingKey, now } = deps;
+  const issuer = deps.issuer ?? MARKET_GRANT_ISSUER;
   async function authenticated(
     request: Request,
     then: (session: ActiveSession) => Promise<Response>,
@@ -35,22 +44,28 @@ export function directoryRoutes(deps: {
 
     /** POST /v1/grants */
     grant: (request: Request) =>
-      authenticated(request, async ({ account }) => {
+      authenticated(request, async ({ account, signedInAt }) => {
         const parsed = AceGrantRequest.safeParse(await jsonBody(request, 4096));
         if (!parsed.success) return fail(400, "invalid_request");
         const { kind, subject, purpose } = parsed.data;
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");
         if (purpose === "spade-cloud" && kind !== "machine") return fail(400, "invalid_request");
+        // Publishing only ever as an account whose email WorkOS verified (ADR 0173 §2).
+        if (purpose === "market-publish" && account.emailVerified !== true)
+          return fail(403, "email_unverified");
         const iat = now();
         const exp = iat + GRANT_LIFETIME_MS;
-        const sign =
+        const claims = { kind, account: account.id, subject, iat, exp };
+        const token =
           purpose === "spade-cloud"
-            ? signCloudGrant
+            ? signCloudGrant(claims, signingKey)
             : purpose === "market-publish"
-              ? signMarketGrant
-              : signGrant;
-        const token = sign({ kind, account: account.id, subject, iat, exp }, signingKey);
+              ? signMarketGrant(
+                  { ...claims, iss: issuer, emailVerified: true, authAt: signedInAt },
+                  signingKey,
+                )
+              : signGrant(claims, signingKey);
         return json(200, { token, expiresAt: exp });
       }),
 

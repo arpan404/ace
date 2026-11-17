@@ -1,13 +1,21 @@
 import { readRoute } from "./api-read.ts";
 import { publish, withdraw } from "./api-publish.ts";
 import { signerRoute } from "./api-signer.ts";
-import type { Context } from "./context.ts";
+import { discoverRoute } from "./api-discover.ts";
+import { maintainerRoute } from "./api-maintainers.ts";
+import { meRoute } from "./api-me.ts";
+import { profileRoute } from "./api-profiles.ts";
+import { discoveryCron } from "./cron-discovery.ts";
+import { publisherCron } from "./cron-publishers.ts";
+import { encodeBase64url } from "@ace/account-grant";
+import type { Context, IdPrefix } from "./context.ts";
 import type { Env } from "./env.ts";
 import { configuredKeys, defaultKeysUrl, fetchedKeys, type KeySource } from "./grant-keys.ts";
 import { failure, notFound, tooMany } from "./http.ts";
+import { databases } from "./store/databases.ts";
 import { aggregateDownloads } from "./store/downloads.ts";
 import { missingPage404, pageRoute } from "./pages/serve.ts";
-import { isPublicRead, isSigner, matchRoute, type Route } from "./routes.ts";
+import { matchRoute, routeClass, type Route } from "./routes.ts";
 
 /*
  * ace's marketplace Worker (ADR 0168): the thin shell. It reads the clock, makes ids and
@@ -32,10 +40,12 @@ function grantKeys(env: Env): KeySource {
   return source;
 }
 
-function publisherId(): string {
+function newId(prefix: IdPrefix): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
-  return `pub_${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  return `${prefix}_${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
+
+const newToken = () => encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
 async function limited(limit: RateLimit | undefined, request: Request): Promise<boolean> {
   if (!limit) return false;
@@ -56,7 +66,11 @@ async function dispatch(
       return withdraw(request, route, context);
     default:
       return (
+        (await meRoute(request, url, route, context)) ??
+        (await profileRoute(request, route, context)) ??
         (await signerRoute(request, route, context)) ??
+        (await maintainerRoute(request, route, context)) ??
+        (await discoverRoute(request, url, route, context)) ??
         (await readRoute(request, url, route, context)) ??
         (await pageRoute(url, route, context)) ??
         notFound()
@@ -74,19 +88,49 @@ export default {
     }
     const { route } = matched;
     // The signer is one maintainer's tool behind a long secret; it isn't limited.
-    const limit = isPublicRead(route) ? env.READS : isSigner(route) ? undefined : env.PUBLISHES;
+    const kind = routeClass(route);
+    const limit =
+      kind === "read"
+        ? env.READS
+        : kind === "report"
+          ? env.REPORTS
+          : kind === "write"
+            ? env.PUBLISHES
+            : undefined;
     if (await limited(limit, request)) return tooMany();
     const context: Context = {
       env,
+      dbs: databases(env),
       now: Date.now(),
       waitUntil: (promise) => ctx.waitUntil(promise),
       grantKeys: grantKeys(env),
-      newId: publisherId,
+      newId,
+      newToken,
+      fetch: (target, init) => fetch(target, init),
     };
     return dispatch(request, url, route, context);
   },
-  /** The cron: folds new download totals into the index's changes. */
+  /**
+   * The cron, every quarter hour, each step bounded (ADR 0173 §1, §16): download totals into the
+   * catalogues, then the publishers' work (the cross-database protocols' resumption, scan jobs,
+   * drafts, transfers, verification re-checks, pictures, stamps, sizes) and Discover's (download
+   * buckets, trending, top publishers).
+   */
   async scheduled(_controller, env, ctx): Promise<void> {
-    ctx.waitUntil(aggregateDownloads(env.MARKET, Date.now()));
+    const now = Date.now();
+    const dbs = databases(env);
+    ctx.waitUntil(
+      (async () => {
+        await aggregateDownloads(dbs, now);
+        await publisherCron(
+          env,
+          dbs,
+          now,
+          (target, init) => fetch(target, init),
+          crypto.randomUUID(),
+        );
+        await discoveryCron(dbs, now);
+      })(),
+    );
   },
 } satisfies ExportedHandler<Env>;

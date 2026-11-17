@@ -3,6 +3,7 @@ import { verifyWithdrawn } from "@ace/marketplace";
 import { signPending, signRevocation, type SignerIo } from "@ace/marketplace/signer";
 import { keySetOf, sampleRecipe, sampleSkill, signedWithdrawn } from "@ace/marketplace/testing";
 import {
+  approveHeld,
   asSigner,
   marketGrant,
   marketKey,
@@ -63,6 +64,9 @@ describe("withdrawals", () => {
       publisher: "copier",
     });
     expect(copied.status).toBe(201);
+    // Each new publisher's first version is held for a maintainer (ADR 0173 §9).
+    await approveHeld(market, "spade-bot", "same-bytes");
+    await approveHeld(market, "spade-bot", "same-bytes-copy");
     await signPending(io(), marketKey, now, trusted);
     const withdraw = await market.fetch(
       "/v1/publish/spade-bot/same-bytes-copy/versions/1.0.0/withdraw",

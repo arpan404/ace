@@ -5,8 +5,8 @@ import {
   hashFiles,
   recipeNeeds,
   type ArchiveFile,
-  type Recipe,
 } from "@ace/marketplace";
+import { type Recipe } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import type { BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";
@@ -28,6 +28,8 @@ export interface SuitPort {
     options: { replace: boolean },
   ): Promise<unknown>;
   remove(id: string): Promise<unknown>;
+  /** The full path of one of the person's Suits' folder, to publish it from. */
+  folder(id: string): string;
 }
 
 export interface PluginAvailabilityState {

@@ -7,7 +7,8 @@ import {
   UsersThreeIcon,
   XIcon,
 } from "@ace/icons";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
+import { useOpenMarket } from "@/lib/open-market.ts";
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -33,6 +34,7 @@ export function SpadeListTop(props: {
   onNewBot(): void;
   onNewGroup(): void;
 }) {
+  const openMarket = useOpenMarket();
   const marketplace = useBetaEnabled("marketplace") === true;
   return (
     <div className="mx-2 mt-1 mb-1 flex shrink-0 items-center justify-end gap-2 py-3.5 pr-2">
@@ -46,9 +48,9 @@ export function SpadeListTop(props: {
         className={roundButton}
       />
       {marketplace && (
-        <Link
-          to="/marketplace"
-          search={{ type: "spade" }}
+        <button
+          type="button"
+          onClick={() => openMarket("spade")}
           aria-label="Apps, plugins and skills"
           title="Apps, plugins and skills"
           className={cn(
@@ -57,7 +59,7 @@ export function SpadeListTop(props: {
           )}
         >
           <Icon icon={PuzzlePieceIcon} size={18} />
-        </Link>
+        </button>
       )}
       {props.hosts.length > 0 && (
         <AddMenu hosts={props.hosts} onNewBot={props.onNewBot} onNewGroup={props.onNewGroup} />

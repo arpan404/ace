@@ -102,7 +102,7 @@ export function machineAccount(options: {
 
   async function obtainGrant(
     hostId: string,
-    purpose: "spade-cloud" | undefined,
+    purpose: "spade-cloud" | "market-publish" | undefined,
     signal?: AbortSignal,
   ): Promise<string> {
     const current = active();
@@ -306,6 +306,20 @@ export function machineAccount(options: {
     /** A credential restricted to Spade Cloud, rejected by the relay. */
     cloudGrant(hostId: string, signal?: AbortSignal): Promise<string> {
       return obtainGrant(hostId, "spade-cloud", signal);
+    },
+    /**
+     * A market grant for one publishing request (ADR 0173 §2), or undefined when no ace account
+     * is signed in here. The caller holds it for that request only.
+     */
+    async marketGrant(hostId: string, signal?: AbortSignal): Promise<string | undefined> {
+      if (!active()) return undefined;
+      try {
+        return await obtainGrant(hostId, "market-publish", signal);
+      } catch (error) {
+        // The backend ended the session: this machine is signed out now.
+        if (error instanceof AceAccountError && error.status === 401) return undefined;
+        throw error;
+      }
     },
     /** Admit a hello's device grant, asking for the machine code when one is set. */
     async admitDevice(hello: {
