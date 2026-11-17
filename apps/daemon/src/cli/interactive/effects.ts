@@ -24,6 +24,8 @@ export type Effect =
   /** Send what the composer holds to the attached thread (or start one). */
   | { kind: "send"; text: string; delivery: "queue" | "steer" }
   | { kind: "slash"; line: string }
+  /** Open the steps folded behind one "Worked for" line (a transcript block's key). */
+  | { kind: "unfold"; key: string }
   | { kind: "quit"; farewell: string; code: number };
 
 export interface Step<S> {

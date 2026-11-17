@@ -404,7 +404,8 @@ chat` lands (Phase 4).
 
 **Attach** (`ace chat`, `ace thread attach`, `↵` on a row) replaces today's one-line preview with
 the transcript as the app shows it: the person's messages, the agent's work folded under
-"Worked for 3m 12s" (`↵` on it unfolds), the last answer in full, wrapped to the terminal, and
+"Worked for 3m 12s" (`↵` on it unfolds; with the composer empty, `↑` and `↓` walk those lines,
+since what is in the scrollback can't be pointed at), the last answer in full, wrapped to the terminal, and
 handoffs, stops and limits as one quiet line each. At the foot: the request strip when one is
 open, then the live line ("Working for 1m 04s", or "Waiting for 2 subagents"), then the composer
 (`›`). Typing sends to the queue as today; `/steer`, `/stop`, `/model`, `/resume` and `/quit` keep
@@ -447,6 +448,12 @@ stdin only when the argument is `-`, never by default.
 - Budget: the home's first lines (header and the cached thread list, then live rows) within 150
   ms of Enter on a warm Mac, measured in the delivery PR. The TUI and clack load only on a
   terminal; `ace start` and every `--json` command load neither.
+  Built (2026-11-17, follow-up): the cached list is `ACE_HOME/cli-home-rows.json`, the first 40
+  rows with what each row is and never its status; each draws "Syncing", the app's word for an
+  unconfirmed row, until the live list replaces it. The first frame loads only the terminal,
+  the view and that file: the CLI's config (and the schemas with it) loads on first use, and
+  the home's path comes from `@ace/service/home-path`. `home-first-paint.perf.process.test.ts`
+  holds the bound (best of five starts in a real pseudo-terminal: 95 ms on a busy Linux box).
 
 **If the daemon isn't running,** the home says so in one line ("ace isn't running.") with three
 keys: `s Start ace`, `d Doctor`, `t Triage`. Start runs the same detached start `chat` uses today.

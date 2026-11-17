@@ -1,6 +1,6 @@
 import { cutEnd, cutMiddle, fit, padStart, textWidth } from "../tui/layout.ts";
 import type { Paint } from "../tui/paint.ts";
-import { filtered, selectedRow, type HomeState } from "./home-model.ts";
+import { filtered, selectedRow, type HomeState } from "./home-state.ts";
 import type { HomeRow } from "./home-rows.ts";
 import type { TreeLine } from "./tree.ts";
 
