@@ -10,13 +10,14 @@ use axum::routing::{get, post};
 use serde_json::json;
 
 use super::{AppState, problem};
-use crate::skill_store::AddError;
+use crate::skill_store::{AddError, PublishError};
 use crate::tools::WriteError;
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/skills", get(list))
         .route("/skills/{id}/add-to-ace", post(add_to_ace))
+        .route("/skills/{id}/files", get(files))
 }
 
 async fn list(State(state): State<AppState>) -> Response {
@@ -73,5 +74,25 @@ async fn add_to_ace(State(state): State<AppState>, Path(id): Path<String>) -> Re
             };
             problem(status, &words)
         }
+    }
+}
+
+/// `GET /v1/skills/{id}/files`: a skill written in Spade with all its files, for the daemon to
+/// publish to ace's marketplace (ADR 0168). Other origins aren't the person's own to publish.
+async fn files(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let Some(store) = state.skill_store.clone() else {
+        return problem(StatusCode::NOT_FOUND, "no such skill");
+    };
+    match tokio::task::spawn_blocking(move || store.published(&id)).await {
+        Ok(Ok(skill)) => Json(skill).into_response(),
+        Ok(Err(error)) => {
+            let status = match &error {
+                PublishError::NotFound => StatusCode::NOT_FOUND,
+                PublishError::NotSpade => StatusCode::UNPROCESSABLE_ENTITY,
+                PublishError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            problem(status, &error.to_string())
+        }
+        Err(_) => problem(StatusCode::INTERNAL_SERVER_ERROR, "the request stopped"),
     }
 }
