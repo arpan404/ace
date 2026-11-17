@@ -338,7 +338,8 @@ reason), never silently run and never deleted, as withdrawals are.
   (scripts present, plugin executions, network hosts, recipe connectors) hold too.
 - **Limits per publisher** (authenticated, so counting them isn't tracking readers): 30 uploads a
   day (10 for new publishers), 1 GiB of stored versions and drafts (256 MiB new), 20 drafts. The
-  `PUBLISHES` binding limits callers too.
+  official publisher (decision 14) has its own tier and is never new for limits: 500 uploads a
+  day, 10 GiB, 200 drafts. It is still held for review. The `PUBLISHES` binding limits callers too.
 - **Maintainer review.** `ace market review` lists what waits: held versions with their findings,
   pending listing edits, appeals and reports. `ace market review TYPE/NAME@VERSION --approve`
   releases a hold (the signer then signs it), `--block REASON` refuses it, and the existing form

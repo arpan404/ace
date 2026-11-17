@@ -369,7 +369,7 @@ describe("a protocol cut off part way", () => {
     expect(
       await reserveUpload(market.dbs.publishers, {
         publisher: owner.id,
-        newPublisher: false,
+        tier: "established",
         size: 1234,
         newDraft: false,
         charge: { item, nonce: "nonce-ledger" },
