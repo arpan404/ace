@@ -26,15 +26,39 @@ pub struct Record {
     pub id: Option<(u64, u64)>,
 }
 
+/// The current journal format version. A journal carrying this is parsed as the new format; a
+/// malformed one is corrupt, never downgraded to the legacy format.
+const FORMAT: u32 = 2;
+
+/// Where a run is in the sandbox's lifecycle, so an incomplete one gates the bot (review round 3
+/// item 3). Only `Active` — grants applied, run in progress — is not blocking; a journal still in
+/// setup or in cleanup is unresolved and must block.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+    /// The journal was written but the run's grants aren't fully applied yet.
+    #[default]
+    IncompleteSetup,
+    /// The grants are applied and the run is (or was) live.
+    Active,
+    /// Cleanup has started but not finished taking the grants back.
+    IncompleteCleanup,
+}
+
 /// A run's record of what its SID is granted on and what revocations are still owed.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Journal {
+    /// The format version; its presence tells a new-format journal from a legacy one.
+    pub version: u32,
     /// The bot this run belongs to, so its runs can be found and gated together.
     pub bot: String,
     pub container: Container,
     /// The run's AppContainer SID, as a string, so it can be revoked even after the profile is
     /// deleted.
     pub sid: String,
+    /// Where the run is in its lifecycle.
+    #[serde(default)]
+    pub state: State,
     /// Objects the SID is granted on now.
     pub granted: Vec<Record>,
     /// Revocations attempted but not yet confirmed; the bot's next run is refused while any
@@ -42,12 +66,27 @@ pub struct Journal {
     pub pending: Vec<Record>,
 }
 
-/// The first ACL journal format on this branch, before per-run identity: just the paths granted.
-/// Kept so an existing file is migrated forward rather than silently dropped.
+impl Default for Journal {
+    fn default() -> Self {
+        Self {
+            version: FORMAT,
+            bot: String::new(),
+            container: Container::default(),
+            sid: String::new(),
+            state: State::default(),
+            granted: Vec::new(),
+            pending: Vec::new(),
+        }
+    }
+}
+
+/// The first ACL journal format on this branch, before per-run identity: just the paths granted,
+/// and no `version`. `deny_unknown_fields` and a required `paths` keep a malformed new-format
+/// journal from ever being read as an empty legacy one.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct OldJournal {
     container: Container,
-    #[serde(default)]
     paths: Vec<PathBuf>,
 }
 
@@ -67,36 +106,41 @@ impl Journal {
         }
     }
 
-    /// A new-format journal, else an old-format one migrated forward, else a corrupt-journal error.
+    /// The formats are explicit: a journal with a `version` must parse as the new format (a
+    /// malformed one is corrupt, never silently downgraded); one without is legacy and must have
+    /// `paths` and no new-format fields. Anything else is a corrupt-journal error.
     fn parse(bytes: &[u8]) -> std::io::Result<Self> {
-        if let Ok(journal) = serde_json::from_slice::<Self>(bytes) {
-            return Ok(journal);
+        let corrupt = || std::io::Error::other("the sandbox ACL journal is corrupt");
+        let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| corrupt())?;
+        if value.get("version").is_some() {
+            return serde_json::from_value::<Self>(value).map_err(|_| corrupt());
         }
-        if let Ok(old) = serde_json::from_slice::<OldJournal>(bytes) {
-            let bot = old
-                .container
-                .name
-                .strip_prefix("spade.")
-                .unwrap_or(&old.container.name)
-                .to_owned();
-            return Ok(Self {
-                bot,
-                container: old.container,
-                // The old format didn't record the SID; cleanup derives it from the profile.
-                sid: String::new(),
-                granted: old
-                    .paths
-                    .into_iter()
-                    .map(|path| Record {
-                        path,
-                        access: Access::Write,
-                        id: None,
-                    })
-                    .collect(),
-                pending: Vec::new(),
-            });
-        }
-        Err(std::io::Error::other("the sandbox ACL journal is corrupt"))
+        let old: OldJournal = serde_json::from_value(value).map_err(|_| corrupt())?;
+        let bot = old
+            .container
+            .name
+            .strip_prefix("spade.")
+            .unwrap_or(&old.container.name)
+            .to_owned();
+        Ok(Self {
+            bot,
+            container: old.container,
+            // The old format didn't record the SID; cleanup derives it from the profile.
+            sid: String::new(),
+            // A legacy journal was written with grants applied, so treat it as an active run to
+            // clean up.
+            state: State::Active,
+            granted: old
+                .paths
+                .into_iter()
+                .map(|path| Record {
+                    path,
+                    access: Access::Write,
+                    id: None,
+                })
+                .collect(),
+            ..Self::default()
+        })
     }
 
     /// Writes the journal whole and flushes it to disk (`FlushFileBuffers` via `sync_all`) before
@@ -122,27 +166,45 @@ impl Journal {
     }
 
     /// Every journal file in `dir` as a parse result (for recovery and gating): an `Err` entry is a
-    /// corrupt or unreadable journal that must block, not be skipped.
-    pub fn all(dir: &Path) -> Vec<std::io::Result<Self>> {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return Vec::new();
+    /// corrupt or unreadable journal that must block, not be skipped. An enumeration error is itself
+    /// propagated, except when the directory simply doesn't exist yet (no journals).
+    pub fn all(dir: &Path) -> std::io::Result<Vec<std::io::Result<Self>>> {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
         };
-        entries
-            .flatten()
-            .filter(|entry| entry.path().extension().is_some_and(|x| x == "json"))
-            .map(|entry| std::fs::read(entry.path()).and_then(|bytes| Self::parse(&bytes)))
-            .collect()
+        Ok(entries
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .is_ok_and(|entry| entry.path().extension().is_some_and(|x| x == "json"))
+            })
+            .map(|entry| {
+                let entry = entry?;
+                std::fs::read(entry.path()).and_then(|bytes| Self::parse(&bytes))
+            })
+            .collect())
+    }
+
+    /// Whether this journal, if it is for `bot`, blocks the bot's next run: it isn't a live run
+    /// (`Active`), or it has unconfirmed revocations.
+    fn blocks(&self, bot: &str) -> bool {
+        self.bot == bot && (self.state != State::Active || !self.pending.is_empty())
     }
 }
 
-/// Whether the bot's next run must be refused: it has a run whose revocation hasn't been confirmed,
-/// or there is a corrupt journal in `dir` whose grants can't be read (so it is treated as blocking
-/// for every bot until a person clears it).
+/// Whether the bot's next run must be refused: it has a run that isn't a live, fully-set-up one or
+/// whose revocation hasn't been confirmed, or there is a corrupt or unenumerable journal store (so
+/// it is treated as blocking for every bot until a person clears it).
 pub fn stuck(dir: &Path, bot: &str) -> bool {
-    Journal::all(dir).iter().any(|journal| match journal {
+    match Journal::all(dir) {
         Err(_) => true,
-        Ok(journal) => journal.bot == bot && !journal.pending.is_empty(),
-    })
+        Ok(journals) => journals.iter().any(|journal| match journal {
+            Err(_) => true,
+            Ok(journal) => journal.blocks(bot),
+        }),
+    }
 }
 
 #[cfg(windows)]
@@ -203,13 +265,13 @@ mod win {
                 "an earlier run's sandbox grants are still being taken back; the bot waits",
             ));
         }
-        // Rollback ownership first: an (empty) journal naming the profile, before it is created.
+        // Rollback ownership first: an incomplete-setup journal naming the profile, before it is
+        // created. While it is not `Active`, the bot is gated, so a crash here can't be ignored.
         let mut journal = Journal {
             bot: bot.to_owned(),
             container: container.clone(),
-            sid: String::new(),
-            granted: Vec::new(),
-            pending: Vec::new(),
+            state: State::IncompleteSetup,
+            ..Journal::default()
         };
         journal.store(dir)?;
 
@@ -234,6 +296,9 @@ mod win {
             }
             acl::grant(object, &sid, acl_access(record.access))?;
         }
+        // The grants are applied: the run is now active, no longer gating.
+        journal.state = State::Active;
+        journal.store(dir)?;
         Ok(sid)
     }
 
@@ -272,8 +337,14 @@ mod win {
         let Some(mut journal) = Journal::read(dir, container)? else {
             return Ok(());
         };
-        // An old-format journal recorded no SID; derive it from the profile so its grants can be
-        // taken back.
+        // Mark cleanup in progress and flush it, so a crash mid-revocation leaves a non-active
+        // journal that keeps the bot gated until a clean pass.
+        if journal.state != State::IncompleteCleanup {
+            journal.state = State::IncompleteCleanup;
+            journal.store(dir)?;
+        }
+        // An old-format or incomplete-setup journal may have no SID; derive it from the profile so
+        // any grants can be taken back.
         let sid = if journal.sid.is_empty() {
             if journal.granted.is_empty() && journal.pending.is_empty() {
                 // Nothing was granted, but the profile may have been created: delete it, then drop
@@ -312,7 +383,14 @@ mod win {
     /// revocations can't be confirmed, and a corrupt journal, keep their file so the bot stays
     /// gated; the problem is logged, never dropped.
     pub fn recover(dir: &Path) {
-        for journal in Journal::all(dir) {
+        let journals = match Journal::all(dir) {
+            Ok(journals) => journals,
+            Err(error) => {
+                tracing::error!(%error, "the sandbox ACL journals could not be enumerated; runs are gated until it clears");
+                return;
+            }
+        };
+        for journal in journals {
             match journal {
                 Ok(journal) => {
                     if let Err(error) = cleanup(dir, &journal.container) {
@@ -328,7 +406,7 @@ mod win {
 
     /// For a deleted bot: take back every grant of every run of that bot and delete the profiles.
     pub fn forget(dir: &Path, bot: &str) {
-        for journal in Journal::all(dir).into_iter().flatten() {
+        for journal in Journal::all(dir).into_iter().flatten().flatten() {
             if journal.bot == bot {
                 let _ = cleanup(dir, &journal.container);
             }
@@ -344,16 +422,19 @@ mod tests {
     fn a_journal_round_trips_and_lists_and_gates() {
         let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
         let container = Container::for_run("bot1", "run7");
+        let record = Record {
+            path: PathBuf::from("/w"),
+            access: Access::Write,
+            id: Some((1, 2)),
+        };
+        // An active run with no pending revocations does not gate the bot.
         let journal = Journal {
             bot: "bot1".to_owned(),
             container: container.clone(),
             sid: "S-1-15-2-1-2-3".to_owned(),
-            granted: vec![Record {
-                path: PathBuf::from("/w"),
-                access: Access::Write,
-                id: Some((1, 2)),
-            }],
-            pending: Vec::new(),
+            state: State::Active,
+            granted: vec![record.clone()],
+            ..Journal::default()
         };
         journal
             .store(dir.path())
@@ -366,18 +447,26 @@ mod tests {
 
         // A pending revocation gates the bot's next run.
         let stuck_journal = Journal {
-            pending: vec![Record {
-                path: PathBuf::from("/w"),
-                access: Access::Write,
-                id: Some((1, 2)),
-            }],
-            ..journal
+            state: State::IncompleteCleanup,
+            pending: vec![record.clone()],
+            ..journal.clone()
         };
         stuck_journal
             .store(dir.path())
             .unwrap_or_else(|_| std::process::abort());
         assert!(stuck(dir.path(), "bot1"));
         assert!(!stuck(dir.path(), "bot2"));
+
+        // An incomplete setup (no pending, but not yet active) also gates.
+        let incomplete = Journal {
+            state: State::IncompleteSetup,
+            pending: Vec::new(),
+            ..journal
+        };
+        incomplete
+            .store(dir.path())
+            .unwrap_or_else(|_| std::process::abort());
+        assert!(stuck(dir.path(), "bot1"));
     }
 
     #[test]
@@ -403,5 +492,16 @@ mod tests {
             .unwrap_or_else(|_| std::process::abort());
         assert!(Journal::read(dir.path(), &bad).is_err());
         assert!(stuck(dir.path(), "any-bot"));
+
+        // A malformed *new-format* journal (it carries a version) is corrupt — it is never
+        // downgraded to an empty legacy journal that would abandon its grants.
+        let broken = Container::for_run("botV", "runV");
+        let malformed = format!(
+            r#"{{"version":2,"bot":"botV","container":{{"name":"{}","display":"d"}},"granted":"not-an-array"}}"#,
+            broken.name
+        );
+        std::fs::write(dir.path().join(format!("{}.json", broken.name)), malformed)
+            .unwrap_or_else(|_| std::process::abort());
+        assert!(Journal::read(dir.path(), &broken).is_err());
     }
 }
