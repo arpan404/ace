@@ -7,7 +7,7 @@ export {
 } from "./archive.ts";
 export { contentHash, hashFiles, sha256Hex, type HashedFile } from "./hash.ts";
 export { maxArchiveBytes, listingBytes, previewBytes, typeLimits } from "./limits.ts";
-export { describeEntry, frontmatter, type Listing } from "./listing.ts";
+export { describeEntry, frontmatter, pluginManifests, type Listing } from "./listing.ts";
 export {
   entryKey,
   FeedError,

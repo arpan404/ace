@@ -18,6 +18,7 @@ import { marketPublishOperations, marketPublishResults } from "./marketplace-pub
 import { MarketScanReport } from "./marketplace-scan.ts";
 
 export * from "./marketplace-base.ts";
+export * from "./marketplace-publish-pick.ts";
 export * from "./marketplace-catalog.ts";
 export * from "./marketplace-discover.ts";
 export * from "./marketplace-publish-ops.ts";

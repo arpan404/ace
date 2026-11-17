@@ -9,6 +9,7 @@ import {
 } from "@ace/protocol/marketplace";
 import type { SettingsService } from "@ace/settings";
 import { betaKeys } from "@ace/settings/beta";
+import { pickPorts } from "../marketplace/pick-ports.ts";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
@@ -30,6 +31,11 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
     suits: () => services.suits,
     plugins: () => (services.plugins ? plugins : undefined),
     spade: spadePort(() => services.spade?.ready()?.connection),
+    pick: pickPorts({
+      spade: () => services.spade?.ready()?.connection,
+      skills: () => services.skillLibrary,
+      plugins: () => services.plugins,
+    }),
     // Settings › Beta: off, the service refuses requests, queued work, fetches and install steps.
     enabled: () => marketplaceTurnedOn(services.settings),
     schedule: (run, ms) => {

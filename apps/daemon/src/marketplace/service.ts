@@ -24,6 +24,7 @@ import {
 import { learnWithdrawn, readWithdrawn, refreshSource, withdrawalOf } from "./listings.ts";
 import { applyBlocklist, blockedEntry, blockedFindings } from "./blocklist.ts";
 import { discover, publisherPage, report } from "./discover.ts";
+import { botRecipe, listPublishables, withPickedFiles, type PickPorts } from "./pick.ts";
 import { publishAction, type MarketGrantPort } from "./publish.ts";
 import { badgesOf, Trust } from "./trust.ts";
 import type { MarketPublisher } from "@ace/protocol/marketplace";
@@ -56,6 +57,8 @@ export interface MarketplaceOptions {
   suits: () => SuitPort | undefined;
   plugins: () => MarketPluginPort | undefined;
   spade: SpadePort;
+  /** What the publish flow's picker reads: Spade's bots and skills, ace's skills, plugins. */
+  pick?: PickPorts | undefined;
   /** Runs `run` after `ms`; returns its cancel. */
   schedule: (run: () => void, ms: number) => () => void;
   /**
@@ -371,11 +374,28 @@ export class MarketplaceService {
           this.#store.source("market"),
           operation.handle,
         );
-      case "publish":
-        return publishAction(
-          { http: this.#http(), grant: ports.grant },
-          this.#ownFolder(operation.request),
-        );
+      case "publish": {
+        const pick = this.#options.pick;
+        const request = pick ? await withPickedFiles(pick, operation.request) : operation.request;
+        return publishAction({ http: this.#http(), grant: ports.grant }, this.#ownFolder(request));
+      }
+      case "publishables": {
+        const pick = this.#options.pick;
+        if (!pick) return error("unavailable", "Publishing isn't set up on this machine");
+        const listed = await listPublishables(pick, operation.type);
+        // A plugin installed from the marketplace is someone's entry, not the person's own.
+        const fromMarket = (name: string) =>
+          this.#store.install("spade-plugin", name) ?? this.#store.install("ace-plugin", name);
+        return {
+          ...listed,
+          items: listed.items.filter((item) => item.from !== "plugin" || !fromMarket(item.name)),
+        };
+      }
+      case "botRecipe": {
+        const pick = this.#options.pick;
+        if (!pick) return error("unavailable", "Publishing isn't set up on this machine");
+        return botRecipe(pick, operation.id);
+      }
       case "report":
         return report(this.#http(), operation);
       case "picture": {

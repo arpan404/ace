@@ -10,6 +10,7 @@ import type {
   MarketPublishAction,
   MarketScanReport,
 } from "@ace/protocol/marketplace";
+import type { PickAceSkill } from "./pick.ts";
 import { fakeMarket, fakeSpade, marketplaceHarness, type Seen } from "./test-support.ts";
 
 /*
@@ -22,6 +23,8 @@ let market: Awaited<ReturnType<typeof fakeMarket>>;
 let spade: Awaited<ReturnType<typeof fakeSpade>>;
 let harness: Awaited<ReturnType<typeof marketplaceHarness>>;
 let uploads: Seen[];
+/** The person's own skills in ace's library, as the picker reads them. */
+let aceSkills: PickAceSkill[];
 
 const grantText = "grant-0f1e2d3c4b5a69788796a5b4c3d2e1f0";
 const grant = () => Promise.resolve(grantText);
@@ -94,7 +97,21 @@ const heldScan: MarketScanReport = {
 beforeEach(async () => {
   market = await fakeMarket();
   spade = await fakeSpade();
-  harness = await marketplaceHarness({ origin: market.origin, spade });
+  aceSkills = [];
+  harness = await marketplaceHarness({
+    origin: market.origin,
+    spade,
+    pick: {
+      spade: {
+        bots: async () => [],
+        recipe: async () => undefined,
+        skills: async () => [],
+        skillFiles: async () => [],
+      },
+      aceSkills: async () => aceSkills,
+      plugins: undefined,
+    },
+  });
   uploads = [];
   market.route((seen, _response, answer) => {
     if (seen.method === "GET" && seen.path === "/v1/me") answer(200, me);
@@ -237,6 +254,45 @@ describe("drafts", () => {
     expect(contentHash(hashFiles(sent))).toBe(contentHash(hashFiles(files)));
     // Canonical: writing what was sent again gives the same bytes.
     expect(Buffer.from(writeArchive(sent)).equals(Buffer.from(body))).toBe(true);
+  });
+
+  it("upload a skill picked from ace's library by id, read from its folder here", async () => {
+    const files = sampleSkill("triage-mail", { "scripts/sort.sh": "#!/bin/sh\necho sorted\n" });
+    for (const file of files) {
+      await mkdir(dirname(join(folder, file.path)), { recursive: true });
+      await writeFile(join(folder, file.path), file.content);
+    }
+    const id = `skl_${"d".repeat(40)}`;
+    aceSkills = [{ id, name: "triage-mail", title: undefined, description: "", folder }];
+    const result = await publish(
+      {
+        action: "draftCreate",
+        type: "spade-skill",
+        name: "triage-mail",
+        version: "1.0.0",
+        source: { kind: "ace-skill", id },
+      },
+      grant,
+    );
+    expect(result).toMatchObject({ op: "publish", answer: { kind: "draft" } });
+    const sent = readArchive(new Uint8Array(uploads[0]?.body ?? []), typeLimits["spade-skill"]);
+    expect(contentHash(hashFiles(sent))).toBe(contentHash(hashFiles(files)));
+
+    // One that isn't the person's own asks the market nothing.
+    aceSkills = [];
+    expect(
+      await publish(
+        {
+          action: "draftCreate",
+          type: "spade-skill",
+          name: "triage-mail",
+          version: "1.0.0",
+          source: { kind: "ace-skill", id },
+        },
+        grant,
+      ),
+    ).toMatchObject({ op: "error", code: "not_found" });
+    expect(uploads).toHaveLength(1);
   });
 
   it("upload one of the person's Suits from its folder in their library, named by id", async () => {

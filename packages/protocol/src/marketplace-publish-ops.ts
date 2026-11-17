@@ -31,6 +31,11 @@ import {
   MarketVisibility,
   MarketEntryRef,
 } from "./marketplace-publisher.ts";
+import {
+  marketPickedSources,
+  marketPickOperations,
+  marketPickResults,
+} from "./marketplace-publish-pick.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 import { SuitId } from "./suits.ts";
 
@@ -46,13 +51,17 @@ const versionKey = { ...entry, version: MarketVersion };
 /** A picture as base64, at most 1 MiB of bytes. */
 const Image = z.string().max(1_400_000);
 
-/** Where a draft's files come from: a folder on this machine, or an archive the app made. */
+/**
+ * Where a draft's files come from: a folder on this machine, an archive the app made, one of the
+ * person's Suits, or something they picked (a bot, a skill or a plugin), read by the daemon.
+ */
 export const MarketDraftSource = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("folder"), path: z.string().min(1).max(4096) }),
   /** Base64 of the folder's tar archive, at most 6 MB. */
   z.strictObject({ kind: z.literal("archive"), archive: z.string().max(8_000_000) }),
   /** One of the person's own Suits, by id: the daemon reads its folder. */
   z.strictObject({ kind: z.literal("suit"), id: SuitId }),
+  ...marketPickedSources,
 ]);
 export type MarketDraftSource = z.infer<typeof MarketDraftSource>;
 
@@ -214,6 +223,7 @@ export const marketPublishOperations = [
     reason: MarketReportReason,
     note: z.string().max(1000).default(""),
   }),
+  ...marketPickOperations,
 ] as const;
 
 export const marketPublishResults = [
@@ -226,4 +236,5 @@ export const marketPublishResults = [
     data: z.string().max(1_400_000),
   }),
   z.strictObject({ op: z.literal("publish"), answer: MarketPublishAnswer }),
+  ...marketPickResults,
 ] as const;
