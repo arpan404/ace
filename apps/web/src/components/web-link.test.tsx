@@ -36,7 +36,7 @@ test("a link with ⌘ and Ctrl held opens in the system's browser", async () => 
   expect(tab.mock.calls[0]?.[0]).toBe("https://example.com/docs");
 });
 
-test("a local address opens in ace's browser even with ⌘ and Ctrl held", async () => {
+test("a local address opens in the system's browser with ⌘ and Ctrl held", async () => {
   const opened: string[] = [];
   const tab = vi.spyOn(window, "open").mockReturnValue(null);
   const user = userEvent.setup();
@@ -44,8 +44,8 @@ test("a local address opens in ace's browser even with ⌘ and Ctrl held", async
   await user.keyboard("{Meta>}{Control>}");
   await user.click(link);
   await user.keyboard("{/Control}{/Meta}");
-  expect(opened).toEqual(["http://localhost:5173/"]);
-  expect(tab).not.toHaveBeenCalled();
+  expect(opened).toEqual([]);
+  expect(tab.mock.calls[0]?.[0]).toBe("http://localhost:5173/");
 });
 
 test("without ace's browser a link opens in the system's browser", async () => {
