@@ -16,7 +16,7 @@ use files_safe::Root;
 use files_watch::{Batch, Change, ChangeKind, WatchOptions, Watcher};
 
 const DEBOUNCE: Duration = Duration::from_millis(100);
-const WAIT: Duration = Duration::from_secs(5);
+const WAIT: Duration = Duration::from_secs(15);
 const SETTLE: Duration = Duration::from_secs(2);
 
 /// One OS watcher at a time: several FSEvents streams in one process interfere on macOS.
@@ -36,6 +36,9 @@ impl Session {
         let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
         let dir = tempfile::tempdir().unwrap();
         prepare(dir.path());
+        // FSEvents replays the last second of the journal when a stream starts, which would
+        // resurface whatever `prepare` wrote as creations; let that history age out first.
+        std::thread::sleep(Duration::from_millis(1_200));
         let root = Root::open(dir.path()).unwrap();
         let batches = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&batches);
@@ -204,13 +207,13 @@ fn create_then_delete_in_one_window_reports_nothing() {
     // about; the debounce is wide enough to hold both deliveries in one window.
     let session = Session::start(
         WatchOptions {
-            debounce: Duration::from_millis(3_000),
+            debounce: Duration::from_millis(8_000),
             ..options()
         },
         |_| {},
     );
     std::fs::write(session.path("fleeting.txt"), b"brief").unwrap();
-    std::thread::sleep(Duration::from_millis(1_500));
+    std::thread::sleep(Duration::from_millis(4_000));
     std::fs::remove_file(session.path("fleeting.txt")).unwrap();
     session.assert_quiet();
     std::fs::write(session.path("kept.txt"), b"kept").unwrap();

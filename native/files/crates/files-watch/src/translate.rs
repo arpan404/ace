@@ -39,26 +39,26 @@ pub(crate) fn translate(
     if translation.rescan {
         return translation;
     }
-    if let EventKind::Modify(ModifyKind::Name(RenameMode::Both)) = event.kind {
-        if let [from, to] = event.paths.as_slice() {
-            push(
-                &mut translation,
-                root,
-                excluder,
-                from,
-                ChangeKind::Deleted,
-                false,
-            );
-            push(
-                &mut translation,
-                root,
-                excluder,
-                to,
-                ChangeKind::Created,
-                is_dir(look, to),
-            );
-            return translation;
-        }
+    if let EventKind::Modify(ModifyKind::Name(RenameMode::Both)) = event.kind
+        && let [from, to] = event.paths.as_slice()
+    {
+        push(
+            &mut translation,
+            root,
+            excluder,
+            from,
+            ChangeKind::Deleted,
+            false,
+        );
+        push(
+            &mut translation,
+            root,
+            excluder,
+            to,
+            ChangeKind::Created,
+            is_dir(look, to),
+        );
+        return translation;
     }
     for path in &event.paths {
         if let Some((kind, directory)) = classify(&event.kind, path, look) {

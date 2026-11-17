@@ -171,11 +171,11 @@ impl Worker {
                         coalescer.overflow(now);
                         continue;
                     }
-                    if let Some(message) = self.backend.adopt(&mut translation.changes) {
-                        if warning.as_deref() != Some(message.as_str()) {
-                            (self.sink)(Batch::Warning(message.clone()));
-                            warning = Some(message);
-                        }
+                    if let Some(message) = self.backend.adopt(&mut translation.changes)
+                        && warning.as_deref() != Some(message.as_str())
+                    {
+                        (self.sink)(Batch::Warning(message.clone()));
+                        warning = Some(message);
                     }
                     for change in translation.changes {
                         if let Some(batch) = coalescer.push(change, now) {
