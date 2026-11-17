@@ -354,7 +354,7 @@ Example:
 | resetCredits | no | [QuotaResetCredits.json](schema/QuotaResetCredits.json) |  |
 | usageNotice | no | object | {"properties":{"reason":{"type":"string","enum":["signed_out","unavailable"]},"message":{"type":"string","minLength":1,"maxLength":256},"observedAt":{"type":"number","minimum":0}},"required":["reason","message","observedAt"]} |
 | windows | yes | object | {"propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/QuotaWindow.json"},"maxProperties":32,"x-ace-constraint":"At most 32 quota windows."} |
-| blockers | no | object | {"default":{},"properties":{"overflow":{"type":"boolean","const":true},"limitError":{"$ref":"https://ace.local/protocol/v1/QuotaWindow.json"},"homeUnavailable":{"type":"string","enum":["home_missing","home_unreadable","foreign_home","home_conflict"]}}} |
+| blockers | no | object | {"default":{},"properties":{"overflow":{"type":"boolean","const":true},"limitError":{"$ref":"https://ace.local/protocol/v1/QuotaWindow.json"},"homeUnavailable":{"type":"string","enum":["home_missing","home_unreadable","foreign_home","home_conflict","home_checking"]}}} |
 | usage | yes | object | {"properties":{"inputTokens":{"type":"number","minimum":0},"outputTokens":{"type":"number","minimum":0},"costUsd":{"type":"number","minimum":0}}} |
 
 Example:

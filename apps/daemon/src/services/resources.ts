@@ -33,6 +33,14 @@ function labelOf(label: string | ResourceLabel | undefined): ResourceLabel {
 
 /** Resources register as soon as they open; every disposer runs even after failure. */
 export class Resources {
+  /**
+   * Sees each disposer that runs on its own because it was registered after cleanup began, so
+   * an owner can wait for it too: `close()` has already settled without it.
+   */
+  private readonly lateWork: ((work: Promise<void>) => void) | undefined;
+  constructor(options: { lateWork?: (work: Promise<void>) => void } = {}) {
+    this.lateWork = options.lateWork;
+  }
   private readonly disposers: Entry[] = [];
   private readonly parallel: Entry[] = [];
   private readonly admissionStops: (() => void)[] = [];
@@ -60,14 +68,14 @@ export class Resources {
     const entry = { label: labelOf(label), dispose };
     if (this.closing) {
       // An aborted startup can finish acquiring a resource after cleanup began.
-      void this.run(entry).catch((error: unknown) => this.errors.push(error));
+      this.runLate(entry);
     } else this.disposers.push(entry);
   }
   /** Independent service owners close together; shared dependencies still close last. */
   ownParallel(dispose: Dispose, label?: string | ResourceLabel): void {
     const entry = { label: labelOf(label), dispose };
     if (this.draining || this.closing) {
-      void this.run(entry).catch((error: unknown) => this.errors.push(error));
+      this.runLate(entry);
     } else this.parallel.push(entry);
   }
   /**
@@ -95,6 +103,12 @@ export class Resources {
   close(): Promise<void> {
     this.closing ??= Promise.resolve().then(() => this.dispose());
     return this.closing;
+  }
+  private runLate(entry: Entry): void {
+    const work = this.run(entry).catch((error: unknown) => {
+      this.errors.push(error);
+    });
+    this.lateWork?.(work);
   }
   private async run(entry: Entry): Promise<void> {
     this.running.add(entry);

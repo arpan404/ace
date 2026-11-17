@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 import { ProviderInstance } from "@ace/protocol/accounts";
 import { createInstance, initialQuota, openRegistryIndex } from "./index.ts";
 
-test("opening the account index admits no assignments before saved homes are canonicalized", async () => {
+test("an account reads as checking, and takes no work, until its saved home is canonicalized", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-account-ready-"));
   const home = join(root, "provider");
   await mkdir(home);
@@ -27,9 +27,10 @@ test("opening the account index admits no assignments before saved homes are can
   db.close();
   const registry = await openRegistryIndex(path);
   try {
-    expect(() =>
+    expect(registry.get("account")?.quota.blockers.homeUnavailable).toBe("home_checking");
+    expect(
       registry.pickInstance({ provider: "claude", role: "worker", estimatedLoad: 1 }, 0),
-    ).toThrow("still being validated");
+    ).toBeUndefined();
     await registry.ready;
     expect(registry.get("account")?.instance.homeDir).toBe(await realpath(home));
     expect(

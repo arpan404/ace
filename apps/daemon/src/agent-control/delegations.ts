@@ -19,6 +19,7 @@ import {
 } from "./child-status.ts";
 import type { AccountRegistry } from "@ace/accounts";
 import { accountForName, registeredAccounts } from "./account-names.ts";
+import { awaitDelegationAccounts } from "./account-checks.ts";
 import { namedAccountId } from "./selection.ts";
 import {
   CommandId,
@@ -518,6 +519,8 @@ export class DelegationService {
     this.admission.validate(caller, request);
     await this.modelsReady(budget);
     const accountId = namedAccountId(this.deps, request);
+    // Where the child goes is decided only once its candidate accounts' folders have answered.
+    await awaitDelegationAccounts(this.deps.accounts, request, accountId, budget);
     // A child is placed, or its named account refused, by quota: on readings no older than the
     // cadence, read again only when they are older.
     if (request.provider !== "acp" && this.deps.freshLimits)

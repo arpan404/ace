@@ -23,11 +23,9 @@ export interface DaemonCommandIntegration {
   skills?: DaemonSkillOptions;
 }
 export async function startCommands(context: ServiceContext): Promise<void> {
-  const initialization = warmup(context, "commands", async () => {
-    await context.services.accountRegistry?.ready;
-    context.signal.throwIfAborted();
-    await initializeCommands(context);
-  });
+  // Never waits for account home checks: one silent folder must not hold every account's
+  // commands and skills. An account joins the library once its own folder answers (ADR 0175).
+  const initialization = warmup(context, "commands", () => initializeCommands(context));
   context.resources.own(() => initialization, "commands startup");
 }
 async function initializeCommands({
@@ -70,7 +68,12 @@ async function initializeCommands({
   services.skillLibrary = skillLibrary;
   resources.own(() => skillLibrary.close(), "skill library");
   if (plugins) resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));
-  const registered = () => services.accountRegistry?.list() ?? [];
+  // Accounts whose folder hasn't answered startup's check are left out until it does, so nothing
+  // here reads or probes a silent home.
+  const registered = () => {
+    const registry = services.accountRegistry;
+    return (registry?.list() ?? []).filter(({ instance }) => !registry?.isChecking(instance.id));
+  };
   const defaults = defaultCommandInstances(process.env);
   let discoveryTail: Promise<unknown> = Promise.resolve();
   let pendingDiscovery = 0;
