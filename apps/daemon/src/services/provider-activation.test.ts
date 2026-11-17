@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { activateProviders, engineReadiness } from "./provider-activation.ts";
+import { activateProviders, discoverThenBind, engineReadiness } from "./provider-activation.ts";
 
 const settle = async () => {
   for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
@@ -104,4 +104,33 @@ test("failed thread recovery shows the engine degraded even after providers are 
   await activation.settled;
   await settle();
   expect(readiness()).toEqual({ state: "degraded", error: "Thread recovery failed: store busy" });
+});
+
+test("a rediscovery that registers Pi and then fails still binds Pi before it reports the failure", async () => {
+  const registered: string[] = [];
+  const bound: string[] = [];
+  const reading = discoverThenBind({
+    signal: new AbortController().signal,
+    discover: async () => {
+      registered.push("pi");
+      throw new Error("Antigravity launch could not be resolved");
+    },
+    bind: async () => {
+      bound.push(...registered);
+    },
+  });
+  await expect(reading).rejects.toThrow("Antigravity launch could not be resolved");
+  expect(bound).toEqual(["pi"]);
+});
+
+test("a failed binding is reported when discovery itself succeeded", async () => {
+  await expect(
+    discoverThenBind({
+      signal: new AbortController().signal,
+      discover: async () => {},
+      bind: async () => {
+        throw new Error("Cursor sign-in unavailable");
+      },
+    }),
+  ).rejects.toThrow("Cursor sign-in unavailable");
 });

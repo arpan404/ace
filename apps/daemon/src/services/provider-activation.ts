@@ -44,25 +44,43 @@ export function activateProviders<SkillRoots>(
       return undefined;
     });
   const settled = skillRoots.then(async () => {
-    let failure: unknown;
     try {
-      steps.signal.throwIfAborted();
-      await steps.discover();
-    } catch (error) {
-      failure = error;
-    }
-    // Adapters discovery registered before it failed still get bound: none may stay unbound.
-    try {
-      if (!steps.signal.aborted) await steps.bind();
-    } catch (error) {
-      failure ??= error;
-    }
-    current =
-      failure === undefined || steps.signal.aborted
+      await discoverThenBind(steps);
+      current = { state: "ready" };
+    } catch (failure) {
+      current = steps.signal.aborted
         ? { state: "ready" }
         : { state: "degraded", error: `Provider discovery failed: ${message(failure)}` };
+    }
   });
   return { settled, skillRoots, state: () => current };
+}
+
+/**
+ * One provider read, at startup or when a provider is enabled later: discovery, then binding
+ * of whatever it registered, even when discovery failed partway, since an adapter left unbound
+ * would open sessions without its accounts or ace's tools, and the registry having it stops a
+ * later rediscovery. Rejects afterwards with discovery's failure, or else binding's.
+ */
+export async function discoverThenBind(
+  steps: Pick<ActivationSteps<unknown>, "signal" | "discover" | "bind">,
+): Promise<void> {
+  let failure: unknown;
+  let failed = false;
+  try {
+    steps.signal.throwIfAborted();
+    await steps.discover();
+  } catch (error) {
+    failure = error;
+    failed = true;
+  }
+  try {
+    if (!steps.signal.aborted) await steps.bind();
+  } catch (error) {
+    if (!failed) failure = error;
+    failed = true;
+  }
+  if (failed) throw failure;
 }
 
 /** The engine's own state: starting until providers are read and recovery has run. */

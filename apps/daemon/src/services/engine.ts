@@ -28,7 +28,7 @@ import { accessDefaults } from "../engine/access-defaults.ts";
 import { projectAccess } from "../project-access.ts";
 import { discoverAdapters, settleAll } from "../engine/adapters.ts";
 import { AdapterRegistry } from "../engine/registry.ts";
-import { activateProviders, engineReadiness } from "./provider-activation.ts";
+import { activateProviders, discoverThenBind, engineReadiness } from "./provider-activation.ts";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ServiceContext } from "./types.ts";
 export async function startEngine(context: ServiceContext): Promise<void> {
@@ -198,27 +198,35 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   if (!engineOptions.registry) {
     let update = activation.settled;
     services.rediscoverProviders = () => {
-      const discovery = update.then(async () => {
-        context.signal.throwIfAborted();
-        await discoverAdapters(
-          stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
-          (cli) => daemonClaudeAdapter(context, cli),
-          async (adapters) => {
-            await settleAll([
-              adapters.has("pi") ? Promise.resolve() : registerPi(context, adapters),
-              registerAntigravity(context, adapters),
-            ]);
+      const discovery = update.then(() =>
+        discoverThenBind({
+          signal: context.signal,
+          discover: () =>
+            discoverAdapters(
+              stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
+              (cli) => daemonClaudeAdapter(context, cli),
+              async (adapters) => {
+                await settleAll([
+                  adapters.has("pi") ? Promise.resolve() : registerPi(context, adapters),
+                  registerAntigravity(context, adapters),
+                ]);
+              },
+              cursorOptions,
+              services.providerConfigurations?.for("cursor").enabled === false
+                ? async () => ({ installed: false, supported: false })
+                : undefined,
+              registry,
+            ).then(() => {}),
+          bind: async () => {
+            try {
+              await registerCursorSdkHome();
+            } finally {
+              registry.bindSessions(bindProvider, { unboundOnly: true });
+            }
+            await activateCursorProvider(context, registry);
           },
-          cursorOptions,
-          services.providerConfigurations?.for("cursor").enabled === false
-            ? async () => ({ installed: false, supported: false })
-            : undefined,
-          registry,
-        );
-        await registerCursorSdkHome();
-        registry.bindSessions(bindProvider, { unboundOnly: true });
-        await activateCursorProvider(context, registry);
-      });
+        }),
+      );
       update = discovery.catch((error: unknown) =>
         log.log("warn", "Provider discovery failed", logError(error)),
       );
