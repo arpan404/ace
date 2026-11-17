@@ -70,7 +70,16 @@ pub fn run_with(
     args: &[OsString],
 ) -> std::io::Result<u32> {
     let sid = profile::ensure(name, display)?;
-    let mut caps = Capabilities::new(&sid)?;
+    // A run with no network is a Less Privileged AppContainer; a networked run is not. The
+    // in-container egress bridge (and any networked command) must call `WSAStartup`, which fails
+    // under LPAC — the Winsock catalog resources are reachable by `ALL APPLICATION PACKAGES` but not
+    // by the restricted group an LPAC keeps — and the only capability that would fix it (a network
+    // capability) would also let the container reach the network directly, past the proxy. So a
+    // networked run stays a no-capability AppContainer (still contained: its sole egress is the
+    // SID-scoped pipe), and LPAC is applied only where it costs nothing: runs that never open a
+    // socket. See ADR 0167.
+    let lpac = bridge.is_none();
+    let mut caps = Capabilities::new(&sid, lpac)?;
     let job = Job::create(limits)?;
 
     // The bridge first, so its loopback endpoint is up before the command runs. No inherited
@@ -159,9 +168,9 @@ fn spawn_bridge(
     Ok(process)
 }
 
-/// One proc-thread attribute list carrying a container SID with no capabilities, plus the Less
-/// Privileged AppContainer (LPAC) policy. Held so the SID and the policy word outlive every process
-/// creation that reads them.
+/// One proc-thread attribute list carrying a container SID with no capabilities, and — for a run
+/// with no network — the Less Privileged AppContainer (LPAC) policy. Held so the SID and the policy
+/// word outlive every process creation that reads them.
 ///
 /// LPAC (the `ALL_APPLICATION_PACKAGES_POLICY` attribute set to opt out) drops the ALL APPLICATION
 /// PACKAGES SID from the token, so files, registry keys and COM objects that are only readable by
@@ -169,29 +178,36 @@ fn spawn_bridge(
 /// `System32`) carry the restricted ALL RESTRICTED APPLICATION PACKAGES ACE that an LPAC keeps, so
 /// they still load; a run reaches only its own granted folders (the container SID ACEs Spade writes
 /// under its data directory) and the egress pipe (granted the container SID), nothing wider.
+///
+/// It is **not** applied to a networked run: `WSAStartup` needs Winsock catalog resources reachable
+/// by `ALL APPLICATION PACKAGES` but not by the restricted group, so sockets fail under LPAC, and
+/// the only capability that would restore them would also let the container reach the network past
+/// the proxy. A networked run is therefore a plain no-capability AppContainer (`policy` is `None`).
 struct Capabilities {
     _sid: Sid,
     caps: Box<SECURITY_CAPABILITIES>,
-    policy: Box<u32>,
+    policy: Option<Box<u32>>,
     buffer: Vec<u8>,
 }
 
 impl Capabilities {
-    fn new(sid: &Sid) -> std::io::Result<Self> {
+    fn new(sid: &Sid, lpac: bool) -> std::io::Result<Self> {
         let caps = Box::new(SECURITY_CAPABILITIES {
             AppContainerSid: sid.as_psid(),
             Capabilities: std::ptr::null_mut(),
             CapabilityCount: 0,
             Reserved: 0,
         });
-        let policy = Box::new(ALL_APPLICATION_PACKAGES_OPT_OUT);
+        let policy = lpac.then(|| Box::new(ALL_APPLICATION_PACKAGES_OPT_OUT));
+        // One attribute for the SID, plus the LPAC policy when this run has no network.
+        let count = 1 + u32::from(policy.is_some());
         let mut size = 0usize;
         // SAFETY: the documented two-call pattern; the first fails on purpose to size the list.
-        let _ = unsafe { InitializeProcThreadAttributeList(None, 2, None, &mut size) };
+        let _ = unsafe { InitializeProcThreadAttributeList(None, count, None, &mut size) };
         let mut buffer = vec![0u8; size];
         let list = LPPROC_THREAD_ATTRIBUTE_LIST(buffer.as_mut_ptr().cast());
-        // SAFETY: `list` has `size` bytes; two attributes are declared.
-        unsafe { InitializeProcThreadAttributeList(Some(list), 2, None, &mut size) }
+        // SAFETY: `list` has `size` bytes; `count` attributes are declared.
+        unsafe { InitializeProcThreadAttributeList(Some(list), count, None, &mut size) }
             .map_err(crate::io)?;
         // SAFETY: `caps` is boxed, so its address is stable while this struct lives.
         unsafe {
@@ -206,20 +222,22 @@ impl Capabilities {
             )
         }
         .map_err(crate::io)?;
-        // SAFETY: `policy` is boxed, so its address is stable while this struct lives. This turns
-        // the AppContainer into an LPAC: without it, every app package can read system-wide files.
-        unsafe {
-            UpdateProcThreadAttribute(
-                list,
-                0,
-                PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY as usize,
-                Some(std::ptr::from_ref(policy.as_ref()).cast()),
-                std::mem::size_of::<u32>(),
-                None,
-                None,
-            )
+        if let Some(policy) = policy.as_ref() {
+            // SAFETY: `policy` is boxed, so its address is stable while this struct lives. This turns
+            // the AppContainer into an LPAC: without it, every app package can read system-wide files.
+            unsafe {
+                UpdateProcThreadAttribute(
+                    list,
+                    0,
+                    PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY as usize,
+                    Some(std::ptr::from_ref(policy.as_ref()).cast()),
+                    std::mem::size_of::<u32>(),
+                    None,
+                    None,
+                )
+            }
+            .map_err(crate::io)?;
         }
-        .map_err(crate::io)?;
         Ok(Self {
             _sid: sid.clone(),
             caps,
