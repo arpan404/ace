@@ -6,7 +6,7 @@ import { commandJson, commandTree, helpFor } from "../help/index.ts";
 import { overview } from "../help/pages.ts";
 import { emit, print } from "../io.ts";
 import { CliFailure, usageFailure } from "../output.ts";
-import { legacy, type CommandContext, type Handlers } from "./context.ts";
+import type { CommandContext, Handlers } from "./context.ts";
 
 /** This build's version: stamped by the release, else read from the install. */
 export async function versionOf(env: NodeJS.ProcessEnv): Promise<string> {
@@ -108,8 +108,5 @@ export const basicHandlers: Handlers = {
         .join(""),
     );
   },
-  status: async (context) => {
-    const args = legacy(context, ["status"]);
-    return (await import("../access.ts")).accessCommand(args, context.config().dataDir);
-  },
+  status: async (context) => (await import("../work/status.ts")).statusCommand(context),
 };

@@ -44,6 +44,8 @@ export const CliErrorCode = z.enum([
   "bad_argument",
   "too_many_arguments",
   "retired_command",
+  /** A reference prefix matched more than one thing (a thread, a request). */
+  "ambiguous",
   // refused (4)
   "refused",
   "not_found",

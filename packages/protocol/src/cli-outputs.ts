@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { CliTaskStatus, CliTree } from "./cli-control.ts";
+import { CliOpenRequest, CliRequestList, CliTaskStatus, CliTree } from "./cli-control.ts";
+import { ThreadStatus } from "./thread-status.ts";
+import { Thread } from "./thread.ts";
+import { Item } from "./items.ts";
+import { Interaction } from "./interactions.ts";
+import { Project } from "./projects.ts";
+import { ThreadListEntry, ThreadListWindow } from "./wire-core.ts";
 import { CliCommandHelp, CliCommandTree, CliVersionOutput } from "./cli-output.ts";
 import { DaemonHealth } from "./release.ts";
 
@@ -33,15 +39,89 @@ export const CliDaemonStart = z.object({
 
 export const CliDaemonDown = z.object({ running: z.literal(false) });
 
+/** One row of `ace thread list`: the thread's state as the app's row shows it. */
+export const CliThreadRow = z.object({
+  threadId: z.string(),
+  title: z.string(),
+  project: z.string(),
+  workspaceId: z.string(),
+  provider: z.string(),
+  branch: z.string().optional(),
+  pinned: z.boolean(),
+  settled: z.boolean(),
+  /** needs-you, failed, working, waiting, limited, background, finished, idle or syncing. */
+  state: z.string(),
+  /** The state in words: "Needs approval", "Waiting on 2 agents". */
+  meaning: z.string(),
+  waitingOn: z.number().int().optional(),
+  since: z.number().optional(),
+  activityAt: z.number(),
+});
+
+/** `ace thread list`: the threads in the app's order, their rows, and the next page. */
+export const CliThreadList = z.object({
+  threads: z.array(ThreadListEntry),
+  rows: z.array(CliThreadRow),
+  next: z.string().nullable(),
+  window: ThreadListWindow.optional(),
+});
+
+/** `ace thread show`: the thread, a bounded window of items and its requests. */
+export const CliThreadShow = z.object({
+  thread: Thread.loose(),
+  items: z.array(Item),
+  itemsBefore: z.number().nullable(),
+  interactions: z.array(Interaction),
+});
+
+/** `ace thread status` for a thread no agent delegated: its state and its whole tree's. */
+export const CliThreadState = z.object({
+  threadId: z.string(),
+  status: ThreadStatus,
+  /** ok, failed, needs-human or uncertain once the whole tree has an outcome; else working. */
+  state: z.string(),
+  tree: CliTree,
+});
+
+/** `ace project show`. */
+export const CliProjectShow = z.object({
+  project: Project,
+  threads: z.object({
+    total: z.number().int(),
+    needsYou: z.number().int(),
+    running: z.number().int(),
+  }),
+});
+
+/** `ace status`: the daemon's health (unchanged), plus the account and what needs you. */
+export const CliStatus = z.union([
+  DaemonHealth.loose().extend({
+    account: z.object({ signedIn: z.boolean(), email: z.string().optional() }).optional(),
+    /** Threads waiting on a person. */
+    needsYou: z.number().int().optional(),
+    /** Threads at work. Not `running`, which says whether the daemon runs. */
+    working: z.number().int().optional(),
+  }),
+  CliDaemonDown,
+]);
+
 export const cliOutputs = {
   help: z.union([CliCommandTree, CliCommandHelp]),
   version: CliVersionOutput,
-  status: z.union([DaemonHealth.loose(), CliDaemonDown]),
+  status: CliStatus,
   "daemon.status": z.union([DaemonHealth.loose(), CliDaemonDown]),
   "daemon.start": CliDaemonStart,
   "daemon.stop": z.object({ stopped: z.boolean() }).loose(),
   "thread.start": CliAdmission,
   "thread.wait": CliTree,
-  "thread.status": CliTaskStatus,
+  "thread.status": z.union([CliTaskStatus, CliThreadState]),
+  "thread.list": CliThreadList,
+  "thread.show": CliThreadShow,
+  "thread.tree": CliTree,
+  "thread.fork": CliReceipt.and(z.object({ forkThreadId: z.string().optional() })),
+  "request.list": CliRequestList,
+  "request.show": CliOpenRequest,
+  "project.list": z.object({ projects: z.array(Project), next: z.string().nullable() }).loose(),
+  "project.show": CliProjectShow,
   receipt: CliReceipt,
 } satisfies Record<string, z.ZodType>;
