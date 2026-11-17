@@ -50,7 +50,9 @@ it.each(["acp", "transitions", "provider_metadata"] as const)(
       store.close();
       const db = new DatabaseSync(path);
       try {
-        db.exec(`ALTER TABLE threads DROP COLUMN ${missing}`);
+        // A pre-release layout without the column was never opened by a build with the sidebar
+        // triggers, which read thread columns and are created at open only after the check.
+        db.exec(`DROP TRIGGER sidebar_columns_insert; ALTER TABLE threads DROP COLUMN ${missing}`);
       } finally {
         db.close();
       }
