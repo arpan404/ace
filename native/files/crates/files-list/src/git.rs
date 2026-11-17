@@ -76,10 +76,48 @@ fn common_dir_of(git_dir: &Path) -> PathBuf {
     std::fs::canonicalize(&joined).unwrap_or(joined)
 }
 
-/// `<git-dir>/info/exclude`, which git applies to every repository but never commits.
-pub(crate) fn info_exclude(common_dir: &Path) -> Option<PathBuf> {
-    let path = common_dir.join("info").join("exclude");
-    path.is_file().then_some(path)
+/// The global excludes file git would read: `core.excludesFile` from the user's configuration, or
+/// the XDG default when nothing sets one.
+///
+/// Git's `[include]` and `[includeIf]` sections are not followed, so a value set in an included
+/// file is not seen.
+pub(crate) fn global_excludes() -> Option<PathBuf> {
+    let mut found = None;
+    for config in user_configs() {
+        if let Some(text) = read_bounded(&config)
+            && let Some(value) = parse_core_excludes_file(&text)
+        {
+            found = resolve_path(&value, &home()?);
+        }
+    }
+    match found {
+        Some(path) => Some(path),
+        None => Some(xdg_config()?.join("git").join("ignore")),
+    }
+}
+
+/// The user's configuration files, in the order git reads them: the XDG one first, then
+/// `~/.gitconfig`, which wins where both set a key.
+fn user_configs() -> Vec<PathBuf> {
+    let mut configs = Vec::new();
+    if let Some(xdg) = xdg_config() {
+        configs.push(xdg.join("git").join("config"));
+    }
+    if let Some(home) = home() {
+        configs.push(home.join(".gitconfig"));
+    }
+    configs
+}
+
+fn home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+fn xdg_config() -> Option<PathBuf> {
+    match std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+        Some(dir) => Some(PathBuf::from(dir)),
+        None => Some(home()?.join(".config")),
+    }
 }
 
 /// The file named by `core.excludesFile` in the repository's own config, when it sets one.

@@ -269,3 +269,70 @@ fn git(dir: &std::path::Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn creating_a_gitignore_refreshes_the_flags_without_invalidate() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    write(root, &format!("sub/{IGNORED}"), "x");
+
+    let lister = lister(root);
+    let before = first_page(&lister, "sub", &options(100));
+    assert!(!entry(&before.entries, &format!("sub/{IGNORED}")).ignored);
+
+    write(root, "sub/.gitignore", "*.ignored-by-test\n");
+
+    let after = first_page(&lister, "sub", &options(100));
+    assert!(entry(&after.entries, &format!("sub/{IGNORED}")).ignored);
+}
+
+#[test]
+fn rewriting_a_gitignore_in_place_refreshes_the_flags() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    write(root, "sub/.gitignore", "*.ignored-a-test\n");
+    write(root, "sub/file.ignored-a-test", "x");
+    write(root, "sub/file.ignored-b-test", "x");
+
+    let path = root.join("sub/.gitignore");
+    let older = std::time::SystemTime::now() - std::time::Duration::from_secs(20);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(older)
+        .unwrap();
+
+    let lister = lister(root);
+    let before = first_page(&lister, "sub", &options(100));
+    assert!(entry(&before.entries, "sub/file.ignored-a-test").ignored);
+    assert!(!entry(&before.entries, "sub/file.ignored-b-test").ignored);
+
+    write(root, "sub/.gitignore", "*.ignored-b-test\n");
+
+    let after = first_page(&lister, "sub", &options(100));
+    assert!(!entry(&after.entries, "sub/file.ignored-a-test").ignored);
+    assert!(entry(&after.entries, "sub/file.ignored-b-test").ignored);
+}
+
+#[test]
+fn a_nested_repository_ignores_by_its_own_rules() {
+    let home = TempDir::new().unwrap();
+    let repo = home.path();
+    folder(repo, ".git");
+    folder(repo, "sub/.git/info");
+    write(repo, ".gitignore", "*.log\n");
+    write(repo, "sub/.git/info/exclude", "*.ignored-by-test\n");
+    write(repo, "sub/x.log", "x");
+    write(repo, "sub/y.ignored-by-test", "x");
+    write(repo, "sub/kept.txt", "x");
+    write(repo, "top.log", "x");
+
+    let page = first_page(&lister(&repo.join("sub")), "", &options(100));
+    assert!(!entry(&page.entries, "x.log").ignored);
+    assert!(entry(&page.entries, "y.ignored-by-test").ignored);
+    assert!(!entry(&page.entries, "kept.txt").ignored);
+
+    let outer = first_page(&lister(repo), "", &options(100));
+    assert!(entry(&outer.entries, "top.log").ignored);
+}

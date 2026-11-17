@@ -151,16 +151,14 @@ impl Lister {
     /// clears everything.
     pub fn invalidate(&self, dirs: &[&str]) {
         for dir in dirs {
-            if let Ok(mut rules) = self.rules.write() {
-                rules.retain(|key, _| !is_within(key, dir));
-            }
-            if let Ok(mut snapshots) = self.snapshots.write() {
-                snapshots.retain(|key, _| !is_within(key, dir));
-            }
+            self.forget(dir);
         }
     }
 
     /// The ignore chain for `dir`, built from its parent's chain and cached.
+    ///
+    /// A chain whose ignore files were edited in place is rebuilt, and the listings below it are
+    /// dropped, so the next listing reports the new flags without anyone calling `invalidate`.
     fn rules_for(&self, dir: &str) -> Result<Arc<Rules>, Error> {
         if let Some(cached) = self
             .rules
@@ -168,7 +166,10 @@ impl Lister {
             .ok()
             .and_then(|rules| rules.get(dir).cloned())
         {
-            return Ok(cached);
+            if cached.is_current() {
+                return Ok(cached);
+            }
+            self.forget(dir);
         }
         let rules = if dir.is_empty() {
             Rules::root(&self.root)
@@ -184,6 +185,16 @@ impl Lister {
             cache.insert(dir.to_owned(), Arc::clone(&rules));
         }
         Ok(rules)
+    }
+
+    /// Drops the rules and listings cached for `dir` and everything below it.
+    fn forget(&self, dir: &str) {
+        if let Ok(mut rules) = self.rules.write() {
+            rules.retain(|key, _| !is_within(key, dir));
+        }
+        if let Ok(mut snapshots) = self.snapshots.write() {
+            snapshots.retain(|key, _| !is_within(key, dir));
+        }
     }
 
     /// The listing of `dir`, re-read when the folder or the hide patterns changed.
