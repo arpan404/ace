@@ -7,6 +7,7 @@ import { createSocketRegistry } from "./services/registry.ts";
 import { decodeDeviceFrame, parseSocketMessage } from "./services/socket-message.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
+import { pairedMachinePaths } from "./machine-paths.ts";
 import { MaintenanceGate } from "@ace/service";
 import { AppUpdateBoard } from "./app-update-board.ts";
 import { createMachineUpdates } from "./machine-update/create.ts";
@@ -190,6 +191,13 @@ export async function startServer(options: ServerOptions): Promise<{
     appUpdate,
     ...(options.homeData ? { homeData: options.homeData } : {}),
     updateHold,
+  };
+  // Paired machines learn where else this one answers from `describe` (ADR 0182).
+  options.servedPaths = () => pairedMachinePaths(access.remoteStatus(), access.pairing());
+  options.relayDeviceGrant = async (deviceId, signal) => {
+    const account = options.machineAccount;
+    if (!account?.status().signedIn) return undefined;
+    return account.deviceGrant(deviceId, signal);
   };
   const { local, remoteHttp } = httpChains(options, auth, access, maintenance, () => preview);
   const remote = options.remote

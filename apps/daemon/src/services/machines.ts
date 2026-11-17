@@ -86,6 +86,7 @@ export function startMachines(context: ServiceContext): void {
     storageFull: () => maintenance?.held("storage") ?? false,
   });
   resources.own(() => threads.close());
+  services.machineThreads = threads;
   // Children held while admission was closed start as soon as it reopens.
   // Queued tasks first, then the messages held behind them, in the order they came.
   const reopened = () => {
@@ -227,6 +228,8 @@ export function startMachines(context: ServiceContext): void {
       commands,
     },
     log: record("info"),
+    parcels: () => services.parcels?.target,
+    paths: () => services.servedPaths?.() ?? [],
   });
 
   // Bound once the children exist below: a machine answering again ends their wait on it.
@@ -254,14 +257,15 @@ export function startMachines(context: ServiceContext): void {
     transport: options.machines?.transport ?? machineRequest,
     transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
+    described: (profile, description) => services.parcels?.described(profile, description),
     // Sim tools are offered here while a linked machine lends its devices, even with ours off.
     served: () => services.mcp?.toolsChanged(),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.
   const fleet = new FleetLinks({
     profiles: () => new Profiles(config.dataDir),
-    describe: async (profile) =>
-      MachineDescription.parse(
+    describe: async (profile) => {
+      const description = MachineDescription.parse(
         await directory.call(
           profile,
           {
@@ -274,7 +278,16 @@ export function startMachines(context: ServiceContext): void {
           { op: "describe" },
           { timeoutMs: 4000 },
         ),
-      ),
+      );
+      const table = new Profiles(config.dataDir);
+      try {
+        const linked = table.list().find((entry) => entry.name === profile);
+        if (linked) services.parcels?.described(linked, description);
+      } finally {
+        table.close();
+      }
+      return description;
+    },
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
     redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
     hostName,

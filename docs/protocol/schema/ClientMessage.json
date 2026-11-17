@@ -1040,6 +1040,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MachineRelayCall.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/CommandsList.json"
     },
     {
@@ -2505,7 +2508,8 @@
             "browser",
             "screen",
             "provider_auth",
-            "media"
+            "media",
+            "machine"
           ],
           "type": "string"
         },

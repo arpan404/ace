@@ -53,6 +53,10 @@ export async function pairedMachines(
     sourceScreen?: ComputerUse;
     /** Both daemons' poll interval; short by default so tests run quickly. */
     pollMs?: number;
+    /** More of the target's environment, e.g. `ACE_RELAY_URL` to put it on a relay. */
+    targetEnv?: NodeJS.ProcessEnv;
+    /** The source's parcel shell (ADR 0182), e.g. a direct path that's down. */
+    sourceParcels?: import("../services/options.ts").DaemonOptions["parcels"];
   } = {},
 ) {
   const target = await daemonFixture(
@@ -64,7 +68,7 @@ export async function pairedMachines(
       ...(options.targetDevices ? { devices: options.targetDevices } : {}),
       ...options.targetScreen,
     },
-    { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
+    { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1", ...options.targetEnv },
   );
   cleanup.push(() => target.daemon.close());
   const source = await daemonFixture(
@@ -72,6 +76,7 @@ export async function pairedMachines(
     {
       browser: browser(),
       ...options.sourceScreen,
+      ...(options.sourceParcels ? { parcels: options.sourceParcels } : {}),
       machines: {
         pollMs: options.pollMs ?? 50,
         ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),

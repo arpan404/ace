@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineRelayCall.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/MachineCallRequest.json"
+    },
+    "type": {
+      "const": "machine.call",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "id",
+    "request"
+  ],
+  "type": "object"
+}

@@ -607,6 +607,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MachineRelayAnswer.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/CommandsListResult.json"
     },
     {
