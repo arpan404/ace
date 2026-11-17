@@ -134,7 +134,7 @@ export interface Config {
   computerUseTimings?: boolean;
   /**
    * ACE_SAFE_MODE=1, set by the app after starts that kept failing: services the last run was
-   * still starting when it stopped stay off for this run (ADR 0174).
+   * still starting when it stopped stay off for this run (ADR 0175).
    */
   safeMode?: boolean;
 }

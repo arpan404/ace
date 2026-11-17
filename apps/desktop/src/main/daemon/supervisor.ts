@@ -52,7 +52,7 @@ export class DaemonSupervisor {
   private daemon: LocalDaemon | undefined;
   private child: Child | undefined;
   private crashes = 0;
-  /** The next start, and the daemon it starts, leave off what kept failing (ADR 0174). */
+  /** The next start, and the daemon it starts, leave off what kept failing (ADR 0175). */
   private safeMode = false;
   private maintenanceRevision = 0;
   private draining = false;

@@ -4,7 +4,7 @@ import { z } from "zod";
 /**
  * Which services' starts are running right now, kept on disk as they change. A daemon that
  * dies or is killed partway through a start leaves the names behind, so the next run can tell
- * which service it was stuck in. Safe mode leaves those off (ADR 0174).
+ * which service it was stuck in. Safe mode leaves those off (ADR 0175).
  */
 export interface AttemptFile {
   read(): string | undefined;

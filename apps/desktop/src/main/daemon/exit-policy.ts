@@ -53,7 +53,7 @@ export interface UnexpectedExit {
   maxRestarts: number;
   /**
    * Fast failures in a row after which the next start is in safe mode: the daemon leaves off
-   * the services its last start never finished (ADR 0174).
+   * the services its last start never finished (ADR 0175).
    */
   safeModeAfter: number;
 }

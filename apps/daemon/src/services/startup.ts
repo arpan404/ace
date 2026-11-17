@@ -61,7 +61,7 @@ export interface ServiceStatus {
 export { systemStartup, type StartupRuntime } from "./startup-runtime.ts";
 
 /**
- * What a failed or timed-out start does (ADR 0174). Only an essential service stops the daemon;
+ * What a failed or timed-out start does (ADR 0175). Only an essential service stops the daemon;
  * the store, lock and socket are opened before any service and are fatal on their own. Every
  * other service degrades, says so in `/v1/status`, and is retried with backoff.
  */

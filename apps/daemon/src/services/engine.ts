@@ -159,7 +159,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : withDaemonMcp(context, wrapped);
   };
   // Provider CLIs, the Cursor SDK and ace's skill folder are read after the engine is up
-  // (ADR 0174): a CLI that never answers, or a slow disk, leaves the engine "starting" and
+  // (ADR 0175): a CLI that never answers, or a slow disk, leaves the engine "starting" and
   // commands waiting for their provider instead of failing the daemon's start.
   const activation = activateProviders({
     signal: context.signal,

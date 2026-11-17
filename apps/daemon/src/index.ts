@@ -402,7 +402,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       streaming: () => store.streamingMetrics(),
     });
     resources.own(() => health.close(), "health monitor");
-    // Safe mode leaves off what the last run was stuck starting (ADR 0174).
+    // Safe mode leaves off what the last run was stuck starting (ADR 0175).
     const attempts = startupAttempts(attemptFile(join(config.dataDir, "startup-attempts.json")));
     const skip = config.safeMode ? safeModeSkips(attempts.previous, serviceFactories) : [];
     if (config.safeMode)

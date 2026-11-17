@@ -1,5 +1,5 @@
 /**
- * Provider activation runs after the engine has started (ADR 0174). Reading provider CLIs, the
+ * Provider activation runs after the engine has started (ADR 0175). Reading provider CLIs, the
  * Cursor SDK and ace's skill folder waits on other programs and the disk, which can be slow or
  * stuck. Only the provider that needs them waits, never the daemon's start.
  */
