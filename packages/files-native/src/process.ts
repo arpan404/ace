@@ -89,7 +89,10 @@ export class FilesProcess {
     return this.#run?.version;
   }
 
-  /** Send any op. Root numbers are the ones `openRoot` handed out. */
+  /**
+   * Send any op through the current process. Root numbers are the ones `openRoot` handed out.
+   * Open roots, watches and searches through their methods, which keep them across restarts.
+   */
   async request(op: Op, options: FilesRequestOptions = {}): Promise<FilesResult> {
     if (this.#state !== "up") throw restarting();
     return this.#requests.send(

@@ -164,6 +164,17 @@ describe("the files wire", () => {
     expect(next?.kind === "message" ? next.message.type : undefined).toBe("cancel");
   });
 
+  it("ignores_unknown_fields_in_a_message", () => {
+    const text = '{"type":"cancel","id":9,"newField":{"kept":false}}';
+    const decoder = new FrameDecoder();
+    decoder.push(frameOfPayload(1, new TextEncoder().encode(text)));
+    const frame = decoder.poll();
+    expect(frame?.kind === "message" ? frame.message : undefined).toEqual({
+      type: "cancel",
+      id: 9,
+    });
+  });
+
   it("decoder_rejects_an_empty_frame_and_a_truncated_body", () => {
     const empty = new FrameDecoder();
     empty.push(new Uint8Array(4));
