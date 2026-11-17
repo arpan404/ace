@@ -21,6 +21,7 @@ import {
 } from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 import { findInstalledExecutable } from "./discovery/shim-resolver.ts";
+import { probeLaunch } from "./discovery/probe-launch.ts";
 import { VersionManagerToolMissingError } from "./discovery/version-manager-shim.ts";
 export {
   stopOwnedGroups,
@@ -374,6 +375,8 @@ export async function probeOutput(
   options: {
     timeoutMs?: number;
     env?: NodeJS.ProcessEnv;
+    /** Where the CLI will run, so a shim resolves for that project. Defaults to the daemon's. */
+    cwd?: string;
     maxBytes?: number;
     signal?: AbortSignal;
     /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
@@ -389,11 +392,23 @@ export async function probeOutput(
   const found = await findInstalledExecutable(
     command,
     { ...process.env, ...options.env },
-    options.signal ? { signal: options.signal } : {},
+    {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
   );
   if (found && "refused" in found) throw found.refused;
   if (found && "absent" in found) throw new VersionManagerToolMissingError(found.path);
-  const executable = found && "run" in found && found.run !== found.path ? found.run : command;
+  // The CLI's own interpreter and anything it starts from PATH must not reach a shim either.
+  const launch = await probeLaunch(
+    found && "run" in found ? found.run : command,
+    args,
+    { ...process.env, ...options.env },
+    {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
+  );
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {
@@ -402,18 +417,20 @@ export async function probeOutput(
     });
   // A spawn blocks its thread until the child starts, seconds under load: keep it off this one.
   if (!options.spawn)
-    return probeOffThread(executable, args, {
+    return probeOffThread(launch.command, launch.args, {
       timeoutMs: options.timeoutMs ?? 30_000,
-      env: options.env ?? {},
+      env: launch.env,
+      cwd: options.cwd,
       maxBytes,
       signal: options.signal,
       schedule,
       thread: options.thread,
     });
   const proc = options.spawn({
-    command: executable,
-    args,
-    env: options.env ?? {},
+    command: launch.command,
+    args: launch.args,
+    env: launch.env,
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     name: "cli-probe",
     maxOutputBytes: maxBytes,
   });
