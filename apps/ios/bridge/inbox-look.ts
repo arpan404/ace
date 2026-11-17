@@ -1,5 +1,16 @@
 import { cardDetails, rowStatusLook, rowStatusState, threadCard, threadGlyph } from "@ace/ui-core";
 import { inboxGroup, type InboxThread } from "@ace/ui-core/mobile";
+import type { ThreadListEntry, ThreadReadStateResponse } from "@ace/protocol";
+
+/**
+ * This phone's read cursor for the row, as the daemon sends it with the entry and the desktop's
+ * sidebar reads it: reading through the last answer clears a finished result's check.
+ */
+export function readCursor(entry: ThreadListEntry): { readState?: ThreadReadStateResponse } {
+  if (!entry.readState) return {};
+  const readState = { type: "thread.readState" as const, requestId: "inbox", threadId: entry.id };
+  return { readState: { ...readState, ...entry.readState } };
+}
 
 /**
  * How an inbox row reads, by the same rule as the web's Home row (`threadCard` →
@@ -21,6 +32,7 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     now,
     projectName: entry.details?.workspace?.name,
     unconfirmed: thread.unconfirmed,
+    ...readCursor(entry),
   });
   const { level, word, tone, muted } = card.attention;
   // A word with no glyph: waiting, a failure already seen, and an unconfirmed copy.

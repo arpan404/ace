@@ -18,7 +18,7 @@ const featureArg = {
   summary: "spade or marketplace",
   required: true,
 } as const;
-const botArg = { name: "BOT", summary: "A bot's id or name", required: true } as const;
+const botArg = { name: "BOT", summary: "A bot's id or name", required: true, ref: "bot" } as const;
 const automationArg = { name: "AUTOMATION", summary: "The automation id", required: true } as const;
 
 export const spadeCommands: readonly CommandSpec[] = [
@@ -80,7 +80,7 @@ export const spadeCommands: readonly CommandSpec[] = [
     group: "spade-market",
     mutates: true,
     args: [
-      { name: "BOT", summary: "A bot's id or name; Spade's main bot when omitted" },
+      { name: "BOT", summary: "A bot's id or name; Spade's main bot when omitted", ref: "bot" },
       { name: "TEXT", summary: "One message to send; - reads it from stdin", stdin: true },
     ],
     output: "spade.chat",

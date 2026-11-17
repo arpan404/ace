@@ -12,11 +12,15 @@ function session<T>(
 }
 
 async function device(context: CommandContext, verb: "list" | "pair" | "revoke") {
-  return (await import("../access.ts")).deviceCommand(context.args, context.config().dataDir, verb);
+  return (await import("../access.ts")).deviceCommand(
+    context.args,
+    (await context.config()).dataDir,
+    verb,
+  );
 }
 
 async function remote(context: CommandContext, verb: "list" | "add" | "use" | "remove") {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   await prepareHome(dataDir);
   const module = await import("../remote.ts");
   const link = context.args.flags.link;

@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadListEntry } from "@ace/protocol";
+import type { ThreadListEntry } from "@ace/protocol";
 import {
   activityOf,
   arrange,
@@ -33,7 +33,8 @@ export interface HomeRow {
   readonly projectId: string;
   readonly title: string;
   readonly branch: string;
-  readonly provider: ProviderKind;
+  /** The provider's name, as the row shows it. */
+  readonly provider: string;
   /** It needs the person: a request is open somewhere in its tree. */
   readonly needsYou: boolean;
   /** Something in its tree is running, so Stop has something to stop. */

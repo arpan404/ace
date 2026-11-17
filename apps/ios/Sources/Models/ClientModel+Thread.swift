@@ -158,6 +158,10 @@ extension ClientModel {
             action(threadMessage(["type": "goal", "change": change, "requestId": id], epoch: epoch))
         }
     }
+    /// Whether the reader sits at the live end of the thread open under `epoch` (`ReaderAtEnd`).
+    func readerAtEnd(_ atEnd: Bool, epoch: Int) {
+        action(threadMessage(["type": "atEnd", "atEnd": atEnd], epoch: epoch))
+    }
     @discardableResult func threadAction(_ value: [String: Any]) -> Bool {
         let dispatched = action(threadMessage(value, epoch: nil))
         if !dispatched { error = "Could not submit the request. Your draft is still available." }

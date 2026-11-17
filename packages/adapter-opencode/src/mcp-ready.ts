@@ -16,15 +16,15 @@ export function mcpReadyPluginDirectory(): string {
 }
 
 /**
- * Add ace's credential-free extras to OpenCode's runtime config: the readiness plugin for owned
- * MCP sessions and ace's shipped skill directories. OpenCode adds `skills` paths from this
+ * Add ace's credential-free extras to OpenCode's runtime config: its plugins (the environment
+ * gate, and the readiness plugin for owned MCP sessions) and ace's shipped skill directories. OpenCode adds `skills` paths from this
  * layer to the person's own (checked against OpenCode 2.0.29's skill API), and user config and
  * persistent files stay provider-owned.
  */
 export function aceConfigEnvironment(
   env: NodeJS.ProcessEnv | undefined,
   content: string,
-  extras: { plugin?: string | undefined; skills?: readonly string[] | undefined },
+  extras: { plugins?: readonly string[] | undefined; skills?: readonly string[] | undefined },
 ): NodeJS.ProcessEnv {
   if (Buffer.byteLength(content) > 256 * 1024)
     throw new Error("OpenCode configuration exceeds limit");
@@ -39,7 +39,7 @@ export function aceConfigEnvironment(
     ...env,
     OPENCODE_CONFIG_CONTENT: JSON.stringify({
       ...config,
-      ...(extras.plugin ? { plugins: [...plugins, extras.plugin] } : {}),
+      ...(extras.plugins?.length ? { plugins: [...plugins, ...extras.plugins] } : {}),
       ...(extras.skills?.length ? { skills: [...skills, ...extras.skills] } : {}),
     }),
   };
@@ -110,7 +110,7 @@ export async function waitForAceTools(
 }
 
 /** Resolves true after `delayMs`, or false as soon as `signal` aborts. */
-function pause(runtime: Runtime, delayMs: number, signal: AbortSignal): Promise<boolean> {
+export function pause(runtime: Runtime, delayMs: number, signal: AbortSignal): Promise<boolean> {
   if (signal.aborted) return Promise.resolve(false);
   return new Promise<boolean>((resolve) => {
     const abort = () => {

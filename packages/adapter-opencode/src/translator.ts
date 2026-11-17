@@ -66,6 +66,24 @@ export class OpenCodeTranslator implements Translator {
       });
       return [];
     }
+    if (frame.channel === "agent.environment" && data.type === "stopped") {
+      // A subagent ace stopped because it couldn't give it its thread's shell environment.
+      const session = string(data.sessionID);
+      return [
+        {
+          type: "item.upsert",
+          agent: state.agents.has(session) ? state.key(session) : state.rootKey,
+          item: `agent-environment:${session}`,
+          draft: {
+            type: "notice",
+            complete: true,
+            level: "warning",
+            text: "ace stopped this subagent before it ran anything: it couldn't give it its thread's shell environment.",
+            detail: string(data.message),
+          },
+        },
+      ];
+    }
     if (frame.channel === "lifecycle") {
       if (data.type === "ancestry.pending")
         return state.background(string(data.id), state.rootNative, "other");
