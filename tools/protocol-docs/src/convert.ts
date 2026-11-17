@@ -60,10 +60,15 @@ function guard(schema: z.core.$ZodType, path: (string | number)[]): void {
     )
       throw new Error(`Unsupported URL sibling checks at ${path.join(".") || "root"}`);
   }
-  if (def.checks?.some((check) => check._zod.def.check === "overwrite"))
-    throw new Error(`Unsupported overwrite at ${path.join(".") || "root"}`);
+  // JSON Schema states neither a normalization (`.trim()`) nor a refinement: the schema must
+  // declare its rule in words, which the reference prints beside it.
+  const declared = typeof z.globalRegistry.get(schema)?.["x-ace-constraint"] === "string";
+  if (!declared && def.checks?.some((check) => check._zod.def.check === "overwrite"))
+    throw new Error(
+      `Unsupported overwrite at ${path.join(".") || "root"}; add a source-owned x-ace-constraint describing the normalization`,
+    );
   const custom = def.checks?.some((check) => check._zod.def.check === "custom");
-  if (custom && typeof z.globalRegistry.get(schema)?.["x-ace-constraint"] !== "string")
+  if (custom && !declared)
     throw new Error(
       `Unsupported custom refinement at ${path.join(".") || "root"}; add a source-owned x-ace-constraint for semantic rules`,
     );

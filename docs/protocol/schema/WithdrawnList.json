@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/WithdrawnList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "ace-market-withdrawn",
+      "type": "string"
+    },
+    "issued": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "withdrawn": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Withdrawal.json"
+      },
+      "maxItems": 10000,
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "issued",
+    "withdrawn",
+    "key"
+  ],
+  "type": "object"
+}

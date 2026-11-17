@@ -35,8 +35,8 @@ export const MaintenanceStatus = z.object({
   waiting: z.number().int().nonnegative().optional(),
   /** What holds admission closed (`MaintenanceHold`). Older daemons omit it. */
   holds: z
-    .array(z.enum(["user", "update", "kill", "stop"]))
-    .max(4)
+    .array(z.enum(["user", "update", "kill", "stop", "storage"]))
+    .max(5)
     .optional(),
 });
 export const DaemonHealth = z

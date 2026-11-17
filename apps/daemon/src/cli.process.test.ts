@@ -32,6 +32,7 @@ test("piped prompts create one provider run when the public CLI retries an idemp
   try {
     const args = [
       "run",
+      "-",
       "--provider",
       "codex",
       "--project",
@@ -126,10 +127,10 @@ test("whole-tree CLI wait times out while a delegated child remains working", as
     await f.daemon.close();
   }
 });
-test("machine-readable invalid invocations are refused without contacting a daemon", async () => {
+test("machine-readable invalid invocations are usage errors without contacting a daemon", async () => {
   const output = await invoke("/unused-synthetic-home", ["unknown", "--json"]);
-  expect(output.code).toBe(4);
-  expect(JSON.parse(output.stdout)).toMatchObject({ ok: false, status: "refused" });
+  expect(output.code).toBe(64);
+  expect(JSON.parse(output.stdout)).toMatchObject({ ok: false, status: "usage" });
 });
 
 test("CLI tree waits hand back control for a descendant approval instead of reporting completion", async () => {
@@ -183,7 +184,13 @@ test("CLI tree waits hand back control for a descendant approval instead of repo
       pending.interactions[0]?.id ?? "missing",
       "--json",
     ]);
-    expect(approved.code, approved.stderr).toBe(0);
+    // Off a terminal nobody is there to confirm, so the request stays the person's.
+    expect(approved.code, approved.stderr).toBe(2);
+    expect(JSON.parse(approved.stdout)).toMatchObject({ status: "needs-human", code: "confirm" });
+    const still = await invoke(home, ["thread", "show", child, "--json"]);
+    expect(JSON.parse(still.stdout).interactions).toContainEqual(
+      expect.objectContaining({ state: "pending" }),
+    );
   } finally {
     await f.daemon.close();
   }

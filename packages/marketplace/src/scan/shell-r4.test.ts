@@ -8,7 +8,7 @@ import {
 } from "./corpus-r4-shell.ts";
 
 /*
- * A "safe leaf" that can execute its arguments is not safe (ADR 0173 §8, fail closed). `sed 'e …'`,
+ * A "safe leaf" that can execute its arguments is not safe (ADR 0174 §8, fail closed). `sed 'e …'`,
  * `find -exec`, `awk 'system(…)'`, `tar --to-command`, `git -c <exec key>=…` and an editor's
  * startup command each run a command: the nested command is read back and caught when it is
  * literal, or the version is held. The same leaves with ordinary options stay clean.

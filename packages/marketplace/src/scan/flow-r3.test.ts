@@ -9,7 +9,7 @@ import { disposition, scanEntry, type ScanContext } from "./index.ts";
 import { viewOf } from "./script-view.ts";
 
 /*
- * The data-flow rule through module identities (ADR 0173 §8): a sensitive module reached through
+ * The data-flow rule through module identities (ADR 0174 §8): a sensitive module reached through
  * `require`, `import`, destructuring, `Reflect.get` or `globalThis` is the source a literal
  * `process.env` is, and the rule fails closed: an unresolved sensitive read beside a sink, code
  * it can't parse, and a walk cut short are held, never passed.

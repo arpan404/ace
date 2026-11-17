@@ -22,7 +22,7 @@ const faceSizes: Readonly<Record<StageSize, number>> = { large: 220, card: 96, s
 
 /** The stage for an entry the person sees in a card, row or hero. */
 export function Stage(props: {
-  /** `previews`: the listing's pictures (ADR 0173 §5); the first is drawn when it loads. */
+  /** `previews`: the listing's pictures (ADR 0174 §5); the first is drawn when it loads. */
   entry: EntryKey & { previews?: readonly string[] | undefined };
   size: StageSize;
   className?: string;

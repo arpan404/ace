@@ -41,13 +41,18 @@ export async function until<T>(read: () => T | undefined): Promise<T> {
  * The emulator side, played by a real local TCP server standing in for the adb-forwarded socket:
  * dummy byte on the first connection, device name once control connects, then video.
  */
-export async function fakeDevice(cleanup: Cleanup) {
+export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: boolean } = {}) {
   const sockets: Socket[] = [];
   let control = Buffer.alloc(0);
   const server: Server = createServer((socket) => {
     sockets.push(socket);
     if (sockets.length === 1) socket.write(Buffer.from([0]));
-    else {
+    else if (options.resetAtControl) {
+      // The emulator dies before it names itself: control is reset at once, and the first
+      // socket, still awaited for the device name, ends a moment later.
+      socket.resetAndDestroy();
+      setTimeout(() => sockets[0]?.destroy(), 200);
+    } else {
       socket.on("data", (chunk: Buffer) => {
         control = Buffer.concat([control, chunk]);
       });
@@ -91,6 +96,8 @@ export async function fixture(
   cleanup: Cleanup,
   options: {
     ffmpeg?: boolean;
+    /** The device resets both sockets once control connects, before naming itself. */
+    resetAtControl?: boolean;
     media?: DeviceMedia;
     now?: () => number;
     /** Each published frame, as it is published. */
@@ -116,7 +123,7 @@ export async function fixture(
   }
   const jar = join(root, "scrcpy-server");
   await writeFile(jar, "server");
-  const device = await fakeDevice(cleanup);
+  const device = await fakeDevice(cleanup, { resetAtControl: options.resetAtControl ?? false });
   const commands: string[] = [];
   const env = {
     PATH: options.ffmpeg ? `${join(root, "bin")}:/usr/bin:/bin` : "/usr/bin:/bin",

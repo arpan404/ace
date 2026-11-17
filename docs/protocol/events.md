@@ -136,10 +136,6 @@ Example:
       "subagentTranscripts": false,
       "tokenUsage": false
     },
-    "execution": {
-      "instanceId": "example",
-      "provider": "pi"
-    },
     "handoff": {
       "bytes": 0,
       "sourceThreadId": "example",
@@ -154,7 +150,8 @@ Example:
     "queuedLaunch": {
       "queuePosition": 6,
       "slotsInUse": 9,
-      "text": "example"
+      "text": "example",
+      "waitingFor": "storage"
     },
     "readAt": 4,
     "settledAt": 0,
@@ -175,13 +172,14 @@ Example:
       "state": "needs_you"
     },
     "switch": {
-      "at": 5,
-      "lossy": true,
-      "recommendation": "delegate",
+      "at": 1,
+      "error": "example",
+      "lossy": false,
       "selection": {
-        "provider": "acp"
+        "model": "example",
+        "provider": "antigravity"
       },
-      "state": "failed"
+      "state": "applied"
     },
     "title": "example",
     "updatedAt": 4,

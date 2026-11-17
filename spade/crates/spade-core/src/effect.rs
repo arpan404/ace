@@ -199,14 +199,20 @@ pub fn mcp(tool: Mcp) -> Option<Effect> {
 /// What one of ace's tools does: ace's own risk. A driving call (`browser_*`, `screen_*`,
 /// `sim_*`) that can act (anything ace doesn't mark read-only: a click, typing, a key, a submit)
 /// is [`Effect::Drive`]: until ace reports what a step did, nothing contains it. ace's names
-/// never make a send: `agent_message` messages one of the person's agents.
-pub fn ace(name: &str, risk: Risk, _arguments: &Value) -> Effect {
-    match risk {
+/// never make a send: `agent_message` messages one of the person's agents. An effect ace
+/// declares for the tool (`_meta["ace/effect"]`: `market_publish` is `publish`) is the least it
+/// does; the risk can raise it, never lower it.
+pub fn ace(name: &str, risk: Risk, declared: Option<Effect>, _arguments: &Value) -> Effect {
+    let hinted = match risk {
         Risk::Read => Effect::Read,
         _ if drives(name) => Effect::Drive,
         _ => Effect::Network,
-    }
+    };
+    declared.map_or(hinted, |declared| declared.max(hinted))
 }
+
+/// The `_meta` key where ace declares one of its tools' effects.
+pub const ACE_EFFECT_KEY: &str = "ace/effect";
 
 fn drives(name: &str) -> bool {
     ["browser_", "screen_", "sim_"]

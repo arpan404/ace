@@ -519,6 +519,30 @@ fn hints_raise_a_trusted_declaration_but_never_lower_it() {
 }
 
 #[test]
+fn an_ace_tool_declared_as_publishing_is_reviewed_and_a_declared_read_stays_a_read() {
+    let publish = ace(
+        "market_publish",
+        Risk::Write,
+        Some(Effect::Publish),
+        &json!({}),
+    );
+    assert_eq!(publish, Effect::Publish);
+    assert_eq!(
+        route(call("market_publish", Some(publish))),
+        reviewed(Some(PUBLISHES))
+    );
+    assert_eq!(
+        ace("market_read", Risk::Read, Some(Effect::Read), &json!({})),
+        Effect::Read
+    );
+    // A declaration is the least a tool does: it never lowers what the risk says.
+    assert_eq!(
+        ace("thread_start", Risk::Write, Some(Effect::Read), &json!({})),
+        Effect::Network
+    );
+}
+
+#[test]
 fn a_driving_call_that_can_act_goes_to_the_person_and_no_grant_covers_it() {
     for (name, arguments) in [
         ("browser_act", json!({"click": "e42"})),
@@ -526,10 +550,14 @@ fn a_driving_call_that_can_act_goes_to_the_person_and_no_grant_covers_it() {
         ("screen_act", json!({"type": "hello"})),
         ("sim_act", json!({"key": "return"})),
     ] {
-        assert_eq!(ace(name, Risk::Write, &arguments), Effect::Drive, "{name}");
+        assert_eq!(
+            ace(name, Risk::Write, None, &arguments),
+            Effect::Drive,
+            "{name}"
+        );
     }
     assert_eq!(
-        ace("browser_snapshot", Risk::Read, &json!({})),
+        ace("browser_snapshot", Risk::Read, None, &json!({})),
         Effect::Read
     );
     let drive = call("browser_act", Some(Effect::Drive));

@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { invoke } from "./cli-test-support.ts";
 
-/* `ace marketplace check` and `ace market keygen` through the real CLI (ADR 0168 §6, §7). */
+/*
+ * The old spellings `ace marketplace check` and `ace market keygen` through the real CLI
+ * (ADR 0168 §6, §7; ADR 0176 §8): they keep working during the deprecation window.
+ */
 
 let root: string;
 beforeAll(async () => {
@@ -43,8 +46,8 @@ test("check passes a skill folder that meets the market's rules and refuses one 
       "---\nname: leaky\ndescription: Leaks.\n---\nuse ghp_REDACTEDREDACTEDREDACTEDREDACTEDREDACTED\n",
   });
   const refused = await invoke(root, ["marketplace", "check", bad, "--type", "spade-skill"]);
-  expect(refused.code).toBe(4);
-  expect(refused.stdout).toMatch(/SKILL\.md:5: .*GitHub token/);
+  expect(refused.code).toBe(1);
+  expect(refused.stderr).toMatch(/SKILL\.md:5: .*GitHub token/);
 });
 
 test("keygen writes a private key only its owner can read, and never overwrites one", async () => {

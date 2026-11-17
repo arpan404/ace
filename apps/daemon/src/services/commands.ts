@@ -3,7 +3,6 @@ import { discoverClaudePlugins } from "../catalog-claude-discovery.ts";
 import { discoverCodexExtensions } from "../catalog-discovery.ts";
 import { createCatalogSession } from "./catalog.ts";
 import { realpath } from "node:fs/promises";
-import { warmup } from "./warmup.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { pickInstance } from "@ace/accounts";
 import { createDaemonCommandLibrary, defaultCommandInstances } from "../command-library.ts";
@@ -12,6 +11,8 @@ import { PromptFiles, type ProviderInstance } from "@ace/commands";
 import { join } from "node:path";
 import { builtinSkillsDirectory } from "@ace/plugins";
 import { WorkspaceId, type Thread } from "@ace/protocol";
+import type { PluginService } from "@ace/plugins";
+import { Availability } from "./plugin-availability.ts";
 import type { ServiceContext } from "./types.ts";
 import { createDaemonSkillLibrary, type DaemonSkillOptions } from "../skill-library.ts";
 import { readSkillUsage } from "../skill-usage.ts";
@@ -22,15 +23,14 @@ export interface DaemonCommandIntegration {
   events?: CommandEventSource;
   skills?: DaemonSkillOptions;
 }
-export async function startCommands(context: ServiceContext): Promise<void> {
-  const initialization = warmup(context, "commands", async () => {
-    await context.services.accountRegistry?.ready;
-    context.signal.throwIfAborted();
-    await initializeCommands(context);
-  });
-  context.resources.own(() => initialization, "commands startup");
-}
-async function initializeCommands({
+/**
+ * Builds and publishes the command library once, inside the start. Nothing here waits on an
+ * account's home: one silent folder must not hold every account's commands and skills, and an
+ * account joins the library once its own folder answers (ADR 0175). With nothing left that can
+ * fail after the start returns, there is no warmup to repeat; a failure to build fails the start,
+ * which the ordinary service retry runs again after cleaning up.
+ */
+export async function startCommands({
   store,
   config,
   options,
@@ -40,7 +40,7 @@ async function initializeCommands({
   signal,
   id,
   log,
-}: ServiceContext) {
+}: ServiceContext): Promise<void> {
   const promptFiles = new PromptFiles({
     globalRoot: config.dataDir,
     projectRoot: (workspaceId) => store.getWorkspacePath(WorkspaceId.parse(workspaceId)),
@@ -49,7 +49,6 @@ async function initializeCommands({
   services.promptFiles = promptFiles;
   resources.own(() => promptFiles.close(), "prompt files");
   const integration = options.commands ?? {};
-  const plugins = services.plugins;
   const skillLibrary = createDaemonSkillLibrary({
     dataDir: config.dataDir,
     env: process.env,
@@ -57,7 +56,8 @@ async function initializeCommands({
       const parsed = WorkspaceId.safeParse(workspaceId);
       return parsed.success ? store.getWorkspacePath(parsed.data) : undefined;
     },
-    pluginEntries: plugins ? () => plugins.extensions("claude") : undefined,
+    // Plugins start after commands: read when asked, not when built.
+    pluginEntries: async () => (await services.plugins?.extensions("claude")) ?? [],
     options: integration.skills,
     usage: async (names) => readSkillUsage((sql) => store.statement(sql), names),
     report: (message, detail) => log.log("warn", message, logFields([["detail", detail]])),
@@ -69,8 +69,12 @@ async function initializeCommands({
   void skillLibrary.start();
   services.skillLibrary = skillLibrary;
   resources.own(() => skillLibrary.close(), "skill library");
-  if (plugins) resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));
-  const registered = () => services.accountRegistry?.list() ?? [];
+  // Accounts whose folder hasn't answered startup's check are left out until it does, so nothing
+  // here reads or probes a silent home.
+  const registered = () => {
+    const registry = services.accountRegistry;
+    return (registry?.list() ?? []).filter(({ instance }) => !registry?.isChecking(instance.id));
+  };
   const defaults = defaultCommandInstances(process.env);
   let discoveryTail: Promise<unknown> = Promise.resolve();
   let pendingDiscovery = 0;
@@ -164,8 +168,20 @@ async function initializeCommands({
     // Claude, Codex, OpenCode and Pi load the shipped skills natively and advertise them.
     { directory: builtinSkillsDirectory(), providers: ["cursor", "acp", "antigravity"] },
   );
-  if (services.plugins)
-    resources.own(services.plugins.subscribeCatalog(() => library.invalidateExtras()));
+  // Plugins start after commands and may only come up on a retry: follow whichever plugin
+  // service is current, once each, dropping the old one's subscriptions when it is replaced.
+  const followed = new Availability<PluginService>((plugins) => {
+    const stops = [
+      plugins.subscribeCatalog(() => skillLibrary.invalidate()),
+      plugins.subscribeCatalog(() => library.invalidateExtras()),
+    ];
+    return () => {
+      for (const stop of stops) stop();
+    };
+  });
+  services.pluginAvailability = followed;
+  resources.own(() => followed.close(), "plugin catalog follower");
+  if (services.plugins) followed.publish(services.plugins);
   resources.own(() => library.close(), "command library");
   if (integration.events) {
     const disconnect = connectDaemonCommandEvents(library, integration.events);

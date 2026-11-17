@@ -2,7 +2,7 @@ import type { ClientApi } from "@ace/client";
 import type { MachineUpdate, MachineUpdateResult } from "@ace/protocol";
 import type { UpdateMachine } from "@ace/ui-core";
 import { useQueries, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { Machine } from "@/lib/machines.ts";
 import { refusalCode } from "./fleet.ts";
 
@@ -50,7 +50,33 @@ export async function machineUpdateOperation(
   }
 }
 
-/** Each machine's update status, keyed by machine id. */
+/** Per machine: its client at the last render and, once it's back online, the read it had then. */
+type Seen = ReadonlyMap<string, { client: ClientApi | undefined; before: number }>;
+
+/**
+ * `seen` after this render's machines: a machine first seen here keeps what's cached (it was read
+ * while online), and one back online notes its last read, to be read again. The same map when
+ * nothing changed.
+ */
+function noteClients(
+  seen: Seen,
+  machines: readonly Machine[],
+  readAt: (index: number) => number,
+): Seen {
+  const changed = machines.flatMap((machine, index) => {
+    const last = seen.get(machine.id);
+    if (last && last.client === machine.client) return [];
+    const before = last && machine.client ? readAt(index) : -1;
+    return [[machine.id, { client: machine.client, before }] as const];
+  });
+  return changed.length ? new Map([...seen, ...changed]) : seen;
+}
+
+/**
+ * Each machine's update status, keyed by machine id. A machine back online has none until it is
+ * read again: what it said before it went away may be out of date (a newer release, or an update
+ * it finished), and a fleet update would ask it for the wrong release.
+ */
 export function useMachineUpdates(
   machines: readonly Machine[],
 ): Map<string, UseQueryResult<MachineUpdate | null> | undefined> {
@@ -63,6 +89,10 @@ export function useMachineUpdates(
       refetchInterval: 60_000,
     })),
   });
+  const [previous, setSeen] = useState<Seen>(() => new Map());
+  const seen = noteClients(previous, machines, (index) => results[index]?.dataUpdatedAt ?? 0);
+  if (seen !== previous) setSeen(seen);
+  const unread = (id: string, readAt: number) => readAt <= (seen.get(id)?.before ?? -1);
   const clients = machines.map((machine) => machine.client);
   useEffect(() => {
     const stops = machines.flatMap((machine) => {
@@ -70,6 +100,8 @@ export function useMachineUpdates(
       if (!client) return [];
       const key = machineUpdateKey(machine.id);
       const connection = client.connectionState();
+      if (unread(machine.id, queries.getQueryState(key)?.dataUpdatedAt ?? 0))
+        void queries.invalidateQueries({ queryKey: key });
       return [
         client.onMessage((message) => {
           if (message.type === "machineUpdate.changed") queries.setQueryData(key, message.update);
@@ -85,7 +117,15 @@ export function useMachineUpdates(
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed by the machines' clients
   }, [queries, ...clients]);
-  return new Map(machines.map((machine, index) => [machine.id, results[index]]));
+  return new Map(
+    machines.map((machine, index) => {
+      const result = results[index];
+      return [
+        machine.id,
+        machine.client && result && unread(machine.id, result.dataUpdatedAt) ? undefined : result,
+      ];
+    }),
+  );
 }
 
 /**

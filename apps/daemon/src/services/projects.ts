@@ -94,7 +94,13 @@ export function createProjectsSession(context: SocketContext): SocketService {
               ? () => lease() && admin()
               : lease,
           )
-          .catch(() => ({ commandId: command.id, ok: false, error: "project_failed" }))
+          .catch((error: unknown) => {
+            // The receipt says only "project_failed": the log keeps what went wrong.
+            options.log?.(
+              new Error(`Project command ${command.payload.type} failed`, { cause: error }),
+            );
+            return { commandId: command.id, ok: false, error: "project_failed" };
+          })
           .then((result) => {
             if (connected()) send({ type: "commandResult", ...result });
           });

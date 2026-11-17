@@ -3,7 +3,7 @@ import { readShell } from "./shell.ts";
 import { viewOf } from "./script-view.ts";
 
 /*
- * The shell reader (a TypeScript port of Spade's parser, ADR 0173 §8). Behaviour: a command reads
+ * The shell reader (a TypeScript port of Spade's parser, ADR 0174 §8). Behaviour: a command reads
  * into the programs it runs, with quoting, `${IFS}`, wrappers and `sh -c` strings undone, and it
  * never drops a command it could read; `unreadable` is set only when some text truly can't be
  * read. Tested through the programs and pipes it reports.

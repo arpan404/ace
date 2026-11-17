@@ -9,6 +9,9 @@ struct UsageReportReply: Decodable, Sendable {
     let to: String
     let providers: [Provider]
     let coverage: UsageCoverage
+    /// "Usage is still being counted; totals will grow." while a machine's daemon is still
+    /// counting older history into these figures; nil once they are complete.
+    let filling: String?
     let tokens: UsageMetricView
     let cost: UsageMetricView
 }

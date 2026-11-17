@@ -1,0 +1,76 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketDiscoverBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "collections": {
+      "items": {
+        "properties": {
+          "entries": {
+            "items": {},
+            "maxItems": 24,
+            "type": "array"
+          },
+          "id": {
+            "$ref": "https://ace.local/protocol/v1/MarketCategoryId.json"
+          },
+          "line": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 60,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "line",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "featured": {
+      "items": {},
+      "maxItems": 24,
+      "type": "array"
+    },
+    "fresh": {
+      "items": {},
+      "maxItems": 24,
+      "type": "array"
+    },
+    "hero": {},
+    "publishers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketTopPublisher.json"
+      },
+      "maxItems": 12,
+      "type": "array"
+    },
+    "rankedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "trending": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketTrendingRow.json"
+      },
+      "maxItems": 50,
+      "type": "array"
+    }
+  },
+  "required": [
+    "featured",
+    "trending",
+    "fresh",
+    "collections",
+    "publishers",
+    "rankedAt"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/ManifestFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "executable": {
+      "type": "boolean"
+    },
+    "path": {
+      "$ref": "https://ace.local/protocol/v1/ContainedPath.json"
+    },
+    "sha256": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    }
+  },
+  "required": [
+    "path",
+    "bytes",
+    "executable",
+    "sha256"
+  ],
+  "type": "object"
+}

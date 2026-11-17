@@ -140,8 +140,12 @@ export interface Services {
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
+  /** Followers of the plugin service: told each time a (re)started one is published. */
+  pluginAvailability: import("./plugin-availability.ts").Availability<PluginService>;
   /** ace's marketplace (ADR 0168). */
   marketplace?: import("../marketplace/service.ts").MarketplaceService;
+  /** The marketplace as the person or an agent reaches it (ADR 0176 §12.5). */
+  marketAgent?: import("../marketplace/market-agent.ts").MarketAgent;
   /** The Suit library (ADR 0150). */
   suits?: import("../suits/library.ts").SuitLibrary;
   /** Which devices hear an agent's Suit preview, keep or revert (ADR 0150). */
@@ -180,7 +184,14 @@ export interface Services {
 }
 export interface ServiceContext {
   signal: AbortSignal;
-  readiness?(read: () => { state: "starting" | "ready" | "degraded"; error?: string }): void;
+  /**
+   * Reports the service's own state after its start returned. `rerun`, when the work can safely
+   * run again, lets startup repeat it on the retry schedule without restarting the service.
+   */
+  readiness?(
+    read: () => { state: "starting" | "ready" | "degraded"; error?: string },
+    rerun?: () => Promise<void>,
+  ): void;
   config: Config;
   options: DaemonOptions;
   store: Store;
@@ -194,5 +205,11 @@ export interface ServiceContext {
    * from the start; the server shares the same gate.
    */
   maintenance?: MaintenanceGate;
+  /** Hears failures that may be a full disk, which holds new work until space is back. */
+  diskFull?: {
+    observe(error: unknown): boolean;
+    /** Runs `listener` each time space comes back; returns its removal. */
+    onRoom(listener: () => void): () => void;
+  };
   onListen: ((server: Awaited<ReturnType<typeof startServer>>) => void | Promise<void>)[];
 }

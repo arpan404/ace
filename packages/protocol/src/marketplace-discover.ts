@@ -1,9 +1,14 @@
 import { z } from "zod";
-import { MarketCategoryId, MarketHash, MarketPublisherName } from "./marketplace-base.ts";
+import {
+  MarketCategoryId,
+  MarketHash,
+  MarketPublisherName,
+  trimmedText,
+} from "./marketplace-base.ts";
 import { MarketDisplayName } from "./marketplace-publisher.ts";
 
 /*
- * Discover on the wire (ADR 0173 §6): the hero, featured, Trending this week, New and notable,
+ * Discover on the wire (ADR 0174 §6): the hero, featured, Trending this week, New and notable,
  * collections and top publishers, in one body from `GET /v1/discover`. Entries are index entries,
  * read as the index is. Schema only; the ranking is `@ace/marketplace`'s `rankTrending`.
  */
@@ -29,7 +34,7 @@ export const MarketCollectionId = MarketCategoryId;
 /** A maintainers' collection as the signer uploads it. */
 export const MarketCollection = z.strictObject({
   id: MarketCollectionId,
-  title: z.string().trim().min(1).max(60),
+  title: trimmedText(1, 60),
   line: z.string().max(200),
   entries: z
     .array(

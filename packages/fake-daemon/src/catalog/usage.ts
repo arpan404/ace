@@ -253,6 +253,8 @@ export class FakeUsage {
   sessions: Record<string, UsageSessionTotal[]>;
   /** The zone the daemon counts days in, named in every reply. */
   timezone = "UTC";
+  /** Set to report that older history is still being counted into every reply. */
+  filling: UsageResult["filling"];
   constructor(now: number) {
     this.sources = [...sources];
     this.sessions = claudeSessions(now);
@@ -325,6 +327,7 @@ export class FakeUsage {
       tokenSource: "cli",
       rows: rows.slice(0, query.limit),
       truncated: rows.length > query.limit,
+      ...(this.filling ? { filling: this.filling } : {}),
     };
   }
 

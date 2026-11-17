@@ -1,6 +1,9 @@
 import { logError, logFields } from "@ace/diagnostics";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Resources } from "./resources.ts";
+import { bounded, systemStartup, validateRuntime, within } from "./startup-runtime.ts";
+import type { StartupRuntime } from "./startup-runtime.ts";
+import { criticalServices } from "./service-criticality.ts";
 import type { ServiceContext, Services } from "./types.ts";
 import type { startServer } from "../server.ts";
 
@@ -55,57 +58,25 @@ export interface ServiceStatus {
   name: string;
   state: "starting" | "ready" | "degraded";
   error?: string;
+  /** Safe mode left this service off for the run; it is never retried. */
+  skipped?: true;
+  /** For a degraded service: another attempt is scheduled or will follow; false once none is. */
+  retrying?: boolean;
 }
-export interface StartupRuntime {
-  timeoutMs: number;
-  cleanupTimeoutMs?: number;
-  onStatus?(status: ServiceStatus): void;
-  schedule(name: string, expire: () => void, milliseconds: number): () => void;
-}
-export const systemStartup: StartupRuntime = {
-  timeoutMs: 15_000,
-  cleanupTimeoutMs: 6_000,
-  schedule(_name, expire, milliseconds) {
-    const timer = setTimeout(expire, milliseconds);
-    return () => clearTimeout(timer);
-  },
-};
+export { systemStartup, type StartupRuntime } from "./startup-runtime.ts";
 
-/** A deadline is a backstop; services start finite initialization, never their lifetime loop. */
-async function bounded<T>(
-  name: string,
-  run: () => T | Promise<T>,
-  runtime: StartupRuntime,
-  signal?: AbortSignal,
-  operation = "startup",
-): Promise<T> {
-  signal?.throwIfAborted();
-  let onAbort: (() => void) | undefined;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    onAbort = () => reject(signal?.reason ?? new Error("Daemon startup aborted"));
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-  let cancel: (() => void) | undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    cancel = runtime.schedule(
-      name,
-      () => reject(new Error(`Service ${name} ${operation} exceeded ${runtime.timeoutMs}ms`)),
-      runtime.timeoutMs,
-    );
-  });
-  try {
-    return await Promise.race([
-      Promise.resolve().then(() => {
-        signal?.throwIfAborted();
-        return run();
-      }),
-      deadline,
-      aborted,
-    ]);
-  } finally {
-    cancel?.();
-    if (onAbort) signal?.removeEventListener("abort", onAbort);
-  }
+/**
+ * What a failed or timed-out start does (ADR 0175). The store, lock and socket are opened before
+ * any service and are fatal on their own. Of the services, an essential one and everything it
+ * requires (`criticalServices`) stop the daemon: without them the essential one cannot start.
+ * Every other service degrades, says so in `/v1/status`, and is retried with backoff.
+ */
+export type FailurePolicy = "stop-daemon" | "degrade-and-retry";
+export function failurePolicy(
+  definition: Pick<ServiceDefinition, "name">,
+  critical: ReadonlySet<string>,
+): FailurePolicy {
+  return critical.has(definition.name) ? "stop-daemon" : "degrade-and-retry";
 }
 
 function boundedCleanup(
@@ -122,6 +93,7 @@ function boundedCleanup(
   );
 }
 
+type Server = Awaited<ReturnType<typeof startServer>>;
 interface ServiceListener {
   name: string;
   start: ServiceContext["onListen"][number];
@@ -139,24 +111,51 @@ export class ServiceStartup {
   private readonly listeners: ServiceListener[] = [];
   private readonly runtime: StartupRuntime;
   private deferred: readonly ServiceDefinition[] = [];
+  private definitions: readonly ServiceDefinition[] = [];
   private readonly cleanups = new Map<
     string,
     { dependencies: readonly string[]; close(): Promise<void> }
   >();
-  constructor(privateContext: ServiceContext, runtime: StartupRuntime = systemStartup) {
+  /**
+   * Per service, how much of its work is still running: a start, a listener or a cleanup,
+   * counted until the call itself settles, not until a deadline stops waiting for it. A retry
+   * starts only once nothing is left, so it never takes resources an earlier owner still holds.
+   */
+  private readonly inflight = new Map<string, number>();
+  private readonly retriesUsed = new Map<string, number>();
+  private readonly retryTimers = new Map<string, () => void>();
+  /** A running service's warmup that can safely run again, and its own retry budget and timer. */
+  private readonly reruns = new Map<string, () => Promise<void>>();
+  private readonly warmupUsed = new Map<string, number>();
+  private readonly warmupTimers = new Map<string, () => void>();
+  /** Set once the daemon listens; retries start after that. */
+  private server: Server | undefined;
+  /** One budget for every service's cleanup at shutdown, started by the first to close. */
+  private budget: Promise<void> | undefined;
+  private readonly skip: ReadonlySet<string>;
+  private critical: ReadonlySet<string> = new Set();
+  /**
+   * `skip` names services this start leaves off (safe mode, after starts that never finished
+   * them). An essential service is never skipped.
+   */
+  constructor(
+    privateContext: ServiceContext,
+    runtime: StartupRuntime = systemStartup,
+    skip: readonly string[] = [],
+  ) {
     this.context = privateContext;
     this.runtime = runtime;
-    if (!Number.isFinite(runtime.timeoutMs) || runtime.timeoutMs < 1)
-      throw new Error("Invalid service startup deadline");
-    if (
-      runtime.cleanupTimeoutMs !== undefined &&
-      (!Number.isFinite(runtime.cleanupTimeoutMs) || runtime.cleanupTimeoutMs < 1)
-    )
-      throw new Error("Invalid service cleanup deadline");
+    this.skip = new Set(skip);
+    validateRuntime(runtime);
+    privateContext.resources.onShutdown(() => {
+      for (const cancel of [...this.retryTimers.values(), ...this.warmupTimers.values()]) cancel();
+      this.retryTimers.clear();
+      this.warmupTimers.clear();
+    });
   }
   private readonly context: ServiceContext;
   status = (): ServiceStatus[] =>
-    [...this.statuses.values()].map(({ name, state, error }) => {
+    [...this.statuses.values()].map(({ name, state, error, skipped }) => {
       const warming = state !== "degraded" ? this.readiness.get(name)?.() : undefined;
       const result: ServiceStatus = {
         name,
@@ -165,6 +164,8 @@ export class ServiceStartup {
       };
       error = warming?.error ?? error;
       if (error !== undefined) result.error = error;
+      if (skipped) result.skipped = true;
+      if (result.state === "degraded" && !skipped) result.retrying = this.willRetry(name);
       return result;
     });
   private report(name: string): void {
@@ -177,13 +178,23 @@ export class ServiceStartup {
       this.context.log.log("error", "Startup observer failed", logError(error));
     }
   }
+  private readonly changeListeners = new Set<() => void>();
+  /** Tells `listener` whenever a service's status changes; returns how to stop. */
+  onChange = (listener: () => void): (() => void) => {
+    this.changeListeners.add(listener);
+    return () => void this.changeListeners.delete(listener);
+  };
+  private changed(): void {
+    for (const listener of this.changeListeners) listener();
+  }
   private record(name: string, status: ServiceStatus): void {
     this.statuses.set(name, status);
     this.report(name);
+    this.changed();
   }
-  private degraded(name: string, error: unknown): void {
+  private degraded(name: string, error: unknown, skipped = false): void {
     const message = `Service ${name}: ${error instanceof Error ? error.message : String(error)}`;
-    this.record(name, { name, state: "degraded", error: message });
+    this.record(name, { name, state: "degraded", error: message, ...(skipped ? { skipped } : {}) });
     this.context.log.log(
       "error",
       "Daemon service degraded",
@@ -210,11 +221,13 @@ export class ServiceStartup {
       seen.add(definition.name);
       this.record(definition.name, { name: definition.name, state: "starting" });
     }
+    this.definitions = definitions;
+    this.critical = criticalServices(definitions);
     this.deferred = definitions.filter((definition) => definition.phase === "listener");
     for (const definition of definitions.filter((entry) => entry.phase === "core"))
       this.listeners.push(...(await this.startOne(definition)));
     for (const definition of definitions) {
-      if (!definition.essential) continue;
+      if (failurePolicy(definition, this.critical) !== "stop-daemon") continue;
       const status = this.statuses.get(definition.name);
       if (status?.state === "degraded")
         throw new EssentialServiceError(definition.name, status.error);
@@ -231,8 +244,19 @@ export class ServiceStartup {
       this.degraded(name, new Error(`Dependency ${unavailable} is unavailable`));
       return [];
     }
+    if (this.skip.has(name) && failurePolicy(definition, this.critical) !== "stop-daemon") {
+      // Never retried: the person's next restart of ace starts it again.
+      this.retriesUsed.set(name, Number.POSITIVE_INFINITY);
+      this.degraded(
+        name,
+        new Error("Turned off for this run: it was still starting when ace last stopped"),
+        true,
+      );
+      return [];
+    }
     this.record(name, { name, state: "starting" });
-    const resources = new Resources();
+    // A disposer the start registers after cleanup began counts as this service's work too.
+    const resources = new Resources({ lateWork: (work) => this.hold(name, work) });
     const controller = new AbortController();
     const published: Partial<Services> = {};
     let committed = false;
@@ -256,15 +280,20 @@ export class ServiceStartup {
     let awaitingDependents = false;
     const close = (): Promise<void> => {
       closing ??= Promise.resolve().then(async () => {
-        // Preserve dependency lifetimes while unrelated branches drain together.
+        const budget = this.shutdownBudget();
+        // Preserve dependency lifetimes while unrelated branches drain together, until the
+        // shared budget is spent: then a stuck dependent no longer holds this one open.
         awaitingDependents = true;
-        await Promise.allSettled(
-          [...this.cleanups.values()]
-            .filter((entry) => entry.dependencies.includes(name))
-            .map((entry) => entry.close()),
+        await within(
+          Promise.allSettled(
+            [...this.cleanups.values()]
+              .filter((entry) => entry.dependencies.includes(name))
+              .map((entry) => entry.close()),
+          ),
+          budget,
         );
         awaitingDependents = false;
-        await boundedCleanup(name, resources, this.runtime).catch(async (error: unknown) => {
+        const own = boundedCleanup(name, resources, this.runtime).catch(async (error: unknown) => {
           this.context.log.log(
             "error",
             "Service cleanup failed",
@@ -277,6 +306,14 @@ export class ServiceStartup {
           await Promise.allSettled([resources.close()]);
           throw new Error(`Service ${name} cleanup failed`, { cause: error });
         });
+        if ((await within(own, budget)) === "done") return own;
+        // The process exits next; what is still closing is named by `pending()` meanwhile.
+        void own.catch(() => {});
+        this.context.log.log(
+          "warn",
+          "Service cleanup left running at shutdown",
+          logFields([["service", name]]),
+        );
       });
       return closing;
     };
@@ -285,24 +322,42 @@ export class ServiceStartup {
       name: `service ${name}`,
       pending: () => (awaitingDependents ? ["waiting for dependents"] : resources.pending()),
     });
+    // The start itself, which may outlive its deadline. Held from here until the real calls
+    // are tracked, so the count never drops to zero in between.
+    let attempt: Promise<unknown> = Promise.resolve();
+    const registering = Promise.withResolvers<void>();
+    this.hold(name, registering.promise);
     try {
       await bounded(
         name,
-        () =>
-          definition.start({
-            ...this.context,
-            resources,
-            services,
-            onListen,
-            signal: controller.signal,
-            readiness: (read) => {
-              this.readiness.set(name, read);
-              this.report(name);
-            },
-          }),
+        () => {
+          attempt = Promise.resolve(
+            this.inService(name, () =>
+              definition.start({
+                ...this.context,
+                resources,
+                services,
+                onListen,
+                signal: controller.signal,
+                readiness: (read, rerun) => {
+                  this.readiness.set(name, read);
+                  if (rerun) this.reruns.set(name, rerun);
+                  else this.reruns.delete(name);
+                  if (this.readiness.get(name)?.().state === "ready") this.warmupUsed.delete(name);
+                  this.report(name);
+                  this.changed();
+                  this.rerunLater(name);
+                },
+              }),
+            ),
+          );
+          return attempt;
+        },
         this.runtime,
         this.context.signal,
       );
+      this.hold(name, attempt);
+      registering.resolve();
       this.context.signal.throwIfAborted();
       Object.assign(this.context.services, published);
       committed = true;
@@ -310,6 +365,8 @@ export class ServiceStartup {
         resources.beginShutdown();
         for (const key of Object.keys(published))
           Reflect.deleteProperty(this.context.services, key);
+        // The deadline only stops the log waiting; the close itself fences the next retry.
+        this.hold(name, resources.close());
         void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
           this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
         );
@@ -319,7 +376,11 @@ export class ServiceStartup {
     } catch (error) {
       resources.beginShutdown();
       this.degraded(name, error);
-      // A stuck disposer must not hold startup either. Shutdown retains the cleanup promise.
+      // A stuck disposer must not hold startup either. Shutdown retains the cleanup promise;
+      // the next retry waits for the close itself, however long it takes.
+      this.hold(name, attempt);
+      this.hold(name, resources.close());
+      registering.resolve();
       void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
         this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
       );
@@ -333,7 +394,8 @@ export class ServiceStartup {
    * services it names in `requires` and `after` (their start and their listeners), so
    * independent services start together instead of one after another.
    */
-  async listening(server: Awaited<ReturnType<typeof startServer>>): Promise<void> {
+  async listening(server: Server): Promise<void> {
+    this.server = server;
     // Core services' listeners first: a listener-phase dependency must find them ready.
     await this.runListeners(this.listeners.splice(0), server);
     const settled = new Map<string, Promise<void>>();
@@ -349,22 +411,162 @@ export class ServiceStartup {
       );
     }
     await Promise.all(settled.values());
+    for (const definition of this.definitions)
+      if (this.retriable(definition)) this.retryLater(definition);
   }
-  private async runListeners(
-    listeners: readonly ServiceListener[],
-    server: Awaited<ReturnType<typeof startServer>>,
-  ): Promise<void> {
+  /**
+   * Another attempt is scheduled or still to come: the service has retries left and none of what
+   * it requires has run out of its own (a dependent starts again when its dependency does).
+   * Only a service whose start failed is retried: a warmup that failed after a good start leaves
+   * it running, and ace says so until it restarts. What a stuck cleanup still holds is not a
+   * retry; the budget alone says whether another comes.
+   */
+  private willRetry(name: string): boolean {
+    const definition = this.definitions.find((entry) => entry.name === name);
+    if (!definition || failurePolicy(definition, this.critical) !== "degrade-and-retry")
+      return false;
+    if (this.skip.has(name) || this.context.signal.aborted) return false;
+    // A warmup that failed after a good start repeats on its own schedule or not at all.
+    if (this.statuses.get(name)?.state !== "degraded")
+      return this.warmupTimers.has(name) || this.canRerun(name);
+    if (this.retryTimers.has(name)) return true;
+    const own = (this.retriesUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0);
+    const required = definition.requires.filter(
+      (dependency) => this.statuses.get(dependency)?.state === "degraded",
+    );
+    return required.length ? required.every((d) => this.willRetry(d)) : own;
+  }
+  private canRerun(name: string): boolean {
+    return (
+      this.reruns.has(name) &&
+      !this.context.signal.aborted &&
+      (this.warmupUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0)
+    );
+  }
+  /**
+   * A warmup that failed after the service started runs again on the same backoff as a failed
+   * start, without closing or restarting the service. Each failure schedules the next.
+   */
+  private rerunLater(name: string): void {
+    if (this.readiness.get(name)?.().state !== "degraded") return;
+    if (this.warmupTimers.has(name) || !this.canRerun(name)) return;
+    const used = this.warmupUsed.get(name) ?? 0;
+    const delay = this.runtime.retryDelaysMs?.[used];
+    const rerun = this.reruns.get(name);
+    if (delay === undefined || !rerun) return;
+    this.warmupUsed.set(name, used + 1);
+    const cancel = this.runtime.schedule(
+      `rerun ${name}`,
+      () => {
+        this.warmupTimers.delete(name);
+        this.changed();
+        this.context.log.log("info", "Retrying service warmup", logFields([["service", name]]));
+        void rerun().catch((error: unknown) => {
+          if (!this.context.signal.aborted)
+            this.context.log.log("error", "Service warmup retry failed", logError(error));
+        });
+      },
+      delay,
+    );
+    this.warmupTimers.set(name, cancel);
+    this.changed();
+  }
+  /** Degraded, not essential, with every required service ready, and retries left. */
+  private retriable(definition: ServiceDefinition): boolean {
+    return (
+      failurePolicy(definition, this.critical) === "degrade-and-retry" &&
+      this.statuses.get(definition.name)?.state === "degraded" &&
+      definition.requires.every((dependency) => this.statuses.get(dependency)?.state === "ready")
+    );
+  }
+  private retryLater(definition: ServiceDefinition): void {
+    const { name } = definition;
+    const used = this.retriesUsed.get(name) ?? 0;
+    const delay = this.runtime.retryDelaysMs?.[used];
+    if (delay === undefined || this.context.signal.aborted || this.retryTimers.has(name)) return;
+    this.retriesUsed.set(name, used + 1);
+    const cancel = this.runtime.schedule(
+      `retry ${name}`,
+      () => {
+        this.retryTimers.delete(name);
+        // With the last retry fired, "retrying" turns false before the attempt reports anything.
+        this.changed();
+        void this.retry(definition).catch((error: unknown) => {
+          // A stop during the retry aborts it; that is not a failure.
+          if (!this.context.signal.aborted)
+            this.context.log.log("error", "Service retry failed", logError(error));
+        });
+      },
+      delay,
+    );
+    this.retryTimers.set(name, cancel);
+    this.changed();
+  }
+  /** Starts a degraded service again; once it is ready, the services that require it follow. */
+  private async retry(definition: ServiceDefinition): Promise<void> {
+    const { server } = this;
+    if (!server || this.context.signal.aborted || !this.retriable(definition)) return;
+    const { name } = definition;
+    // The last attempt is still stuck in a call: starting another would only stack them.
+    if (this.inflight.has(name)) return this.retryLater(definition);
+    this.context.log.log("info", "Retrying daemon service", logFields([["service", name]]));
+    await this.runListeners(await this.startOne(definition), server);
+    if (this.statuses.get(name)?.state !== "ready") return this.retryLater(definition);
+    this.context.log.log("info", "Daemon service recovered", logFields([["service", name]]));
+    this.retriesUsed.delete(name);
+    for (const dependent of this.definitions)
+      if (dependent.requires.includes(name)) await this.retry(dependent);
+  }
+  /** The shutdown budget, started by the first service to close. */
+  private shutdownBudget(): Promise<void> {
+    this.budget ??= new Promise((resolve) => {
+      this.runtime.schedule("shutdown", resolve, this.runtime.cleanupTimeoutMs ?? 6_000);
+    });
+    return this.budget;
+  }
+  private inService<T>(name: string, work: () => T): T {
+    return this.runtime.inService ? this.runtime.inService(name, work) : work();
+  }
+  /** Counts `work` against `name` until it settles; the attempt marker follows the count. */
+  private hold(name: string, work: Promise<unknown>): void {
+    const running = this.inflight.get(name) ?? 0;
+    this.inflight.set(name, running + 1);
+    if (running === 0) this.observeAttempt(name, true);
+    const release = () => {
+      const left = (this.inflight.get(name) ?? 1) - 1;
+      if (left > 0) return void this.inflight.set(name, left);
+      this.inflight.delete(name);
+      this.observeAttempt(name, false);
+    };
+    work.then(release, release);
+  }
+  private observeAttempt(name: string, running: boolean): void {
+    try {
+      this.runtime.onAttempt?.(name, running);
+    } catch (error) {
+      this.context.log.log("error", "Startup observer failed", logError(error));
+    }
+  }
+  private async runListeners(listeners: readonly ServiceListener[], server: Server): Promise<void> {
     for (const listener of listeners) {
       if (this.statuses.get(listener.name)?.state === "degraded") continue;
+      // The listener's own call, which may outlive its deadline.
+      let started: Promise<unknown> = Promise.resolve();
+      const registering = Promise.withResolvers<void>();
+      this.hold(listener.name, registering.promise);
       try {
         await bounded(
           listener.name,
           async () => {
-            await listener.start(server);
+            started = Promise.resolve(this.inService(listener.name, () => listener.start(server)));
+            await started;
           },
           this.runtime,
           this.context.signal,
-        );
+        ).finally(() => {
+          this.hold(listener.name, started);
+          registering.resolve();
+        });
         this.record(listener.name, { name: listener.name, state: "ready" });
       } catch (error) {
         listener.disable();

@@ -1,4 +1,5 @@
 import type { PublicToolCode } from "@ace/mcp-server";
+import { isDiskFull } from "../sqlite-failure.ts";
 
 /** Authored failures retain diagnostic detail while their public messages stay fixed. */
 export class AgentControlError extends Error {
@@ -50,12 +51,15 @@ export function engineFull(error: unknown): boolean {
   return error instanceof AgentControlError && error.message === "engine_capacity_exceeded";
 }
 /**
- * The engine can't take a start yet: it is full, or still starting after a restart. Either way
- * the launch waits and is tried again; neither is a reason it can never run.
+ * The start can't happen yet: the engine is full or still starting after a restart, or the disk
+ * is too full to record it (ADR 0176; the start's transaction rolled back). Each way the launch
+ * stays queued and is tried again; none is a reason it can never run.
  */
 export function startsLater(error: unknown): boolean {
   return (
-    engineFull(error) || (error instanceof AgentControlError && error.message === "engine_starting")
+    engineFull(error) ||
+    (error instanceof AgentControlError && error.message === "engine_starting") ||
+    isDiskFull(error)
   );
 }
 

@@ -58,6 +58,7 @@ export const defaults: SettingsValues = {
   "spade.enabled": false,
   "beta.spade": false,
   "beta.marketplace": false,
+  "market.askBeforeAgentPublish": false,
   "devices.emulatorWindow": false,
   "media.encode": "legacy",
   "media.delivery": "legacy",

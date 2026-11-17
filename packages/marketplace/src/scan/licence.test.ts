@@ -13,7 +13,7 @@ import {
 } from "./index.ts";
 
 /*
- * Licence texts in a Suit (ADR 0173 §8): a font's OFL and a root LICENSE travel with the Suit as
+ * Licence texts in a Suit (ADR 0174 §8): a font's OFL and a root LICENSE travel with the Suit as
  * inert data. They stay under the hidden-content and secrets checks, are size-capped and UTF-8,
  * never count as runnable, and no other `.txt` is let in.
  */

@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketIndexBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {},
+      "maxItems": 50000,
+      "type": "array"
+    },
+    "full": {
+      "type": "boolean"
+    },
+    "removed": {
+      "default": [],
+      "items": {
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "type": {
+            "maxLength": 40,
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "type": "object"
+      },
+      "maxItems": 50000,
+      "type": "array"
+    },
+    "stamp": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "stamp",
+    "full",
+    "entries"
+  ],
+  "type": "object"
+}

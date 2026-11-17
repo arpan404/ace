@@ -64,6 +64,29 @@ test("a stop that fails to reach the executor is tried again until it gets throu
   expect(stops).toHaveLength(2);
 });
 
+test("a stop whose retry cannot be scheduled is reported, and nothing is left unhandled", async () => {
+  const h = harness();
+  h.service.put(definition());
+  h.service.trigger("triage", subject("first"));
+  unreachableStop(h);
+  const unhandled: unknown[] = [];
+  const hear = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", hear);
+  const arm = h.timer.arm.bind(h.timer);
+  h.timer.arm = () => {
+    throw new Error("database is locked");
+  };
+  try {
+    h.service.setEnabled("triage", false);
+    await flush();
+    expect(h.errors.map(String)).toContain("Error: database is locked");
+    expect(unhandled).toEqual([]);
+  } finally {
+    h.timer.arm = arm;
+    process.off("unhandledRejection", hear);
+  }
+});
+
 test("deleting an automation keeps its run's cancellation until the run has stopped", async () => {
   const h = harness();
   h.service.put(definition());

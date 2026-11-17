@@ -5,6 +5,165 @@
     {
       "additionalProperties": false,
       "properties": {
+        "discover": {
+          "$ref": "https://ace.local/protocol/v1/MarketDiscover.json"
+        },
+        "op": {
+          "const": "discover",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "discover"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "publisher",
+          "type": "string"
+        },
+        "page": {
+          "$ref": "https://ace.local/protocol/v1/MarketPublisherPage.json"
+        }
+      },
+      "required": [
+        "op",
+        "page"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "maxLength": 1400000,
+          "type": "string"
+        },
+        "op": {
+          "const": "picture",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "$ref": "https://ace.local/protocol/v1/MarketPublishAnswer.json"
+        },
+        "op": {
+          "const": "publish",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "answer"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/MarketPublishable.json"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "op": {
+          "const": "publishables",
+          "type": "string"
+        },
+        "unavailable": {
+          "items": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "items",
+        "unavailable"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "leftOut": {
+          "items": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "op": {
+          "const": "botRecipe",
+          "type": "string"
+        },
+        "recipe": {
+          "$ref": "https://ace.local/protocol/v1/Recipe.json"
+        }
+      },
+      "required": [
+        "op",
+        "recipe",
+        "leftOut"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "privacyCheck",
+          "type": "string"
+        },
+        "spans": {
+          "items": {
+            "items": {
+              "$ref": "https://ace.local/protocol/v1/MarketPrivacySpan.json"
+            },
+            "maxItems": 200,
+            "type": "array"
+          },
+          "maxItems": 40,
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "spans"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "op": {
           "const": "sources",
           "type": "string"
@@ -284,6 +443,9 @@
           },
           "maxItems": 200,
           "type": "array"
+        },
+        "scan": {
+          "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
         }
       },
       "required": [

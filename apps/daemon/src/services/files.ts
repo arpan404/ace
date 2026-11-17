@@ -3,7 +3,7 @@ import { fileExportSource } from "../file-export-source.ts";
 import { projectFilesBinding } from "../project-files-binding.ts";
 import type { ThreadId } from "@ace/protocol";
 import { FilesWorkspaces } from "../files-workspaces.ts";
-import { warmup } from "./warmup.ts";
+import { repeatableWarmup } from "./warmup.ts";
 import { backgroundFailure } from "./background.ts";
 import {
   FileError,
@@ -81,7 +81,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
     );
     const artifactsService = artifacts;
     resources.own(() => artifactsService.close());
-    const job = warmup(owner, "files", async () => {
+    const job = repeatableWarmup(owner, "files", async () => {
       await filesService.sweep(owner.signal);
       owner.signal.throwIfAborted();
       await artifactsService.support(loadHostId(config.dataDir));

@@ -12,7 +12,7 @@ import { workerError } from "./publish.ts";
 import type { MarketStore, StoredSource } from "./store.ts";
 
 /*
- * Discover, publisher pages and abuse reports (ADR 0173 §3, §6, §7). Entries are index entries,
+ * Discover, publisher pages and abuse reports (ADR 0174 §3, §6, §7). Entries are index entries,
  * read as the index is, with "Verified" and "By ace" from the signed lists only. The last
  * Discover the market answered is kept as it came, so Discover answers offline from it and is
  * read again through the same parse.

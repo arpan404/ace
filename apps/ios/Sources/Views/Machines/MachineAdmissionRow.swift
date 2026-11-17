@@ -33,6 +33,11 @@ struct MachineAdmissionRow: View {
                         .transition(.opacity)
                         .accessibilityIdentifier("machine.admission.line")
                 }
+                if let startup = admission.startup {
+                    Text(startup).font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .accessibilityIdentifier("machine.startup")
+                }
                 ServiceProblem(message: problem)
             }
             .smoothChange(admission)
