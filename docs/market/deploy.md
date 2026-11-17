@@ -1,9 +1,10 @@
 # Deploying the market Worker
 
 `apps/market` is ace's marketplace at `market.acehq.dev` (ADR 0168, ADR 0173): the catalog API,
-Discover, publishers' profiles and publishing, the scan pipeline, the signer's routes, and the
-public web page. Deploying it is the owner's step; nothing
-in the repository deploys it or talks to a Cloudflare account.
+Discover, publishers' profiles and publishing, the scan pipeline, and the signer's routes. The
+Worker serves the API only: the public web page was removed at the owner's request, `GET /` answers a
+small JSON body and any other path outside `/v1` is a JSON 404. Deploying it is the owner's step;
+nothing in the repository deploys it or talks to a Cloudflare account.
 
 Run each command from `apps/market`.
 

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseIndex, verifyManifest } from "@ace/marketplace";
 import { VersionBody } from "@ace/protocol/marketplace";
-import { folder, keySetOf, sampleSkill } from "@ace/marketplace/testing";
+import { keySetOf, sampleSkill } from "@ace/marketplace/testing";
 import { marketKey, publishSigned, startMarket, type Market } from "./testing/harness.ts";
 
 let market: Market;
@@ -30,6 +30,25 @@ beforeAll(async () => {
 });
 afterAll(() => market.close());
 
+describe("the Worker is the API only", () => {
+  it("answers GET / with JSON and no HTML", async () => {
+    const response = await market.fetch("/");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.json()).toEqual({ name: "ace market", api: "/v1" });
+  });
+
+  it.each(["/search", "/spade-skill/read-skill", "/v1/nothing-here"])(
+    "answers %s with a JSON 404",
+    async (path) => {
+      const response = await market.fetch(path);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(await response.json()).toMatchObject({ error: "not_found" });
+    },
+  );
+});
+
 const versions = async () =>
   (
     (await (await market.fetch("/v1/entries/spade-skill/read-skill")).json()) as {
@@ -44,7 +63,7 @@ const downloads = async (version: string) =>
 const from = (address: string) => ({ headers: { "cf-connecting-ip": address } });
 
 describe("reading the catalog", () => {
-  it("sets no cookie on any read route or page", async () => {
+  it("sets no cookie on any read route", async () => {
     for (const path of [
       "/v1/index",
       "/v1/search?q=read",
@@ -54,8 +73,6 @@ describe("reading the catalog", () => {
       "/v1/entries/spade-skill/read-skill/1.0.0",
       `/v1/objects/${hashes["1.0.0"]}`,
       "/",
-      "/search?q=read",
-      "/spade-skill/read-skill",
     ]) {
       const response = await market.fetch(path);
       expect(response.status, path).toBe(200);
@@ -127,34 +144,5 @@ describe("reading the catalog", () => {
 
   it("answers 404 for withdrawn before the first list is signed", async () => {
     expect((await market.fetch("/v1/withdrawn")).status).toBe(404);
-  });
-
-  it("renders an entry's page with its review, downloads and a link that opens it in ace", async () => {
-    const page = await (await market.fetch("/spade-skill/read-skill")).text();
-    expect(page).toContain("By ace");
-    expect(page).toMatch(/\d+ downloads?/);
-    expect(page).toContain('href="ace://marketplace/spade-skill/read-skill"');
-    expect(page).toContain("1.1.0");
-  });
-
-  it("escapes what publishers wrote", async () => {
-    await publishSigned(market, {
-      type: "spade-skill",
-      name: "loud-skill",
-      files: [
-        ...sampleSkill("loud-skill"),
-        ...folder({ "market.json": JSON.stringify({ line: '<img src=x onerror="alert(1)">' }) }),
-      ],
-    });
-    const page = await (await market.fetch("/spade-skill/loud-skill")).text();
-    expect(page).not.toContain("<img src=x");
-    expect(page).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
-    expect(page).toContain("Not reviewed by ace");
-  });
-
-  it("answers an address that names nothing with a page saying so", async () => {
-    const response = await market.fetch("/spade-skill/nothing-here");
-    expect(response.status).toBe(404);
-    expect(await response.text()).toContain("Nothing in the marketplace has that address.");
   });
 });
