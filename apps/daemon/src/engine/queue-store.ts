@@ -430,6 +430,17 @@ export class QueueStore {
       .all(now)
       .map((row) => QueueSnapshot.shape.threadId.parse(row.thread_id));
   }
+  /**
+   * Which deadline a thread holds now, as its time and hold; undefined with none, or when its
+   * state is gone. A new hold or a moved deadline reads as a different one.
+   */
+  deadlineKey(id: ThreadId): string | undefined {
+    const row = this.sql(
+      `SELECT resume_at,hold_token FROM engine_queue WHERE thread_id=? AND resume_at IS NOT NULL
+      AND ${withState}`,
+    ).get(id);
+    return row ? `${String(row.resume_at)}:${String(row.hold_token)}` : undefined;
+  }
   /** Moves a deadline that could not be acted on to `at`, keeping everything else it holds. */
   defer(id: ThreadId, at: number): void {
     this.sql("UPDATE engine_queue SET resume_at=? WHERE thread_id=? AND resume_at IS NOT NULL").run(

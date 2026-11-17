@@ -254,6 +254,17 @@ test("a deadline this build can't read is put off on its own, and another thread
   expect(deadline()).toBe(8000);
   h.clock.advance(7999);
   expect(failures).toHaveLength(2);
+  // A new hold replaces that deadline: its retries start over, owing nothing to the old one.
+  h.store.atomic((db) =>
+    db
+      .prepare("UPDATE engine_queue SET resume_at=20000,hold_token=hold_token+1 WHERE thread_id=?")
+      .run(other),
+  );
+  h.clock.advance(8000);
+  expect(failures).toHaveLength(2);
+  h.clock.advance(20000);
+  expect(failures).toHaveLength(3);
+  expect(deadline()).toBe(21000);
 });
 
 test("a queued message whose trigger a newer build wrote is skipped at start, never stopping the engine", async () => {
