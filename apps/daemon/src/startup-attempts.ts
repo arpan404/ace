@@ -46,17 +46,19 @@ export function startupAttempts(file: AttemptFile): StartupAttempts {
 }
 
 /**
- * What safe mode leaves off: services the last run never finished starting, except those the
- * daemon cannot run without (an essential service and everything it requires).
+ * What safe mode leaves off: services the last run never finished starting, and services that
+ * crashed the daemon twice in a short window (`crashed`), except those the daemon cannot run
+ * without (an essential service and everything it requires).
  */
 export function safeModeSkips(
   previous: readonly string[],
   order: readonly Criticality[],
+  crashed: readonly string[] = [],
 ): string[] {
-  const stuck = new Set(previous);
+  const left = new Set([...previous, ...crashed]);
   const critical = criticalServices(order);
   return order
-    .filter((entry) => stuck.has(entry.name) && !critical.has(entry.name))
+    .filter((entry) => left.has(entry.name) && !critical.has(entry.name))
     .map(({ name }) => name);
 }
 

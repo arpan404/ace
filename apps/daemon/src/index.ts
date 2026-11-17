@@ -59,6 +59,8 @@ import { Resources } from "./services/resources.ts";
 import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
 import { ServiceStartup, systemStartup } from "./services/startup.ts";
 import { attemptFile, safeModeSkips, startupAttempts } from "./startup-attempts.ts";
+import { crashRecord, installCrashAttribution, repeatedCrashes } from "./service-crashes.ts";
+import { ServiceScope } from "./services/service-scope.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
@@ -172,6 +174,20 @@ export async function startDaemon(options: DaemonOptions = {}) {
     ),
   );
   resources.own(installRejectionGuard(process, log, isStoreRetry));
+  // A fatal error is charged to the service whose code raised it, for safe mode (ADR 0175).
+  const scope = new ServiceScope();
+  const crashes = crashRecord(attemptFile(join(config.dataDir, "service-crashes.json")));
+  resources.own(
+    installCrashAttribution(
+      process,
+      () => scope.current(),
+      (service) => {
+        crashes.record(service, now());
+        log.log("error", "Fatal error in service", logFields([["service", service]]));
+        log.flushSync();
+      },
+    ),
+  );
   let stopping: Stopping | undefined;
   const stopRecord = stopRecorder({ run: () => run, log, now, pid: process.pid });
   // Disposers run in reverse: this record is the last line before the log closes.
@@ -404,12 +420,19 @@ export async function startDaemon(options: DaemonOptions = {}) {
     resources.own(() => health.close(), "health monitor");
     // Safe mode leaves off what the last run was stuck starting (ADR 0175).
     const attempts = startupAttempts(attemptFile(join(config.dataDir, "startup-attempts.json")));
-    const skip = config.safeMode ? safeModeSkips(attempts.previous, serviceFactories) : [];
+    const skip = config.safeMode
+      ? safeModeSkips(attempts.previous, serviceFactories, repeatedCrashes(crashes.previous, now()))
+      : [];
     if (config.safeMode)
       log.log("warn", "Daemon starting in safe mode", logFields([["services", skip]]));
     const startup = new ServiceStartup(
       serviceContext,
-      { ...systemStartup, onAttempt: attempts.onAttempt, ...options.startup },
+      {
+        ...systemStartup,
+        onAttempt: attempts.onAttempt,
+        inService: (name, work) => scope.run(name, work),
+        ...options.startup,
+      },
       skip,
     );
     await startup.start(serviceFactories);

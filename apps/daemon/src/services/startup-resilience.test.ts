@@ -4,6 +4,7 @@ import { Store } from "../store.ts";
 import { readConfig } from "../config.ts";
 import type { startServer } from "../server.ts";
 import { startupAttempts, safeModeSkips } from "../startup-attempts.ts";
+import { ServiceScope } from "./service-scope.ts";
 import { Resources } from "./resources.ts";
 import { serviceOrder } from "./service-order.ts";
 import {
@@ -407,4 +408,31 @@ test("a resource a timed-out start acquires after cleanup fences the retry until
   expect(starts).toBe(2);
   expect(state(subject, "devices")).toBe("ready");
   expect(running.at(-1)).toEqual([]);
+});
+
+test("work a service leaves running, from its start and its listener, is charged to it", async () => {
+  const scope = new ServiceScope();
+  const clock = fakeClock();
+  const subject = startup({
+    timeoutMs: 15_000,
+    schedule: clock.schedule,
+    inService: (name, work) => scope.run(name, work),
+  });
+  const owners: (string | undefined)[] = [];
+  const later = Promise.withResolvers<void>();
+  await subject.start([
+    service("commands", (context) => {
+      // Discovery that keeps running after the start returned, and after the daemon listens.
+      setTimeout(() => owners.push(scope.current()), 1);
+      context.onListen.push(() => {
+        void later.promise.then(() => owners.push(scope.current()));
+      });
+    }),
+    service("engine", () => {}, { essential: true }),
+  ]);
+  await subject.listening(server);
+  later.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(owners).toEqual(["commands", "commands"]);
+  expect(scope.current()).toBeUndefined();
 });

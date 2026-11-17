@@ -310,17 +310,19 @@ export class ServiceStartup {
         name,
         () => {
           attempt = Promise.resolve(
-            definition.start({
-              ...this.context,
-              resources,
-              services,
-              onListen,
-              signal: controller.signal,
-              readiness: (read) => {
-                this.readiness.set(name, read);
-                this.report(name);
-              },
-            }),
+            this.inService(name, () =>
+              definition.start({
+                ...this.context,
+                resources,
+                services,
+                onListen,
+                signal: controller.signal,
+                readiness: (read) => {
+                  this.readiness.set(name, read);
+                  this.report(name);
+                },
+              }),
+            ),
           );
           return attempt;
         },
@@ -435,6 +437,9 @@ export class ServiceStartup {
     });
     return this.budget;
   }
+  private inService<T>(name: string, work: () => T): T {
+    return this.runtime.inService ? this.runtime.inService(name, work) : work();
+  }
   /** Counts `work` against `name` until it settles; the attempt marker follows the count. */
   private hold(name: string, work: Promise<unknown>): void {
     const running = this.inflight.get(name) ?? 0;
@@ -466,7 +471,7 @@ export class ServiceStartup {
         await bounded(
           listener.name,
           async () => {
-            started = Promise.resolve(listener.start(server));
+            started = Promise.resolve(this.inService(listener.name, () => listener.start(server)));
             await started;
           },
           this.runtime,

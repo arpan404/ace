@@ -63,17 +63,30 @@ after five fast failures in a row. Each start failed the same way.
 4. **Service cleanup at shutdown shares one 6 s budget.** Once it is spent, a service stops
    waiting for its dependents and leaves a stuck cleanup running; the process exits next. A stop
    stays inside the daemon's 7 s deadline.
-5. **A stuck start is remembered.** Each service's start is recorded in `startup-attempts.json`
-   until all of that service's calls settle. A daemon that dies partway leaves the names behind.
+5. **A stuck start is remembered, and so is a crash.** Each service's start is recorded in
+   `startup-attempts.json` until all of that service's calls settle. A daemon that dies partway
+   leaves the names behind. Each service's start and listeners run in an `AsyncLocalStorage`
+   scope carrying its name (`services/service-scope.ts`), which the timers, callbacks and promise
+   continuations they leave running inherit. A fatal error raised in that scope is recorded
+   against the service in `service-crashes.json` before the process dies
+   (`service-crashes.ts`).
 6. **The app starts a crash loop in safe mode.** After two fast failures in a row, the
    supervisor starts the next daemon with `ACE_SAFE_MODE=1`; that daemon leaves off the services
-   its last run never finished starting, except the critical ones of decision 1, until ace
-   restarts. A port
+   its last run never finished starting, and those that crashed the daemon twice within 10
+   minutes, except the critical ones of decision 1, until ace restarts. A port
    conflict never starts safe mode, because leaving services off cannot free a port. The person
    reads one sentence, while restarting and then in the tray: ace is running without the part
    that kept it from starting, and a restart of ace turns it back on. A stable run (60 s) or a
    repair ends safe mode. Backoff and the five-failure limit stay as they were.
-7. **The home's lock needs no reclaiming.** It is a kernel lock held by an open SQLite
+7. **An account home that doesn't answer holds up only its own account.** The accounts service
+   opens its index and returns; each saved account's home is then checked on its own, one after
+   another, and a check that hasn't answered within 2 s is left running while the next starts.
+   Until its check answers, an account reads as `home_checking`: listed and named, never
+   missing, never available. A session bound to it waits for that check, says so in the thread
+   after 2 s, and after a minute fails with the reason, its message kept; a pick by limits waits
+   for every candidate's check. No work moves to another account and nothing is deleted because
+   a folder is silent; once it answers, the account works without a restart.
+8. **The home's lock needs no reclaiming.** It is a kernel lock held by an open SQLite
    transaction, so a daemon that crashes, overruns its shutdown or is killed releases it with its
    process.
 
@@ -86,14 +99,16 @@ after five fast failures in a row. Each start failed the same way.
   own resources. A service that keeps state outside its `ServiceContext` must reset it.
 - A cleanup cut short at shutdown may still be running as the process exits; that is the same
   outcome as the forced stop it replaces, minus the overrun.
-- `accounts` is critical because the engine binds sessions to the person's chosen accounts;
-  starting the engine without it would run work on the wrong account. Its start checks every
-  account's home folder, so a home that stops answering still stops the daemon. Letting it
-  degrade needs the account registry to answer reads while homes are checked (today `get` and
-  `list` throw until then) and every account-bound session to wait for that check; that is
-  follow-up work.
-- Runtime crashes after startup (an unhandled rejection in a service's background work) are not
-  traced to a service, so safe mode cannot leave them off yet.
+- `accounts` stays critical: without it the engine would open sessions on each CLI's own login,
+  the wrong account for a thread pinned to another. Its start now only opens the account index
+  (local SQLite), so it no longer waits on any home folder (decision 7).
+- Bun, which releases ship, carries the scope into an uncaught exception's monitor but not into
+  an `unhandledRejection` listener. There a rejection nobody caught is not attributed and safe
+  mode can't leave its service off; on Node it is. Thrown errors are attributed on both.
+- Work is charged to the service whose start or listener created it. Shared machinery created
+  lazily inside one service's start is charged to that service.
+- The supervisor only asks for safe mode after fast failures (under 60 s). A service that
+  crashes the daemon later in each run is recorded, but nothing leaves it off yet.
 
 ## Tests
 
@@ -108,5 +123,14 @@ after five fast failures in a row. Each start failed the same way.
 - `apps/daemon/src/engine-startup.process.test.ts`: the real daemon publishes its endpoint while
   a provider CLI hangs.
 - `apps/daemon/src/daemon-lock.process.test.ts`: a killed lock holder leaves the lock free.
+- `packages/accounts/src/home-checks.process.test.ts` and
+  `apps/daemon/src/account-home-stall.process.test.ts`: with one account folder that never
+  answers, the daemon listens, other accounts' threads run, that account reads as checking, its
+  thread waits (and says so), then runs on it once the folder answers; a session that waits too
+  long fails with the reason; a pick by limits waits for every candidate.
+- `apps/daemon/src/service-crashes.test.ts`, `service-crashes.process.test.ts` and
+  `services/startup-resilience.test.ts`: work a service leaves running is charged to it; a
+  service whose background work throws (on Node, or rejects) after listening, twice, is left
+  off by the next safe-mode start, never a critical one.
 - `apps/desktop/src/main/daemon/exit-policy.test.ts` and `supervisor-safe-mode.test.ts`: when
   safe mode starts, when it ends, and what the person reads.
