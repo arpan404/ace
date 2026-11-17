@@ -45,6 +45,8 @@
     "computer.blockedApps",
     "computer.lockedUse",
     "spade.enabled",
+    "beta.spade",
+    "beta.marketplace",
     "devices.emulatorWindow",
     "media.encode",
     "media.delivery",

@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketEntryDetail.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "installed": {
+      "$ref": "https://ace.local/protocol/v1/MarketInstalled.json"
+    },
+    "summary": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+    },
+    "versions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntryVersion.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "description",
+    "versions"
+  ],
+  "type": "object"
+}

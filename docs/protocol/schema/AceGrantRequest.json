@@ -10,7 +10,10 @@
       "type": "string"
     },
     "purpose": {
-      "const": "spade-cloud",
+      "enum": [
+        "spade-cloud",
+        "market-publish"
+      ],
       "type": "string"
     },
     "subject": {

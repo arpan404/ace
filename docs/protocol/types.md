@@ -964,7 +964,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| purpose | no | `"spade-cloud"` |  |
+| purpose | no | ["spade-cloud","market-publish"] |  |
 | kind | yes | ["machine","device"] |  |
 | subject | yes | string | {"minLength":1,"maxLength":128} |
 
@@ -9393,6 +9393,20 @@ Example:
   "requestId": "example",
   "type": "computer.using.watch"
 }
+```
+
+## ContainedPath
+
+[JSON Schema](schema/ContainedPath.json), input validation.
+
+Semantic rule: A relative path with / only: no empty, . or .. part, no device names, .git or characters Windows reads differently.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
 ```
 
 ## ContentPart
@@ -19593,6 +19607,1417 @@ Example:
 "pi"
 ```
 
+## MarketCategory
+
+[JSON Schema](schema/MarketCategory.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [MarketCategoryId.json](schema/MarketCategoryId.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":60} |
+
+Example:
+
+```json
+{
+  "id": "a410e5skis",
+  "title": "example"
+}
+```
+
+## MarketCategoryId
+
+[JSON Schema](schema/MarketCategoryId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"f"
+```
+
+## MarketClientMessage
+
+[JSON Schema](schema/MarketClientMessage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"marketplace.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":80} |
+| operation | yes | [MarketOperation.json](schema/MarketOperation.json) |  |
+
+Example:
+
+```json
+{
+  "operation": {
+    "name": "c",
+    "op": "spadeSkillFiles",
+    "path": "example"
+  },
+  "requestId": "example",
+  "type": "marketplace.request"
+}
+```
+
+## MarketEntryDetail
+
+[JSON Schema](schema/MarketEntryDetail.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| summary | yes | [MarketEntrySummary.json](schema/MarketEntrySummary.json) |  |
+| description | yes | string | {"maxLength":8192} |
+| versions | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntryVersion.json"}} |
+| installed | no | [MarketInstalled.json](schema/MarketInstalled.json) |  |
+
+Example:
+
+```json
+{
+  "description": "example",
+  "summary": {
+    "byAce": true,
+    "categories": [],
+    "downloads": 5,
+    "keywords": [],
+    "line": "example",
+    "name": "9oq",
+    "publisher": {
+      "id": "example",
+      "name": "nb76a0um8"
+    },
+    "reviewed": true,
+    "source": "git:xsfu",
+    "supported": true,
+    "title": "example",
+    "type": "example",
+    "updated": 4
+  },
+  "versions": []
+}
+```
+
+## MarketEntryName
+
+[JSON Schema](schema/MarketEntryName.json), input validation.
+
+Semantic rule: Plugin names cannot contain consecutive dots or hyphens.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"cd-1frtmk"
+```
+
+## MarketEntrySummary
+
+[JSON Schema](schema/MarketEntrySummary.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| source | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| type | yes | string | {"minLength":1,"maxLength":40} |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":120} |
+| line | yes | string | {"maxLength":300} |
+| publisher | no | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| categories | yes | array | {"maxItems":3,"items":{"$ref":"https://ace.local/protocol/v1/MarketCategoryId.json"}} |
+| keywords | yes | array | {"maxItems":16,"items":{"type":"string","minLength":1,"maxLength":40}} |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| reviewed | yes | boolean |  |
+| byAce | yes | boolean |  |
+| updated | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| supported | yes | boolean |  |
+| from | no | string | {"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "byAce": false,
+  "categories": [],
+  "downloads": 2,
+  "from": "example",
+  "keywords": [],
+  "line": "example",
+  "name": "gvt1",
+  "reviewed": true,
+  "source": "git:n6ql7k0u0f",
+  "supported": false,
+  "title": "example",
+  "type": "example",
+  "updated": 2,
+  "version": "71905424.562160.4660"
+}
+```
+
+## MarketEntryType
+
+[JSON Schema](schema/MarketEntryType.json), input validation.
+
+Type: ["suit","spade-skill","spade-plugin","spade-bot","ace-plugin"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"ace-plugin"
+```
+
+## MarketEntryVersion
+
+[JSON Schema](schema/MarketEntryVersion.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | [MarketVersion.json](schema/MarketVersion.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| published | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| downloads | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| withdrawn | no | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "downloads": 2,
+  "hash": "560a831c847f8bf4b106115ae751f2f2a0b0b85b2edf76e51504428f186cbe6b",
+  "published": 5,
+  "size": 7,
+  "version": "824163748.834.85",
+  "withdrawn": "example"
+}
+```
+
+## MarketErrorCode
+
+[JSON Schema](schema/MarketErrorCode.json), input validation.
+
+Type: ["not_found","invalid","refused","forbidden","unavailable","conflict","expired","busy","failed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"failed"
+```
+
+## MarketFileRow
+
+[JSON Schema](schema/MarketFileRow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"minLength":1,"maxLength":512} |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| executable | yes | boolean |  |
+| flagged | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "bytes": 8,
+  "executable": true,
+  "flagged": true,
+  "path": "example"
+}
+```
+
+## MarketHash
+
+[JSON Schema](schema/MarketHash.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"aae1cb00402e5a1e8ca2fcba2bdf1380464108c427555af941a90ccb9c2c823f"
+```
+
+## MarketInstallChoices
+
+[JSON Schema](schema/MarketInstallChoices.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| bots | no | array | {"default":[],"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":80}} |
+| needs | no | object | {"default":{},"propertyNames":{"type":"string","maxLength":2100},"additionalProperties":{"type":"boolean"}} |
+| startRoutines | no | boolean | {"default":false} |
+
+Example:
+
+```json
+{
+  "needs": {},
+  "startRoutines": false
+}
+```
+
+## MarketInstalled
+
+[JSON Schema](schema/MarketInstalled.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| source | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":120} |
+| version | yes | string | {"maxLength":64} |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| acceptedAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| state | yes | [MarketInstallState.json](schema/MarketInstallState.json) |  |
+| reason | no | string | {"maxLength":500} |
+| update | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+| target | no | string | {"maxLength":200} |
+
+Example:
+
+```json
+{
+  "acceptedAt": 3,
+  "hash": "67f2ccd18f05bbab6203caa7bda6d327a0a75d608f7a81821022ff1f778e2c51",
+  "name": "3",
+  "source": "git:6f59u5lzop2tvfn7gukvgn",
+  "state": "off",
+  "title": "example",
+  "type": "spade-skill",
+  "version": "example"
+}
+```
+
+## MarketInstallState
+
+[JSON Schema](schema/MarketInstallState.json), input validation.
+
+Type: ["on","withdrawn","off"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"on"
+```
+
+## MarketNeed
+
+[JSON Schema](schema/MarketNeed.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| key | yes | string | {"minLength":1,"maxLength":2100} |
+| kind | yes | ["connector","plugin"] |  |
+| label | yes | string | {"maxLength":2048} |
+| why | yes | string | {"maxLength":500} |
+| required | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "key": "example",
+  "kind": "connector",
+  "label": "example",
+  "required": false,
+  "why": "example"
+}
+```
+
+## MarketOperation
+
+[JSON Schema](schema/MarketOperation.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"sources"` |  |
+
+Example:
+
+```json
+{
+  "op": "sources"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"addSource"` |  |
+| address | yes | string | {"minLength":1,"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "address": "example",
+  "op": "addSource"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"removeSource"` |  |
+| id | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "git:11zd8wut",
+  "op": "removeSource"
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"setSource"` |  |
+| id | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| enabled | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "enabled": true,
+  "id": "git:i",
+  "op": "setSource"
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"refresh"` |  |
+| id | no | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "git:xoouxzgy81uicrf40mukdn8wxxwx",
+  "op": "refresh"
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"search"` |  |
+| query | no | string | {"default":"","maxLength":200} |
+| type | no | string | {"maxLength":40} |
+| category | no | [MarketCategoryId.json](schema/MarketCategoryId.json) |  |
+| source | no | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| offset | no | integer | {"default":0,"minimum":0,"maximum":10000} |
+| limit | no | integer | {"default":50,"minimum":1,"maximum":100} |
+
+Example:
+
+```json
+{
+  "op": "search",
+  "source": "market",
+  "type": "example"
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"home"` |  |
+
+Example:
+
+```json
+{
+  "op": "home"
+}
+```
+
+### Variant 8
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"read"` |  |
+| source | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| type | yes | string | {"minLength":1,"maxLength":40} |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "5",
+  "op": "read",
+  "source": "market",
+  "type": "example"
+}
+```
+
+### Variant 9
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"prepare"` |  |
+| source | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| type | yes | string | {"minLength":1,"maxLength":40} |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | no | [MarketVersion.json](schema/MarketVersion.json) |  |
+
+Example:
+
+```json
+{
+  "name": "pts51",
+  "op": "prepare",
+  "source": "git:8vgv9aq77xpko",
+  "type": "example",
+  "version": "32.901993.880"
+}
+```
+
+### Variant 10
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"readReview"` |  |
+| id | yes | [MarketReviewId.json](schema/MarketReviewId.json) |  |
+| offset | no | integer | {"default":0,"minimum":0,"maximum":100000} |
+
+Example:
+
+```json
+{
+  "id": "kBgpI3PW-29W1wvJrvtS8H6fnL2Dp28MVP4aKFueRiKl42E9gQAW7xuaey",
+  "offset": 0,
+  "op": "readReview"
+}
+```
+
+### Variant 11
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"install"` |  |
+| id | yes | [MarketReviewId.json](schema/MarketReviewId.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| choices | no | [MarketInstallChoices.json](schema/MarketInstallChoices.json) | {"default":{"bots":[],"needs":{},"startRoutines":false}} |
+
+Example:
+
+```json
+{
+  "choices": {
+    "bots": []
+  },
+  "hash": "e29530aabba81b04a1959c6e24e2ae26be9bd9de66c9a423c04edc24a7043ef7",
+  "id": "zJsI594YoYxD6DcYICtXLqLWQfVUmyNX91l-Dml5H1mjhGU0",
+  "op": "install"
+}
+```
+
+### Variant 12
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"cancel"` |  |
+| id | yes | [MarketReviewId.json](schema/MarketReviewId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "MfXF9eoEk2ciwFi0KMF4ya3aVeZveCOIGehc8k2rudRbgbFQijyAnpazfkHGPeRqL",
+  "op": "cancel"
+}
+```
+
+### Variant 13
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"installed"` |  |
+
+Example:
+
+```json
+{
+  "op": "installed"
+}
+```
+
+### Variant 14
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"prepareUpdate"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "g",
+  "op": "prepareUpdate",
+  "type": "spade-skill"
+}
+```
+
+### Variant 15
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"remove"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "t",
+  "op": "remove",
+  "type": "spade-bot"
+}
+```
+
+### Variant 16
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"turnOn"` |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "1",
+  "op": "turnOn",
+  "type": "ace-plugin"
+}
+```
+
+### Variant 17
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"spadeSkills"` |  |
+
+Example:
+
+```json
+{
+  "op": "spadeSkills"
+}
+```
+
+### Variant 18
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"spadeSkillFiles"` |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| path | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "name": "u",
+  "op": "spadeSkillFiles"
+}
+```
+
+## MarketProblem
+
+[JSON Schema](schema/MarketProblem.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | no | string | {"maxLength":512} |
+| line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| message | yes | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "line": 8,
+  "message": "example",
+  "path": "example"
+}
+```
+
+## MarketPublisher
+
+[JSON Schema](schema/MarketPublisher.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":64} |
+| name | yes | [MarketPublisherName.json](schema/MarketPublisherName.json) |  |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "name": "b"
+}
+```
+
+## MarketPublisherName
+
+[JSON Schema](schema/MarketPublisherName.json), input validation.
+
+Semantic rule: Publisher names cannot contain consecutive hyphens.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"n"
+```
+
+## MarketResult
+
+[JSON Schema](schema/MarketResult.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"sources"` |  |
+| sources | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/MarketSource.json"}} |
+
+Example:
+
+```json
+{
+  "op": "sources",
+  "sources": []
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"search"` |  |
+| entries | yes | array | {"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| readAt | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "entries": [],
+  "op": "search",
+  "total": 8
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"home"` |  |
+| featured | yes | array | {"maxItems":24,"items":{"$ref":"https://ace.local/protocol/v1/MarketEntrySummary.json"}} |
+| categories | yes | array | {"maxItems":32,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/MarketCategoryId.json"},"title":{"type":"string","minLength":1,"maxLength":60},"entries":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","title","entries"],"additionalProperties":false}} |
+| installed | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| updates | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "categories": [],
+  "featured": [],
+  "installed": 4,
+  "op": "home",
+  "updates": 2
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"read"` |  |
+| entry | yes | [MarketEntryDetail.json](schema/MarketEntryDetail.json) |  |
+
+Example:
+
+```json
+{
+  "entry": {
+    "description": "example",
+    "summary": {
+      "byAce": false,
+      "categories": [],
+      "downloads": 1,
+      "keywords": [],
+      "line": "example",
+      "name": "c",
+      "publisher": {
+        "id": "example",
+        "name": "vzk62asyml9q"
+      },
+      "reviewed": true,
+      "source": "market",
+      "supported": false,
+      "title": "example",
+      "type": "example",
+      "updated": 5,
+      "version": "057435.4.78"
+    },
+    "versions": []
+  },
+  "op": "read"
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"review"` |  |
+| review | yes | [MarketReview.json](schema/MarketReview.json) |  |
+
+Example:
+
+```json
+{
+  "op": "review",
+  "review": {
+    "body": {
+      "description": "example",
+      "files": 8,
+      "flagged": 5,
+      "skillName": "example",
+      "type": "spade-skill"
+    },
+    "byAce": true,
+    "expiresAt": 6,
+    "from": "example",
+    "hash": "e56053e0b41e34bbee258251806a8606870c75dd3d62b2842d5094fca2e67d10",
+    "id": "SWNB2PSvQ8aF7CKbK0kx4cueWcS8Ahmzwm6X04eJNocBipExh8u0GuLoljLwGwuGnQBRW2",
+    "items": 5,
+    "name": "j",
+    "reviewed": true,
+    "signed": true,
+    "source": "git:nezvjchq5ybne2084m",
+    "title": "example",
+    "type": "spade-plugin",
+    "version": "example"
+  }
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"reviewPage"` |  |
+| review | yes | [MarketReview.json](schema/MarketReview.json) |  |
+| items | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/MarketReviewItem.json"}} |
+| nextOffset | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "items": [],
+  "op": "reviewPage",
+  "review": {
+    "body": {
+      "files": 4,
+      "fonts": [],
+      "passes": false,
+      "problems": [],
+      "scenes": [],
+      "type": "suit"
+    },
+    "byAce": false,
+    "expiresAt": 1,
+    "from": "example",
+    "hash": "6654ed1352781b8b67eacc647412065306f8d9393a1cb23c2782b6565860b75e",
+    "id": "EqjEZIxOU4v0GAEaHQ9pgsd0QdNwIclNZ9-Tw6zm0aIJjUTHahFzc",
+    "items": 2,
+    "name": "c",
+    "publisher": {
+      "id": "example",
+      "name": "wg443i02d960dqit3"
+    },
+    "reviewed": false,
+    "signed": false,
+    "source": "git:4",
+    "title": "example",
+    "type": "suit",
+    "updates": "example",
+    "version": "example"
+  }
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"installed"` |  |
+| installed | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/MarketInstalled.json"}} |
+
+Example:
+
+```json
+{
+  "installed": [],
+  "op": "installed"
+}
+```
+
+### Variant 8
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"done"` |  |
+| installed | no | [MarketInstalled.json](schema/MarketInstalled.json) |  |
+
+Example:
+
+```json
+{
+  "installed": {
+    "acceptedAt": 3,
+    "hash": "f1463e7a63eddc8077f769112ec6ddd6ce99c3dda7e980cb067cddec2b6ec83d",
+    "name": "rv",
+    "source": "git:eo71bawayf",
+    "state": "on",
+    "title": "example",
+    "type": "spade-skill",
+    "version": "example"
+  },
+  "op": "done"
+}
+```
+
+### Variant 9
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"spadeSkills"` |  |
+| skills | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/MarketSpadeSkill.json"}} |
+
+Example:
+
+```json
+{
+  "op": "spadeSkills",
+  "skills": []
+}
+```
+
+### Variant 10
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"spadeSkillFiles"` |  |
+| files | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/MarketSpadeFile.json"}} |
+| content | no | string | {"maxLength":6000000} |
+
+Example:
+
+```json
+{
+  "content": "example",
+  "files": [],
+  "op": "spadeSkillFiles"
+}
+```
+
+### Variant 11
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"error"` |  |
+| code | yes | [MarketErrorCode.json](schema/MarketErrorCode.json) |  |
+| message | yes | string | {"maxLength":2000} |
+| problems | no | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketProblem.json"}} |
+
+Example:
+
+```json
+{
+  "code": "forbidden",
+  "message": "example",
+  "op": "error",
+  "problems": []
+}
+```
+
+## MarketReview
+
+[JSON Schema](schema/MarketReview.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [MarketReviewId.json](schema/MarketReviewId.json) |  |
+| source | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| type | yes | [MarketEntryType.json](schema/MarketEntryType.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":120} |
+| version | yes | string | {"maxLength":64} |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| publisher | no | [MarketPublisher.json](schema/MarketPublisher.json) |  |
+| from | no | string | {"maxLength":2048} |
+| signed | yes | boolean |  |
+| reviewed | yes | boolean |  |
+| byAce | yes | boolean |  |
+| updates | no | string | {"maxLength":64} |
+| body | yes | [MarketReviewBody.json](schema/MarketReviewBody.json) |  |
+| blocked | no | string | {"maxLength":500} |
+| expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| items | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "body": {
+    "botName": "example",
+    "brings": [],
+    "model": "fast",
+    "needs": [],
+    "notes": [],
+    "routines": [],
+    "spadeReady": true,
+    "task": "example",
+    "type": "spade-bot"
+  },
+  "byAce": true,
+  "expiresAt": 7,
+  "from": "example",
+  "hash": "fbf15b7532da05b3e856100da638327d097f15c018418720de954163ada8dd28",
+  "id": "sUU1M8EzvSwqMD-4X32fANAaiL8iuloE5TuhHJ7SbyGz3SK8wLzj8dZo13KkBEcDVnKp0zpGk",
+  "items": 7,
+  "name": "g",
+  "reviewed": false,
+  "signed": true,
+  "source": "git:er7tvb0k8482iovvkhu083253",
+  "title": "example",
+  "type": "spade-plugin",
+  "version": "example"
+}
+```
+
+## MarketReviewBody
+
+[JSON Schema](schema/MarketReviewBody.json), input validation.
+
+### suit
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suit"` |  |
+| passes | yes | boolean |  |
+| problems | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/MarketProblem.json"}} |
+| scenes | yes | array | {"maxItems":8,"items":{"type":"string","maxLength":40}} |
+| fonts | yes | array | {"maxItems":16,"items":{"type":"string","maxLength":120}} |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "files": 5,
+  "fonts": [],
+  "passes": true,
+  "problems": [],
+  "scenes": [],
+  "type": "suit"
+}
+```
+
+### spade-skill
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade-skill"` |  |
+| skillName | yes | string | {"maxLength":64} |
+| description | yes | string | {"maxLength":1024} |
+| files | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| flagged | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "description": "example",
+  "files": 3,
+  "flagged": 7,
+  "skillName": "example",
+  "type": "spade-skill"
+}
+```
+
+### spade-plugin
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade-plugin"` |  |
+| pluginName | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| executions | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| unsupported | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "executions": 6,
+  "pluginName": "1",
+  "type": "spade-plugin",
+  "unsupported": 4
+}
+```
+
+### spade-bot
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade-bot"` |  |
+| botName | yes | string | {"maxLength":80} |
+| face | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{}} |
+| task | yes | string | {"maxLength":8000} |
+| model | yes | ["fast","capable"] |  |
+| routines | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/MarketRoutineRow.json"}} |
+| tools | no | array | {"maxItems":64,"items":{"type":"string","maxLength":64}} |
+| notes | yes | array | {"maxItems":50,"items":{"type":"string","maxLength":2000}} |
+| brings | yes | array | {"maxItems":32,"items":{"type":"object","properties":{"type":{"$ref":"https://ace.local/protocol/v1/MarketEntryType.json"},"name":{"$ref":"https://ace.local/protocol/v1/MarketEntryName.json"},"version":{"type":"string","maxLength":64}},"required":["type","name","version"],"additionalProperties":false}} |
+| needs | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MarketNeed.json"}} |
+| spadeReady | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "botName": "example",
+  "brings": [],
+  "model": "fast",
+  "needs": [],
+  "notes": [],
+  "routines": [],
+  "spadeReady": false,
+  "task": "example",
+  "tools": [],
+  "type": "spade-bot"
+}
+```
+
+## MarketReviewId
+
+[JSON Schema](schema/MarketReviewId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"ZSIzHuqxTfD"
+```
+
+## MarketReviewItem
+
+[JSON Schema](schema/MarketReviewItem.json), input validation.
+
+### file
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"file"` |  |
+| section | yes | string | {"maxLength":120} |
+| file | yes | [MarketFileRow.json](schema/MarketFileRow.json) |  |
+
+Example:
+
+```json
+{
+  "file": {
+    "bytes": 2,
+    "executable": false,
+    "flagged": false,
+    "path": "example"
+  },
+  "kind": "file",
+  "section": "example"
+}
+```
+
+### text
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"text"` |  |
+| section | yes | string | {"maxLength":120} |
+| path | yes | string | {"maxLength":512} |
+| text | yes | string | {"maxLength":65536} |
+| before | yes | boolean |  |
+| truncated | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "before": true,
+  "kind": "text",
+  "path": "example",
+  "section": "example",
+  "text": "example",
+  "truncated": true
+}
+```
+
+### execution
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"execution"` |  |
+| section | yes | string | {"maxLength":120} |
+| execution | yes | [PluginExecution.json](schema/PluginExecution.json) |  |
+
+Example:
+
+```json
+{
+  "execution": {
+    "headers": {},
+    "kind": "remote",
+    "name": "jkdta",
+    "type": "http",
+    "url": "example"
+  },
+  "kind": "execution",
+  "section": "example"
+}
+```
+
+### change
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"change"` |  |
+| section | yes | string | {"maxLength":120} |
+| path | yes | string | {"maxLength":512} |
+| change | yes | ["added","changed","removed"] |  |
+| executable | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "change": "changed",
+  "executable": true,
+  "kind": "change",
+  "path": "example",
+  "section": "example"
+}
+```
+
+### note
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"note"` |  |
+| section | yes | string | {"maxLength":120} |
+| text | yes | string | {"maxLength":2000} |
+
+Example:
+
+```json
+{
+  "kind": "note",
+  "section": "example",
+  "text": "example"
+}
+```
+
+## MarketRoutineRow
+
+[JSON Schema](schema/MarketRoutineRow.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | string | {"maxLength":120} |
+| instruction | yes | string | {"maxLength":4000} |
+| schedule | yes | string | {"maxLength":200} |
+
+Example:
+
+```json
+{
+  "instruction": "example",
+  "name": "example",
+  "schedule": "example"
+}
+```
+
+## MarketServerMessage
+
+[JSON Schema](schema/MarketServerMessage.json), input validation.
+
+### marketplace.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"marketplace.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":80} |
+| result | yes | [MarketResult.json](schema/MarketResult.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "entries": [],
+    "op": "search",
+    "total": 2
+  },
+  "type": "marketplace.result"
+}
+```
+
+### marketplace.changed
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"marketplace.changed"` |  |
+| installed | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| updates | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "installed": 3,
+  "type": "marketplace.changed",
+  "updates": 4
+}
+```
+
+## MarketSource
+
+[JSON Schema](schema/MarketSource.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [MarketSourceId.json](schema/MarketSourceId.json) |  |
+| kind | yes | ["market","git"] |  |
+| address | yes | string | {"maxLength":2048} |
+| enabled | yes | boolean |  |
+| readAt | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| problem | no | string | {"maxLength":500} |
+| entries | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "address": "example",
+  "enabled": false,
+  "entries": 9,
+  "id": "git:kc0kjak7",
+  "kind": "market",
+  "problem": "example"
+}
+```
+
+## MarketSourceId
+
+[JSON Schema](schema/MarketSourceId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"git:6mvfw7p8re2q0x6t7em6un3"
+```
+
+## MarketSpadeFile
+
+[JSON Schema](schema/MarketSpadeFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"minLength":1,"maxLength":512} |
+| bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| executable | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "bytes": 5,
+  "executable": false,
+  "hash": "97c43b717682da4571ad1139767c787c66ee5d7b344594502b16c5e2000d7af6",
+  "path": "example"
+}
+```
+
+## MarketSpadeSkill
+
+[JSON Schema](schema/MarketSpadeSkill.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| version | yes | string | {"maxLength":64} |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| description | yes | string | {"maxLength":1024} |
+
+Example:
+
+```json
+{
+  "description": "example",
+  "hash": "a521510b4477fb8249c07b82a8e20911d29ff55ccf8f127dfbba6bbb237404b1",
+  "name": "9",
+  "version": "example"
+}
+```
+
+## MarketVersion
+
+[JSON Schema](schema/MarketVersion.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"9.3234077.886-z5.Xj"
+```
+
 ## McpAttribution
 
 [JSON Schema](schema/McpAttribution.json), input validation.
@@ -22379,7 +23804,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | enabled | yes | boolean |  |
 | providers | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 
@@ -22408,7 +23833,8 @@ Example:
 ```json
 {
   "request": {
-    "type": "plugins.origins"
+    "name": "cdcxhw",
+    "type": "plugins.update"
   },
   "requestId": "example",
   "type": "pluginRequest"
@@ -22433,8 +23859,8 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| plugin | yes | [PluginName.json](schema/PluginName.json) |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| plugin | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | kind | yes | ["skill","command","agent","rule"] |  |
 | skillAvailability | no | [PluginSkillAvailability.json](schema/PluginSkillAvailability.json) |  |
 | title | no | string | {"minLength":1,"maxLength":200} |
@@ -22486,7 +23912,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"stdio"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | command | yes | string | {"maxLength":8192} |
 | args | yes | array | {"maxItems":128,"items":{"type":"string","maxLength":8192}} |
 | env | yes | object | {"propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"type":"string","maxLength":8192}} |
@@ -22510,7 +23936,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"remote"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | type | yes | ["http","sse"] |  |
 | url | yes | string | {"maxLength":8192} |
 | headers | yes | object | {"propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"type":"string","maxLength":8192}} |
@@ -22545,10 +23971,10 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | version | yes | string | {"maxLength":128} |
 | commit | yes | [PluginCommit.json](schema/PluginCommit.json) |  |
-| hash | yes | [PluginHash.json](schema/PluginHash.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
 | acceptedAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
@@ -22569,7 +23995,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | description | no | string | {"maxLength":8192} |
 | version | no | string | {"maxLength":128} |
 
@@ -22602,7 +24028,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | repository | yes | string | {"maxLength":8192} |
 | ref | yes | string | {"maxLength":8192} |
 
@@ -22620,12 +24046,46 @@ Example:
 
 [JSON Schema](schema/PluginRequest.json), input validation.
 
+### plugins.spade
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"plugins.spade"` |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+
+Example:
+
+```json
+{
+  "name": "5w9xvw",
+  "type": "plugins.spade"
+}
+```
+
+### plugins.spadeFile
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"plugins.spadeFile"` |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| path | yes | string | {"minLength":1,"maxLength":1024} |
+
+Example:
+
+```json
+{
+  "name": "c",
+  "path": "example",
+  "type": "plugins.spadeFile"
+}
+```
+
 ### plugins.skillAvailability
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| plugin | yes | [PluginName.json](schema/PluginName.json) |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| plugin | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | enabled | yes | boolean |  |
 | providers | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 | type | yes | `"plugins.skillAvailability"` |  |
@@ -22634,9 +24094,9 @@ Example:
 
 ```json
 {
-  "enabled": true,
-  "name": "2",
-  "plugin": "5w9xvw",
+  "enabled": false,
+  "name": "r13lgjhujyy",
+  "plugin": "j",
   "providers": [],
   "type": "plugins.skillAvailability"
 }
@@ -22647,7 +24107,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"plugins.availability"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | enabled | yes | boolean |  |
 | providers | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 
@@ -22656,7 +24116,7 @@ Example:
 ```json
 {
   "enabled": false,
-  "name": "c",
+  "name": "rb337y6gjh8c",
   "providers": [],
   "type": "plugins.availability"
 }
@@ -22674,7 +24134,7 @@ Example:
 
 ```json
 {
-  "offset": 3,
+  "offset": 1,
   "type": "plugins.catalog"
 }
 ```
@@ -22684,7 +24144,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"plugins.source"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | path | yes | string | {"minLength":1,"maxLength":512} |
 | offset | no | integer | {"default":0,"minimum":0,"maximum":9007199254740991} |
 | limit | no | integer | {"default":65536,"minimum":4,"maximum":65536} |
@@ -22693,7 +24153,8 @@ Example:
 
 ```json
 {
-  "name": "rb337y6gjh8c",
+  "limit": 4,
+  "name": "i",
   "path": "example",
   "type": "plugins.source"
 }
@@ -22704,17 +24165,17 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"plugins.edit"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | path | yes | string | {"minLength":1,"maxLength":512} |
-| expectedHash | yes | [PluginHash.json](schema/PluginHash.json) |  |
+| expectedHash | yes | [MarketHash.json](schema/MarketHash.json) |  |
 | text | yes | string | {"maxLength":262144} |
 
 Example:
 
 ```json
 {
-  "expectedHash": "4c0cea372eb19d7fc27e221f3ff1338f57ac766925cfe84082054715db65167d",
-  "name": "b",
+  "expectedHash": "197382cd842606ba4f52b34b9639abd2f021bf738b30f96327bae8515b996702",
+  "name": "qxbto8",
   "path": "example",
   "text": "example",
   "type": "plugins.edit"
@@ -22726,13 +24187,13 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"plugins.update"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 
 Example:
 
 ```json
 {
-  "name": "i",
+  "name": "xd.vrldqatjm",
   "type": "plugins.update"
 }
 ```
@@ -22779,7 +24240,7 @@ Example:
 
 ```json
 {
-  "id": "qrSvnV6s3MZMvuNhR",
+  "id": "Qy8xIYItoO6OJVE4jaXxWs7-jsN34K5NQ2Y-eLFIV9Ss1qpCR-m2oobO7vEs1IC8dyNcfea7L",
   "type": "plugins.cancel"
 }
 ```
@@ -22791,13 +24252,13 @@ Example:
 | type | yes | `"plugins.prepare"` |  |
 | repository | yes | string | {"maxLength":8192} |
 | ref | yes | string | {"maxLength":8192} |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 
 Example:
 
 ```json
 {
-  "name": "o",
+  "name": "z",
   "ref": "example",
   "repository": "example",
   "type": "plugins.prepare"
@@ -22811,15 +24272,15 @@ Example:
 | type | yes | `"plugins.accept"` |  |
 | id | yes | string | {"pattern":"^[a-zA-Z0-9-]{1,80}$"} |
 | commit | yes | [PluginCommit.json](schema/PluginCommit.json) |  |
-| hash | yes | [PluginHash.json](schema/PluginHash.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
 
 Example:
 
 ```json
 {
-  "commit": "390720c8613bef2c00dd8a898b8f107448b9fb61",
-  "hash": "2004015c1f4d4a229738a5399f5b22f24e470e210c305994fe0a09400aab4ac3",
-  "id": "Qy8xIYItoO6OJVE4jaXxWs7-jsN34K5NQ2Y-eLFIV9Ss1qpCR-m2oobO7vEs1IC8dyNcfea7L",
+  "commit": "2527e561f29e9877d3fffddd2489133678a00434",
+  "hash": "dba862499979a06b4631d1cb58a34282ca1f01ad50de3a160c82e5bfca17b655",
+  "id": "pvaDCL36wGKuSQt1fRzhlYyG9uEQiA3gLA63fPjY",
   "type": "plugins.accept"
 }
 ```
@@ -22829,13 +24290,13 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"plugins.remove"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 
 Example:
 
 ```json
 {
-  "name": "z",
+  "name": "k",
   "type": "plugins.remove"
 }
 ```
@@ -22866,7 +24327,7 @@ Example:
 
 ```json
 {
-  "id": "hk1LWOxqeQZ6k582YgH5nSk6s6xVWFfpxtrmviLnRIj4fM80qWxCwrVBI-sCZrFwaE",
+  "id": "MXINts22HvJuAKcX9m1VYJIYTxq1GnZY-ViRNViQT3q64UCpjYdP2ikSU8s4fKAOylSPZJ",
   "type": "plugins.readReview"
 }
 ```
@@ -22874,6 +24335,57 @@ Example:
 ## PluginResponse
 
 [JSON Schema](schema/PluginResponse.json), input validation.
+
+### plugins.spade
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"plugins.spade"` |  |
+| plugin | yes | [PluginSpade.json](schema/PluginSpade.json) |  |
+
+Example:
+
+```json
+{
+  "plugin": {
+    "components": [],
+    "enabled": true,
+    "executions": [],
+    "install": {
+      "acceptedAt": 5,
+      "commit": "0161dc8451231fd95c06663288b2027ee76a0ccb",
+      "hash": "22541cff864342244095c4e76417c69bf9dfdf76111ae876009b1b4dffd22560",
+      "name": "k",
+      "version": "example"
+    },
+    "root": "example",
+    "unsupported": []
+  },
+  "type": "plugins.spade"
+}
+```
+
+### plugins.spadeFile
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"plugins.spadeFile"` |  |
+| path | yes | string | {"minLength":1,"maxLength":1024} |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| executable | yes | boolean |  |
+| content | yes | string | {"maxLength":1398104} |
+
+Example:
+
+```json
+{
+  "content": "example",
+  "executable": false,
+  "hash": "f0817227750c8320ec8dd2ba5192931e02d8e9b29fe02d0fedd0eeda33bbc2fa",
+  "path": "example",
+  "type": "plugins.spadeFile"
+}
+```
 
 ### plugins.skillAvailability
 
@@ -22887,9 +24399,9 @@ Example:
 ```json
 {
   "availability": {
-    "enabled": true,
-    "name": "6",
-    "plugin": "k",
+    "enabled": false,
+    "name": "xmgzm",
+    "plugin": "5qw0ju2aung",
     "providers": []
   },
   "type": "plugins.skillAvailability"
@@ -22909,7 +24421,7 @@ Example:
 {
   "availability": {
     "enabled": true,
-    "name": "r",
+    "name": "c8u2n5",
     "providers": []
   },
   "type": "plugins.availability"
@@ -22929,6 +24441,7 @@ Example:
 ```json
 {
   "components": [],
+  "nextOffset": 0,
   "type": "plugins.catalog"
 }
 ```
@@ -22939,7 +24452,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"plugins.source"` |  |
 | path | yes | string | {"maxLength":4096} |
-| hash | yes | [PluginHash.json](schema/PluginHash.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
 | bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | nextOffset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -22952,14 +24465,15 @@ Example:
 
 ```json
 {
-  "bytes": 7,
-  "hash": "90826f7193a7b20fd72a3a22227ed005ebf6ea56f8e42d84a221faae20dc4fcf",
-  "nextOffset": 8,
-  "offset": 8,
+  "bytes": 3,
+  "hash": "d26da98339a746810645f2d9a0d9172f208cd76acdd81d14521cc513687ac862",
+  "nextOffset": 7,
+  "offset": 4,
   "path": "example",
   "readonly": true,
   "text": "example",
-  "type": "plugins.source"
+  "type": "plugins.source",
+  "virtual": false
 }
 ```
 
@@ -22974,7 +24488,7 @@ Example:
 
 ```json
 {
-  "id": "a-usa1J4O",
+  "id": "K7wy5P3GWXd0xOPztugx-rwpWEbi1PCc5Vi-W7V4VHWsFTlkxbbZU3WC",
   "type": "plugins.cancelled"
 }
 ```
@@ -22991,11 +24505,11 @@ Example:
 ```json
 {
   "review": {
-    "commit": "d76acdd81d14521cc513687ac862f16c99f1fdd6",
+    "commit": "63e3720787683ff1095deb6348d84a4aec53c5b9",
     "executions": [],
-    "hash": "f9fb2d88bf0c6d96c5185745e48f6dc79f1c7914b3bca36dffd4635307e14b68",
-    "id": "oFZpd84KK8dZPV6DAYQUxGm8bB",
-    "name": "i7tmtq7",
+    "hash": "2cb294fc970e8a1c59f2d7a79401d1b36e7b04b0d6bed2b26d3ff40de96da76e",
+    "id": "YD1v8VomS0TEYRUAwEsEXbOE2DgVTTDYC9dcq5BrIVqkEo7aE21qmFu0QU9eOTIXDLY-1w7hE",
+    "name": "er8eswrxtm",
     "unsupported": [],
     "version": "example"
   },
@@ -23015,10 +24529,10 @@ Example:
 ```json
 {
   "install": {
-    "acceptedAt": 1,
-    "commit": "40ffbf9efd61ac741a86c96968526e15cc0aa758",
-    "hash": "144238c982c786ad13a5f94cb78f7a52c69c75d9bd1145a6100f3dfeb682e52c",
-    "name": "yno8y7t33b5n",
+    "acceptedAt": 4,
+    "commit": "2804240dfdbe5c95dcb63883eab8e0226f8eac5f",
+    "hash": "33436e460a4a2d8c60d8ed59cdad6121292770319d2980bd6b9593edc8825b04",
+    "name": "w",
     "version": "example"
   },
   "type": "plugins.installed"
@@ -23049,13 +24563,13 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"plugins.removed"` |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 
 Example:
 
 ```json
 {
-  "name": "w",
+  "name": "4dhd04iq2",
   "type": "plugins.removed"
 }
 ```
@@ -23109,12 +24623,12 @@ Example:
 {
   "entries": [],
   "review": {
-    "commit": "a4f65a1420bb6c4d1ac2798b212a3be057e2ceab",
-    "executionCount": 8,
-    "hash": "ccf872200c6690f70ce2daacaeb50e4b968476a1fab6faa0229172f09dcaef41",
-    "id": "UmMocLDHFTxOdYTF2mzdc7UvVUD4EWEdakxrxd4tjQW2HUQmbglZ8",
-    "name": "y",
-    "unsupportedCount": 5,
+    "commit": "2926e41e7853bd823b3d0f9ea6b6325c8d67588d",
+    "executionCount": 5,
+    "hash": "c7d6dd400ebd85a2ec727058a2c0ce6e3a4912743904e462aab78fb86f162ee9",
+    "id": "kpKiiY",
+    "name": "f51-85",
+    "unsupportedCount": 4,
     "version": "example"
   },
   "type": "plugins.reviewPage"
@@ -23128,10 +24642,10 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"pattern":"^[a-zA-Z0-9-]{1,80}$"} |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | version | yes | string | {"maxLength":128} |
 | commit | yes | [PluginCommit.json](schema/PluginCommit.json) |  |
-| hash | yes | [PluginHash.json](schema/PluginHash.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
 | executions | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/PluginExecution.json"}} |
 | unsupported | yes | array | {"maxItems":512,"items":{"type":"string","maxLength":8192}} |
 
@@ -23208,10 +24722,10 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | id | yes | string | {"pattern":"^[a-zA-Z0-9-]{1,80}$"} |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | version | yes | string | {"maxLength":128} |
 | commit | yes | [PluginCommit.json](schema/PluginCommit.json) |  |
-| hash | yes | [PluginHash.json](schema/PluginHash.json) |  |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
 | executionCount | yes | integer | {"minimum":0,"maximum":512} |
 | unsupportedCount | yes | integer | {"minimum":0,"maximum":512} |
 
@@ -23258,8 +24772,8 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| plugin | yes | [PluginName.json](schema/PluginName.json) |  |
-| name | yes | [PluginName.json](schema/PluginName.json) |  |
+| plugin | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
 | enabled | yes | boolean |  |
 | providers | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 
@@ -23271,6 +24785,87 @@ Example:
   "name": "v",
   "plugin": "j",
   "providers": []
+}
+```
+
+## PluginSpade
+
+[JSON Schema](schema/PluginSpade.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| install | yes | [PluginInstall.json](schema/PluginInstall.json) |  |
+| enabled | yes | boolean |  |
+| root | yes | string | {"minLength":1,"maxLength":4096} |
+| components | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/PluginSpadeComponent.json"}} |
+| executions | yes | array | {"maxItems":512,"items":{"$ref":"https://ace.local/protocol/v1/PluginExecution.json"}} |
+| unsupported | yes | array | {"maxItems":512,"items":{"type":"string","maxLength":8192}} |
+
+Example:
+
+```json
+{
+  "components": [],
+  "enabled": true,
+  "executions": [],
+  "install": {
+    "acceptedAt": 2,
+    "commit": "d7c2ad08d50757c57e1ef17a6ac36c81b877d7a7",
+    "hash": "9e6ac8b63b1edc273758c18294ec2d2567af81a434f7b6b40c10bef86f9a163a",
+    "name": "z",
+    "version": "example"
+  },
+  "root": "example",
+  "unsupported": []
+}
+```
+
+## PluginSpadeComponent
+
+[JSON Schema](schema/PluginSpadeComponent.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["skill","command","agent","rule"] |  |
+| name | yes | [MarketEntryName.json](schema/MarketEntryName.json) |  |
+| path | yes | string | {"maxLength":512} |
+| description | yes | string | {"maxLength":8192} |
+| title | no | string | {"minLength":1,"maxLength":200} |
+| text | no | string | {"maxLength":262144} |
+| omitted | no | string | {"maxLength":200} |
+| files | no | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/PluginSpadeFile.json"}} |
+
+Example:
+
+```json
+{
+  "description": "example",
+  "files": [],
+  "kind": "command",
+  "name": "p",
+  "path": "example"
+}
+```
+
+## PluginSpadeFile
+
+[JSON Schema](schema/PluginSpadeFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"minLength":1,"maxLength":512} |
+| bytes | yes | integer | {"minimum":0,"maximum":1048576} |
+| hash | yes | [MarketHash.json](schema/MarketHash.json) |  |
+| executable | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "bytes": 4,
+  "executable": true,
+  "hash": "b27077c46adb3193fff90542142d34de6254069adee85d2a82cd3bcdc6167fba",
+  "path": "example"
 }
 ```
 
@@ -31933,16 +33528,17 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"beta.spade":{"type":"boolean"},"beta.marketplace":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
 ```json
 {
   "settings": {
-    "access.defaultMode": "read-only",
     "browser.backendLoss": "headless",
     "browser.profileScope": "thread",
+    "clients.keybindings": null,
+    "media.delivery": "auto",
     "providers.coder.model": "example",
     "providers.coder.reasoningEffort": "high",
     "providers.configuration": [],
@@ -31950,12 +33546,12 @@ Example:
     "providers.planner.tier": "priority",
     "providers.verifier.provider": "cursor",
     "providers.verifier.reasoningEffort": "default",
-    "remote.tailscaleMcp": false,
+    "remote.tailscaleWebhooks": false,
     "storage.backupWorktrees": true,
-    "threads.autoSettleAfter": "never",
     "threads.forkOnSwitch": true,
-    "threads.keepSettledFor": "7d",
-    "threads.sortBy": "created"
+    "threads.settleOnClose": false,
+    "threads.settleOnMerge": true,
+    "threads.useWorktree": false
   },
   "version": 2
 }
@@ -31976,7 +33572,7 @@ Example:
 
 ```json
 {
-  "key": "threads.keepSettledFor",
+  "key": "threads.sortBy",
   "provenance": "defaults",
   "value": true
 }
@@ -32008,7 +33604,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","beta.spade","beta.marketplace","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -32437,6 +34033,8 @@ Example:
 | computer.blockedApps | yes | array | {"maxItems":200,"items":{"type":"string","minLength":1,"maxLength":200}} |
 | computer.lockedUse | yes | boolean |  |
 | spade.enabled | yes | boolean |  |
+| beta.spade | yes | boolean |  |
+| beta.marketplace | yes | boolean |  |
 | devices.emulatorWindow | yes | boolean |  |
 | media.encode | yes | ["auto","legacy"] |  |
 | media.delivery | yes | ["auto","legacy"] |  |
@@ -32480,10 +34078,12 @@ Example:
 
 ```json
 {
-  "access.defaultMode": "ask",
+  "access.defaultMode": "auto-review",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": null,
+  "agents.maxRunningChildren": 2,
   "automations.enabled": true,
+  "beta.marketplace": true,
+  "beta.spade": true,
   "browser.backend": "headless",
   "browser.backendLoss": "pause",
   "browser.downloadDefault": "example",
@@ -32492,31 +34092,31 @@ Example:
   "browser.profileScope": "thread",
   "browser.userChrome.storageReads": true,
   "clients.keybindings": [],
-  "clients.theme": 1,
+  "clients.theme": [],
   "computer.blockedApps": [],
   "computer.lockedUse": true,
-  "devices.emulatorWindow": true,
+  "devices.emulatorWindow": false,
   "devices.enabled": true,
   "generation.autoDraftCommits": true,
   "generation.model": null,
   "host.displayName": "example",
   "host.icon": {
-    "kind": "cpu"
+    "kind": "cloud"
   },
-  "logs.maxBytes": 1048584,
-  "media.delivery": "legacy",
+  "logs.maxBytes": 1048582,
+  "media.delivery": "auto",
   "media.encode": "auto",
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
-  "notifications.remotePush": true,
+  "notifications.remotePush": false,
   "projects.roots": [],
   "providers.claude.chrome": "on",
   "providers.coder.model": "example",
-  "providers.coder.provider": null,
+  "providers.coder.provider": "antigravity",
   "providers.coder.reasoningEffort": "default",
   "providers.coder.tier": "fast",
   "providers.codex.toolSource": null,
   "providers.configuration": [],
-  "providers.default": "opencode",
+  "providers.default": "antigravity",
   "providers.planner.model": "example",
   "providers.planner.provider": "codex",
   "providers.planner.reasoningEffort": "minimal",
@@ -32529,22 +34129,22 @@ Example:
   "providers.verifier.provider": "cursor",
   "providers.verifier.reasoningEffort": "minimal",
   "providers.verifier.tier": "default",
-  "remote.agentAccess": "read",
+  "remote.agentAccess": "operate",
   "remote.agentTransfers": false,
-  "remote.enabled": true,
+  "remote.enabled": false,
   "remote.hostedPairingLink": false,
-  "remote.lan": false,
+  "remote.lan": true,
   "remote.mcpPublicUrl": null,
-  "remote.publicUrlWebhooks": true,
-  "remote.relay": true,
+  "remote.publicUrlWebhooks": false,
+  "remote.relay": false,
   "remote.relayMcp": false,
   "remote.relayUrl": "",
-  "remote.relayWebhooks": false,
-  "remote.tailscale": true,
+  "remote.relayWebhooks": true,
+  "remote.tailscale": false,
   "remote.tailscaleMcp": true,
-  "remote.tailscaleWebhooks": false,
+  "remote.tailscaleWebhooks": true,
   "remote.transferIgnoredFiles": false,
-  "remote.transport": "relay",
+  "remote.transport": "local",
   "sourceControl.preferences": {
     "host": "github.com",
     "hosts": [
@@ -32555,25 +34155,26 @@ Example:
     "remote": "origin"
   },
   "spade.enabled": false,
-  "storage.backupWorktrees": true,
+  "storage.backupWorktrees": false,
   "storage.retention": {
-    "logs": 7,
-    "threads": 9
+    "attachments": null,
+    "threads": 2,
+    "worktrees": 7
   },
-  "storage.retentionDays": 7,
-  "storage.scheduledCleanup": true,
-  "storage.worktreeRetentionDays": 6,
-  "threads.autoSettleAfter": "1w",
+  "storage.retentionDays": 5,
+  "storage.scheduledCleanup": false,
+  "storage.worktreeRetentionDays": 4,
+  "threads.autoSettleAfter": "never",
   "threads.followUpBehavior": "queue",
   "threads.forkOnSwitch": false,
   "threads.keepSettledFor": "7d",
-  "threads.limitPolicy": "snooze_until_reset",
+  "threads.limitPolicy": "migrate_now",
   "threads.settleOnClose": false,
   "threads.settleOnMerge": false,
-  "threads.sortBy": "manual",
-  "threads.unresponsiveAfter": "2m",
-  "threads.useWorktree": true,
-  "worktree.preparationTimeoutMs": 60006
+  "threads.sortBy": "activity",
+  "threads.unresponsiveAfter": "15m",
+  "threads.useWorktree": false,
+  "worktree.preparationTimeoutMs": 60002
 }
 ```
 
@@ -32717,6 +34318,46 @@ Example:
 
 ```json
 "busy"
+```
+
+## SkillFile
+
+[JSON Schema](schema/SkillFile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | [ContainedPath.json](schema/ContainedPath.json) |  |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| hash | yes | [SkillHash.json](schema/SkillHash.json) |  |
+| executable | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "executable": true,
+  "hash": "6f72d09b799ebfb2fc21e0bf2a2657e1feb2ac1128701c938aa9a6e4772dc094",
+  "path": "example",
+  "size": 4
+}
+```
+
+## SkillFileOmitted
+
+[JSON Schema](schema/SkillFileOmitted.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | string | {"maxLength":4096} |
+| reason | yes | ["too_large","too_many","too_deep","not_a_file"] |  |
+
+Example:
+
+```json
+{
+  "path": "example",
+  "reason": "too_many"
+}
 ```
 
 ## SkillHash
@@ -32952,6 +34593,25 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"files"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| path | no | [ContainedPath.json](schema/ContainedPath.json) |  |
+
+Example:
+
+```json
+{
+  "id": "skl_89f35ff9d85d2ba58f47f587f16d108dd50b75ce",
+  "op": "files",
+  "workspaceId": "example"
+}
+```
+
+### Variant 12
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"usage"` |  |
 | workspaceId | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | ids | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillId.json"}} |
@@ -33134,6 +34794,51 @@ Example:
 }
 ```
 
+### files
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"files"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| files | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/SkillFile.json"}} |
+| omitted | yes | array | {"maxItems":1024,"items":{"$ref":"https://ace.local/protocol/v1/SkillFileOmitted.json"}} |
+
+Example:
+
+```json
+{
+  "files": [],
+  "id": "skl_5d079bd26e2b3ed52e40f3a949da2c1ca906c537",
+  "kind": "files",
+  "omitted": []
+}
+```
+
+### file
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"file"` |  |
+| id | yes | [SkillId.json](schema/SkillId.json) |  |
+| file | yes | [SkillFile.json](schema/SkillFile.json) |  |
+| content | yes | string | {"maxLength":1398104} |
+
+Example:
+
+```json
+{
+  "content": "example",
+  "file": {
+    "executable": false,
+    "hash": "03f10b13a9a2b2e134a74819eeb4a6859636472ffdeaf977d27cefef9a3abef5",
+    "path": "example",
+    "size": 7
+  },
+  "id": "skl_47600ae5c72a13a875f11e2c0781073b896f205d",
+  "kind": "file"
+}
+```
+
 ### error
 
 | Field | Required | Type | Constraints |
@@ -33259,17 +34964,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "kind": "updateReview",
-    "review": {
-      "after": "example",
-      "baseHash": "cc0a706caa9c050d68447331a2de9776f113b4142f8c3340e6815c2a1ca75ddd",
-      "before": "example",
-      "commit": "ba60e82bc3a3cbf0926aeb88c7959a829d9573ff65535cf5815893bc8",
-      "files": [],
-      "folderHash": "example",
-      "id": "example",
-      "skillId": "skl_c23bee4612a911a2969ae81539c178c1add78173"
-    }
+    "kind": "cancelled",
+    "reviewId": "example"
   },
   "type": "skills.result"
 }
@@ -36061,7 +37757,7 @@ Example:
 
 [JSON Schema](schema/SuitPage.json), input validation.
 
-Type: ["thread","new-thread","chats","chat","pulls","pull","issues","issue","inbox","review","automations","automation","skills","skill","usage","spade","history","settings","sign-in","setup","connect"]. See JSON Schema for constraints.
+Type: ["thread","new-thread","chats","chat","pulls","pull","issues","issue","inbox","review","automations","automation","skills","skill","marketplace","market-entry","usage","spade","history","settings","sign-in","setup","connect"]. See JSON Schema for constraints.
 
 Example:
 

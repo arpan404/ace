@@ -37,6 +37,12 @@
         "automations.enabled": {
           "type": "boolean"
         },
+        "beta.marketplace": {
+          "type": "boolean"
+        },
+        "beta.spade": {
+          "type": "boolean"
+        },
         "browser.backend": {
           "enum": [
             "auto",

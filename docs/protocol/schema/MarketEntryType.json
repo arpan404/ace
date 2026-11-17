@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketEntryType.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "suit",
+    "spade-skill",
+    "spade-plugin",
+    "spade-bot",
+    "ace-plugin"
+  ],
+  "type": "string"
+}
