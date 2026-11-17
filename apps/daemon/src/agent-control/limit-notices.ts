@@ -60,7 +60,10 @@ export class LimitNotices {
       return;
     }
     if (told?.held || this.deps.watching(edge.childId, edge.parentId)) return;
-    if (!store.getThread(edge.parentId)) return;
+    // A deleted parent (its state possibly purged with it) can never take the notice: sending
+    // would fail and retry every second for as long as the child stays held.
+    const parent = store.getThread(edge.parentId);
+    if (!parent || parent.deletedAt !== undefined) return;
     const count = (told?.count ?? 0) + 1;
     const id = controlCommandId(edge.parentId, `${edge.childId}:${count}`, "limit_notice");
     const text = limitNoticeText(hold, edge.request.role, edge.childId);
