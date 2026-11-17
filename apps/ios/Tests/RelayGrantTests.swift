@@ -16,6 +16,10 @@ private let hostId = "A4IOPXUIEEM6GMLBBSWHEDA3CUUI64AG6CB4CALXPPRXWGPSVCRQ"
         for _ in 0..<250 where !done() { try await Task.sleep(for: .milliseconds(20)) }
         #expect(done())
     }
+    /// The grant entry each upgrade offered, first in its header.
+    private func grants(_ server: LocalTLSServer) -> [String] {
+        server.subprotocols.map { String($0.split(separator: ",").first ?? "") }
+    }
     private func route(_ port: UInt16, _ fetches: Fetches) -> RelayRoute {
         RelayRoute(relayURL: URL(string: "ws://127.0.0.1:\(port)")!, hostId: hostId, grants: AccountGrants {
             () async throws(AccountGrantError) -> AceGrant in
@@ -37,7 +41,7 @@ private let hostId = "A4IOPXUIEEM6GMLBBSWHEDA3CUUI64AG6CB4CALXPPRXWGPSVCRQ"
         second.open()
         defer { second.close() }
         try await until { server.subprotocols.count == 2 }
-        #expect(server.subprotocols == ["ace.grant.grant-1", "ace.grant.grant-1"])
+        #expect(grants(server) == ["ace.grant.grant-1", "ace.grant.grant-1"])
         #expect(fetches.count == 1)
     }
     @Test func aGrantTheRelayRefusedIsReplacedOnTheNextConnection() async throws {
@@ -56,7 +60,9 @@ private let hostId = "A4IOPXUIEEM6GMLBBSWHEDA3CUUI64AG6CB4CALXPPRXWGPSVCRQ"
         let second = RelaySocket(route: route) { _, _ in }
         second.open()
         defer { second.close() }
-        try await until { server.subprotocols.count == 2 }
-        #expect(server.subprotocols == ["ace.grant.grant-1", "ace.grant.grant-2"])
+        // The refused upgrade carried the first message, so it was tried once more without it
+        // before the grant counted as refused.
+        try await until { server.subprotocols.count == 3 }
+        #expect(grants(server) == ["ace.grant.grant-1", "ace.grant.grant-1", "ace.grant.grant-2"])
     }
 }
