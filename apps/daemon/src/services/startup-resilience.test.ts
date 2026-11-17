@@ -5,6 +5,7 @@ import { readConfig } from "../config.ts";
 import type { startServer } from "../server.ts";
 import { startupAttempts, safeModeSkips } from "../startup-attempts.ts";
 import { Resources } from "./resources.ts";
+import { serviceOrder } from "./service-order.ts";
 import {
   EssentialServiceError,
   ServiceStartup,
@@ -335,4 +336,34 @@ test("a listener stuck in its call is not replaced until that call returns", asy
   await clock.advance(1_000);
   expect(listens).toBe(2);
   expect(state(subject, "notifications")).toBe("ready");
+});
+
+test("safe mode never leaves off what the engine requires, so a stuck accounts start can't repeat", () => {
+  // A start killed while accounts and commands were both still starting.
+  expect(safeModeSkips(["accounts", "commands"], serviceOrder)).toEqual(["commands"]);
+});
+
+test("safe mode still starts a service an essential one requires, and the daemon comes up", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 100, schedule: clock.schedule }, ["accounts"]);
+  await subject.start([
+    service("accounts", () => {}),
+    service("engine", () => {}, { essential: true, requires: ["accounts"] }),
+  ]);
+  expect(state(subject, "accounts")).toBe("ready");
+  expect(state(subject, "engine")).toBe("ready");
+});
+
+test("a service an essential one requires stops the start under its own name when it fails", async () => {
+  const subject = startup({ timeoutMs: 15_000, schedule: fakeClock().schedule });
+  const failure = await subject
+    .start([
+      service("accounts", () => {
+        throw new Error("accounts.sqlite unreadable");
+      }),
+      service("engine", () => {}, { essential: true, requires: ["accounts"] }),
+    ])
+    .catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(EssentialServiceError);
+  expect(failure).toMatchObject({ service: "accounts" });
 });

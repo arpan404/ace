@@ -1,5 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { z } from "zod";
+import { criticalServices, type Criticality } from "./services/service-criticality.ts";
 
 /**
  * Which services' starts are running right now, kept on disk as they change. A daemon that
@@ -44,13 +45,19 @@ export function startupAttempts(file: AttemptFile): StartupAttempts {
   };
 }
 
-/** What safe mode leaves off: services the last run never finished starting, essential ones excepted. */
+/**
+ * What safe mode leaves off: services the last run never finished starting, except those the
+ * daemon cannot run without (an essential service and everything it requires).
+ */
 export function safeModeSkips(
   previous: readonly string[],
-  order: readonly { name: string; essential?: boolean }[],
+  order: readonly Criticality[],
 ): string[] {
   const stuck = new Set(previous);
-  return order.filter((entry) => !entry.essential && stuck.has(entry.name)).map(({ name }) => name);
+  const critical = criticalServices(order);
+  return order
+    .filter((entry) => stuck.has(entry.name) && !critical.has(entry.name))
+    .map(({ name }) => name);
 }
 
 /** The record as a file: replaced whole, so a crash mid-write leaves the previous one. */

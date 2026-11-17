@@ -3,6 +3,7 @@ import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Resources } from "./resources.ts";
 import { bounded, systemStartup, validateRuntime, within } from "./startup-runtime.ts";
 import type { StartupRuntime } from "./startup-runtime.ts";
+import { criticalServices } from "./service-criticality.ts";
 import type { ServiceContext, Services } from "./types.ts";
 import type { startServer } from "../server.ts";
 
@@ -61,13 +62,17 @@ export interface ServiceStatus {
 export { systemStartup, type StartupRuntime } from "./startup-runtime.ts";
 
 /**
- * What a failed or timed-out start does (ADR 0175). Only an essential service stops the daemon;
- * the store, lock and socket are opened before any service and are fatal on their own. Every
- * other service degrades, says so in `/v1/status`, and is retried with backoff.
+ * What a failed or timed-out start does (ADR 0175). The store, lock and socket are opened before
+ * any service and are fatal on their own. Of the services, an essential one and everything it
+ * requires (`criticalServices`) stop the daemon: without them the essential one cannot start.
+ * Every other service degrades, says so in `/v1/status`, and is retried with backoff.
  */
 export type FailurePolicy = "stop-daemon" | "degrade-and-retry";
-export function failurePolicy(definition: Pick<ServiceDefinition, "essential">): FailurePolicy {
-  return definition.essential ? "stop-daemon" : "degrade-and-retry";
+export function failurePolicy(
+  definition: Pick<ServiceDefinition, "name">,
+  critical: ReadonlySet<string>,
+): FailurePolicy {
+  return critical.has(definition.name) ? "stop-daemon" : "degrade-and-retry";
 }
 
 function boundedCleanup(
@@ -120,6 +125,7 @@ export class ServiceStartup {
   /** One budget for every service's cleanup at shutdown, started by the first to close. */
   private budget: Promise<void> | undefined;
   private readonly skip: ReadonlySet<string>;
+  private critical: ReadonlySet<string> = new Set();
   /**
    * `skip` names services this start leaves off (safe mode, after starts that never finished
    * them). An essential service is never skipped.
@@ -195,11 +201,12 @@ export class ServiceStartup {
       this.record(definition.name, { name: definition.name, state: "starting" });
     }
     this.definitions = definitions;
+    this.critical = criticalServices(definitions);
     this.deferred = definitions.filter((definition) => definition.phase === "listener");
     for (const definition of definitions.filter((entry) => entry.phase === "core"))
       this.listeners.push(...(await this.startOne(definition)));
     for (const definition of definitions) {
-      if (failurePolicy(definition) !== "stop-daemon") continue;
+      if (failurePolicy(definition, this.critical) !== "stop-daemon") continue;
       const status = this.statuses.get(definition.name);
       if (status?.state === "degraded")
         throw new EssentialServiceError(definition.name, status.error);
@@ -216,7 +223,7 @@ export class ServiceStartup {
       this.degraded(name, new Error(`Dependency ${unavailable} is unavailable`));
       return [];
     }
-    if (this.skip.has(name) && failurePolicy(definition) !== "stop-daemon") {
+    if (this.skip.has(name) && failurePolicy(definition, this.critical) !== "stop-daemon") {
       // Never retried: the person's next restart of ace starts it again.
       this.retriesUsed.set(name, Number.POSITIVE_INFINITY);
       this.degraded(
@@ -380,7 +387,7 @@ export class ServiceStartup {
   /** Degraded, not essential, with every required service ready, and retries left. */
   private retriable(definition: ServiceDefinition): boolean {
     return (
-      failurePolicy(definition) === "degrade-and-retry" &&
+      failurePolicy(definition, this.critical) === "degrade-and-retry" &&
       this.statuses.get(definition.name)?.state === "degraded" &&
       definition.requires.every((dependency) => this.statuses.get(dependency)?.state === "ready")
     );

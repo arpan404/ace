@@ -44,9 +44,10 @@ after five fast failures in a row. Each start failed the same way.
 ## Decision
 
 1. **The daemon's start awaits only what correctness needs.** The lock, the home's format, the
-   event store and the socket are fatal and are opened before any service. Of the services, only
-   one marked `essential` (today the engine) stops the start, and only on its own failure.
-   `failurePolicy()` in `services/startup.ts` says which.
+   event store and the socket are fatal and are opened before any service. Of the services, one
+   marked `essential` (today the engine) and everything it requires, transitively (today
+   `accounts`), stop the start: without a required service the essential one cannot start
+   either. `criticalServices()` and `failurePolicy()` in `services/` say which.
 2. **Provider discovery runs after the engine is published** (`services/provider-activation.ts`).
    Adapters join the engine's registry as they are found and are bound before any session opens:
    sessions and commands wait on `providerActivation`, and so does restart recovery, so whether
@@ -56,16 +57,18 @@ after five fast failures in a row. Each start failed the same way.
    and `degraded`, with the reason, if discovery failed.
 3. **Every other service that fails or misses its deadline degrades alone**, says so in
    `/v1/status`, and is retried after 30 s, 1, 2, 5 and 10 minutes once the daemon listens. A
-   retry never starts while the last attempt is still stuck in a call. Services that require it
-   start again once it recovers.
+   retry starts only once the last attempt's own calls (its start, its listeners, its cleanup)
+   have settled; deadlines stop the waiting, never the fence. Services that require it start
+   again once it recovers.
 4. **Service cleanup at shutdown shares one 6 s budget.** Once it is spent, a service stops
    waiting for its dependents and leaves a stuck cleanup running; the process exits next. A stop
    stays inside the daemon's 7 s deadline.
 5. **A stuck start is remembered.** Each service's start is recorded in `startup-attempts.json`
-   until it settles. A daemon that dies partway leaves the names behind.
+   until all of that service's calls settle. A daemon that dies partway leaves the names behind.
 6. **The app starts a crash loop in safe mode.** After two fast failures in a row, the
    supervisor starts the next daemon with `ACE_SAFE_MODE=1`; that daemon leaves off the services
-   its last run never finished starting (never an essential one) until ace restarts. A port
+   its last run never finished starting, except the critical ones of decision 1, until ace
+   restarts. A port
    conflict never starts safe mode, because leaving services off cannot free a port. The person
    reads one sentence, while restarting and then in the tray: ace is running without the part
    that kept it from starting, and a restart of ace turns it back on. A stable run (60 s) or a
@@ -83,6 +86,12 @@ after five fast failures in a row. Each start failed the same way.
   own resources. A service that keeps state outside its `ServiceContext` must reset it.
 - A cleanup cut short at shutdown may still be running as the process exits; that is the same
   outcome as the forced stop it replaces, minus the overrun.
+- `accounts` is critical because the engine binds sessions to the person's chosen accounts;
+  starting the engine without it would run work on the wrong account. Its start checks every
+  account's home folder, so a home that stops answering still stops the daemon. Letting it
+  degrade needs the account registry to answer reads while homes are checked (today `get` and
+  `list` throw until then) and every account-bound session to wait for that check; that is
+  follow-up work.
 - Runtime crashes after startup (an unhandled rejection in a service's background work) are not
   traced to a service, so safe mode cannot leave them off yet.
 
