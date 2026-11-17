@@ -132,6 +132,10 @@ impl Security {
     /// The service, with the egress proxy listening when this machine has a sandbox.
     pub async fn start(setup: Setup) -> Arc<Self> {
         let log = Arc::new(EgressLog::new(setup.log_dir));
+        // Windows: take back any AppContainer ACLs a crashed run left behind before anything runs
+        // (ADR 0167, ACL hygiene). Each run re-applies its own; this only undoes stale grants.
+        #[cfg(windows)]
+        spade_sandbox::windows::acls::recover(&setup.spade_data.join("sandbox-acls"));
         let (proxy, proxy_problem) = if setup.runner.status().usable() {
             let clock = setup.clock.clone();
             match Proxy::start(
@@ -479,6 +483,15 @@ impl Security {
         let _ = self.store.set_setting(&settings::key(bot), None);
         self.log.forget(bot);
         self.checkpoints.forget(bot);
+        // Windows: take back every run's AppContainer ACLs for this bot and delete its profiles.
+        #[cfg(windows)]
+        spade_sandbox::windows::acls::forget(&self.acl_dir(), bot);
+    }
+
+    /// Where the Windows ACL journal lives (ADR 0167, ACL hygiene).
+    #[cfg(windows)]
+    pub(crate) fn acl_dir(&self) -> PathBuf {
+        self.spade_data.join("sandbox-acls")
     }
 
     fn workspace(&self, bot: &str) -> Result<PathBuf, SecurityError> {

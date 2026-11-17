@@ -224,6 +224,20 @@ export interface SpadeApproval {
   helper?: { job: string; task: string };
 }
 
+/**
+ * A plugin's server or hook asking to run outside the sandbox (ADR 0167): open until the person
+ * answers. Not part of any reply: the plugin simply doesn't start until then.
+ */
+export interface SpadeOutsideAsk {
+  id: string;
+  plugin: string;
+  version: string;
+  /** What would run: `server <name>` or `hook <event>`. */
+  what: string;
+  /** The request's sentence, in Spade's words. */
+  line: string;
+}
+
 export interface SpadeConversationState {
   /** The highest `seq` folded; a stored event at or below it is a duplicate. */
   lastSeq: number;
@@ -242,6 +256,8 @@ export interface SpadeConversationState {
   /** Running tool calls by call id. */
   running: Map<string, { reply: string; name: string }>;
   approvals: SpadeApproval[];
+  /** Plugins asking to run outside the sandbox, oldest first, until the person answers. */
+  outsideAsks: SpadeOutsideAsk[];
   /** The open reply's card waiting on the person: answered in it or by their next message. */
   question: { reply: string; callId: string } | undefined;
   /** Cards left for later and not yet answered or dismissed, by call id, oldest first. */
@@ -296,6 +312,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     calls: new Map(),
     running: new Map(),
     approvals: [],
+    outsideAsks: [],
     question: undefined,
     forLater: new Set(),
     jobs: new Map(),
@@ -492,6 +509,21 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (!event.helper) setCall(state, event.reply, event.call_id, event.name, "waiting");
       return true;
     }
+    case "plugin_outside_asked":
+      state.outsideAsks = [
+        ...state.outsideAsks.filter((ask) => ask.id !== event.id),
+        {
+          id: event.id,
+          plugin: event.plugin,
+          version: event.version,
+          what: event.what,
+          line: event.line,
+        },
+      ];
+      return true;
+    case "plugin_outside_answered":
+      state.outsideAsks = state.outsideAsks.filter((ask) => ask.id !== event.id);
+      return true;
     case "approval_answered":
       state.approvals = state.approvals.filter((approval) => approval.callId !== event.call_id);
       updateRequest(state, event.call_id, (request) => ({

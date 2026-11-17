@@ -2,7 +2,7 @@
 //! own (`workspace::shell`) and the terminal surface is never live. Same shape as the Unix
 //! terminal, so the rest of Spade compiles unchanged.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -47,6 +47,16 @@ impl Terminals {
     }
 
     pub fn on_change(&self, _changed: Changed) {}
+
+    /// There is no bot terminal here, so `shell` runs each command on its own (see
+    /// `shell_commands`); these exist only so [`crate::workspace::Commands`] compiles.
+    pub fn contains(&self, _home: &Path) -> bool {
+        false
+    }
+
+    pub fn outside(&self, _home: &Path) -> bool {
+        false
+    }
 
     pub fn of(&self, _bot: &str) -> Result<Arc<Terminal>, String> {
         Err(NONE.to_owned())
