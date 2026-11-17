@@ -23,6 +23,9 @@ pub enum Error {
     /// The path chains more links than the operating system would follow.
     #[error("link loop: {0}")]
     LinkLoop(String),
+    /// The path needs more segments than a walk is allowed to visit.
+    #[error("limit exceeded: {0}")]
+    LimitExceeded(String),
     /// The filesystem refused the lookup; the kind decides the code.
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -33,6 +36,7 @@ impl Error {
     pub fn code(&self) -> &'static str {
         match self {
             Error::InvalidPath(_) | Error::LinkLoop(_) => "INVALID_PATH",
+            Error::LimitExceeded(_) => "LIMIT_EXCEEDED",
             Error::PathEscape(_) => "PATH_ESCAPE",
             Error::PathChanged(_) => "PATH_CHANGED",
             Error::NotDirectory(_) => "NOT_DIRECTORY",
@@ -75,5 +79,6 @@ mod tests {
         assert_eq!(Error::PathChanged(String::new()).code(), "PATH_CHANGED");
         assert_eq!(Error::NotDirectory(String::new()).code(), "NOT_DIRECTORY");
         assert_eq!(Error::LinkLoop(String::new()).code(), "INVALID_PATH");
+        assert_eq!(Error::LimitExceeded(String::new()).code(), "LIMIT_EXCEEDED");
     }
 }

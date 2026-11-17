@@ -23,9 +23,7 @@ pub(crate) fn check(rel: &str) -> Result<&str, Error> {
         || rel.starts_with('/')
         || rel.ends_with('/')
         || rel.contains('\0')
-        || rel
-            .split('/')
-            .any(|segment| segment.len() > MAX_SEGMENT_BYTES || !segment_allowed(segment));
+        || rel.split('/').any(|part| !segment(part));
     if malformed {
         Err(Error::InvalidPath(rel.to_owned()))
     } else {
@@ -33,13 +31,17 @@ pub(crate) fn check(rel: &str) -> Result<&str, Error> {
     }
 }
 
-/// Whether one `/`-separated segment is a plain name on this platform.
-fn segment_allowed(segment: &str) -> bool {
-    if segment.is_empty() || segment == "." || segment == ".." {
+/// Whether one name is one the platform can store, and reads the same way there as it does here.
+///
+/// A link target is held to these rules too: a relative target spliced into a walk is a path ace
+/// does not receive over the wire, but it is still a name the platform would read differently if
+/// it were one Windows reinterprets.
+pub(crate) fn segment(name: &str) -> bool {
+    if name.is_empty() || name == "." || name == ".." || name.len() > MAX_SEGMENT_BYTES {
         return false;
     }
     #[cfg(windows)]
-    return crate::windows::segment_is_valid(segment);
+    return crate::windows::segment_is_valid(name);
     #[cfg(not(windows))]
     true
 }
