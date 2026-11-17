@@ -10,6 +10,7 @@ export const projectRef: FlagSpec = {
   name: "project",
   value: "PROJECT",
   summary: "A project id, name or path",
+  ref: "project",
 };
 export const providerName: FlagSpec = {
   name: "provider",
@@ -32,6 +33,7 @@ export const threadRef: FlagSpec = {
   name: "thread",
   value: "THREAD",
   summary: "The thread; defaults to ACE_THREAD_ID in an agent's shell",
+  ref: "thread",
 };
 export const outputPath: FlagSpec = {
   name: "output",

@@ -171,7 +171,8 @@ import XCTest
 
     func testBackFromAPageOverTheThreadKeepsTheThreadOpen() throws {
         let app = launch()
-        open("thread.ios-browser", in: app)
+        // The fixture's inbox runs past the fold, and this row sits below it.
+        app.revealRow("thread.ios-browser").tap()
         XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
         app.buttons["thread.menu"].tap()
         app.threadMenuItem("thread.browser").tap()

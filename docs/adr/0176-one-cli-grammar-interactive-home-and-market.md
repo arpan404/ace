@@ -404,7 +404,8 @@ chat` lands (Phase 4).
 
 **Attach** (`ace chat`, `ace thread attach`, `↵` on a row) replaces today's one-line preview with
 the transcript as the app shows it: the person's messages, the agent's work folded under
-"Worked for 3m 12s" (`↵` on it unfolds), the last answer in full, wrapped to the terminal, and
+"Worked for 3m 12s" (`↵` on it unfolds; with the composer empty, `↑` and `↓` walk those lines,
+since what is in the scrollback can't be pointed at), the last answer in full, wrapped to the terminal, and
 handoffs, stops and limits as one quiet line each. At the foot: the request strip when one is
 open, then the live line ("Working for 1m 04s", or "Waiting for 2 subagents"), then the composer
 (`›`). Typing sends to the queue as today; `/steer`, `/stop`, `/model`, `/resume` and `/quit` keep
@@ -447,6 +448,12 @@ stdin only when the argument is `-`, never by default.
 - Budget: the home's first lines (header and the cached thread list, then live rows) within 150
   ms of Enter on a warm Mac, measured in the delivery PR. The TUI and clack load only on a
   terminal; `ace start` and every `--json` command load neither.
+  Built (2026-11-17, follow-up): the cached list is `ACE_HOME/cli-home-rows.json`, the first 40
+  rows with what each row is and never its status; each draws "Syncing", the app's word for an
+  unconfirmed row, until the live list replaces it. The first frame loads only the terminal,
+  the view and that file: the CLI's config (and the schemas with it) loads on first use, and
+  the home's path comes from `@ace/service/home-path`. `home-first-paint.perf.process.test.ts`
+  holds the bound (best of five starts in a real pseudo-terminal: 95 ms on a busy Linux box).
 
 **If the daemon isn't running,** the home says so in one line ("ace isn't running.") with three
 keys: `s Start ace`, `d Doctor`, `t Triage`. Start runs the same detached start `chat` uses today.
@@ -491,16 +498,53 @@ What the build found (2026-11-17). The daemon hands each session its variables a
 
 - **Claude Code, Pi, ACP agents (Antigravity, Gemini):** one process per session, so the
   variables go into its environment and the shell tool inherits them. Claude Code's Bash and Pi's
-  bash inherit the process environment; Antigravity's shell is believed to, not yet checked on a
-  real run.
+  bash inherit the process environment. ace offers ACP agents no client terminal, so an ACP
+  agent runs its shell commands itself; a fake agent's shell command sees the variables whether
+  Antigravity starts from its installed command or a resolved launch plan. That
+  `agy_acp_server`'s own shell tool keeps its process environment is still not checked on a real
+  run.
 - **Codex:** one app-server serves many threads, so its environment can't name a thread. Each
   thread's `thread/start|resume|fork` carries `shell_environment_policy.set.<NAME>` overrides, one
   dotted key per variable, so the person's own `set` entries stay.
-- **Cursor:** the SDK host is started per session with them; that the SDK's local shell keeps the
-  host's environment is not yet checked on a real run.
-- **OpenCode:** not given them. ace pre-starts a spare server per account so a session opens
-  quickly, and that server's environment is fixed before the thread exists. OpenCode agents pass
-  `--thread` and `--no-input`.
+- **Cursor:** the SDK host is started per session with them. Cursor SDK 1.0.35's local shell
+  executors (bash, zsh, PowerShell and the plain one) all run commands with
+  `{ ...process.env, ...sdkVariables, ...callEnv }`, so they keep the host's environment; a fake
+  host's shell command sees the variables. Not yet seen on a real run.
+- **OpenCode:** one server serves many sessions, and ace pre-starts a spare per account before
+  the thread exists, so the server's environment can't name a thread. OpenCode's own
+  `PUT /api/session/:id/environment` (in `@opencode/client` 2.0.22, the minimum; now a required
+  route) replaces the server's process environment for one session's local shell commands; it
+  is what OpenCode's CLI sends when it attaches to a shared server. ace sends what the server's
+  process inherited, without OpenCode's server password, plus the thread's variables: for the
+  root session at every open, before any input, and for each subagent session as ace admits it
+  to the tree, since OpenCode doesn't pass a session's environment on to its subagents. OpenCode
+  keeps it in the server's memory only (a location rebuild keeps it), so a resume on a restarted
+  daemon, which starts a new server, sets it again. Spares start as before, so the open stays
+  fast, and the body is never recorded in the thread's frames.
+
+  A subagent's session is created and prompted before ace hears of it, so on its own a command
+  could beat its setup, or run after a failed one, with the server's own environment. Two
+  things close that (review follow-up, 2026-11-17):
+  - **Ordered and fail-closed.** Every server ace owns loads ace's gate plugin
+    (`adapter-opencode/src/agent-env-plugin`). Its `tool.execute.before` hook, which OpenCode
+    2.x runs before every tool and lets a throw refuse, holds each session's tools until ace
+    settles that session over the plugin's `ace.agent.environment` RPC: set (after the `PUT`
+    lands), or failed. A failed or unconfirmed session (30 s) has every tool refused; ace also
+    interrupts the subagent and records a warning saying why. The root's setup, gate included, is
+    awaited at open, so a server whose gate never loads fails the open instead of running
+    ungated. Verdicts live as long as the server process, across location rebuilds. Every
+    session ace opens gets an explicit environment, with or without ace's variables.
+  - **Nothing to fall back to.** `serve --stdio` takes its password only from the environment
+    (no flag or file in 2.3.0) but deletes `OPENCODE_PASSWORD` and `OPENCODE_SERVER_PASSWORD`
+    from its own environment once read, and ace starts the server without its own credentials
+    (MCP bearer, daemon token, grant, signer and account keys), which no session environment
+    carries either.
+
+  An externally attached server's shells are left alone: ace didn't start it and installs no
+  plugin in it. Rejected: `shell.create.before` (isn't told the session), permission rules
+  (a subagent inherits its parent's, and saved "always allow" rules outrank them), a server
+  per thread (no fast open), a wrapper shell (replaces the person's shell) and a later
+  handshake (the same window and a second channel).
 
 `ace help agents` is the page for them: use `--json` to parse and human text to read (it is
 shorter and costs fewer tokens), check the exit code before the output, retry uncertain mutations

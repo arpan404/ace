@@ -5,7 +5,7 @@ import { storageHandlers } from "./storage.ts";
 /** `ace start` and `ace serve`: their old module, unchanged, so their bytes never move. */
 async function runtime(context: CommandContext, words: string[]): Promise<void> {
   const args = legacy(context, words);
-  return (await import("../runtime.ts")).runtimeCommand(args, context.config());
+  return (await import("../runtime.ts")).runtimeCommand(args, await context.config());
 }
 
 /** Whether colour may mark state on stdout (ADR 0176 §3). */
@@ -23,7 +23,7 @@ type ServiceVerb = "install" | "uninstall" | "start" | "stop" | "status";
 
 /** `ace service …`: a machine entry point; its JSON is the service manager's answer, as ever. */
 async function service(context: CommandContext, verb: ServiceVerb): Promise<void> {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   const { serviceCommand } = await import("@ace/service");
   let state: { active: boolean; linger?: true };
   try {
@@ -102,27 +102,27 @@ export const machineHandlers: Handlers = {
   // The providers area owns `control.ts`; `ace stop` keeps its module and bytes.
   "daemon.stop": async (context) => {
     const args = legacy(context, ["stop"]);
-    return (await import("../control.ts")).stopCommand(args, context.config().dataDir);
+    return (await import("../control.ts")).stopCommand(args, (await context.config()).dataDir);
   },
   "daemon.status": async (context) => {
     const { daemonHealth } = await import("../daemon-health.ts");
     const { healthLines } = await import("../render/daemon.ts");
     const { emit } = await import("../io.ts");
-    await emit(context.args, await daemonHealth(context.config().dataDir), {
+    await emit(context.args, await daemonHealth((await context.config()).dataDir), {
       human: healthLines,
       quiet: () => [],
     });
   },
   "daemon.logs": async (context) => {
     const { logsCommand } = await import("../logs.ts");
-    return logsCommand(context.args, context.config().dataDir, await color(context));
+    return logsCommand(context.args, (await context.config()).dataDir, await color(context));
   },
   "daemon.token": async (context) => {
     const { readLocalToken } = await import("../../local-token.ts");
     const { emit } = await import("../io.ts");
     let token: string;
     try {
-      token = readLocalToken(context.config().dataDir);
+      token = readLocalToken((await context.config()).dataDir);
     } catch {
       throw new CliFailure("refused", "This machine has no host token yet.", undefined, {
         code: "not_found",

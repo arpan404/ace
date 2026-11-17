@@ -1,5 +1,5 @@
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { InstalledRelease, ReleaseDirectory } from "@ace/protocol";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { isDesktopShim, renderLauncher } from "./launcher.ts";
@@ -21,17 +21,7 @@ export { prepareDaemonHome, type FreshStartPorts, type PreparedHome } from "./ho
 export { claimHome, processAlive, type HomeClaim } from "./home-claim.ts";
 export { BACKUP_README, describeBackup } from "./home-backup.ts";
 
-/**
- * The ace data home: `ACE_HOME` when set, otherwise `~/.ace` (ADR 0081). This only names the
- * path. Whatever writes into the home first runs `prepareDaemonHome`, which creates it or gives
- * it a fresh start. `~/.ace-next`, used by interim builds, is never read.
- */
-export function resolveDaemonHome(home: string, requested?: string): string {
-  assertTestHomeIsolation(home);
-  const root = requested === undefined ? join(resolve(home), ".ace") : resolve(requested);
-  assertTestHomeIsolation(root);
-  return root;
-}
+export { resolveDaemonHome } from "./home-path.ts";
 
 function present(path: string): boolean {
   try {

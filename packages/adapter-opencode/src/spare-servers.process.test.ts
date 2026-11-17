@@ -8,7 +8,7 @@ import type { SessionContext } from "@ace/engine-api";
 import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from "@ace/mcp-server";
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { createOpenCodeAdapter, type ServerOptions } from "./index.ts";
-import { cli, setup } from "./testing/v2-session.ts";
+import { cli, setup, shellEnvironment } from "./testing/v2-session.ts";
 import { installationIdentity } from "./installation.ts";
 
 // Real edges: each OpenCode server is a separate fake `opencode serve` process, and what this
@@ -90,7 +90,11 @@ async function observed(extra: ServerOptions = {}) {
     await adapter.close();
     await mcp.close();
   });
-  const open = (index: number, env?: SessionContext["env"]) => {
+  const open = (
+    index: number,
+    env?: SessionContext["env"],
+    agentEnv?: SessionContext["agentEnv"],
+  ) => {
     const lease = credentials.issue(
       {
         sessionId: `warm-${index}`,
@@ -105,6 +109,7 @@ async function observed(extra: ServerOptions = {}) {
       threadId: ThreadId.parse(`thread-${index}`),
       cwd: "/warm",
       ...(env ? { env } : {}),
+      ...(agentEnv ? { agentEnv } : {}),
       signal: new AbortController().signal,
       aceMcp: {
         url: mcp.url,
@@ -141,6 +146,28 @@ test("a scoped session opens on an already started server that never carried ano
     names: ["ace"],
     response: { result: { structuredContent: { threadId: "thread-1" } } },
   });
+  await two.close("shutdown");
+});
+
+const variables = (index: number) => ({ ACE_THREAD_ID: `thread-${index}`, ACE_NO_INPUT: "1" });
+
+test("a thread that takes a spare server started before it existed runs shell commands with its own variables", async () => {
+  const o = await observed();
+  const one = await o.open(0, undefined, variables(0));
+  await until(() => o.carried.size === 3);
+  const started = new Set(o.carried.keys());
+
+  const two = await o.open(1, undefined, variables(1));
+  const spare = o.holding(o.bearers[1]);
+  expect(started.has(spare)).toBe(true);
+  const authorization = o.h.transport().authorization;
+  expect(await shellEnvironment({ url: spare, authorization }, two.nativeSessionId)).toMatchObject(
+    variables(1),
+  );
+  expect(
+    await shellEnvironment({ url: o.holding(o.bearers[0]), authorization }, one.nativeSessionId),
+  ).toMatchObject(variables(0));
+  await one.close("shutdown");
   await two.close("shutdown");
 });
 

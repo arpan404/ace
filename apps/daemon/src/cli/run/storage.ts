@@ -14,7 +14,7 @@ function storage(load: () => Promise<StorageRun>) {
 }
 
 async function config(context: CommandContext, verb: "list" | "get" | "set" | "unset") {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   await prepareHome(dataDir);
   const settings = await import("../config.ts");
   const render = await import("../render/config.ts");

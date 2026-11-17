@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { resolveDaemonHome } from "@ace/service";
+import { resolveDaemonHome } from "@ace/service/home-path";
 import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { WebOrigins } from "./web-origins.ts";
 import { LogMaxBytes, RetentionDays, SettingsValues } from "@ace/protocol";

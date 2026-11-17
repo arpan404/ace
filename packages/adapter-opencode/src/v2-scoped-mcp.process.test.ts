@@ -191,7 +191,11 @@ test("OpenCode waits for ace status to reach its native tool catalog before acce
         { name: "ace_tools_find", description: expect.stringContaining("Find ace tools") },
         { name: "ace_tools_call", description: expect.stringContaining("Run any ace tool") },
       ],
-      plugins: ["user-plugin", expect.any(String)],
+      plugins: [
+        "user-plugin",
+        expect.stringMatching(/agent-env-plugin$/),
+        expect.stringMatching(/mcp-ready-plugin$/),
+      ],
     });
     await session.close("shutdown");
   } finally {
