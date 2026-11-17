@@ -164,7 +164,7 @@ export function marketToolkit(port: MarketToolPort): Toolkit {
         name: "market_publish",
         title: "Publish to the market",
         description:
-          "Publish as the person: drafts, publishing a draft, listing words, changelog, latest, deprecate, visibility, archive, appeal. Withdraw, transfer, handle, delete, verification and install are the person's: ace asks them in your thread.",
+          "Make, update and delete drafts, and publish one. Everything else (listing words, changelog, latest, deprecate, visibility, archive, appeal, withdraw, transfer, handle, delete, verification, install) is the person's: ace asks them in your thread.",
         input: PublishInput,
         riskClass: "external-effect",
         openWorld: true,

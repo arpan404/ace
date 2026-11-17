@@ -30,11 +30,15 @@ export const marketReadVerbs = [
   "signals",
   "verification",
 ] as const;
+/** What an agent may do itself (the daemon's allowlist, ADR 0176 §12.5). */
 export const marketPublishVerbs = [
   "draft_create",
   "draft_update",
   "draft_delete",
   "draft_publish",
+] as const;
+/** The person's: asked for by an agent, they become a request in its thread. */
+export const marketPersonVerbs = [
   "describe",
   "changelog",
   "latest",
@@ -43,9 +47,6 @@ export const marketPublishVerbs = [
   "archive",
   "unarchive",
   "appeal",
-] as const;
-/** The person's: asked for by an agent, they become a request in its thread. */
-export const marketPersonVerbs = [
   "withdraw",
   "transfer",
   "transfer_answer",
