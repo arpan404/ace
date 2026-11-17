@@ -66,7 +66,8 @@ export function createSourceControlSession(context: SocketContext): SocketServic
           controllers.delete(controller);
         });
       context.tasks.add(task);
-      void task.finally(() => context.tasks.delete(task));
+      // The request reports its own failure above; this only forgets the task.
+      void task.finally(() => context.tasks.delete(task)).catch(() => {});
       return true;
     },
   };

@@ -298,7 +298,7 @@ export class SpadeLink {
     const poll = { ...defaultPoll, ...this.options.pollMs };
     this.cancelTimer?.();
     this.cancelTimer = this.options.runtime.after(poll.waiting, () => {
-      void this.refresh().catch((error: unknown) => this.options.report?.(error));
+      void this.refresh().catch((failure: unknown) => this.options.report?.(failure));
     });
   }
   private apply(
