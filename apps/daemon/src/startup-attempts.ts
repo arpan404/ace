@@ -1,0 +1,71 @@
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { z } from "zod";
+
+/**
+ * Which services' starts are running right now, kept on disk as they change. A daemon that
+ * dies or is killed partway through a start leaves the names behind, so the next run can tell
+ * which service it was stuck in. Safe mode leaves those off (ADR 0174).
+ */
+export interface AttemptFile {
+  read(): string | undefined;
+  write(text: string): void;
+}
+
+const Stored = z.object({ running: z.array(z.string().max(200)).max(200) });
+
+export interface StartupAttempts {
+  /** Services the last run was still starting when it stopped. */
+  previous: readonly string[];
+  onAttempt(name: string, running: boolean): void;
+}
+
+export function startupAttempts(file: AttemptFile): StartupAttempts {
+  let previous: readonly string[] = [];
+  try {
+    const text = file.read();
+    const parsed = text === undefined ? undefined : Stored.safeParse(JSON.parse(text));
+    if (parsed?.success) previous = parsed.data.running;
+  } catch {
+    // Damaged or unreadable: nothing is known about the last run.
+  }
+  const running = new Set<string>();
+  return {
+    previous,
+    onAttempt(name, isRunning) {
+      if (running.has(name) === isRunning) return;
+      if (isRunning) running.add(name);
+      else running.delete(name);
+      try {
+        file.write(JSON.stringify({ running: [...running] }));
+      } catch {
+        // A full or read-only disk only costs safe mode its precision.
+      }
+    },
+  };
+}
+
+/** What safe mode leaves off: services the last run never finished starting, essential ones excepted. */
+export function safeModeSkips(
+  previous: readonly string[],
+  order: readonly { name: string; essential?: boolean }[],
+): string[] {
+  const stuck = new Set(previous);
+  return order.filter((entry) => !entry.essential && stuck.has(entry.name)).map(({ name }) => name);
+}
+
+/** The record as a file: replaced whole, so a crash mid-write leaves the previous one. */
+export function attemptFile(path: string): AttemptFile {
+  return {
+    read() {
+      try {
+        return readFileSync(path, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+    write(text) {
+      writeFileSync(`${path}.pending`, text, { mode: 0o600 });
+      renameSync(`${path}.pending`, path);
+    },
+  };
+}

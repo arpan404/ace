@@ -22,6 +22,7 @@ const Environment = z.object({
   ACE_SCREEN_HELPER_INHERIT_RESPONSIBILITY: z.enum(["0", "1"]).optional(),
   /** Diagnostics: any value logs per-request computer-use timings to stderr (the helper reads it too). */
   ACE_CU_TIMINGS: z.string().min(1).optional(),
+  ACE_SAFE_MODE: z.enum(["0", "1"]).optional(),
   ACE_HOME: z.string().optional(),
   /** A Chromium for ace's headless browser instead of its pinned Chrome for Testing. */
   ACE_CHROMIUM_PATH: z.string().min(1).optional(),
@@ -131,6 +132,11 @@ export interface Config {
   screenHelperInheritsResponsibility?: boolean;
   /** Log per-request computer-use timings to stderr (ACE_CU_TIMINGS). */
   computerUseTimings?: boolean;
+  /**
+   * ACE_SAFE_MODE=1, set by the app after starts that kept failing: services the last run was
+   * still starting when it stopped stay off for this run (ADR 0174).
+   */
+  safeMode?: boolean;
 }
 /**
  * Where `ace login` signs in and which relay gets machine grants: ace's own backend and relay
@@ -163,6 +169,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       ? { screenHelperInheritsResponsibility: true }
       : {}),
     ...(settings.ACE_CU_TIMINGS ? { computerUseTimings: true } : {}),
+    ...(settings.ACE_SAFE_MODE === "1" ? { safeMode: true } : {}),
     dataDir: resolveDaemonHome(home, settings.ACE_HOME),
     ...(settings.ACE_CHROMIUM_PATH ? { chromiumPath: resolve(settings.ACE_CHROMIUM_PATH) } : {}),
     ...(settings.ACE_CHROMIUM_NO_SANDBOX === "1" ? { chromiumNoSandbox: true } : {}),

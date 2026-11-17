@@ -58,6 +58,7 @@ import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
 import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
 import { ServiceStartup, systemStartup } from "./services/startup.ts";
+import { attemptFile, safeModeSkips, startupAttempts } from "./startup-attempts.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
@@ -401,7 +402,16 @@ export async function startDaemon(options: DaemonOptions = {}) {
       streaming: () => store.streamingMetrics(),
     });
     resources.own(() => health.close(), "health monitor");
-    const startup = new ServiceStartup(serviceContext, { ...systemStartup, ...options.startup });
+    // Safe mode leaves off what the last run was stuck starting (ADR 0174).
+    const attempts = startupAttempts(attemptFile(join(config.dataDir, "startup-attempts.json")));
+    const skip = config.safeMode ? safeModeSkips(attempts.previous, serviceFactories) : [];
+    if (config.safeMode)
+      log.log("warn", "Daemon starting in safe mode", logFields([["services", skip]]));
+    const startup = new ServiceStartup(
+      serviceContext,
+      { ...systemStartup, onAttempt: attempts.onAttempt, ...options.startup },
+      skip,
+    );
     await startup.start(serviceFactories);
     const services = serviceContext.services;
     readyServices(services);
