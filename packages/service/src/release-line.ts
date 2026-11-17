@@ -1,5 +1,5 @@
 /**
- * ace's two release lines and the names a beta goes by (ADR 0174). Pure: no clock, no I/O.
+ * ace's two release lines and the names a beta goes by (ADR 0177). Pure: no clock, no I/O.
  *
  * - Tag: `ace-<X.Y.Z>-beta-<N>`, e.g. `ace-0.0.24-beta-1`.
  * - Version inside the app: `X.Y.Z-beta.<N>`, e.g. `0.0.24-beta.1`.

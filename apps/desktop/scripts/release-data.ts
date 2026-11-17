@@ -5,7 +5,7 @@ import { ReleaseData } from "@ace/protocol";
 import { spadeMigrationCount } from "../src/packaging/release-data.ts";
 
 /**
- * The data formats of the source tree at `root` (ADR 0174): `HOME_FORMAT_VERSION`, the daemon's
+ * The data formats of the source tree at `root` (ADR 0177): `HOME_FORMAT_VERSION`, the daemon's
  * `schemaVersion`, notify's `FORMAT` and Spade's migration count. The three TypeScript constants
  * are imported from that tree in a child process, so the numbers are the ones its own code
  * computes, and a checkout of an older tag answers for itself instead of for this build. The

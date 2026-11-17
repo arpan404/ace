@@ -31,7 +31,7 @@ export interface FakeDaemonOptions {
   databaseId?: string;
   displayName?: string;
   version?: string;
-  /** The release line its welcome names (ADR 0174); absent, as an older daemon's. */
+  /** The release line its welcome names (ADR 0177); absent, as an older daemon's. */
   releaseLine?: string;
   /** The OS host.identity reports; absent, as an older daemon's. */
   platform?: string;

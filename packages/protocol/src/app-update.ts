@@ -76,7 +76,7 @@ export type AppUpdateInstruction = z.infer<typeof AppUpdateInstruction>;
 export const AppUpdateReply = AppUpdate.extend({
   instruction: AppUpdateInstruction.nullable().optional(),
   /**
-   * The data formats the daemon's home holds now (ADR 0174), so the app offers an older
+   * The data formats the daemon's home holds now (ADR 0177), so the app offers an older
    * release only when that release can read them. Absent from older daemons; a value this
    * build can't read counts as absent rather than failing the reply.
    */

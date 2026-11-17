@@ -18,7 +18,7 @@ export interface EngineOptions {
   resourcesPath: string;
   execPath: string;
   env: NodeJS.ProcessEnv;
-  /** The line the person updates from now (ADR 0174). */
+  /** The line the person updates from now (ADR 0177). */
   line(): ReleaseLine;
   /** What the home holds, as the daemon last said; undefined until it has. */
   homeData(): HomeData | undefined;
@@ -29,7 +29,7 @@ export interface EngineOptions {
 }
 
 /**
- * electron-updater on the release the app picked (ADR 0091, 0174), or undefined for a build
+ * electron-updater on the release the app picked (ADR 0091, 0177), or undefined for a build
  * without a feed (`app-update.yml` is written only by release packaging). The release feed
  * (`release-feed.ts`) picks the release for the person's line from GitHub's release list; the
  * generic provider then reads that release's own folder. electron-updater checks each

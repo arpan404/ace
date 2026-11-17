@@ -1,7 +1,7 @@
 import { ReleaseData } from "@ace/protocol";
 
 /**
- * `ace-data.json`, published with every release (ADR 0174): the data formats that build reads
+ * `ace-data.json`, published with every release (ADR 0177): the data formats that build reads
  * and writes, so an installed app can tell whether an older release can still read its home.
  * The numbers are the build's own constants, never typed by hand.
  */

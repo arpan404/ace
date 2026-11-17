@@ -68,7 +68,7 @@ export interface AccessHttpOptions {
   maintenance?: MaintenanceGate;
   /** Where the desktop app reports its update status (host token only). */
   appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
-  /** The data formats the home holds, told to the app with each update reply (ADR 0174). */
+  /** The data formats the home holds, told to the app with each update reply (ADR 0177). */
   homeData?: () => import("@ace/protocol").HomeData;
   /** The update's leased hold (`update-hold.ts`); without it the update route holds plainly. */
   updateHold?: import("./update-hold.ts").UpdateHold;

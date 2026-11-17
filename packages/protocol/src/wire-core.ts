@@ -539,7 +539,7 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
      */
     relayHandshakes: z.array(z.string().max(16)).max(8).optional(),
     /**
-     * The release line the daemon's build belongs to (ADR 0174): `beta` for a beta build, so a
+     * The release line the daemon's build belongs to (ADR 0177): `beta` for a beta build, so a
      * client can say so; `stable` otherwise. Absent from older daemons; unknown names are kept.
      */
     releaseLine: z.string().min(1).max(32).optional(),

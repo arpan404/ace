@@ -71,7 +71,7 @@ export function releaseLineSummary(status: UpdateStatus): string {
 }
 
 /**
- * Which release line the app updates from (ADR 0174): Stable or Beta, in the same app. When the
+ * Which release line the app updates from (ADR 0177): Stable or Beta, in the same app. When the
  * line's release can't read this install's data, one sentence says why it isn't offered.
  */
 export function ReleaseLineRow(props: { scope?: object }) {

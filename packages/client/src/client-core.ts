@@ -186,7 +186,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     }
   });
   #hostId: string | undefined;
-  /** The daemon build's release line, from its last welcome (ADR 0174). */
+  /** The daemon build's release line, from its last welcome (ADR 0177). */
   #releaseLine: string | undefined;
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;

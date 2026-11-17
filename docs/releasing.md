@@ -43,7 +43,7 @@ bun run release:publish 0.0.3 --notes-file notes.md   # or: --draft to review it
 `release:build` packages the app for this Mac's architecture, signs and notarizes it, and
 verifies it (`codesign`, `spctl`, the stapled ticket). It stages the dmg, the zip that updates
 install from, their blockmaps, `latest-mac.yml`, `ace-data.json` and `SHA256SUMS` under
-`dist/releases/v<version>`. `ace-data.json` holds the data formats the build reads (ADR 0174):
+`dist/releases/v<version>`. `ace-data.json` holds the data formats the build reads (ADR 0177):
 installed apps check it before they offer a switch to an older release. `bun run release:data`
 prints it for this tree, or `bun run release:data <checkout>` for another (an older tag's, with
 `bun install` run in it); that command uploads nothing.
@@ -62,7 +62,7 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 
 A beta is a signed macOS arm64 build of a commit on `origin/main`, published as a GitHub
 prerelease tagged `ace-<X.Y.Z>-beta-<N>` (`ace-0.0.24-beta-1`) and never marked latest
-([ADR 0174](adr/0174-beta-release-line.md)). Apps on the Beta line pick it up.
+([ADR 0177](adr/0177-beta-release-line.md)). Apps on the Beta line pick it up.
 
 ```sh
 bun run release:doctor                 # a beta is always signed and notarized

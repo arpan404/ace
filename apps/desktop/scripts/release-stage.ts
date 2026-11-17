@@ -52,7 +52,7 @@ export interface StageInput {
 
 /**
  * Copies the release's files into `target` with their sizes and SHA-256, adds `ace-data.json`
- * (this tree's data formats, ADR 0174), and writes `release.json` and `SHA256SUMS`.
+ * (this tree's data formats, ADR 0177), and writes `release.json` and `SHA256SUMS`.
  */
 export async function stageRelease(input: StageInput): Promise<StagedRelease> {
   const { target } = input;

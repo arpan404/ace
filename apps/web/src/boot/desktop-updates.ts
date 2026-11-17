@@ -25,7 +25,7 @@ export interface UpdateStatus {
   waiting: number;
   notes: { version: string; items: string[]; total: number }[];
   olderReleases: number;
-  /** The line the app updates from, and its own build's line (ADR 0174). */
+  /** The line the app updates from, and its own build's line (ADR 0177). */
   line: ReleaseLine;
   buildLine: ReleaseLine;
   /** Why the line's release, older than this version, isn't offered; one sentence. */

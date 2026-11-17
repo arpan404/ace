@@ -19,7 +19,7 @@ export function useConnectionGeneration(): number | undefined {
   const selection = useMemo(() => client.connectionGeneration(), [client]);
   return useSelection(selection);
 }
-/** The connected daemon build's release line (`beta`, `stable`), once it said; ADR 0174. */
+/** The connected daemon build's release line (`beta`, `stable`), once it said; ADR 0177. */
 export function useDaemonReleaseLine(): string | undefined {
   const client = useClient();
   const selection = useMemo(() => client.releaseLine?.(), [client]);

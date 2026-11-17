@@ -135,7 +135,7 @@ export async function startServer(options: ServerOptions): Promise<{
   // A daemon started in the middle of an update holds until recovery releases it.
   if (options.maintenance || maintenance.held("update")) updateHold.persist();
   const appUpdate = options.appUpdate ?? new AppUpdateBoard(runtime);
-  /** The build's release line, told in every welcome (ADR 0174). */
+  /** The build's release line, told in every welcome (ADR 0177). */
   const releaseLine = releaseLineOf(options.version ?? "development");
   const machineUpdates = options.machineUpdate
     ? await createMachineUpdates({

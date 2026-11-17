@@ -39,7 +39,7 @@ export interface UpdateReportPorts {
   ready?(): Promise<boolean>;
   /** The daemon asked for something new (ADR 0113): each instruction id arrives once. */
   instructed?(instruction: AppUpdateInstruction): void;
-  /** Every reply the daemon sent, for what else it tells the app (its home's data, ADR 0174). */
+  /** Every reply the daemon sent, for what else it tells the app (its home's data, ADR 0177). */
   replied?(reply: AppUpdateReply): void;
   /** Takes the report back (`probe.ts` `withdrawAppUpdate`), as the app quits. */
   withdraw(): Promise<void>;

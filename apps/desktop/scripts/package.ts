@@ -68,7 +68,7 @@ if (authenticode?.kind === "incomplete")
   throw new Error(`Windows signing needs ${authenticode.missing.join(", ")} as well`);
 if (authenticode?.kind === "none")
   console.warn("[package] no Windows signing certificate is configured; building unsigned");
-// A beta wears a "BETA" band in the Dock (ADR 0174), rendered from the master for this build.
+// A beta wears a "BETA" band in the Dock (ADR 0177), rendered from the master for this build.
 const betaIcon =
   process.platform === "darwin" &&
   releaseLineOf(packagedAppVersion(process.env, appVersion())) === "beta"
@@ -310,7 +310,7 @@ const config: Configuration = {
     afterInstall: join(desktop, "build/linux/after-install.tpl"),
     afterRemove: join(desktop, "build/linux/after-remove.tpl"),
   },
-  // The update feed: GitHub releases (ADR 0091, 0174). Only a full package carries it, so
+  // The update feed: GitHub releases (ADR 0091, 0177). Only a full package carries it, so
   // a local build never offers updates. Nothing uploads from here (`publish: "never"`);
   // `bun run release:publish` creates the release with the GitHub CLI.
   publish: full
@@ -322,7 +322,7 @@ const config: Configuration = {
           releaseType: "release",
           // Always `latest-*.yml`, a beta's too: electron-builder would otherwise name a beta's
           // feed after its prerelease tag (`beta-mac.yml`), and the app reads `latest-mac.yml`
-          // from whichever release it picked (ADR 0174).
+          // from whichever release it picked (ADR 0177).
           channel: "latest",
         },
       ]

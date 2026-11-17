@@ -11,7 +11,7 @@ import {
 import { isNewer } from "@ace/service/version";
 
 /**
- * What `bun run release:beta` builds and publishes (ADR 0174), as pure decisions. The script
+ * What `bun run release:beta` builds and publishes (ADR 0177), as pure decisions. The script
  * (`scripts/release-beta.ts`) is the I/O around them.
  */
 
@@ -41,7 +41,7 @@ export interface BetaPlan {
 }
 
 /**
- * The next beta (ADR 0174). It previews the next version: the patch after `stable`
+ * The next beta (ADR 0177). It previews the next version: the patch after `stable`
  * (`apps/desktop/package.json` at the built commit), or `version` when the person names one,
  * which must be a later X.Y.Z. It is numbered after the highest beta tag GitHub already has for
  * that version.

@@ -4,7 +4,7 @@ import { z } from "zod";
 const FormatNumber = z.number().int().nonnegative().max(1_000_000);
 
 /**
- * `ace-data.json`, published with every release from ADR 0174 on: the data formats that build
+ * `ace-data.json`, published with every release from ADR 0177 on: the data formats that build
  * reads and writes. `home` is `HOME_FORMAT_VERSION` (ADR 0081), `daemon` the daemon's schema
  * version, `notify` the notification database's format and `spade` Spade's migration count.
  * Fields a later build adds are kept, never dropped.

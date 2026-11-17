@@ -119,7 +119,7 @@ export function combineStaged(releases: readonly StagedRelease[]): StagedRelease
         `Staged builds come from different commits: ${first.commit.slice(0, 12)}, ${other.commit.slice(0, 12)}`,
       );
   }
-  // Every host stages the commit's own ace-data.json (ADR 0174): the same bytes publish once.
+  // Every host stages the commit's own ace-data.json (ADR 0177): the same bytes publish once.
   const data = new Set<string>();
   const files = releases
     .flatMap((release) => release.files)

@@ -126,7 +126,7 @@ export class FakeDaemon implements Host {
     return MachineIcon.parse(this.services.settings.get("host.icon"));
   }
   readonly version: string;
-  /** The release line its welcome names (ADR 0174). */
+  /** The release line its welcome names (ADR 0177). */
   get releaseLine(): string | undefined {
     return this.options.releaseLine;
   }

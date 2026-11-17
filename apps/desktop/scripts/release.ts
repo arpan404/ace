@@ -48,7 +48,7 @@ import {
  * the signed standalone daemon archive for Apple silicon, so `ace update` on
  * standalone installs sees the release too. `publish` uploads exactly those staged files to a
  * draft release tagged at the built commit, then publishes it. Every release carries
- * `ace-data.json`, the data formats its build reads (ADR 0174); `data` prints them for this
+ * `ace-data.json`, the data formats its build reads (ADR 0177); `data` prints them for this
  * tree or another checkout (an older tag's, with its dependencies installed) and uploads nothing.
  *
  * On Linux (inside the Debian 12 build container, ADR 0093) `build` packages the AppImage,

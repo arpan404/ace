@@ -1,4 +1,4 @@
-# 0174: A beta release line in the same app, with a guarded way back to stable
+# 0177: A beta release line in the same app, with a guarded way back to stable
 
 Date: 2026-11-16. Status: accepted. Decided by: the owner. Amends
 [ADR 0091](0091-desktop-auto-update.md).

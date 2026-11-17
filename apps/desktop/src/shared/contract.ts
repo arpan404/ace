@@ -234,7 +234,7 @@ const NotificationToggles = z.partialRecord(NotificationCategory, z.boolean());
  * ids and keys against its keymap; this only bounds the size.
  */
 const Keybindings = z.record(z.string().min(1).max(64), z.string().min(1).max(64));
-/** ace's release lines (ADR 0174). */
+/** ace's release lines (ADR 0177). */
 export const ReleaseLineName = z.enum(["stable", "beta"]);
 
 export const DesktopSettings = z.object({
@@ -272,7 +272,7 @@ export const DesktopSettings = z.object({
    */
   terminalCommand: z.boolean().default(true),
   /**
-   * The release line this app updates from (ADR 0174): Stable or Beta. Null follows the build's
+   * The release line this app updates from (ADR 0177): Stable or Beta. Null follows the build's
    * own line, so a stable build starts on Stable and a beta build on Beta.
    */
   updateLine: ReleaseLineName.nullable().default(null).catch(null),
@@ -438,7 +438,7 @@ export type UpdateReleaseNote = z.infer<typeof UpdateReleaseNote>;
  *   `installing`: restarting; under `ace update apply` it first waits for `waiting` agents.
  * `notes` covers every release newer than this one (newest first; `olderReleases` more on
  * GitHub). `error` says what failed and when; an update on offer stays on offer. `blocked`
- * says why an older release on the chosen line isn't offered (ADR 0174).
+ * says why an older release on the chosen line isn't offered (ADR 0177).
  */
 export const UpdateStatus = z.object({
   state: z.enum([
@@ -460,7 +460,7 @@ export const UpdateStatus = z.object({
   waiting: z.number().int().min(0),
   notes: z.array(UpdateReleaseNote).max(6),
   olderReleases: z.number().int().min(0),
-  /** The line this app updates from now, and the line its own build belongs to (ADR 0174). */
+  /** The line this app updates from now, and the line its own build belongs to (ADR 0177). */
   line: ReleaseLineName,
   buildLine: ReleaseLineName,
   /**

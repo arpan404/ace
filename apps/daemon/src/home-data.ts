@@ -8,7 +8,7 @@ import { HOME_FORMAT_FILE, markerVersion } from "@ace/service/home";
 type Read = number | null | "unreadable";
 
 /**
- * The data formats a home holds now (ADR 0174): its format marker, the event database's schema
+ * The data formats a home holds now (ADR 0177): its format marker, the event database's schema
  * version (its `schema_version` row), and the stored `user_version` of the notification and
  * Spade databases. The desktop app reads this from its daemon before it offers an older
  * release, which may switch only when it can read every one of them.

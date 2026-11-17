@@ -8,7 +8,7 @@ import {
 import { isNewer } from "@ace/service/version";
 
 /**
- * Which release the app offers (ADR 0174), as pure decisions over GitHub's release list, the
+ * Which release the app offers (ADR 0177), as pure decisions over GitHub's release list, the
  * installed version, the person's line and the data their home holds. electron-updater can't
  * pick: its GitHub provider skips tags that aren't semver (`ace-0.0.24-beta-1`). Releases order by
  * semver; a beta carries the next version. The shell (`release-feed.ts`) does the fetching.
@@ -46,7 +46,7 @@ export function parseReleaseList(value: unknown): ListedRelease[] {
 }
 
 /**
- * Semver order (ADR 0174): a beta carries the next version, with its build number in the
+ * Semver order (ADR 0177): a beta carries the next version, with its build number in the
  * prerelease part, compared numerically, so 0.0.23 < 0.0.24-beta.1 < 0.0.24-beta.2 <
  * 0.0.24-beta.10 < 0.0.24.
  * A version that isn't semver (a development build) sorts below every release.
@@ -134,7 +134,7 @@ export type Guard =
 export type GuardReason = "unreadable" | "home-unknown" | "home-unreadable" | "newer-data";
 
 /**
- * Whether an older release can read the home (ADR 0174): every format the home holds must be at
+ * Whether an older release can read the home (ADR 0177): every format the home holds must be at
  * most the number in the release's `ace-data.json`. A format the home doesn't have yet (null)
  * never blocks; one the daemon couldn't read, or the release doesn't name, always does.
  */

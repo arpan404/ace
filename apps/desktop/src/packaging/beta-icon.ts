@@ -1,5 +1,5 @@
 /**
- * The beta build's app icon (ADR 0174): the stable master with a "BETA" band across the tile's
+ * The beta build's app icon (ADR 0177): the stable master with a "BETA" band across the tile's
  * foot, so a beta in the Dock is never mistaken for stable. The band is clipped to the tile's
  * own rounded body (`#clip` in `build/icon.svg`), so the corners stay the system's shape.
  * `scripts/icons.ts --beta` rasterizes it while a beta packages; nothing is committed.

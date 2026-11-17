@@ -107,7 +107,7 @@ export interface ClientApi {
   connectionGeneration(): Selection<number | undefined>;
   /**
    * The release line the daemon's build belongs to, as its welcome said (`beta`, `stable`, ADR
-   * 0174); undefined while not ready, or from a daemon that doesn't say.
+   * 0177); undefined while not ready, or from a daemon that doesn't say.
    */
   releaseLine?(): Selection<string | undefined>;
   /** The path to the machine the connection uses now (ADR 0114); absent with a single route. */

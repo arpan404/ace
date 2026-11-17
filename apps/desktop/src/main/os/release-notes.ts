@@ -75,7 +75,7 @@ export function releaseNoteItems(note: string): { items: string[]; total: number
 }
 
 /**
- * Releases' notes already in order, newest first (the release picker's order, ADR 0174), as
+ * Releases' notes already in order, newest first (the release picker's order, ADR 0177), as
  * the page shows them: releases without lines are dropped, those past the limit counted.
  */
 export function noteGroups(entries: readonly { version: string; note: string }[]): {

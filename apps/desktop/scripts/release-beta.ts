@@ -30,7 +30,7 @@ import {
 } from "./release-tools.ts";
 
 /**
- * Beta releases of the desktop app (ADR 0174): a signed, notarized macOS arm64 build of a commit
+ * Beta releases of the desktop app (ADR 0177): a signed, notarized macOS arm64 build of a commit
  * on `origin/main`, published as a GitHub prerelease tagged `ace-<X.Y.Z>-beta-<N>` and
  * never marked latest. Installed apps on the Beta line pick it up.
  *

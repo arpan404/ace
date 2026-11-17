@@ -6,7 +6,7 @@ export interface UpdateOffer {
   version: string;
   notes: UpdateReleaseNote[];
   olderReleases: number;
-  /** Its release page, when the version alone doesn't name it (a beta's tag, ADR 0174). */
+  /** Its release page, when the version alone doesn't name it (a beta's tag, ADR 0177). */
   releaseUrl?: string;
 }
 
@@ -30,7 +30,7 @@ export interface UpdateEngine {
   install(): void;
   /**
    * Runs the downgrade guard again on what the home holds now, for an offer older than this
-   * version (ADR 0174): why it is now refused, or undefined when it still may install.
+   * version (ADR 0177): why it is now refused, or undefined when it still may install.
    * Undefined at once (no promise) when nothing older is on offer or downloaded.
    */
   recheck?(): Promise<UpdateBlocked | undefined> | undefined;
@@ -44,7 +44,7 @@ export interface UpdatePorts {
   version: string;
   /** False for a build without the release feed: nothing is ever checked. */
   enabled: boolean;
-  /** The line the person updates from now (ADR 0174). */
+  /** The line the person updates from now (ADR 0177). */
   line(): ReleaseLine;
   /** The line this build belongs to. */
   buildLine: ReleaseLine;
@@ -137,7 +137,7 @@ export class UpdateController {
   }
 
   /**
-   * The person picked another line (ADR 0174): a person's check on it, so Settings shows what it
+   * The person picked another line (ADR 0177): a person's check on it, so Settings shows what it
    * offers, or why it holds back. A download or restart under way only takes the new line.
    */
   async lineChanged(): Promise<UpdateStatus> {
@@ -293,7 +293,7 @@ export class UpdateController {
   }
 
   /**
-   * The guard once more before a download or an install (ADR 0174): the home may have gained a
+   * The guard once more before a download or an install (ADR 0177): the home may have gained a
    * newer format since the check (Spade started for the first time, say). A release it now
    * refuses is dropped from the engine and from the status, which says why.
    */

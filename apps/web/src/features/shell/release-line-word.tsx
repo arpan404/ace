@@ -2,7 +2,7 @@ import { useDesktopUpdate } from "@/boot/desktop-updates.ts";
 
 /**
  * The word "Beta" at the sidebar's foot, beside the update button, while ace runs a beta build
- * (ADR 0174): the desktop app's own build, or in a browser the daemon's, as its welcome said.
+ * (ADR 0177): the desktop app's own build, or in a browser the daemon's, as its welcome said.
  * Plain text: no chip, no tint.
  */
 export function ReleaseLineWord(props: { daemonLine?: string | undefined; scope?: object }) {

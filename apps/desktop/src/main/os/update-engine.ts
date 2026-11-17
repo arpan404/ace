@@ -6,7 +6,7 @@ import { blockedSentence, guardSwitch } from "./release-picker.ts";
 import type { UpdateEngine } from "./update-controller.ts";
 
 /**
- * The update engine over the release the app picked (ADR 0091, 0174): the release feed chooses,
+ * The update engine over the release the app picked (ADR 0091, 0177): the release feed chooses,
  * electron-updater's generic provider reads that release's folder, checks the SHA-512 and
  * downloads. electron-updater sits behind `FeedUpdater` so the engine's own decisions can be
  * tested without Electron.

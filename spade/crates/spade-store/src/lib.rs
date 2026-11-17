@@ -83,7 +83,7 @@ impl Store {
     }
 
     /// The schema version this build brings a database up to: the number of its migrations,
-    /// which a release publishes in `ace-data.json` (ADR 0174).
+    /// which a release publishes in `ace-data.json` (ADR 0177).
     pub fn schema_version() -> usize {
         schema::current_version()
     }

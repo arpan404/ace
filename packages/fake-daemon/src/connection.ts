@@ -30,7 +30,7 @@ export interface Host {
   readonly displayName?: string;
   readonly icon?: import("@ace/protocol").MachineIcon | undefined;
   readonly version?: string;
-  /** The release line its welcome names (ADR 0174); absent, as an older daemon's. */
+  /** The release line its welcome names (ADR 0177); absent, as an older daemon's. */
   readonly releaseLine?: string | undefined;
   /** The OS host.identity reports; absent, as an older daemon's. */
   readonly platform?: string | undefined;

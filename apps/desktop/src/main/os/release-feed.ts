@@ -10,7 +10,7 @@ import {
 } from "./release-picker.ts";
 
 /**
- * The app's release feed (ADR 0174): GitHub's public releases API (no token), the picker, and
+ * The app's release feed (ADR 0177): GitHub's public releases API (no token), the picker, and
  * the guard's read of the chosen release's `ace-data.json`. electron-updater then reads that
  * release's own folder through its generic provider, so it still checks the SHA-512 in
  * `latest-mac.yml`, and Squirrel.Mac still checks the signature.

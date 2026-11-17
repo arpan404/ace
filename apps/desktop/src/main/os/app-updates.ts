@@ -38,7 +38,7 @@ export interface AppUpdatesOptions {
   /** `spadeMode`: how Spade's swap after the restart treats its running work (ADR 0123). */
   prepareQuit(spadeMode: "idle" | "now"): Promise<void>;
   quit(): void;
-  /** The line the person chose, or null to follow this build's own (ADR 0174). */
+  /** The line the person chose, or null to follow this build's own (ADR 0177). */
   chosenLine(): ReleaseLine | null;
   /** Saves the person's line. */
   saveLine(line: ReleaseLine): Promise<void>;
@@ -59,7 +59,7 @@ export interface AppUpdates {
   remote(instruction: RemoteInstruction): Promise<UpdateStatus>;
   /** How many agents Restart would stop; undefined when the daemon could not say. */
   busy(): Promise<number | undefined>;
-  /** Update from another line: saved, then checked at once (ADR 0174). */
+  /** Update from another line: saved, then checked at once (ADR 0177). */
   setLine(line: ReleaseLine): Promise<UpdateStatus>;
   /** Background checks, for a build that has a feed. */
   start(): void;
@@ -81,7 +81,7 @@ const unconfigured: UpdateEngine = {
 export function appUpdates(options: AppUpdatesOptions): AppUpdates {
   const buildLine = releaseLineOf(options.version);
   const line = () => options.chosenLine() ?? buildLine;
-  // The first build to run picks the line for good (ADR 0174): a beta install stays on Beta
+  // The first build to run picks the line for good (ADR 0177): a beta install stays on Beta
   // after it updates to a stable release, instead of following that build's line.
   if (options.chosenLine() === null)
     void options

@@ -263,7 +263,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
   // ask for the update; the daemon's reply carries the request (ADR 0113).
   let remoteUpdate: ((instruction: AppUpdateInstruction) => void) | undefined;
   // What the daemon's home holds, from its replies: an older release is offered only if it
-  // reads all of it (ADR 0174).
+  // reads all of it (ADR 0177).
   let homeData: HomeData | undefined;
   const updateReport = new UpdateReporter({
     ready: async () => healthy(await runtime.local()),
