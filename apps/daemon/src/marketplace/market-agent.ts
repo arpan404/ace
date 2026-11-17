@@ -12,13 +12,18 @@ import type { MarketplaceService } from "./service.ts";
 /** The setting that turns every agent publish into the person's request (ADR 0176 decision 1). */
 export const askBeforeAgentPublishKey = "market.askBeforeAgentPublish";
 
+/** The one settings read the market's agent rules make. */
+export interface SettingReader {
+  get(key: typeof askBeforeAgentPublishKey): Promise<{ readonly value: unknown }>;
+}
+
 /**
  * "Ask me before agents publish", failing closed (ADR 0176 decision 1): off only when the
  * person's setting reads off. Settings not loaded yet, a read that fails, or a value that isn't
  * a boolean count as on, so a broken settings file never lets an agent publish unasked.
  */
 export async function askBeforeAgentPublish(
-  settings: Pick<SettingsService, "get"> | undefined,
+  settings: SettingReader | undefined,
 ): Promise<boolean> {
   if (!settings) return true;
   try {

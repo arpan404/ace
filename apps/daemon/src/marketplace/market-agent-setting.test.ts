@@ -1,16 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { SettingsService } from "@ace/settings";
-import { askBeforeAgentPublish } from "./market-agent.ts";
+import { askBeforeAgentPublish, type SettingReader } from "./market-agent.ts";
 
 /** A settings service that answers `get` with `answer`, or throws it. */
-function settings(answer: unknown): Pick<SettingsService, "get"> {
-  const service: Pick<SettingsService, "get"> = {
+function settings(answer: unknown): SettingReader {
+  return {
     get: async () => {
       if (answer instanceof Error) throw answer;
-      return { value: answer, source: "global" } as Awaited<ReturnType<SettingsService["get"]>>;
+      return { value: answer };
     },
   };
-  return service;
 }
 
 describe("Ask me before agents publish fails closed", () => {
