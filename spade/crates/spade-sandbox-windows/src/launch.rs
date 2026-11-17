@@ -48,6 +48,20 @@ pub fn run(
     program: &OsStr,
     args: &[OsString],
 ) -> std::io::Result<u32> {
+    run_with(name, display, limits, bridge, None, program, args)
+}
+
+/// [`run`], with the program that hosts the egress bridge named explicitly (`bridge_exe`); `None`
+/// uses Spade's own binary (`current_exe`). Tests pass a helper here.
+pub fn run_with(
+    name: &str,
+    display: &str,
+    limits: Limits,
+    bridge: Option<Bridge>,
+    bridge_exe: Option<&std::path::Path>,
+    program: &OsStr,
+    args: &[OsString],
+) -> std::io::Result<u32> {
     let sid = profile::ensure(name, display)?;
     let mut caps = Capabilities::new(&sid)?;
     let job = Job::create(limits)?;
@@ -55,13 +69,13 @@ pub fn run(
     // The bridge first, so its loopback endpoint is up before the command runs. No inherited
     // handles: it must not touch the command's stdio.
     let _bridge = match bridge {
-        Some(bridge) => Some(spawn_bridge(&mut caps, &job, &bridge)?),
+        Some(bridge) => Some(spawn_bridge(&mut caps, &job, bridge_exe, &bridge)?),
         None => None,
     };
 
     let (process, thread) = create(&mut caps, program, args, true)?;
     let process_handle = HANDLE(process.as_raw_handle());
-    job.assign(process_handle)?;
+    job.assign(process.as_raw_handle())?;
     // SAFETY: a live thread handle; resuming the one suspended thread of the command.
     unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) };
     drop(thread);
@@ -79,16 +93,20 @@ pub fn run(
 fn spawn_bridge(
     caps: &mut Capabilities,
     job: &Job,
+    bridge_exe: Option<&std::path::Path>,
     bridge: &Bridge,
 ) -> std::io::Result<OwnedHandle> {
-    let exe = std::env::current_exe()?;
+    let exe = match bridge_exe {
+        Some(exe) => exe.to_path_buf(),
+        None => std::env::current_exe()?,
+    };
     let args = [
         OsString::from("sandbox-net-bridge"),
         OsString::from(&bridge.pipe),
         OsString::from(bridge.port.to_string()),
     ];
     let (process, thread) = create(caps, exe.as_os_str(), &args, false)?;
-    job.assign(HANDLE(process.as_raw_handle()))?;
+    job.assign(process.as_raw_handle())?;
     // SAFETY: a live thread handle; resuming the bridge's one suspended thread.
     unsafe { ResumeThread(HANDLE(thread.as_raw_handle())) };
     drop(thread);

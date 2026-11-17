@@ -99,9 +99,9 @@ impl Job {
     }
 
     /// Puts the process with handle `process` (and everything it goes on to start) in this job.
-    pub fn assign(&self, process: HANDLE) -> std::io::Result<()> {
+    pub fn assign(&self, process: std::os::windows::io::RawHandle) -> std::io::Result<()> {
         // SAFETY: both are live handles; the process isn't yet in any job.
-        unsafe { AssignProcessToJobObject(self.raw(), process) }.map_err(crate::io)
+        unsafe { AssignProcessToJobObject(self.raw(), HANDLE(process)) }.map_err(crate::io)
     }
 
     pub(crate) fn raw(&self) -> HANDLE {

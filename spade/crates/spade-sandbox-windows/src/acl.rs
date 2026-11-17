@@ -68,6 +68,59 @@ pub fn revoke(object: &Object, sid: &Sid) -> std::io::Result<()> {
     apply(object, sid, REVOKE_ACCESS, 0, ACE_FLAGS(0))
 }
 
+/// Whether `object`'s DACL has any ACE naming `sid` (for tests and recovery checks).
+pub fn granted(object: &Object, sid: &Sid) -> std::io::Result<bool> {
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::Security::{ACCESS_ALLOWED_ACE, ACL, EqualSid, GetAce, PSID};
+
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    // SAFETY: a handle we own; out-params are live locals. On success `descriptor` is a
+    // LocalAlloc'd descriptor holding the DACL `dacl` points into; freed below.
+    let read = unsafe {
+        GetSecurityInfo(
+            object.raw(),
+            SE_KERNEL_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            Some(&mut dacl),
+            None,
+            Some(&mut descriptor),
+        )
+    };
+    let result = (|| {
+        check(read)?;
+        if dacl.is_null() {
+            return Ok(false);
+        }
+        // SAFETY: `dacl` is a valid ACL from the call above.
+        let count = unsafe { (*dacl).AceCount };
+        for index in 0..u32::from(count) {
+            let mut ace: *mut core::ffi::c_void = std::ptr::null_mut();
+            // SAFETY: `dacl` is valid and `index` is in range; `ace` receives a pointer into it.
+            if unsafe { GetAce(dacl, index, &mut ace) }.is_err() {
+                continue;
+            }
+            // Every ACE starts with its header, then the mask, then the SID at `SidStart`. The
+            // allow and deny ACEs share this layout, so one cast reaches the SID of either.
+            let ace = ace.cast::<ACCESS_ALLOWED_ACE>();
+            // SAFETY: `ace` points at a valid ACE; `SidStart` is the first dword of its SID.
+            let sid_ptr = unsafe { std::ptr::addr_of!((*ace).SidStart) };
+            // SAFETY: both are valid SIDs.
+            if unsafe { EqualSid(PSID(sid_ptr as *mut _), sid.as_psid()) }.is_ok() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })();
+    if !descriptor.is_invalid() {
+        // SAFETY: allocated by GetSecurityInfo with LocalAlloc.
+        unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+    }
+    result
+}
+
 fn apply(
     object: &Object,
     sid: &Sid,
