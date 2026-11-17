@@ -997,7 +997,9 @@ export class DelegationService {
   /** Fills free slots from each waiting parent's queue, oldest first. */
   private pumpAll(): void {
     if (this.closed || this.deps.admitsWork?.() === false || !this.launches.waiting()) return;
-    for (const parent of this.launches.parents()) this.pump(parent);
+    // One parent whose queue can't move (its thread's state is gone) never stops the others.
+    for (const parent of this.launches.parents())
+      this.recoverOne(ThreadId.parse(parent), () => this.pump(parent));
   }
   private pump(value: string): void {
     if (this.closed || this.deps.admitsWork?.() === false) return;
@@ -1357,12 +1359,12 @@ export class DelegationService {
       Math.max(0, at - this.deps.clock.now(), this.retryAt - this.deps.clock.now()),
     );
   }
-  /** Runs one recovery step; a failure is reported with the thread it concerns, never thrown. */
+  /** Runs one step of delegation upkeep; a failure is reported with its thread, never thrown. */
   private recoverOne(thread: ThreadId, step: () => void) {
     try {
       step();
     } catch (error) {
-      this.report(new Error(`Delegation recovery skipped ${thread}`, { cause: error }));
+      this.report(new Error(`Delegation work skipped for ${thread}`, { cause: error }));
     }
   }
   private report(error: unknown) {

@@ -202,3 +202,54 @@ test("a delegation whose parent lost its engine state doesn't stop agent control
   expect(outcome).toMatchObject({ outcome: "completed", result: "still delivered" });
   expect(recovered.errors.some((error) => String(error).includes(orphan.childId))).toBe(true);
 });
+
+test("an orphaned parent with queued children doesn't stop agent control from starting either", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const orphanParent = await h.parent();
+  const held = h.delegate(orphanParent, "held");
+  await h.engine.flush();
+  h.delegate(orphanParent, "queued");
+  await h.engine.flush();
+  // The held child waits on the person, so after a restart it frees its slot for the queued one.
+  await h.emit(held.childId, {
+    type: "interaction.opened",
+    agent: "root",
+    interaction: "approval",
+    blocking: true,
+    request: {
+      kind: "approval",
+      title: "Run the migration?",
+      options: [{ id: "yes", label: "Yes", kind: "allow_once" }],
+    },
+  });
+  const snapshot = join(h.home, "orphan-queued.sqlite");
+  let sourceDb: DatabaseSync | undefined;
+  h.store.atomic((db) => {
+    sourceDb = db;
+  });
+  if (!sourceDb) throw new Error("Missing snapshot source");
+  await backup(sourceDb, snapshot);
+  await h.close();
+  const damaged = new (await import("node:sqlite")).DatabaseSync(snapshot);
+  damaged.exec("PRAGMA foreign_keys=OFF");
+  damaged.prepare("DELETE FROM engine_state_records WHERE thread_id=?").run(orphanParent.threadId);
+  damaged.prepare("DELETE FROM thread_state WHERE thread_id=?").run(orphanParent.threadId);
+  damaged.close();
+
+  const recovered = setup({ maxConcurrent: 1 }, snapshot);
+  recovered.clock.advance(1050);
+  await recovered.engine.flush();
+
+  // Agent control is up: a new tree delegates and hears its child's result.
+  const parent = await recovered.parent();
+  const edge = recovered.delegate(parent, "after-the-orphan");
+  await recovered.engine.flush();
+  await recovered.complete(edge.childId, "still delivered");
+  recovered.clock.advance(recovered.clock.now() + 1100);
+  await recovered.engine.flush();
+  const outcome = await recovered.service.wait(parent, edge.childId, new AbortController().signal);
+  expect(outcome).toMatchObject({ outcome: "completed", result: "still delivered" });
+  expect(recovered.errors.some((error) => String(error).includes(orphanParent.threadId))).toBe(
+    true,
+  );
+});
