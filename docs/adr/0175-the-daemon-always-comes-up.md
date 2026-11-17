@@ -84,7 +84,9 @@ after five fast failures in a row. Each start failed the same way.
    Until its check answers, an account reads as `home_checking`: listed and named, never
    missing, never available. A session bound to it waits for that check, says so in the thread
    after 2 s, and after a minute fails with the reason, its message kept; a pick by limits waits
-   for every candidate's check. No work moves to another account and nothing is deleted because
+   for every candidate's check, and so does a delegation, within its model-load budget. Commands,
+   skills and account restoration never wait for the whole pass, only for the account they
+   concern. No work moves to another account and nothing is deleted because
    a folder is silent; once it answers, the account works without a restart.
 8. **The home's lock needs no reclaiming.** It is a kernel lock held by an open SQLite
    transaction, so a daemon that crashes, overruns its shutdown or is killed releases it with its
@@ -105,8 +107,10 @@ after five fast failures in a row. Each start failed the same way.
 - Bun, which releases ship, carries the scope into an uncaught exception's monitor but not into
   an `unhandledRejection` listener. There a rejection nobody caught is not attributed and safe
   mode can't leave its service off; on Node it is. Thrown errors are attributed on both.
-- Work is charged to the service whose start or listener created it. Shared machinery created
-  lazily inside one service's start is charged to that service.
+- Work is charged to the service whose start or listener created it. Shared machinery (worker
+  threads, idle-worker timers, the probe thread) is made in no service's context, and the probe
+  thread handles each reply in the context of the caller that asked
+  (`@ace/provider-kit/unscoped`), so a crash there is never charged to whoever first started it.
 - The supervisor only asks for safe mode after fast failures (under 60 s). A service that
   crashes the daemon later in each run is recorded, but nothing leaves it off yet.
 
