@@ -44,14 +44,14 @@ function world() {
   };
 }
 
-test("an unreadable tree keeps its last busy flag and is read again, backing off, until it reads", () => {
+test("an unreadable tree reads busy, even after an idle read, until a read succeeds", () => {
   const { watch, applied, reported, fire, read } = world();
-  read(() => true);
   watch.written();
   expect(fire()).toBe(100);
-  expect(applied).toEqual([true]);
+  expect(applied).toEqual([false]);
 
-  // The store fails: nothing escapes the timer, the tree is not taken for idle, and it retries.
+  // A child may have started since: the store fails, nothing escapes the timer, and the tree
+  // reads busy through every retry rather than staying idle.
   read(() => {
     throw new Error("database is locked");
   });
@@ -59,24 +59,25 @@ test("an unreadable tree keeps its last busy flag and is read again, backing off
   expect(() => fire()).not.toThrow();
   expect(fire()).toBe(1000);
   expect(fire()).toBe(2000);
-  expect(applied).toEqual([true]);
+  expect(applied).toEqual([false, true, true, true]);
   expect(reported).toHaveLength(3);
 
   // Writes during the retry wait share it; once readable, the real flag applies.
   watch.written();
   read(() => false);
   expect(fire()).toBe(4000);
-  expect(applied).toEqual([true, false]);
+  expect(applied.at(-1)).toBe(false);
 });
 
-test("a read asked for now that fails is retried instead of throwing to its caller", () => {
+test("a read asked for now that fails reads busy and is retried instead of throwing", () => {
   const { watch, applied, reported, fire, read } = world();
   read(() => {
     throw new Error("disk I/O error");
   });
   expect(() => watch.now()).not.toThrow();
   expect(reported).toHaveLength(1);
-  read(() => true);
-  expect(fire()).toBe(1000);
   expect(applied).toEqual([true]);
+  read(() => false);
+  expect(fire()).toBe(1000);
+  expect(applied).toEqual([true, false]);
 });

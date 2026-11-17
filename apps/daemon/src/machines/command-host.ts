@@ -28,8 +28,8 @@ import {
 } from "./command-process.ts";
 
 export interface CommandHostDeps {
-  store: Pick<Store, "statement" | "getThread">;
-  engine(): { guests: Pick<Engine["guests"], "command"> } | undefined;
+  store: Pick<Store, "statement" | "getThread" | "atomic">;
+  engine(): { guests: Pick<Engine["guests"], "command" | "endCommands"> } | undefined;
   guests: Pick<GuestSessions, "ticket" | "run">;
   /** A project's checkout and its worktrees; refuses a project this machine doesn't have. */
   roots(project: string | undefined): string[];
@@ -56,6 +56,9 @@ interface Job {
   controller: AbortController;
 }
 
+/** Writes of a command's end tried backing off (waits of 1 s to 16 s) before the slow pace. */
+const fastAttempts = 6;
+const slowRetryMs = 5 * 60_000;
 /** Background jobs one calling thread may run at once. */
 const runningPerSession = 8;
 const Origin = z.object({ origin_host: z.string(), origin_thread: z.string() });
@@ -374,37 +377,55 @@ export class CommandHost implements CapabilityHost {
     });
   }
   /**
-   * The command's end in the session's transcript. A write that fails while the session is
-   * still there (the store unreadable a moment) is tried again, backing off, so the transcript
-   * never shows the command running after it ended; a deleted session has nothing to settle.
+   * The command's end in the session's transcript. Each attempt checks, in the write's own
+   * transaction, that the session still exists and isn't deleted; a check that can't be read
+   * writes nothing and is tried again. A write that fails is retried, backing off; past
+   * `fastAttempts` it goes on at a slow steady pace, and when its full entry still won't land the
+   * command is ended as cancelled (`endCommands`, the smaller write a restart makes), so the
+   * transcript never keeps showing it running after it ended.
    */
   private settle(
     session: GuestSession,
     key: string,
     entry: Parameters<Engine["guests"]["command"]>[2],
-    waitMs = 1000,
+    attempt = 0,
   ): void {
     if (this.closing) return;
+    const guests = this.deps.engine()?.guests;
+    if (!guests) return;
+    const live = () => {
+      const thread = this.deps.store.getThread(session.threadId);
+      return thread !== undefined && thread.deletedAt === undefined;
+    };
+    const write = (run: () => void) =>
+      this.deps.store.atomic(() => {
+        if (!live()) return;
+        run();
+      });
     try {
-      this.deps.engine()?.guests.command(session.threadId, key, entry);
+      write(() => guests.command(session.threadId, key, entry));
       return;
     } catch (error) {
-      let gone: boolean;
-      try {
-        const thread = this.deps.store.getThread(session.threadId);
-        gone = thread === undefined || thread.deletedAt !== undefined;
-      } catch {
-        gone = false;
-      }
-      if (gone) return;
       this.deps.log("Command from another machine not recorded yet", {
         session: session.threadId,
+        attempt: attempt + 1,
         error: String(error),
       });
     }
+    if (attempt + 1 >= fastAttempts)
+      try {
+        write(() => guests.endCommands(session.threadId, key));
+        this.deps.log("Command from another machine ended as cancelled", {
+          session: session.threadId,
+        });
+        return;
+      } catch {
+        /* Not even that landed: tried again at the slow pace. */
+      }
+    const waitMs = attempt + 1 >= fastAttempts ? slowRetryMs : 1000 * 2 ** attempt;
     const cancel = this.deps.clock.schedule(waitMs, () => {
       this.retries.delete(cancel);
-      this.settle(session, key, entry, Math.min(waitMs * 2, 60_000));
+      this.settle(session, key, entry, attempt + 1);
     });
     this.retries.add(cancel);
   }

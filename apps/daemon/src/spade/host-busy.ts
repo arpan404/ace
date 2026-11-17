@@ -1,7 +1,8 @@
 /**
  * Whether Spade's host thread tree is busy, read again a moment after a burst of writes. A read
  * that fails (the store unreadable for a moment) is reported and tried again later, backing
- * off; the busy flag last applied stays, since an unreadable tree is never taken for idle.
+ * off. Until a read succeeds the tree reads busy: a child may have started since the last good
+ * read, and an unreadable tree is never taken for idle.
  */
 export function hostBusyWatch(options: {
   /** Whether the tree is busy; undefined while there is no host thread to read. May throw. */
@@ -23,6 +24,7 @@ export function hostBusyWatch(options: {
       busy = options.busy();
     } catch (error) {
       options.report(error);
+      options.apply(true);
       cancel = options.after(retryMs, read);
       retryMs = Math.min(retryMs * 2, options.retryMs.most);
       return;
