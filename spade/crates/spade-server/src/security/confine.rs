@@ -41,6 +41,15 @@ impl Confine for Security {
             (Some(proxy), Mode::AllowList | Mode::Open) => Some(proxy.open(&bot, &run, network)),
             _ => None,
         };
+        // The person's own folders this run would need, kept before the policy consumes them, so
+        // Windows can decide whether the run is containable (it must change no ACLs on them).
+        #[cfg(windows)]
+        let consented_paths: Vec<PathBuf> = folders.iter().map(|(path, _)| path.clone()).collect();
+        #[cfg(windows)]
+        let plugin_root: Option<PathBuf> = match kind {
+            Kind::Plugin { root } => Some(root.clone()),
+            _ => None,
+        };
         let policy = Policy::build(&Facts {
             home: self.home.clone(),
             spade_data: self.spade_data.clone(),
@@ -58,11 +67,29 @@ impl Confine for Security {
         std::fs::create_dir_all(&policy.temp).map_err(|error| {
             format!("the sandbox's temporary folder could not be made: {error}")
         })?;
+        // Windows reports `contained` only for runs that touch no ACLs on the person's folders
+        // (ADR 0167 narrowing). A run that needs a consented folder or a toolchain under the home
+        // keeps the review path, unconfined — Spade asks first.
+        #[cfg(windows)]
+        {
+            use spade_sandbox::policy::real;
+            let real_all = |paths: &[PathBuf]| paths.iter().map(|p| real(p)).collect::<Vec<_>>();
+            let plugin_real = plugin_root.as_ref().map(|p| real(p));
+            if !spade_sandbox::windows::containable(
+                &real_all(&consented_paths),
+                &real_all(&toolchain_dirs),
+                plugin_real.as_deref(),
+                &real(&self.spade_data),
+                &real(&self.home),
+            ) {
+                return Ok(None);
+            }
+        }
         // Windows: each run gets its own AppContainer identity, and its SID is granted on the
-        // policy's places (and denied the credential list inside any granted folder), journaled
-        // with each object's identity before any change so a later run or a crash can take the
-        // grants back (ADR 0167, ACL hygiene). Done before the launch, fail closed; a bot whose
-        // earlier run's cleanup is stuck is refused here.
+        // folders Spade owns (the workspace, temp, scratch, an owned plugin folder), journaled with
+        // each object's identity before any change so a later run or a crash can take the grants
+        // back (ADR 0167, ACL hygiene). Done before the launch, fail closed; a bot whose earlier
+        // run's cleanup is stuck is refused here.
         #[cfg(windows)]
         let container = spade_sandbox::windows::Container::for_run(&bot, &run);
         #[cfg(windows)]
@@ -70,7 +97,10 @@ impl Confine for Security {
             &self.acl_dir(),
             &bot,
             &container,
-            &spade_sandbox::windows::grants(&policy),
+            &spade_sandbox::windows::grants(
+                &policy,
+                &spade_sandbox::policy::real(&self.spade_data),
+            ),
         )
         .map_err(|error| format!("the sandbox's permissions could not be set: {error}"))?;
         let (path_first, mut env) = toolchains::env(&toolchain_dirs, &|p: &Path| p.is_dir());
@@ -145,7 +175,23 @@ impl Confine for Security {
     }
 
     fn contains(&self, home: &Path) -> bool {
-        self.bot_of(home).is_some() && Security::contains(self)
+        let Some(bot) = self.bot_of(home) else {
+            return false;
+        };
+        if !Security::contains(self) {
+            return false;
+        }
+        // Windows contains a run only when it touches no ACLs on the person's folders (a consented
+        // folder or a toolchain under the home folder sends it to review instead).
+        #[cfg(windows)]
+        {
+            self.windows_containable(&bot)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = bot;
+            true
+        }
     }
 
     fn outside(&self, home: &Path) -> bool {
@@ -203,6 +249,35 @@ impl Drop for RunHold {
 
 #[cfg(windows)]
 impl Security {
+    /// Whether this bot's commands can be contained on Windows: it has no consented folders and no
+    /// toolchain under the person's home folder, so Spade changes no ACLs on the person's folders.
+    /// A run that needs them keeps the review path. Plugin folders are checked per run in `confine`.
+    pub(crate) fn windows_containable(&self, bot: &str) -> bool {
+        use spade_sandbox::policy::real;
+        let consented: Vec<PathBuf> = self
+            .effective_grants(bot)
+            .into_iter()
+            .filter_map(|grant| match grant.scope {
+                Scope::Folder { path, .. } => Some(PathBuf::from(path)),
+                _ => None,
+            })
+            .map(|path| real(&path))
+            .collect();
+        let toolchains: Vec<PathBuf> = self
+            .bot(bot)
+            .toolchains
+            .iter()
+            .map(|path| real(Path::new(path)))
+            .collect();
+        spade_sandbox::windows::containable(
+            &consented,
+            &toolchains,
+            None,
+            &real(&self.spade_data),
+            &real(&self.home),
+        )
+    }
+
     /// Starts the daemon-side egress-bridge acceptor for this run and points the command's proxy
     /// variables at the in-container bridge's loopback port. Returns the bridge for the plan and a
     /// hold that stops the acceptor when the run ends. No ticket (network off) means no bridge, and

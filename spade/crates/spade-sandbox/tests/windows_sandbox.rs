@@ -74,26 +74,24 @@ fn run_helper(container: &Container, sid: &Sid, args: &[&str]) -> u32 {
 }
 
 #[test]
-fn writes_land_only_in_granted_folders_and_denies_bite_inside_them() {
+fn writes_land_only_in_a_granted_folder_and_nothing_else_is_reachable() {
     let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    // A Spade-owned folder is granted; a sibling, standing in for the person's folders, is not.
     let workspace = dir.path().join("ws");
     let outside = dir.path().join("outside");
-    let secret = workspace.join("secret");
-    std::fs::create_dir_all(&secret).unwrap_or_else(|_| std::process::abort());
+    std::fs::create_dir_all(&workspace).unwrap_or_else(|_| std::process::abort());
     std::fs::create_dir_all(&outside).unwrap_or_else(|_| std::process::abort());
 
     let (container, _profile) = container();
     let sid = profile::ensure(&container.name, &container.display)
         .unwrap_or_else(|_| std::process::abort());
     grant(&workspace, &sid, Access::Write);
-    // A credential-like place inside the granted workspace: denied on top.
-    grant(&secret, &sid, Access::Deny);
 
     let inside = workspace.join("a.txt");
     assert_eq!(
         run_helper(&container, &sid, &["write", &inside.to_string_lossy()]),
         0,
-        "a write in the workspace should succeed"
+        "a write in the granted folder should succeed"
     );
     assert!(inside.exists());
 
@@ -104,14 +102,14 @@ fn writes_land_only_in_granted_folders_and_denies_bite_inside_them() {
             &["write", &outside.join("b.txt").to_string_lossy()]
         ),
         2,
-        "a write outside every granted folder should fail"
+        "a write to an ungranted folder should fail"
     );
     assert!(!outside.join("b.txt").exists());
 
     assert_eq!(
-        run_helper(&container, &sid, &["ls", &secret.to_string_lossy()]),
+        run_helper(&container, &sid, &["ls", &outside.to_string_lossy()]),
         2,
-        "a denied folder inside the workspace should not be readable"
+        "an ungranted folder should not be readable"
     );
 }
 
@@ -543,6 +541,23 @@ fn open_pinned_refuses_a_reparse_point_in_the_path() {
     );
     // The real path, with no reparse point, is accepted.
     assert!(Object::open_pinned(&real.join("sub")).is_ok());
+}
+
+#[test]
+fn open_pinned_and_grant_work_without_write_dac_on_ancestors() {
+    // Green as admin, but its point is the standard-user run in the VM: walking to the target
+    // opens C:\ and the other ancestors with traverse access only, not WRITE_DAC (which a standard
+    // user lacks there). The ACL rights are asked for only on the final, Spade-owned folder.
+    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let folder = dir.path().join("owned");
+    std::fs::create_dir_all(&folder).unwrap_or_else(|_| std::process::abort());
+    let sid = Sid::parse("S-1-1-0").unwrap_or_else(|_| std::process::abort());
+
+    let object = Object::open_pinned(&folder)
+        .unwrap_or_else(|e| panic!("open_pinned walked the ancestors: {e}"));
+    acl::grant(&object, &sid, Access::Write)
+        .unwrap_or_else(|e| panic!("granted on the owned folder: {e}"));
+    assert!(acl::granted(&object, &sid).unwrap_or_else(|_| std::process::abort()));
 }
 
 #[test]

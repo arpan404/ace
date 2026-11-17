@@ -19,7 +19,7 @@ use windows::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
     FILE_FLAGS_AND_ATTRIBUTES, FILE_FULL_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileFullDirectoryInfo,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileFullDirectoryInfo,
     FileFullDirectoryRestartInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
     OPEN_EXISTING, READ_CONTROL, SYNCHRONIZE, WRITE_DAC,
 };
@@ -40,8 +40,14 @@ pub struct Info {
 /// An object opened to read and change its DACL, and to list it when it is a folder.
 pub struct Object(OwnedHandle);
 
+/// Full access on the object whose ACL we edit: read and change the DACL, read attributes, list.
 const ACCESS: u32 =
     READ_CONTROL.0 | WRITE_DAC.0 | FILE_READ_ATTRIBUTES.0 | FILE_LIST_DIRECTORY.0 | SYNCHRONIZE.0;
+
+/// Just enough to open an ancestor and open a child through it: traverse and read attributes (to
+/// check for a reparse point). No `WRITE_DAC`, which a standard user does not have on `C:\` and the
+/// other folders on the way to the target — asking for it there would fail the whole walk.
+const TRAVERSE: u32 = FILE_TRAVERSE.0 | FILE_READ_ATTRIBUTES.0 | SYNCHRONIZE.0;
 
 impl Object {
     /// Opens `path` by walking it one component at a time, each opened relative to its parent's
@@ -51,12 +57,15 @@ impl Object {
     /// never traversed through a link, unlike [`Object::open`], which protects only the last one.
     pub fn open_pinned(path: &Path) -> std::io::Result<Self> {
         let (root, components) = pinned_parts(path)?;
-        let mut object = Self::open_root(&root)?;
+        let mut object = Self::open_root(&root, TRAVERSE)?;
         if object.info()?.reparse {
             return Err(reparse_refused());
         }
-        for name in components {
-            object = object.child(&name)?;
+        let last = components.len().saturating_sub(1);
+        for (index, name) in components.iter().enumerate() {
+            // Ancestors are opened only to traverse; the target gets the ACL rights.
+            let access = if index == last { ACCESS } else { TRAVERSE };
+            object = object.child(name, access)?;
             if object.info()?.reparse {
                 return Err(reparse_refused());
             }
@@ -74,7 +83,8 @@ impl Object {
         };
 
         let (root, _) = pinned_parts(on_drive)?;
-        let volume = Self::open_root(&root)?;
+        // The volume is only a hint for OpenFileById; traverse access is enough to open it.
+        let volume = Self::open_root(&root, TRAVERSE)?;
         let descriptor = FILE_ID_DESCRIPTOR {
             dwSize: std::mem::size_of::<FILE_ID_DESCRIPTOR>() as u32,
             Type: FileIdType,
@@ -99,14 +109,14 @@ impl Object {
         Ok(Self(unsafe { OwnedHandle::from_raw_handle(handle.0) }))
     }
 
-    /// Opens a volume root such as `\\?\C:\` as a directory handle to walk from.
-    fn open_root(root: &OsStr) -> std::io::Result<Self> {
+    /// Opens a volume root such as `\\?\C:\` as a directory handle to walk from, with `access`.
+    fn open_root(root: &OsStr, access: u32) -> std::io::Result<Self> {
         let name = crate::wide(root);
         // SAFETY: `name` is NUL-terminated and outlives the call; the handle is owned below.
         let handle = unsafe {
             CreateFileW(
                 windows::core::PCWSTR(name.as_ptr()),
-                ACCESS,
+                access,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 None,
                 OPEN_EXISTING,
@@ -139,8 +149,8 @@ impl Object {
         Ok(Self(unsafe { OwnedHandle::from_raw_handle(handle.0) }))
     }
 
-    /// Opens `name` inside this folder, as itself.
-    pub fn child(&self, name: &OsStr) -> std::io::Result<Self> {
+    /// Opens `name` inside this folder, as itself, with `access`.
+    pub fn child(&self, name: &OsStr, access: u32) -> std::io::Result<Self> {
         let mut wide: Vec<u16> = crate::wide(name);
         wide.pop();
         let bytes = u16::try_from(wide.len() * 2)
@@ -163,7 +173,7 @@ impl Object {
         let result = unsafe {
             NtCreateFile(
                 &mut handle,
-                windows::Win32::Storage::FileSystem::FILE_ACCESS_RIGHTS(ACCESS),
+                windows::Win32::Storage::FileSystem::FILE_ACCESS_RIGHTS(access),
                 &attributes,
                 &mut status,
                 None,

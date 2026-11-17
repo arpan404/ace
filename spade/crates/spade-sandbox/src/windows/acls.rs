@@ -106,7 +106,6 @@ mod win {
         match access {
             Access::Read => AclAccess::Read,
             Access::Write => AclAccess::Write,
-            Access::Deny => AclAccess::Deny,
         }
     }
 
