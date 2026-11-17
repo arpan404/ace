@@ -30,15 +30,16 @@ afterAll(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+const capture = (into: string[]) => (text: unknown, done?: unknown) => {
+  into.push(String(text));
+  if (typeof done === "function") done();
+  return true;
+};
+
 /** Runs one command line; returns what reached stdout and stderr, and the exit code. */
 async function run(line: string[]) {
   const out: string[] = [];
   const err: string[] = [];
-  const capture = (into: string[]) => (text: unknown, done?: unknown) => {
-    into.push(String(text));
-    if (typeof done === "function") done();
-    return true;
-  };
   const stdout = vi.spyOn(process.stdout, "write").mockImplementation(capture(out));
   const stderr = vi.spyOn(process.stderr, "write").mockImplementation(capture(err));
   process.exitCode = 0;

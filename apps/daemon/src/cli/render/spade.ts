@@ -88,11 +88,12 @@ export function age(at: number, now: number): string {
   return `${Math.floor(seconds / 86_400)}d`;
 }
 
+const rank = (bot: CliSpadeBot) =>
+  bot.pinned ? 0 : bot.state === "waiting" ? 1 : bot.state === "working" ? 2 : bot.unseen ? 3 : 4;
+
 /** Spade's bots in the app's order: pinned, needs you, working, unseen, then the rest. */
 export function botOrder(bots: readonly CliSpadeBot[]): CliSpadeBot[] {
-  const rank = (bot: CliSpadeBot) =>
-    bot.pinned ? 0 : bot.state === "waiting" ? 1 : bot.state === "working" ? 2 : bot.unseen ? 3 : 4;
-  return [...bots].sort((a, b) => rank(a) - rank(b) || b.lastActivity - a.lastActivity);
+  return bots.toSorted((a, b) => rank(a) - rank(b) || b.lastActivity - a.lastActivity);
 }
 
 export function botListLines(bots: readonly CliSpadeBot[], now: number, color = false): string[] {

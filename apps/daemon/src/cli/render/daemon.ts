@@ -67,9 +67,10 @@ const levelColor: Readonly<Record<CliLogRecord["level"], string | undefined>> = 
   error: "\u001b[31m",
 };
 
+const two = (value: number) => String(value).padStart(2, "0");
+
 function clock(at: number): string {
   const time = new Date(at);
-  const two = (value: number) => String(value).padStart(2, "0");
   return `${time.getFullYear()}-${two(time.getMonth() + 1)}-${two(time.getDate())} ${two(time.getHours())}:${two(time.getMinutes())}:${two(time.getSeconds())}`;
 }
 
