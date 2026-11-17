@@ -109,7 +109,7 @@ test("a delegate whose parent is on an unpaired machine shares the card with its
 test("a resolved chain holds none of its parents' subscriptions", async () => {
   const chain = Array.from({ length: 10 }, (_, index) => `p${index}`);
   const { main, show, client } = await threads((root) =>
-    chain.map((id, index) => ({ id, parentThreadId: index === 0 ? root : chain[index - 1] })),
+    chain.map((id, index) => ({ id, parentThreadId: chain[index - 1] ?? root })),
   );
   const room = () => client.threadRoom().getSnapshot();
   const before = room();
