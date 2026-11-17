@@ -176,6 +176,7 @@ it("a hold from the signer's own re-scan shows that scan in the queue", async ()
   await approve(market, upload);
   const scan: MarketScanReport = {
     format: "ace-market-scan",
+    runnable: false,
     scanner: 1,
     verdict: "warn",
     checks: [],
@@ -224,6 +225,7 @@ it("a pending listing edit is shown once approved and dropped once refused", asy
           },
           scan: {
             format: "ace-market-scan",
+            runnable: false,
             scanner: 1,
             verdict: "pass",
             checks: [],

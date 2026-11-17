@@ -21,7 +21,9 @@ import { flowEntryRules, flowRules } from "./rules-flow.ts";
 import { scriptRules } from "./rules-scripts.ts";
 import type { EntryRule, ScanFacts } from "./rule.ts";
 import { scanText } from "./decode.ts";
-import { truncated } from "./fail-closed.ts";
+import { held, truncated } from "./fail-closed.ts";
+import { safeBinary } from "./binary.ts";
+import { runnableContent, type Runnable } from "./runnable.ts";
 import { instructionFile, instructionTruncations } from "./instructions.ts";
 import {
   commandViews,
@@ -144,7 +146,23 @@ function scanFile(
     state.findings.push(mkFinding("secrets", "secret-file", "block", named.message, file.path));
 
   const decoded = scanText(file.content);
-  if (decoded === undefined) return 0; // Binary: the `files` check reads its first bytes instead.
+  if (decoded === undefined) {
+    // A file the scanner can't decode as text (ADR 0173 §8, finding 1). The `files` check reads
+    // its first bytes for a known-bad format; on top of that, an executable file, an
+    // instruction-referenced one, a script-like name or location, or any binary that isn't a
+    // recognised safe data format is held — never passed on unrecognised magic.
+    const referenced = isScriptLike(file.path, "", script) || file.executable;
+    if (referenced || !safeBinary(file.content, file.path))
+      state.findings.push(
+        held(
+          "files",
+          "unreadable-binary",
+          `${file.path} can't be read and isn't a recognised data file`,
+          file.path,
+        ),
+      );
+    return 0;
+  }
   const source = decoded.text;
   if (decoded.encoding !== "utf-8" && isScriptLike(file.path, source, script))
     state.findings.push(
@@ -301,7 +319,12 @@ export function finishScan(state: ScanState, input: ScanInput): MarketScanReport
   if (input.context.blocklist)
     findings.push(...knownBadFindings(input.files, hash, input.context.blocklist));
 
-  return report(findings, { files: state.files, textBytes: state.textBytes }, hash);
+  return report(
+    findings,
+    { files: state.files, textBytes: state.textBytes },
+    hash,
+    runnableContent(input),
+  );
 }
 
 /** A whole scan in one call, as the signer and the device run it. */
@@ -389,6 +412,9 @@ export function disposition(
   if (scan.verdict === "block") return "block";
   if (publisher.approved) return "list";
   if (scan.verdict === "warn") return "hold";
+  // The policy layer (ADR 0173 §8): a version with runnable content is held for a maintainer on
+  // scan pass alone, whatever the publisher. Only pure data lists without review.
+  if (scan.runnable) return "hold";
   if (publisher.official || (publisher.newPublisher && publisher.firstVersion)) return "hold";
   if (publisher.newPublisher && scan.findings.some((finding) => finding.strict)) return "hold";
   return "list";
@@ -444,12 +470,15 @@ export function report(
   findings: readonly MarketScanFinding[],
   read: { files: number; textBytes: number },
   hash?: string,
+  runnable: Runnable = { runnable: false },
 ): MarketScanReport {
   return {
     format: "ace-market-scan",
     scanner: marketScannerVersion,
     ...(hash ? { hash } : {}),
     verdict: verdictOf(findings),
+    runnable: runnable.runnable,
+    ...(runnable.reason ? { runnableReason: runnable.reason } : {}),
     checks: checkOrder.map((id) => {
       const own = findings.filter((finding) => finding.check === id);
       const verdict = verdictOf(own);
