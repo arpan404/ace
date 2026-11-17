@@ -93,7 +93,8 @@ export async function openOpenCodeSignIn(options: {
     cwd: options.cwd,
   });
   const stopped = new AbortController();
-  void proc.exited.then(() => stopped.abort());
+  // exited never rejects; aborting a signal cannot fail.
+  void proc.exited.then(() => stopped.abort()).catch(() => {});
   const close = async () => {
     await proc.stop({ graceMs: 1000 });
   };

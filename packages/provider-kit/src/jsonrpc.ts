@@ -255,9 +255,11 @@ export class JsonRpcPeer {
         return;
       }
       this.#incoming++;
-      void this.#answer({ id, method, params: message["params"] }).finally(() => {
-        this.#incoming--;
-      });
+      void this.#answer({ id, method, params: message["params"] })
+        .finally(() => {
+          this.#incoming--;
+        })
+        .catch((error: unknown) => this.#report(asError(error)));
     } else if (typeof method === "string" && id === undefined) {
       try {
         this.onNotification({ method, params: message["params"] });
