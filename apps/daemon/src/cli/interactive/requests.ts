@@ -108,7 +108,11 @@ export function requestsView(
   const { list, index, request } = current(state, requests);
   if (!request)
     return {
-      lines: ["Nothing is waiting on you.", keysLine(["esc home"], width)],
+      lines: [
+        "Nothing is waiting on you.",
+        ...(state.notice ? [paint.dim(cutEnd(state.notice, width))] : []),
+        keysLine(["esc home"], width),
+      ],
     };
   const counter = `${index + 1} of ${list.length}`;
   const place = cutEnd(
@@ -128,6 +132,7 @@ export function requestsView(
   if (index < list.length - 1) nav.push("→ next");
   nav.push("esc home");
   const lines = [header, ...strip.lines];
+  if (state.notice) lines.push(paint.dim(cutEnd(state.notice, width)));
   if (!capturing(state.answer)) lines.push(paint.dim(keysLine(nav, width)));
   return {
     lines,
