@@ -1,14 +1,38 @@
 import { killAll } from "./kill-all.ts";
-import { AgentId, CliTaskStatus, type CliOperation, type AgentControlResult } from "@ace/protocol";
+import {
+  AgentId,
+  CliTaskStatus,
+  type CliOperation,
+  type AgentControlResult,
+  type ThreadId,
+} from "@ace/protocol";
 import { agentTaskView } from "../agent-control/task-view.ts";
 import { readThreadTree } from "../thread-tree.ts";
 import { simCli } from "./cli-sim.ts";
+import { openRequests, storeRequestSource } from "./cli-requests.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export function cliControl(context: ServiceContext) {
-  return async (operation: CliOperation, signal: AbortSignal): Promise<AgentControlResult> => {
+  return async (
+    operation: CliOperation,
+    signal: AbortSignal,
+    /** Whether the caller may read a thread; a list leaves out the ones it can't. */
+    canRead: (threadId: ThreadId) => boolean = () => true,
+  ): Promise<AgentControlResult> => {
     const { store, services } = context;
+    if (operation.op === "request.list") {
+      if (operation.threadId && !store.getThread(operation.threadId))
+        return { ok: false, code: "not_found" };
+      return {
+        ok: true,
+        data: openRequests(storeRequestSource(context), {
+          threadId: operation.threadId,
+          limit: operation.limit,
+          canRead,
+        }),
+      };
+    }
     if (operation.op === "capabilities")
       return {
         ok: true,
@@ -94,7 +118,7 @@ export function createCliControlSession(context: SocketContext): SocketService {
             : undefined;
       const scope = global
         ? "admin"
-        : ["thread.tree", "task.status", "capabilities"].includes(operation.op)
+        : ["thread.tree", "task.status", "capabilities", "request.list"].includes(operation.op)
           ? "read"
           : "operate";
       let result: AgentControlResult;
@@ -112,7 +136,9 @@ export function createCliControlSession(context: SocketContext): SocketService {
           result =
             operation.op === "process.kill_all"
               ? await killAll(context, operation)
-              : await context.options.cliControl(operation, lifetime.signal);
+              : await context.options.cliControl(operation, lifetime.signal, (id) =>
+                  context.canReadThread(id),
+                );
         } catch {
           result = { ok: false, code: "unavailable" };
         } finally {
