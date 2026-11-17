@@ -3,13 +3,14 @@
 //! also the egress bridge for those tests (`sandbox-net-bridge`), standing in for Spade's own
 //! binary. It is not shipped; on non-Windows it does nothing.
 
+#[cfg(windows)]
 fn main() -> std::process::ExitCode {
-    #[cfg(windows)]
-    {
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        return std::process::ExitCode::from(windows::run(&args));
-    }
-    #[cfg(not(windows))]
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    std::process::ExitCode::from(windows::run(&args))
+}
+
+#[cfg(not(windows))]
+fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 

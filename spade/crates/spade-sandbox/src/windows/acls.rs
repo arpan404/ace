@@ -169,7 +169,8 @@ mod tests {
         let b = PathBuf::from("/b");
         let c = PathBuf::from("/c");
         assert_eq!(stale(&[a.clone(), b.clone()], &[b.clone(), c]), vec![a]);
-        assert!(stale(&[b.clone()], &[b]).is_empty());
+        let same = b.clone();
+        assert!(stale(&[b], &[same]).is_empty());
     }
 
     #[test]

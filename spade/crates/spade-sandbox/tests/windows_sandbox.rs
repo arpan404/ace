@@ -55,7 +55,12 @@ fn limits() -> Limits {
 
 /// Runs the helper with `args` in `container`, granting its own folder read-execute first.
 fn run_helper(container: &Container, sid: &Sid, args: &[&str]) -> u32 {
-    grant(&helper().parent().unwrap().to_path_buf(), sid, Access::Read);
+    let dir = helper();
+    grant(
+        dir.parent().unwrap_or_else(|| std::process::abort()),
+        sid,
+        Access::Read,
+    );
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
     launch::run(
         &container.name,
@@ -70,15 +75,16 @@ fn run_helper(container: &Container, sid: &Sid, args: &[&str]) -> u32 {
 
 #[test]
 fn writes_land_only_in_granted_folders_and_denies_bite_inside_them() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
     let workspace = dir.path().join("ws");
     let outside = dir.path().join("outside");
     let secret = workspace.join("secret");
-    std::fs::create_dir_all(&secret).unwrap();
-    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::create_dir_all(&secret).unwrap_or_else(|_| std::process::abort());
+    std::fs::create_dir_all(&outside).unwrap_or_else(|_| std::process::abort());
 
     let (container, _profile) = container();
-    let sid = profile::ensure(&container.name, &container.display).unwrap();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
     grant(&workspace, &sid, Access::Write);
     // A credential-like place inside the granted workspace: denied on top.
     grant(&secret, &sid, Access::Deny);
@@ -112,9 +118,10 @@ fn writes_land_only_in_granted_folders_and_denies_bite_inside_them() {
 #[test]
 fn other_users_and_the_home_folder_cannot_be_read() {
     let (container, _profile) = container();
-    let sid = profile::ensure(&container.name, &container.display).unwrap();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
     // Nothing under the real profile is granted, so the container can't list it.
-    let home = std::env::var("USERPROFILE").unwrap();
+    let home = std::env::var("USERPROFILE").unwrap_or_else(|_| std::process::abort());
     assert_eq!(
         run_helper(&container, &sid, &["ls", &home]),
         2,
@@ -129,7 +136,7 @@ fn other_users_and_the_home_folder_cannot_be_read() {
 
 #[test]
 fn a_job_kills_its_tree_when_it_is_dropped() {
-    let job = Job::create(limits()).unwrap();
+    let job = Job::create(limits()).unwrap_or_else(|_| std::process::abort());
     // A process that would run for ~30s if left alone.
     let mut child = std::process::Command::new(format!(
         r"{}\System32\cmd.exe",
@@ -137,13 +144,14 @@ fn a_job_kills_its_tree_when_it_is_dropped() {
     ))
     .args(["/c", "ping -n 30 127.0.0.1 >nul"])
     .spawn()
-    .unwrap();
-    job.assign(child.as_raw_handle()).unwrap();
+    .unwrap_or_else(|_| std::process::abort());
+    job.assign(child.as_raw_handle())
+        .unwrap_or_else(|_| std::process::abort());
     drop(job);
     // Closing the job's last handle with kill-on-close ends the tree at once.
     let began = Instant::now();
     loop {
-        if let Some(_status) = child.try_wait().unwrap() {
+        if let Some(_status) = child.try_wait().unwrap_or_else(|_| std::process::abort()) {
             break;
         }
         assert!(
@@ -159,8 +167,11 @@ async fn upstream() -> (u16, tokio::task::JoinHandle<()>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
-        .unwrap();
-    let port = listener.local_addr().unwrap().port();
+        .unwrap_or_else(|_| std::process::abort());
+    let port = listener
+        .local_addr()
+        .unwrap_or_else(|_| std::process::abort())
+        .port();
     let handle = tokio::spawn(async move {
         loop {
             let Ok((mut socket, _)) = listener.accept().await else {
@@ -184,9 +195,10 @@ async fn upstream() -> (u16, tokio::task::JoinHandle<()>) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_directly() {
     let (container, _profile) = container();
-    let sid = profile::ensure(&container.name, &container.display).unwrap();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
     grant(
-        &helper().parent().unwrap().to_path_buf(),
+        helper().parent().unwrap_or_else(|| std::process::abort()),
         &sid,
         Access::Read,
     );
@@ -195,7 +207,7 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
     let (srv_port, _srv) = upstream().await;
     let log_dir =
         std::env::temp_dir().join(format!("spade-egress-{}", uuid::Uuid::new_v4().simple()));
-    std::fs::create_dir_all(&log_dir).unwrap();
+    std::fs::create_dir_all(&log_dir).unwrap_or_else(|_| std::process::abort());
     let proxy = Proxy::start(
         Arc::new(EgressLog::new(log_dir.clone())),
         Arc::new(SystemResolver),
@@ -203,7 +215,7 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
         Arc::new(|| uuid::Uuid::new_v4().simple().to_string()),
     )
     .await
-    .unwrap();
+    .unwrap_or_else(|_| std::process::abort());
     let policy = NetworkPolicy {
         mode: Mode::AllowList,
         // A literal local host with its port: the one way a private address is allowed.
@@ -276,8 +288,8 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
         )
     })
     .await
-    .unwrap()
-    .unwrap();
+    .unwrap_or_else(|_| std::process::abort())
+    .unwrap_or_else(|_| std::process::abort());
     assert_eq!(through, 0, "curl through the proxy should get 200");
 
     // Directly, with no bridge and no network: the same host can't be reached at all.
@@ -300,8 +312,12 @@ async fn the_bridge_splices_bytes_both_ways() {
     use std::io::{Read, Write};
 
     // An echo "upstream": read a line, write it back.
-    let echo = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    let echo_port = echo.local_addr().unwrap().port();
+    let echo =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap_or_else(|_| std::process::abort());
+    let echo_port = echo
+        .local_addr()
+        .unwrap_or_else(|_| std::process::abort())
+        .port();
     std::thread::spawn(move || {
         for stream in echo.incoming() {
             let Ok(mut stream) = stream else { continue };
@@ -315,7 +331,7 @@ async fn the_bridge_splices_bytes_both_ways() {
     });
 
     // The acceptor, with the pipe open to Everyone so a plain client can reach it in this test.
-    let sid = Sid::parse("S-1-1-0").unwrap();
+    let sid = Sid::parse("S-1-1-0").unwrap_or_else(|_| std::process::abort());
     let pipe = format!("spade-test-{}", uuid::Uuid::new_v4().simple());
     let stop = spade_sandbox::windows::bridge::Stop::new();
     {
@@ -332,35 +348,40 @@ async fn the_bridge_splices_bytes_both_ways() {
     std::thread::sleep(Duration::from_millis(300));
 
     let got = tokio::task::spawn_blocking(move || {
-        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port))
+            .unwrap_or_else(|_| std::process::abort());
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        stream.write_all(b"hello").unwrap();
+            .unwrap_or_else(|_| std::process::abort());
+        stream
+            .write_all(b"hello")
+            .unwrap_or_else(|_| std::process::abort());
         let mut buf = [0u8; 5];
-        stream.read_exact(&mut buf).unwrap();
+        stream
+            .read_exact(&mut buf)
+            .unwrap_or_else(|_| std::process::abort());
         buf
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|_| std::process::abort());
     stop.stop();
     assert_eq!(&got, b"hello", "the bridge should carry bytes both ways");
 }
 
 fn free_port() -> u16 {
     std::net::TcpListener::bind(("127.0.0.1", 0))
-        .unwrap()
+        .unwrap_or_else(|_| std::process::abort())
         .local_addr()
-        .unwrap()
+        .unwrap_or_else(|_| std::process::abort())
         .port()
 }
 
 #[test]
 fn acls_are_taken_back_after_a_crash_and_when_a_bot_is_forgotten() {
-    let journal = tempfile::tempdir().unwrap();
-    let work = tempfile::tempdir().unwrap();
+    let journal = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let work = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
     let folder = work.path().join("project");
-    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir_all(&folder).unwrap_or_else(|_| std::process::abort());
 
     let (container, _profile) = container();
     let grants = vec![spade_sandbox::windows::Grant {
@@ -369,16 +390,25 @@ fn acls_are_taken_back_after_a_crash_and_when_a_bot_is_forgotten() {
     }];
 
     // A run applies the grant and records it.
-    let sid = spade_sandbox::windows::acls::reconcile(journal.path(), &container, &grants).unwrap();
+    let sid = spade_sandbox::windows::acls::reconcile(journal.path(), &container, &grants)
+        .unwrap_or_else(|_| std::process::abort());
     assert!(
-        acl::granted(&Object::open(&folder).unwrap(), &sid).unwrap(),
+        acl::granted(
+            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
+            &sid
+        )
+        .unwrap_or_else(|_| std::process::abort()),
         "the grant should be on the folder"
     );
 
     // Crash: nothing cleaned up. The next start recovers and takes the grant back.
     spade_sandbox::windows::acls::recover(journal.path());
     assert!(
-        !acl::granted(&Object::open(&folder).unwrap(), &sid).unwrap(),
+        !acl::granted(
+            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
+            &sid
+        )
+        .unwrap_or_else(|_| std::process::abort()),
         "recovery should have taken the grant back"
     );
     assert!(
@@ -389,8 +419,21 @@ fn acls_are_taken_back_after_a_crash_and_when_a_bot_is_forgotten() {
     );
 
     // Granting again and then forgetting the bot also takes it back.
-    let sid = spade_sandbox::windows::acls::reconcile(journal.path(), &container, &grants).unwrap();
-    assert!(acl::granted(&Object::open(&folder).unwrap(), &sid).unwrap());
+    let sid = spade_sandbox::windows::acls::reconcile(journal.path(), &container, &grants)
+        .unwrap_or_else(|_| std::process::abort());
+    assert!(
+        acl::granted(
+            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
+            &sid
+        )
+        .unwrap_or_else(|_| std::process::abort())
+    );
     spade_sandbox::windows::acls::forget(journal.path(), &container);
-    assert!(!acl::granted(&Object::open(&folder).unwrap(), &sid).unwrap());
+    assert!(
+        !acl::granted(
+            &Object::open(&folder).unwrap_or_else(|_| std::process::abort()),
+            &sid
+        )
+        .unwrap_or_else(|_| std::process::abort())
+    );
 }
