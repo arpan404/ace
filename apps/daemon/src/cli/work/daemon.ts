@@ -92,11 +92,17 @@ async function projectPage(client: Client, signal: AbortSignal, after: string | 
     },
     { signal },
   );
-  if (response.result.kind !== "projects")
+  if (response.result.kind !== "projects") {
+    const code = response.result.kind === "error" ? response.result.code : undefined;
     throw new CliFailure(
       "refused",
-      response.result.kind === "error" ? response.result.code : "Project list unavailable",
+      code === "forbidden"
+        ? "This device may not read the project list."
+        : (code ?? "Project list unavailable"),
+      undefined,
+      code === "forbidden" ? { code: "forbidden" } : {},
     );
+  }
   return response.result;
 }
 

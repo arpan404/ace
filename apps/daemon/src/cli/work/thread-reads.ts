@@ -27,7 +27,13 @@ export async function listRows(
     want: number;
   },
 ) {
-  const projects = await readProjects(client, signal);
+  // A device paired with read-only scopes may list threads without the project list: rows
+  // then go without project names, unless a project was asked for by name.
+  const projects = await readProjects(client, signal).catch((error: unknown) => {
+    if (!input.project && error instanceof CliFailure && error.detail.code === "forbidden")
+      return [];
+    throw error;
+  });
   const project = input.project ? findProject(projects, input.project, process.cwd()) : undefined;
   const list = await readThreadList(client, signal, { project: project?.id, want: input.want });
   const now = Date.now();
