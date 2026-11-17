@@ -43,7 +43,7 @@ export const AutomationForm = z
     effort: z.string().max(64).optional(),
     /** The provider account the chip picked. */
     instance: z.string().max(256).optional(),
-    trigger: z.enum(["schedule", "github", "file", "manual"]),
+    trigger: z.enum(["schedule", "github", "file", "manual", "webhook"]),
     cadence: z.enum(["minutes", "hourly", "daily", "weekdays", "weekly", "once", "custom"]),
     time: z.string(),
     day: z.enum(weekdays),
@@ -211,6 +211,7 @@ export function formFromAutomation(automation: Automation, localZone: string): A
       label: trigger.label ?? "",
     };
   if (trigger.kind === "file") return { ...form, trigger: "file", paths: trigger.paths.join("\n") };
+  if (trigger.kind === "webhook") return { ...form, trigger: "webhook" };
   if (trigger.kind !== "schedule") return { ...form, trigger: "manual" };
   const preset = scheduleToPreset(trigger.schedule);
   const start = wallMoment(trigger.schedule.startAt, trigger.schedule.timezone);
@@ -286,6 +287,8 @@ function triggerFromForm(
   switch (form.trigger) {
     case "manual":
       return { kind: "manual" };
+    case "webhook":
+      return { kind: "webhook" };
     case "file":
       return { kind: "file", paths: globs(form.paths) };
     case "github": {

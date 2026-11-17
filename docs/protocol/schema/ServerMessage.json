@@ -135,6 +135,9 @@
       "$ref": "https://ace.local/protocol/v1/AutomationResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/AutomationWebhookResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ActivityReadsResult.json"
     },
     {
@@ -256,6 +259,54 @@
       "required": [
         "type",
         "check"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "result": {
+          "$ref": "https://ace.local/protocol/v1/MarketResult.json"
+        },
+        "type": {
+          "const": "marketplace.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "result"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "installed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "marketplace.changed",
+          "type": "string"
+        },
+        "updates": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "installed",
+        "updates"
       ],
       "type": "object"
     },

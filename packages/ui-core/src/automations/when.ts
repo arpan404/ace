@@ -30,6 +30,15 @@ export const triggerKinds: Choice<Trigger>[] = [
   { value: "file", label: "When files change" },
   { value: "manual", label: "By hand" },
 ];
+/**
+ * The same, with a webhook trigger before "By hand", for a client that can show the webhook's
+ * URL and its secret (ADR 0173). The phone keeps `triggerKinds` until it can.
+ */
+export const triggerKindsWithWebhook: Choice<Trigger>[] = [
+  ...triggerKinds.slice(0, -1),
+  { value: "webhook", label: "When its webhook is called" },
+  ...triggerKinds.slice(-1),
+];
 export const cadences: Choice<AutomationForm["cadence"]>[] = [
   { value: "minutes", label: "Minutes" },
   { value: "hourly", label: "Hours" },
@@ -189,6 +198,8 @@ export function whenSummary(form: AutomationForm, now: number): string {
       return "When files change";
     case "manual":
       return "Only when I run it";
+    case "webhook":
+      return "When its webhook is called";
   }
 }
 

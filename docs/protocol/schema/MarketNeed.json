@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketNeed.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "maxLength": 2100,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "connector",
+        "plugin"
+      ],
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "why": {
+      "maxLength": 500,
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "kind",
+    "label",
+    "why",
+    "required"
+  ],
+  "type": "object"
+}

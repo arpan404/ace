@@ -32,17 +32,23 @@ Example:
 
 ```json
 {
-  "concurrency": 8,
+  "concurrency": 2,
   "effort": "example",
   "enabled": false,
   "id": "example",
-  "jitterMs": 8,
-  "missedRun": "skip",
+  "jitterMs": 7,
+  "missedRun": "run_once",
   "prompt": "example",
   "provider": "cursor",
   "title": "example",
   "trigger": {
-    "kind": "manual"
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "rrule",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
   "worktree": true
@@ -276,10 +282,10 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":8192} |
 | automations | no | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/Automation.json"}} |
-| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"revision":{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},"lastPollError":{"$ref":"https://ace.local/protocol/v1/AutomationPollError.json"},"triggerError":{"$ref":"https://ace.local/protocol/v1/AutomationTriggerError.json"},"lastRun":{"$ref":"https://ace.local/protocol/v1/AutomationRun.json"}},"required":["id","nextRunAt"]}} |
+| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"revision":{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},"lastPollError":{"$ref":"https://ace.local/protocol/v1/AutomationPollError.json"},"triggerError":{"$ref":"https://ace.local/protocol/v1/AutomationTriggerError.json"},"lastRun":{"$ref":"https://ace.local/protocol/v1/AutomationRun.json"},"webhook":{"$ref":"https://ace.local/protocol/v1/AutomationWebhookState.json"}},"required":["id","nextRunAt"]}} |
 | inbox | no | [AutomationInbox.json](schema/AutomationInbox.json) |  |
 | run | no | [AutomationRun.json](schema/AutomationRun.json) |  |
-| threadAutomations | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"automation":{"$ref":"https://ace.local/protocol/v1/Automation.json"},"threadId":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"revision":{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},"triggerError":{"$ref":"https://ace.local/protocol/v1/AutomationTriggerError.json"},"lastRun":{"$ref":"https://ace.local/protocol/v1/AutomationRun.json"}},"required":["automation","threadId","nextRunAt"]}} |
+| threadAutomations | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"automation":{"$ref":"https://ace.local/protocol/v1/Automation.json"},"threadId":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]},"revision":{"$ref":"https://ace.local/protocol/v1/AutomationRevision.json"},"triggerError":{"$ref":"https://ace.local/protocol/v1/AutomationTriggerError.json"},"lastRun":{"$ref":"https://ace.local/protocol/v1/AutomationRun.json"},"webhook":{"$ref":"https://ace.local/protocol/v1/AutomationWebhookState.json"}},"required":["automation","threadId","nextRunAt"]}} |
 
 Example:
 
@@ -318,7 +324,7 @@ Example:
 | automationId | yes | string | {"minLength":1,"maxLength":256} |
 | title | yes | string | {"minLength":1,"maxLength":256} |
 | eventKey | yes | string | {"maxLength":512} |
-| trigger | yes | ["schedule","github","file","manual"] |  |
+| trigger | yes | ["schedule","github","file","manual","webhook"] |  |
 | status | yes | ["queued","running","succeeded","failed","skipped"] |  |
 | startedAt | yes | integer | {"minimum":0,"maximum":8640000000000000} |
 | finishedAt | no | integer | {"minimum":0,"maximum":8640000000000000} |
@@ -335,7 +341,7 @@ Example:
   "startedAt": 5,
   "status": "running",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -453,6 +459,20 @@ Example:
 }
 ```
 
+### webhook
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"webhook"` |  |
+
+Example:
+
+```json
+{
+  "kind": "webhook"
+}
+```
+
 ## AutomationTriggerError
 
 [JSON Schema](schema/AutomationTriggerError.json), input validation.
@@ -469,6 +489,88 @@ Example:
   "at": 4,
   "message": "example"
 }
+```
+
+## AutomationWebhookRequest
+
+[JSON Schema](schema/AutomationWebhookRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"automation.webhook"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| action | yes | ["rotate","revoke"] |  |
+| source | no | [AutomationSource.json](schema/AutomationSource.json) |  |
+
+Example:
+
+```json
+{
+  "action": "revoke",
+  "id": "example",
+  "requestId": "example",
+  "type": "automation.webhook"
+}
+```
+
+## AutomationWebhookResponse
+
+[JSON Schema](schema/AutomationWebhookResponse.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"automation.webhookResult"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| ok | yes | boolean |  |
+| error | no | string | {"maxLength":8192} |
+| webhook | no | [AutomationWebhookState.json](schema/AutomationWebhookState.json) |  |
+| secret | no | string | {"pattern":"^whsec_[A-Za-z0-9+/]{43}=$"} |
+
+Example:
+
+```json
+{
+  "error": "example",
+  "ok": false,
+  "requestId": "example",
+  "type": "automation.webhookResult"
+}
+```
+
+## AutomationWebhookState
+
+[JSON Schema](schema/AutomationWebhookState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| active | yes | boolean |  |
+| path | yes | union | {"anyOf":[{"type":"string","pattern":"^\\/hooks\\/[0-9a-f]{32}$"},{"type":"null"}]} |
+| url | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
+| urls | yes | array | {"maxItems":3,"items":{"type":"object","properties":{"via":{"$ref":"https://ace.local/protocol/v1/AutomationWebhookVia.json"},"url":{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."}},"required":["via","url"]}} |
+| problem | no | string | {"maxLength":512} |
+
+Example:
+
+```json
+{
+  "active": false,
+  "path": null,
+  "url": null,
+  "urls": []
+}
+```
+
+## AutomationWebhookVia
+
+[JSON Schema](schema/AutomationWebhookVia.json), input validation.
+
+Type: ["custom","tailscale","relay"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"tailscale"
 ```
 
 ## TriggerVariables

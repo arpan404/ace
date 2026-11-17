@@ -235,6 +235,7 @@ function ComposeAutomation(props: { initial: AutomationForm }) {
               controls={
                 <AutomationAccess
                   fields={{ ...modelFields, workspace: form.workspace, access: form.access }}
+                  webhook={form.trigger === "webhook"}
                   onChange={(access) => change({ access })}
                 />
               }

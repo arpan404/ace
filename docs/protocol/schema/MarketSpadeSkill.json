@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketSpadeSkill.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "version": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "hash",
+    "description"
+  ],
+  "type": "object"
+}
