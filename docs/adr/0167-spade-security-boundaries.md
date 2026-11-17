@@ -71,8 +71,10 @@ filesystem and network isolation are both required.
      restricted token with a low integrity level is the fallback where AppContainer can't be
      made. This is now built (see the amendment below, which corrects the egress mechanism: a
      loopback exemption isn't port-scoped, so a per-run named-pipe bridge carries the network
-     instead). Windows reports `contained` when an AppContainer, the job and the proxy are all
-     up, so decision 8's dropped reviews apply there too.
+     instead). Windows reports `contained` only for a run with no network, as a Less Privileged
+     AppContainer on folders Spade owns, with the job up — so decision 8's dropped reviews apply to
+     those runs; a networked run, or one needing the person's folders, keeps the review path (see the
+     amendment's "Narrowing" and "Final review" sections).
 
 2. **A credential deny-list backs the word list.** These places are denied for reading in every
    sandbox, whatever else is allowed:
@@ -390,20 +392,20 @@ journal as empty, or judge a path by its spelling. All are now closed, test-firs
   the file-only tests (writes, reads, listings, the hard-link attempts) pass unchanged under LPAC,
   and a file granted only to `ALL APPLICATION PACKAGES` is unreadable to an LPAC run — confirmed on
   the VM, including as a standard user.
-  - **Why not networked runs.** Also measured on the VM: under LPAC, `WSAStartup` fails — the Winsock
-    catalog resources are reachable by `ALL APPLICATION PACKAGES` but not by the restricted group an
-    LPAC keeps — so the in-container egress bridge cannot bind its loopback port and a networked run
-    would fail closed. The only capability that would restore sockets is a network capability
-    (`internetClient` and friends), which would *also* let the container open connections to the
-    network directly, past the proxy, breaking the egress boundary (ADR 0167 decision 3). So a
-    networked run is **not** an LPAC: it stays a no-capability AppContainer, still contained, with its
-    sole egress the SID-scoped pipe. The documented answer to "which LPAC capabilities do common tools
-    need" is therefore: file-only runs need none (LPAC is applied and costs nothing, since those tools
-    never open a socket); a networked tool cannot run under LPAC without a capability that would
-    breach egress, so networked runs are left as plain AppContainers. This supersedes the earlier note
-    that toolchains are "already readable by `ALL APPLICATION PACKAGES`": under LPAC that is no longer
-    true, and a no-network run's containable toolchains are the Spade-owned ones (granted the container
-    SID) and `System32` binaries (restricted ACE).
+  - **Why not networked runs.** Also measured on the VM: under LPAC, `WSAStartup` fails, so the
+    in-container egress bridge cannot bind its loopback port and a networked run fails closed. The
+    Winsock catalog keys (`HKLM\SYSTEM\CurrentControlSet\Services\WinSock2\Parameters` and its
+    `Protocol_Catalog9` and `NameSpace_Catalog5`) grant read to `ALL APPLICATION PACKAGES` and to
+    the `registryRead` capability (`S-1-15-3-1024-1065365936-…`, confirmed with
+    `DeriveCapabilitySidsFromName`), never to `ALL RESTRICTED APPLICATION PACKAGES`. So a networked
+    run can't be an LPAC with no capabilities; it would have to be a plain AppContainer, and that is
+    no longer reported `contained` (see "Final review" below). The answer to "which LPAC capabilities
+    do common tools need" is: file-only runs need none (LPAC costs nothing, since those tools never
+    open a socket); networked tools need at least Winsock's catalog, which today means a capability
+    (`registryRead`) that also reopens every other key granted to it. This supersedes the earlier
+    note that toolchains are "already readable by `ALL APPLICATION PACKAGES`": under LPAC that is no
+    longer true, and a no-network run's containable toolchains are the Spade-owned ones (granted the
+    container SID) and `System32` binaries (restricted ACE).
 - **Hard links cannot smuggle a file in.** A contained run could have asked for a second name, inside
   its granted workspace, for one of the person's files, then reached the file's data through the
   name it controls. **Measured behaviour:** both the Win32 `CreateHardLink` path and the native
@@ -411,3 +413,51 @@ journal as empty, or judge a path by its spelling. All are now closed, test-firs
   source file first and the run has no access to it; the person's file keeps its single name. No run
   whose workspace could host such a link is allowed — the open gate makes the attempt fail closed,
   so no extra refusal in `containable` is needed.
+
+### Final review: the launch token, networked runs, hard-link stages (2026-11-17)
+
+A final review found the journal parsing, lifecycle states, pinned ancestry and no-network LPAC sound,
+and four things left, fixed test-first in the VM:
+
+- **The gate's decision is carried to the launch.** The shell tool recomputed `contains()` at
+  execution, so a command that skipped review because the sandbox held it could launch plainly if
+  containment changed before it started (the person adds a consented folder). The gate now records
+  an immutable launch token per call — *outside*, *contained* (decided in the sandbox's light), or
+  *reviewed* (without relying on the sandbox) — and the shell takes it instead of deciding again. A
+  *contained* call launches only contained; if the sandbox no longer holds it, it is refused and
+  running it again goes back through the gate. An unmarked call counts as *contained*. A process test
+  drives the race with a sandbox that holds the command when the gate asks and has lapsed by launch:
+  the command is refused and never runs (before the fix it ran plainly).
+- **A journal-listing error blocks.** Directory entries were filtered before their errors were
+  checked, so an entry the listing failed to yield was dropped. Every entry is now checked before any
+  filtering, and one that fails fails the listing, which blocks every bot.
+- **Networked Windows runs are not `contained`; they keep the review path.** The owner's priority is
+  security. A networked run can't be an LPAC (above), and as a plain AppContainer it keeps ambient
+  read access to what every app package may read — files, some registry keys, COM objects — which
+  is not what `contained` promises. So on Windows only a no-network LPAC run on Spade-owned folders is
+  `contained`. Confining a networked run returns needs-review with the line "Windows can't seal off
+  network commands yet, so Spade asks first." (a run needing the person's folders says "This needs
+  your folders, so Spade asks first."); the bot's security view now reports its own `contained` and
+  that `reason`. Consequences: a bot's network defaults to the allow list, so a Windows bot's commands
+  are contained only once its network is off; and a plugin's local server or hook, which has no review
+  path, does not start on Windows when it has network. A Windows process test on the real AppContainer
+  probe checks both sides: the default-network bot is not contained and its run needs review with the
+  network line; with network off the same bot is contained and its run is held.
+- **The egress broker is not built; it is future work.** The idea was a broker in the bridge process
+  that holds the network and talks to the LPAC command over the SID-scoped pipe, so the command never
+  needs Winsock. That works only for a command that can speak to a pipe; the commands that need
+  network (`curl`, `git`, `npm`, `pip`, `cargo`) all open TCP sockets through Winsock to reach
+  `HTTP_PROXY`, so under LPAC they fail at `WSAStartup` whatever the broker does. Making them work
+  would mean interposing the socket API inside each command's process (a DLL that turns Winsock calls
+  into pipe I/O), which is fragile across tools and architectures (ARM64, x64, emulated x64) and is
+  itself security-sensitive. Ways forward to evaluate: that interposing broker; an LPAC holding only
+  `registryRead` (does Winsock then start, while the absence of network capabilities still keeps the
+  container off the network? — untested, and it reopens every key granted to `registryRead`); or a
+  network capability whose reach is cut to the proxy's port by Windows Filtering Platform rules
+  installed by a service.
+- **Hard links: a control, the failing stage, both tokens.** Both link paths now report where they
+  stopped. Measured under an LPAC token and a plain AppContainer one, through both the Win32
+  `CreateHardLink` and native `NtSetInformationFile(FileLinkInformation)` paths: a link between two
+  of the run's own files is made and is the same file (the control); the person's file is refused at
+  opening the source; the run's own file linked into a folder it wasn't granted opens, but the link
+  is refused. The person's file keeps its single name.

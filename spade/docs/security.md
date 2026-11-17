@@ -14,7 +14,7 @@ servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
 | -------- | ---------------------------------------------------------- | --------- | --------------------------------------------- | --------------- |
 | macOS    | Seatbelt profile per run, `/usr/bin/sandbox-exec -p`       | contained | contained (TCP to the proxy's port only)      | yes             |
 | Linux    | Landlock via `spade sandbox-exec`, `landlock` feature, off | contained | partial (TCP only; UDP and Unix sockets open) | no              |
-| Windows  | AppContainer per run + job, via `spade sandbox-exec-win`   | contained (runs on Spade-owned folders only; else review) | contained (through a per-run named-pipe bridge to the proxy) | yes, for Spade-owned-folder runs |
+| Windows  | Less Privileged AppContainer per run + job, via `spade sandbox-exec-win` | contained (no-network runs on Spade-owned folders only; else review) | not contained: a networked run keeps the review path | yes, for no-network runs on Spade-owned folders |
 
 Spade probes the sandbox once at start (`Runner::probe`: macOS runs the real profile on a
 throwaway folder against `/usr/bin/true`; Windows makes and deletes a throwaway AppContainer
@@ -86,18 +86,28 @@ gets its own AppContainer profile with **no capabilities** (derived from the bot
 so it starts with no access to anything and holds only its own grants — a plugin's extra folders
 can't be reached by the bot's other running commands. The profile is deleted when the run ends.
 
-A run **with no network** is a **Less Privileged AppContainer (LPAC)**: the process opts out of the
+A run is `contained` on Windows only when it **has no network** and is a **Less Privileged
+AppContainer (LPAC)**: the process opts out of the
 `ALL APPLICATION PACKAGES` SID (the `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute), so
 files, registry keys and COM objects that any app package may read system-wide are *not* reachable —
 only what the run's own container SID is granted, plus the core system binaries that carry the
 restricted `ALL RESTRICTED APPLICATION PACKAGES` ACE the loader needs (`System32` keeps that ACE, so
-`curl.exe`, `cmd.exe` and the system DLLs still load). A run **with network is not** an LPAC: under
-LPAC `WSAStartup` fails — the Winsock catalog is reachable by `ALL APPLICATION PACKAGES` but not by
-the restricted group — so the egress bridge couldn't bind its loopback port, and the only capability
-that would restore sockets would also let the container reach the network directly, past the proxy.
-A networked run therefore stays a plain no-capability AppContainer; it is still contained, with its
-sole egress the SID-scoped pipe. (Measured on the VM, including as a standard user: file-only tools
-run unchanged under LPAC and a file granted only to `ALL APPLICATION PACKAGES` is then unreadable.)
+`curl.exe`, `cmd.exe` and the system DLLs still load). (Measured on the VM, including as a standard
+user: file-only tools run unchanged under LPAC and a file granted only to `ALL APPLICATION PACKAGES`
+is then unreadable.)
+
+**A networked run is not contained on Windows yet; it keeps the review path**, and its bot's
+security view says "Windows can't seal off network commands yet, so Spade asks first." Under LPAC
+`WSAStartup` fails — the Winsock catalog keys grant read to `ALL APPLICATION PACKAGES` and the
+`registryRead` capability, not to the restricted group an LPAC keeps (measured) — so neither the
+egress bridge nor the networked command could open a socket. As a plain AppContainer a networked run
+would keep ambient read access to what every app package may read (files, some registry keys, COM
+objects), which is not what `contained` promises. So: confining a networked run returns
+needs-review; an unreviewed one is refused, never launched plainly; a reviewed one runs as on a
+machine without the sandbox. The bot's network defaults to the allow list, so on Windows a bot's
+commands are contained only once its network is off. A plugin's local server or hook has no review
+path, so one with network does not start on Windows. Giving LPAC runs egress without opening the
+network is future work (ADR 0167, Windows amendment).
 
 **Spade only ever edits ACLs on folders it owns** (under its own data directory), because changing
 ACLs on the person's folders touches other principals' inheritance and descendant identities.
@@ -133,10 +143,12 @@ folders, so Spade asks first", and Spade changes no ACLs. A brokered file-access
 person's folders is future work.
 
 **Hard links can't smuggle a file in.** A contained run can't give one of the person's files a second
-name inside its granted workspace and then reach the file's data through that name: both the Win32
-`CreateHardLink` path and the native `NtSetInformationFile(FileLinkInformation)` path must open the
-source file first, and a run with no access to it is refused there — measured on the VM, both fail
-and the person's file keeps its single name.
+name inside its granted workspace and then reach the file's data through that name. Measured on the
+VM through both the Win32 `CreateHardLink` path and the native
+`NtSetInformationFile(FileLinkInformation)` path, under an LPAC token and a plain AppContainer one:
+a link between two of the run's own files is made (the control); the person's file is refused at
+*opening the source*; the run's own file linked into a folder it wasn't granted opens but is refused
+at *creating the link*. The person's file keeps its single name.
 
 The grants are set on **open handles opened by walking the path one component at a time** — each
 opened relative to its parent's pinned handle and refused if it is a reparse point, so no component
@@ -170,7 +182,8 @@ folder is still found; an object counts as gone only when the id lookup reports 
 ambiguous stays pending), the profile is deleted, and the journal is removed **last**, so a crash
 between them keeps the bot gated. A revocation that can't be confirmed is kept pending, reported
 (not swallowed), and the **bot's next run is refused until it clears**; a corrupt or unreadable
-journal is itself a blocking error that gates every bot until a person clears it. Journal formats are
+journal is itself a blocking error that gates every bot until a person clears it, and so is an entry
+the journal folder fails to list (checked before any filtering, never skipped). Journal formats are
 **explicit** — a version field, with the legacy `{container, paths}` form accepted (and migrated
 forward) only when it carries `paths` and none of the new fields, and anything unparseable blocking
 rather than read as empty. Each journal is marked **active, incomplete-setup or incomplete-cleanup**;
@@ -179,7 +192,9 @@ failure to even enumerate the journals blocks too, except when the directory sim
 start the daemon recovers every run's pending revocations. Deleting a bot takes back every run's
 grants and deletes its profiles.
 
-**Network (the egress bridge).** An AppContainer with no capabilities has no DNS and can't open a
+**Network (the egress bridge).** Built and tested, but not used for a contained run today: since a
+networked run isn't contained on Windows yet (above), Spade doesn't launch one through it. An
+AppContainer with no capabilities has no DNS and can't open a
 loopback connection to a process outside the container, so it can't reach the proxy directly, and
 the per-container loopback *exemption* that would let it isn't port-scoped (it would open every
 local port). Instead each networked run gets a bridge: a tiny process inside the container (same
@@ -278,9 +293,18 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
   reviewed instead.
 - **Outside the sandbox** (`Runs::Outside`): the bot's `commands` setting is `outside`, the
   person allowed this call outside, or the machine has no sandbox. The command is classed by the
-  shell classifier and takes ADR 0163's route. The gate marks the call's key, and the shell runs
-  only marked calls unconfined; a setting that changes in between never moves an unreviewed call
-  outside.
+  shell classifier and takes ADR 0163's route.
+
+**The gate's decision travels to the launch.** For each call it lets run, the gate records an
+immutable launch token under the call's key: *outside* (sent outside the sandbox), *contained*
+(decided in the sandbox's light, whether it skipped review because the sandbox held it or was
+reviewed as a sandboxed command), or *reviewed* (reviewed or approved without relying on the
+sandbox). The shell takes the token instead of deciding again: a *contained* call launches only
+contained, and if the sandbox no longer holds it at launch (the person added a consented folder in
+between, say) it is refused — "The command wasn't run: it was cleared to run in Spade's sandbox, but
+the sandbox no longer holds it. Run it again and Spade will ask first." — never launched plainly; a
+call the gate didn't mark counts as *contained*. A setting that changes in between never moves an
+unreviewed call outside.
 - **Asking to run outside** (`outside_sandbox: true` on `shell`): a request with
   `ask: outside_sandbox`. Allow once runs that call outside; Always for this bot runs it and sets
   the bot's `commands` to `outside`; Deny declines it.
@@ -335,7 +359,7 @@ Under `/v1`, with the bearer token. Only the person's API writes any of this; no
 | `PUT /security/commands`                    | `{commands: sandboxed\|outside}`       | The machine's view; what bots without their own inherit                                                                                                                                                                                                                        |
 | `PUT /security/network`                     | `{mode, allow?, dropped?}`             | The machine's view; `400` as for a bot's                                                                                                                                                                                                                                       |
 | `PUT /security/plugin-network`              | `{mode, allow?, dropped?}`             | As above, for plugins                                                                                                                                                                                                                                                          |
-| `GET /agents/{id}/security`                 |                                        | `{contained, commands, network: Policy, plugin_network: Policy, own: {commands, network, plugin_network}, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}` (what holds, and whether each is the bot's own); `404` unknown bot |
+| `GET /agents/{id}/security`                 |                                        | `{contained, reason, commands, network: Policy, plugin_network: Policy, own: {commands, network, plugin_network}, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}` (what holds, and whether each is the bot's own; `contained` is this bot's, and `reason` the plain line when the machine has a sandbox but this bot's commands keep the review path, else `null`); `404` unknown bot |
 | `PUT /agents/{id}/security/commands`        | `{commands: sandboxed\|outside\|null}` | The bot's view; `null` follows the machine                                                                                                                                                                                                                                     |
 | `DELETE /agents/{id}/security/network`      |                                        | The bot's view, its commands following the machine's rule again (`/plugin-network` likewise)                                                                                                                                                                                   |
 | `PUT /agents/{id}/security/network`         | `{mode, allow?, dropped?}`             | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                                                                                |
