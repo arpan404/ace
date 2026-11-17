@@ -25,6 +25,7 @@ import { delegationEffort, selectedDelegationModel } from "./models.ts";
 import { AgentControlError } from "./failure.ts";
 import type { DelegationDependencies } from "./delegations.ts";
 import { matchAccountName, registeredAccounts } from "./account-names.ts";
+import { assertChecked, delegationCandidates } from "./account-checks.ts";
 
 /** A refused account: code `account_unavailable`, with the reason the agent may read. */
 function unavailable(reason: string): AgentControlError {
@@ -180,6 +181,9 @@ export function delegationSelection(
 ) {
   const provider = AccountProvider.safeParse(input.provider === "acp" ? undefined : input.provider);
   const accountId = namedAccountId(deps, input);
+  // A candidate still being checked is never passed over for another account.
+  if (deps.accounts)
+    assertChecked(deps.accounts, delegationCandidates(deps.accounts, input, accountId));
   const candidates = provider.success
     ? (deps.accounts
         ?.list()
