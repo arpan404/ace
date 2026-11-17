@@ -29,8 +29,8 @@ function run(env: Record<string, string>, args: string[], command = process.exec
   });
   let stdout = "";
   let stderr = "";
-  child.stdout.on("data", (bytes: Buffer) => (stdout += bytes.toString()));
-  child.stderr.on("data", (bytes: Buffer) => (stderr += bytes.toString()));
+  child.stdout?.on("data", (bytes: Buffer) => (stdout += bytes.toString()));
+  child.stderr?.on("data", (bytes: Buffer) => (stderr += bytes.toString()));
   child.stdin?.end();
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
     child.once("error", reject);
