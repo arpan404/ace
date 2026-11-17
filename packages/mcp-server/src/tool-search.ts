@@ -43,6 +43,7 @@ const familyWords: Readonly<Record<string, string>> = {
   "ace-threads": "thread conversation history",
   visualize: "visual chart diagram",
   "make-a-suit": "suit theme look appearance colour color style restyle",
+  "ace-market": "market marketplace publish listing entry draft install",
 };
 
 /** Each group's words stand in for one another. Stems, as `stem` returns them. */

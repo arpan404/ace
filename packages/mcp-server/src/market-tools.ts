@@ -21,6 +21,13 @@ import type { Toolkit } from "./toolkits.ts";
  * request ace opened in the thread. Spade reads their effects from `_meta` (ADR 0171).
  */
 
+/**
+ * The market tools' family. It has no guide: a client that loads its list upfront (core mode)
+ * leaves them out until `tools_find` finds them or `tools_call` reaches them, as most sessions
+ * never touch the market (mcp-agent-budget.process.test.ts).
+ */
+const marketFamily = "ace-market";
+
 /** The daemon's market, asked as the agent in `caller.threadId`. */
 export interface MarketToolPort {
   request(
@@ -145,8 +152,9 @@ export function marketToolkit(port: MarketToolPort): Toolkit {
         name: "market_read",
         title: "Read the market",
         description:
-          "Search ace's market, read an entry, a publisher, what's installed, your own entries (status, versions, signals, drafts), or check a folder before publishing.",
+          "Search ace's market; read an entry, a publisher, what's installed, your entries and drafts; check a folder before publishing.",
         input: ReadInput,
+        toolset: marketFamily,
         riskClass: "read-only",
         effect: "read",
         capability: null,
@@ -164,8 +172,9 @@ export function marketToolkit(port: MarketToolPort): Toolkit {
         name: "market_publish",
         title: "Publish to the market",
         description:
-          "Make, update and delete drafts, and publish one. Everything else (listing words, changelog, latest, deprecate, visibility, archive, appeal, withdraw, transfer, handle, delete, verification, install) is the person's: ace asks them in your thread.",
+          "Make, update and delete your drafts, and publish one. The other verbs are the person's: ace asks them in your thread.",
         input: PublishInput,
+        toolset: marketFamily,
         riskClass: "external-effect",
         openWorld: true,
         effect: "publish",
