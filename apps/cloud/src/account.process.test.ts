@@ -140,12 +140,21 @@ it("WorkOS revocation ends an ace session while WorkOS outages leave it retryabl
   expect((await read()).status).toBe(401);
 });
 
-it("concurrent session reads never spend the same WorkOS refresh token twice", async () => {
+it("a session in use is renewed, and concurrent reads never spend one WorkOS refresh token twice", async () => {
   const grant = await signedIn();
   const read = () => request("/v1/account/session", bearer(grant.token));
   const statuses = await Promise.all(Array.from({ length: 6 }, async () => (await read()).status));
   expect(statuses).toEqual([200, 200, 200, 200, 200, 200]);
-  expect((await read()).status).toBe(200);
+  // Days of use later, the session is about to run out; reading it renews it.
+  const soon = Date.now() + 60_000;
+  await worker.db.prepare("UPDATE sessions SET expires = ?").bind(soon).run();
+  const renewed = AceAccountSession.parse(await (await read()).json()).expiresAt;
+  expect(renewed).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60_000);
+  const stored = await worker.db
+    .prepare("SELECT COUNT(*) AS n FROM sessions WHERE expires = ?")
+    .bind(renewed)
+    .first<{ n: number }>();
+  expect(stored?.n).toBe(1);
 });
 
 it("a sign-in cancelled while WorkOS answers cannot create a usable ace session", async () => {

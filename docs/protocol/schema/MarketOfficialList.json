@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketOfficialList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accounts": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "format": {
+      "const": "ace-market-official",
+      "type": "string"
+    },
+    "issued": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "publisher": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+    }
+  },
+  "required": [
+    "format",
+    "issued",
+    "publisher",
+    "accounts",
+    "key"
+  ],
+  "type": "object"
+}

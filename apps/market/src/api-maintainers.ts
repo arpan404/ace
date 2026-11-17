@@ -39,7 +39,7 @@ import { markUsageDirty } from "./store/me-limits.ts";
 import { listReports, resolveReport } from "./store/reports.ts";
 
 /*
- * The signer's maintainer routes (ADR 0173 §9, §10, §13, §14): the queue, the scan context,
+ * The signer's maintainer routes (ADR 0174 §9, §10, §13, §14): the queue, the scan context,
  * holds, blocks, listing edits, publishers, collections, the blocklist, the verified and official
  * lists, reports and appeals. Behind the signer's token; every signed list is checked against
  * the market's public keys before it is stored.

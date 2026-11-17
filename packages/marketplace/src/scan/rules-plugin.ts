@@ -2,7 +2,7 @@ import type { EntryRule } from "./rule.ts";
 import type { ScanInput } from "./index.ts";
 
 /*
- * The `plugin` check's rules (ADR 0173 §8): a plugin's declared commands and hosts against what
+ * The `plugin` check's rules (ADR 0174 §8): a plugin's declared commands and hosts against what
  * its files hold and do. A server or hook may only run files the plugin carries or programs
  * already on the machine, never fetch and install code when it starts, and never run install
  * scripts.

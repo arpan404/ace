@@ -4,10 +4,9 @@ import {
   type DelegationPolicy,
   type DelegationRecord,
   type Event,
-  type QueueFacts,
   type ThreadId,
 } from "@ace/protocol";
-import { childStatus, queuedChildStatus } from "./child-status.ts";
+import { childStatus, queuedChildStatus, type QueuedFacts } from "./child-status.ts";
 import { controlCommandId } from "./command-id.ts";
 import type { DelegationDependencies } from "./delegations.ts";
 import { threadAccount } from "./failure-account.ts";
@@ -32,7 +31,7 @@ export interface ChildSyncPorts {
   now(): number;
   command(id: string, payload: CommandPayload): CommandResult;
   cancelDescendants(thread: ThreadId, request: string): void;
-  queueFacts(child: ThreadId): QueueFacts | undefined;
+  queueFacts(child: ThreadId): QueuedFacts | undefined;
   noticeSender(child: ThreadId, notice: DeliveryNotice): void;
   clearDeliveredNotice(child: ThreadId): void;
   reconcileConversation(thread: ThreadId): void;

@@ -11,6 +11,15 @@ interface Tracked {
 }
 export const statVersion = (stat: Stats) =>
   `${stat.dev}:${stat.ino}:${stat.mode}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+/**
+ * The version of a path known to be gone. It differs from unknown (`undefined`, a folder that
+ * didn't answer), so a path deleted while its folder was stuck is still noticed once it answers.
+ */
+const missing = "missing";
+const isMissing = (error: unknown) =>
+  error instanceof Error &&
+  "code" in error &&
+  (error.code === "ENOENT" || error.code === "ENOTDIR");
 /** A fixed ring prevents churn at the tail from starving earlier paths. No history scan. */
 export class FileRecovery {
   private readonly slots: (Tracked | undefined)[] = [];
@@ -37,9 +46,16 @@ export class FileRecovery {
   get checks(): number {
     return this.inspected;
   }
+  /** Track a path's version; without a stat it is unknown, and any answer counts as a change. */
   track(path: string, stat: Stats | undefined): void {
-    const current = this.indexes.get(path),
-      value = stat === undefined ? undefined : statVersion(stat);
+    this.set(path, stat === undefined ? undefined : statVersion(stat));
+  }
+  /** Track a path known to be gone; only its coming back counts as a change. */
+  trackMissing(path: string): void {
+    this.set(path, missing);
+  }
+  private set(path: string, value: string | undefined): void {
+    const current = this.indexes.get(path);
     if (current !== undefined) {
       const entry = this.slots[current];
       if (entry) entry.version = value;
@@ -70,10 +86,10 @@ export class FileRecovery {
         current = statVersion(
           await lstatCommandPath(this.laneOf(entry.path), entry.path, this.calls),
         );
-      } catch {
+      } catch (error) {
         // Cancelled: nothing was learned about this path.
         if (this.stopped) break;
-        current = undefined;
+        current = isMissing(error) ? missing : undefined;
       }
       if (current !== entry.version) {
         entry.version = current;

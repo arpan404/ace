@@ -1,4 +1,4 @@
--- ADR 0173 §16: fencing for listing pictures, and the quota reconcile in bounded pages.
+-- ADR 0174 §16: fencing for listing pictures, and the quota reconcile in bounded pages.
 
 -- Moves each time a picture's reservation is written or renewed (an upload, or a listing edit
 -- that names it). The sweep drops a row only while its generation is the one it read.

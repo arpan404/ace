@@ -12,6 +12,11 @@ export const cli = fileURLToPath(new URL("./cli-v2.mjs", import.meta.url));
 const owners: ReturnType<typeof createOpenCodeAdapter>[] = [];
 const startupPaths = new Set(["/api/info", "/openapi.json", "/api/event"]);
 const homes: string[] = [];
+/** The test closes this adapter itself, as when its server's stop is meant to fail. */
+export function ownClose(adapter: ReturnType<typeof createOpenCodeAdapter>): void {
+  const index = owners.indexOf(adapter);
+  if (index !== -1) owners.splice(index, 1);
+}
 export function deferred<T>() {
   return Promise.withResolvers<T>();
 }

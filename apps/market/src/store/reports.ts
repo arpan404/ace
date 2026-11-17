@@ -7,7 +7,7 @@ import type { z } from "zod";
 import type { Databases } from "./databases.ts";
 
 /*
- * Anonymous abuse reports (ADR 0173 §7), in the moderation database: the entry, the reason and
+ * Anonymous abuse reports (ADR 0174 §7), in the moderation database: the entry, the reason and
  * the words, and nothing about who sent them. An entry holds at most 500 open ones, counted in
  * the statement that files one.
  */

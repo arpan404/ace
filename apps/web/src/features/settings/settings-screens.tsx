@@ -17,6 +17,14 @@ const FleetMapPage = lazy(() => fleetViews().then((module) => ({ default: module
 const FleetMachinePage = lazy(() =>
   import("./fleet-machine-page.tsx").then((module) => ({ default: module.FleetMachinePage })),
 );
+const FleetMachineAppsPage = lazy(() =>
+  import("./fleet-machine-apps-page.tsx").then((module) => ({
+    default: module.FleetMachineAppsPage,
+  })),
+);
+const FleetAcrossPage = lazy(() =>
+  import("./fleet-across-page.tsx").then((module) => ({ default: module.FleetAcrossPage })),
+);
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { settingRow } from "./settings-index.ts";
 import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -168,6 +176,36 @@ export function FleetMachineScreen(props: { id: string }) {
       }
     >
       <FleetMachinePage id={props.id} />
+    </Suspense>
+  );
+}
+
+/** A machine's apps and webhooks, a page inside its own. */
+export function FleetMachineAppsScreen(props: { id: string }) {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Apps and webhooks">
+          <ListSkeleton label="apps" shape="row" rows={3} />
+        </SettingsBody>
+      }
+    >
+      <FleetMachineAppsPage id={props.id} />
+    </Suspense>
+  );
+}
+
+/** Settings › Fleet › Same for every machine. */
+export function FleetAcrossScreen() {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Same for every machine">
+          <ListSkeleton label="settings" shape="row" rows={3} />
+        </SettingsBody>
+      }
+    >
+      <FleetAcrossPage />
     </Suspense>
   );
 }

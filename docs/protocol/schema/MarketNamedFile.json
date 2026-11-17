@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketNamedFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "blurb": {
+      "maxLength": 300,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "description": {
+      "maxLength": 8192,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "name": {
+      "maxLength": 200,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    }
+  },
+  "type": "object"
+}

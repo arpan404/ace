@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus.ts";
 
 /*
- * Inert samples for the option-aware shell reader (ADR 0173 §8, fail closed). A "safe leaf" is
+ * Inert samples for the option-aware shell reader (ADR 0174 §8, fail closed). A "safe leaf" is
  * safe only with options known not to execute: `find -exec`, `sed 'e …'`, `awk 'system(…)'`,
  * `tar --to-command`, `git -c <exec key>=…` and an editor's startup command all run a command,
  * so the version is caught or held. Each sample is a short shell script written for these tests,

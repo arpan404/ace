@@ -3,6 +3,7 @@ import {
   softwareActionWords,
   updateNowConfirm,
   type SoftwareAction,
+  type SoftwareView,
 } from "@ace/ui-core";
 import { useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
@@ -11,8 +12,32 @@ import type { Machine } from "@/lib/machines.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { part } from "@/lib/suit-part.ts";
 
+/** Nothing to do but read the version: it sits in the page's header, not in a group of its own. */
+const quiet = (view: SoftwareView) =>
+  view.actions.every((action) => action === "check") && !view.progress && !view.note && !view.link;
+
 /**
- * A machine page's Software: what ace version it runs, the release on offer and the update's
+ * A machine's software for its page header: the version line while there's nothing else to say,
+ * and Check for updates when the machine allows it. Undefined while it has no facts yet.
+ */
+export function useSoftwareSummary(
+  machine: Machine,
+  fleet: Fleet,
+): { line?: string; check?: () => void } | undefined {
+  const facts = fleet.update.machines.find((entry) => entry.id === machine.id);
+  if (!facts) return undefined;
+  const view = machineSoftware(facts);
+  if (!quiet(view)) return {};
+  return {
+    line: view.line,
+    ...(view.actions.includes("check")
+      ? { check: () => void fleet.update.operation(machine.id, "check") }
+      : {}),
+  };
+}
+
+/**
+ * A machine page's Software, while there's an update, its progress or a note to show: what ace version it runs, the release on offer and the update's
  * progress, with Update when idle and Update now (asked first, naming the agents it stops).
  * A machine this window only reads shows the same words without the actions.
  */
@@ -24,6 +49,7 @@ export function MachineSoftware(props: { machine: Machine; fleet: Fleet }) {
   const [problem, setProblem] = useState("");
   if (!facts) return null;
   const view = machineSoftware(facts);
+  if (quiet(view)) return null;
   const version = facts.update?.available;
   const start = (mode: "idle" | "now") =>
     void update.update(machine.id, mode).then((words) => setProblem(words ?? ""));

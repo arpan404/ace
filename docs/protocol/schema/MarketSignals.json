@@ -1,0 +1,98 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketSignals.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "adoption": {
+      "additionalProperties": false,
+      "properties": {
+        "downloads": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "latest": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        },
+        "share": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "share",
+        "downloads"
+      ],
+      "type": "object"
+    },
+    "days": {
+      "items": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 90,
+      "type": "array"
+    },
+    "reports": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reason": {
+            "$ref": "https://ace.local/protocol/v1/MarketReportReason.json"
+          },
+          "state": {
+            "$ref": "https://ace.local/protocol/v1/MarketReportState.json"
+          }
+        },
+        "required": [
+          "reason",
+          "state",
+          "at"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "versions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "downloads": {
+            "items": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 90,
+            "type": "array"
+          },
+          "version": {
+            "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+          }
+        },
+        "required": [
+          "version",
+          "downloads"
+        ],
+        "type": "object"
+      },
+      "maxItems": 200,
+      "type": "array"
+    }
+  },
+  "required": [
+    "days",
+    "versions",
+    "adoption",
+    "reports"
+  ],
+  "type": "object"
+}

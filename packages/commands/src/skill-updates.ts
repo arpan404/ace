@@ -253,7 +253,9 @@ export class SkillUpdates {
   }
   private expire(): void {
     for (const [id, pending] of this.pending)
-      if (pending.expires <= this.options.now()) void this.cancel(id);
+      if (pending.expires <= this.options.now())
+        // A staged copy that cannot be removed now is swept by the next start's recovery.
+        this.cancel(id).catch(() => {});
   }
   /**
    * After a crash: drop this ace's staged reviews (first call only), then settle each apply it has

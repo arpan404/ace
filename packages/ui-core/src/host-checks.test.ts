@@ -112,3 +112,9 @@ test("safe mode names what it left off; a failing service is said to be retried"
   ).toBe("Relay isn't working; restart ace to try again.");
   expect(startupWords(undefined)).toBeNull();
 });
+
+test("a disk too full for new work says so and that it resumes on its own", () => {
+  expect(admissionWords({ holds: ["storage"], busy: 1, waiting: 0 }).line).toBe(
+    "The disk is full · new work resumes once space is freed",
+  );
+});

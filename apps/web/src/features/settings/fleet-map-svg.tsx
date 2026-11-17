@@ -1,13 +1,15 @@
-import type { KeyboardEvent } from "react";
+import { useId, type KeyboardEvent } from "react";
 import type { MapLayout, PlacedWire, Point } from "./data/fleet-map-layout.ts";
 import type { FleetMap, MapNode } from "@ace/ui-core/fleet-map";
-import { DeviceArt, RelayCloud, toneColor } from "./fleet-map-art.tsx";
+import { DeviceArt, RelayCloud, tileHalf, toneColor } from "./fleet-map-art.tsx";
 import { part } from "@/lib/suit-part.ts";
 
 /*
- * The Fleet map as SVG, from its facts and layout: zones, the relay cloud, the wires with their
- * labels (a broken one crossed out), agent links when asked for, and every node as artwork with
- * its state dot, name and status. A node is a button: click, Enter or Space selects it.
+ * The Fleet map as SVG, from its facts and layout, on a dotted canvas: the networks as soft
+ * regions named inside, ace's relay as a region of its own, the wires as soft curves in their
+ * route's style, agent links when asked for, and every node as a tile with its state dot, name and
+ * status. A route is named once, by its region; why a node is broken is said once, under it. A
+ * node is a button: click, Enter or Space selects it.
  */
 
 /** Faded, for what's fine while only problems are shown. */
@@ -23,10 +25,18 @@ function toward(from: Point, to: Point, length: number): Point {
   };
 }
 
-/** A path through `points` with its corners rounded. */
+/**
+ * A path through `points` with its corners rounded. A wire of one straight run is drawn as an S
+ * curve that leaves and arrives along the map's flow, top to bottom.
+ */
 function pathOf(points: readonly Point[], radius = 10): string {
   const [first, ...rest] = points;
   if (!first) return "";
+  const [last] = rest;
+  if (rest.length === 1 && last && Math.abs(last.y - first.y) > 1) {
+    const middle = (first.y + last.y) / 2;
+    return `M${first.x} ${first.y} C${first.x} ${middle} ${last.x} ${middle} ${last.x} ${last.y}`;
+  }
   let d = `M${first.x} ${first.y}`;
   for (const [index, point] of rest.entries()) {
     const next = rest[index + 1];
@@ -54,13 +64,17 @@ const wireStroke: Record<PlacedWire["kind"], string> = {
   broken: "var(--status-failed)",
 };
 
-/** Words drawn over lines: a halo in the background colour keeps them readable. */
-const halo = {
-  paintOrder: "stroke",
-  stroke: "var(--background)",
-  strokeWidth: 5,
-  strokeLinejoin: "round",
-} as const;
+/** Words drawn over lines: a halo in the surface's colour keeps them readable. */
+const halo = (surface: string) =>
+  ({
+    paintOrder: "stroke",
+    stroke: surface,
+    strokeWidth: 5,
+    strokeLinejoin: "round",
+  }) as const;
+
+/** How far a wire's bends round off: wide enough to read as a curve. */
+const bend = 28;
 
 function Wire(props: { wire: PlacedWire; faded: boolean }) {
   const { wire } = props;
@@ -75,39 +89,25 @@ function Wire(props: { wire: PlacedWire; faded: boolean }) {
   return (
     <g data-wire={wire.node} opacity={props.faded ? fadedWire : undefined}>
       <path
-        d={pathOf(wire.points)}
+        d={pathOf(wire.points, bend)}
         fill="none"
         stroke={wireStroke[wire.kind]}
-        strokeWidth={1.8}
+        strokeOpacity={issue(wire.kind) ? 1 : 0.6}
+        strokeWidth={1.5}
         strokeDasharray={dash}
         strokeLinejoin="round"
       />
-      {!props.faded && wire.kind === "broken" && (
-        <g transform={`translate(${wire.mark.x} ${wire.mark.y})`} aria-hidden>
-          <circle r={9} fill="var(--background)" stroke="var(--status-failed)" strokeWidth={1.5} />
-          <path
-            d="M-4 -4 L4 4 M4 -4 L-4 4"
-            stroke="var(--status-failed)"
-            strokeWidth={2.4}
-            strokeLinecap="round"
-          />
-        </g>
-      )}
-      {!props.faded && wire.label && (
-        <text
-          {...halo}
-          x={wire.labelAt.x + (wire.kind === "broken" && wire.labelAt.anchor === "start" ? 6 : 0)}
-          y={wire.labelAt.y - (wire.kind === "broken" && wire.labelAt.anchor === "middle" ? 4 : 0)}
-          textAnchor={wire.labelAt.anchor}
-          fontSize={12.5}
-          fill={issue(wire.kind) ? wireStroke[wire.kind] : "var(--muted-foreground)"}
-        >
-          {wire.label}
-        </text>
-      )}
     </g>
   );
 }
+
+/** A node's status in its state's ink: working, a problem, else secondary. */
+const statusInk = (node: MapNode) =>
+  node.working
+    ? "var(--status-working)"
+    : node.tone === "bad" || node.tone === "warn"
+      ? toneColor[node.tone]
+      : "var(--muted-foreground)";
 
 const clip = (text: string, length: number) =>
   text.length > length ? `${text.slice(0, length - 1)}…` : text;
@@ -117,6 +117,8 @@ function Node(props: {
   at: Point;
   selected: boolean;
   faded: boolean;
+  /** What it's drawn on: a network's region or the canvas. */
+  surface: string;
   onSelect(id: string): void;
 }) {
   const { node, at } = props;
@@ -142,40 +144,41 @@ function Node(props: {
     >
       <rect x={-60} y={-34} width={120} height={92} fill="transparent" />
       <rect
-        x={-32}
-        y={-30}
-        width={64}
-        height={54}
-        rx={10}
+        x={-tileHalf - 4}
+        y={-tileHalf - 4}
+        width={(tileHalf + 4) * 2}
+        height={(tileHalf + 4) * 2}
+        rx={16}
         fill="none"
         strokeWidth={1.5}
-        strokeDasharray="3 3"
         stroke={props.selected ? "var(--foreground)" : "transparent"}
-        className="group-hover:stroke-foreground group-focus-visible:stroke-ring"
+        className="group-hover:stroke-border-strong group-focus-visible:stroke-ring"
       />
       <DeviceArt art={node.art} quiet={quiet} />
       <circle
-        cx={22}
-        cy={-22}
-        r={5.5}
+        cx={tileHalf - 3}
+        cy={-tileHalf + 3}
+        r={5}
         fill={toneColor[node.tone]}
         stroke="var(--background)"
-        strokeWidth={2}
+        strokeWidth={2.5}
       />
       <text
+        {...halo(props.surface)}
         y={40}
         textAnchor="middle"
-        fontSize={13.5}
+        fontSize={13}
         fontWeight={500}
         fill={quiet ? "var(--muted-foreground)" : "var(--foreground)"}
       >
         {clip(node.name, 18)}
       </text>
       <text
+        {...halo(props.surface)}
         y={56}
         textAnchor="middle"
         fontSize={12}
-        fill={node.working ? "var(--status-working)" : "var(--muted-foreground)"}
+        fill={statusInk(node)}
       >
         {clip(node.status, 22)}
       </text>
@@ -198,6 +201,7 @@ export function FleetMapSvg(props: {
   const fadedNode = (node: MapNode) =>
     props.problemsOnly && !node.problem && node.id !== props.ownId;
   const at = new Map(layout.nodes.map((node) => [node.id, node]));
+  const dots = `fleet-map-dots-${useId().replace(/:/g, "")}`;
   return (
     <svg
       role="group"
@@ -208,6 +212,12 @@ export function FleetMapSvg(props: {
       height={(props.width / layout.width) * layout.height}
       className="block"
     >
+      <defs>
+        <pattern id={dots} width={16} height={16} patternUnits="userSpaceOnUse">
+          <circle cx={1} cy={1} r={1} fill="var(--border-strong)" />
+        </pattern>
+      </defs>
+      <rect width={layout.width} height={layout.height} rx={12} fill={`url(#${dots})`} />
       {layout.zones.map((zone) => (
         <rect
           key={zone.id}
@@ -215,11 +225,9 @@ export function FleetMapSvg(props: {
           y={zone.box.y}
           width={zone.box.width}
           height={zone.box.height}
-          rx={18}
-          fill="none"
-          stroke="var(--border-strong)"
-          strokeWidth={1.5}
-          strokeDasharray="6 5"
+          rx={20}
+          fill="var(--card)"
+          stroke="var(--border)"
         />
       ))}
       {layout.cloud && map.relay && (
@@ -246,11 +254,11 @@ export function FleetMapSvg(props: {
           facts && (
             <text
               key={zone.id}
-              {...halo}
-              x={zone.label.x}
-              y={zone.label.y}
+              {...halo("var(--card)")}
+              x={zone.label.anchor === "start" ? zone.box.x + 16 : zone.box.x + zone.box.width - 16}
+              y={zone.box.y + 22}
               textAnchor={zone.label.anchor}
-              fontSize={13}
+              fontSize={12.5}
               fontWeight={500}
               fill="var(--muted-foreground)"
             >
@@ -274,6 +282,7 @@ export function FleetMapSvg(props: {
               at={point}
               selected={props.selected === node.id}
               faded={fadedNode(node)}
+              surface={node.zones.length > 0 ? "var(--card)" : "var(--background)"}
               onSelect={props.onSelect}
             />
           )

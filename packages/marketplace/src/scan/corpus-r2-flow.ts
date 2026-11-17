@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus-malicious.ts";
 
 /*
- * Data-flow samples for the round-2 review (ADR 0173 §8): a sensitive value reaching the network
+ * Data-flow samples for the round-2 review (ADR 0174 §8): a sensitive value reaching the network
  * across lines, which a one-line regex misses. Every sample is inert, every host is under the
  * reserved `.invalid` domain, and nothing is ever run. Each says what the scanner must do: block
  * (the whole environment, a credential file, the home folder or a keychain reaches the network),

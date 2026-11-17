@@ -28,6 +28,63 @@ export function sqliteStorageFailure(error: unknown): string | undefined {
   return undefined;
 }
 
+/** Bytes this user may still write on the volume holding `path`; null when unreadable. */
+export function freeBytesOf(path: string, diskSpace: DiskSpace = systemDiskSpace): number | null {
+  try {
+    const volume = diskSpace(path);
+    return Number(BigInt(volume.bavail) * BigInt(volume.bsize));
+  } catch {
+    return null;
+  }
+}
+
+const fullErrnos = new Set(["ENOSPC", "EDQUOT"]);
+
+/**
+ * Whether an error means the disk (or the person's quota) has no room: SQLITE_FULL, ENOSPC or
+ * EDQUOT anywhere in its cause chain. Such a failure is the volume's, not the data's: the same
+ * write succeeds once space is freed.
+ */
+export function isDiskFull(error: unknown): boolean {
+  if (sqliteStorageFailure(error) === "SQLITE_FULL") return true;
+  for (let cause = error, depth = 0; cause instanceof Error && depth < 5; depth++) {
+    const code: unknown = Reflect.get(cause, "code");
+    if (typeof code === "string" && fullErrnos.has(code)) return true;
+    cause = cause.cause;
+  }
+  return false;
+}
+
+/** A store ace can't open because the disk holding ACE_HOME has no room left at all. */
+export class DiskFullAtStartError extends Error {
+  override name = "DiskFullAtStartError";
+}
+
+/**
+ * Opens a store at startup. A disk with no free block at all keeps SQLite from making the files a
+ * WAL database needs, so it can't be opened, even to read (ADR 0176). That failure is said as
+ * what it is, with the free space, instead of "unable to open database file".
+ */
+export function openAtStart<T>(
+  open: () => T,
+  home: string,
+  diskSpace: DiskSpace = systemDiskSpace,
+  roomBelow = 256 * 1024 * 1024,
+): T {
+  try {
+    return open();
+  } catch (error) {
+    const free = freeBytesOf(home, diskSpace);
+    if (sqliteStorageFailure(error) === undefined || free === null || free >= roomBelow)
+      throw error;
+    throw new DiskFullAtStartError(
+      `The disk holding ${home} is full (${free} bytes free): ace can't open its data until ` +
+        "space is freed there.",
+      { cause: error },
+    );
+  }
+}
+
 /**
  * Log fields for a storage failure the user can act on: the SQLite code and the free bytes
  * on the volume holding ACE_HOME (null when the volume cannot be read either). Undefined
@@ -40,16 +97,9 @@ export function sqliteFailureDetails(
 ): (readonly [string, unknown])[] | undefined {
   const code = sqliteStorageFailure(error);
   if (code === undefined) return undefined;
-  let freeBytes: number | null = null;
-  try {
-    const volume = diskSpace(home);
-    freeBytes = Number(BigInt(volume.bavail) * BigInt(volume.bsize));
-  } catch {
-    freeBytes = null;
-  }
   return [
     ["sqlite", code],
-    ["freeBytes", freeBytes],
+    ["freeBytes", freeBytesOf(home, diskSpace)],
     ["dataDir", home],
   ];
 }

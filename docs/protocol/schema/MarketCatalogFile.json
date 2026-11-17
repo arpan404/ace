@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketCatalogFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "default": [],
+      "items": {},
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 64,
+      "type": "string",
+      "x-ace-constraint": "A value that doesn't parse is read as its default."
+    },
+    "plugins": {
+      "default": [],
+      "items": {},
+      "maxItems": 256,
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

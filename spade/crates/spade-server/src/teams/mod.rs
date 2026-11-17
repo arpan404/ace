@@ -7,6 +7,7 @@
 mod portable;
 pub mod proof;
 mod recipe;
+mod recipe_export;
 mod remote;
 mod templates;
 mod tools;
@@ -20,6 +21,7 @@ pub use portable::{
     BotFile, Imported, PortableError, duplicate, export, from_template, import, template_model,
 };
 pub use recipe::{Recipe, RecipeGrants, RecipeInput, RecipeRoutine, from_recipe};
+pub use recipe_export::{ExportedRecipe, RecipeSources, export_recipe};
 pub use remote::{BoxFuture, Machine, Remote, RemoteError, answer_from, machines_from};
 pub use templates::{Template, TemplateRoutine, templates};
 pub use tools::with_tools;

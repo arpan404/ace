@@ -17,7 +17,7 @@ import { ProfileHead } from "./market-publisher.tsx";
 import { Stage } from "./market-stage.tsx";
 
 /*
- * Your marketplace profile (ADR 0173 §4): your head with Edit profile and Publish something, then
+ * Your marketplace profile (ADR 0174 §4): your head with Edit profile and Publish something, then
  * each thing you published with every version's state (live, waiting for review, not reviewed,
  * withdrawn, blocked), and your drafts. Signed out, it says to sign in; signed in without a
  * profile, it makes one.

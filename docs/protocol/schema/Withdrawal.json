@@ -1,0 +1,76 @@
+{
+  "$id": "https://ace.local/protocol/v1/Withdrawal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "const": "version",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "scope",
+        "type",
+        "name",
+        "version",
+        "hash",
+        "reason",
+        "at"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        "scope": {
+          "const": "hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "hash",
+        "reason",
+        "at"
+      ],
+      "type": "object"
+    }
+  ]
+}

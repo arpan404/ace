@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewMark.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "byAce": {
+      "type": "boolean"
+    },
+    "format": {
+      "const": "ace-market-review",
+      "type": "string"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/MarketKeyId.json"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "reviewed": {
+      "type": "boolean"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    }
+  },
+  "required": [
+    "format",
+    "type",
+    "name",
+    "hash",
+    "reviewed",
+    "byAce",
+    "at",
+    "key"
+  ],
+  "type": "object"
+}
