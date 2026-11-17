@@ -237,6 +237,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const engine = new Engine(store, {
     ...(config.providerIdleMs === undefined ? {} : { idleMs: config.providerIdleMs }),
     ...acp,
+    agentHome: config.dataDir,
     ...engineOptions,
     registry,
     waitForProvider:

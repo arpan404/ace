@@ -11,6 +11,7 @@ import {
 import { DeviceId } from "@ace/protocol";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { WebSocket } from "ws";
 import { cliStorage } from "./storage.ts";
@@ -37,6 +38,51 @@ export function hostConnection(home: string) {
     origin: readFileSync(join(home, "daemon-endpoint"), "utf8"),
     token: readFileSync(join(home, "daemon-token"), "utf8"),
   });
+}
+/** How long a local daemon has to accept a TCP connection before it counts as down. */
+const probeMs = 1_000;
+
+export type Probe = (host: string, port: number, ms: number) => Promise<boolean>;
+
+/** Whether something accepts a TCP connection on `host:port` within `ms`. */
+export const tcpProbe: Probe = (host, port, ms) =>
+  new Promise((resolve) => {
+    const socket = connect({ host, port });
+    const done = (up: boolean) => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(up);
+    };
+    const timer = setTimeout(() => done(false), ms);
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+
+/** "ace isn't running.", code `daemon_down`, exit 4 (ADR 0176 §4). */
+export function daemonDown(): CliFailure {
+  return new CliFailure("refused", "ace isn't running.", undefined, {
+    code: "daemon_down",
+    hint: "Start it with ace start, or open the app.",
+  });
+}
+
+/**
+ * This machine's daemon, or `daemonDown` at once: no endpoint file, a file a stopped daemon
+ * left behind, or nothing listening there. Never a file error and never a 15-second wait.
+ */
+export async function reachLocalDaemon(
+  home: string,
+  probe: Probe = tcpProbe,
+): Promise<{ origin: string; token: string }> {
+  let connection: { origin: string; token: string };
+  try {
+    connection = hostConnection(home);
+  } catch {
+    throw daemonDown();
+  }
+  const url = new URL(connection.origin);
+  if (!(await probe(url.hostname, Number(url.port || 80), probeMs))) throw daemonDown();
+  return connection;
 }
 export function waitSelection<T>(
   selection: Selection<T>,
@@ -98,7 +144,7 @@ export function connectChat(home: string, args: Args) {
 }
 async function connectWithLifetime(home: string, args: Args, duration: number | undefined) {
   const profile = selectedProfile(home, option(args, "remote"));
-  const connection = profile ? undefined : hostConnection(home);
+  const connection = profile ? undefined : await reachLocalDaemon(home);
   const persistence = cliStorage(profile ? join(home, "cli-remotes", profile.id) : home);
   const lifetime = new AbortController();
   const interrupt = () =>

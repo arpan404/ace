@@ -94,6 +94,8 @@ export interface CommandSpec {
 export interface NounSpec {
   readonly name: string;
   readonly summary: string;
+  /** Guidance printed under the noun's verbs in `ace NOUN --help`. */
+  readonly description?: string;
   readonly group: CommandGroup;
   readonly hidden?: boolean;
 }

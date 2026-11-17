@@ -185,6 +185,7 @@ export class Engine {
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
+      ...(options.agentHome ? { agentHome: options.agentHome } : {}),
       repo: this.repo,
       ...(options.onSessionOpenFailure ? { openFailed: options.onSessionOpenFailure } : {}),
       ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),

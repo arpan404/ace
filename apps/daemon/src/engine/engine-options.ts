@@ -44,6 +44,8 @@ export interface EngineOptions {
   prepareWorkspace?(threadId: ThreadId, options: { runCommands: boolean }): Promise<string>;
   assertWorkspaceAvailable?(cwd: string, threadId: ThreadId): Promise<void>;
   machine?: { host: string; name: string };
+  /** The daemon's data dir, given to agent sessions as `ACE_HOME` (ADR 0176 §10). */
+  agentHome?: string;
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
   threadId?: () => string;

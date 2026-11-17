@@ -470,6 +470,22 @@ variables (Codex's `shell_environment_policy`, Claude Code's Bash tool, Cursor, 
 Antigravity) before the CLI relies on them; where one doesn't, the agent passes `--thread` and
 `--no-input` as today.
 
+What the build found (2026-11-17). The daemon hands each session its variables as
+`SessionContext.agentEnv`, never as part of a shared process's environment or pool key:
+
+- **Claude Code, Pi, ACP agents (Antigravity, Gemini):** one process per session, so the
+  variables go into its environment and the shell tool inherits them. Claude Code's Bash and Pi's
+  bash inherit the process environment; Antigravity's shell is believed to, not yet checked on a
+  real run.
+- **Codex:** one app-server serves many threads, so its environment can't name a thread. Each
+  thread's `thread/start|resume|fork` carries `shell_environment_policy.set.<NAME>` overrides, one
+  dotted key per variable, so the person's own `set` entries stay.
+- **Cursor:** the SDK host is started per session with them; that the SDK's local shell keeps the
+  host's environment is not yet checked on a real run.
+- **OpenCode:** not given them. ace pre-starts a spare server per account so a session opens
+  quickly, and that server's environment is fixed before the thread exists. OpenCode agents pass
+  `--thread` and `--no-input`.
+
 `ace help agents` is the page for them: use `--json` to parse and human text to read (it is
 shorter and costs fewer tokens), check the exit code before the output, retry uncertain mutations
 with the same `--idempotency-key`, and treat exit 2 as "hand back to the person". The built-in
@@ -758,6 +774,8 @@ does.
 5. **`ace chat` stays** as the shortcut for `ace thread attach`.
 6. **Deprecation:** an old spelling prints a notice for two minor releases after its replacement
    ships, then is a usage error naming the new command for one release, then is removed. While ace
-   is versioned `0.0.N`, each release counts as a minor release. The machine entry points of §8
-   never retire.
+   is versioned `0.0.N`, each release counts as a minor release. The new grammar ships in 0.0.24,
+   so its old spellings print a notice through 0.0.26 (on a terminal only), are a usage error in
+   0.0.27 and are gone from 0.0.28 (`apps/daemon/src/cli/deprecation.ts`). The machine entry points
+   of §8 never retire.
 7. **Maintainer tools live under the hidden `ace market maintainer …`** in the same binary.

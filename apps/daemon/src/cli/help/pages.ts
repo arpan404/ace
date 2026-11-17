@@ -72,6 +72,7 @@ export function nounPage(table: CommandTable, words: readonly string[]): string 
       .map((alias) => `ace ${alias.words.join(" ")} is ace ${command.words.join(" ")}`),
   );
   if (short.length) lines.push("", `Shortcuts: ${short.join("; ")}.`);
+  if (noun?.description) lines.push("", noun.description);
   if (prefix === "market") lines.push("", "Maintainer tools: ace help market-maintainer");
   lines.push("", `ace help ${prefix} COMMAND for one command.`);
   return lines.join("\n");
@@ -89,7 +90,7 @@ export function usageLine(command: CommandSpec): string {
 /** One command: usage, what it does, arguments, flags, examples, exit codes, other names. */
 export function commandPage(command: CommandSpec): string {
   const lines = [usageLine(command), "", sentence(command.summary)];
-  if (command.description) lines.push(...wrap(command.description, 78));
+  if (command.description) lines.push(...paragraphs(command.description));
   const args = command.args ?? [];
   if (args.length)
     lines.push(
@@ -173,6 +174,11 @@ export function columns(rows: readonly (readonly string[])[], indent: number): s
 
 function sentence(text: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+/** Prose is wrapped; a line that starts with spaces (a table of forms) is kept as written. */
+function paragraphs(text: string): string[] {
+  return text.split("\n").flatMap((line) => (/^\s/.test(line) || !line ? [line] : wrap(line, 78)));
 }
 
 function wrap(text: string, width: number): string[] {

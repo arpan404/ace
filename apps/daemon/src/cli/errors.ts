@@ -47,6 +47,15 @@ export function toCliError(error: unknown, command?: string): CliError {
       ...(error.evidence !== undefined ? { admission: error.evidence } : {}),
     };
   }
+  const exists = existingPath(error);
+  if (exists !== undefined)
+    return {
+      ...base,
+      status: "refused",
+      code: "conflict",
+      error: `${exists || "That file"} already exists, and ace doesn't overwrite it.`,
+      hint: "Pass a path that doesn't exist yet.",
+    };
   if (isDaemonDown(error))
     return { ...base, status: "refused", code: "daemon_down", ...daemonDown };
   const client = clientErrorCode(error);
@@ -107,6 +116,13 @@ function clientErrorCode(error: unknown): string | undefined {
   if (!(error instanceof Error) || error.name !== "ClientError") return undefined;
   const code = Reflect.get(error, "code");
   return typeof code === "string" ? code : undefined;
+}
+
+/** A write that refused to replace a file: the path, or "" when the error doesn't say. */
+function existingPath(error: unknown): string | undefined {
+  if (!(error instanceof Error) || Reflect.get(error, "code") !== "EEXIST") return undefined;
+  const path = Reflect.get(error, "path");
+  return typeof path === "string" ? path : "";
 }
 
 /** No endpoint file, or nothing listening on it: the daemon isn't up. */
