@@ -100,6 +100,9 @@ struct ConversationFeed: View {
             if growth.keepsEnd { growth.leftEnd() }
         }
     }
+    /// Size changes keep the bottom still: from the first render of a feed following the end,
+    /// before `appeared` has run, and then while the opening's hold lasts.
+    private var holdsEnd: Bool { growth.keepsEnd || (!rowsPainted && following) }
     /// The reader moved the feed or changed what it holds: size changes keep the top again.
     private func readerMovedFeed() {
         if growth.keepsEnd { growth.readerMoved() }
@@ -218,7 +221,7 @@ struct ConversationFeed: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         // Rows measuring above the screen don't move it while a thread opens at its end
         // (`TranscriptGrowthAnchor`).
-        .defaultScrollAnchor(growth.keepsEnd ? .bottom : nil, for: .sizeChanges)
+        .defaultScrollAnchor(holdsEnd ? .bottom : nil, for: .sizeChanges)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.bottom, for: .alignment)
         .background(AceTheme.Colours.background)
