@@ -57,8 +57,12 @@ export class FileIndex {
   private readonly references = new Map<string, number>();
   private readonly jobs = new Map<string, Job>();
   private readonly scans = new Map<string, Scan>();
-  /** Paths whose diagnostic says their folder stopped responding, cleared once it answers. */
-  private readonly unanswered = new Set<string>();
+  /**
+   * Paths whose calls failed without an answer, retried by the recovery loop until their folder
+   * answers. The recovery ring alone can't do it: a path that is gone reads as unknown too.
+   * `reported` marks a diagnostic of ours, cleared once the folder answers.
+   */
+  private readonly unanswered = new Map<string, { job: Job; reported: boolean }>();
   private readonly watch: (root: RegisteredRoot, path: string) => void;
   private readonly unwatch: (root: RegisteredRoot, path: string) => void;
   private readonly missing: (root: RegisteredRoot) => Promise<void>;
@@ -132,7 +136,6 @@ export class FileIndex {
     const id = this.sources.get(slot);
     if (id) this.removeSource(id);
     this.sources.delete(slot);
-    this.unanswered.delete(slot);
   }
   private async stopScan(slot: string): Promise<void> {
     const scan = this.scans.get(slot);
@@ -162,6 +165,7 @@ export class FileIndex {
     const slot = key(job.root, job.path),
       node = this.nodes.get(slot);
     await this.stopScan(slot);
+    this.unanswered.delete(slot);
     const child = node?.children?.keys().next().value;
     if (child !== undefined) {
       node?.children?.delete(child);
@@ -189,7 +193,8 @@ export class FileIndex {
       slot = key(root, path);
     this.counters.metadataChecks++;
     const stat = await this.io.stat(root, path);
-    if (this.unanswered.has(slot)) this.clearSource(slot);
+    if (this.unanswered.get(slot)?.reported) this.clearSource(slot);
+    this.unanswered.delete(slot);
     if (!stat) {
       if (path === root.path) {
         this.recovery.track(path, undefined);
@@ -248,9 +253,7 @@ export class FileIndex {
         });
         this.queue({ ...job, kind: "scan" });
       } catch {
-        node.version = "";
-        this.recovery.track(path, undefined);
-        this.report(root, path, "Cannot scan commands directory");
+        this.unavailable(job, "Cannot scan commands directory");
       }
       return;
     }
@@ -305,6 +308,8 @@ export class FileIndex {
       }
       this.sources.set(slot, id);
     } catch {
+      // Closing cancels calls in flight; the cached definitions stay as they are.
+      if (this.stopped) return;
       const node = this.nodes.get(slot);
       if (node) node.version = "";
       this.recovery.track(path, undefined);
@@ -353,13 +358,9 @@ export class FileIndex {
       this.queue(job);
     } catch (error) {
       await this.stopScan(slot);
-      this.report(
-        job.root,
-        job.path,
-        error instanceof DirectoryListingTruncated
-          ? "Directory entry limit exceeded"
-          : "Cannot scan commands directory",
-      );
+      if (error instanceof DirectoryListingTruncated)
+        this.report(job.root, job.path, "Directory entry limit exceeded");
+      else this.unavailable(job, "Cannot scan commands directory");
     }
   }
   /** Discovery stops advancing at once; queued work is dropped and nothing new starts. */
@@ -378,23 +379,45 @@ export class FileIndex {
         else if (job.kind === "remove" || job.kind === "replace") await this.remove(job);
         else await this.scan(job);
       } catch {
-        this.failed(job);
+        this.unavailable(job, "Command folder stopped responding");
       }
     }
     return this.pending;
   }
   /**
    * A call that failed without an answer, such as one into a folder that stopped responding,
-   * costs only its own path. Discovery goes on with the rest, and the path is tracked with an
-   * unknown version, so the recovery loop queues it again once the folder answers.
+   * costs only its own path. Discovery goes on with the rest; the path is retried from
+   * `retryUnanswered` and, through an unknown version, the recovery ring, until it answers.
    */
-  private failed(job: Job): void {
-    const node = this.nodes.get(key(job.root, job.path));
+  private unavailable(job: Job, message: string): void {
+    // Closing cancels calls in flight; that is no news about the folder.
+    if (this.stopped) return;
+    const slot = key(job.root, job.path);
+    const node = this.nodes.get(slot);
     if (node) node.version = "";
     this.recovery.track(job.path, undefined);
-    if (job.kind === "remove" || job.kind === "replace") return;
-    this.report(job.root, job.path, "Command folder stopped responding");
-    this.unanswered.add(key(job.root, job.path));
+    const known = this.unanswered.get(slot);
+    if (!known && this.unanswered.size >= 256) return;
+    let reported = known?.reported ?? false;
+    // A removal that failed retries quietly; anything else says why its commands are missing.
+    if (job.kind === "inspect" || job.kind === "scan") {
+      this.report(job.root, job.path, message);
+      reported ||= this.sources.has(slot);
+    }
+    this.unanswered.set(slot, {
+      job: { ...job, kind: job.kind === "scan" ? "inspect" : job.kind },
+      reported,
+    });
+  }
+  /** Queue up to `limit` paths still waiting on an answer, oldest first, for one more try. */
+  retryUnanswered(limit = 32): void {
+    const due = [...this.unanswered].slice(0, limit);
+    for (const [slot, entry] of due) {
+      // To the back, so a folder that never answers can't starve the others.
+      this.unanswered.delete(slot);
+      this.unanswered.set(slot, entry);
+      this.queue(entry.job);
+    }
   }
   clear(): void {
     for (const source of this.sources.values()) this.removeSource(source);

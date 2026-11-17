@@ -247,15 +247,36 @@ async function stallingFolder() {
   await writeFile(join(root, "fine.md"), "Fine body");
   await writeFile(join(stuck, "later.md"), "Later body");
   const real = new SecureCommandIo();
-  const state = { stalled: true };
+  // stalled: stats under the folder fail at once. hanging: they wait until cancelled.
+  // unlistable: listing the folder fails partway, as a read on a dying mount does.
+  const state = { stalled: true, hanging: false, unlistable: false };
+  const hung = Promise.withResolvers<void>();
+  const cancelled = Promise.withResolvers<never>();
+  cancelled.promise.catch(() => {});
+  const unavailable = () =>
+    new CommandFilesystemUnavailable("Command folder is still not responding");
   const io: CommandFileIo = {
-    stat: (r, p) =>
-      state.stalled && p.startsWith(stuck)
-        ? Promise.reject(new CommandFilesystemUnavailable("Command folder is still not responding"))
-        : real.stat(r, p),
+    stat(r, p) {
+      if (!p.startsWith(stuck)) return real.stat(r, p);
+      if (state.hanging) {
+        hung.resolve();
+        return cancelled.promise;
+      }
+      return state.stalled ? Promise.reject(unavailable()) : real.stat(r, p);
+    },
     read: (r, p) => real.read(r, p),
-    directory: (r, p) => real.directory(r, p),
-    cancel: () => real.cancel(),
+    async directory(r, p) {
+      const reader = await real.directory(r, p);
+      if (p !== stuck) return reader;
+      return {
+        read: () => (state.unlistable ? Promise.reject(unavailable()) : reader.read()),
+        close: () => reader.close(),
+      };
+    },
+    cancel() {
+      cancelled.reject(unavailable());
+      real.cancel();
+    },
     close: () => real.close(),
   };
   const catalog = new CommandCatalog(() => 0);
@@ -276,21 +297,28 @@ async function stallingFolder() {
       .commands.map((c) => c.name)
       .filter((name) => name === "fine" || name === "stuck:later")
       .toSorted();
-  const unanswered = () =>
+  const diagnostics = () =>
     catalog
       .list(target, "", 100)
-      .diagnostics.filter((d) => d.message === "Command folder stopped responding");
-  return { files, stuck, state, recoveries, names, unanswered };
+      .diagnostics.map((d) => d.message)
+      .filter(
+        (m) => m === "Command folder stopped responding" || m === "Cannot scan commands directory",
+      );
+  const unanswered = () => diagnostics().filter((m) => m === "Command folder stopped responding");
+  const recover = async () => {
+    for (let i = 0; i < 4; i++) await recoveries[0]?.();
+  };
+  return { files, stuck, state, hung, recover, names, diagnostics, unanswered };
 }
 
 it("a folder that stops answering costs only its own commands, which return once it answers", async () => {
-  const { files, state, recoveries, names, unanswered } = await stallingFolder();
+  const { files, state, recover, names, unanswered } = await stallingFolder();
   await files.start();
   expect(names()).toEqual(["fine"]);
   expect(unanswered()).toHaveLength(1);
 
   state.stalled = false;
-  for (let i = 0; i < 3 && names().length < 2; i++) await recoveries[0]?.();
+  await recover();
   expect(names()).toEqual(["fine", "stuck:later"]);
   expect(unanswered()).toHaveLength(0);
 });
@@ -315,4 +343,41 @@ it("a watcher pass into a folder that stopped answering is reported, never an un
   await reported.promise;
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(rejections).toEqual([]);
+});
+
+it("a folder deleted while it wasn't answering loses its diagnostic once its parent answers", async () => {
+  const { files, stuck, state, recover, names, diagnostics } = await stallingFolder();
+  await files.start();
+  expect(diagnostics()).toHaveLength(1);
+  await rm(stuck, { recursive: true });
+  state.stalled = false;
+  await recover();
+  expect(names()).toEqual(["fine"]);
+  expect(diagnostics()).toEqual([]);
+});
+
+it("a listing that failed partway is retried until the folder answers, though nothing in it changed", async () => {
+  const { files, state, recover, names, diagnostics } = await stallingFolder();
+  state.stalled = false;
+  state.unlistable = true;
+  await files.start();
+  expect(names()).toEqual(["fine"]);
+  expect(diagnostics()).toEqual(["Cannot scan commands directory"]);
+  state.unlistable = false;
+  await recover();
+  expect(names()).toEqual(["fine", "stuck:later"]);
+  expect(diagnostics()).toEqual([]);
+});
+
+it("closing while a stuck folder's call is in flight keeps its cached commands", async () => {
+  const { files, stuck, state, hung, names, diagnostics } = await stallingFolder();
+  state.stalled = false;
+  await files.start();
+  expect(names()).toEqual(["fine", "stuck:later"]);
+  state.hanging = true;
+  files.invalidate(join(stuck, "later.md"));
+  await hung.promise;
+  await files.close();
+  expect(names()).toEqual(["fine", "stuck:later"]);
+  expect(diagnostics()).toEqual([]);
 });

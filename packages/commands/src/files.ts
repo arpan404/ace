@@ -305,6 +305,7 @@ export class CommandFiles {
     if (this.flushing) return this.flushing;
     this.healing ??= (async () => {
       for (const path of await this.recovery.check()) this.queue(path);
+      this.index.retryUnanswered();
       await this.advance();
     })().finally(() => {
       this.healing = undefined;
