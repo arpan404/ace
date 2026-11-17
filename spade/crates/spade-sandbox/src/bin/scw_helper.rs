@@ -37,6 +37,25 @@ mod windows {
             // couldn't even start in this token (std panics when WSAStartup fails).
             // `winsock`: a loopback listener of its own; `resolve <host>`: a name lookup;
             // `tcp <addr>`: a plain TCP connect; `udp-dns <ip>`: a DNS query over UDP, answered.
+            // `run-env <envfile> <outfile> <program> [args…]`: runs `program` (in this same token
+            // and job) with the `NAME=value` lines of `envfile` added, its stdout and stderr in
+            // `outfile`; answers its exit code (99 when it couldn't start).
+            Some("run-env") => run_env(&rest),
+            // `bind-why <outfile>`: a loopback listener, and why not, written to `outfile`.
+            Some("bind-why") => {
+                let out = rest.first().copied().unwrap_or("");
+                std::panic::set_hook(Box::new(|_| {}));
+                let tried = std::panic::catch_unwind(|| {
+                    std::net::TcpListener::bind(("127.0.0.1", 0)).map(|_| ())
+                });
+                let (code, why) = match tried {
+                    Ok(Ok(())) => (0, "bound".to_owned()),
+                    Ok(Err(error)) => (2, format!("{error} (os error {:?})", error.raw_os_error())),
+                    Err(_) => (7, "Winsock could not start".to_owned()),
+                };
+                let _ = std::fs::write(out, why);
+                code
+            }
             Some("winsock") => probe(|| std::net::TcpListener::bind(("127.0.0.1", 0)).is_ok()),
             Some("resolve") => {
                 let host = format!("{}:443", rest.first().copied().unwrap_or(""));
@@ -141,6 +160,36 @@ mod windows {
             Ok(()) => 0,
             Err(failed) if failed.stage == Stage::OpenSource => 2,
             Err(_) => 5,
+        }
+    }
+
+    fn run_env(rest: &[&str]) -> u8 {
+        let (Some(env), Some(out), Some(program)) = (rest.first(), rest.get(1), rest.get(2)) else {
+            return 99;
+        };
+        let Ok(lines) = std::fs::read_to_string(env) else {
+            return 99;
+        };
+        let Ok(file) = std::fs::File::create(out) else {
+            return 99;
+        };
+        let Ok(err) = file.try_clone() else {
+            return 99;
+        };
+        let mut command = std::process::Command::new(program);
+        command
+            .args(&rest[3..])
+            .stdout(file)
+            .stderr(err)
+            .stdin(std::process::Stdio::null());
+        for line in lines.lines() {
+            if let Some((name, value)) = line.split_once('=') {
+                command.env(name, value);
+            }
+        }
+        match command.status() {
+            Ok(status) => u8::try_from(status.code().unwrap_or(98) & 0xff).unwrap_or(98),
+            Err(_) => 99,
         }
     }
 

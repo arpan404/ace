@@ -423,9 +423,108 @@ async fn measure_the_routes_for_networked_runs() {
     drop(other);
 }
 
+/// The tools as program and arguments, verbose, for the diagnosis.
+fn verbose_tools(ws: &Path) -> Vec<(&'static str, String, Vec<String>)> {
+    let sys = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+    let dl = ws.join("dl").display().to_string();
+    vec![
+        (
+            "curl",
+            format!(r"{sys}\System32\curl.exe"),
+            vec![
+                "-v".into(),
+                "--fail".into(),
+                "-o".into(),
+                "NUL".into(),
+                "--max-time".into(),
+                "60".into(),
+                "https://registry.npmjs.org/left-pad".into(),
+            ],
+        ),
+        (
+            "git",
+            format!(r"{TOOLS}\git\cmd\git.exe"),
+            vec![
+                "ls-remote".into(),
+                "https://github.com/octocat/Hello-World.git".into(),
+                "HEAD".into(),
+            ],
+        ),
+        (
+            "npm",
+            format!(r"{TOOLS}\node\node.exe"),
+            vec![
+                format!(r"{TOOLS}\node\node_modules\npm\bin\npm-cli.js"),
+                "view".into(),
+                "left-pad".into(),
+                "version".into(),
+                "--loglevel".into(),
+                "verbose".into(),
+            ],
+        ),
+        (
+            "pip",
+            format!(r"{TOOLS}\python\python.exe"),
+            vec![
+                format!(r"{TOOLS}\pip.pyz"),
+                "download".into(),
+                "six".into(),
+                "--no-deps".into(),
+                "-v".into(),
+                "-d".into(),
+                dl,
+            ],
+        ),
+        (
+            "cargo",
+            format!(r"{TOOLS}\cargo.exe"),
+            vec![
+                "search".into(),
+                "serde".into(),
+                "--limit".into(),
+                "1".into(),
+                "-v".into(),
+            ],
+        ),
+    ]
+}
+
+/// The environment a tool gets: a writable home and temp in the run's workspace, the proxy in
+/// every spelling the tools read, and their verbose switches.
+fn env_lines(ws: &Path, proxy: &str) -> String {
+    let w = ws.display();
+    [
+        format!("HOME={w}"),
+        format!("USERPROFILE={w}"),
+        format!(r"APPDATA={w}\appdata"),
+        format!(r"LOCALAPPDATA={w}\local"),
+        format!(r"TEMP={w}\tmp"),
+        format!(r"TMP={w}\tmp"),
+        format!("HTTP_PROXY={proxy}"),
+        format!("HTTPS_PROXY={proxy}"),
+        format!("ALL_PROXY={proxy}"),
+        format!("http_proxy={proxy}"),
+        format!("https_proxy={proxy}"),
+        format!("all_proxy={proxy}"),
+        format!("npm_config_proxy={proxy}"),
+        format!("npm_config_https_proxy={proxy}"),
+        format!(r"npm_config_cache={w}\npm"),
+        format!("PIP_PROXY={proxy}"),
+        format!(r"PIP_CACHE_DIR={w}\pipcache"),
+        format!(r"CARGO_HOME={w}\cargo"),
+        format!("CARGO_HTTP_PROXY={proxy}"),
+        "CARGO_HTTP_DEBUG=true".to_owned(),
+        "GIT_CONFIG_NOSYSTEM=1".to_owned(),
+        format!("GIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=http.proxy\nGIT_CONFIG_VALUE_0={proxy}"),
+        "GIT_TRACE=1".to_owned(),
+        "GIT_CURL_VERBOSE=1".to_owned(),
+    ]
+    .join("\n")
+}
+
 /// Each tool run verbosely through the proxy and bridge, under LPAC + `registryRead` and a plain
-/// token for comparison: its own output, a check that the bridge's port answers from inside the
-/// token, and what the proxy logged — to find why a tool fails.
+/// token for comparison (the control: networked runs work there today): its own output, why a
+/// loopback listener can or can't be made in the token, and what the proxy logged.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "reaches real registries; run on the test VM"]
 async fn diagnose_the_tools_through_the_proxy() {
@@ -441,20 +540,13 @@ async fn diagnose_the_tools_through_the_proxy() {
     )
     .await
     .unwrap_or_else(|_| std::process::abort());
-    let verbose: Vec<(&str, String)> = vec![
-        ("curl", r"%SystemRoot%\System32\curl.exe -v --fail -o NUL --max-time 60 https://registry.npmjs.org/left-pad".to_owned()),
-        ("git", format!(r"set GIT_TRACE=1&& set GIT_CURL_VERBOSE=1&& {TOOLS}\git\cmd\git.exe ls-remote https://github.com/octocat/Hello-World.git HEAD")),
-        ("npm", format!(r"{TOOLS}\node\node.exe {TOOLS}\node\node_modules\npm\bin\npm-cli.js view left-pad version --loglevel verbose")),
-        ("pip", format!(r"{TOOLS}\python\python.exe {TOOLS}\pip.pyz download six --no-deps -v -d %HOME%\dl")),
-        ("cargo", format!(r"set CARGO_HTTP_DEBUG=true&& set CARGO_LOG=cargo::ops::registry=debug&& {TOOLS}\cargo.exe search serde --limit 1 -v")),
-    ];
     for (label, lpac, caps) in [
+        ("plain", false, vec![tools_cap.clone()]),
         (
             "lpac+registryRead",
             true,
             vec![read_cap.clone(), tools_cap.clone()],
         ),
-        ("plain", false, vec![tools_cap.clone()]),
     ] {
         let name = format!("spade.diag.{}", uuid::Uuid::new_v4().simple());
         let container = Container {
@@ -479,11 +571,26 @@ async fn diagnose_the_tools_through_the_proxy() {
             &sid,
             Access::Read,
         );
-        let all = verbose.iter().map(|(t, c)| (*t, c.clone())).chain([(
-            "bridge-port",
-            format!("{} tcp 127.0.0.1:%BRIDGE_PORT%", helper().display()),
-        )]);
-        for (tool, command) in all {
+
+        // Can this token make a loopback listener at all, and if not, why?
+        let why = ws.join("bind.txt");
+        let bind = launch::run_in(
+            &token,
+            &name,
+            &container.display,
+            limits(),
+            None,
+            None,
+            helper().as_os_str(),
+            &[OsString::from("bind-why"), why.clone().into_os_string()],
+        )
+        .unwrap_or(9999);
+        println!(
+            "=== {label} bind -> {bind}: {}",
+            std::fs::read_to_string(&why).unwrap_or_default()
+        );
+
+        for (tool, program, args) in verbose_tools(&ws) {
             let policy = NetworkPolicy {
                 mode: Mode::AllowList,
                 allow: HOSTS.iter().map(|h| (*h).to_owned()).collect(),
@@ -502,16 +609,18 @@ async fn diagnose_the_tools_through_the_proxy() {
             }
             let _ = ready_rx.recv_timeout(std::time::Duration::from_secs(5));
             let port = free_port();
+            let env = ws.join(format!("{tool}.env"));
+            std::fs::write(&env, env_lines(&ws, &ticket.url_on(port)))
+                .unwrap_or_else(|_| std::process::abort());
             let out = ws.join(format!("{tool}.log"));
-            let line = with_env(
-                &ws,
-                &ticket.url_on(port),
-                &format!(
-                    "set BRIDGE_PORT={port}&& {command} > \"{}\" 2>&1",
-                    out.display()
-                ),
-            );
-            let (t, c, d) = (token.clone(), container.clone(), cmd());
+            let mut all: Vec<OsString> = vec![
+                "run-env".into(),
+                env.into_os_string(),
+                out.clone().into_os_string(),
+                program.into(),
+            ];
+            all.extend(args.into_iter().map(OsString::from));
+            let (t, c) = (token.clone(), container.clone());
             let bridge = launch::Bridge { pipe, port };
             let code = tokio::task::spawn_blocking(move || {
                 launch::run_in(
@@ -521,8 +630,8 @@ async fn diagnose_the_tools_through_the_proxy() {
                     limits(),
                     Some(bridge),
                     Some(&helper()),
-                    std::ffi::OsStr::new(&d),
-                    &[OsString::from("/c"), OsString::from(line)],
+                    helper().as_os_str(),
+                    &all,
                 )
                 .map_err(|e| e.to_string())
             })
@@ -531,15 +640,11 @@ async fn diagnose_the_tools_through_the_proxy() {
             stop.stop();
             let text =
                 std::fs::read_to_string(&out).unwrap_or_else(|e| format!("(no output: {e})"));
-            let tail: Vec<&str> = text.lines().rev().take(25).collect();
-            let proxied: Vec<String> = log
-                .read(&bot, 20)
-                .iter()
-                .map(|entry| format!("{entry:?}"))
-                .collect();
-            println!("=== {label} {tool} -> {code:?}\n--- proxy log: {proxied:?}\n--- last lines:");
+            let tail: Vec<&str> = text.lines().rev().take(12).collect();
+            let proxied: Vec<String> = log.read(&bot, 5).iter().map(|e| format!("{e:?}")).collect();
+            println!("=== {label} {tool} -> {code:?}\n--- proxy log: {proxied:?}");
             for l in tail.into_iter().rev() {
-                println!("    {l}");
+                println!("    {}", l.chars().take(220).collect::<String>());
             }
             drop(ticket);
         }
