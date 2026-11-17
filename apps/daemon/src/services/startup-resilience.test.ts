@@ -6,6 +6,8 @@ import type { startServer } from "../server.ts";
 import { startupAttempts, safeModeSkips } from "../startup-attempts.ts";
 import { ServiceScope } from "./service-scope.ts";
 import { Resources } from "./resources.ts";
+import type { ServiceContext } from "./types.ts";
+import { startCommands } from "./commands.ts";
 import { repeatableWarmup, warmup } from "./warmup.ts";
 import { serviceOrder } from "./service-order.ts";
 import {
@@ -543,4 +545,47 @@ test("a repeatable warmup that keeps failing stops promising retries once its bu
   expect(runs).toBe(3);
   expect(state(subject, "usage")).toBe("degraded");
   expect(retryingOf(subject, "usage")).toBe(false);
+});
+
+test("commands whose account wait fails once publish one library on the retry, built once", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  let waits = 0;
+  const registry = {
+    get ready() {
+      return ++waits === 1 ? Promise.reject(new Error("homes not answering")) : Promise.resolve();
+    },
+    list: () => [],
+  };
+  let starts = 0;
+  let live: ServiceContext["services"] | undefined;
+  await subject.start([
+    service("accounts", (context) => {
+      context.services.accountRegistry = registry as never;
+    }),
+    service(
+      "commands",
+      async (context) => {
+        starts++;
+        await startCommands(context);
+      },
+      { requires: ["accounts"] },
+    ),
+    service("probe", (context) => {
+      live = context.services;
+    }),
+  ]);
+  await subject.listening(server);
+  await settle();
+  const promptFiles = live?.promptFiles;
+  expect(promptFiles).toBeDefined();
+  expect(live?.commands).toBeUndefined();
+  expect(state(subject, "commands")).toBe("degraded");
+  expect(retryingOf(subject, "commands")).toBe(true);
+
+  await clock.advance(10);
+  expect(state(subject, "commands")).toBe("ready");
+  expect(live?.commands).toBeDefined();
+  expect(live?.promptFiles).toBe(promptFiles);
+  expect(starts).toBe(1);
 });
