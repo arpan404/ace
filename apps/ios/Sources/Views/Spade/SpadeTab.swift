@@ -10,6 +10,7 @@ struct SpadeTab: View {
     let chosen: Bool
     @State private var machine: String?
     @State private var path: [String] = []
+    @State private var watch = SpadeWatch()
 
     private var session: MachineSession? {
         let shown = inbox.spadeSessions
@@ -30,9 +31,11 @@ struct SpadeTab: View {
             }
         }
         .task(id: watchKey) {
-            // Only the machine on screen reads its bots, and only while the tab shows.
-            for other in inbox.sessions where other.hostId != session?.hostId { other.client.spadeWatch(false) }
-            session?.client.spadeWatch(chosen)
+            // Only the machine on screen reads its bots, only while the tab shows, and none once
+            // the tab goes: the task ends with the view, and its hold stops the machine it named.
+            let hold = watch.hold(session?.client, on: chosen, among: inbox.sessions.map(\.client))
+            while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+            watch.release(hold)
         }
         .onChange(of: session?.hostId) { path = [] }
     }
