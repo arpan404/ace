@@ -135,6 +135,7 @@ export function poolWorld(options: { threadCount?: number; outboxRoot?: string }
         },
         config: {},
         terminate() {
+          // The world is going away; a worker exit nobody reads changes nothing.
           void worker.terminate().catch(() => {});
         },
         port: {
