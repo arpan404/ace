@@ -400,8 +400,9 @@ export class Engine {
       );
     const recovery = this.recovery;
     const repo = this.repo;
-    if (options.recovery?.preferences || options.models) {
+    if (options.recovery?.preferences || options.models || options.providersActivated) {
       this.readyPromise = (async () => {
+        await options.providersActivated;
         await recovery.prepare();
         for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
         models.migrateCachedDefaults();
