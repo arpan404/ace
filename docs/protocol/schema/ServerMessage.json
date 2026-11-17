@@ -1552,6 +1552,11 @@
           "maxItems": 8,
           "type": "array"
         },
+        "releaseLine": {
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string"
+        },
         "ticket": {
           "properties": {
             "ticket": {
