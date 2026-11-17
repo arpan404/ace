@@ -101,9 +101,18 @@ it("ace cloud accepts only a cloud credential: a relay machine or device grant i
     );
 });
 
-it("the market accepts only a market grant, and no one else accepts it", () => {
+const marketClaims = { iss: "cloud.acehq.dev", emailVerified: true, authAt: 900 };
+
+it("the market accepts only a market grant from its issuer, and no one else accepts it", () => {
+  expect(() =>
+    verifyMarketGrant(
+      signMarketGrant({ ...claims, ...marketClaims, iss: "other.example" }, key),
+      keys,
+      2_000,
+    ),
+  ).toThrow("issuer");
   for (const kind of ["machine", "device"] as const) {
-    const market = signMarketGrant({ ...claims, kind }, key);
+    const market = signMarketGrant({ ...claims, ...marketClaims, kind }, key);
     expect(verifyMarketGrant(market, keys, 2_000)).toMatchObject({
       account: "user_1",
       aud: "market.acehq.dev",
@@ -118,7 +127,7 @@ it("the market accepts only a market grant, and no one else accepts it", () => {
   expect(() =>
     verifyMarketGrant(signCloudGrant({ ...claims, kind: "machine" }, key), keys, 2_000),
   ).toThrow("Malformed");
-  expect(() => verifyMarketGrant(signMarketGrant(claims, key), keys, claims.exp)).toThrow(
-    "expired",
-  );
+  expect(() =>
+    verifyMarketGrant(signMarketGrant({ ...claims, ...marketClaims }, key), keys, claims.exp),
+  ).toThrow("expired");
 });

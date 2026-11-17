@@ -18,6 +18,7 @@ const Authenticated = z.object({
   user: z.object({
     id: z.string(),
     email: z.string(),
+    email_verified: z.boolean().nullish(),
     first_name: z.string().nullish(),
     last_name: z.string().nullish(),
     profile_picture_url: z.string().nullish(),
@@ -122,6 +123,7 @@ export function workos(config: AccountConfig, fetcher: typeof fetch) {
       account: AceAccount.parse({
         id: result.user.id,
         email: result.user.email,
+        emailVerified: result.user.email_verified === true,
         name: [result.user.first_name, result.user.last_name].filter(Boolean).join(" "),
         ...(pictureUrl ? { picture: true } : {}),
       }),

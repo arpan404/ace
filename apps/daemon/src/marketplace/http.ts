@@ -1,4 +1,4 @@
-import { maxArchiveBytes } from "@ace/marketplace";
+import { maxArchiveBytes, previewBytes } from "@ace/marketplace";
 import { TurnedOff } from "./turned-off.ts";
 
 /*
@@ -8,8 +8,19 @@ import { TurnedOff } from "./turned-off.ts";
 
 export type MarketFetch = (
   url: string,
-  init: { headers: Record<string, string>; signal: AbortSignal },
+  init: {
+    headers: Record<string, string>;
+    signal: AbortSignal;
+    method?: string;
+    body?: Uint8Array<ArrayBuffer> | string;
+  },
 ) => Promise<Response>;
+
+/** A write's answer: its status and its JSON body (undefined when there was none). */
+export interface MarketAnswer {
+  status: number;
+  body: unknown;
+}
 
 export class MarketHttpError extends Error {
   override name = "MarketHttpError";
@@ -61,12 +72,18 @@ export class MarketHttp {
     this.#fetch = options.fetch;
   }
 
-  async #get(path: string, headers: Record<string, string> = {}): Promise<Response> {
+  async #get(
+    path: string,
+    headers: Record<string, string> = {},
+    write?: { method: string; body?: Uint8Array<ArrayBuffer> | string },
+  ): Promise<Response> {
     let response: Response;
     try {
       response = await this.#fetch(this.origin + path, {
         headers: { accept: "application/json", ...headers },
         signal: AbortSignal.timeout(timeoutMs),
+        ...(write ? { method: write.method } : {}),
+        ...(write?.body === undefined ? {} : { body: write.body }),
       });
     } catch (error) {
       if (error instanceof TurnedOff) throw error;
@@ -112,9 +129,45 @@ export class MarketHttp {
       `/v1/entries/${encodeURIComponent(type)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
     );
 
+  discover = () => this.#json("/v1/discover");
+  publisher = (handle: string) => this.#json(`/v1/publishers/${encodeURIComponent(handle)}`);
+
   /** The signed withdrawn list, or undefined before the market has one. */
-  async withdrawn(): Promise<unknown> {
-    const response = await this.#get("/v1/withdrawn");
+  withdrawn = () => this.#signed("/v1/withdrawn");
+  /** The signed blocklist, verified list and official list (ADR 0173 §8, §13, §14). */
+  blocklist = () => this.#signed("/v1/blocklist");
+  verified = () => this.#signed("/v1/verified");
+  official = () => this.#signed("/v1/official");
+
+  /**
+   * A request with any method, its answer read whatever the status, so the caller maps the
+   * market's error shape. `headers` may carry a market grant: it goes to this origin only.
+   */
+  async send(
+    method: string,
+    path: string,
+    options: { headers?: Record<string, string>; body?: Uint8Array | string } = {},
+  ): Promise<MarketAnswer> {
+    const sent = options.body;
+    const response = await this.#get(path, options.headers, {
+      method,
+      ...(sent === undefined
+        ? {}
+        : { body: typeof sent === "string" ? sent : new Uint8Array(sent) }),
+    });
+    const bytes = await capped(response, jsonBytes);
+    const text = new TextDecoder().decode(bytes);
+    let body: unknown;
+    try {
+      body = text ? JSON.parse(text) : undefined;
+    } catch {
+      body = undefined;
+    }
+    return { status: response.status, body };
+  }
+
+  async #signed(path: string): Promise<unknown> {
+    const response = await this.#get(path);
     if (response.status === 404) {
       await response.body?.cancel();
       return undefined;
@@ -122,6 +175,15 @@ export class MarketHttp {
     if (!response.ok)
       throw new MarketHttpError(`The market answered ${response.status}`, response.status);
     return JSON.parse(new TextDecoder().decode(await capped(response, jsonBytes)));
+  }
+
+  /** A listing picture or avatar by its sha256, capped at a picture's limit. */
+  async picture(kind: "preview" | "avatar", hash: string): Promise<Uint8Array> {
+    if (!/^[a-f0-9]{64}$/.test(hash)) throw new MarketHttpError("Not a content hash");
+    const response = await this.#get(`/v1/${kind}s/${hash}`, { accept: "image/*" });
+    if (!response.ok)
+      throw new MarketHttpError(`The market answered ${response.status}`, response.status);
+    return capped(response, previewBytes);
   }
 
   async object(hash: string): Promise<Uint8Array> {

@@ -5,6 +5,7 @@ import type {
   MarketReview,
   MarketReviewBody,
   MarketReviewItem,
+  MarketScanReport,
 } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
@@ -41,6 +42,11 @@ export interface PreparedEntry {
   pluginInput?: import("./prepare.ts").PluginFilesInput | undefined;
   /** The installed version this one would replace. */
   previous?: { version: string; files: readonly ArchiveFile[] } | undefined;
+  /** The device's scan of these bytes (ADR 0173 §8); a block never reaches a review. */
+  scan?: MarketScanReport | undefined;
+  /** Its publisher deprecated this version, with this note. */
+  deprecated?: string | undefined;
+  unlisted?: boolean | undefined;
 }
 
 export interface PreparedReview extends PreparedEntry {
@@ -223,6 +229,15 @@ function body(entry: PreparedReview): MarketReviewBody {
   }
 }
 
+/** A brought entry's scan findings, as notes in its section; the entry's own are `review.scan`. */
+function scanNotes(entry: PreparedEntry): MarketReviewItem[] {
+  return (entry.scan?.findings ?? []).map((finding) => ({
+    kind: "note",
+    section: own(entry),
+    text: `${finding.level === "note" ? "Note" : "Warning"}: ${finding.message}`.slice(0, 2000),
+  }));
+}
+
 /** Why a review can't be installed, if it can't. */
 function blocked(entry: PreparedReview, summary: MarketReviewBody): string | undefined {
   if (summary.type === "suit" && !summary.passes)
@@ -241,7 +256,10 @@ export function buildReview(entry: PreparedReview): {
   const summary = body(entry);
   const items = [
     ...entryItems(entry, own(entry)),
-    ...entry.brings.flatMap((brought) => entryItems(brought, own(brought))),
+    ...entry.brings.flatMap((brought) => [
+      ...scanNotes(brought),
+      ...entryItems(brought, own(brought)),
+    ]),
   ];
   const why = blocked(entry, summary);
   return {
@@ -261,6 +279,9 @@ export function buildReview(entry: PreparedReview): {
       ...(entry.previous ? { updates: entry.previous.version } : {}),
       body: summary,
       ...(why ? { blocked: why } : {}),
+      ...(entry.scan ? { scan: entry.scan } : {}),
+      ...(entry.deprecated ? { deprecated: entry.deprecated.slice(0, 500) } : {}),
+      ...(entry.unlisted ? { unlisted: true } : {}),
       expiresAt: entry.expiresAt,
       items: items.length,
     },

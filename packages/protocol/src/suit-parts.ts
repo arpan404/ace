@@ -136,6 +136,10 @@ export const suitParts = [
   "composer-strip",
   "queue-strip",
   "queue-item",
+  // Added 2026-11-16 (the Marketplace modal)
+  "market-stage",
+  "market-hero",
+  "market-try",
 ] as const;
 export const SuitPart = z.enum(suitParts);
 export type SuitPart = z.infer<typeof SuitPart>;

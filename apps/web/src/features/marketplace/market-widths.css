@@ -1,0 +1,432 @@
+/*
+ * Every width, by the modal's own width (container `market`):
+ *   1100+  one-row bar, hero with picks beside it, four-up shelves
+ *   <1100  picks run under the hero as a strip; shelves three-up
+ *   <960   the places drop to their own row under the bar
+ *   <900   trending in one column; entry pages and the publish form in one column; shelves two-up
+ *   <760   the hero stacks, words above the preview; bot hero and profile head stack
+ *   <560   phone: search on its own row, the hero swipes, shelves scroll sideways
+ * The full-screen sheet on a phone is a viewport fact, not a container one.
+ */
+@layer components {
+  @container market (max-width: 1099px) {
+    .mk-hero {
+      grid-template-columns: minmax(0, 1fr);
+      height: auto;
+    }
+    .mk-slides {
+      height: 400px;
+    }
+    .mk-picks {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .mk-pick {
+      gap: 12px;
+      padding: 8px;
+    }
+    .mk-pick .mk-stage {
+      width: 80px;
+    }
+    .mk-slide {
+      grid-template-columns: minmax(0, 46%) minmax(0, 1fr);
+    }
+    .mk-cards[data-cols="4"] {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .mk-cards[data-shelf][data-cols="4"] > :nth-child(n + 4) {
+      display: none;
+    }
+    .mk-cols {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .mk-cards[data-cols="4"][data-quad] {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @container market (max-width: 959px) {
+    .mk-bar,
+    .mk-stack,
+    .mk-offline {
+      --mk-gutter: 32px;
+      --mk-display: 36px;
+      --mk-section-gap: 48px;
+    }
+    .mk-bar {
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+      grid-template-rows: 48px auto;
+      grid-template-areas: "title search inst me close" "tabs tabs tabs tabs tabs";
+      padding-top: 8px;
+      padding-bottom: 8px;
+      row-gap: 4px;
+    }
+    .mk-search {
+      width: min(100%, 320px);
+    }
+    .mk-tabs {
+      overflow-x: auto;
+      scrollbar-width: none;
+      margin-left: -12px;
+    }
+    .mk-tabs::-webkit-scrollbar {
+      display: none;
+    }
+  }
+  @container market (max-width: 899px) {
+    .mk-ranked {
+      grid-template-columns: minmax(0, 1fr);
+      grid-auto-flow: row;
+      grid-template-rows: none;
+    }
+    .mk-rank-row:nth-child(5n + 1)::before {
+      display: block;
+    }
+    .mk-rank-row:first-child::before {
+      display: none;
+    }
+    .mk-cards[data-cols="4"],
+    .mk-cards[data-cols="3"] {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .mk-cards[data-shelf][data-cols="4"] > :nth-child(n + 4) {
+      display: flex;
+    }
+    .mk-cards[data-shelf][data-cols="3"] > :nth-child(3) {
+      display: none;
+    }
+    .mk-entry-body {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 32px;
+      margin-top: 32px;
+    }
+    .mk-entry-body aside {
+      max-width: 480px;
+    }
+    .mk-describe {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 32px;
+    }
+    .mk-listing-preview {
+      position: static;
+      max-width: 360px;
+    }
+  }
+  @container market (max-width: 759px) {
+    .mk-slides {
+      height: 500px;
+    }
+    .mk-pick {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .mk-pick .mk-stage {
+      width: 100%;
+    }
+    .mk-pick-words .mk-meta {
+      display: none;
+    }
+    .mk-slide {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .mk-slide-words {
+      padding: 32px 32px 24px;
+      justify-content: flex-start;
+    }
+    .mk-slide-words .mk-lead {
+      max-width: none;
+    }
+    .mk-slide-actions {
+      margin-top: 8px;
+    }
+    .mk-slide-art {
+      overflow: hidden;
+    }
+    .mk-slide-art .mk-shot {
+      left: 32px;
+      top: 0;
+      width: calc(100% - 32px);
+      height: auto;
+      aspect-ratio: 16 / 10;
+      border-radius: var(--radius-lg) 0 0 0;
+      border-right: 0;
+    }
+    .mk-slide-art[data-type="bot"] {
+      padding-top: 0;
+    }
+    .mk-slide-art[data-type="bot"] .bot-face {
+      width: 150px;
+      height: 150px;
+    }
+    .mk-slide-art .mk-floor {
+      top: calc(50% + 70px);
+      width: 96px;
+    }
+    .mk-entry-hero {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 32px;
+      gap: 16px;
+    }
+    .mk-entry-hero > .bot-face {
+      width: 150px;
+      height: 150px;
+    }
+    .mk-entry-hero .mk-floor {
+      left: 50%;
+      top: calc(32px + 140px);
+      bottom: auto;
+      width: 96px;
+    }
+    .mk-profile-head {
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 20px;
+    }
+    .mk-profile-head > .mk-avatar {
+      --size: 72px;
+    }
+    .mk-profile-actions {
+      grid-column: 2;
+      padding-top: 0;
+    }
+    .mk-cols {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    /* Signed out, "Sign in to publish" needs the room search had: search takes its own row. */
+    .mk-bar:has(.mk-bar-me button) {
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
+      grid-template-rows: 48px auto auto;
+      grid-template-areas: "title inst me close" "search search search search" "tabs tabs tabs tabs";
+      row-gap: 8px;
+    }
+    .mk-bar:has(.mk-bar-me button) .mk-search {
+      width: 100%;
+      justify-self: stretch;
+    }
+    .mk-mine-row {
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 16px;
+    }
+    .mk-mine-row > .mk-actions {
+      grid-column: 2;
+    }
+    .mk-version {
+      grid-template-columns: 48px minmax(0, 1fr) auto;
+    }
+  }
+  @container market (max-width: 559px) {
+    .mk-bar,
+    .mk-stack,
+    .mk-offline {
+      --mk-gutter: 16px;
+      --mk-section-gap: 40px;
+      --mk-display: 30px;
+      --mk-display-sm: 26px;
+    }
+    .mk-bar {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-rows: 48px auto auto;
+      grid-template-areas: "title me close" "search search search" "tabs tabs tabs";
+      row-gap: 8px;
+    }
+    .mk-search {
+      width: 100%;
+      justify-self: stretch;
+    }
+    .mk-installed-tab {
+      display: none;
+    }
+    .mk-tabs .mk-phone-only {
+      display: inline-flex;
+    }
+    .mk-tabs {
+      margin-right: calc(var(--mk-gutter) * -1);
+      padding-right: var(--mk-gutter);
+    }
+    .mk-picks {
+      display: none;
+    }
+    .mk-slides {
+      display: flex;
+      height: auto;
+      gap: 12px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      border-radius: 0;
+      margin: 0 calc(var(--mk-gutter) * -1);
+      padding: 0 var(--mk-gutter);
+      scroll-padding: 0 var(--mk-gutter);
+    }
+    .mk-slides::-webkit-scrollbar {
+      display: none;
+    }
+    .mk-slide {
+      position: relative;
+      inset: auto;
+      flex: none;
+      width: 88%;
+      height: 500px;
+      opacity: 1;
+      visibility: visible;
+      scroll-snap-align: start;
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+    }
+    .mk-slide-words {
+      padding: 24px 20px 20px;
+    }
+    .mk-slide-art .mk-shot {
+      left: 20px;
+      width: calc(100% - 20px);
+    }
+    .mk-rank-row {
+      grid-template-columns: 22px 64px minmax(0, 1fr) 40px;
+      gap: 12px;
+    }
+    .mk-cards[data-shelf] {
+      display: flex;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      gap: 12px;
+      margin: 0 calc(var(--mk-gutter) * -1);
+      padding: 4px var(--mk-gutter) 0;
+      scroll-padding: 0 var(--mk-gutter);
+    }
+    .mk-cards[data-shelf]::-webkit-scrollbar {
+      display: none;
+    }
+    .mk-cards[data-shelf] > * {
+      flex: none;
+      width: 72%;
+      scroll-snap-align: start;
+      display: flex !important;
+    }
+    .mk-cards[data-cols="2"],
+    .mk-cards[data-cols="3"],
+    .mk-cards[data-phone="list"] {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 24px;
+    }
+    .mk-cards[data-cols="4"],
+    .mk-cards[data-phone="grid"] {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px 12px;
+    }
+    .mk-cards[data-phone="list"] {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .mk-entry-hero {
+      padding: 24px 20px;
+    }
+    .mk-entry-hero .mk-floor {
+      top: calc(24px + 140px);
+    }
+    .mk-entry-head {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .mk-entry-actions > * {
+      flex: 1;
+    }
+    .mk-profile-head {
+      gap: 16px;
+    }
+    .mk-profile-head > .mk-avatar {
+      --size: 64px;
+    }
+    .mk-profile-actions {
+      grid-column: 1 / -1;
+    }
+    .mk-profile-actions > * {
+      flex: 1;
+    }
+    .mk-mine-row {
+      grid-template-columns: 72px minmax(0, 1fr);
+      gap: 12px;
+    }
+    .mk-version {
+      grid-template-columns: 48px minmax(0, 1fr);
+    }
+    .mk-version .mk-meta {
+      grid-column: 2;
+    }
+    .mk-steps {
+      gap: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .mk-steps i {
+      max-width: 16px;
+    }
+    .mk-steps .mk-label-word {
+      display: none;
+    }
+    .mk-steps [data-step="now"] .mk-label-word {
+      display: inline;
+    }
+    .mk-row > .mk-stage {
+      width: 64px;
+    }
+    .mk-row {
+      flex-wrap: wrap;
+      row-gap: 8px;
+    }
+    .mk-row .mk-words {
+      min-width: 180px;
+    }
+    .mk-row .mk-actions {
+      margin-left: auto;
+    }
+    .mk-foot {
+      padding: 12px var(--mk-gutter) calc(12px + env(safe-area-inset-bottom));
+    }
+    .mk-foot-inner > button {
+      flex: 1;
+    }
+    .mk-foot-inner .mk-grow {
+      display: none;
+    }
+    .mk-check-summary .mk-stage {
+      width: 96px;
+    }
+    .mk-listing-preview {
+      max-width: none;
+    }
+  }
+  @media (max-width: 720px) {
+    .mk-modal {
+      inset: 8px 0 0;
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      border-bottom: 0;
+    }
+    .mk-view {
+      --mk-view-pad-b: 96px;
+    }
+    .mk-trybar {
+      left: 8px;
+      right: 8px;
+      transform: translateY(16px);
+      bottom: 96px;
+    }
+    [data-market-trying] .mk-trybar {
+      transform: none;
+    }
+    .mk-trybar-words {
+      flex: 1;
+      padding-right: 0;
+    }
+  }
+  :root[data-reduce-motion] :is(.mk-modal, .mk-view, .mk-slide[data-on] .mk-slide-art) {
+    animation: none;
+  }
+  :root[data-reduce-motion]
+    :is(.mk-card:hover .mk-stage, .mk-pub-card:hover, .mk-choice:hover .mk-stage) {
+    transform: none;
+  }
+  :root[data-reduce-motion] [data-market-trying] .mk-modal {
+    transform: none;
+  }
+}
