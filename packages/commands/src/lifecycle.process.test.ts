@@ -238,6 +238,8 @@ it("unnamed nested directory notifications discover new snippets in that directo
   });
 });
 
+const unavailable = () =>
+  new CommandFilesystemUnavailable("Command folder is still not responding");
 /** Real files, where one folder's calls fail the way calls into a stuck mount do. */
 async function stallingFolder() {
   const path = await home(),
@@ -253,8 +255,6 @@ async function stallingFolder() {
   const hung = Promise.withResolvers<void>();
   const cancelled = Promise.withResolvers<never>();
   cancelled.promise.catch(() => {});
-  const unavailable = () =>
-    new CommandFilesystemUnavailable("Command folder is still not responding");
   const io: CommandFileIo = {
     stat(r, p) {
       if (!p.startsWith(stuck)) return real.stat(r, p);
