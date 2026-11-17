@@ -281,8 +281,22 @@ export function instructionTruncations(input: ScanInput): MarketScanFinding[] {
   const findings = extract(sources).cuts.map((cut) =>
     truncated("scripts", cut.message, cut.path, cut.line),
   );
-  for (const source of sources) findings.push(...intentFindings(source.path, source.text));
+  for (const document of documentsOf(sources)) findings.push(...intentFindings(document));
   return findings;
+}
+
+/**
+ * The instruction documents of `sources`: a recipe's task, blurb, notes and routines are one
+ * document, since an agent reads them together; every other source is its own.
+ */
+function documentsOf(sources: readonly Source[]): Source[][] {
+  const recipe: Source[] = [];
+  const out: Source[][] = [];
+  for (const source of sources)
+    if (source.path.startsWith("recipe:")) recipe.push(source);
+    else out.push([source]);
+  if (recipe.length > 0) out.unshift(recipe);
+  return out;
 }
 
 /*
@@ -389,21 +403,98 @@ function proseSentences(text: string): { line: number; text: string }[] {
   return out;
 }
 
-/** A hold for each prose sentence of a source that tells an agent to run something. */
-function intentFindings(path: string, text: string): MarketScanFinding[] {
-  const findings: MarketScanFinding[] = [];
-  for (const sentence of proseSentences(text)) {
-    if (findings.length >= MAX_INTENT_FINDINGS) break;
-    if (hasExecutionIntent(sentence.text))
-      findings.push(
-        held(
-          "scripts",
-          "instruction-intent",
-          `${path} tells an agent to run something the scanner can't tie to a known-safe command`,
-          path,
-          sentence.line,
-        ),
-      );
+/*
+ * Execution intent across a document. A download in one sentence and "then run it" in the next
+ * (or in another paragraph, or a recipe's note and one of its routines) is the same instruction
+ * split in two, so every sentence of a document adds to one tally: does anything fetch or decode
+ * something, and does anything run something unnamed? Both together hold the document, at the
+ * first run line. Signals stay narrow so ordinary docs pass: a URL that's only a reference ("see
+ * … for details") fetches nothing, and a run of a concrete known-safe command (`npm test`), of
+ * tests or of reports runs nothing unnamed. One pass over the sentences, a bounded name set.
+ */
+
+const MAX_FETCHED_NAMES = 256;
+
+const imperativeRun = /\b(?:run|execute|exec|eval|source|launch)\b/i;
+const cloneVerb = /\bclone\b/i;
+const referenceOnly =
+  /\b(?:see|docs?|documentation|details|learn\s+more|read|reference|guide|homepage|website|issues?|bugs?|license|changelog|more\s+info(?:rmation)?)\b/i;
+const runWithInterpreter = new RegExp(
+  `${imperativeRun.source}.{0,80}?\\b(?:with|using|in|via|through|under)\\s+(?:an?\\s+|the\\s+)?(?:shell|interpreter|terminal|${interpreters})\\b`,
+  "i",
+);
+const scriptFile =
+  /(?:^|[\s(])(?:\.{1,2}\/|~\/)\S|\b[\w-]+\.(?:sh|bash|zsh|py|ps1|psm1|bat|cmd|exe|bin|pl|rb|scpt|appimage|dmg|msi)\b/i;
+/** Names a fetch can give the thing it fetched: a file name or an all-caps word. */
+const nameToken = /\b[\w-]+\.[a-z0-9]{1,8}\b|\b[A-Z][A-Z0-9_]{3,}\b/g;
+const knownSafe =
+  /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:test|ci|install|lint|build|start|run\s+[\w:-]+)|cargo\s+(?:test|build|check|clippy|fmt|run)|go\s+(?:test|build|vet)|pytest|make(?:\s+[\w-]+)?)\b/i;
+
+/** The names a fetch sentence gives what it fetches: file names, all-caps words, URL tails. */
+function namesIn(sentence: string, into: Set<string>): void {
+  for (const match of sentence.matchAll(nameToken)) {
+    if (into.size >= MAX_FETCHED_NAMES) return;
+    const name = match[0].toLowerCase();
+    if (!/^https?$|^www\./.test(name)) into.add(name);
   }
+}
+
+/** Whether a sentence fetches or decodes something an agent could then run. */
+function fetchesOrDecodes(sentence: string): boolean {
+  if (decodeVerb.test(sentence) || hasBlob(sentence)) return true;
+  if (fetchVerb.test(sentence)) return true;
+  const url = urlLike.test(sentence);
+  if (url && cloneVerb.test(sentence)) return true;
+  return url && !referenceOnly.test(sentence);
+}
+
+/** Whether a sentence tells an agent to run something it doesn't name as a known-safe command. */
+function runsSomethingUnnamed(sentence: string, fetched: ReadonlySet<string>): boolean {
+  if (pipeInto.test(sentence)) return true;
+  if (!imperativeRun.test(sentence)) return false;
+  const pointed = runIt.test(sentence) || runWithInterpreter.test(sentence);
+  const file = scriptFile.test(sentence);
+  if (!pointed && !file) {
+    for (const match of sentence.matchAll(nameToken))
+      if (fetched.has(match[0].toLowerCase())) return true;
+    return false;
+  }
+  // "Run it with npm test" names its command; a script file or an interpreter doesn't.
+  return file || !knownSafe.test(sentence) || runWithInterpreter.test(sentence);
+}
+
+/**
+ * The prose-intent holds of one document: one for each sentence that carries intent on its own,
+ * and, when none does, one for a fetch or decode anywhere paired with a run anywhere.
+ */
+function intentFindings(document: readonly Source[]): MarketScanFinding[] {
+  const findings: MarketScanFinding[] = [];
+  const sentences: { path: string; line: number; text: string }[] = [];
+  for (const source of document)
+    for (const sentence of proseSentences(source.text)) {
+      sentences.push({ path: source.path, ...sentence });
+      if (findings.length < MAX_INTENT_FINDINGS && hasExecutionIntent(sentence.text))
+        findings.push(intentHold(source.path, sentence.line));
+    }
+  if (findings.length > 0) return findings;
+  const fetched = new Set<string>();
+  let fetches = false;
+  for (const sentence of sentences)
+    if (fetchesOrDecodes(sentence.text)) {
+      fetches = true;
+      namesIn(sentence.text, fetched);
+    }
+  if (!fetches) return findings;
+  const run = sentences.find((sentence) => runsSomethingUnnamed(sentence.text, fetched));
+  if (run) findings.push(intentHold(run.path, run.line));
   return findings;
 }
+
+const intentHold = (path: string, line: number): MarketScanFinding =>
+  held(
+    "scripts",
+    "instruction-intent",
+    `${path} tells an agent to run something the scanner can't tie to a known-safe command`,
+    path,
+    line,
+  );
