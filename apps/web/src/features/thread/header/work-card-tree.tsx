@@ -1,13 +1,14 @@
 import {
   ClientProvider,
   OptionalLeaseScope,
+  useClient,
   useConnectionState,
   useNotifyBatch,
   useThreadError,
   useThreadRoom,
 } from "@ace/client-react";
 import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
-import { createContext, use, useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { createContext, use, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLayoutServices, type SessionKey } from "@/lib/layout.tsx";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import { useWorkCardStore } from "./work-card-store.ts";
@@ -39,13 +40,31 @@ export function useWorkCardTrees(): WorkCardTrees {
 export function WorkCardTreeFollower(props: { threadId: string }) {
   const store = useWorkCardStore();
   const trees = useWorkCardTrees();
-  const [tree, setTree] = useState<string>();
-  useLayoutEffect(
-    () => (tree !== undefined && store ? store.follow(trees.memory(tree)) : undefined),
-    [store, trees, tree],
-  );
+  const [tree, setTree] = useState<{ id: string; fallback: boolean }>();
+  /** The fallback tree followed while the real one couldn't be found, and its choice then. */
+  const fellBack = useRef<{ id: string; open: boolean }>(undefined);
+  useLayoutEffect(() => {
+    if (!tree || !store) return;
+    const memory = trees.memory(tree.id);
+    const held = fellBack.current;
+    if (tree.fallback) fellBack.current = { id: tree.id, open: memory.open() };
+    else {
+      fellBack.current = undefined;
+      // A choice made on the fallback tree carries over to the tree it stood in for.
+      const open = held && held.id !== tree.id ? trees.memory(held.id).open() : undefined;
+      if (held && open !== undefined && open !== held.open) memory.remember(open);
+    }
+    return store.follow(memory);
+  }, [store, trees, tree]);
   const report = useCallback(
-    (found: Found) => setTree(found.kind === "loading" ? undefined : found.id),
+    (found: Found) =>
+      setTree((was) =>
+        found.kind === "loading"
+          ? undefined
+          : was?.id === found.id && was.fallback === (found.kind === "fallback")
+            ? was
+            : { id: found.id, fallback: found.kind === "fallback" },
+      ),
     [],
   );
   return <TreeStep threadId={props.threadId} seen={none} report={report} />;
@@ -56,6 +75,11 @@ const none: readonly string[] = [];
 type Found =
   | { kind: "loading" }
   | { kind: "root"; id: string }
+  /**
+   * The walk couldn't go on (the connection lost, a machine unreachable): the last thread it
+   * could name stands in until it can. A choice made meanwhile moves to the real tree.
+   */
+  | { kind: "fallback"; id: string }
   /** The step's thread is a daemon's hidden host (Spade): the thread below it is the root. */
   | { kind: "host"; id: string };
 
@@ -75,7 +99,10 @@ const treeFacts = (thread: ThreadRecord): TreeFacts => ({
 
 /** Parent facts already read, at most this many: a parent never changes, so none go stale. */
 const factsKept = 1000;
-const factsKey: SessionKey<Map<string, TreeFacts>> = { name: "workCardTreeFacts" };
+/** Per machine's client: two daemons may hold the same thread id (a restored copy, say). */
+const factsKey: SessionKey<WeakMap<object, Map<string, TreeFacts>>> = {
+  name: "workCardTreeFacts",
+};
 
 /**
  * One thread of the walk. It reports the tree's main thread once known: itself when nothing
@@ -89,7 +116,13 @@ function TreeStep(props: {
   report(found: Found): void;
 }) {
   const { threadId, seen, report } = props;
-  const known = useLayoutServices().sessionValue(factsKey, () => new Map());
+  const byClient = useLayoutServices().sessionValue(factsKey, () => new WeakMap());
+  const client = useClient();
+  const known = useMemo(() => {
+    let map = byClient.get(client);
+    if (!map) byClient.set(client, (map = new Map()));
+    return map;
+  }, [byClient, client]);
   const [facts, setFacts] = useState(() => known.get(threadId));
   const [unreadable, setUnreadable] = useState(false);
   const found = useCallback(
@@ -106,7 +139,7 @@ function TreeStep(props: {
   const own: Found | undefined =
     facts === undefined
       ? unreadable
-        ? { kind: "root", id: threadId }
+        ? { kind: "fallback", id: threadId }
         : { kind: "loading" }
       : facts.host !== undefined
         ? { kind: "host", id: threadId }
@@ -223,7 +256,7 @@ function RemoteHop(props: RemoteProps & { machines: readonly Machine[] }) {
   const batch = useNotifyBatch();
   const reachable = machine?.client !== undefined;
   useLayoutEffect(() => {
-    if (!reachable) report({ kind: "root", id: threadId });
+    if (!reachable) report({ kind: "fallback", id: threadId });
   }, [reachable, report, threadId]);
   if (!machine?.client) return null;
   return (

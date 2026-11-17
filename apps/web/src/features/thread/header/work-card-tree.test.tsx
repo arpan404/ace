@@ -38,16 +38,16 @@ async function threads(more: (main: string) => Partial<ThreadInit>[]) {
     });
   }
   const show = (...ids: string[]) => {
-    const stores = ids.map((id) => {
+    const stores = ids.map((id, index) => {
       const store = createWorkCardStore();
       store.setSide(true);
-      return { id, store };
+      return { id, store, key: `screen-${index}` };
     });
     component.render(
       <QueryClientProvider client={new QueryClient()}>
         <LayoutProvider storage={keyValues()}>
-          {stores.map(({ id, store }, index) => (
-            <WorkCardContext key={index} value={store}>
+          {stores.map(({ id, store, key }) => (
+            <WorkCardContext key={key} value={store}>
               <WorkCardTreeFollower threadId={id} />
             </WorkCardContext>
           ))}
@@ -128,4 +128,16 @@ test("a delegate opened while offline still shares its card with its other scree
   screen("b").toggle();
   // Both screens of `b` find the same tree while its parents can't be read.
   expect(screen("b", 1).get().open).toBe(true);
+});
+
+test("a card opened offline on a delegate moves to its main thread once it reconnects", async () => {
+  const { main, show, client } = await threads((root) => [{ id: "b", parentThreadId: root }]);
+  client.networkOnline(false);
+  const screen = show("b", main);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  screen("b").toggle();
+  expect(screen(main).get().open).toBe(false);
+  client.networkOnline(true);
+  await waitFor(() => expect(screen(main).get().open).toBe(true));
+  expect(screen("b").get().open).toBe(true);
 });
