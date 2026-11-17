@@ -36,6 +36,9 @@ struct SpadeConversationView: View {
             .padding(.horizontal, AceDesign.Space.margin)
             .padding(.vertical, AceDesign.Space.row)
         }
+        // On the transcript only: set below the composer's inset, it would replace the
+        // composer's and Stop's own identifiers.
+        .accessibilityIdentifier("spade.conversation")
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
         .overlay { if head?.loaded != true && spade.order.isEmpty { SkeletonRows(count: 3) } }
@@ -48,7 +51,6 @@ struct SpadeConversationView: View {
         .sensoryFeedback(AceDesign.Haptic.stop, trigger: stops)
         .onAppear { client.spadeOpen(conversation) }
         .onDisappear { if client.spade.opened == conversation { client.spadeOpen(nil) } }
-        .accessibilityIdentifier("spade.conversation")
     }
 
     private func problemLine(_ text: String) -> some View {
