@@ -118,3 +118,34 @@ test("deleting a parent settles its open child edges, so the child ending after 
   expect(missingState(h)).toEqual([]);
   await delegatesAgain(h);
 });
+
+test("a child still queued for its parent's slot when the parent was purged is dropped from the queue at the next start", async () => {
+  const h = setup({ maxConcurrent: 1 });
+  const parent = await h.parent();
+  h.delegate(parent, "running");
+  await h.engine.flush();
+  const queued = h.delegate(parent, "queued");
+  await h.engine.flush();
+  expect(h.service.journal.get(queued.childId)?.phase).toBe("created");
+
+  h.service.close();
+  await markDeleted(h, parent.threadId);
+  purge(h, parent.threadId);
+  const waiting = () =>
+    h.store
+      .statement("SELECT child_id FROM delegation_launch_queue WHERE parent_id=?")
+      .all(parent.threadId);
+  expect(waiting()).toHaveLength(1);
+
+  h.restartOwner();
+  expect(h.service.journal.get(queued.childId)).toMatchObject({
+    phase: "settled",
+    outcome: { outcome: "cancelled" },
+  });
+  expect(waiting()).toEqual([]);
+  // The next pump never tries to start it for a parent that is gone.
+  h.clock.advance(5000);
+  await h.engine.flush();
+  expect(missingState(h)).toEqual([]);
+  await delegatesAgain(h);
+});

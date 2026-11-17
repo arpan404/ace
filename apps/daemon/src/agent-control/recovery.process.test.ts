@@ -167,3 +167,25 @@ test("a parent's wait on a child whose restart continuation is still opening rea
   await recovered.engine.flush();
   expect(recovered.inputs.get(edge.childId)?.map(restartInput)).toEqual([true]);
 });
+
+test("a reservation row this build can't read is kept and reported, and agent control still starts", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  // A row a newer build wrote, in a phase this one doesn't know.
+  const row = JSON.stringify({ record: { phase: "parked", childId: "later-child" } });
+  h.store
+    .statement("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)")
+    .run("later-child", parent.threadId, parent.threadId, "later-request", row);
+  // The first start of a build that backfills delegation owners reads every reservation.
+  h.store.statement("DELETE FROM delegation_origin_backfill").run();
+  h.restartOwner();
+  expect(h.errors.length).toBeGreaterThan(0);
+  expect(
+    h.store
+      .statement("SELECT reservation FROM delegation_reservations WHERE child_id=?")
+      .get("later-child")?.reservation,
+  ).toBe(row);
+  const child = h.delegate(parent, "after-unreadable");
+  await h.engine.flush();
+  expect(h.service.journal.get(child.childId)?.phase).toBe("running");
+});

@@ -130,7 +130,9 @@ export class DelegationService {
       () => {},
     );
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
-    this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
+    this.journal = new DelegationJournal(deps.store, deps.journalCapacity, (error) =>
+      this.report(error),
+    );
     this.conversations = new ConversationJournal(deps.store);
     this.senders = new MessageSenders(deps.store);
     this.launches = new LaunchQueue(deps.store);
@@ -997,7 +999,13 @@ export class DelegationService {
   /** Fills free slots from each waiting parent's queue, oldest first. */
   private pumpAll(): void {
     if (this.closed || this.deps.admitsWork?.() === false || !this.launches.waiting()) return;
-    for (const parent of this.launches.parents()) this.pump(parent);
+    // One parent's queue that can't be drained never holds up the others, or the service.
+    for (const parent of this.launches.parents())
+      try {
+        this.pump(parent);
+      } catch (error) {
+        this.report(error);
+      }
   }
   private pump(value: string): void {
     if (this.closed || this.deps.admitsWork?.() === false) return;
