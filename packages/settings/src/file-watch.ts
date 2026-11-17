@@ -26,7 +26,8 @@ async function directoryExists(path: string): Promise<boolean> {
 }
 function repeatPoll(tick: () => Promise<void>): () => void {
   const timer = setInterval(() => {
-    void tick();
+    // A failed tick is a transient stat error; the next interval asks again.
+    void tick().catch(() => {});
   }, 500);
   timer.unref();
   return () => clearInterval(timer);
@@ -57,7 +58,7 @@ function createMissingDirectoryPoll(
     };
     const stop = repeat(tick);
     // Reconcile after registration as well as on subsequent ticks.
-    void tick();
+    void tick().catch(() => {});
     return () => {
       stopped = true;
       stop();

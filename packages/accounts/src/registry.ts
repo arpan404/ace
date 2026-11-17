@@ -765,7 +765,8 @@ export async function openRegistryIndex(
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Registry must be a regular file");
   await chmod(path, 0o600);
   const registry = new AccountRegistry(new DatabaseSync(path), managedDataDir);
-  registry.canonicalizeHomes(signal, homeChecks);
+  // Home checks keep running behind the caller; canonicalizeHomes handles its own failures.
+  void registry.canonicalizeHomes(signal, homeChecks).catch(() => undefined);
   return registry;
 }
 

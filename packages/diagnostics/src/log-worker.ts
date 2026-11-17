@@ -33,7 +33,7 @@ const request = z.discriminatedUnion("type", [
   z.object({ type: z.literal("write"), records: z.array(record).max(65536) }),
   z.object({ type: z.literal("resize"), totalBytes: z.number() }),
 ]);
-port.on("message", async (input: unknown) => {
+const handle = async (input: unknown): Promise<void> => {
   try {
     const message = request.parse(input);
     if (message.type === "resize") await sink.resize(message.totalBytes);
@@ -42,5 +42,9 @@ port.on("message", async (input: unknown) => {
   } catch {
     port.postMessage({ ok: false });
   }
+};
+port.on("message", (input: unknown) => {
+  // handle() answers every outcome itself; a failed post means the parent is already gone.
+  void handle(input).catch(() => {});
 });
 port.postMessage({ ready: true });

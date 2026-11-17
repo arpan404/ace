@@ -222,20 +222,27 @@ export class ProviderLoginSessions {
       job.timer = this.options.schedule(() => {
         job.expired = true;
         job.controller.abort();
-        void job.done.then(async () => {
-          if (this.active.get(job.key) === job) return;
-          try {
-            await job.settled?.("failed");
-            job.settled = undefined;
-            job.timer = this.options.schedule(() => this.jobs.delete(session), 60_000);
-          } catch {
-            this.active.set(job.key, job);
-            this.emit(job, {
-              state: "verifying",
-              message: "Account cleanup needs attention. Retry cancellation.",
-            });
-          }
-        });
+        void job.done
+          .then(async () => {
+            if (this.active.get(job.key) === job) return;
+            try {
+              await job.settled?.("failed");
+              job.settled = undefined;
+              job.timer = this.options.schedule(() => this.jobs.delete(session), 60_000);
+            } catch {
+              this.active.set(job.key, job);
+              this.emit(job, {
+                state: "verifying",
+                message: "Account cleanup needs attention. Retry cancellation.",
+              });
+            }
+          })
+          .catch((error: unknown) =>
+            this.options.report?.(error, {
+              provider: job.progress.provider,
+              action: job.progress.action,
+            }),
+          );
       }, lifetime);
       // Install ownership before preparation can perform I/O or invoke a callback.
       job.done = Promise.resolve()
