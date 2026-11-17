@@ -1,4 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+// Loaded with this module, at daemon start: its empty context is captured before any service's
+// scope exists, so shared machinery made later is still made in no service's context.
+import { unscoped } from "@ace/provider-kit/unscoped";
 
 /**
  * Which service's code is running: its start, its listeners, and whatever they leave running
@@ -15,5 +18,9 @@ export class ServiceScope {
   }
   current(): string | undefined {
     return this.storage.getStore();
+  }
+  /** Runs `work` in no service's scope: for machinery every service shares. */
+  outside<T>(work: () => T): T {
+    return unscoped(work);
   }
 }
