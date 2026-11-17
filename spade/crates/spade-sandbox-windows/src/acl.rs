@@ -8,14 +8,34 @@ use windows::Win32::Foundation::{ERROR_SUCCESS, HLOCAL, LocalFree, WIN32_ERROR};
 use windows::Win32::Security::ACL;
 use windows::Win32::Security::Authorization::{
     ACCESS_MODE, DENY_ACCESS, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetSecurityInfo,
-    NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_KERNEL_OBJECT, SetEntriesInAclW, SetSecurityInfo,
+    NO_MULTIPLE_TRUSTEE, REVOKE_ACCESS, SE_FILE_OBJECT, SetEntriesInAclW, SetSecurityInfo,
     TRUSTEE_IS_SID, TRUSTEE_TYPE, TRUSTEE_W,
 };
 use windows::Win32::Security::{
     ACE_FLAGS, CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE,
-    PSECURITY_DESCRIPTOR,
+    OBJECT_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, UNPROTECTED_DACL_SECURITY_INFORMATION,
 };
 use windows::core::PWSTR;
+
+/// A trustee naming `sid` by its own bytes (the SID form reads the name pointer as a `PSID`).
+fn trustee(sid: &Sid) -> TRUSTEE_W {
+    TRUSTEE_W {
+        pMultipleTrustee: std::ptr::null_mut(),
+        MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+        TrusteeForm: TRUSTEE_IS_SID,
+        TrusteeType: TRUSTEE_TYPE(0),
+        ptstrName: PWSTR(sid.as_psid().0.cast()),
+    }
+}
+
+/// Writing the DACL propagates inheritable ACEs down to existing children (`UNPROTECTED` keeps
+/// the object inheriting too), so revoking a parent's inheritable ACE removes the inherited copies
+/// on its descendants.
+fn unprotected() -> OBJECT_SECURITY_INFORMATION {
+    OBJECT_SECURITY_INFORMATION(
+        DACL_SECURITY_INFORMATION.0 | UNPROTECTED_DACL_SECURITY_INFORMATION.0,
+    )
+}
 
 use crate::fs::Object;
 use crate::sid::Sid;
@@ -34,14 +54,17 @@ pub enum Access {
 
 const READ_EXECUTE: u32 = 0x1200A9;
 const MODIFY: u32 = 0x1301BF;
-const GENERIC_ALL: u32 = 0x1000_0000;
+// A specific full-access mask, not `GENERIC_ALL`: a deny ACE is checked against the specific
+// rights a request asks for, and the generic bit isn't mapped in the stored ACE, so a deny must
+// name the concrete rights to out-rank an allow (e.g. one inherited from a granted parent folder).
+const FILE_ALL_ACCESS: u32 = 0x1F01FF;
 
 impl Access {
     fn mask(self) -> u32 {
         match self {
             Access::Read => READ_EXECUTE,
             Access::Write => MODIFY,
-            Access::Deny => GENERIC_ALL,
+            Access::Deny => FILE_ALL_ACCESS,
         }
     }
 
@@ -53,25 +76,163 @@ impl Access {
     }
 }
 
-/// Grants `sid` `access` on `object`, merged into its DACL and inherited by everything under it.
+/// Sets `sid`'s access on `object` to exactly `access`: the SID's previous allow and deny ACEs on
+/// this object are removed first, then the one new ACE is added, so a folder changed from
+/// read-write to read-only no longer keeps Modify. On a directory the ACE is inheritable, and the
+/// write propagates it to existing children.
 pub fn grant(object: &Object, sid: &Sid, access: Access) -> std::io::Result<()> {
-    let flags = if object.info()?.dir {
+    if access == Access::Deny {
+        return deny_node(object, sid);
+    }
+    let inherit = if object.info()?.dir {
         ACE_FLAGS(CONTAINER_INHERIT_ACE.0 | OBJECT_INHERIT_ACE.0)
     } else {
         ACE_FLAGS(0)
     };
-    apply(object, sid, access.mode(), access.mask(), flags)
+    // Two writes, not one: a REVOKE and a GRANT for the same trustee in a single `SetEntriesInAcl`
+    // net out to an empty allow. First remove the SID's old ACEs, then add exactly the new one,
+    // propagating the inheritable ACE to existing children.
+    revoke(object, sid)?;
+    apply(
+        object,
+        &[entry(sid, access.mode(), access.mask(), inherit)],
+        unprotected(),
+    )
 }
 
-/// Removes every ACE for `sid` from `object`'s DACL. A SID with none left is left as it was.
+/// Makes `sid` unable to reach `object` or anything under it, even when a granted parent folder
+/// would otherwise let it in. An AppContainer's access check grants the package SID if *any* allow
+/// ACE names it — a deny does not out-rank an inherited allow the way it does for a normal token —
+/// so the only reliable way is to leave no allow for the SID here. This stops the object
+/// inheriting (its inherited ACEs become its own explicit ones, so the person and the system keep
+/// their access), removes the SID's allow, and adds an inheritable deny on top. The DACL is
+/// written protected, so a later grant on a parent can't propagate an allow back in.
+fn deny_node(object: &Object, sid: &Sid) -> std::io::Result<()> {
+    use windows::Win32::Security::{
+        ACE_HEADER, GetAce, INHERITED_ACE, PROTECTED_DACL_SECURITY_INFORMATION,
+    };
+
+    let mut descriptor = PSECURITY_DESCRIPTOR::default();
+    let mut old: *mut ACL = std::ptr::null_mut();
+    // SAFETY: a handle we own; out-params live locals. `descriptor` is freed below.
+    let read = unsafe {
+        GetSecurityInfo(
+            object.raw(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            Some(&mut old),
+            None,
+            Some(&mut descriptor),
+        )
+    };
+    let mut merged: *mut ACL = std::ptr::null_mut();
+    let result = (|| {
+        check(read)?;
+        // Clear the inherited flag on every ACE in place, so the ones the object inherited become
+        // its own explicit ACEs once the DACL is written protected.
+        if !old.is_null() {
+            // SAFETY: `old` is a valid ACL.
+            let count = unsafe { (*old).AceCount };
+            for index in 0..u32::from(count) {
+                let mut ace: *mut core::ffi::c_void = std::ptr::null_mut();
+                // SAFETY: `old` is valid and `index` is in range.
+                if unsafe { GetAce(old, index, &mut ace) }.is_err() {
+                    continue;
+                }
+                // SAFETY: `ace` points at a valid ACE whose header is first.
+                unsafe {
+                    (*ace.cast::<ACE_HEADER>()).AceFlags &= !(INHERITED_ACE.0 as u8);
+                }
+            }
+        }
+        // Remove the SID's (now explicit) allow and add an inheritable deny.
+        let inherit = ACE_FLAGS(CONTAINER_INHERIT_ACE.0 | OBJECT_INHERIT_ACE.0);
+        let entries = [
+            entry(sid, REVOKE_ACCESS, 0, ACE_FLAGS(0)),
+            entry(sid, DENY_ACCESS, Access::Deny.mask(), inherit),
+        ];
+        // SAFETY: entries and their SIDs outlive the call; `old` is the de-inherited DACL; on
+        // success `merged` is a LocalAlloc'd ACL freed below.
+        let built = unsafe {
+            SetEntriesInAclW(
+                Some(&entries),
+                if old.is_null() {
+                    None
+                } else {
+                    Some(old.cast_const())
+                },
+                &mut merged,
+            )
+        };
+        check(built)?;
+        let info = OBJECT_SECURITY_INFORMATION(
+            DACL_SECURITY_INFORMATION.0 | PROTECTED_DACL_SECURITY_INFORMATION.0,
+        );
+        // SAFETY: `merged` is the new protected DACL for this object.
+        let written = unsafe {
+            SetSecurityInfo(
+                object.raw(),
+                SE_FILE_OBJECT,
+                info,
+                None,
+                None,
+                Some(merged.cast_const()),
+                None,
+            )
+        };
+        check(written)
+    })();
+    if !merged.is_null() {
+        // SAFETY: allocated by SetEntriesInAclW with LocalAlloc.
+        unsafe { LocalFree(Some(HLOCAL(merged.cast()))) };
+    }
+    if !descriptor.is_invalid() {
+        // SAFETY: allocated by GetSecurityInfo with LocalAlloc.
+        unsafe { LocalFree(Some(HLOCAL(descriptor.0))) };
+    }
+    result
+}
+
+/// Removes every ACE for `sid` from `object`'s DACL, and (on a directory) propagates the removal
+/// to the inherited copies on its descendants. A SID with none left is left as it was.
 pub fn revoke(object: &Object, sid: &Sid) -> std::io::Result<()> {
-    apply(object, sid, REVOKE_ACCESS, 0, ACE_FLAGS(0))
+    apply(
+        object,
+        &[entry(sid, REVOKE_ACCESS, 0, ACE_FLAGS(0))],
+        unprotected(),
+    )
 }
 
-/// Whether `object`'s DACL has any ACE naming `sid` (for tests and recovery checks).
-pub fn granted(object: &Object, sid: &Sid) -> std::io::Result<bool> {
+/// One explicit-access entry for `sid`.
+fn entry(sid: &Sid, mode: ACCESS_MODE, mask: u32, inherit: ACE_FLAGS) -> EXPLICIT_ACCESS_W {
+    EXPLICIT_ACCESS_W {
+        grfAccessPermissions: mask,
+        grfAccessMode: mode,
+        grfInheritance: inherit,
+        Trustee: trustee(sid),
+    }
+}
+
+/// One ACE as scanning sees it.
+struct Ace {
+    allow: bool,
+    inherited: bool,
+    mask: u32,
+}
+
+/// Reads `object`'s DACL and calls `f` for every ACE naming `sid`, returning the first `Some`.
+fn scan<T>(
+    object: &Object,
+    sid: &Sid,
+    mut f: impl FnMut(Ace) -> Option<T>,
+) -> std::io::Result<Option<T>> {
     use windows::Win32::Foundation::{HLOCAL, LocalFree};
-    use windows::Win32::Security::{ACCESS_ALLOWED_ACE, ACL, EqualSid, GetAce, PSID};
+    use windows::Win32::Security::{ACE_HEADER, ACL, EqualSid, GetAce, INHERITED_ACE, PSID};
+
+    // `ACCESS_ALLOWED_ACE_TYPE` as the one byte an ACE header stores.
+    const ALLOW_TYPE: u8 = 0;
 
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     let mut dacl: *mut ACL = std::ptr::null_mut();
@@ -80,7 +241,7 @@ pub fn granted(object: &Object, sid: &Sid) -> std::io::Result<bool> {
     let read = unsafe {
         GetSecurityInfo(
             object.raw(),
-            SE_KERNEL_OBJECT,
+            SE_FILE_OBJECT,
             DACL_SECURITY_INFORMATION,
             None,
             None,
@@ -92,7 +253,7 @@ pub fn granted(object: &Object, sid: &Sid) -> std::io::Result<bool> {
     let result = (|| {
         check(read)?;
         if dacl.is_null() {
-            return Ok(false);
+            return Ok(None);
         }
         // SAFETY: `dacl` is a valid ACL from the call above.
         let count = unsafe { (*dacl).AceCount };
@@ -102,17 +263,31 @@ pub fn granted(object: &Object, sid: &Sid) -> std::io::Result<bool> {
             if unsafe { GetAce(dacl, index, &mut ace) }.is_err() {
                 continue;
             }
-            // Every ACE starts with its header, then the mask, then the SID at `SidStart`. The
-            // allow and deny ACEs share this layout, so one cast reaches the SID of either.
-            let ace = ace.cast::<ACCESS_ALLOWED_ACE>();
-            // SAFETY: `ace` points at a valid ACE; `SidStart` is the first dword of its SID.
-            let sid_ptr = unsafe { std::ptr::addr_of!((*ace).SidStart) };
+            // Allow and deny ACEs share the layout: an `ACE_HEADER`, then a `u32` mask, then the
+            // SID. Read the header for the type/flags, the mask after it, and the SID after that.
+            // SAFETY: `ace` points at a valid ACE at least as large as its header.
+            let header = unsafe { *ace.cast::<ACE_HEADER>() };
+            // SAFETY: the mask is the dword right after the header.
+            let mask = unsafe { *ace.cast::<u8>().add(size_of::<ACE_HEADER>()).cast::<u32>() };
+            // SAFETY: the SID follows the mask.
+            let sid_ptr = unsafe {
+                ace.cast::<u8>()
+                    .add(size_of::<ACE_HEADER>() + size_of::<u32>())
+            };
             // SAFETY: both are valid SIDs.
-            if unsafe { EqualSid(PSID(sid_ptr as *mut _), sid.as_psid()) }.is_ok() {
-                return Ok(true);
+            if unsafe { EqualSid(PSID(sid_ptr.cast()), sid.as_psid()) }.is_err() {
+                continue;
+            }
+            let item = Ace {
+                allow: header.AceType == ALLOW_TYPE,
+                inherited: header.AceFlags & INHERITED_ACE.0 as u8 != 0,
+                mask,
+            };
+            if let Some(found) = f(item) {
+                return Ok(Some(found));
             }
         }
-        Ok(false)
+        Ok(None)
     })();
     if !descriptor.is_invalid() {
         // SAFETY: allocated by GetSecurityInfo with LocalAlloc.
@@ -121,28 +296,29 @@ pub fn granted(object: &Object, sid: &Sid) -> std::io::Result<bool> {
     result
 }
 
+/// Whether `object`'s DACL has any ACE naming `sid` (for tests and recovery checks).
+pub fn granted(object: &Object, sid: &Sid) -> std::io::Result<bool> {
+    Ok(scan(object, sid, |_| Some(()))?.is_some())
+}
+
+/// The mask of `sid`'s own (non-inherited) allow ACE on `object`, if it has one. Tests use this to
+/// check a grant was reconciled to exact rights (not merged with an older one).
+pub fn allow_mask(object: &Object, sid: &Sid) -> std::io::Result<Option<u32>> {
+    scan(object, sid, |ace| {
+        (ace.allow && !ace.inherited).then_some(ace.mask)
+    })
+}
+
+/// Whether `object` has any ACE for `sid` that was inherited from a parent (for tests).
+pub fn inherited(object: &Object, sid: &Sid) -> std::io::Result<bool> {
+    Ok(scan(object, sid, |ace| ace.inherited.then_some(()))?.is_some())
+}
+
 fn apply(
     object: &Object,
-    sid: &Sid,
-    mode: ACCESS_MODE,
-    mask: u32,
-    inherit: ACE_FLAGS,
+    entries: &[EXPLICIT_ACCESS_W],
+    info: OBJECT_SECURITY_INFORMATION,
 ) -> std::io::Result<()> {
-    // The SID's own bytes stand in for the trustee name (the SID form reads it from there).
-    let trustee = TRUSTEE_W {
-        pMultipleTrustee: std::ptr::null_mut(),
-        MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
-        TrusteeForm: TRUSTEE_IS_SID,
-        TrusteeType: TRUSTEE_TYPE(0),
-        ptstrName: PWSTR(sid.as_psid().0.cast()),
-    };
-    let entry = EXPLICIT_ACCESS_W {
-        grfAccessPermissions: mask,
-        grfAccessMode: mode,
-        grfInheritance: inherit,
-        Trustee: trustee,
-    };
-
     let mut descriptor = PSECURITY_DESCRIPTOR::default();
     let mut old: *mut ACL = std::ptr::null_mut();
     // SAFETY: a handle we own; the out-params are live locals. On ERROR_SUCCESS `descriptor` is
@@ -150,7 +326,7 @@ fn apply(
     let read = unsafe {
         GetSecurityInfo(
             object.raw(),
-            SE_KERNEL_OBJECT,
+            SE_FILE_OBJECT,
             DACL_SECURITY_INFORMATION,
             None,
             None,
@@ -162,11 +338,11 @@ fn apply(
     check(read)?;
 
     let mut merged: *mut ACL = std::ptr::null_mut();
-    // SAFETY: `entry` and its SID outlive the call; `old` is the current DACL (or null); on
+    // SAFETY: `entries` and their SIDs outlive the call; `old` is the current DACL (or null); on
     // success `merged` is a LocalAlloc'd ACL freed below.
     let built = unsafe {
         SetEntriesInAclW(
-            Some(std::slice::from_ref(&entry)),
+            Some(entries),
             if old.is_null() {
                 None
             } else {
@@ -177,12 +353,13 @@ fn apply(
     };
     let set = (|| {
         check(built)?;
-        // SAFETY: `merged` is the ACL just built; it is written as this object's DACL.
+        // SAFETY: `merged` is the ACL just built; it is written as this object's DACL, treated as
+        // a file object so inheritable ACEs propagate to existing children.
         let written = unsafe {
             SetSecurityInfo(
                 object.raw(),
-                SE_KERNEL_OBJECT,
-                DACL_SECURITY_INFORMATION,
+                SE_FILE_OBJECT,
+                info,
                 None,
                 None,
                 Some(merged.cast_const()),

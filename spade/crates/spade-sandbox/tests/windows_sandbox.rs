@@ -437,3 +437,101 @@ fn acls_are_taken_back_after_a_crash_and_when_a_bot_is_forgotten() {
         .unwrap_or_else(|_| std::process::abort())
     );
 }
+
+// ---- Group A: pinned-handle grants, exact rights, inheritance (review 1, 2, 5) ----
+
+const MODIFY: u32 = 0x1301BF;
+const READ_EXECUTE: u32 = 0x1200A9;
+
+/// `mklink /J <link> <target>` makes a directory junction (a reparse point) without privilege.
+fn junction(link: &Path, target: &Path) {
+    let status = std::process::Command::new(format!(
+        r"{}\System32\cmd.exe",
+        std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned())
+    ))
+    .args([
+        "/c",
+        "mklink",
+        "/J",
+        &link.to_string_lossy(),
+        &target.to_string_lossy(),
+    ])
+    .status()
+    .unwrap_or_else(|_| std::process::abort());
+    assert!(status.success(), "mklink /J failed");
+}
+
+#[test]
+fn open_pinned_refuses_a_reparse_point_in_the_path() {
+    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let real = dir.path().join("real");
+    std::fs::create_dir_all(real.join("sub")).unwrap_or_else(|_| std::process::abort());
+    let link = dir.path().join("jlink");
+    junction(&link, &real);
+
+    // The old opener (last component only) traverses the junction; the pinned walk refuses it.
+    assert!(
+        Object::open(&link.join("sub")).is_ok(),
+        "the plain opener follows the junction"
+    );
+    assert!(
+        Object::open_pinned(&link.join("sub")).is_err(),
+        "a path through a junction must be refused"
+    );
+    assert!(
+        Object::open_pinned(&link).is_err(),
+        "the junction itself must be refused"
+    );
+    // The real path, with no reparse point, is accepted.
+    assert!(Object::open_pinned(&real.join("sub")).is_ok());
+}
+
+#[test]
+fn a_grant_from_write_to_read_is_reconciled_to_exact_rights() {
+    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let folder = dir.path().join("folder");
+    std::fs::create_dir_all(&folder).unwrap_or_else(|_| std::process::abort());
+    let (container, _profile) = container();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
+
+    let object = Object::open_pinned(&folder).unwrap_or_else(|_| std::process::abort());
+    acl::grant(&object, &sid, Access::Write).unwrap_or_else(|_| std::process::abort());
+    assert_eq!(
+        acl::allow_mask(&object, &sid).unwrap_or_else(|_| std::process::abort()),
+        Some(MODIFY),
+        "a write grant should carry Modify"
+    );
+    acl::grant(&object, &sid, Access::Read).unwrap_or_else(|_| std::process::abort());
+    assert_eq!(
+        acl::allow_mask(&object, &sid).unwrap_or_else(|_| std::process::abort()),
+        Some(READ_EXECUTE),
+        "changing to read must leave exactly Read&execute, not a merge that keeps Modify"
+    );
+}
+
+#[test]
+fn revoking_a_parent_removes_the_inherited_ace_on_a_descendant() {
+    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let parent = dir.path().join("parent");
+    let child = parent.join("child");
+    std::fs::create_dir_all(&child).unwrap_or_else(|_| std::process::abort());
+    let (container, _profile) = container();
+    let sid = profile::ensure(&container.name, &container.display)
+        .unwrap_or_else(|_| std::process::abort());
+
+    let parent_obj = Object::open_pinned(&parent).unwrap_or_else(|_| std::process::abort());
+    acl::grant(&parent_obj, &sid, Access::Write).unwrap_or_else(|_| std::process::abort());
+    let child_obj = Object::open_pinned(&child).unwrap_or_else(|_| std::process::abort());
+    assert!(
+        acl::inherited(&child_obj, &sid).unwrap_or_else(|_| std::process::abort()),
+        "the child should inherit the parent's ACE"
+    );
+
+    acl::revoke(&parent_obj, &sid).unwrap_or_else(|_| std::process::abort());
+    let child_obj = Object::open_pinned(&child).unwrap_or_else(|_| std::process::abort());
+    assert!(
+        !acl::inherited(&child_obj, &sid).unwrap_or_else(|_| std::process::abort()),
+        "revoking the parent must remove the inherited ACE on the child"
+    );
+}

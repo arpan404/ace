@@ -44,6 +44,46 @@ const ACCESS: u32 =
     READ_CONTROL.0 | WRITE_DAC.0 | FILE_READ_ATTRIBUTES.0 | FILE_LIST_DIRECTORY.0 | SYNCHRONIZE.0;
 
 impl Object {
+    /// Opens `path` by walking it one component at a time, each opened relative to its parent's
+    /// pinned directory handle and refused if it is a reparse point (a symbolic link or junction).
+    /// So the object returned is exactly the one the person approved: no component of the path can
+    /// be swapped for a link that redirects the ACE somewhere else. Intermediate components are
+    /// never traversed through a link, unlike [`Object::open`], which protects only the last one.
+    pub fn open_pinned(path: &Path) -> std::io::Result<Self> {
+        let (root, components) = pinned_parts(path)?;
+        let mut object = Self::open_root(&root)?;
+        if object.info()?.reparse {
+            return Err(reparse_refused());
+        }
+        for name in components {
+            object = object.child(&name)?;
+            if object.info()?.reparse {
+                return Err(reparse_refused());
+            }
+        }
+        Ok(object)
+    }
+
+    /// Opens a volume root such as `\\?\C:\` as a directory handle to walk from.
+    fn open_root(root: &OsStr) -> std::io::Result<Self> {
+        let name = crate::wide(root);
+        // SAFETY: `name` is NUL-terminated and outlives the call; the handle is owned below.
+        let handle = unsafe {
+            CreateFileW(
+                windows::core::PCWSTR(name.as_ptr()),
+                ACCESS,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                None,
+            )
+        }
+        .map_err(crate::io)?;
+        // SAFETY: a fresh handle this object now owns alone.
+        Ok(Self(unsafe { OwnedHandle::from_raw_handle(handle.0) }))
+    }
+
     /// Opens `path` itself (a link as the link).
     pub fn open(path: &Path) -> std::io::Result<Self> {
         let name = crate::wide(path.as_os_str());
@@ -182,4 +222,41 @@ impl Object {
     pub(crate) fn raw(&self) -> HANDLE {
         HANDLE(self.0.as_raw_handle())
     }
+}
+
+fn reparse_refused() -> std::io::Error {
+    std::io::Error::other("a reparse point in the path is not allowed")
+}
+
+/// Splits an absolute, drive-rooted path into its volume root (`\\?\C:\`) and the `Normal`
+/// components to walk. A path that isn't a plain drive-absolute path (a UNC share, a relative or
+/// `..`-bearing path, a device name) is refused, since the sandbox only grants real local folders.
+fn pinned_parts(path: &Path) -> std::io::Result<(OsString, Vec<OsString>)> {
+    use std::path::{Component, Prefix};
+
+    let mut components = path.components();
+    let drive = match components.next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => letter,
+            _ => {
+                return Err(std::io::Error::other(
+                    "only a local drive path can be pinned",
+                ));
+            }
+        },
+        _ => return Err(std::io::Error::other("the path is not drive-absolute")),
+    };
+    if !matches!(components.next(), Some(Component::RootDir)) {
+        return Err(std::io::Error::other("the path is not drive-absolute"));
+    }
+    let root = OsString::from(format!(r"\\?\{}:\", (drive as char).to_ascii_uppercase()));
+    let mut names = Vec::new();
+    for component in components {
+        match component {
+            Component::Normal(name) => names.push(name.to_owned()),
+            // A real policy path has no `.` or `..`; refuse rather than guess.
+            _ => return Err(std::io::Error::other("the path has a non-normal component")),
+        }
+    }
+    Ok((root, names))
 }
