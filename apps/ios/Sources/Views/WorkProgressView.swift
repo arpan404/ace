@@ -10,20 +10,25 @@ import SwiftUI
     var background: [String: BlockRow.Background] = [:]
     var retried: Set<String> = []
     var thoughts: [String: BlockRow.Thought] = [:]
+    /// The head's moments by id, for the log's `moment` rows.
+    var moments: [String: EventRow] = [:]
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
 
     init(thread: ThreadModel, block: BlockRow, openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
-        self.init(thread: thread, ace: block.aceSteps, background: block.background, retried: block.retried, thoughts: block.thoughts, openMedia: openMedia, openMessage: openMessage)
+        self.init(thread: thread, ace: block.aceSteps, background: block.background, retried: block.retried, thoughts: block.thoughts,
+                  moments: block.moments, openMedia: openMedia, openMessage: openMessage)
     }
     init(thread: ThreadModel, fetched: [String: TranscriptRow] = [:], ace: [BlockRow.AceStep]?, background: [BlockRow.Background]?,
-         retried: [String]?, thoughts: [BlockRow.Thought]?, openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
+         retried: [String]?, thoughts: [BlockRow.Thought]?, moments: [BlockRow.Moment]? = nil,
+         openMedia: ((TranscriptRow) -> Void)? = nil, openMessage: ((TranscriptRow) -> Void)? = nil) {
         self.thread = thread
         self.fetched = fetched
         self.ace = Dictionary((ace ?? []).map { ($0.id, $0.step) }, uniquingKeysWith: { $1 })
         self.background = Dictionary((background ?? []).map { ($0.itemId, $0) }, uniquingKeysWith: { $1 })
         self.retried = Set(retried ?? [])
         self.thoughts = Dictionary((thoughts ?? []).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        self.moments = Dictionary((moments ?? []).compactMap { moment in moment.event.map { (moment.id, $0) } }, uniquingKeysWith: { $1 })
         self.openMedia = openMedia
         self.openMessage = openMessage
     }
@@ -56,6 +61,8 @@ private struct LogRowView: View {
         case "group": LogGroupView(row: row, source: source, live: live)
         case "thought": LogStep(id: row.id, source: source)
         case "background": BackgroundStep(row: row, source: source)
+        // In the weight of a step row, on the rail's line with no mark of its own, as the web's.
+        case "moment": if let event = source.moments[row.id] { SystemRow(event: event) }
         default: LogStep(id: row.id, source: source)
         }
     }
