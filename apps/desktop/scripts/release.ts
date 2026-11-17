@@ -22,6 +22,8 @@ import { windowsSigning, windowsSigningConfigured } from "../src/packaging/relea
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { appVersion, desktop, dist, repo } from "./common.ts";
 import { checkPackagedLaunch } from "./launch-check.ts";
+import { releaseDataAt } from "./release-data.ts";
+import { releaseDataFile, renderReleaseData } from "../src/packaging/release-data.ts";
 import {
   capture,
   githubReady,
@@ -41,13 +43,16 @@ import {
  *   bun run release:doctor
  *   bun run release:build 0.0.3 [--unsigned] [--with-daemon] [--allow-dirty]
  *   bun run release:publish 0.0.3 [--draft] [--notes-file notes.md] [--include <staged dir>]
+ *   bun run release:data [<checkout>]
  *
  * `build` packages the app for this Mac's architecture (dmg, the zip Squirrel.Mac updates
  * from, blockmaps and `latest-mac.yml`), verifies its signature, notarization and staple, and
  * stages the files with their SHA-256 under `dist/releases/v<version>`. `--with-daemon` adds
  * the signed standalone daemon archive for Apple silicon, so `ace update` on
  * standalone installs sees the release too. `publish` uploads exactly those staged files to a
- * draft release tagged at the built commit, then publishes it.
+ * draft release tagged at the built commit, then publishes it. Every release carries
+ * `ace-data.json`, the data formats its build reads (ADR 0174); `data` prints them for this
+ * tree or another checkout (an older tag's, with its dependencies installed) and uploads nothing.
  *
  * On Linux (inside the Debian 12 build container, ADR 0093) `build` packages the AppImage,
  * deb and tar.gz with `latest-linux*.yml` for this host's architecture, unsigned; the
@@ -57,7 +62,8 @@ import {
 const usage = `Usage:
   bun run release:doctor
   bun run release:build <version> [--unsigned] [--with-daemon] [--allow-dirty]
-  bun run release:publish <version> [--draft] [--notes-file <path>] [--include <staged dir>]...`;
+  bun run release:publish <version> [--draft] [--notes-file <path>] [--include <staged dir>]...
+  bun run release:data [<checkout>]`;
 
 const [command, versionArgument, ...rest] = process.argv.slice(2);
 const flag = (name: string) => rest.includes(name);
@@ -79,6 +85,8 @@ const daemonOutput = join(repo, "tools/release/dist");
 
 try {
   if (command === "doctor") doctor();
+  else if (command === "data")
+    process.stdout.write(renderReleaseData(await releaseDataAt(resolve(versionArgument ?? repo))));
   else if (command === "build" && versionArgument) await build(releaseVersion(versionArgument));
   else if (command === "publish" && versionArgument) await publish(releaseVersion(versionArgument));
   else {
@@ -217,6 +225,14 @@ async function build(version: string): Promise<void> {
       const path = join(target, name);
       files.push({ name, bytes: (await stat(path)).size, sha256: await sha256(path) });
     }
+  // The data formats this build reads, so installed apps can tell whether it reads theirs.
+  await writeFile(join(target, releaseDataFile), renderReleaseData(await releaseDataAt(repo)));
+  const dataPath = join(target, releaseDataFile);
+  files.push({
+    name: releaseDataFile,
+    bytes: (await stat(dataPath)).size,
+    sha256: await sha256(dataPath),
+  });
   const release: StagedRelease = {
     version,
     tag: releaseTag(version),
