@@ -17,7 +17,7 @@ struct TranscriptGrowthAnchor: Equatable, Sendable {
     /// Size changes keep the bottom edge where it is.
     var keepsEnd: Bool { opening || older }
 
-    /// The rows first laid out; `atEnd` when the feed opened following the live end.
+    /// The feed appeared or its rows first laid out; `atEnd` when it opened following the live end.
     mutating func opened(atEnd: Bool) {
         if atEnd { opening = true }
     }

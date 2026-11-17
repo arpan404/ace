@@ -83,8 +83,9 @@ struct ConversationFeed: View {
     @State private var feedFrame: CGRect = .zero
     /// The edge that holds still while lazy rows correct their heights (`TranscriptGrowthAnchor`).
     @State private var growth = TranscriptGrowthAnchor()
-    /// Bumped as each older page lands.
-    @State private var olderLandings = 0
+    /// Bumped as each older page lands and as the feed comes to rest while the bottom is held: the
+    /// older page's hold ends a second after the last bump.
+    @State private var olderQuiet = 0
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
     /// The viewport controller owns the follow mode; the feed never keeps its
@@ -282,6 +283,7 @@ struct ConversationFeed: View {
                 // After the follow mode above: where the scroll came to rest is held, and a
                 // correction owed while it ran is made (`TranscriptPlaceKeeper`).
                 keep(.phase(.idle), proxy: proxy)
+                if growth.keepsEnd { olderQuiet += 1 }
                 restack(rows: TranscriptFeedRow.rows(shown).count, moving: false, replaced: false, proxy: proxy)
                 updateBehind()
                 pageIfNeeded(proxy)
@@ -385,15 +387,15 @@ struct ConversationFeed: View {
                     growth.olderRequested()
                     TranscriptJumpHooks.begin("older")
                 }
-                if !loading, reading.operation == "older" { olderLandings += 1 }
+                if !loading, reading.operation == "older" { olderQuiet += 1 }
                 if !loading { pageIfNeeded(proxy) }
             }
-            // The rows of a landed page measure within a few frames; then new rows below grow
-            // under a held top again.
-            .task(id: olderLandings) {
-                guard olderLandings > 0 else { return }
+            // A page that lands mid-fling joins the feed when the fling comes to rest, and its rows
+            // measure within a few frames of that; then new rows below grow under a held top again.
+            .task(id: olderQuiet) {
+                guard olderQuiet > 0 else { return }
                 try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled, !reading.loading else { return }
+                guard !Task.isCancelled, !reading.loading, !intent.active, !intent.animating else { return }
                 growth.olderSettled()
             }
             .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
@@ -594,9 +596,11 @@ struct ConversationFeed: View {
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
         restoreSessionIfReady()
         applyLayoutRevision()
+        // Held from before the rows land, so the first frame that has them already lays out from
+        // the end.
+        if !initialScroll { growth.opened(atEnd: following) }
         if thread.loaded, !initialScroll {
             if following { toEnd(proxy) }
-            growth.opened(atEnd: following)
             initialScroll = true
         }
     }
