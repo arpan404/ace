@@ -23,14 +23,23 @@ export async function storageRequest(
         ["forbidden", "not_found", "invalid_request"].includes(data.code) ? "refused" : "uncertain",
         data.message,
         evidence,
+        data.code === "not_found"
+          ? { code: "not_found", hint: "Plan a new cleanup with ace storage plan." }
+          : data.code === "forbidden"
+            ? { code: "forbidden" }
+            : {},
       );
     return data;
   } catch (error) {
     if (evidence && (signal.aborted || error instanceof ClientError))
       throw new CliFailure(
         "uncertain",
-        "Cleanup acknowledgement unavailable. Read clean status PLAN_ID or apply the same plan and revision again.",
+        "ace didn't confirm the cleanup, so it may or may not have run.",
         evidence,
+        {
+          code: "uncertain",
+          hint: `See where it stands with ace storage status ${evidence.planId}, or apply the same plan and revision again.`,
+        },
       );
     throw error;
   }
