@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { ThreadId } from "@ace/protocol";
+import { DeviceId, type ThreadId } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 import { end, start } from "../engine/test-support.ts";
 
@@ -10,6 +10,8 @@ import { end, start } from "../engine/test-support.ts";
  */
 
 type Harness = ReturnType<typeof setup>;
+/** The person's own client. */
+const desktop = DeviceId.parse("desktop");
 
 const stopsOnLimit = [
   { type: "retry", agent: "root", on: "rate_limit", until: 5000, message: "Quota exhausted" },
@@ -171,7 +173,22 @@ test("the person can carry on a limited child of a deleted, purged middle thread
     outcome: { outcome: "cancelled" },
   });
 
-  const sent = h.service.command("carry-on", {
+  // An ancestor's agent never gets the person's way around the deleted thread's fence.
+  const agentSend = h.service.command("agent-carry-on", {
+    type: "thread.send",
+    threadId: limited.childId,
+    input: [{ type: "text", text: "Keep going" }],
+    trigger: "parent_agent",
+  });
+  expect(agentSend).toMatchObject({ ok: false, error: "cancelled" });
+  const agentResume = h.service.command("agent-resume", {
+    type: "thread.resume",
+    threadId: limited.childId,
+    expectedRevision: h.engine.queue(limited.childId).revision,
+  });
+  expect(agentResume).toMatchObject({ ok: false, error: "cancelled" });
+
+  const sent = h.service.commandFor(desktop, "carry-on", {
     type: "thread.send",
     threadId: limited.childId,
     input: [{ type: "text", text: "Carry on" }],
@@ -180,7 +197,7 @@ test("the person can carry on a limited child of a deleted, purged middle thread
   // Past its reset, the person resumes it, and it runs again on its own.
   h.clock.advance(5001);
   await h.engine.flush();
-  const resumed = h.service.command("resume", {
+  const resumed = h.service.commandFor(desktop, "resume", {
     type: "thread.resume",
     threadId: limited.childId,
     expectedRevision: h.engine.queue(limited.childId).revision,

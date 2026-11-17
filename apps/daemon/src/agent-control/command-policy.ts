@@ -84,9 +84,10 @@ export function delegationCommandPolicy(deps: {
     if (!deps.admits()) return fail("Admission closed");
     const settled = deps.journal.get(p.threadId);
     // A child whose parent is gone is the person's own thread now (ADR 0177): their explicit
-    // work carries it on, unfenced by the tree it left. Its edge stays settled and nothing
+    // work carries it on, unfenced by the tree it left. An agent's never does. Its edge stays settled and nothing
     // reaches the parent. Work still being cancelled from the deletion stays cancelled.
     if (
+      fromPerson(command, deps.requestingAgent?.()) &&
       explicit &&
       settled?.phase === "settled" &&
       threadGone((id) => deps.store.getThread(id), deps.engine, settled.parentId)
@@ -139,4 +140,20 @@ export function delegationCommandPolicy(deps: {
     deps.changed();
     return accepted;
   };
+}
+
+/** Devices ace's own agents, automations and outside clients send commands as. */
+const agentDevices = new Set(["ace-agent", "agent-automation", "automation"]);
+/**
+ * The command is the person's: sent from their own client, not by an agent's tool (whatever
+ * device it goes through), an automation or an outside client's grant.
+ */
+function fromPerson(command: Command, requestingAgent: string | undefined): boolean {
+  const p = command.payload;
+  return (
+    requestingAgent === undefined &&
+    !agentDevices.has(command.deviceId) &&
+    !command.deviceId.startsWith("mcp-grant:") &&
+    !(p.type === "thread.send" && p.trigger === "parent_agent")
+  );
 }
