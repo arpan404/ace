@@ -12,6 +12,8 @@ struct InboxHeaderActions {
     var place: (SearchPlace) -> Void = { _ in }
     /// New thread on Threads, New chat on Chats.
     var compose: () -> Void = {}
+    /// Code review, from Threads' top bar on a phone.
+    var review: () -> Void = {}
     /// A page inside Settings, so Back lands on its list: the avatar menu's Profile and
     /// Archived threads.
     var page: (SettingsRoute) -> Void = { _ in }
@@ -257,12 +259,20 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .accessibilityIdentifier("select.done")
         }
     }
-    /// The person's avatar at the bar's leading edge, then the scope menu and compose on one
-    /// glass capsule at the right: system bar buttons with ace's glyphs, at the system's size. Compose shows where the tab bar doesn't hold it:
-    /// before iOS 27, and beside a page in a regular window, which has no tab bar. (The system's
+    /// The person's avatar at the bar's leading edge, then Code review (Threads on a phone, whose
+    /// tab bar leaves it out), the scope menu and compose on one glass capsule at the right: system
+    /// bar buttons with ace's glyphs, at the system's size. Compose shows where the tab bar doesn't
+    /// hold it: before iOS 27, and beside a page in a regular window, which has no tab bar. (The system's
     /// title menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
         AccountToolbarItem(open: header.page, settings: header.settings)
+        if !chats && sizeClass != .regular {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: header.review) { Image(bar: HomeTabs.icon(.review)) }
+                    .accessibilityLabel(HomeTabs.title(.review))
+                    .accessibilityIdentifier("inbox.review")
+            }
+        }
         if !chats || inbox.showsMachineNames {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu { titleMenu } label: { Image(bar: .funnelSimple) }

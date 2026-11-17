@@ -284,6 +284,7 @@ export const barIcons: { name: string; weight: "regular" | "bold" }[] = [
   { name: "dots-three", weight: "bold" },
   { name: "chat-circle", weight: "regular" },
   { name: "plus-minus", weight: "regular" },
+  { name: "git-pull-request", weight: "regular" },
 ];
 /** The box a bar glyph is drawn in: the drawing comes to about 20pt, a bar symbol's size. */
 export const barIconSize = 28;

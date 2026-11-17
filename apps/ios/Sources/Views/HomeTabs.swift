@@ -4,14 +4,17 @@ import SwiftUI
 enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 
 /// The home tabs in their order (Threads · Chats · Spade · Code review · Search, then compose) and
-/// what each is called. Code review is the web rail's place for pull requests and issues. Spade, ace's cloud agent, is hidden until it launches: turning `showsSpade` on puts
+/// what each is called. Code review is the web rail's place for pull requests and issues: a tab in
+/// a regular window, while a phone's tab bar leaves it to Threads' top bar so the two lists keep
+/// their room. Spade, ace's cloud agent, is hidden until it launches: turning `showsSpade` on puts
 /// its tab back in its slot between Chats and Search, and its glyph in the iPad sidebar, with
 /// nothing else to lay out again.
 enum HomeTabs {
     /// Spade's tab, off until Spade launches.
     static let showsSpade = false
 
-    /// The places the tab bar (and the iPad sidebar's foot) switches between, in order.
+    /// The places the iPad sidebar's foot switches between, in order; a phone's tab bar holds
+    /// them but Code review.
     static var switchable: [InboxTab] { [.threads, .chats] + (showsSpade ? [.spade] : []) + [.review, .search] }
 
     static func title(_ tab: InboxTab) -> String {

@@ -247,20 +247,32 @@ import XCTest
         XCTAssertTrue(app.buttons["settings.machines"].waitForExistence(timeout: 10))
     }
 
-    func testCodeReviewIsAHomeTabForPullRequestsAndIssues() {
+    func testCodeReviewOpensFromTheThreadsTopBarNotTheTabBar() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
         let app = launch()
-        let review = app.tabBars.firstMatch.buttons["Code review"]
-        XCTAssertTrue(review.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(bar.buttons["Threads"].exists)
+        XCTAssertTrue(bar.buttons["Chats"].exists)
+        XCTAssertFalse(bar.buttons["Code review"].exists)
+        let review = app.buttons["inbox.review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 10))
+        XCTAssertEqual(review.label, "Code review")
+        // Beside the scope button, to its left.
+        XCTAssertLessThan(review.frame.midX, app.buttons["inbox.projects"].frame.midX)
         review.tap()
-        XCTAssertTrue(review.isSelected)
         let issues = app.buttons["forge.kind.issues"]
         XCTAssertTrue(issues.waitForExistence(timeout: 20))
         capture("code-review-pulls")
         issues.tap()
         XCTAssertTrue(issues.isSelected)
         capture("code-review-issues")
-        app.tabBars.firstMatch.buttons["Threads"].tap()
+        // Closed and opened again, it keeps the list the person chose.
+        app.buttons["review.close"].tap()
         XCTAssertTrue(app.buttons["threads.tab.inbox"].waitForExistence(timeout: 10))
+        app.buttons["inbox.review"].tap()
+        XCTAssertTrue(app.buttons["forge.kind.issues"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["forge.kind.issues"].isSelected)
     }
 
     func testCodeReviewWithNoComputerPairedOffersPairing() {
@@ -269,9 +281,10 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-unpaired"]
         app.launchWithArguments()
         defer { app.terminate() }
-        let review = app.tabBars.firstMatch.buttons["Code review"]
+        let review = app.buttons["inbox.review"]
         XCTAssertTrue(review.waitForExistence(timeout: 30))
         review.tap()
+        XCTAssertTrue(app.buttons["review.close"].waitForExistence(timeout: 10))
         // Never skeletons forever: the way to pair a computer.
         XCTAssertTrue(app.buttons["inbox.empty.pair"].waitForExistence(timeout: 20))
         capture("code-review-unpaired")
