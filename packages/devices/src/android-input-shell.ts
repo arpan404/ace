@@ -36,10 +36,13 @@ export class AndroidInputShell {
       if (line === pending.marker + "0") pending.resolve();
       else pending.reject(this.failure());
     });
-    void this.process.exited.then(() => {
-      this.closed = true;
-      this.reject();
-    });
+    // `exited` reports the shell's exit and does not reject.
+    void this.process.exited
+      .then(() => {
+        this.closed = true;
+        this.reject();
+      })
+      .catch(() => {});
   }
   private readonly after: (ms: number, run: () => void) => () => void;
   private failure() {
@@ -66,13 +69,15 @@ export class AndroidInputShell {
         await new Promise<void>((resolve, reject) => {
           const cancel = this.after(timeoutMs, () => {
             this.reject();
-            void this.close();
+            // The pending input has already failed; a close that cannot finish adds nothing.
+            void this.close().catch(() => {});
           });
           this.pending = { marker, resolve, reject, cancel };
           this.process.stdin.write(`${command}\nprintf '\\n${marker}%s\\n' "$?"\n`, (error) => {
             if (error) {
               this.reject();
-              void this.close();
+              // The pending input has already failed; a close that cannot finish adds nothing.
+              void this.close().catch(() => {});
             }
           });
         });

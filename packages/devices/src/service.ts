@@ -151,10 +151,11 @@ export class DevicesService {
         this.sessions.delete(session.device.id);
       } else if (changed) {
         this.emit(session);
-        void this.refreshPosture(session);
+        // refreshPosture already swallows a failed read.
+        void this.refreshPosture(session).catch(() => {});
       } else if (!session.posture && device?.state === "booted") {
         // A fold read made while the device was still booting finds nothing; ask again.
-        void this.refreshPosture(session);
+        void this.refreshPosture(session).catch(() => {});
       }
     }
     this.inventory.update({ devices, issues: this.options.platform.diagnostics() });
@@ -177,7 +178,8 @@ export class DevicesService {
       );
     const session = createSession(Device.parse(device), this.options.runtime);
     this.sessions.set(id, session);
-    void this.refreshPosture(session);
+    // refreshPosture already swallows a failed read.
+    void this.refreshPosture(session).catch(() => {});
     return session;
   }
   state(session: DeviceSession): DeviceState {

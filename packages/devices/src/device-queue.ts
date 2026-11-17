@@ -42,10 +42,13 @@ export class DeviceQueue {
       () => {},
       () => {},
     );
-    void held.tail.then(() => {
-      if (held.generation === generation && this.#devices.get(device) === held)
-        this.#devices.delete(device);
-    });
+    // `held.tail` already swallows the work's failure; only the clearing callback is left.
+    void held.tail
+      .then(() => {
+        if (held.generation === generation && this.#devices.get(device) === held)
+          this.#devices.delete(device);
+      })
+      .catch(() => {});
     return result;
   }
 }
