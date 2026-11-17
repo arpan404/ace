@@ -65,8 +65,20 @@ struct EventRowLayout<Lead: View>: View {
     }
 }
 
-private func clock(_ at: Double) -> String {
-    at > 0 ? Date(timeIntervalSince1970: at / 1000).formatted(.dateTime.hour().minute()) : ""
+/// A row's time: "9:32 AM", or the span it covered, "9:23 – 9:30 AM", in the system's own
+/// interval style. A span inside one minute reads as that minute.
+enum EventClock {
+    static func words(at: Double, until: Double? = nil, locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        guard at > 0 else { return "" }
+        let from = Date(timeIntervalSince1970: at / 1000)
+        var single = Date.FormatStyle.dateTime.hour().minute()
+        single.locale = locale
+        single.timeZone = timeZone
+        guard let until, until > at else { return from.formatted(single) }
+        let to = Date(timeIntervalSince1970: until / 1000)
+        if from.formatted(single) == to.formatted(single) { return to.formatted(single) }
+        return (from..<to).formatted(Date.IntervalFormatStyle(date: .omitted, time: .shortened, locale: locale, timeZone: timeZone))
+    }
 }
 
 /// Where a row's details open: indented to the title, past the lead and the gap.
@@ -111,7 +123,7 @@ struct SystemRow: View {
         .accessibilityIdentifier("event.\(event.kind)")
     }
     private var row: some View {
-        EventRowLayout(lead: { lead }, title: event.text, meta: clock(event.at))
+        EventRowLayout(lead: { lead }, title: event.text, meta: EventClock.words(at: event.at, until: event.until))
     }
     @ViewBuilder private var lead: some View {
         if !event.provider.isEmpty {
