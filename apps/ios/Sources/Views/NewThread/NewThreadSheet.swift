@@ -196,10 +196,13 @@ struct NewThreadSheet: View {
             tune: tune,
             place: place, access: access)
     }
-    /// That machine's last project and model come back, as the web's do.
+    /// That machine's last project and model come back, as the web's do; its checkout of the
+    /// same logical project (ADR 0180) comes first when it has one.
     private func chooseMachine(_ id: String) {
         guard id != machineId else { return }
+        let same = project?.sameProject(in: inbox.client(id)?.compose.projects ?? [])
         drafts.edit { $0 = memory.load().open($0, on: id) }
+        if let same { drafts.edit { $0 = memory.load().chose(project: same.id, in: $0) } }
         memory.remember(draft)
     }
     /// Asks the machine for the chosen project's branches again, after a failed read.

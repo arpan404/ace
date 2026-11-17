@@ -4,6 +4,14 @@ import Observation
 /// A project on the machine, recent ones first (`newThreadProjects` in `@ace/ui-core/mobile`).
 struct ComposeProject: Codable, Sendable, Identifiable, Equatable {
     let id: String; let name: String; let path: String; let recent: Bool
+    /// Its logical project's ids (ADR 0180, `project-logical.ts`); empty or absent: its own.
+    var logical: [String]? = nil
+
+    /// The first of `projects` (recent first) in the same logical project as this one.
+    func sameProject(in projects: [ComposeProject]) -> ComposeProject? {
+        guard let logical, !logical.isEmpty else { return nil }
+        return projects.first { !Set($0.logical ?? []).isDisjoint(with: logical) }
+    }
 }
 /// A coding agent on the machine, worded and judged by the bridge: Swift never decides readiness.
 struct ComposeAgent: Codable, Sendable, Identifiable, Equatable {

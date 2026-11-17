@@ -86,4 +86,18 @@ import Foundation
         #expect(drafts.draft.projectId == "ace" && drafts.draft.text == "Fix it")
         #expect(NewThreadDraftModel(store: file).draft.projectId == "ace")
     }
+    @Test func movingMachineFindsItsCheckoutOfTheSameLogicalProjectRecentFirst() {
+        let here = ComposeProject(id: "ace", name: "ace", path: "/Users/ada/ace", recent: true, logical: ["p", "q"])
+        let there = [
+            ComposeProject(id: "notes", name: "notes", path: "/home/ci/notes", recent: true, logical: ["n"]),
+            ComposeProject(id: "ace-review", name: "ace-review", path: "/home/ci/review", recent: true, logical: ["q"]),
+            ComposeProject(id: "ace-main", name: "ace", path: "/home/ci/ace", recent: false, logical: ["p"]),
+        ]
+        // Either id of the group meets it; the first listed (most recent) is the one.
+        #expect(here.sameProject(in: there)?.id == "ace-review")
+        // A project of its own, or from an older daemon, finds nothing there.
+        let own = ComposeProject(id: "scratch", name: "scratch", path: "/s", recent: false)
+        #expect(own.sameProject(in: there) == nil)
+        #expect(ComposeProject(id: "x", name: "x", path: "/x", recent: false, logical: []).sameProject(in: there) == nil)
+    }
 }
