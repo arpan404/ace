@@ -300,10 +300,13 @@ mod platform {
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| Unavailable("the bot's workspace has no name".to_owned()))?;
+        // No bridge here: the daemon builds the networked plan in `confine`, where the per-run
+        // bridge is set up. This path (a run with no network) is the plain fallback.
         let plan = windows::plan(
             Container::for_bot(bot),
             windows::run::DEFAULT_ACTIVE_PROCESSES,
             windows::run::DEFAULT_MEMORY_BYTES,
+            None,
         );
         let (program, args) =
             windows::run::wrap(launcher, &plan, program, args).map_err(Unavailable)?;
