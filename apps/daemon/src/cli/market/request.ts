@@ -43,11 +43,12 @@ export function marketFailure(error: MarketError): CliFailure {
   const [outcome, code] = outcomes[error.code];
   const findings: CliProblem[] = (error.scan?.findings ?? [])
     .filter((finding) => finding.level !== "note")
-    .map((finding) => ({
-      ...(finding.path ? { path: finding.path } : {}),
-      ...(finding.line ? { line: finding.line } : {}),
-      message: finding.message,
-    }));
+    .map((finding) => {
+      const problem: CliProblem = { message: finding.message };
+      if (finding.path) problem.path = finding.path;
+      if (finding.line) problem.line = finding.line;
+      return problem;
+    });
   const problems = [...(error.problems ?? []), ...findings];
   const message =
     error.code === "signed_out" ? "Sign in to publish." : error.message.trim() || error.code;

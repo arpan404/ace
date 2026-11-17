@@ -130,14 +130,19 @@ export class MarketPersonRequests {
     const engine = this.deps.engine();
     const notice = (text: string, level: "info" | "error") =>
       engine?.hostNotice(threadId, `${row.key}:done`, text, level);
-    const operation = MarketOperation.safeParse(JSON.parse(row.operation));
-    if (!operation.success) return notice("ace couldn't read this request any more.", "error");
     try {
+      const operation = MarketOperation.safeParse(JSON.parse(row.operation));
+      if (!operation.success) return notice("ace couldn't read this request any more.", "error");
       const result = await this.runReviewed(operation.data, row);
       if (result.op === "error") notice(result.message, "error");
       else notice(doneSentence(operation.data), "info");
     } catch (error) {
-      notice(error instanceof Error ? error.message : "The market request failed.", "error");
+      // The thread may be gone by now; nothing else waits on this answer.
+      try {
+        notice(error instanceof Error ? error.message : "The market request failed.", "error");
+      } catch {
+        // No thread to say it in.
+      }
     }
   }
 

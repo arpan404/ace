@@ -50,13 +50,19 @@ async function answered(response: Response): Promise<Response> {
   return response;
 }
 
-export function signerIo(base: URL): SignerIo {
+/** The signer's token, or the maintainer tools' first error: what they need. */
+export function signerToken(): string {
   const token = process.env["ACE_MARKET_SIGNER_TOKEN"];
   if (!token)
     throw new CliFailure("refused", maintainerNeeds, undefined, {
       code: "refused",
       hint: "Set ACE_MARKET_SIGNER_TOKEN to the market's signer token.",
     });
+  return token;
+}
+
+export function signerIo(base: URL): SignerIo {
+  const token = signerToken();
   const headers = { authorization: `Bearer ${token}` };
   return {
     get: async (path) => (await answered(await fetch(new URL(path, base), { headers }))).json(),

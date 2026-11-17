@@ -1,6 +1,6 @@
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import { agentRoute, needsVerifiedFact, type AgentFacts } from "./agent-gate.ts";
-import type { MarketPersonRequests, ReviewedInstall } from "./person-requests.ts";
+import type { MarketPersonRequests } from "./person-requests.ts";
 
 /*
  * A market request an agent makes, from `market_read`/`market_publish` or from `ace market` in
@@ -11,7 +11,7 @@ import type { MarketPersonRequests, ReviewedInstall } from "./person-requests.ts
 export interface AgentMarketDeps {
   /** Runs an operation through the marketplace with this machine's grant. */
   run(operation: MarketOperation): Promise<MarketResult>;
-  requests(): MarketPersonRequests | undefined;
+  requests(): Pick<MarketPersonRequests, "open"> | undefined;
   /** `market.askBeforeAgentPublish`; off when it can't be read. */
   askBeforePublish(): Promise<boolean>;
   /** The product name of the agent in `threadId`: "Codex". */
@@ -27,7 +27,7 @@ export async function agentMarketRequest(
     agent: deps.agentName(threadId),
     askBeforePublish: await deps.askBeforePublish(),
   };
-  let install: ReviewedInstall | undefined;
+  let install: Parameters<MarketPersonRequests["open"]>[3];
   if (operation.op === "install") {
     const page = await deps.run({ op: "readReview", id: operation.id, offset: 0 });
     if (page.op === "reviewPage") {

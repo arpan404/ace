@@ -267,17 +267,17 @@ export function marketOperation(input: MarketVerbInput): MarketOperation {
 }
 
 /** "Docs=https://…" names a link; a bare address is labelled by its host. */
-function link(text: string): { label: string; url: string } {
-  const at = text.indexOf("=");
-  if (at > 0 && !text.slice(0, at).includes("/"))
-    return { label: text.slice(0, at).trim().slice(0, 40), url: text.slice(at + 1).trim() };
-  let label = text;
+function link(value: string): { label: string; url: string } {
+  const at = value.indexOf("=");
+  if (at > 0 && !value.slice(0, at).includes("/"))
+    return { label: value.slice(0, at).trim().slice(0, 40), url: value.slice(at + 1).trim() };
+  let label = value;
   try {
-    label = new URL(text).hostname.replace(/^www\./, "");
+    label = new URL(value).hostname.replace(/^www\./, "");
   } catch {
     // Not an address; the market says so.
   }
-  return { label: label.slice(0, 40), url: text };
+  return { label: label.slice(0, 40), url: value };
 }
 
 /** `describe`: the entry's current listing with the given words changed. */

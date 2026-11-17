@@ -7,7 +7,7 @@ import { option, validateArgs, type Args } from "../args.ts";
 import { print } from "../io.ts";
 import { CliFailure } from "../output.ts";
 import { maintainerWork } from "./maintainer-queue.ts";
-import { marketUrl, now, readKey, signerIo, trustedWith } from "./maintainer-io.ts";
+import { marketUrl, now, readKey, signerIo, signerToken, trustedWith } from "./maintainer-io.ts";
 
 /*
  * The marketplace's maintainer tools (ADR 0168 §6, §7; ADR 0176 §12.6), run on a maintainer's
@@ -38,6 +38,8 @@ import { marketUrl, now, readKey, signerIo, trustedWith } from "./maintainer-io.
 /** `args.words` is `[market, VERB, ...]`, as the first CLI spelled them. */
 export async function maintainerCommand(args: Args): Promise<void> {
   const verb = args.words[1];
+  // Every tool but keygen talks to the market: say what it needs before anything else.
+  if (verb !== "keygen") signerToken();
   switch (verb) {
     case "keygen": {
       validateArgs(args, ["id"], 3, 3);
