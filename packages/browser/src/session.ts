@@ -1076,16 +1076,18 @@ export class BrowserSession {
       this.closed = true;
       this.options.cancelPolicy();
       this.emit();
-      await closeSession(
-        this.options,
-        this.live,
-        () => Promise.all(this.tabs.all().map((tab) => tab.settled())),
-        this.recordings,
-        this.logs,
-      ).finally(() => {
+      try {
+        await closeSession(
+          this.options,
+          this.live,
+          () => Promise.all(this.tabs.all().map((tab) => tab.settled())),
+          this.recordings,
+          this.logs,
+        );
+      } finally {
         // Staging cleanup is best effort: the session is shut and nothing reads the directory.
-        this.drops.close().catch(() => {});
-      });
+        await this.drops.close().catch(() => {});
+      }
     })();
     return this.closing;
   }
