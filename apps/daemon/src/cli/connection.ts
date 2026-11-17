@@ -43,20 +43,28 @@ export function hostConnection(home: string) {
 /** How long a local daemon has to accept a TCP connection before it counts as down. */
 const probeMs = 1_000;
 
-export type Probe = (host: string, port: number, ms: number) => Promise<boolean>;
+/**
+ * What a TCP probe of the daemon's endpoint learned: something accepted (`up`), the connection
+ * was refused (`down`: nothing listens there), or no answer in time (`unknown`: a busy machine,
+ * not a stopped daemon).
+ */
+export type ProbeAnswer = "up" | "down" | "unknown";
+export type Probe = (host: string, port: number, ms: number) => Promise<ProbeAnswer>;
 
-/** Whether something accepts a TCP connection on `host:port` within `ms`. */
 export const tcpProbe: Probe = (host, port, ms) =>
   new Promise((resolve) => {
     const socket = connect({ host, port });
-    const done = (up: boolean) => {
+    const done = (answer: ProbeAnswer) => {
       clearTimeout(timer);
       socket.destroy();
-      resolve(up);
+      resolve(answer);
     };
-    const timer = setTimeout(() => done(false), ms);
-    socket.once("connect", () => done(true));
-    socket.once("error", () => done(false));
+    const timer = setTimeout(() => done("unknown"), ms);
+    socket.once("connect", () => done("up"));
+    socket.once("error", (error) => {
+      const code = Reflect.get(error, "code");
+      done(code === "ECONNREFUSED" || code === "ECONNRESET" ? "down" : "unknown");
+    });
   });
 
 /** "ace isn't running.", code `daemon_down`, exit 4 (ADR 0176 §4). */
@@ -82,7 +90,9 @@ export async function reachLocalDaemon(
     throw daemonDown();
   }
   const url = new URL(connection.origin);
-  if (!(await probe(url.hostname, Number(url.port || 80), probeMs))) throw daemonDown();
+  // Only a refusal says ace is down; a slow answer goes on to the connect, which has its own
+  // deadline, so a loaded machine never reads as a stopped daemon.
+  if ((await probe(url.hostname, Number(url.port || 80), probeMs)) === "down") throw daemonDown();
   return connection;
 }
 export function waitSelection<T>(

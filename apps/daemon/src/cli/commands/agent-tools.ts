@@ -169,7 +169,7 @@ export const agentToolCommands: readonly CommandSpec[] = [
   ]),
   sim("logs", "The device's recent log", [limit]),
   cloud("exec", "Start a Codex Cloud task", [
-    { name: "PROMPT", summary: "What to do; - reads stdin", stdin: true },
+    { name: "PROMPT", summary: "What to do; - reads stdin", required: true, stdin: true },
   ]),
   cloud("list", "Codex Cloud tasks", []),
   cloud("status", "A Codex Cloud task's state", task),

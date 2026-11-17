@@ -108,3 +108,21 @@ test.skipIf(process.platform === "win32")(
     expect(piped.stderr).not.toContain("is now");
   },
 );
+
+// With no daemon, a command that connected first would exit 4 ("ace isn't running"); a missing
+// argument is the caller's mistake and is named before anything reaches for the daemon.
+test.each([
+  [["thread", "start", "--project", "ace"], "PROMPT"],
+  [["thread", "show"], "THREAD"],
+  [["thread", "tree"], "THREAD"],
+  [["thread", "status"], "THREAD"],
+  [["thread", "settle"], "THREAD"],
+  [["thread", "fork"], "THREAD"],
+  [["thread", "rename"], "THREAD"],
+  [["request", "show"], "REQUEST"],
+])("ace %j off a terminal exits 64 naming %s, before reaching for ace", async (args, argument) => {
+  const { env } = await emptyHome();
+  const output = await run(env, [...args, "--json"]);
+  expect(output.code, output.stdout).toBe(64);
+  expect(JSON.parse(output.stdout)).toMatchObject({ status: "usage", argument });
+});

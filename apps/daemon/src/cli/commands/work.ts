@@ -91,7 +91,7 @@ const threadCommands: readonly CommandSpec[] = [
       "Registers the project when given a path, then starts a thread on your default provider from Settings. Without a prompt on a terminal it asks for one; elsewhere pass the prompt or - to read it from stdin.",
     group: "work",
     mutates: true,
-    args: [{ name: "PROMPT", summary: "What to do; - reads stdin", stdin: true }],
+    args: [{ name: "PROMPT", summary: "What to do; - reads stdin", required: true, stdin: true }],
     flags: [
       projectRef,
       providerName,
@@ -138,7 +138,10 @@ const threadCommands: readonly CommandSpec[] = [
     summary: "Queue a message for when the agent's turn ends",
     group: "work",
     mutates: true,
-    args: [threadArg, { name: "TEXT", summary: "The message; - reads stdin", stdin: true }],
+    args: [
+      threadArg,
+      { name: "TEXT", summary: "The message; - reads stdin", required: true, stdin: true },
+    ],
     flags: [idempotencyKey],
     output: "receipt",
   },
@@ -148,7 +151,10 @@ const threadCommands: readonly CommandSpec[] = [
     summary: "Send a message into the agent's current turn",
     group: "work",
     mutates: true,
-    args: [threadArg, { name: "TEXT", summary: "The message; - reads stdin", stdin: true }],
+    args: [
+      threadArg,
+      { name: "TEXT", summary: "The message; - reads stdin", required: true, stdin: true },
+    ],
     flags: [idempotencyKey],
     output: "receipt",
   },

@@ -62,9 +62,16 @@ test("an endpoint a stopped daemon left behind reads as down within the probe, n
   expect(performance.now() - started).toBeLessThan(1_500);
 });
 
-test("a probe that never answers counts as down", async () => {
-  const error = await failure(reachLocalDaemon(home(4), async () => false));
+test("a refused connection counts as down", async () => {
+  const error = await failure(reachLocalDaemon(home(4), async () => "down"));
   expect(error.code).toBe("daemon_down");
+});
+
+test("a probe that doesn't answer in time doesn't call ace down: a busy machine is not a stopped daemon", async () => {
+  // The connect that follows has its own deadline and says what went wrong.
+  await expect(reachLocalDaemon(home(4), async () => "unknown")).resolves.toMatchObject({
+    origin: "http://127.0.0.1:4/",
+  });
 });
 
 test("a daemon listening on its endpoint is reached", async () => {

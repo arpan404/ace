@@ -116,7 +116,7 @@ Without THREAD on a terminal, offers a list of threads to pick from.
     ace thread show t_9f2c41 --items 50
     # More of it
 
-### `ace thread start [PROMPT|-] [flags]`
+### `ace thread start PROMPT|- [flags]`
 
 Start an agent on a prompt.
 
@@ -160,7 +160,7 @@ Shortcut: `ace chat`.
     ace chat t_9f2c41
     # Continue a thread
 
-### `ace thread send THREAD [TEXT|-] [flags]`
+### `ace thread send THREAD TEXT|- [flags]`
 
 Queue a message for when the agent's turn ends.
 
@@ -169,7 +169,7 @@ Queue a message for when the agent's turn ends.
 
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
 
-### `ace thread steer THREAD [TEXT|-] [flags]`
+### `ace thread steer THREAD TEXT|- [flags]`
 
 Send a message into the agent's current turn.
 
@@ -1448,7 +1448,7 @@ The device's recent log.
     ace sim logs ios-17 --limit 50
     # The last 50 log lines
 
-### `ace cloud codex exec [PROMPT|-] [flags]`
+### `ace cloud codex exec PROMPT|- [flags]`
 
 Start a Codex Cloud task.
 
