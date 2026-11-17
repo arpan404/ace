@@ -84,12 +84,20 @@ descriptors carving opened are the ones the rules are installed on. The word lis
 `spade-sandbox::windows` holds the policy and the launch; `spade-server` wires it in. **Each run**
 gets its own AppContainer profile with **no capabilities** (derived from the bot and the run id),
 so it starts with no access to anything and holds only its own grants — a plugin's extra folders
-can't be reached by the bot's other running commands. The profile is deleted when the run ends. It
-is a **Less Privileged AppContainer (LPAC)**: the process opts out of the `ALL APPLICATION PACKAGES`
-SID (the `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute), so files, registry keys and COM
-objects that any app package may read system-wide are *not* reachable — only what the run's own
-container SID is granted, plus the core system binaries that carry the restricted `ALL RESTRICTED
-APPLICATION PACKAGES` ACE the loader needs.
+can't be reached by the bot's other running commands. The profile is deleted when the run ends.
+
+A run **with no network** is a **Less Privileged AppContainer (LPAC)**: the process opts out of the
+`ALL APPLICATION PACKAGES` SID (the `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute), so
+files, registry keys and COM objects that any app package may read system-wide are *not* reachable —
+only what the run's own container SID is granted, plus the core system binaries that carry the
+restricted `ALL RESTRICTED APPLICATION PACKAGES` ACE the loader needs (`System32` keeps that ACE, so
+`curl.exe`, `cmd.exe` and the system DLLs still load). A run **with network is not** an LPAC: under
+LPAC `WSAStartup` fails — the Winsock catalog is reachable by `ALL APPLICATION PACKAGES` but not by
+the restricted group — so the egress bridge couldn't bind its loopback port, and the only capability
+that would restore sockets would also let the container reach the network directly, past the proxy.
+A networked run therefore stays a plain no-capability AppContainer; it is still contained, with its
+sole egress the SID-scoped pipe. (Measured on the VM, including as a standard user: file-only tools
+run unchanged under LPAC and a file granted only to `ALL APPLICATION PACKAGES` is then unreadable.)
 
 **Spade only ever edits ACLs on folders it owns** (under its own data directory), because changing
 ACLs on the person's folders touches other principals' inheritance and descendant identities.

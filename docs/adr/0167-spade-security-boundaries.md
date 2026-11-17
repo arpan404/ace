@@ -379,22 +379,31 @@ journal as empty, or judge a path by its spelling. All are now closed, test-firs
   `Program Files (x86)`), verified the same way. A toolchain on another drive, a UNC path, or one
   reached through a junction does not pass; the workspace and scratch are checked too, not just
   consented folders; and a required place that is missing fails closed. String prefixes are gone.
-- **Less Privileged AppContainer (LPAC).** Each run's AppContainer sets the
-  `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute to opt out, so the token does not carry
-  the `ALL APPLICATION PACKAGES` SID. A plain AppContainer can read anything granted to that SID
-  system-wide; an LPAC cannot. A run then reaches only what its own container SID is granted (the
-  folders Spade ACLs under its data directory, and the egress pipe) plus the core system binaries
-  that carry the restricted `ALL RESTRICTED APPLICATION PACKAGES` ACE the loader needs. **Measured
-  behaviour:** commands shipped in `System32` (for example `curl`) and programs Spade installs under
-  its own data directory run under LPAC unchanged, because the first keep the restricted ACE and the
-  second are granted the container SID directly; no extra LPAC *capability* was needed for them. A
-  toolchain installed under `Program Files` that is readable only by `ALL APPLICATION PACKAGES`
-  (not the restricted SID) is **not** reachable under LPAC — the narrowing already keeps such a run
-  out of `contained` unless the toolchain is a copy Spade owns under its data directory, so no ACE
-  on the person's or the system's folders is ever added to make it work. This supersedes the earlier
-  note that toolchains are "already readable by `ALL APPLICATION PACKAGES`": under LPAC that is no
-  longer true, and the containable toolchains are the Spade-owned ones (granted the container SID)
-  and `System32` binaries (restricted ACE).
+- **Less Privileged AppContainer (LPAC), for runs with no network.** A run with no network sets the
+  `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute to opt out, so the token does not carry the
+  `ALL APPLICATION PACKAGES` SID. A plain AppContainer can read anything granted to that SID
+  system-wide; an LPAC cannot. Such a run reaches only what its own container SID is granted (the
+  folders Spade ACLs under its data directory) plus the core system binaries that carry the
+  restricted `ALL RESTRICTED APPLICATION PACKAGES` ACE the loader needs — `System32` binaries
+  (`curl.exe`, `cmd.exe` and the system DLLs) keep that ACE, so they still load, and the file,
+  registry and COM read access that an app package has system-wide is gone. **Measured behaviour:**
+  the file-only tests (writes, reads, listings, the hard-link attempts) pass unchanged under LPAC,
+  and a file granted only to `ALL APPLICATION PACKAGES` is unreadable to an LPAC run — confirmed on
+  the VM, including as a standard user.
+  - **Why not networked runs.** Also measured on the VM: under LPAC, `WSAStartup` fails — the Winsock
+    catalog resources are reachable by `ALL APPLICATION PACKAGES` but not by the restricted group an
+    LPAC keeps — so the in-container egress bridge cannot bind its loopback port and a networked run
+    would fail closed. The only capability that would restore sockets is a network capability
+    (`internetClient` and friends), which would *also* let the container open connections to the
+    network directly, past the proxy, breaking the egress boundary (ADR 0167 decision 3). So a
+    networked run is **not** an LPAC: it stays a no-capability AppContainer, still contained, with its
+    sole egress the SID-scoped pipe. The documented answer to "which LPAC capabilities do common tools
+    need" is therefore: file-only runs need none (LPAC is applied and costs nothing, since those tools
+    never open a socket); a networked tool cannot run under LPAC without a capability that would
+    breach egress, so networked runs are left as plain AppContainers. This supersedes the earlier note
+    that toolchains are "already readable by `ALL APPLICATION PACKAGES`": under LPAC that is no longer
+    true, and a no-network run's containable toolchains are the Spade-owned ones (granted the container
+    SID) and `System32` binaries (restricted ACE).
 - **Hard links cannot smuggle a file in.** A contained run could have asked for a second name, inside
   its granted workspace, for one of the person's files, then reached the file's data through the
   name it controls. **Measured behaviour:** both the Win32 `CreateHardLink` path and the native
