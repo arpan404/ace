@@ -185,6 +185,7 @@ export function loginRoutes(deps: {
         identity.account,
         identity.refreshToken,
         expiresAt,
+        now(),
         identity.pictureUrl,
       );
       const grant = AceAccountGrant.parse({ token, expiresAt, account: identity.account });

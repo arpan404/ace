@@ -4,10 +4,17 @@ import type {
   MarketOperation,
   MarketResult,
 } from "@ace/protocol/marketplace";
-import { EntryBody, entryKey, search } from "@ace/marketplace";
+import { entryKey, search, verifyManifest, type FeedEntry } from "@ace/marketplace";
+import { EntryBody, VersionBody, type MarketKeySet } from "@ace/protocol/marketplace";
 import type { MarketHttp } from "./http.ts";
-import { readWithdrawn, summaryOf, withdrawalOf } from "./listings.ts";
-import type { MarketStore, StoredInstall } from "./store.ts";
+import {
+  markedPublisher,
+  readWithdrawn,
+  summaryOf,
+  withdrawalOf,
+  type RowMarks,
+} from "./listings.ts";
+import { verifiedKey, type MarketStore, type StoredInstall } from "./store.ts";
 
 /*
  * Browsing the daemon's copy of every listing (ADR 0168 §3, §11): search, the home page's
@@ -34,19 +41,29 @@ async function enabledListings(store: MarketStore) {
   );
 }
 
+/** Search, each publisher's tier from the signed lists (ADR 0173 §15). */
 export async function searchListings(
   store: MarketStore,
   operation: Extract<MarketOperation, { op: "search" }>,
+  marks: RowMarks,
 ): Promise<MarketResult> {
   const lists = await enabledListings(store);
-  const summaries = lists.flatMap(({ source, listing }) =>
-    listing.entries.map((entry) => summaryOf(source, entry)),
+  const rows = lists.flatMap(({ source, listing }) =>
+    listing.entries.map((entry) => ({
+      ...summaryOf(source, entry, marks),
+      tier:
+        source.kind === "market"
+          ? marks.badges.tier(markedPublisher(entry, marks))
+          : ("other" as const),
+    })),
   );
-  const found = search(summaries, operation);
+  const found = search(rows, operation);
   const read = lists.map(({ source }) => source.readAt ?? 0);
   return {
     op: "search",
-    entries: found.slice(operation.offset, operation.offset + operation.limit),
+    entries: found
+      .slice(operation.offset, operation.offset + operation.limit)
+      .map(({ tier: _tier, ...summary }) => summary),
     total: found.length,
     ...(read.length && Math.min(...read) > 0 ? { readAt: Math.min(...read) } : {}),
   };
@@ -56,13 +73,14 @@ export async function searchListings(
 export async function homeOf(
   store: MarketStore,
   installed: readonly MarketInstalled[],
+  marks: RowMarks,
 ): Promise<MarketResult> {
   const lists = await enabledListings(store);
   const market = lists.find(({ source }) => source.kind === "market");
   const summaries = new Map(
     lists.flatMap(({ source, listing }) =>
       listing.entries.map(
-        (entry) => [`${source.id}:${entryKey(entry)}`, summaryOf(source, entry)] as const,
+        (entry) => [`${source.id}:${entryKey(entry)}`, summaryOf(source, entry, marks)] as const,
       ),
     ),
   );
@@ -84,27 +102,58 @@ export async function homeOf(
   };
 }
 
-export async function readEntry(
+/**
+ * Verifies the signed manifest of the listed version and records its publisher, so the entry's
+ * marks can rest on it. A manifest that doesn't verify, or names another entry, records nothing.
+ */
+async function verifyListed(
   store: MarketStore,
-  http: MarketHttp | undefined,
+  http: MarketHttp,
+  keys: MarketKeySet,
+  entry: FeedEntry,
+): Promise<void> {
+  if (!entry.version) return;
+  const body = VersionBody.safeParse(await http.version(entry.type, entry.name, entry.version));
+  if (!body.success) return;
+  let manifest;
+  try {
+    manifest = verifyManifest(body.data.manifest, keys);
+  } catch {
+    return;
+  }
+  if (
+    manifest.type !== entry.type ||
+    manifest.name !== entry.name ||
+    manifest.version !== entry.version
+  )
+    return;
+  store.saveVerifiedPublisher(verifiedKey(manifest), manifest.publisher.id);
+}
+
+export async function readEntry(
+  ports: { store: MarketStore; http: MarketHttp | undefined; keys: MarketKeySet },
+  marks: () => RowMarks,
   sourceId: string,
   type: string,
   name: string,
 ): Promise<MarketEntryDetail | undefined> {
+  const { store, http } = ports;
   const source = store.source(sourceId);
   if (!source) return undefined;
   const listing = await store.listing(source.id);
   const entry = listing.entries.find((item) => item.type === type && item.name === name);
   if (!entry) return undefined;
+  if (source.kind === "git")
+    return {
+      summary: summaryOf(source, entry, marks()),
+      description: listing.folders?.[entryKey(entry)]?.description ?? "",
+      versions: [],
+    };
   const detail: MarketEntryDetail = {
-    summary: summaryOf(source, entry),
+    summary: summaryOf(source, entry, marks()),
     description: "",
     versions: [],
   };
-  if (source.kind === "git") {
-    detail.description = listing.folders?.[entryKey(entry)]?.description ?? "";
-    return detail;
-  }
   try {
     const page = http ? EntryBody.safeParse(await http.entry(type, name)) : undefined;
     if (page?.success) {
@@ -117,8 +166,10 @@ export async function readEntry(
         if (reason) version.withdrawn = reason.slice(0, 500);
       }
     }
+    if (http) await verifyListed(store, http, ports.keys, entry);
   } catch {
     // Offline: the page shows what the listing has.
   }
+  detail.summary = summaryOf(source, entry, marks());
   return detail;
 }

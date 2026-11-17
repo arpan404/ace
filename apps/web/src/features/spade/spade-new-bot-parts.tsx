@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { SpadeTemplate } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useOpenMarket } from "@/lib/open-market.ts";
 import { BotFace } from "@/components/bot-face.tsx";
 import {
   Menu,
@@ -95,6 +95,7 @@ export function TemplateRows(props: {
   value: string | undefined;
   onChange(template: SpadeTemplate | undefined): void;
 }) {
+  const openMarket = useOpenMarket();
   const client = props.client;
   const marketplace = useBetaEnabled("marketplace") === true;
   const templates = useQuery({
@@ -137,14 +138,14 @@ export function TemplateRows(props: {
         })}
       </ul>
       {marketplace && (
-        <Link
-          to="/marketplace"
-          search={{ type: "spade-bot" }}
+        <button
+          type="button"
+          onClick={() => openMarket("bots")}
           {...part("link")}
           className="mt-2 self-start rounded-sm px-3 text-ui text-foreground hover:underline focus-ring"
         >
           From the marketplace
-        </Link>
+        </button>
       )}
     </section>
   );

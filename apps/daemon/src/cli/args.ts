@@ -35,6 +35,13 @@ const switches = new Set([
   // `ace thread|task wait` across several ids.
   "any",
   "all",
+  // `ace market review` and `ace market appeal`/`publisher` (ADR 0173 §10).
+  "by-ace",
+  "not-reviewed",
+  "show",
+  "approve",
+  "keep",
+  "restore",
 ]);
 /** Pure parsing. `--` preserves prompt text, including strings beginning with a dash. */
 export function parseArgs(input: readonly string[]): Args {

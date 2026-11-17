@@ -1,5 +1,30 @@
 import { z } from "zod";
-import { PluginExecution, PluginHash, PluginName } from "./plugins.ts";
+import { PluginExecution, PluginName } from "./plugins.ts";
+import {
+  MarketCategory,
+  MarketCategoryId,
+  MarketEntryName,
+  MarketEntrySummary,
+  MarketEntryType,
+  MarketEntryVersion,
+  MarketHash,
+  MarketProblem,
+  MarketPublisher,
+  MarketSourceId,
+  MarketVersion,
+} from "./marketplace-base.ts";
+
+import { marketPublishOperations, marketPublishResults } from "./marketplace-publish-ops.ts";
+import { MarketScanReport } from "./marketplace-scan.ts";
+
+export * from "./marketplace-base.ts";
+export * from "./marketplace-catalog.ts";
+export * from "./marketplace-discover.ts";
+export * from "./marketplace-publish-ops.ts";
+export * from "./marketplace-publisher.ts";
+export * from "./marketplace-scan.ts";
+export * from "./marketplace-service.ts";
+export * from "./marketplace-signed.ts";
 
 /*
  * ace's marketplace on the wire (ADR 0168): the entry model both sources produce, the review a
@@ -8,92 +33,11 @@ import { PluginExecution, PluginHash, PluginName } from "./plugins.ts";
  * `@ace/marketplace`.
  */
 
-/** The entry types this build knows. Others are kept as their raw string and never installed. */
-export const MarketEntryType = z.enum([
-  "suit",
-  "spade-skill",
-  "spade-plugin",
-  "spade-bot",
-  "ace-plugin",
-]);
-export type MarketEntryType = z.infer<typeof MarketEntryType>;
-/** The types this build installs; `ace-plugin` waits for its own ADR (phase 3). */
-export const installableMarketTypes: readonly MarketEntryType[] = [
-  "suit",
-  "spade-skill",
-  "spade-plugin",
-  "spade-bot",
-];
-
-/** An entry's name within its type: the same rule as a plugin name. */
-export const MarketEntryName = PluginName;
-/** A published version: dotted numbers with an optional pre-release tag. */
-export const MarketVersion = z
-  .string()
-  .max(64)
-  .regex(/^\d{1,9}\.\d{1,9}\.\d{1,9}(?:-[0-9A-Za-z.-]{1,40})?$/);
-export type MarketVersion = z.infer<typeof MarketVersion>;
-/** ADR 0014's content hash: sha256 over sorted paths, sizes, executable bits and file hashes. */
-export const MarketHash = PluginHash;
-/** `market` is market.acehq.dev; a git catalog is `git:` and a short id the daemon gave it. */
-export const MarketSourceId = z.string().regex(/^(?:market|git:[a-z0-9]{1,32})$/);
-export type MarketSourceId = z.infer<typeof MarketSourceId>;
-export const MarketCategoryId = z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/);
-export const MarketPublisherName = z
-  .string()
-  .regex(/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/)
-  .refine((value) => !value.includes("--"))
-  .meta({ "x-ace-constraint": "Publisher names cannot contain consecutive hyphens." });
-export const MarketPublisher = z.strictObject({
-  id: z.string().min(1).max(64),
-  name: MarketPublisherName,
-});
-export type MarketPublisher = z.infer<typeof MarketPublisher>;
-
-const line = z.string().max(300);
 const words = z.string().max(8192);
 
-/** One entry as a list row shows it. `type` is any string; `supported` says this build knows it. */
-export const MarketEntrySummary = z.strictObject({
-  source: MarketSourceId,
-  type: z.string().min(1).max(40),
-  name: MarketEntryName,
-  title: z.string().min(1).max(120),
-  line: line,
-  publisher: MarketPublisher.optional(),
-  categories: z.array(MarketCategoryId).max(3),
-  keywords: z.array(z.string().min(1).max(40)).max(16),
-  version: MarketVersion.optional(),
-  /** ace's maintainers read it, by the signer's word (a signed review mark). */
-  reviewed: z.boolean(),
-  /** Published by ace itself. */
-  byAce: z.boolean(),
-  updated: z.number().int().nonnegative(),
-  downloads: z.number().int().nonnegative(),
-  supported: z.boolean(),
-  /** A git catalog's address, shown as "From <address>". */
-  from: z.string().max(2048).optional(),
-});
-export type MarketEntrySummary = z.infer<typeof MarketEntrySummary>;
-
-export const MarketCategory = z.strictObject({
-  id: MarketCategoryId,
-  title: z.string().min(1).max(60),
-});
-export type MarketCategory = z.infer<typeof MarketCategory>;
-
-export const MarketEntryVersion = z.strictObject({
-  version: MarketVersion,
-  hash: MarketHash,
-  size: z.number().int().nonnegative(),
-  published: z.number().int().nonnegative(),
-  downloads: z.number().int().nonnegative(),
-  withdrawn: z.string().max(500).optional(),
-});
-export type MarketEntryVersion = z.infer<typeof MarketEntryVersion>;
-
 /** What turned an installed entry off. A withdrawn entry stays off until the person turns it on. */
-export const MarketInstallState = z.enum(["on", "withdrawn", "off"]);
+/** `blocked`: its bytes match the signed blocklist (ADR 0173 §8); off until removed. */
+export const MarketInstallState = z.enum(["on", "withdrawn", "blocked", "off"]);
 export const MarketInstalled = z.strictObject({
   source: MarketSourceId,
   type: MarketEntryType,
@@ -103,8 +47,10 @@ export const MarketInstalled = z.strictObject({
   hash: MarketHash,
   acceptedAt: z.number().int().nonnegative(),
   state: MarketInstallState,
-  /** The signed withdrawal's reason, when `state` is `withdrawn`. */
+  /** The signed withdrawal's or blocklist's reason, when `state` is `withdrawn` or `blocked`. */
   reason: z.string().max(500).optional(),
+  /** Its publisher deprecated the installed version, with this note. */
+  deprecated: z.string().max(500).optional(),
   /** A newer version its source offers; never applied without a new review. */
   update: MarketVersion.optional(),
   /** Where it landed: the Suit's id, the plugin's name, the bot's id. */
@@ -146,13 +92,6 @@ export const MarketFileRow = z.strictObject({
   flagged: z.boolean(),
 });
 export type MarketFileRow = z.infer<typeof MarketFileRow>;
-
-export const MarketProblem = z.strictObject({
-  path: z.string().max(512).optional(),
-  line: z.number().int().positive().optional(),
-  message: z.string().max(500),
-});
-export type MarketProblem = z.infer<typeof MarketProblem>;
 
 /** A connector or plugin a recipe asks for, as a switch on its review. */
 export const MarketNeed = z.strictObject({
@@ -240,6 +179,12 @@ export const MarketReview = z.strictObject({
   body: MarketReviewBody,
   /** No install is possible: a Suit that fails ace's checks, Spade not running for a recipe. */
   blocked: z.string().max(500).optional(),
+  /** The device's own scan of these bytes (ADR 0173 §8): every finding, as sentences. */
+  scan: MarketScanReport.optional(),
+  /** Its publisher deprecated this version, with this note. */
+  deprecated: z.string().max(500).optional(),
+  /** Unlisted: reached by a link, not by search. */
+  unlisted: z.boolean().optional(),
   expiresAt: z.number().int().nonnegative(),
   items: z.number().int().nonnegative(),
 });
@@ -330,6 +275,7 @@ export const MarketOperation = z.discriminatedUnion("op", [
   z.strictObject({ op: z.literal("turnOn"), ...installedKey }),
   /** Spade's view (ADR 0168 §13, `marketplace.spade`): installed market skills with hashes. */
   z.strictObject({ op: z.literal("spadeSkills") }),
+  ...marketPublishOperations,
   /** One market skill's files, or one file's content by `path`, as `skills.request files`. */
   z.strictObject({
     op: z.literal("spadeSkillFiles"),
@@ -349,6 +295,9 @@ export const marketReadOperations: readonly MarketOperation["op"][] = [
   "installed",
   "spadeSkills",
   "spadeSkillFiles",
+  "discover",
+  "publisher",
+  "picture",
 ];
 
 export const MarketSpadeSkill = z.strictObject({
@@ -367,6 +316,14 @@ export const MarketSpadeFile = z.strictObject({
 });
 
 export const MarketErrorCode = z.enum([
+  /** No ace account is signed in on this machine: "Sign in to publish." */
+  "signed_out",
+  /** The action needs a recent sign-in: "Sign in again to do this." */
+  "reauth",
+  /** The scan refused it; `scan` says why. */
+  "blocked",
+  "suspended",
+  "quota",
   "not_found",
   "invalid",
   "refused",
@@ -379,6 +336,7 @@ export const MarketErrorCode = z.enum([
 ]);
 
 export const MarketResult = z.discriminatedUnion("op", [
+  ...marketPublishResults,
   z.strictObject({ op: z.literal("sources"), sources: z.array(MarketSource).max(32) }),
   z.strictObject({
     op: z.literal("search"),
@@ -416,6 +374,7 @@ export const MarketResult = z.discriminatedUnion("op", [
     code: MarketErrorCode,
     message: z.string().max(2000),
     problems: z.array(MarketProblem).max(200).optional(),
+    scan: MarketScanReport.optional(),
   }),
 ]);
 export type MarketResult = z.infer<typeof MarketResult>;

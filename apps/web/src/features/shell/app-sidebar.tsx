@@ -29,6 +29,8 @@ export function AppSidebar(props: {
   usage?: ((current: boolean) => ReactNode) | undefined;
   /** Spade's place in the rail. */
   spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
+  /** The Marketplace's place, which opens its modal over the page. */
+  market?: ReactNode;
 }) {
   const { setBody, bodyClaimed, sheet, setTitleSlot } = useViewFrame();
   // A Suit may hide the rail (its places stay in the palette and their shortcuts) or merge it
@@ -40,6 +42,7 @@ export function AppSidebar(props: {
       forge={props.forge}
       usage={props.usage}
       spade={props.spade}
+      market={props.market}
       merged={railShape === "merged"}
     />
   );

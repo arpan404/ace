@@ -11,7 +11,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import type { z } from "zod";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { MarketFailure, searchType, shownBy, type MarketFilter } from "./market-model.ts";
+import type { MarketEntryKey } from "./market-address.ts";
+import { MarketFailure } from "./market-model.ts";
 
 /*
  * The daemon's marketplace (ADR 0168 §13) as the app reads it: `marketplace.request` per
@@ -37,7 +38,7 @@ export async function market<T extends MarketResult["op"]>(
     signal ? { signal } : {},
   );
   const result = reply.result;
-  if (result.op === "error") throw new MarketFailure(result.code);
+  if (result.op === "error") throw new MarketFailure(result.code, result.scan);
   if (!answers(result, expected)) throw new MarketFailure("failed");
   return result;
 }
@@ -58,27 +59,27 @@ export function useMarketSources() {
   });
 }
 
-/** Search the device's copy of the listings; `spade` narrows to Spade's types after. */
-export function useMarketSearch(input: { query: string; filter: MarketFilter; category?: string }) {
-  const type = searchType(input.filter);
+/**
+ * Search the device's copy of the listings. `types` narrows to those types (one is sent to the
+ * daemon; several are narrowed after); an empty query lists everything of them.
+ */
+export function useMarketSearch(input: { query: string; types?: readonly string[] | undefined }) {
+  const types = input.types;
+  const one = types?.length === 1 ? types[0] : undefined;
   return useDaemonQuery({
-    queryKey: [...marketKey, "search", input.query, input.filter, input.category ?? ""],
+    queryKey: [...marketKey, "search", input.query, ...(types ?? [])],
     read: async (client, signal) => {
       const found = await market(
         client,
-        {
-          op: "search",
-          query: input.query,
-          limit: 100,
-          ...(type ? { type } : {}),
-          ...(input.category ? { category: input.category } : {}),
-        },
+        { op: "search", query: input.query, limit: 100, ...(one ? { type: one } : {}) },
         "search",
         signal,
       );
       return {
         ...found,
-        entries: found.entries.filter((entry) => shownBy(input.filter, entry.type)),
+        entries: types
+          ? found.entries.filter((entry) => types.includes(entry.type))
+          : found.entries,
       };
     },
     placeholderData: (previous) => previous,
@@ -92,16 +93,19 @@ export function useMarketInstalled() {
   });
 }
 
-export interface EntryKey {
-  source: string;
-  type: string;
-  name: string;
-}
+export type EntryKey = MarketEntryKey;
+
+/** Only an entry's key: a summary passed as one carries fields the daemon's ops refuse. */
+const keyOnly = (key: EntryKey): EntryKey => ({
+  source: key.source,
+  type: key.type,
+  name: key.name,
+});
 
 export function useMarketEntry(key: EntryKey) {
   return useDaemonQuery({
     queryKey: [...marketKey, "entry", key.source, key.type, key.name],
-    read: (client, signal) => market(client, { op: "read", ...key }, "read", signal),
+    read: (client, signal) => market(client, { op: "read", ...keyOnly(key) }, "read", signal),
   });
 }
 
@@ -127,7 +131,7 @@ async function readAll(client: ClientApi, review: MarketReview, signal: AbortSig
   return { review, items };
 }
 
-const reviewKey = (key: EntryKey, update: boolean) =>
+export const reviewKey = (key: EntryKey, update: boolean) =>
   [...marketKey, "review", key.source, key.type, key.name, update ? "update" : "install"] as const;
 
 /**
@@ -138,20 +142,45 @@ export function useMarketReview(key: EntryKey, options: { update: boolean; enabl
   return useDaemonQuery<PreparedReview>({
     queryKey: reviewKey(key, options.update),
     enabled: options.enabled,
-    staleTime: 25 * 60_000,
+    staleTime: reviewStale,
     retry: false,
-    read: async (client, signal) => {
-      const prepared = await market(
-        client,
-        options.update
-          ? { op: "prepareUpdate", type: typeOf(key.type), name: key.name }
-          : { op: "prepare", ...key },
-        "review",
-        signal,
-      );
-      return readAll(client, prepared.review, signal);
-    },
+    read: (client, signal) => prepareReview(client, key, options.update, signal),
   });
+}
+
+const reviewStale = 25 * 60_000;
+
+async function prepareReview(
+  client: ClientApi,
+  key: EntryKey,
+  update: boolean,
+  signal: AbortSignal,
+) {
+  const prepared = await market(
+    client,
+    update
+      ? { op: "prepareUpdate", type: typeOf(key.type), name: key.name }
+      : { op: "prepare", ...keyOnly(key) },
+    "review",
+    signal,
+  );
+  return readAll(client, prepared.review, signal);
+}
+
+/**
+ * The entry's install review, from the cache when its page already prepared it, else prepared
+ * now: what Try it reads a Suit's look from before it is installed.
+ */
+export function usePrepareReview() {
+  const client = useClient();
+  const cache = useQueryClient();
+  return (key: EntryKey) =>
+    cache.fetchQuery({
+      queryKey: reviewKey(key, false),
+      staleTime: reviewStale,
+      retry: false,
+      queryFn: ({ signal }) => prepareReview(client, key, false, signal),
+    });
 }
 
 /** Drops every held review and list, so the pages read the marketplace again. */
@@ -185,6 +214,17 @@ export function useCancelReview() {
     cache.removeQueries({ queryKey: [...marketKey, "review"] });
     if (review) void market(client, { op: "cancel", id: review.id }, "done").catch(() => {});
   };
+}
+
+/** Turns a withdrawn or turned-off entry back on, from its pinned bytes. */
+export function useTurnOn() {
+  const client = useClient();
+  const forget = useForget();
+  return useMutation({
+    mutationFn: (input: { type: string; name: string }) =>
+      market(client, { op: "turnOn", type: typeOf(input.type), name: input.name }, "done"),
+    onSettled: forget,
+  });
 }
 
 export function useRemove() {
