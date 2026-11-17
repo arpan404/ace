@@ -317,8 +317,18 @@ commands are contained only once its network is off. A plugin's local server or 
 sealed off doesn't start until the person allows it to run outside the sandbox, through a request
 card bound to the plugin's version, content hash, command and environment ([plugins.md](plugins.md),
 "Local MCP servers"); it then runs plainly, labelled `outside_sandbox`, never `contained`, and its
-tool calls keep their reviews. Giving LPAC runs egress without opening the
-network is future work (ADR 0167, Windows amendment).
+tool calls keep their reviews.
+
+**Why networked runs can't be an LPAC yet (measured, 2026-11-18).** With the `registryRead`
+capability, Winsock starts under LPAC and the run's own sockets stay refused, but even a loopback
+listener is refused (`WSAEACCES`, 10013): the egress bridge can't bind its port, so no socket path
+to the proxy exists, and the tools can't use the SID-scoped pipe instead. A network capability
+(`internetClient`) makes sockets work but reopens direct connections and DNS; Windows Firewall rules
+for the run's package closed direct TCP and UDP but not name lookups (made by the DNS Client
+service) or another loopback port, and would need elevation for every run's package. So networked
+Windows runs keep the review path, with no setup step. Future options — an intercepting broker, a
+Windows Filtering Platform callout or service-installed filter, or Windows letting an LPAC open
+loopback sockets — are in ADR 0167 (Windows amendment, "Networked runs under LPAC").
 
 **Spade only ever edits ACLs on folders it owns** (under its own data directory), because changing
 ACLs on the person's folders touches other principals' inheritance and descendant identities.
@@ -616,8 +626,9 @@ is kept for the bot and tool.
 
 - A size bound on checkpoints (count and age only today; clones cost little on APFS, plain
   copies on other volumes don't).
-- Egress for Windows runs without opening the network (ADR 0167 amendment 2, "Final review"):
-  until then a networked Windows run isn't contained and keeps the review path.
+- Egress for Windows runs without opening the network (ADR 0167 amendment 2, "Networked runs
+  under LPAC": measured, no route qualified): until then a networked Windows run isn't contained
+  and keeps the review path.
 - A grant for the session bus or the display server on Linux: a tool that needs either runs
   outside the sandbox.
 - Per-value provenance at egress, `derived` trust for network-off runs (each run's proxy usage

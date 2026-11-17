@@ -4,8 +4,10 @@
 //! reaches real registries, so it runs only on the test VM, explicitly:
 //! `cargo test -p spade-sandbox --test windows_network -- --ignored --nocapture --test-threads=1`.
 //!
-//! It prints one line per route: whether Winsock starts, which tools work through the proxy, and
-//! what else the run can reach. The tools live in `C:\ace\nettools`, readable through the test
+//! The routes test prints one line per route: whether a loopback listener can be made (`winsock`),
+//! what else the run can reach, and which registry keys it can read; the diagnosis test runs the
+//! tools themselves through the proxy and bridge. The outcome is recorded in ADR 0167 (Windows
+//! amendment, "Networked runs under LPAC"): no route qualified, so networked runs keep reviews. The tools live in `C:\ace\nettools`, readable through the test
 //! capability `spadeTestTools` (granted once by the VM's setup, not by Spade).
 #![cfg(windows)]
 
@@ -155,59 +157,6 @@ fn routes() -> Vec<Route> {
     ]
 }
 
-/// The tools' command lines, each run through `cmd.exe` with the proxy and a writable home.
-fn tools(ws: &Path) -> Vec<(&'static str, String)> {
-    let ws = ws.display();
-    vec![
-        (
-            "curl",
-            r"%SystemRoot%\System32\curl.exe -sS --fail -o NUL --max-time 60 https://registry.npmjs.org/left-pad".to_owned(),
-        ),
-        (
-            "git",
-            format!(r"{TOOLS}\git\cmd\git.exe ls-remote https://github.com/octocat/Hello-World.git HEAD"),
-        ),
-        (
-            "npm",
-            format!(
-                r"{TOOLS}\node\node.exe {TOOLS}\node\node_modules\npm\bin\npm-cli.js view left-pad version"
-            ),
-        ),
-        (
-            "pip",
-            format!(r"{TOOLS}\python\python.exe {TOOLS}\pip.pyz download six --no-deps -d {ws}\dl"),
-        ),
-        ("cargo", format!(r"{TOOLS}\cargo.exe search serde --limit 1")),
-    ]
-}
-
-fn with_env(ws: &Path, proxy: &str, command: &str) -> String {
-    let ws = ws.display();
-    let mut line = String::new();
-    for (name, value) in [
-        ("HOME", format!("{ws}")),
-        ("USERPROFILE", format!("{ws}")),
-        ("APPDATA", format!(r"{ws}\appdata")),
-        ("LOCALAPPDATA", format!(r"{ws}\local")),
-        ("TEMP", format!(r"{ws}\tmp")),
-        ("TMP", format!(r"{ws}\tmp")),
-        ("HTTP_PROXY", proxy.to_owned()),
-        ("HTTPS_PROXY", proxy.to_owned()),
-        ("http_proxy", proxy.to_owned()),
-        ("https_proxy", proxy.to_owned()),
-        ("npm_config_proxy", proxy.to_owned()),
-        ("npm_config_https_proxy", proxy.to_owned()),
-        ("npm_config_cache", format!(r"{ws}\npm")),
-        ("CARGO_HOME", format!(r"{ws}\cargo")),
-        ("PIP_CACHE_DIR", format!(r"{ws}\pipcache")),
-        ("GIT_CONFIG_NOSYSTEM", "1".to_owned()),
-    ] {
-        line.push_str(&format!("set {name}={value}&& "));
-    }
-    line.push_str(command);
-    line
-}
-
 fn cmd() -> String {
     format!(
         r"{}\System32\cmd.exe",
@@ -216,7 +165,7 @@ fn cmd() -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "changes machine settings and reaches real registries; run on the test VM"]
+#[ignore = "measurement for ADR 0167, not a check: changes machine settings for a moment; run on the test VM"]
 async fn measure_the_routes_for_networked_runs() {
     assert!(
         Path::new(TOOLS).join("node").exists(),
@@ -348,63 +297,9 @@ async fn measure_the_routes_for_networked_runs() {
             registry.push((key.rsplit('\\').next().unwrap_or(key).to_owned(), code));
         }
 
-        // The tools through the proxy: by the in-container bridge, or straight at the proxy where
-        // the route exempts loopback.
-        let mut results = Vec::new();
-        for (tool, command) in tools(&ws) {
-            let policy = NetworkPolicy {
-                mode: Mode::AllowList,
-                allow: HOSTS.iter().map(|h| (*h).to_owned()).collect(),
-                dropped: Vec::new(),
-            };
-            let ticket = proxy.open(&container.name, tool, policy);
-            let (bridge, url, stop) = if route.firewall {
-                (None, ticket.url_on(proxy_port), None)
-            } else {
-                let pipe = format!("spade-net-{}", uuid::Uuid::new_v4().simple());
-                let stop = spade_sandbox::windows::bridge::Stop::new();
-                let (ready, ready_rx) = std::sync::mpsc::sync_channel(1);
-                {
-                    let (p, s, st) = (pipe.clone(), sid.clone(), stop.clone());
-                    tokio::spawn(async move {
-                        spade_sandbox::windows::bridge::serve(&p, &s, proxy_port, &st, ready).await;
-                    });
-                }
-                let _ = ready_rx.recv_timeout(std::time::Duration::from_secs(5));
-                let port = free_port();
-                (
-                    Some(launch::Bridge { pipe, port }),
-                    ticket.url_on(port),
-                    Some(stop),
-                )
-            };
-            let line = with_env(&ws, &url, &command);
-            let (t, c, d) = (token.clone(), container.clone(), cmd());
-            let code = tokio::task::spawn_blocking(move || {
-                launch::run_in(
-                    &t,
-                    &c.name,
-                    &c.display,
-                    limits(),
-                    bridge,
-                    Some(&helper()),
-                    std::ffi::OsStr::new(&d),
-                    &[OsString::from("/c"), OsString::from(line)],
-                )
-                .unwrap_or(9999)
-            })
-            .await
-            .unwrap_or(9999);
-            if let Some(stop) = stop {
-                stop.stop();
-            }
-            results.push((tool, code));
-            drop(ticket);
-        }
-
         println!(
-            "ROUTE {} | probes {:?} | registry {:?} | tools {:?}",
-            route.name, probes, registry, results
+            "ROUTE {} | probes {:?} | registry {:?}",
+            route.name, probes, registry
         );
 
         if route.winsock_grant {
@@ -526,7 +421,7 @@ fn env_lines(ws: &Path, proxy: &str) -> String {
 /// token for comparison (the control: networked runs work there today): its own output, why a
 /// loopback listener can or can't be made in the token, and what the proxy logged.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "reaches real registries; run on the test VM"]
+#[ignore = "measurement for ADR 0167, not a check: reaches real registries; run on the test VM"]
 async fn diagnose_the_tools_through_the_proxy() {
     let tools_cap = Sid::capability("spadeTestTools").unwrap_or_else(|_| std::process::abort());
     let read_cap = Sid::capability("registryRead").unwrap_or_else(|_| std::process::abort());
