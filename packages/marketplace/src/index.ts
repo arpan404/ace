@@ -42,7 +42,21 @@ export {
   type TrendRow,
 } from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
-export { secretFieldNames, secretFileProblem, secretName, secretValueProblems } from "./secrets.ts";
+export {
+  credentialFile,
+  secretFieldNames,
+  secretFileProblem,
+  secretName,
+  secretSpans,
+  secretValueProblems,
+} from "./secrets.ts";
+export {
+  privacySpans,
+  privacyWords,
+  type PrivacyContext,
+  type PrivacyKind,
+  type PrivacySpan,
+} from "./privacy.ts";
 export {
   canonicalJson,
   manifestMismatch,
