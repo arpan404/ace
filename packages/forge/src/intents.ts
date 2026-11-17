@@ -10,9 +10,12 @@ export class ForgeIntents {
       () => {},
     );
     this.#tails.set(key, settled);
-    void settled.then(() => {
-      if (this.#tails.get(key) === settled) this.#tails.delete(key);
-    });
+    // settled never rejects (both handlers are above); this only forgets a finished tail.
+    void settled
+      .then(() => {
+        if (this.#tails.get(key) === settled) this.#tails.delete(key);
+      })
+      .catch(() => {});
     return result;
   }
 }

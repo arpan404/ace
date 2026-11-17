@@ -148,7 +148,9 @@ port.on("message", (message: ToWorker) => {
       post({ type: "result", id, ok: false, error: reason.slice(0, 256) });
     }
     report();
-  })();
+  })().catch(() => {
+    // A reply that cannot be posted means the parent is gone; there is nobody left to tell.
+  });
 });
 
 // Publish readiness only after SQLite is open and the RPC handler is installed. A restarted

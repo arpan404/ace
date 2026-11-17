@@ -84,7 +84,9 @@ port.on("message", (input: unknown) => {
       .then(() => {
         port.postMessage({ type: "closed" });
         port.close();
-      });
+      })
+      // A post to a parent that is already gone cannot be reported to it.
+      .catch(() => {});
     return;
   }
   if (message.type === "execution") {
@@ -103,5 +105,8 @@ port.on("message", (input: unknown) => {
       return { commandId: message.command.id, ok: false, error: "review_rejected" };
     }
   };
-  void run().then((result) => port.postMessage({ type: "result", key: message.key, result }));
+  void run()
+    .then((result) => port.postMessage({ type: "result", key: message.key, result }))
+    // A reply to a parent that is already gone cannot be reported to it.
+    .catch(() => {});
 });
