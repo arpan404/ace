@@ -30,8 +30,8 @@ A full disk is a daemon-wide condition, `storage`, that ace enters and leaves by
   a full disk: a full disk says nothing about the rows. Clients show one plain line, "The disk is
   full · new work resumes once space is freed", and nothing to press.
 - **Leaving.** Free space is read every 60 s, and every 5 s while held. At 512 MiB or more the
-  hold is released, deferred work starts as on any reopen, and anything put off (process
-  inventory deletes) is retried. The gap between 256 and 512 MiB keeps one freed file from
+  hold is released (after a probe write, when a refused write began it), deferred work starts
+  as on any reopen, and anything put off (process inventory deletes) is retried. The gap between 256 and 512 MiB keeps one freed file from
   flapping admission.
 - **A full disk is a retry, not a failure.** `isStoreRetry` counts it, as it counts contention:
   a thread actor applying provider frames waits and tries again instead of stopping the session,
@@ -63,6 +63,9 @@ A full disk is a daemon-wide condition, `storage`, that ace enters and leaves by
   would read the daemon as unhealthy instead.
 - Running turns' output waits while the disk is full: the pinned batch stays in memory and new
   batches are turned back for their writers to retry, as under contention. Nothing is dropped.
-- Free space read through `statfs` does not see per-user quotas, so on EDQUOT the hold can lift
-  on the next read and be entered again by the next failed write. That costs a log line per read,
-  not a crash.
+- Free space read through `statfs` does not see per-user quotas. So a hold that a refused write
+  began (EDQUOT among them) is not lifted on free space alone: once the volume reads room, the
+  watch writes, syncs and removes 1 MiB under ACE_HOME, and lifts the hold only if that goes
+  through. Only a full-disk error fails the probe, so an unrelated error can never keep new work
+  held. A quota with less than that left can still let the hold lift and come back, one log line
+  each time, never a crash.

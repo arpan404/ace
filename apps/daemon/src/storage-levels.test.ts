@@ -16,7 +16,21 @@ test.each([
 });
 
 test("a write that failed for want of space holds new work whatever free space last read", () => {
-  expect(nextStorageState(roomyStorage, { kind: "write-failed" }, levels)).toEqual(full);
+  expect(nextStorageState(roomyStorage, { kind: "write-failed" }, levels)).toMatchObject(full);
+});
+
+test("a hold a refused write began lifts on a probe write that succeeds, never on free space alone", () => {
+  const refused = nextStorageState(full, { kind: "write-failed" }, levels);
+  // A quota is invisible to free space: plenty of room reads, and the hold stays.
+  expect(nextStorageState(refused, { kind: "free", bytes: 1_000 }, levels).full).toBe(true);
+  expect(nextStorageState(refused, { kind: "probe", ok: false, bytes: 1_000 }, levels).full).toBe(
+    true,
+  );
+  expect(nextStorageState(refused, { kind: "probe", ok: true, bytes: 1_000 }, levels)).toEqual(
+    roomyStorage,
+  );
+  // A probe that succeeds with too little room on the volume still leaves new work held.
+  expect(nextStorageState(refused, { kind: "probe", ok: true, bytes: 150 }, levels)).toEqual(full);
 });
 
 test("unreadable free space changes nothing", () => {

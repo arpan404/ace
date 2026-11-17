@@ -1,8 +1,11 @@
+import { closeSync, fsyncSync, openSync, unlinkSync, writeSync } from "node:fs";
+import { join } from "node:path";
 import { logError, logFields } from "@ace/diagnostics";
 import type { MaintenanceHold } from "@ace/protocol";
 import { freeBytesOf, isDiskFull, type DiskSpace } from "./sqlite-failure.ts";
 import {
   nextStorageState,
+  roomToResume,
   roomyStorage,
   storageLevels,
   type StorageFact,
@@ -32,6 +35,30 @@ export interface StorageWatchOptions {
   levels?: StorageLevels;
   /** Between reads while space is fine, and while new work is held (shorter, to heal soon). */
   intervals?: { roomyMs: number; fullMs: number };
+  /**
+   * Writes a little under ACE_HOME and removes it; throws when it can't. Run before a hold a
+   * refused write began is lifted, since free space does not show a quota. Tests inject one.
+   */
+  probe?: (home: string) => void;
+}
+
+const probeBytes = 1024 * 1024;
+
+/** One MiB written, synced and removed: what a quota or a full volume refuses. */
+export function probeWrite(home: string): void {
+  const path = join(home, ".storage-probe");
+  const fd = openSync(path, "w");
+  try {
+    writeSync(fd, Buffer.alloc(probeBytes));
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+    try {
+      unlinkSync(path);
+    } catch {
+      /* The write's own outcome decides; a probe file left behind is rewritten next time. */
+    }
+  }
 }
 
 export const storageIntervals = { roomyMs: 60_000, fullMs: 5_000 } as const;
@@ -109,6 +136,9 @@ export class StorageWatch {
     const bytes = freeBytesOf(this.options.home, this.options.diskSpace);
     const before = this.state;
     this.apply({ kind: "free", bytes });
+    // A hold a refused write began lifts only once a write goes through again (a quota).
+    if (bytes !== null && this.state.unproven && roomToResume(bytes, this.levels))
+      this.apply({ kind: "probe", ok: this.probe(), bytes });
     if (this.state.full && !before.full)
       this.options.log.log(
         "error",
@@ -118,6 +148,15 @@ export class StorageWatch {
     else if (this.state.low && !before.low && !this.state.full)
       this.options.log.log("warn", "Disk space is low", logFields([["freeBytes", bytes]]));
     this.schedule();
+  }
+  /** Whether a probe write went through. Only a full disk fails it, never another error. */
+  private probe(): boolean {
+    try {
+      (this.options.probe ?? probeWrite)(this.options.home);
+      return true;
+    } catch (error) {
+      return !isDiskFull(error);
+    }
   }
   close(): void {
     this.closed = true;

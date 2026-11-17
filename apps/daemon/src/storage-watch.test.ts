@@ -35,6 +35,8 @@ function setup(freeMiB = 10_000) {
     },
     log: { log: (level, message) => lines.push({ level, message }) },
     levels,
+    // The probe writes where the test's disk is: the capped database.
+    probe: () => db.prepare("INSERT INTO t VALUES (?)").run("x".repeat(8192)),
   });
   cleanup.push(() => watch.close());
   const gate = new MaintenanceGate(() => 0);
@@ -158,4 +160,20 @@ test("a gate attached while the disk is already full is held at once", () => {
   const late = new MaintenanceGate(() => 0);
   state.watch.attach(late);
   expect(late.status().holds).toEqual(["storage"]);
+});
+
+test("a quota free space can't show keeps new work held until a write goes through again", () => {
+  const state = setup(10_000);
+  // Writes are refused while the volume still reads plenty of room, as under a per-user quota.
+  state.watch.observe(state.fill());
+  expect(state.gate.status().holds).toEqual(["storage"]);
+  state.setFree(2_000);
+  state.tick();
+  state.tick();
+  expect(state.gate.status().holds).toEqual(["storage"]);
+  expect(state.lines.some((line) => line.message.startsWith("Disk space is back"))).toBe(false);
+
+  state.unfill();
+  expect(state.tick()).toBe(5_000);
+  expect(state.gate.status().holds).toEqual([]);
 });
