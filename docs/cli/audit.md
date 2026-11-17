@@ -175,7 +175,7 @@ actions, `packages/protocol/src/marketplace*.ts`).
 5. **`market` vs `marketplace`.** `ace marketplace check` is for publishers; `ace market` is for
    maintainers. Nothing in the names says so.
 6. **A task is a thread.** `task spawn` makes a child thread whose id is a thread id; `thread
-   wait` and `task wait` differ only in `--tree`.
+wait` and `task wait` differ only in `--tree`.
 7. **Internal words in commands and messages:** `kill-all`, "interaction", "admission",
    "observation", "lease", "idempotency", "tree facts". The [design language](../design/design-language.md)
    §3 Voice rules out internal words.
@@ -232,7 +232,7 @@ actions, `packages/protocol/src/marketplace*.ts`).
     `MarketEntryType.parse`) prints Zod's issue list as JSON text as the error message.
 25. **The daemon being down is a file error.** Every WS and HTTP command reads
     `ACE_HOME/daemon-endpoint` first; with no daemon it prints `ENOENT: no such file or
-    directory, open '…/daemon-endpoint'` and exits 4. Only `chat` and `open` start it, and only
+directory, open '…/daemon-endpoint'` and exits 4. Only `chat` and `open` start it, and only
     `status` says `running: false`.
 26. **Messages that don't say what to do.** "Invalid arguments. See ace --help." (which
     argument?), "Unknown command. See ace --help." (no suggestion), "Unknown thread command",

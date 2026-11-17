@@ -34,7 +34,11 @@ export function processTerminal(flags: Readonly<Record<string, string | true>>):
 export async function main(input: readonly string[]): Promise<void> {
   const table = commandTable();
   const parsed = parseCommandLine(table, input);
-  let args: Args = { words: [], flags: { ...parsed.flags } };
+  // A line that didn't parse still answers in JSON when --json was anywhere on it.
+  let args: Args = {
+    words: [],
+    flags: { ...parsed.flags, ...(input.includes("--json") ? { json: true as const } : {}) },
+  };
   let command: CommandSpec | undefined;
   try {
     if (parsed.kind === "usage")
