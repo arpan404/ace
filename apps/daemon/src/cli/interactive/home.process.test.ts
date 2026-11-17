@@ -107,13 +107,18 @@ test("the home in a terminal opens, attaches, answers an approval and gives the 
     await terminal.waitFor("y Allow once");
     terminal.pty.write("y");
     await terminal.waitFor("Allow once: Synthetic permission");
-    await f.daemon.engine?.flush();
-    const read = await invoke(home, empty, ["thread", "read", f.caller.threadId, "--json"]);
-    expect(read.code, read.stderr).toBe(0);
-    const interactions: unknown = JSON.parse(read.stdout).interactions;
-    expect(interactions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ state: "resolved" })]),
-    );
+    // The answer travels through the client's outbox; read until the daemon has it.
+    await expect
+      .poll(
+        async () => {
+          await f.daemon.engine?.flush();
+          const read = await invoke(home, empty, ["thread", "show", f.caller.threadId, "--json"]);
+          const interactions: unknown = JSON.parse(read.stdout).interactions;
+          return interactions;
+        },
+        { timeout: 10_000, interval: 250 },
+      )
+      .toEqual(expect.arrayContaining([expect.objectContaining({ state: "resolved" })]));
     // A signal from outside: the terminal comes back (paste mode off, cursor shown) with one
     // line saying where the person was, and the exit code says it was interrupted.
     process.kill(terminal.pty.pid, "SIGINT");
