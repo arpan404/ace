@@ -48,16 +48,18 @@ it("closing a busy session whose shells outlived the host's stop fails instead o
 it("a cancelled session whose stop fails records it, and a later close still sees the failure", async () => {
   const { lifetime, controller, notes } = busyAlone();
   controller.abort(new Error("cancelled"));
-  await expect.poll(() => notes).toContainEqual(
-    expect.objectContaining({ event: "codex-stop-failed", retirement: "aborted" }),
-  );
+  await expect
+    .poll(() => notes)
+    .toContainEqual(expect.objectContaining({ event: "codex-stop-failed", retirement: "aborted" }));
   await expect(lifetime.close("user")).rejects.toThrow("survived its stop");
 });
 
 it("a transport failure whose stop fails records it on the session", async () => {
   const { lifetime, notes } = busyAlone();
   lifetime.failTransport();
-  await expect.poll(() => notes).toContainEqual(
-    expect.objectContaining({ event: "codex-stop-failed", retirement: "rpc_failed" }),
-  );
+  await expect
+    .poll(() => notes)
+    .toContainEqual(
+      expect.objectContaining({ event: "codex-stop-failed", retirement: "rpc_failed" }),
+    );
 });
