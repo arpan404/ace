@@ -53,13 +53,13 @@ describe("agents never answer the person's requests", () => {
   });
 });
 
-describe("a person-only market request answered with the host token", () => {
-  const facts = (input: { host: boolean; market: boolean; fresh: boolean }) => ({
-    hostCredential: input.host,
-    personOnlyMarket: () => input.market,
-    fresh: async () => input.fresh,
-  });
+const facts = (input: { host: boolean; market: boolean; fresh: boolean }) => ({
+  hostCredential: input.host,
+  personOnlyMarket: () => input.market,
+  fresh: async () => input.fresh,
+});
 
+describe("a person-only market request answered with the host token", () => {
   it("needs a fresh sign-in: the host token may be an agent's", async () => {
     expect(
       await hostAnswerRefusal(
@@ -94,21 +94,21 @@ describe("a person-only market request answered with the host token", () => {
   });
 });
 
-describe("who may change settings", () => {
-  const write = (input: { key: string; device: string; host: boolean; fresh: boolean }) =>
-    settingWriteRefusal(input.key, {
-      device: input.device,
-      hostCredential: input.host,
-      fresh: async () => input.fresh,
-    });
-
-  it("an agent's device never changes the person's settings", async () => {
-    for (const device of ["ace-agent", "ace-reviewer"])
-      expect(
-        await write({ key: "beta.marketplace", device, host: true, fresh: true }),
-      ).toMatchObject({ code: "validation" });
+const write = (input: { key: string; device: string; host: boolean; fresh: boolean }) =>
+  settingWriteRefusal(input.key, {
+    device: input.device,
+    hostCredential: input.host,
+    fresh: async () => input.fresh,
   });
 
+it("an agent's device never changes the person's settings", async () => {
+  for (const device of ["ace-agent", "ace-reviewer"])
+    expect(await write({ key: "beta.marketplace", device, host: true, fresh: true })).toMatchObject(
+      { code: "validation" },
+    );
+});
+
+describe("who may change settings", () => {
   it("Ask me before agents publish needs a fresh sign-in over the host token", async () => {
     const key = "market.askBeforeAgentPublish";
     expect(await write({ key, device: "ace-cli", host: true, fresh: false })).toMatchObject({

@@ -19,6 +19,7 @@ import { remoteWorkProject } from "./projects.ts";
 import { approval } from "./approval.ts";
 import { CliFailure, treeOutcome } from "./output.ts";
 import { chatAction } from "./chat-input.ts";
+import { agentShell, personOnlyRefusal } from "./person-gate.ts";
 import { chatIO, type ChatIO } from "./chat-io.ts";
 import type { ChatRecord } from "./chat-render.ts";
 
@@ -371,6 +372,13 @@ export async function chatCommand(
             expectedRevision: response.queue.revision,
           });
         } else if (action.kind === "approve" || action.kind === "deny") {
+          // This path runs only off a terminal (a person there gets attach's own strip): nobody
+          // is there to confirm, and an agent's shell never answers (ADR 0176 §12.5).
+          const refused = personOnlyRefusal("answer", {
+            agent: agentShell(process.env),
+            interactive: false,
+          });
+          if (refused) throw refused;
           const selectedInteraction = action.interaction;
           const interaction = selectedInteraction
             ? pending.find((value) => value.id === selectedInteraction)

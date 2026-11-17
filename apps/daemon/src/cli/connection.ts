@@ -15,6 +15,7 @@ import { connect } from "node:net";
 import { join } from "node:path";
 import { WebSocket } from "ws";
 import { cliStorage } from "./storage.ts";
+import { agentShell, localDevice } from "./person-gate.ts";
 import { CliFailure } from "./output.ts";
 import { timeoutMs, option, type Args } from "./args.ts";
 
@@ -145,7 +146,11 @@ export function connectChat(home: string, args: Args) {
 async function connectWithLifetime(home: string, args: Args, duration: number | undefined) {
   const profile = selectedProfile(home, option(args, "remote"));
   const connection = profile ? undefined : await reachLocalDaemon(home);
-  const persistence = cliStorage(profile ? join(home, "cli-remotes", profile.id) : home);
+  // On a remote the paired device's id is the only one its ticket admits.
+  const local = localDevice(agentShell(process.env));
+  const persistence = cliStorage(
+    profile ? join(home, "cli-remotes", profile.id) : join(home, local.outbox),
+  );
   const lifetime = new AbortController();
   const interrupt = () =>
     lifetime.abort(
@@ -164,7 +169,7 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
           duration,
         );
   const client = new Client({
-    deviceId: profile?.deviceId ?? DeviceId.parse("ace-cli"),
+    deviceId: profile?.deviceId ?? DeviceId.parse(local.id),
     transport: () =>
       profile
         ? pinnedSocketTransport(profile.origin.replace("https:", "wss:"), profile.fingerprint)

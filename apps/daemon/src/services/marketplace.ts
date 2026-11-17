@@ -15,7 +15,7 @@ import { pickPorts } from "../marketplace/pick-ports.ts";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
 import { MarketAgent } from "../marketplace/market-agent.ts";
-import { grantSignedInAt } from "@ace/account-grant";
+import { grantSignInAge } from "@ace/account-grant";
 import { hostMarketRefusal, signedInRecently } from "../marketplace/fresh-sign-in.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -59,7 +59,6 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
     engine: () => services.engine,
     settings: () => services.settings,
     id: context.id,
-    now: context.now,
   });
 }
 
@@ -166,11 +165,10 @@ function serviceAlone(
 
 /** Whether the machine's account signed in within ten minutes, for a server without its agent. */
 async function machineFresh(options: SocketContext["options"]): Promise<boolean> {
-  const { machineAccount: account, hostId, now } = options;
-  if (!now) return false;
+  const { machineAccount: account, hostId } = options;
   try {
     const grant = account ? await account.marketGrant(hostId) : undefined;
-    return grant !== undefined && signedInRecently(grantSignedInAt(grant), now());
+    return grant !== undefined && signedInRecently(grantSignInAge(grant));
   } catch {
     return false;
   }

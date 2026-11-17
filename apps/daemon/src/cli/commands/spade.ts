@@ -33,6 +33,7 @@ export const spadeCommands: readonly CommandSpec[] = [
   },
   {
     id: "spade.on",
+    personOnly: "setting",
     words: ["spade", "on"],
     summary: "Turn Spade on",
     description:
@@ -45,6 +46,7 @@ export const spadeCommands: readonly CommandSpec[] = [
   },
   {
     id: "spade.off",
+    personOnly: "setting",
     words: ["spade", "off"],
     summary: "Turn Spade off; its data is kept",
     group: "spade-market",
@@ -103,6 +105,7 @@ export const spadeCommands: readonly CommandSpec[] = [
   },
   {
     id: "feature.on",
+    personOnly: "setting",
     words: ["feature", "on"],
     summary: "Turn a Beta feature on",
     group: "spade-market",
@@ -114,6 +117,7 @@ export const spadeCommands: readonly CommandSpec[] = [
   },
   {
     id: "feature.off",
+    personOnly: "setting",
     words: ["feature", "off"],
     summary: "Turn a Beta feature off",
     group: "spade-market",

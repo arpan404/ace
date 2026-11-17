@@ -9,6 +9,7 @@ import { startFakeAccountBackend } from "./account-backend-test-support.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 import { hostConnection } from "./cli/connection.ts";
+import { hostSocket } from "./host-socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { fakeMarket } from "./marketplace/test-support.ts";
 
@@ -55,8 +56,8 @@ const draft = (hash: string): MarketDraft => ({
 });
 
 /** A daemon with the marketplace on, signed in to a fake ace account, beside a fake market. */
-async function world() {
-  const backend = await startFakeAccountBackend(() => Date.now());
+async function world(options: { signedInAt?: () => number } = {}) {
+  const backend = await startFakeAccountBackend(() => Date.now(), options);
   cleanup.push(() => backend.close());
   const market = await fakeMarket();
   cleanup.push(() => market.close());
@@ -102,8 +103,9 @@ async function world() {
     "---\nname: triage-mail\ndescription: Sorts mail.\n---\n# Triage\n",
   );
   const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
-    invoke(home, args, "", { HOME: emptyHome, ACE_NO_INPUT: "1", ...env });
-  return { f, market, skill, cli };
+    // The person's own shell unless a test says otherwise: nothing from an agent session.
+    invoke(home, args, "", { HOME: emptyHome, ACE_THREAD_ID: "", ACE_NO_INPUT: "", ...env });
+  return { f, market, skill, cli, home };
 }
 
 test("market publish --draft uploads the folder with this machine's grant and prints the draft", async () => {
@@ -171,4 +173,72 @@ test("the same withdrawal from the person's own terminal goes to the market", as
   expect(withdrawn.code, withdrawn.stderr).toBe(0);
   expect(JSON.parse(withdrawn.stdout)).toEqual({ kind: "pending", what: "withdrawal" });
   expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(true);
+});
+
+const elevenMinutesAgo = () => Date.now() - 11 * 60_000;
+const install = {
+  op: "install",
+  id: "rv-unknown",
+  hash: "a".repeat(64),
+  choices: { bots: [], needs: {}, startRoutines: false },
+};
+
+test("a thread-less install over the host token needs a sign-in from the last ten minutes", async () => {
+  const stale = await world({ signedInAt: elevenMinutesAgo });
+  const socket = await hostSocket(stale.home, "ace-cli", cleanup);
+  expect(await socket.market("stale", install)).toMatchObject({ op: "error", code: "reauth" });
+  const fresh = await world();
+  const again = await hostSocket(fresh.home, "ace-cli", cleanup);
+  // Past the sign-in check, the marketplace itself answers: there's no such review.
+  expect(await again.market("fresh", install)).not.toMatchObject({ code: "reauth" });
+});
+
+test("a person-only market request is answered over the host token only after a fresh sign-in", async () => {
+  for (const [signedInAt, answered] of [
+    [elevenMinutesAgo, false],
+    [undefined, true],
+  ] as const) {
+    const { f, cli, home, market } = await world(signedInAt ? { signedInAt } : {});
+    const asked = await cli(
+      ["market", "withdraw", "spade-skill/triage-mail@1.0.0", "--reason", "Broken", "--json"],
+      { ACE_THREAD_ID: f.caller.threadId },
+    );
+    const request = z
+      .object({ request: z.string() })
+      .loose()
+      .parse(JSON.parse(asked.stdout)).request;
+    // An agent's device never answers it, signed in or not.
+    const agent = await hostSocket(home, "ace-agent", cleanup);
+    expect(await agent.answer("by-agent", request)).toMatchObject({
+      ok: false,
+      error: "human_answer_required",
+    });
+    const person = await hostSocket(home, "ace-cli", cleanup);
+    const reply = await person.answer("by-host", request);
+    if (answered) {
+      expect(reply).toMatchObject({ type: "commandResult", ok: true });
+      await expect
+        .poll(() => market.seen.some((seen) => seen.path.endsWith("/withdraw")))
+        .toBe(true);
+    } else {
+      expect(reply).toMatchObject({ type: "error", code: "reauth" });
+      expect(f.daemon.store.getInteraction(request)?.state).toBe("pending");
+      expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
+    }
+  }
+});
+
+test("the person's own terminal needs a fresh sign-in to withdraw, too", async () => {
+  const { market, cli } = await world({ signedInAt: elevenMinutesAgo });
+  const refused = await cli([
+    "market",
+    "withdraw",
+    "spade-skill/triage-mail@1.0.0",
+    "--reason",
+    "Broken",
+    "--json",
+  ]);
+  expect(refused.code).toBe(2);
+  expect(JSON.parse(refused.stdout)).toMatchObject({ code: "reauth" });
+  expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(false);
 });

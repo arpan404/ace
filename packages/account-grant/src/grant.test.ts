@@ -7,7 +7,7 @@ import {
   signCloudGrant,
   signMarketGrant,
   grantLifetimeMs,
-  grantSignedInAt,
+  grantSignInAge,
   verifyCloudGrant,
   verifyGrant,
   verifyMarketGrant,
@@ -133,9 +133,10 @@ it("the market accepts only a market grant from its issuer, and no one else acce
   ).toThrow("expired");
 });
 
-it("a market grant says when its sign-in happened; other grants and garbage say nothing", () => {
-  expect(grantSignedInAt(signMarketGrant({ ...claims, ...marketClaims }, key))).toBe(900);
-  expect(grantSignedInAt(signGrant(claims, key))).toBeUndefined();
-  expect(grantSignedInAt("not.a-grant")).toBeUndefined();
-  expect(grantSignedInAt("")).toBeUndefined();
+it("a market grant says how long before it was issued its sign-in happened; others say nothing", () => {
+  // Issued at 1,000 for a sign-in at 900, both on the backend's clock.
+  expect(grantSignInAge(signMarketGrant({ ...claims, ...marketClaims }, key))).toBe(100);
+  expect(grantSignInAge(signGrant(claims, key))).toBeUndefined();
+  expect(grantSignInAge("not.a-grant")).toBeUndefined();
+  expect(grantSignInAge("")).toBeUndefined();
 });

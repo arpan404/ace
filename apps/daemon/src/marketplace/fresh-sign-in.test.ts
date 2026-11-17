@@ -45,15 +45,16 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
   });
 });
 
-describe("a sign-in counts as fresh for ten minutes", () => {
-  const now = 100 * 60_000;
+describe("a sign-in counts as fresh for ten minutes before its grant", () => {
   it.each([
-    [now - 1_000, true],
-    [now - freshSignInMs, true],
-    [now - freshSignInMs - 1, false],
+    [1_000, true],
+    [0, true],
+    [freshSignInMs, true],
+    [freshSignInMs + 1, false],
+    [-10 * 60_000, false],
     [undefined, false],
-  ])("signed in at %s: %s", (at, fresh) => {
-    expect(signedInRecently(at, now)).toBe(fresh);
+  ])("signed in %s ms before the grant: %s", (age, fresh) => {
+    expect(signedInRecently(age)).toBe(fresh);
   });
 });
 

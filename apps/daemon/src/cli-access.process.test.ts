@@ -33,11 +33,15 @@ afterAll(async () => {
   await rm(empty, { recursive: true, force: true });
 });
 
+/** The providers a list names; their probes refresh between two reads, so only the names. */
+const providerNames = (value: unknown) =>
+  cliOutputs["provider.list"].parse(value).providers.map((item) => item.provider);
+
 describe("old spellings still work, and reach what the new ones reach", () => {
   test("providers status is provider list", async () => {
-    const old = await json(["providers", "status", "--json"]);
-    expect(old).toEqual(await json(["provider", "list", "--json"]));
-    cliOutputs["provider.list"].parse(old);
+    expect(providerNames(await json(["providers", "status", "--json"]))).toEqual(
+      providerNames(await json(["provider", "list", "--json"])),
+    );
   });
 
   test("capabilities is provider capabilities", async () => {
@@ -46,7 +50,8 @@ describe("old spellings still work, and reach what the new ones reach", () => {
       await json(["provider", "capabilities", "--json"]),
     );
     expect(Object.keys(old).toSorted()).toEqual(Object.keys(now).toSorted());
-    expect(old.providers).toEqual(now.providers);
+    const names = (value: typeof old) => value.providers.map((item) => item.provider);
+    expect(names(old)).toEqual(names(now));
   });
 
   test("devices list is device list", async () => {

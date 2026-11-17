@@ -1,5 +1,6 @@
 import { cancel, confirm, isCancel, select, text } from "@clack/prompts";
 import { CliFailure } from "./output.ts";
+import { typedConfirms } from "./person-gate.ts";
 
 /**
  * Questions for a person at a terminal (ADR 0176 §9), on `@clack/prompts`. Callers ask only
@@ -20,6 +21,20 @@ export async function askText(message: string, hint: string): Promise<string> {
   });
   if (isCancel(answer)) cancelled();
   return answer;
+}
+
+/**
+ * Asks the person to type `word` to go ahead. Enter alone, or anything else, doesn't confirm;
+ * Ctrl-C cancels with nothing changed.
+ */
+export async function askTyped(message: string, word: string): Promise<void> {
+  const answer = await text({
+    message,
+    placeholder: `Type ${word} to go ahead, or Ctrl-C to cancel`,
+    validate: (value) =>
+      typedConfirms(word, value) ? undefined : `Type ${word} to go ahead, or Ctrl-C to cancel.`,
+  });
+  if (isCancel(answer) || !typedConfirms(word, answer)) cancelled();
 }
 
 export async function askConfirm(message: string, initialValue = false): Promise<boolean> {

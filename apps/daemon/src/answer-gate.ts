@@ -45,6 +45,8 @@ export async function hostAnswerRefusal(
 ): Promise<{ code: "reauth"; message: string } | undefined> {
   const payload = command.payload;
   if (payload.type !== "interaction.resolve" || !facts.hostCredential) return undefined;
+  // An agent's own device is refused outright where the request is answered.
+  if (isAgentDevice(command.deviceId)) return undefined;
   if (!facts.personOnlyMarket(payload.interactionId)) return undefined;
   if (await facts.fresh()) return undefined;
   return { code: "reauth", message: reauthSentence };

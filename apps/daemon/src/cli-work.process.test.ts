@@ -5,6 +5,7 @@ import { afterAll, expect, test } from "vitest";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
 import type { Fact } from "@ace/core";
+import { openPty } from "./cli/pty-test-support.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 
@@ -165,42 +166,52 @@ test("kill-all and add reach the same operations as thread stop --all and projec
   }
 });
 
-test("thread approve and request allow both answer an open approval", async () => {
+/** `ace ARGS…` at a terminal: waits for the typed confirmation, types `word`, then the exit. */
+async function confirmedAtTerminal(f: Fixture, args: string[], word: string) {
+  const terminal = openPty(join(f.h.home, "daemon"), emptyHome, args);
+  await terminal.waitFor(`Type ${word} to ${word} it`);
+  // Enter alone doesn't confirm; the word does.
+  terminal.pty.write("\r");
+  await terminal.waitFor(`Type ${word} to go ahead`);
+  terminal.pty.write(`${word}\r`);
+  return { code: await terminal.exited, output: terminal.output() };
+}
+
+test("thread approve and request allow both answer an open approval, typed at a terminal", async () => {
   const f = await daemonFixture();
   try {
     const child = await spawn(f, "asker");
     await emit(f, child, approval("first"));
     const [first] = await openRequests(f, child);
     expect(first?.threadId).toBe(child);
-    const approved = await cli(f, [
-      "thread",
-      "approve",
-      child,
-      "--interaction",
-      first?.interaction.id ?? "missing",
-      "--json",
-    ]);
-    expect(approved.code, approved.stderr).toBe(0);
+    const id = first?.interaction.id ?? "missing";
+    // From a pipe nobody can confirm: refused, and the request stays open.
+    const piped = await cli(f, ["thread", "approve", child, "--interaction", id, "--json"]);
+    expect(piped.code).toBe(2);
+    expect(JSON.parse(piped.stdout)).toMatchObject({ code: "confirm" });
+    expect(f.daemon.store.getInteraction(id)?.state).toBe("pending");
+    const approved = await confirmedAtTerminal(
+      f,
+      ["thread", "approve", child, "--interaction", id],
+      "allow",
+    );
+    expect(approved.code, approved.output).toBe(0);
     await f.daemon.engine?.flush();
-    expect(f.daemon.store.getInteraction(first?.interaction.id ?? "")?.state).toBe("resolved");
+    expect(f.daemon.store.getInteraction(id)?.state).toBe("resolved");
 
     await emit(f, child, approval("second"));
     const [second] = await openRequests(f);
-    const allowed = await cli(f, [
-      "request",
-      "allow",
-      second?.interaction.id ?? "missing",
-      "--json",
-    ]);
-    expect(allowed.code, allowed.stderr).toBe(0);
+    const next = second?.interaction.id ?? "missing";
+    const allowed = await confirmedAtTerminal(f, ["request", "allow", next], "allow");
+    expect(allowed.code, allowed.output).toBe(0);
     await f.daemon.engine?.flush();
-    expect(f.daemon.store.getInteraction(second?.interaction.id ?? "")?.state).toBe("resolved");
+    expect(f.daemon.store.getInteraction(next)?.state).toBe("resolved");
   } finally {
     await f.daemon.close();
   }
 });
 
-test("request answer resolves an agent's question with the chosen option", async () => {
+test("request answer resolves an agent's question with the chosen option, typed at a terminal", async () => {
   const f = await daemonFixture();
   try {
     const child = await spawn(f, "questioner");
@@ -230,20 +241,17 @@ test("request answer resolves an agent's question with the chosen option", async
     expect(question?.threadId).toBe(child);
     const id = question?.interaction.id ?? "missing";
 
-    // Allowing a question is the wrong verb: a usage error, nothing answered.
-    const wrong = await cli(f, ["request", "allow", id, "--json"]);
-    expect(wrong.code).toBe(64);
+    // Allowing a question is the wrong verb: a usage error before anything is asked.
+    const terminal = openPty(join(f.h.home, "daemon"), emptyHome, ["request", "allow", id]);
+    expect(await terminal.exited).toBe(64);
     expect(f.daemon.store.getInteraction(id)?.state).toBe("pending");
 
-    const answered = await cli(f, [
-      "request",
+    const answered = await confirmedAtTerminal(
+      f,
+      ["request", "answer", id.slice(0, 8), "--choice", "sqlite"],
       "answer",
-      id.slice(0, 8),
-      "--choice",
-      "sqlite",
-      "--json",
-    ]);
-    expect(answered.code, answered.stderr).toBe(0);
+    );
+    expect(answered.code, answered.output).toBe(0);
     await f.daemon.engine?.flush();
     const resolved = f.daemon.store.getInteraction(id);
     expect(resolved?.state).toBe("resolved");
@@ -259,13 +267,17 @@ test("without a terminal nothing prompts: a missing argument exits 64 naming it"
   try {
     for (const [args, argument] of [
       [["thread", "show"], "THREAD"],
-      [["request", "allow"], "REQUEST"],
-      [["request", "answer"], "REQUEST"],
       [["thread", "snooze", f.caller.threadId], "--until"],
     ] as const) {
       const run = await cli(f, [...args, "--json"], "typed into a pipe\n");
       expect(run.code, `${args.join(" ")}: ${run.stdout}`).toBe(64);
       expect(JSON.parse(run.stdout)).toMatchObject({ status: "usage", argument });
+    }
+    // Answering off a terminal isn't possible at all, so it says that rather than what's missing.
+    for (const verb of ["allow", "answer"]) {
+      const run = await cli(f, ["request", verb, "--json"], "typed into a pipe\n");
+      expect(run.code).toBe(2);
+      expect(JSON.parse(run.stdout)).toMatchObject({ code: "confirm" });
     }
     // A missing prompt reads stdin only when asked with -.
     const started = await cli(

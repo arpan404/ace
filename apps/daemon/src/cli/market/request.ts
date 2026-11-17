@@ -1,3 +1,5 @@
+import { agentMayRun } from "../../marketplace/agent-gate.ts";
+import { agentShell, personOnlyRefusal } from "../person-gate.ts";
 import type { CliErrorCode, CliProblem } from "@ace/protocol/cli-output";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import { CliFailure, type Outcome } from "../output.ts";
@@ -92,6 +94,9 @@ export async function withMarket<T>(
   let finished: { value: T } | undefined;
   await withSession(context, context.args, async ({ client, signal }) => {
     const ask: MarketAsk = async (operation) => {
+      // No thread to ask the person in: an agent's shell runs only the agents' allowlist.
+      if (!thread && agentShell(context.env) && !agentMayRun(operation, true))
+        throw personOnlyRefusal("market", { agent: true, interactive: false });
       const reply = await client.request(
         { type: "marketplace.request", operation, ...(thread ? { thread } : {}) },
         { signal },

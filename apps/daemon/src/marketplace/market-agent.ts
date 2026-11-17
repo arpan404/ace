@@ -5,7 +5,7 @@ import type { SettingsService } from "@ace/settings";
 import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
-import { grantSignedInAt } from "@ace/account-grant";
+import { grantSignInAge } from "@ace/account-grant";
 import { agentMarketRequest } from "./agent-requests.ts";
 import { signedInRecently } from "./fresh-sign-in.ts";
 import { MarketPersonRequests } from "./person-requests.ts";
@@ -40,7 +40,6 @@ export interface MarketAgentDeps {
   engine(): Engine | undefined;
   settings(): SettingsService | undefined;
   id(): string;
-  now(): number;
 }
 
 /**
@@ -79,7 +78,7 @@ export class MarketAgent {
     if (!bound) return false;
     try {
       const grant = await bound.account.marketGrant(bound.hostId);
-      return grant !== undefined && signedInRecently(grantSignedInAt(grant), this.deps.now());
+      return grant !== undefined && signedInRecently(grantSignInAge(grant));
     } catch {
       return false;
     }

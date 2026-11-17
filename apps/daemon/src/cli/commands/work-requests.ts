@@ -59,6 +59,7 @@ export const requestCommands: readonly CommandSpec[] = [
   },
   {
     id: "request.allow",
+    personOnly: "answer",
     words: ["request", "allow"],
     summary: "Allow a pending approval or plan",
     group: "work",
@@ -87,6 +88,7 @@ export const requestCommands: readonly CommandSpec[] = [
   },
   {
     id: "request.deny",
+    personOnly: "answer",
     words: ["request", "deny"],
     summary: "Deny a pending approval, plan or question",
     group: "work",
@@ -105,6 +107,7 @@ export const requestCommands: readonly CommandSpec[] = [
   },
   {
     id: "request.answer",
+    personOnly: "answer",
     words: ["request", "answer"],
     summary: "Answer an agent's question",
     description:

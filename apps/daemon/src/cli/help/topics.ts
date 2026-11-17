@@ -53,8 +53,14 @@ nothing ever waits for input and tools like ace sim and ace browser know your th
   - 5 means ace doesn't know whether it ran: retry with the same --idempotency-key.
   - A missing prompt is read from stdin only when you pass -.
   - Waits never report done while any agent in a tree works or waits on a person.
-  - Publishing to the market is yours to do; withdrawing, transferring, deleting and
-    installing are the person's, and become a request in your thread (ace help publishing).`,
+  - Agents never answer requests. Approvals, questions to the person, plans and
+    permissions are the person's: ace request allow|deny|answer, ace config set|unset and
+    ace feature|spade on|off exit 2 (code person_only) from your shell. Hand back to the
+    person instead; they answer in the app, on a paired device or in their own terminal.
+  - In the market you may read, search, check, make and publish drafts, and read your
+    status and versions. Everything else (installing, removing, withdrawing, transfers,
+    sources, listings, visibility) is the person's and becomes a request in your thread
+    (ace help publishing).`,
   },
   {
     name: "remote",

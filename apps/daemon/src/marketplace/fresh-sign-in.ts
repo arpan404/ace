@@ -32,9 +32,12 @@ export function needsFreshSignIn(operation: MarketOperation): boolean {
   }
 }
 
-/** Whether a sign-in at `signedInAt` is within the last ten minutes at `now`. */
-export function signedInRecently(signedInAt: number | undefined, now: number): boolean {
-  return signedInAt !== undefined && now - signedInAt <= freshSignInMs && signedInAt <= now;
+/**
+ * Whether a sign-in `age` milliseconds before its grant was issued counts as fresh. A small
+ * negative age is the backend's own rounding; a large one is a malformed grant.
+ */
+export function signedInRecently(age: number | undefined): boolean {
+  return age !== undefined && age <= freshSignInMs && age >= -60_000;
 }
 
 /**

@@ -9,6 +9,7 @@ import { canPrompt, outputMode, type Surroundings } from "./input-mode.ts";
 import { emit, validateOutput } from "./io.ts";
 import { CliFailure, usageFailure } from "./output.ts";
 import { parseCommandLine, type Parsed } from "./parse.ts";
+import { agentShell, marketPersonOnly, personOnlyRefusal } from "./person-gate.ts";
 import type { CommandContext } from "./run/context.ts";
 import { handlers } from "./run/index.ts";
 
@@ -63,6 +64,18 @@ export async function main(input: readonly string[]): Promise<void> {
     const helpOrVersion = earlyAnswer(parsed);
     if (helpOrVersion) command = table.byId.get(helpOrVersion.id) ?? command;
     else await checkAlias(parsed, terminal);
+    // The person's alone: refused in an agent's shell, and an answer needs a terminal.
+    // A market action that is the person's, from an agent's shell with no thread to ask in.
+    const kind =
+      command.personOnly ??
+      (marketPersonOnly(command.id) && !process.env.ACE_THREAD_ID?.trim() ? "market" : undefined);
+    if (kind && !helpOrVersion) {
+      const refused = personOnlyRefusal(kind, {
+        agent: agentShell(process.env),
+        interactive: args.interactive === true,
+      });
+      if (refused) throw refused;
+    }
     await validateOutput(args);
     if (!helpOrVersion && parsed.missing.length)
       args = { ...args, words: await fillMissing(parsed, args) };

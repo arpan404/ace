@@ -224,16 +224,19 @@ export function grantLifetimeMs(token: string): number | undefined {
 }
 
 /**
- * When the sign-in behind a market grant happened (`authAt`), read without checking the
- * signature: the daemon reads it from a grant it just took from its own account backend, to
- * apply ADR 0174 §2's ten-minute rule before asking for a person-only action. Undefined for any
- * other grant or a malformed one.
+ * How long before a market grant was issued its sign-in happened (`iat - authAt`), read without
+ * checking the signature: the daemon reads it from a grant it just took from its own account
+ * backend, to apply ADR 0174 §2's ten-minute rule before a person-only action. Both times are
+ * the backend's, so this machine's clock doesn't enter into it. Undefined for any other grant or
+ * a malformed one.
  */
-export function grantSignedInAt(token: string): number | undefined {
+export function grantSignInAge(token: string): number | undefined {
   try {
     const body = token.split(".")[0] ?? "";
-    return MarketGrantClaims.parse(JSON.parse(new TextDecoder().decode(decodeBase64url(body))))
-      .authAt;
+    const claims = MarketGrantClaims.parse(
+      JSON.parse(new TextDecoder().decode(decodeBase64url(body))),
+    );
+    return claims.iat - claims.authAt;
   } catch {
     return undefined;
   }

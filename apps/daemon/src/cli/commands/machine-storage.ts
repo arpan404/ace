@@ -130,6 +130,7 @@ export const configCommands: readonly CommandSpec[] = [
   },
   {
     id: "config.set",
+    personOnly: "setting",
     words: ["config", "set"],
     summary: "Change a setting",
     group: "machine",
@@ -151,6 +152,7 @@ export const configCommands: readonly CommandSpec[] = [
   },
   {
     id: "config.unset",
+    personOnly: "setting",
     words: ["config", "unset"],
     summary: "Put a setting back to its default",
     group: "machine",

@@ -184,7 +184,13 @@ test("CLI tree waits hand back control for a descendant approval instead of repo
       pending.interactions[0]?.id ?? "missing",
       "--json",
     ]);
-    expect(approved.code, approved.stderr).toBe(0);
+    // Off a terminal nobody is there to confirm, so the request stays the person's.
+    expect(approved.code, approved.stderr).toBe(2);
+    expect(JSON.parse(approved.stdout)).toMatchObject({ status: "needs-human", code: "confirm" });
+    const still = await invoke(home, ["thread", "show", child, "--json"]);
+    expect(JSON.parse(still.stdout).interactions).toContainEqual(
+      expect.objectContaining({ state: "pending" }),
+    );
   } finally {
     await f.daemon.close();
   }

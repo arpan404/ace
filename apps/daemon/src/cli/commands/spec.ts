@@ -87,6 +87,11 @@ export interface CommandSpec {
   readonly hidden?: boolean;
   /** What a bare noun runs: `ace thread` is `ace thread list`. */
   readonly nounDefault?: boolean;
+  /**
+   * The person's alone (ADR 0176 §12.5): refused in an agent's shell, and an answer needs the
+   * person at a terminal to type its confirmation.
+   */
+  readonly personOnly?: "answer" | "setting";
   /** Every word after the command's own goes to it unparsed (the release runtime's commands). */
   readonly passthrough?: boolean;
 }

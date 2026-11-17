@@ -1,3 +1,4 @@
+import { agentShell, personOnlyRefusal } from "../person-gate.ts";
 import { InteractionId, type CliOpenRequest, type InteractionResolution } from "@ace/protocol";
 import type { Client } from "@ace/client";
 import { prompt } from "../io.ts";
@@ -85,7 +86,17 @@ async function resolveWith(
   open: CliOpenRequest,
   resolution: InteractionResolution,
   done: string,
+  verb: "allow" | "deny" | "answer",
 ): Promise<void> {
+  // Only a person at a terminal answers, and they type the word (ADR 0176 §12.5); main.ts
+  // refused everyone else before this ran, and this holds for any other caller too.
+  const refused = personOnlyRefusal("answer", {
+    agent: agentShell(context.env),
+    interactive: context.args.interactive === true,
+  });
+  if (refused) throw refused;
+  const { askTyped } = await import("../ask.ts");
+  await askTyped(`${open.threadTitle}: ${requestTitle(open)}. Type ${verb} to ${verb} it.`, verb);
   const affirmative =
     (resolution.kind === "approval" &&
       open.interaction.request.kind === "approval" &&
@@ -126,7 +137,7 @@ export async function requestAllow(context: CommandContext): Promise<void> {
       always: context.args.flags.always === true,
       option: stringFlag(context.args, "option"),
     });
-    await resolveWith(context, client, signal, open, resolution, "Allowed.");
+    await resolveWith(context, client, signal, open, resolution, "Allowed.", "allow");
   });
 }
 
@@ -138,7 +149,7 @@ export async function requestDeny(context: CommandContext): Promise<void> {
       option: stringFlag(context.args, "option"),
       feedback: stringFlag(context.args, "feedback"),
     });
-    await resolveWith(context, client, signal, open, resolution, "Denied.");
+    await resolveWith(context, client, signal, open, resolution, "Denied.", "deny");
   });
 }
 
@@ -153,6 +164,18 @@ export async function requestAnswer(context: CommandContext): Promise<void> {
         ? await askQuestions(open.interaction, given)
         : [...given];
     const resolution = answerResolution(open.interaction, { text, choices });
-    await resolveWith(context, client, signal, open, resolution, "Answered.");
+    await resolveWith(context, client, signal, open, resolution, "Answered.", "answer");
   });
+}
+
+/** The request's own words, short: its title, or the first question. */
+function requestTitle(open: CliOpenRequest): string {
+  const request = open.interaction.request;
+  const title =
+    request.kind === "question"
+      ? (request.questions[0]?.text ?? "A question")
+      : "title" in request && typeof request.title === "string"
+        ? request.title
+        : request.kind.replace("_", " ");
+  return title.length > 120 ? `${title.slice(0, 117)}…` : title;
 }
