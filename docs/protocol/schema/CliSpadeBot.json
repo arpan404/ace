@@ -1,0 +1,109 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliSpadeBot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "conversation": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "main",
+        "bot"
+      ],
+      "type": "string"
+    },
+    "lastActivity": {
+      "type": "number"
+    },
+    "lastMessage": {
+      "properties": {
+        "at": {
+          "type": "number"
+        },
+        "from": {
+          "enum": [
+            "person",
+            "agent"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "text",
+        "at"
+      ],
+      "type": "object"
+    },
+    "model": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "parent": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "problem": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "idle",
+        "working",
+        "waiting"
+      ],
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "task": {
+      "type": "string"
+    },
+    "unseen": {
+      "type": "boolean"
+    },
+    "waitingFor": {
+      "enum": [
+        "approval",
+        "question"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "name",
+    "task",
+    "model",
+    "conversation",
+    "state",
+    "unseen",
+    "pinned",
+    "lastActivity"
+  ],
+  "type": "object"
+}

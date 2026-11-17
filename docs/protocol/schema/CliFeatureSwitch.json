@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliFeatureSwitch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "live": {
+      "type": "boolean"
+    },
+    "marketplace": {
+      "type": "boolean"
+    },
+    "spade": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "live"
+  ],
+  "type": "object"
+}

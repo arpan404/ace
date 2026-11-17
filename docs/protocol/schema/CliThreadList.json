@@ -1,0 +1,66 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliThreadList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "next": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rows": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliThreadRow.json"
+      },
+      "type": "array"
+    },
+    "threads": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "createdAt": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+          },
+          "status": {
+            "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "number"
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "title",
+          "provider",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "window": {
+      "$ref": "https://ace.local/protocol/v1/ThreadListWindow.json"
+    }
+  },
+  "required": [
+    "threads",
+    "rows",
+    "next"
+  ],
+  "type": "object"
+}
