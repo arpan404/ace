@@ -20,6 +20,10 @@ import {
   type WindowsJobFactory,
 } from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
+import {
+  findVersionManagerShim,
+  VersionManagerShimError,
+} from "./discovery/version-manager-shim.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -382,6 +386,9 @@ export async function probeOutput(
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
+  // A probe only reads. A version manager's shim can install or update its tool when it runs.
+  const shim = await findVersionManagerShim(command, { ...process.env, ...options.env });
+  if (shim) throw new VersionManagerShimError(shim.path, shim.manager);
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {

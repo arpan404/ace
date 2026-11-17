@@ -1,8 +1,15 @@
 import { findOpenCodeExecutable } from "./opencode-executable.ts";
 export { findOpenCodeExecutable } from "./opencode-executable.ts";
 import { findExecutable } from "./executable.ts";
+import { VersionManagerShimError } from "./version-manager-shim.ts";
 export { findExecutable, isPackageRunner, scriptExecutablePaths } from "./executable.ts";
 export { findWindowsExecutableSync } from "./executable.ts";
+export {
+  findVersionManagerShim,
+  versionManagerShim,
+  VersionManagerShimError,
+  type VersionManager,
+} from "./version-manager-shim.ts";
 import { z } from "zod";
 import { checkCli } from "../cli-requirements.ts";
 import { probeOutput } from "../process.ts";
@@ -68,6 +75,8 @@ export function defaultProviderExecutable(provider: Provider | "pi" | "antigravi
 
 function probeError(label: string, error: unknown): string {
   // Exception messages and CLI stderr can contain credentials or identities.
+  if (error instanceof VersionManagerShimError)
+    return `${label} skipped: the CLI is a ${error.manager} shim, which can install or update it when run`;
   return error instanceof Error && error.message === "Probe timed out"
     ? `${label} timed out`
     : `${label} failed`;
