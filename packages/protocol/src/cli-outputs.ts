@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CliTaskStatus, CliTree } from "./cli-control.ts";
 import { CliCommandHelp, CliCommandTree, CliVersionOutput } from "./cli-output.ts";
 import { DaemonHealth } from "./release.ts";
+import { cliAccessOutputs } from "./cli-outputs-access.ts";
 
 /**
  * Each command's `--json` success value, by the `output` key in the CLI's command table
@@ -44,4 +45,5 @@ export const cliOutputs = {
   "thread.wait": CliTree,
   "thread.status": CliTaskStatus,
   receipt: CliReceipt,
+  ...cliAccessOutputs,
 } satisfies Record<string, z.ZodType>;
