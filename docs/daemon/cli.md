@@ -419,21 +419,48 @@ Hand what's broken to an agent, with the facts it needs.
 
 Installed provider CLIs and whether they're ready.
 
+    ace provider list
+    # Which agents are ready
+
+### `ace provider show PROVIDER`
+
+One provider: its CLI, sign-in and accounts.
+
+- `PROVIDER`: codex, claude, cursor, opencode, antigravity or pi
+
+    ace provider show codex
+    # Codex's state
+
 ### `ace provider capabilities`
 
 Providers, models, permission modes and ace's tools, in full.
+
+    ace provider capabilities --json
+    # Everything, for a script
 
 ### `ace provider login PROVIDER [flags]`
 
 Sign a provider CLI in with its own login.
 
+Starts the provider's own sign-in and prints the address and code to finish it in a browser. A provider that asks which service to connect takes --choice; without one, a person at a terminal picks from the list.
+
 - `PROVIDER`: codex, claude, cursor, opencode, antigravity or pi
 
 - `--account ACCOUNT`: Which of the provider's accounts
+- `--choice ID`: The service to connect, when the CLI asks
+
+    ace provider login codex
+    # Sign Codex in
+
+    ace provider login opencode --choice anthropic
+    # Connect a service
 
 ### `ace provider account list`
 
 Provider accounts ace knows.
+
+    ace provider account list
+    # Every provider account
 
 ### `ace provider account add PROVIDER ID HOME LABEL [flags]`
 
@@ -446,23 +473,58 @@ Add a provider account from its home folder.
 
 - `--console`: A console (API) account
 
+    ace provider account add codex work ~/.codex-work Work
+    # A second Codex account
+
 ### `ace provider account show ID`
 
-One provider account.
+One provider account, its sign-in checked now.
 
 - `ID`: The account id
+
+    ace provider account show work
+    # Is it signed in
 
 ### `ace provider account discover`
 
 Find provider accounts already on this machine.
 
+    ace provider account discover
+    # Homes ace could add
+
+### `ace model list [flags]`
+
+Models you can pick, by provider.
+
+- `--provider PROVIDER`: codex, claude, cursor, opencode, antigravity or pi
+- `--account ACCOUNT`: Which of the provider's accounts
+- `--limit N`: At most N results
+
+    ace model list
+    # Every model
+
+    ace model list --provider claude --quiet
+    # Claude's model ids
+
+### `ace account status`
+
+Whether this machine is signed in to ace, and as whom.
+
+    ace account
+    # Who this machine is signed in as
+
 ### `ace account login [flags]`
 
 Sign this machine in to your ace account.
 
+Prints an address to open in a browser, then waits until the sign-in finishes there.
+
 - `--origin URL`: Another ace account server
 
 Shortcut: `ace login`.
+
+    ace login
+    # Sign in
 
 ### `ace account logout`
 
@@ -470,19 +532,42 @@ Sign this machine out of its ace account.
 
 Shortcut: `ace logout`.
 
+    ace logout
+    # Sign out
+
 ### `ace account machine-code set [CODE|-]`
 
 Set the code account devices enter once.
 
+Pass - to read the code from stdin. Without it, a terminal asks for it without echo; nothing else is read.
+
 - `CODE`: The code; asked without echo when omitted
+
+    ace account machine-code set -
+    # Read it from stdin
 
 ### `ace account machine-code clear`
 
 Clear the machine code.
 
+    ace account machine-code clear
+    # Clear it
+
+### `ace machine list`
+
+Machines this one is linked to, and whether each answers.
+
+Agents here reach these by name as `machine`. Link one in the app's Fleet page.
+
+    ace machine list
+    # Your linked machines
+
 ### `ace device list`
 
 Paired devices.
+
+    ace device list
+    # What's paired
 
 ### `ace device pair [SCOPES] [flags]`
 
@@ -494,19 +579,30 @@ A single-use link and QR code to pair a device.
 - `--ttl DURATION`: How long the link works: 5m, 1h, 24h or 7d
 - `--device-ttl DURATION`: How long the device keeps access: 1d, 7d or 30d
 
+    ace device pair --label Phone
+    # Pair a phone
+
 ### `ace device revoke DEVICE`
 
 End a device's access.
 
 - `DEVICE`: The device id
 
+    ace device revoke d_41c0
+    # Revoke a device
+
 ### `ace remote list`
 
 Remote profiles, and which one is in use.
 
+    ace remote list
+    # Profiles
+
 ### `ace remote add [NAME] [ORIGIN] [flags]`
 
 Add a remote machine, from a pairing link or by hand.
+
+With --link, redeems a pairing link from ace device pair on the other machine. By hand, pass ORIGIN with --fingerprint, --device and --token-file.
 
 - `NAME`: A name for the profile
 - `ORIGIN`: Its https origin, when adding by hand
@@ -517,11 +613,17 @@ Add a remote machine, from a pairing link or by hand.
 - `--token-file PATH`: A file holding the device token, by hand
 - `--name NAME`: What the other machine calls this one
 
+    ace remote add studio --link https://…
+    # From a pairing link
+
 ### `ace remote use NAME`
 
 Send every later command to this remote (local for this machine).
 
 - `NAME`: The profile
+
+    ace remote use local
+    # Back to this machine
 
 ### `ace remote remove NAME`
 
@@ -529,9 +631,15 @@ Forget a remote profile.
 
 - `NAME`: The profile
 
+    ace remote remove studio
+    # Forget it
+
 ### `ace mcp list`
 
 Outside MCP clients' access.
+
+    ace mcp list
+    # Every grant
 
 ### `ace mcp add [flags]`
 
@@ -543,11 +651,45 @@ Let an outside MCP client use ace, and print its setup.
 - `--project PROJECT,…`: Only these projects
 - `--name NAME`: A name for the client
 
+    ace mcp add --scope read --ttl 30d
+    # A read-only client
+
 ### `ace mcp revoke GRANT`
 
 End an outside client's access.
 
 - `GRANT`: The grant id
+
+    ace mcp revoke g_7c1e
+    # Revoke a grant
+
+### `ace mcp request list`
+
+Outside clients asking to sign in, with their match codes.
+
+    ace mcp request list
+    # Pending sign-ins
+
+### `ace mcp request allow REQUEST [flags]`
+
+Let a client in, once its match code matches the one it shows.
+
+- `REQUEST`: The sign-in request id
+
+- `--ttl DURATION`: 30m, 12h, 30d (the default) or never
+- `--project PROJECT,…`: Only these projects
+
+    ace mcp request allow r_3f1a
+    # Allow a sign-in
+
+### `ace mcp request deny REQUEST`
+
+Turn a client's sign-in away.
+
+- `REQUEST`: The sign-in request id
+
+    ace mcp request deny r_3f1a
+    # Deny a sign-in
 
 ## Spade and the market
 
@@ -599,31 +741,40 @@ The market's checks on a folder, before publishing.
 
 ## Agent tools
 
-### `ace browser screenshot THREAD [flags]`
+### `ace browser screenshot [THREAD] [flags]`
 
 A screenshot of a thread's browser, saved to a file.
 
-- `THREAD`: The thread whose browser
+- `THREAD`: The thread whose browser; defaults to ACE_THREAD_ID in an agent's shell
 
 - `--url URL`: Open this page first
 - `--output PATH`: Where to write the file
 - `--duration DURATION`: How long to record, e.g. 5s
 
-### `ace browser record THREAD [flags]`
+    ace browser screenshot --url http://localhost:5173 --output page.png
+    # From an agent's shell
+
+### `ace browser record [THREAD] [flags]`
 
 An MP4 of a thread's browser, saved to a file.
 
-- `THREAD`: The thread whose browser
+- `THREAD`: The thread whose browser; defaults to ACE_THREAD_ID in an agent's shell
 
 - `--url URL`: Open this page first
 - `--output PATH`: Where to write the file
 - `--duration DURATION`: How long to record, e.g. 5s
+
+    ace browser record --duration 10s
+    # Ten seconds of it
 
 ### `ace sim list [flags]`
 
 Simulators and emulators on this machine.
 
 - `--thread THREAD`: The thread; defaults to ACE_THREAD_ID in an agent's shell
+
+    ace sim list
+    # Devices, from an agent's shell
 
 ### `ace sim start SIM [flags]`
 
@@ -634,6 +785,9 @@ Take a simulator for the thread, boot it and show it live.
 - `--thread THREAD`: The thread; defaults to ACE_THREAD_ID in an agent's shell
 - `--no-boot`: Don't boot it
 
+    ace sim start ios-17
+    # Take and boot a simulator
+
 ### `ace sim stop SIM [flags]`
 
 Release a simulator when you finish.
@@ -641,6 +795,9 @@ Release a simulator when you finish.
 - `SIM`: The simulator or emulator
 
 - `--thread THREAD`: The thread; defaults to ACE_THREAD_ID in an agent's shell
+
+    ace sim stop ios-17
+    # Release it
 
 ### `ace sim ui SIM [NAME] [flags]`
 
@@ -656,9 +813,24 @@ Read the screen; actionable elements carry refs like @e3.
 - `--max-depth N`: How deep to read
 - `--max-nodes N`: How many elements to read
 
+    ace sim ui ios-17 --text Login
+    # Find the login button's ref
+
 ### `ace sim act SIM ACTION… [flags]`
 
 Tap, type, swipe, press keys or open apps (ace help sim act).
+
+Refs first: ace sim ui, act on a ref, ui again after the screen changes. Coordinates are the fallback. A ref is re-checked before acting: stale_ref if it has gone.
+
+  tap @e3 | tap X Y                       tap an element, or a point
+  type @e3 TEXT                           focus the element, then type (no ref: the focused field)
+  press|focus|setValue|scroll|select|expand @e3 [--value V]
+  long_press @e3|X Y [--duration MS]
+  swipe X Y TOX TOY [--duration MS]
+  key home|back|enter|rotate|power|recents|volumeUp|volumeDown|action|side
+  open_app ID | open_url URL | install PATH | record_start | record_stop
+  clipboard_get | clipboard_set TEXT      read the clipboard, or set it without pasting
+  posture closed|partiallyOpen|open       fold or unfold a foldable device
 
 - `SIM`: The simulator or emulator
 - `ACTION`: What to do, then its arguments
@@ -666,6 +838,12 @@ Tap, type, swipe, press keys or open apps (ace help sim act).
 - `--thread THREAD`: The thread; defaults to ACE_THREAD_ID in an agent's shell
 - `--value VALUE`: The value for setValue
 - `--duration MS`: How long to press or swipe
+
+    ace sim act ios-17 tap @e3
+    # Tap an element by its ref
+
+    ace sim act ios-17 type @e5 hello
+    # Type into a field
 
 ### `ace sim screenshot SIM [flags]`
 
@@ -676,6 +854,9 @@ A JPEG of the screen.
 - `--thread THREAD`: The thread; defaults to ACE_THREAD_ID in an agent's shell
 - `--output PATH`: Where to write the file
 
+    ace sim screenshot ios-17 --output shot.jpg
+    # Save the screen
+
 ### `ace sim logs SIM [flags]`
 
 The device's recent log.
@@ -684,6 +865,9 @@ The device's recent log.
 
 - `--thread THREAD`: The thread; defaults to ACE_THREAD_ID in an agent's shell
 - `--limit N`: At most N results
+
+    ace sim logs ios-17 --limit 50
+    # The last 50 log lines
 
 ### `ace cloud codex exec [PROMPT|-] [flags]`
 
@@ -699,6 +883,9 @@ Start a Codex Cloud task.
 - `--attempt N`: Which attempt
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
 
+    ace cloud codex exec PROMPT
+    # Start a Codex Cloud task
+
 ### `ace cloud codex list [flags]`
 
 Codex Cloud tasks.
@@ -710,6 +897,9 @@ Codex Cloud tasks.
 - `--cursor CURSOR`: The page after this cursor
 - `--attempt N`: Which attempt
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+    ace cloud codex list
+    # Codex Cloud tasks
 
 ### `ace cloud codex status TASK [flags]`
 
@@ -725,6 +915,9 @@ A Codex Cloud task's state.
 - `--attempt N`: Which attempt
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
 
+    ace cloud codex status TASK
+    # A Codex Cloud task's state
+
 ### `ace cloud codex diff TASK [flags]`
 
 A Codex Cloud task's diff.
@@ -739,6 +932,9 @@ A Codex Cloud task's diff.
 - `--attempt N`: Which attempt
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
 
+    ace cloud codex diff TASK
+    # A Codex Cloud task's diff
+
 ### `ace cloud codex apply TASK [flags]`
 
 Apply a Codex Cloud task's diff here.
@@ -752,6 +948,9 @@ Apply a Codex Cloud task's diff here.
 - `--cursor CURSOR`: The page after this cursor
 - `--attempt N`: Which attempt
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
+
+    ace cloud codex apply TASK
+    # Apply a Codex Cloud task's diff here
 
 ## Old spellings
 
@@ -780,6 +979,10 @@ Each prints a notice on a terminal for two releases after the one it was replace
 | `ace capabilities` | `ace provider capabilities` | 0.0.24 |
 | `ace login codex` | `ace provider login` | 0.0.24 |
 | `ace login claude` | `ace provider login` | 0.0.24 |
+| `ace login cursor` | `ace provider login` | 0.0.24 |
+| `ace login opencode` | `ace provider login` | 0.0.24 |
+| `ace login antigravity` | `ace provider login` | 0.0.24 |
+| `ace login pi` | `ace provider login` | 0.0.24 |
 | `ace accounts list` | `ace provider account list` | 0.0.24 |
 | `ace accounts add` | `ace provider account add` | 0.0.24 |
 | `ace accounts status` | `ace provider account show` | 0.0.24 |

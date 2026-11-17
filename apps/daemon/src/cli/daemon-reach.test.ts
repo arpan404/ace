@@ -11,7 +11,7 @@ const homes: string[] = [];
 const servers: Server[] = [];
 afterEach(() => {
   for (const server of servers.splice(0)) server.close();
-  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
+  for (const dir of homes.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 function home(port?: number): string {
@@ -44,7 +44,11 @@ async function failure(promise: Promise<unknown>) {
 
 test("a home with no endpoint file reads as ace isn't running, exit 4", async () => {
   const error = await failure(reachLocalDaemon(home()));
-  expect(error).toMatchObject({ code: "daemon_down", status: "refused", error: "ace isn't running." });
+  expect(error).toMatchObject({
+    code: "daemon_down",
+    status: "refused",
+    error: "ace isn't running.",
+  });
   expect(cliExitCodes[error.status]).toBe(4);
   expect(error.hint).toMatch(/ace start/);
 });

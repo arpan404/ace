@@ -94,8 +94,16 @@ export async function main(input: readonly string[]): Promise<void> {
 
 /** `--help` and `--version` answer before anything runs, whatever command they follow. */
 function earlyAnswer(parsed: Parsed): { id: string; words: string[] } | undefined {
+  // `ace thread --help` is the noun's page, not its default command's (ADR 0176 §5).
   if (parsed.flags.help && parsed.command.id !== "help")
-    return { id: "help", words: [...parsed.command.words] };
+    return {
+      id: "help",
+      words: [
+        ...(parsed.typed.length < parsed.command.words.length && !parsed.alias
+          ? parsed.typed
+          : parsed.command.words),
+      ],
+    };
   if ((parsed.flags.version || parsed.flags.V) && parsed.command.id === "home")
     return { id: "version", words: [] };
   return undefined;

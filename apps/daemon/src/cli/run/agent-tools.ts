@@ -1,3 +1,4 @@
+import { usageFailure } from "../output.ts";
 import {
   legacy,
   ownThread,
@@ -8,27 +9,26 @@ import {
   type Handlers,
 } from "./context.ts";
 
-/** Tools agents call from a shell: browser, sim, Codex Cloud. */
-async function browser(context: CommandContext, verb: string): Promise<void> {
-  const args = legacy(context, ["browser", verb]);
+/** Tools agents call from a shell: browser, sim, Codex Cloud. They know the agent's thread (§10). */
+async function browser(context: CommandContext, verb: "screenshot" | "record"): Promise<void> {
+  const thread = context.args.words[0] ?? ownThread(context);
+  if (!thread)
+    throw usageFailure(`ace browser ${verb} needs THREAD.`, {
+      code: "missing_argument",
+      argument: "THREAD",
+      hint: `Pass the thread: ace browser ${verb} THREAD. An agent's shell has ACE_THREAD_ID.`,
+    });
+  const args = context.args;
   return withSession(context, args, async ({ client, signal }) =>
-    (await import("../browser.ts")).browserCommand(args, client, signal),
+    (await import("../browser.ts")).browserCommand(args, client, signal, verb, thread),
   );
 }
 
-/** `ace sim` reads as words by default now, and knows the agent's own thread (§10). */
+/** `ace sim` reads as words by default; --json for JSON; `--human` and `--out` still accepted. */
 async function sim(context: CommandContext, verb: string): Promise<void> {
-  const { flags } = context.args;
-  const thread = ownThread(context);
-  const output = flags.output ?? flags.out;
-  const args = legacy(context, ["sim", verb], {
-    ...without(flags, "output", "out", "human", "quiet"),
-    ...(thread ? { thread } : {}),
-    ...(typeof output === "string" ? { out: output } : {}),
-    ...(context.mode === "json" ? {} : { human: true }),
-  });
+  const args = legacy(context, ["sim", verb], without(context.args.flags, "human"));
   return withSession(context, args, async ({ client, signal }) =>
-    (await import("../sim.ts")).simCommand(args, client, signal),
+    (await import("../sim.ts")).simCommand(args, client, signal, ownThread(context)),
   );
 }
 
@@ -42,7 +42,7 @@ async function cloud(context: CommandContext, verb: string): Promise<void> {
 }
 
 export const agentToolHandlers: Handlers = {
-  "browser.screenshot": (context) => browser(context, "shot"),
+  "browser.screenshot": (context) => browser(context, "screenshot"),
   "browser.record": (context) => browser(context, "record"),
   ...Object.fromEntries(
     ["list", "start", "stop", "ui", "act", "screenshot", "logs"].map((verb) => [

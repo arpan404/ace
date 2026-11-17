@@ -1,31 +1,31 @@
-import { grammarRelease as since, projectRef } from "./flags.ts";
+import { accessCommands, accessNouns } from "./access.ts";
+import { grammarRelease as since, limit, providerName } from "./flags.ts";
 import type { CommandSpec, NounSpec } from "./spec.ts";
 
-/** Provider CLIs, the ace account and who can reach this machine (ADR 0176 §7). */
+/** Provider CLIs, models, the ace account and who can reach this machine (ADR 0176 §7). */
 export const providerNouns: readonly NounSpec[] = [
   {
     name: "provider",
     summary: "The agent CLIs ace drives, and their accounts",
     group: "providers",
   },
+  { name: "model", summary: "The models each provider offers", group: "providers" },
   { name: "account", summary: "This machine's ace account", group: "providers" },
-  { name: "device", summary: "Phones and computers paired with this machine", group: "providers" },
-  { name: "remote", summary: "Other machines this CLI can work on", group: "providers" },
-  { name: "mcp", summary: "Outside MCP clients allowed to use ace", group: "providers" },
+  ...accessNouns,
 ];
 
-const providerArg = {
-  name: "PROVIDER",
-  summary: "codex, claude, cursor, opencode, antigravity or pi",
-  required: true,
-} as const;
-const loginAliases = ["codex", "claude"].map((provider) => ({
-  words: ["login", provider],
-  deprecatedSince: since,
-  insertWords: [provider],
-}));
+const providers = "codex, claude, cursor, opencode, antigravity or pi";
+const providerArg = { name: "PROVIDER", summary: providers, required: true } as const;
+const loginAliases = ["codex", "claude", "cursor", "opencode", "antigravity", "pi"].map(
+  (provider) => ({
+    words: ["login", provider],
+    deprecatedSince: since,
+    insertWords: [provider],
+  }),
+);
+const account = { name: "account", value: "ACCOUNT", summary: "Which of the provider's accounts" };
 
-export const providerCommands: readonly CommandSpec[] = [
+const ownCommands: readonly CommandSpec[] = [
   {
     id: "provider.list",
     words: ["provider", "list"],
@@ -36,7 +36,17 @@ export const providerCommands: readonly CommandSpec[] = [
       { words: ["providers"], quiet: true },
       { words: ["providers", "status"], deprecatedSince: since },
     ],
+    examples: [{ command: "ace provider list", summary: "Which agents are ready" }],
     output: "provider.list",
+  },
+  {
+    id: "provider.show",
+    words: ["provider", "show"],
+    summary: "One provider: its CLI, sign-in and accounts",
+    group: "providers",
+    args: [providerArg],
+    examples: [{ command: "ace provider show codex", summary: "Codex's state" }],
+    output: "provider.show",
   },
   {
     id: "provider.capabilities",
@@ -44,19 +54,32 @@ export const providerCommands: readonly CommandSpec[] = [
     summary: "Providers, models, permission modes and ace's tools, in full",
     group: "providers",
     aliases: [{ words: ["capabilities"], deprecatedSince: since }],
+    examples: [
+      { command: "ace provider capabilities --json", summary: "Everything, for a script" },
+    ],
+    output: "provider.capabilities",
   },
   {
     id: "provider.login",
     words: ["provider", "login"],
     summary: "Sign a provider CLI in with its own login",
+    description:
+      "Starts the provider's own sign-in and prints the address and code to finish it in a browser. A provider that asks which service to connect takes --choice; without one, a person at a terminal picks from the list.",
     group: "providers",
     mutates: true,
     args: [providerArg],
     flags: [
-      { name: "account", value: "ACCOUNT", summary: "Which of the provider's accounts" },
+      account,
+      { name: "choice", value: "ID", summary: "The service to connect, when the CLI asks" },
       { name: "instance", value: "ACCOUNT", summary: "Same as --account", hidden: true },
     ],
     aliases: loginAliases,
+    exits: [{ code: 2, when: "The sign-in needs the person: a code, a choice or a key" }],
+    examples: [
+      { command: "ace provider login codex", summary: "Sign Codex in" },
+      { command: "ace provider login opencode --choice anthropic", summary: "Connect a service" },
+    ],
+    output: "provider.login",
   },
   {
     id: "provider.account.list",
@@ -65,6 +88,8 @@ export const providerCommands: readonly CommandSpec[] = [
     group: "providers",
     offline: true,
     aliases: [{ words: ["accounts", "list"], deprecatedSince: since }],
+    examples: [{ command: "ace provider account list", summary: "Every provider account" }],
+    output: "provider.account.list",
   },
   {
     id: "provider.account.add",
@@ -81,15 +106,24 @@ export const providerCommands: readonly CommandSpec[] = [
     ],
     flags: [{ name: "console", summary: "A console (API) account" }],
     aliases: [{ words: ["accounts", "add"], deprecatedSince: since }],
+    examples: [
+      {
+        command: "ace provider account add codex work ~/.codex-work Work",
+        summary: "A second Codex account",
+      },
+    ],
+    output: "provider.account.add",
   },
   {
     id: "provider.account.show",
     words: ["provider", "account", "show"],
-    summary: "One provider account",
+    summary: "One provider account, its sign-in checked now",
     group: "providers",
     offline: true,
     args: [{ name: "ID", summary: "The account id", required: true }],
     aliases: [{ words: ["accounts", "status"], deprecatedSince: since }],
+    examples: [{ command: "ace provider account show work", summary: "Is it signed in" }],
+    output: "provider.account.show",
   },
   {
     id: "provider.account.discover",
@@ -98,15 +132,43 @@ export const providerCommands: readonly CommandSpec[] = [
     group: "providers",
     offline: true,
     aliases: [{ words: ["accounts", "discover"], deprecatedSince: since }],
+    examples: [{ command: "ace provider account discover", summary: "Homes ace could add" }],
+    output: "provider.account.discover",
+  },
+  {
+    id: "model.list",
+    words: ["model", "list"],
+    summary: "Models you can pick, by provider",
+    group: "providers",
+    nounDefault: true,
+    flags: [providerName, account, limit],
+    examples: [
+      { command: "ace model list", summary: "Every model" },
+      { command: "ace model list --provider claude --quiet", summary: "Claude's model ids" },
+    ],
+    output: "model.list",
+  },
+  {
+    id: "account.status",
+    words: ["account", "status"],
+    summary: "Whether this machine is signed in to ace, and as whom",
+    group: "providers",
+    nounDefault: true,
+    examples: [{ command: "ace account", summary: "Who this machine is signed in as" }],
+    output: "account.status",
   },
   {
     id: "account.login",
     words: ["account", "login"],
     summary: "Sign this machine in to your ace account",
+    description:
+      "Prints an address to open in a browser, then waits until the sign-in finishes there.",
     group: "providers",
     mutates: true,
     flags: [{ name: "origin", value: "URL", summary: "Another ace account server" }],
     aliases: [{ words: ["login"] }],
+    examples: [{ command: "ace login", summary: "Sign in" }],
+    output: "account.status",
   },
   {
     id: "account.logout",
@@ -115,15 +177,21 @@ export const providerCommands: readonly CommandSpec[] = [
     group: "providers",
     mutates: true,
     aliases: [{ words: ["logout"] }],
+    examples: [{ command: "ace logout", summary: "Sign out" }],
+    output: "account.status",
   },
   {
     id: "account.machine-code.set",
     words: ["account", "machine-code", "set"],
     summary: "Set the code account devices enter once",
+    description:
+      "Pass - to read the code from stdin. Without it, a terminal asks for it without echo; nothing else is read.",
     group: "providers",
     mutates: true,
     args: [{ name: "CODE", summary: "The code; asked without echo when omitted", stdin: true }],
     aliases: [{ words: ["machine-code", "set"], deprecatedSince: since }],
+    examples: [{ command: "ace account machine-code set -", summary: "Read it from stdin" }],
+    output: "account.status",
   },
   {
     id: "account.machine-code.clear",
@@ -132,120 +200,9 @@ export const providerCommands: readonly CommandSpec[] = [
     group: "providers",
     mutates: true,
     aliases: [{ words: ["machine-code", "clear"], deprecatedSince: since }],
-  },
-  {
-    id: "device.list",
-    words: ["device", "list"],
-    summary: "Paired devices",
-    group: "providers",
-    nounDefault: true,
-    aliases: [
-      { words: ["devices"], quiet: true },
-      { words: ["devices", "list"], deprecatedSince: since },
-    ],
-  },
-  {
-    id: "device.pair",
-    words: ["device", "pair"],
-    summary: "A single-use link and QR code to pair a device",
-    group: "providers",
-    mutates: true,
-    args: [{ name: "SCOPES", summary: "Comma-separated scopes; the defaults when omitted" }],
-    flags: [
-      { name: "label", value: "NAME", summary: "A name for the device" },
-      { name: "ttl", value: "DURATION", summary: "How long the link works: 5m, 1h, 24h or 7d" },
-      {
-        name: "device-ttl",
-        value: "DURATION",
-        summary: "How long the device keeps access: 1d, 7d or 30d",
-      },
-    ],
-    aliases: [{ words: ["pair"], deprecatedSince: since }],
-  },
-  {
-    id: "device.revoke",
-    words: ["device", "revoke"],
-    summary: "End a device's access",
-    group: "providers",
-    mutates: true,
-    args: [{ name: "DEVICE", summary: "The device id", required: true }],
-    aliases: [{ words: ["devices", "revoke"], deprecatedSince: since }],
-  },
-  {
-    id: "remote.list",
-    words: ["remote", "list"],
-    summary: "Remote profiles, and which one is in use",
-    group: "providers",
-    offline: true,
-    nounDefault: true,
-  },
-  {
-    id: "remote.add",
-    words: ["remote", "add"],
-    summary: "Add a remote machine, from a pairing link or by hand",
-    group: "providers",
-    offline: true,
-    mutates: true,
-    args: [
-      { name: "NAME", summary: "A name for the profile" },
-      { name: "ORIGIN", summary: "Its https origin, when adding by hand" },
-    ],
-    flags: [
-      { name: "link", value: "URL", summary: "A pairing link from ace device pair; - reads stdin" },
-      { name: "fingerprint", value: "PIN", summary: "Its public-key SHA-256, by hand" },
-      { name: "device", value: "ID", summary: "This device's id there, by hand" },
-      { name: "token-file", value: "PATH", summary: "A file holding the device token, by hand" },
-      { name: "name", value: "NAME", summary: "What the other machine calls this one" },
-      { name: "profile", value: "NAME", summary: "Same as NAME", hidden: true },
-    ],
-    aliases: [{ words: ["pair", "redeem"], deprecatedSince: since, wordsAs: ["link"] }],
-  },
-  {
-    id: "remote.use",
-    words: ["remote", "use"],
-    summary: "Send every later command to this remote (local for this machine)",
-    group: "providers",
-    offline: true,
-    mutates: true,
-    args: [{ name: "NAME", summary: "The profile", required: true }],
-  },
-  {
-    id: "remote.remove",
-    words: ["remote", "remove"],
-    summary: "Forget a remote profile",
-    group: "providers",
-    offline: true,
-    mutates: true,
-    args: [{ name: "NAME", summary: "The profile", required: true }],
-  },
-  {
-    id: "mcp.list",
-    words: ["mcp", "list"],
-    summary: "Outside MCP clients' access",
-    group: "providers",
-    nounDefault: true,
-  },
-  {
-    id: "mcp.add",
-    words: ["mcp", "add"],
-    summary: "Let an outside MCP client use ace, and print its setup",
-    group: "providers",
-    mutates: true,
-    flags: [
-      { name: "scope", value: "SCOPE", summary: "read or operate", choices: ["read", "operate"] },
-      { name: "allow", value: "SCOPE,…", summary: "Exactly these scopes" },
-      { name: "ttl", value: "DURATION", summary: "30m, 12h, 30d or never" },
-      { ...projectRef, value: "PROJECT,…", summary: "Only these projects" },
-      { name: "name", value: "NAME", summary: "A name for the client" },
-    ],
-    aliases: [{ words: ["mcp", "enroll"], deprecatedSince: since }],
-  },
-  {
-    id: "mcp.revoke",
-    words: ["mcp", "revoke"],
-    summary: "End an outside client's access",
-    group: "providers",
-    mutates: true,
-    args: [{ name: "GRANT", summary: "The grant id", required: true }],
+    examples: [{ command: "ace account machine-code clear", summary: "Clear it" }],
+    output: "account.status",
   },
 ];
+
+export const providerCommands: readonly CommandSpec[] = [...ownCommands, ...accessCommands];

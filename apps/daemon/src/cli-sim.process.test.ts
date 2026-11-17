@@ -48,7 +48,7 @@ async function surfaces(
     return first?.type === "text" ? z.unknown().parse(JSON.parse(first.text)) : result.content;
   };
   const sim = async (...words: string[]) => {
-    const output = await invoke(home, ["sim", ...words, "--thread", f.caller.threadId]);
+    const output = await invoke(home, ["sim", ...words, "--thread", f.caller.threadId, "--json"]);
     return {
       code: output.code,
       stderr: output.stderr,
@@ -150,6 +150,6 @@ it("ace sim refuses without a thread and teaches refs first in its help", () =>
     expect(help.stdout).toContain("Refs first");
     expect(help.stdout).toContain("ace sim act SIM tap @e3");
     const missing = await invoke(h.home, ["sim", "list", "--json"]);
-    expect(missing.code).toBe(4);
+    expect(missing.code).toBe(64);
     expect(missing.stdout).toContain("--thread");
   }));
