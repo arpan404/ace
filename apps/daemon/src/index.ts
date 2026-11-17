@@ -221,7 +221,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     undefined,
     (error) => {
       if (!storage.observe(error))
-        log.log("warn", "Process inventory delete failed; retrying", logError(error));
+        log.log("warn", "Process inventory write failed; retrying", logError(error));
     },
   );
   try {
