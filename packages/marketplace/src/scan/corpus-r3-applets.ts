@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus.ts";
 
 /*
- * Inert samples for multi-call applets and unknown wrappers (ADR 0173 §8, fail closed). Each is a
+ * Inert samples for multi-call applets and unknown wrappers (ADR 0174 §8, fail closed). Each is a
  * short shell script written for the tests, every host is `.invalid`, and none runs.
  */
 

@@ -5,7 +5,7 @@ import type { ScanContext, ScanInput } from "./index.ts";
 import { hasBidi, hasInvisible, mixedScriptWord } from "./text.ts";
 
 /*
- * The `hidden` check (ADR 0173 §8): characters and names that hide what an entry is. Bidirectional
+ * The `hidden` check (ADR 0174 §8): characters and names that hide what an entry is. Bidirectional
  * controls anywhere, and zero-width or tag characters in code and names, block (an emoji joiner
  * between emoji is fine). A word that mixes scripts in a title or display name is a finding, as is
  * a name whose confusable skeleton collides with another publisher's or a verified publisher's

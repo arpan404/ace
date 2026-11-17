@@ -1,5 +1,6 @@
 import { channel } from "node:diagnostics_channel";
 import { delimiter } from "node:path";
+import { unscoped } from "./unscoped.ts";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 
 /**
@@ -37,10 +38,11 @@ export function startWorker(
 ): Worker {
   const preload = env[workerPreloadVariable]?.split(delimiter).filter(Boolean) ?? [];
   const bun = process.versions.bun !== undefined;
-  if (!bun || preload.length === 0) return new Worker(url, options);
+  // A worker belongs to no caller: its events never run in the context of whoever started it.
+  if (!bun || preload.length === 0) return unscoped(() => new Worker(url, options));
   // Bun's own WorkerOptions add `preload`; Node's types don't know it.
   const measured: WorkerOptions & { preload: string[] } = { ...options, preload };
-  const worker = new Worker(url, measured);
+  const worker = unscoped(() => new Worker(url, measured));
   created.publish({ worker, entry: String(url) });
   return worker;
 }

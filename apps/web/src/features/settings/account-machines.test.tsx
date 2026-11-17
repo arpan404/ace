@@ -53,10 +53,9 @@ test("machines on the ace account list in Fleet after the paired ones, once each
   await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
   expect(await within(machines).findByText("Studio")).toBeDefined();
-  expect(within(machines).getByText("On your ace account · macOS · Seen 2h ago")).toBeDefined();
-  // Paired and on the account: one row, the paired one, saying it's on the account too.
+  expect(within(machines).getByText("macOS · Seen 2h ago")).toBeDefined();
+  // Paired and on the account: one row, the paired one.
   expect(within(machines).queryByText("Build server (account)")).toBeNull();
-  expect(await within(machines).findByText(/· ace account$/)).toBeDefined();
   expect(within(machines).getAllByRole("link").length + 1).toBe(3);
 
   await userEvent.click(within(machines).getByRole("button", { name: "Forget Studio" }));
@@ -110,7 +109,7 @@ test("the machine code is set, changed and cleared from this machine's page", as
   expect(await within(code).findByText("Not set")).toBeDefined();
 }, 30_000);
 
-test("this machine signs in with the app's ace account and signs out again", async () => {
+test("this machine signs in with the app's ace account under Security and signs out again, asked first", async () => {
   signedIn([]);
   await harness().open("/settings/remote/primary");
   const account = await screen.findByRole("region", { name: "Security" });
@@ -120,9 +119,9 @@ test("this machine signs in with the app's ace account and signs out again", asy
   await userEvent.click(within(account).getByRole("button", { name: "Sign in" }));
   expect(await within(account).findByText(/^Signed in as arpan@example.com/)).toBeDefined();
   await userEvent.click(within(account).getByRole("button", { name: "Sign out" }));
-  await userEvent.click(
-    within(await screen.findByRole("dialog")).getByRole("button", { name: "Sign out" }),
-  );
+  const ask = await screen.findByRole("dialog", { name: "Sign this computer out?" });
+  expect(within(ask).getByText(/until it signs back in\./)).toBeDefined();
+  await userEvent.click(within(ask).getByRole("button", { name: "Sign out" }));
   expect(await within(account).findByText(/^Not signed in/)).toBeDefined();
 }, 30_000);
 
@@ -162,18 +161,4 @@ test("signed in, Add machine and Pair a device recommend signing in there with t
       { name: "Create link" },
     ),
   ).toBeDefined();
-}, 30_000);
-
-test("this computer signs in to the account from How this computer is reached, and out again", async () => {
-  signedIn([]);
-  await harness().open("/settings/remote");
-  const reached = await screen.findByRole("region", { name: "How this computer is reached" });
-  await userEvent.click(await within(reached).findByRole("button", { name: "Sign in" }));
-  // The fake daemon signs in as its own person, so the row also says it isn't this app's.
-  expect(await within(reached).findByText(/^Signed in as arpan@example\.com/)).toBeDefined();
-  await userEvent.click(within(reached).getByRole("button", { name: "Sign out" }));
-  const ask = await screen.findByRole("dialog", { name: "Sign this computer out?" });
-  expect(within(ask).getByText(/until it signs back in\./)).toBeDefined();
-  await userEvent.click(within(ask).getByRole("button", { name: "Sign out" }));
-  expect(await within(reached).findByText(/^Not signed in/)).toBeDefined();
 }, 30_000);

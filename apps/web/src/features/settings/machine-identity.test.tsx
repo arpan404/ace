@@ -23,24 +23,29 @@ async function openMachine(machine: "this" | string) {
   if (!link) throw new Error("No machine listed");
   await userEvent.click(link);
   // The machine page loads on first visit.
-  await screen.findByRole("button", { name: "Rename" }, { timeout: 10_000 });
+  await screen.findByRole("button", { name: /^More for / }, { timeout: 10_000 });
   return machineHeader();
 }
 
-/** The machine page's title row, where Rename sits beside its mark and its name. */
+/** The machine page's title row, where its ⋯ menu sits beside its mark and its name. */
 async function machineHeader() {
-  const rename = await screen.findByRole("button", { name: "Rename" });
-  const row = rename.parentElement?.parentElement;
+  const more = await screen.findByRole("button", { name: /^More for / });
+  const row = more.parentElement?.parentElement;
   if (!row) throw new Error("No title row");
   return row;
 }
 
-/** Opens the name and icon editor on the machine's page. */
+/** Opens the name and icon editor from Rename in the machine page's ⋯ menu. */
 async function editMachine(machine: "this" | string) {
   await openMachine(machine);
-  const edit = await screen.findByRole("button", { name: "Rename" });
-  await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
-  await userEvent.click(edit);
+  await userEvent.click(await screen.findByRole("button", { name: /^More for / }));
+  // Rename stays off until the machine's connection is open.
+  await waitFor(() =>
+    expect(screen.getByRole("menuitem", { name: "Rename" }).hasAttribute("data-disabled")).toBe(
+      false,
+    ),
+  );
+  await userEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
 }
 
 async function renameMachine(machine: "this" | string, name: string, icon: string) {

@@ -374,6 +374,98 @@ describe("supervised processes", () => {
       process.off("warning", warn);
     }
   });
+  it("a stop whose tree signal cannot run still ends the process instead of throwing", async () => {
+    const warnings: string[] = [];
+    const warn = (warning: Error) => warnings.push(warning.message);
+    process.on("warning", warn);
+    try {
+      const proc = spawnRawSupervised({
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000)"],
+        env: {},
+        name: "stuck",
+        platform: "win32",
+        windowsJobFactory: () => undefined,
+        windowsKillTree: () => {
+          throw new Error("taskkill unavailable");
+        },
+      });
+      // Voided stops run inside abort listeners and timers, where a throw ends the daemon.
+      let stopping: Promise<unknown> | undefined;
+      expect(() => (stopping = proc.stop({ graceMs: 50 }))).not.toThrow();
+      expect(await stopping).toMatchObject({ reason: "stopped" });
+      await expect.poll(() => warnings.join("\n")).toContain("taskkill unavailable");
+    } finally {
+      process.off("warning", warn);
+    }
+  });
+  it("a retained Windows tree that survives its forced stop stays owned until it is confirmed gone", async () => {
+    const warnings: string[] = [];
+    const unhandled: unknown[] = [];
+    const warn = (warning: Error) => warnings.push(warning.message);
+    const hear = (reason: unknown) => unhandled.push(reason);
+    process.on("warning", warn);
+    process.on("unhandledRejection", hear);
+    const recorded = new Set<number>();
+    const stopObserving = observeProcessGroups({
+      add: (pid) => recorded.add(pid),
+      remove: (pid) => recorded.delete(pid),
+    });
+    let disposed = false;
+    let survivors = true;
+    const rechecks: { run: () => void; ms: number }[] = [];
+    const proc = spawnRawSupervised({
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+      env: {},
+      name: "retained",
+      killGroupOnExit: false,
+      platform: "win32",
+      // A tree whose members ignore every stop, as one with a process another user owns.
+      windowsKillTree: () => {},
+      windowsJobFactory: () => ({
+        assign: () => {},
+        running: () => survivors,
+        terminate: () => {},
+        dispose: () => {
+          disposed = true;
+        },
+      }),
+      schedule: (run, ms) => {
+        rechecks.push({ run, ms });
+        return () => {};
+      },
+    });
+    try {
+      // A voided stop (an abort listener) is reported, never left unhandled.
+      void proc.stop({ graceMs: 0 });
+      await expect(proc.stop({ graceMs: 0 })).rejects.toThrow("survived its forced stop");
+      expect(proc.pid !== undefined && recorded.has(proc.pid)).toBe(true);
+      expect(disposed).toBe(false);
+      await expect.poll(() => warnings.join("\n")).toContain("survived its forced stop");
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+      // Still there at the first recheck: still owned, and a later stop still fails.
+      rechecks.shift()?.run();
+      expect(disposed).toBe(false);
+      await expect(proc.stop({ graceMs: 0 })).rejects.toThrow("survived its forced stop");
+      // The survivors exit; the next recheck, later, ends ownership and the job.
+      if (proc.pid !== undefined) process.kill(proc.pid, "SIGKILL");
+      survivors = false;
+      const next = rechecks.shift();
+      expect(next?.ms).toBe(2_000);
+      next?.run();
+      expect(disposed).toBe(true);
+      expect(proc.pid !== undefined && recorded.has(proc.pid)).toBe(false);
+      expect(await proc.stop({ graceMs: 0 })).toMatchObject({ code: null });
+    } finally {
+      if (survivors && proc.pid !== undefined) process.kill(proc.pid, "SIGKILL");
+      await proc.exited;
+      stopObserving();
+      process.off("warning", warn);
+      process.off("unhandledRejection", hear);
+    }
+  }, 20_000);
   it("rejects probe output beyond the capture byte budget", async () => {
     await expect(
       probeOutput(

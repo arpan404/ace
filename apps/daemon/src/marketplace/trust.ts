@@ -16,7 +16,7 @@ import type { MarketHttp } from "./http.ts";
 import type { MarketStore } from "./store.ts";
 
 /*
- * The market's signed lists beside the withdrawn one (ADR 0173 §8, §13, §14): the blocklist, the
+ * The market's signed lists beside the withdrawn one (ADR 0174 §8, §13, §14): the blocklist, the
  * verified publishers and the official publisher. Each is kept as it was signed and verified
  * against the keys this build ships whenever it is read, so neither the Worker nor a changed
  * file on disk can grant a mark; the newest issued list a device verified wins. "Verified" and

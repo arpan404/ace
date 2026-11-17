@@ -25,13 +25,14 @@ Example:
 
 ```json
 {
-  "at": 3,
+  "at": 7,
   "id": "example",
   "payload": {
-    "raw": null,
-    "type": "unknown"
+    "agentId": "example",
+    "nativeInputId": "example",
+    "type": "input.admitted"
   },
-  "seq": 8,
+  "seq": 1,
   "threadId": "example"
 }
 ```
@@ -1711,8 +1712,19 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "op": "sources",
-    "sources": []
+    "leftOut": [],
+    "op": "botRecipe",
+    "recipe": {
+      "face": {},
+      "format": "spade-bot",
+      "name": "example",
+      "needs": {
+        "connectors": [],
+        "tools": []
+      },
+      "task": "example",
+      "version": 2
+    }
   },
   "type": "marketplace.result"
 }
@@ -3830,8 +3842,8 @@ Example:
     "entitiesBefore": {},
     "interactions": {},
     "itemOrder": [],
+    "itemSeqs": {},
     "items": {},
-    "itemsBefore": 8,
     "kind": "thread",
     "queue": {
       "exited": false,
@@ -3868,6 +3880,10 @@ Example:
         "steer": true,
         "subagentTranscripts": true,
         "tokenUsage": true
+      },
+      "execution": {
+        "model": "example",
+        "provider": "acp"
       },
       "goal": {
         "checks": 5,
@@ -3910,20 +3926,12 @@ Example:
       "status": {
         "state": "done"
       },
-      "switch": {
-        "at": 1,
-        "lossy": true,
-        "selection": {
-          "model": "example",
-          "provider": "acp"
-        },
-        "state": "failed"
-      },
       "title": "example",
       "updatedAt": 4,
       "workspaceId": "example"
     },
-    "usage": {}
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```

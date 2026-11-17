@@ -1482,9 +1482,7 @@ Example:
 ```json
 {
   "operation": {
-    "name": "7g7s17",
-    "op": "turnOn",
-    "type": "ace-plugin"
+    "op": "discover"
   },
   "requestId": "example",
   "type": "marketplace.request"

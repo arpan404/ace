@@ -1,7 +1,7 @@
 import type { MarketVerificationProof } from "@ace/protocol/marketplace";
 
 /*
- * Publisher verification proofs (ADR 0173 §13). Every fetch is https only, follows no redirect
+ * Publisher verification proofs (ADR 0174 §13). Every fetch is https only, follows no redirect
  * (any 3xx fails), refuses IP-literal, localhost and private-suffix hosts, stops after 5 seconds
  * and reads at most 4 KiB. The checks are pure over an injected fetch, so tests run them with a
  * fake; the Worker passes its own.

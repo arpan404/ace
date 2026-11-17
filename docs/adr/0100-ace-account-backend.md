@@ -44,8 +44,11 @@ so; "could not be verified" is kept for a different browser.
 The backend stores only hashes of ace session tokens. WorkOS refresh tokens are
 encrypted with AES-256-GCM and bound to the hashed session identity. Each session
 read refreshes with WorkOS; concurrent reads share one refresh, transient failures
-are retryable and an invalid grant revokes the ace session. Sessions expire after
-seven days and survive relay restarts. In-progress logins expire after ten minutes
+are retryable and an invalid grant revokes the ace session. Each read also renews
+the session for another 30 days, so a session in use never lapses and one left unused
+for 30 days does (amended 2026-11-16; sessions used to end seven days after sign-in
+whatever their use). A daemon reads its session back every hour to keep the renewed
+expiry. Sessions survive relay restarts. In-progress logins expire after ten minutes
 and must restart after a backend restart. Sign-out revokes this ace session; it
 does not sign the person out of every WorkOS browser session.
 

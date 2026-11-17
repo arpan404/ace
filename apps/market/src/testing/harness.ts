@@ -49,7 +49,7 @@ export async function startMarket() {
   });
   const { url } = await harness.listen();
   const worker = harness.getWorker();
-  // Every database, each from its own migration folder (ADR 0173 §16).
+  // Every database, each from its own migration folder (ADR 0174 §16).
   for (const binding of [...Object.values(catalogueBindings), ...Object.values(domainBindings)])
     await worker.applyD1Migrations(binding);
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
@@ -163,7 +163,7 @@ export async function pendingPublisher(market: Market, type: string, name: strin
 }
 
 /**
- * A maintainer releases a held version (ADR 0173 §9), as a new publisher's first version is held.
+ * A maintainer releases a held version (ADR 0174 §9), as a new publisher's first version is held.
  * A version that isn't held is left alone.
  */
 export async function approveHeld(market: Market, type: string, name: string, version = "1.0.0") {
@@ -184,7 +184,7 @@ export async function publishSigned(
     throw new Error(`publish failed: ${published.status} ${await published.text()}`);
   const version = upload.version ?? "1.0.0";
   const path = `${upload.type}/${upload.name}/${version}`;
-  // A new publisher's first version is held (ADR 0173 §9): a maintainer releases it first.
+  // A new publisher's first version is held (ADR 0174 §9): a maintainer releases it first.
   const accepted = (await published.json()) as { held?: boolean };
   if (accepted.held) {
     const released = await put(market, `/v1/signer/holds/${path}`, { decision: "approve" });
@@ -217,7 +217,7 @@ export async function publishSigned(
   return { hash: contentHash(hashFiles(upload.files)) };
 }
 
-/** A catalogue's local database, by entry type (ADR 0173 §16). */
+/** A catalogue's local database, by entry type (ADR 0174 §16). */
 export function catalogueOf(market: Market, type: string): D1Database {
   const db = market.dbs.catalogue(type);
   if (!db) throw new Error(`no catalogue for ${type}`);

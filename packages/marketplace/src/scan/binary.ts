@@ -1,5 +1,5 @@
 /*
- * Recognising safe, inert data (ADR 0173 §8, finding 1). A file the scanner can't decode as text
+ * Recognising safe, inert data (ADR 0174 §8, finding 1). A file the scanner can't decode as text
  * is safe only when its bytes are a data format ace knows carries no code — an image, a font, an
  * audio or video container. Anything else undecodable is an unknown binary, held for review: the
  * scanner never infers safety from unrecognised magic. Pure.

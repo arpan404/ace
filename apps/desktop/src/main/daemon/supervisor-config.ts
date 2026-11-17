@@ -9,7 +9,7 @@ export interface SupervisorPorts {
    * Start the bundled daemon. Without it (development, attached to `bun run daemon`) the
    * supervisor only waits for a daemon.
    */
-  spawn?: (() => DaemonProcess) | undefined;
+  spawn?: ((launch: { safeMode: boolean }) => DaemonProcess) | undefined;
   /**
    * Settles once a spawn has what it needs (the login shell's PATH). Awaited only on the way to
    * spawning, so adopting a daemon that already runs never waits on it.
@@ -65,6 +65,8 @@ export interface SupervisorOptions {
   maxRestarts?: number;
   /** Running this long resets the crash count. */
   stableMs?: number;
+  /** Fast failures in a row before the next start is in safe mode. */
+  safeModeAfter?: number;
   /**
    * How long to wait out another daemon holding this home's lock (one still starting on a
    * large database, or still shutting down) before saying so as a failure.
@@ -84,6 +86,7 @@ export function supervisorDefaults(options: SupervisorOptions): Required<Supervi
     stopGraceMs: options.stopGraceMs ?? 10_000,
     maxRestarts: options.maxRestarts ?? 5,
     stableMs: options.stableMs ?? 60_000,
+    safeModeAfter: options.safeModeAfter ?? 2,
     lockWaitMs: options.lockWaitMs ?? 300_000,
     lockRetryMs: options.lockRetryMs ?? 5_000,
   };

@@ -7,7 +7,7 @@ import { scanText } from "./decode.ts";
 import { instructionScripts, type InstructionScript } from "./instructions.ts";
 
 /*
- * One script the scanner reads (ADR 0173 §8), the unit the `scripts`, `plugin` and `recipe` rules
+ * One script the scanner reads (ADR 0174 §8), the unit the `scripts`, `plugin` and `recipe` rules
  * run over. `viewsOf` yields a view for every skill script, plugin script file, hook command and
  * stdio server command (its words joined), and every recipe-bundled skill script, its text
  * NFKC-normalised with zero-width characters removed and, for a shell script, its simple commands

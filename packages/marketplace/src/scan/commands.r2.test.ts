@@ -4,7 +4,7 @@ import { commandLookAlikes, commandSamples, operandLookAlikes } from "./corpus-r
 import { disposition } from "./index.ts";
 
 /*
- * Commands in instruction files and fetched files run past a shell's options (ADR 0173 §8): a
+ * Commands in instruction files and fetched files run past a shell's options (ADR 0174 §8): a
  * SKILL.md, README, plugin description or recipe text that tells an agent to run a download is
  * caught like a script that does, and `sh -eu x`, `source x`, `bash <(curl …)` count as running
  * what was fetched. Look-alikes that run nothing fetched stay clean.

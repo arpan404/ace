@@ -137,6 +137,9 @@
           "maxLength": 4000,
           "type": "string"
         },
+        "checked": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftChecked.json"
+        },
         "name": {
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },
@@ -155,6 +158,31 @@
         "type",
         "name",
         "version",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "draftCheck",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftSource.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        }
+      },
+      "required": [
+        "action",
+        "type",
+        "name",
         "source"
       ],
       "type": "object"
@@ -186,6 +214,9 @@
         "changelog": {
           "maxLength": 4000,
           "type": "string"
+        },
+        "checked": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftChecked.json"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/MarketDraftId.json"

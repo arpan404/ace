@@ -4,7 +4,7 @@ import { count, dateText } from "./market-model.ts";
 import { useSignals } from "./market-publishing.ts";
 
 /*
- * An entry's signals, for its publisher only (ADR 0173 §7): downloads over the last 30 days,
+ * An entry's signals, for its publisher only (ADR 0174 §7): downloads over the last 30 days,
  * how many are on the latest version, and the reports people sent, in sentences.
  */
 

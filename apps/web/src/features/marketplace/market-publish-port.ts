@@ -1,5 +1,6 @@
 import type {
   MarketDraft,
+  MarketDraftChecked,
   MarketDraftSource,
   MarketEntryType,
   MarketMe,
@@ -12,7 +13,7 @@ import { findingSentences } from "./market-model.ts";
 import { usePublishRequest, usePublishSend } from "./market-publishing.ts";
 
 /*
- * What the publish flow runs on (ADR 0173 §2): the person's own things of a type, a draft made
+ * What the publish flow runs on (ADR 0174 §2): the person's own things of a type, a draft made
  * from one and checked by ace's scan (read again until the scan is done), and publishing it with
  * its listing. Pure helpers for the words; the daemon's publish actions do the work.
  */
@@ -37,6 +38,8 @@ export interface MarketPublishItem {
   source?: MarketDraftSource | undefined;
   /** A draft of it the publisher already has. */
   draft?: string | undefined;
+  /** The person's confirmation of what its check said would upload. */
+  checked?: MarketDraftChecked | undefined;
 }
 
 /** One line of the Check step: a scan check or a format problem, with its findings. */
@@ -165,7 +168,13 @@ export function usePublishSteps() {
       }
       const made = item.draft
         ? await ask(
-            { action: "draftUpdate", id: item.draft, version: item.version, source: item.source },
+            {
+              action: "draftUpdate",
+              id: item.draft,
+              version: item.version,
+              source: item.source,
+              ...(item.checked ? { checked: item.checked } : {}),
+            },
             "draft",
           )
         : await ask(
@@ -175,6 +184,7 @@ export function usePublishSteps() {
               name: item.name,
               version: item.version,
               source: item.source,
+              ...(item.checked ? { checked: item.checked } : {}),
             },
             "draft",
           );

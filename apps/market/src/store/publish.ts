@@ -59,7 +59,7 @@ export async function storedVersion(
 
 /**
  * Whether the publisher has any version stored yet, in any catalogue: its first is always held
- * (ADR 0173 §9).
+ * (ADR 0174 §9).
  */
 export async function hasVersions(dbs: Databases, publisher: string): Promise<boolean> {
   const found = await eachCatalogue(dbs, ({ db }) =>
@@ -101,7 +101,7 @@ export async function claimPublisher(
 
 /**
  * Stores a checked and scanned version, unlisted, creating its entry for `publisher` if it is
- * new: `pending` for the signer, `held` for a maintainer or `blocked` by the scan (ADR 0173 §9).
+ * new: `pending` for the signer, `held` for a maintainer or `blocked` by the scan (ADR 0174 §9).
  * A blocked version's number may be used again for other bytes; no other's can. The publisher's
  * copy must be in the catalogue already (`ensureCopy`), and the quota reserved (a charge, or the
  * draft's claim). Returns the entry's owner and the version's hash as stored, which differ from

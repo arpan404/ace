@@ -29,7 +29,7 @@ function grant(id: string, facts: Partial<OutsideGrantEntry>): OutsideGrantEntry
   };
 }
 
-test("live grants say what they may do and when they end; revoking one moves it to Ended", async () => {
+test("a machine's Apps and webhooks page lists live grants with what they may do and when they end; revoking one moves it to Ended", async () => {
   const app = harness();
   app.daemon.outside.grants = [
     grant("claude", {
@@ -42,6 +42,7 @@ test("live grants say what they may do and when they end; revoking one moves it 
     grant("old-bot", { name: "Old bot", revokedAt: Date.now() - day }),
   ];
   await app.open("/settings/remote/primary");
+  await userEvent.click(await screen.findByRole("link", { name: "Apps and webhooks" }));
   const list = within(await screen.findByRole("region", { name: "Connected apps" }));
   expect(await list.findByText("Claude")).toBeTruthy();
   expect(
@@ -71,7 +72,7 @@ test("Connect an app lists the machine's four addresses, with Tailscale's switch
     { path: "relay", url: null, on: false },
     { path: "custom", url: "https://ace.example.com/mcp", on: true },
   ];
-  await app.open("/settings/remote/primary");
+  await app.open("/settings/remote/primary/apps");
   const section = await screen.findByRole("region", { name: "Connect an app" });
   expect(await within(section).findByText("http://127.0.0.1:47811/mcp")).toBeTruthy();
   expect(within(section).getByText("https://ace.example.com/mcp")).toBeTruthy();
@@ -90,7 +91,7 @@ type WebhookKey =
 
 test("automation webhooks have a switch per way in, each setting only its own key", async () => {
   const app = harness();
-  await app.open("/settings/remote/primary");
+  await app.open("/settings/remote/primary/apps");
   const group = within(await screen.findByRole("region", { name: "Automation webhooks" }));
   const read = (key: WebhookKey) =>
     app.client
@@ -129,7 +130,7 @@ test("automation webhooks have a switch per way in, each setting only its own ke
 
 test("a sign-in approved on another device shows up in the list without reopening Settings", async () => {
   const app = harness();
-  await app.open("/settings/remote/primary");
+  await app.open("/settings/remote/primary/apps");
   await screen.findByText("No apps connected.");
   app.daemon.outside.ask({
     requestId: "req-phone",

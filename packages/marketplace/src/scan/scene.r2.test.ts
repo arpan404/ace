@@ -5,7 +5,7 @@ import { sceneCheck } from "./checks-scene.ts";
 import { benignScenes, blockedScenes } from "./corpus-r2-scene.ts";
 
 /*
- * The Suit scene allowlist (ADR 0173 §8): a scene is parsed and held to the capabilities a
+ * The Suit scene allowlist (ADR 0174 §8): a scene is parsed and held to the capabilities a
  * drawing needs, so a capability reached by a built name, reflection or an alias is a block, and
  * the Suit's CSS and ornaments load nothing from outside it. Every scene ace ships must pass.
  */

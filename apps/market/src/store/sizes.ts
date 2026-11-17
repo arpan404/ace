@@ -1,7 +1,7 @@
 import type { Databases } from "./databases.ts";
 
 /*
- * The daily size record (ADR 0173 §16): once a day, each database's size in bytes (D1's
+ * The daily size record (ADR 0174 §16): once a day, each database's size in bytes (D1's
  * `size_after`) and every table's row count, into the counts database, so growth toward D1's
  * 10 GB can be watched and a database split before it nears 5 GB.
  */

@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus-malicious.ts";
 
 /*
- * Data-flow samples for the round-4 review (ADR 0173 §8): sources outside the module map the
+ * Data-flow samples for the round-4 review (ADR 0174 §8): sources outside the module map the
  * scanner used to pass (another runtime's environment, a reflective `getattr`, a copied
  * `os.environ`, `/proc/self/environ`, a file read at a path it can't resolve, a value from an
  * untracked package), each beside a network or program sink. The rule now fails closed: what it

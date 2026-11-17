@@ -25,7 +25,7 @@ export function parseSince(value: string | null): number | undefined | "invalid"
 }
 
 /**
- * The index, whole or since a stamp, over every catalogue (ADR 0173 §16). Each catalogue keeps
+ * The index, whole or since a stamp, over every catalogue (ADR 0174 §16). Each catalogue keeps
  * its own stamp, read before its rows, so a change landing while they are read has a stamp above
  * it and is sent next time rather than missed. A catalogue whose stamp is behind the highest is
  * raised to it first, in one statement, so every catalogue's next change is above the answer's
@@ -53,7 +53,7 @@ export interface SearchInput {
   query: string;
   type?: string | undefined;
   category?: string | undefined;
-  /** Only this publisher's entries, by handle (ADR 0173 §6). */
+  /** Only this publisher's entries, by handle (ADR 0174 §6). */
   publisher?: string | undefined;
   offset?: number | undefined;
 }

@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus.ts";
 
 /*
- * Inert samples for the round-3 instruction fixes (ADR 0173 §8, fail closed): instruction text a
+ * Inert samples for the round-3 instruction fixes (ADR 0174 §8, fail closed): instruction text a
  * cap would have dropped, and prose that tells an agent to run something without a code-shaped
  * command. Every host is `.invalid` and nothing here runs; each is a string written for the tests.
  */
