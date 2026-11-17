@@ -5,10 +5,10 @@ import XCTest
 /// answered and a message sent, and the tab gone once Settings › Beta turns Spade off.
 @MainActor final class SpadeUITests: XCTestCase {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
-    override func setUp() { continueAfterFailure = false }
-
-    override func tearDown() async throws {
-        // Every test starts with Spade shown.
+    override func setUp() async throws {
+        continueAfterFailure = false
+        // Every test starts with Spade shown, whatever the last one left. (In setUp, not
+        // tearDown: an async tearDown after a failed assertion hung the whole run.)
         try await stage("on")
     }
 
@@ -99,6 +99,7 @@ import XCTest
         // Back on Threads, the place it left for.
         XCTAssertTrue(app.tabBars.buttons["Threads"].isSelected)
         screenshot("spade-6-tab-off")
+        try await stage("on")
     }
 
     private func screenshot(_ name: String) {
