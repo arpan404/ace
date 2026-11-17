@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { admissionWords, appUpdateWords } from "./host-checks.ts";
+import { admissionWords, appUpdateWords, startupWords } from "./host-checks.ts";
 
 const open = { holds: [], busy: 0, waiting: 0 };
 
@@ -77,4 +77,17 @@ test("the desktop app's update reads as its version and one line, loud only for 
       report: { ...report, available: "1.4.2", downloaded: true, restartRequired: true },
     }),
   ).toEqual({ version: "1.4.1", line: "Restart to finish updating", needsYou: true });
+});
+
+test("safe mode names what it left off; a failing service is said to be retried", () => {
+  expect(startupWords({ without: ["Commands"], failing: [] })).toBe(
+    "ace started in safe mode without Commands after repeated crashes.",
+  );
+  expect(startupWords({ without: [], failing: ["Commands"] })).toBe(
+    "Commands isn't working right now; ace is retrying.",
+  );
+  expect(startupWords({ without: [], failing: ["Commands", "Relay"] })).toBe(
+    "Commands and Relay aren't working right now; ace is retrying.",
+  );
+  expect(startupWords(undefined)).toBeNull();
 });

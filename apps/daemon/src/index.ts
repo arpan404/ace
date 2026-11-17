@@ -459,6 +459,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       handler,
       serviceStatus: startup.status,
+      serviceChanges: startup.onChange,
       eventLoop: loop.status,
       ready: socketReady.promise,
       remoteConfig: config,

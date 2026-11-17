@@ -258,3 +258,27 @@ test("while paused, a burst of deltas and title changes never recounts, and a st
     await f.close();
   }
 });
+
+test("a client hears what safe mode left off, and hears it clear when the service recovers", async () => {
+  let statuses: { name: string; state: "ready" | "degraded"; skipped?: true }[] = [
+    { name: "commands", state: "degraded", skipped: true },
+  ];
+  const listeners = new Set<() => void>();
+  const f = await setup({
+    serviceStatus: () => statuses,
+    serviceChanges: (listener) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  });
+  const desk = await f.connect();
+  await desk.next();
+  desk.send({ type: "admission.request", requestId: "watch", operation: "status" });
+  expect(await next(desk, "admission.result")).toMatchObject({
+    admission: { startup: { without: ["Commands"], failing: [] } },
+  });
+  statuses = [{ name: "commands", state: "ready" }];
+  for (const listener of listeners) listener();
+  const changed = await next(desk, "admission.changed");
+  expect(changed.admission.startup).toBeUndefined();
+});

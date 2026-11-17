@@ -58,6 +58,8 @@ export interface ServiceStatus {
   name: string;
   state: "starting" | "ready" | "degraded";
   error?: string;
+  /** Safe mode left this service off for the run; it is never retried. */
+  skipped?: true;
 }
 export { systemStartup, type StartupRuntime } from "./startup-runtime.ts";
 
@@ -146,7 +148,7 @@ export class ServiceStartup {
   }
   private readonly context: ServiceContext;
   status = (): ServiceStatus[] =>
-    [...this.statuses.values()].map(({ name, state, error }) => {
+    [...this.statuses.values()].map(({ name, state, error, skipped }) => {
       const warming = state !== "degraded" ? this.readiness.get(name)?.() : undefined;
       const result: ServiceStatus = {
         name,
@@ -155,6 +157,7 @@ export class ServiceStartup {
       };
       error = warming?.error ?? error;
       if (error !== undefined) result.error = error;
+      if (skipped) result.skipped = true;
       return result;
     });
   private report(name: string): void {
@@ -167,13 +170,20 @@ export class ServiceStartup {
       this.context.log.log("error", "Startup observer failed", logError(error));
     }
   }
+  private readonly changeListeners = new Set<() => void>();
+  /** Tells `listener` whenever a service's status changes; returns how to stop. */
+  onChange = (listener: () => void): (() => void) => {
+    this.changeListeners.add(listener);
+    return () => void this.changeListeners.delete(listener);
+  };
   private record(name: string, status: ServiceStatus): void {
     this.statuses.set(name, status);
     this.report(name);
+    for (const listener of this.changeListeners) listener();
   }
-  private degraded(name: string, error: unknown): void {
+  private degraded(name: string, error: unknown, skipped = false): void {
     const message = `Service ${name}: ${error instanceof Error ? error.message : String(error)}`;
-    this.record(name, { name, state: "degraded", error: message });
+    this.record(name, { name, state: "degraded", error: message, ...(skipped ? { skipped } : {}) });
     this.context.log.log(
       "error",
       "Daemon service degraded",
@@ -229,6 +239,7 @@ export class ServiceStartup {
       this.degraded(
         name,
         new Error("Turned off for this run: it was still starting when ace last stopped"),
+        true,
       );
       return [];
     }
