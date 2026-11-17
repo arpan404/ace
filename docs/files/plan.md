@@ -129,7 +129,6 @@ On Windows also reject `\`, `:`, `~` (8.3 short names), drive prefixes, reserved
 `refuses_an_absolute_link_that_climbs_out`, `refuses_an_inside_link_that_reaches_an_outside_link`,
 `open_parent_never_follows_the_leaf`, `returns_the_name_the_folder_stores`.
 
-
 ### files-list
 
 Crates: `files-safe` (path dependency), `ignore`, `natord` (or an equivalent MIT natural sort).
@@ -390,6 +389,56 @@ existing `Boundary`/`ParsedLine` logic, reused, not copied), with
 stops re-parsing once a line's boundary matches the cached one. Same colours and tokens as
 `highlight` for the same text (test that on the existing fixtures). Expose it through
 `markit-wasm` and `markit-ffi` (Swift, Kotlin) in the same shape.
+
+## Wave 2 contracts
+
+### Line model (settled for the editor, markit and editor-core)
+
+Lines split on `\n` only. A `\r` right before `\n` belongs to the line ending; a lone `\r` is
+not a separator. `"a\n"` is two lines, the last one empty. Columns are UTF-16 code units.
+
+### packages/files-native (daemon side)
+
+A TypeScript package owning the `ace-files` process for the daemon, modelled on
+`packages/media` (`media-binary.ts`, `supervisor.ts`); read those first and follow their shape.
+
+- `filesBinaryName(platform)` and a binary lookup with the same release/development modes as
+  `mediaBinaryName` (development: `ACE_FILES_PATH`, then `native/files/target/release/ace-files`,
+  then the debug build).
+- `FilesProcess`: spawns the binary with stdio pipes, sends `hello`, checks `protocol: 1`, and
+  restarts it with backoff (250 ms doubling to 10 s, reset after 60 s healthy) when it exits.
+  While it is down, requests fail at once with code `FILES_RESTARTING` (retryable); nothing
+  queues without bound. Every request has a timeout (default 30 s) and an `AbortSignal` that
+  sends `cancel`. Roots and watch subscriptions are re-opened after a restart, transparently to
+  callers.
+- `FilesClient`: typed methods for every op in the files-wire section (`openRoot`, `list`,
+  `stat`, `read` returning bytes from the body frame, `write`/`createFile` sending a body,
+  `rename`, `remove`, `watch` returning an async-disposable subscription with an `onBatch`
+  callback, `indexQuery`, `search` streaming matches). Decoding is Zod schemas in this package
+  mirroring files-wire exactly; a frame decoder in TypeScript with the same limits and
+  dead-decoder rule as the Rust one.
+- Tests: the codec round-trips every file in `native/files/vectors/` byte for byte (the
+  `text` and `frame` fields); supervisor behaviour against a small fake binary written as a Bun
+  script speaking the same frames (restart with backoff, `FILES_RESTARTING` while down,
+  timeout, cancel, re-open after restart, oversize frame kills and restarts the process).
+  The real-binary test comes with the `ace-files` crate.
+
+### Client protocol (packages/protocol)
+
+Additive; the old `list` stays for shipped clients.
+
+- `FileOperation` gains `{ op: "list.folder", path, limit (1..=5000, default 500), cursor? }`
+  returning `{ entries: FolderEntry[], nextCursor: string | null, total: number }` with
+  `FolderEntry = { name, path, kind: "file" | "directory" | "symlink" | "other",
+  target?: "file" | "directory" | "other", size, mtimeMs, ignored }`. `INVALID_CURSOR` tells the
+  client to list the folder again from the start.
+- Client message `files.watch { threadId, folders: string[] }` (at most 512 folders; each call
+  replaces that client's previous set for the thread; `[]` stops watching). The daemon pushes
+  `files.folders_changed { threadId, folders: string[], rescan: boolean }`, coalesced to at most
+  one message per 100 ms per client, naming only folders in that client's set (a change inside
+  `a/b/` names `a/b`; `rescan: true` means re-list every watched folder). Clients re-list just
+  those folders. This keeps a 3G link quiet: no per-file payloads.
+- Quick open keeps its current request shape; the daemon answers it from `indexQuery`.
 
 ## Waves and branches
 
