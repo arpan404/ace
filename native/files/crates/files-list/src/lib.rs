@@ -9,6 +9,7 @@
 //!
 //! Paths in and out are relative to the root, `/` separated, and validated by `files-safe`.
 
+mod cache;
 mod clock;
 mod cursor;
 mod entry;

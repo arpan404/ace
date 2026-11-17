@@ -2,8 +2,9 @@
 
 //! One lister per checkout: it answers folder listings and stats, and remembers what it read.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
+
+use crate::cache::Lru;
 
 use files_safe::Root;
 
@@ -19,10 +20,11 @@ use crate::stamp::Stamp;
 
 /// The most entries one page may hold.
 const MAX_LIMIT: usize = 5000;
-/// Folder rule chains kept before the cache is dropped. Rebuilding one costs a few file reads.
-const MAX_CACHED_RULES: usize = 256;
-/// Folder listings kept before the cache is dropped, which is several screens of folders.
-const MAX_CACHED_SNAPSHOTS: usize = 64;
+/// Folder listings kept, measured in entries: one folder of 100,000 files costs as much as a
+/// hundred small ones, so a count of folders would either waste memory or throw away the tree.
+const MAX_CACHED_ENTRIES: usize = 500_000;
+/// Ignore chains kept, one per folder; each costs a few file reads to rebuild.
+const MAX_CACHED_CHAINS: usize = 512;
 
 /// Lists folders under one checkout root.
 ///
@@ -32,8 +34,8 @@ const MAX_CACHED_SNAPSHOTS: usize = 64;
 pub struct Lister {
     root: Root,
     clock: Arc<dyn Clock>,
-    rules: RwLock<HashMap<String, Arc<Rules>>>,
-    snapshots: RwLock<HashMap<String, Arc<Snapshot>>>,
+    rules: Mutex<Lru<Rules>>,
+    snapshots: Mutex<Lru<Snapshot>>,
 }
 
 impl Lister {
@@ -49,8 +51,8 @@ impl Lister {
         Lister {
             root,
             clock,
-            rules: RwLock::new(HashMap::new()),
-            snapshots: RwLock::new(HashMap::new()),
+            rules: Mutex::new(Lru::new(MAX_CACHED_CHAINS)),
+            snapshots: Mutex::new(Lru::new(MAX_CACHED_ENTRIES)),
         }
     }
 
@@ -160,12 +162,7 @@ impl Lister {
     /// A chain whose ignore files were edited in place is rebuilt, and the listings below it are
     /// dropped, so the next listing reports the new flags without anyone calling `invalidate`.
     fn rules_for(&self, dir: &str) -> Result<Arc<Rules>, Error> {
-        if let Some(cached) = self
-            .rules
-            .read()
-            .ok()
-            .and_then(|rules| rules.get(dir).cloned())
-        {
+        if let Some(cached) = self.cached_rules(dir) {
             if cached.is_current() {
                 return Ok(cached);
             }
@@ -178,23 +175,31 @@ impl Lister {
             self.rules_for(parent)?.child(name)
         };
         let rules = Arc::new(rules);
-        if let Ok(mut cache) = self.rules.write() {
-            if cache.len() >= MAX_CACHED_RULES {
-                cache.clear();
-            }
-            cache.insert(dir.to_owned(), Arc::clone(&rules));
+        if let Ok(mut cache) = self.rules.lock() {
+            cache.insert(dir, Arc::clone(&rules), 1);
         }
         Ok(rules)
     }
 
     /// Drops the rules and listings cached for `dir` and everything below it.
     fn forget(&self, dir: &str) {
-        if let Ok(mut rules) = self.rules.write() {
-            rules.retain(|key, _| !is_within(key, dir));
+        if let Ok(mut rules) = self.rules.lock() {
+            rules.retain(|key| !is_within(key, dir));
         }
-        if let Ok(mut snapshots) = self.snapshots.write() {
-            snapshots.retain(|key, _| !is_within(key, dir));
+        if let Ok(mut snapshots) = self.snapshots.lock() {
+            snapshots.retain(|key| !is_within(key, dir));
         }
+    }
+
+    fn cached_rules(&self, dir: &str) -> Option<Arc<Rules>> {
+        self.rules.lock().ok().and_then(|mut cache| cache.get(dir))
+    }
+
+    fn cached_snapshot(&self, dir: &str) -> Option<Arc<Snapshot>> {
+        self.snapshots
+            .lock()
+            .ok()
+            .and_then(|mut cache| cache.get(dir))
     }
 
     /// The listing of `dir`, re-read when the folder or the hide patterns changed.
@@ -207,11 +212,7 @@ impl Lister {
         let stamp = Stamp::of(&metadata);
         let racy = stamp.is_racy(self.clock.now());
         let hide = hidden.fingerprint();
-        if let Some(cached) = self
-            .snapshots
-            .read()
-            .ok()
-            .and_then(|map| map.get(dir).cloned())
+        if let Some(cached) = self.cached_snapshot(dir)
             && cached.stamp == stamp
             && cached.hide == hide
         {
@@ -222,11 +223,8 @@ impl Lister {
         )?);
         // A folder that changed within the racy window is not cached: its stamp cannot prove it
         // will look the same on the next call, so the next call reads it again.
-        if !racy && let Ok(mut cache) = self.snapshots.write() {
-            if cache.len() >= MAX_CACHED_SNAPSHOTS && !cache.contains_key(dir) {
-                cache.clear();
-            }
-            cache.insert(dir.to_owned(), Arc::clone(&fresh));
+        if !racy && let Ok(mut cache) = self.snapshots.lock() {
+            cache.insert(dir, Arc::clone(&fresh), fresh.total());
         }
         Ok(fresh)
     }
