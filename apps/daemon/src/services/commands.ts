@@ -11,6 +11,8 @@ import { PromptFiles, type ProviderInstance } from "@ace/commands";
 import { join } from "node:path";
 import { builtinSkillsDirectory } from "@ace/plugins";
 import { WorkspaceId, type Thread } from "@ace/protocol";
+import type { PluginService } from "@ace/plugins";
+import { Availability } from "./plugin-availability.ts";
 import type { ServiceContext } from "./types.ts";
 import { createDaemonSkillLibrary, type DaemonSkillOptions } from "../skill-library.ts";
 import { readSkillUsage } from "../skill-usage.ts";
@@ -38,7 +40,6 @@ export async function startCommands({
   signal,
   id,
   log,
-  onListen,
 }: ServiceContext): Promise<void> {
   const promptFiles = new PromptFiles({
     globalRoot: config.dataDir,
@@ -167,13 +168,20 @@ export async function startCommands({
     // Claude, Codex, OpenCode and Pi load the shipped skills natively and advertise them.
     { directory: builtinSkillsDirectory(), providers: ["cursor", "acp", "antigravity"] },
   );
-  // Plugins start after commands: follow their catalog once every core service is up. Runs once.
-  onListen.push(() => {
-    const plugins = services.plugins;
-    if (!plugins) return;
-    resources.own(plugins.subscribeCatalog(() => skillLibrary.invalidate()));
-    resources.own(plugins.subscribeCatalog(() => library.invalidateExtras()));
+  // Plugins start after commands and may only come up on a retry: follow whichever plugin
+  // service is current, once each, dropping the old one's subscriptions when it is replaced.
+  const followed = new Availability<PluginService>((plugins) => {
+    const stops = [
+      plugins.subscribeCatalog(() => skillLibrary.invalidate()),
+      plugins.subscribeCatalog(() => library.invalidateExtras()),
+    ];
+    return () => {
+      for (const stop of stops) stop();
+    };
   });
+  services.pluginAvailability = followed;
+  resources.own(() => followed.close(), "plugin catalog follower");
+  if (services.plugins) followed.publish(services.plugins);
   resources.own(() => library.close(), "command library");
   if (integration.events) {
     const disconnect = connectDaemonCommandEvents(library, integration.events);

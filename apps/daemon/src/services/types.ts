@@ -140,6 +140,8 @@ export interface Services {
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
+  /** Followers of the plugin service: told each time a (re)started one is published. */
+  pluginAvailability: import("./plugin-availability.ts").Availability<PluginService>;
   /** ace's marketplace (ADR 0168). */
   marketplace?: import("../marketplace/service.ts").MarketplaceService;
   /** The Suit library (ADR 0150). */

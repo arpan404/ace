@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { createLogger } from "@ace/diagnostics";
 import { Store } from "../store.ts";
 import { readConfig } from "../config.ts";
@@ -573,4 +573,52 @@ test("commands publish at start without waiting on any account, and a failed bui
   expect(starts).toBe(2);
   expect(live?.commands).toBeDefined();
   expect(live?.promptFiles).toBeDefined();
+});
+
+/** A plugin service's catalog subscriptions, observable. */
+const catalog = () => {
+  const listeners = new Set<() => void>();
+  return {
+    listeners,
+    subscribeCatalog: (listener: () => void) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+};
+
+test("plugins that only start on a retry still reach commands, once, and a replaced plugin service is dropped", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  const first = catalog();
+  let starts = 0;
+  let live: ServiceContext["services"] | undefined;
+  await subject.start([
+    service("commands", (context) => startCommands(context)),
+    // Stands in for the plugin service: it fails its first start, then publishes as the real one does.
+    service("plugins", (context) => {
+      if (++starts === 1) throw new Error("plugin index busy");
+      context.services.plugins = first as never;
+      context.services.pluginAvailability?.publish(first as never);
+    }),
+    service("probe", (context) => {
+      live = context.services;
+    }),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "plugins")).toBe("degraded");
+  expect(first.listeners.size).toBe(0);
+
+  for (let step = 0; step < 3; step++) await clock.advance(10);
+  expect(state(subject, "plugins")).toBe("ready");
+  const invalidate = vi.spyOn(live!.commands!, "invalidateExtras");
+  expect(first.listeners.size).toBe(2);
+  for (const listener of first.listeners) listener();
+  expect(invalidate).toHaveBeenCalledTimes(1);
+
+  // A replacement plugin service takes over; the old one is no longer followed.
+  const second = catalog();
+  live!.pluginAvailability!.publish(second as never);
+  expect(first.listeners.size).toBe(0);
+  expect(second.listeners.size).toBe(2);
 });

@@ -30,6 +30,8 @@ export async function startPlugins(context: ServiceContext): Promise<void> {
   resources.onShutdown(() => launches.stopAdmission());
   resources.own(() => launches.close());
   services.plugins = service;
+  // Commands started first and follow the catalog of whichever plugin service is current.
+  services.pluginAvailability?.publish(service);
   services.preparePlugins = (provider, root) => preparePluginSession(plugins, provider, root);
   services.launchPlugins = (provider, root, options) => launches.launch(provider, root, options);
 }
