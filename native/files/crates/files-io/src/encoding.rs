@@ -18,8 +18,9 @@ pub(crate) struct Detection {
 /// The encoding of the file's first bytes, and whether it looks binary.
 ///
 /// A NUL byte means binary unless the BOM already said UTF-16, whose text is full of them.
-/// A binary file is labelled UTF-8 because nothing is known about its contents.
-pub(crate) fn detect(sample: &[u8]) -> Detection {
+/// A binary file is labelled UTF-8 because nothing is known about its contents. `truncated`
+/// says the sample is only a prefix, so an incomplete character at its end is expected.
+pub(crate) fn detect(sample: &[u8], truncated: bool) -> Detection {
     if let Some(encoding) = bom(sample) {
         return Detection {
             encoding: encoding.name(),
@@ -34,7 +35,7 @@ pub(crate) fn detect(sample: &[u8]) -> Detection {
             binary: true,
         };
     }
-    let encoding = if is_utf8(sample) {
+    let encoding = if is_utf8(sample, truncated) {
         encoding_rs::UTF_8
     } else {
         guess(sample)
@@ -58,11 +59,12 @@ fn bom(sample: &[u8]) -> Option<&'static encoding_rs::Encoding> {
     }
 }
 
-/// A sample can stop in the middle of a character; that is still valid UTF-8.
-fn is_utf8(sample: &[u8]) -> bool {
+/// A prefix can stop in the middle of a character and still be UTF-8; a whole small file that
+/// ends mid-character is not, and is some legacy encoding instead.
+fn is_utf8(sample: &[u8], truncated: bool) -> bool {
     match std::str::from_utf8(sample) {
         Ok(_) => true,
-        Err(error) => error.error_len().is_none(),
+        Err(error) => truncated && error.error_len().is_none(),
     }
 }
 

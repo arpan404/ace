@@ -32,9 +32,29 @@ fn reads_a_range() {
     assert_eq!(tail.bytes, content[90..]);
     assert!(tail.eof);
 
-    let past_end = read(fixture.root(), "bytes.txt", range(100, 10)).expect("read past the end");
-    assert!(past_end.bytes.is_empty());
-    assert!(past_end.eof);
+    let at_end = read(fixture.root(), "bytes.txt", range(100, 10)).expect("read at the end");
+    assert!(at_end.bytes.is_empty());
+    assert!(at_end.eof);
+
+    let current = fixture.version("bytes.txt");
+    let past_end = read(fixture.root(), "bytes.txt", range(101, 10))
+        .expect_err("an offset past the end is a conflict, not an empty read");
+    assert_eq!(past_end.code(), "CONFLICT");
+    match past_end {
+        files_io::Error::Conflict { current: found, .. } => {
+            assert_eq!(found.as_deref(), Some(current.as_str()))
+        }
+        other => panic!("expected CONFLICT, got {other:?}"),
+    }
+}
+
+#[test]
+fn short_latin1_file_is_not_utf8() {
+    let fixture = Fixture::new();
+    fixture.write("cafe.txt", b"caf\xE9");
+    let read = read(fixture.root(), "cafe.txt", range(0, 64)).expect("read a short Latin-1 file");
+    assert_eq!(read.encoding, "windows-1252");
+    assert!(!read.binary);
 }
 
 #[test]
@@ -132,4 +152,44 @@ fn reading_a_folder_is_not_a_file() {
     let error =
         read(fixture.root(), "folder", range(0, 10)).expect_err("a folder has no bytes to read");
     assert_eq!(error.code(), "NOT_FILE");
+}
+
+#[test]
+fn a_read_that_races_a_writer_conflicts() {
+    use std::io::Write as _;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let fixture = Fixture::new();
+    let size = 8 * 1024 * 1024;
+    fixture.write("busy.txt", &vec![b'a'; size]);
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer_path = fixture.path("busy.txt");
+    let writer_stop = Arc::clone(&stop);
+    let writer = std::thread::spawn(move || {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(writer_path)
+            .expect("open for writing");
+        while !writer_stop.load(Ordering::Relaxed) {
+            file.write_all(&vec![b'b'; size])
+                .expect("overwrite in place");
+        }
+    });
+
+    let mut conflicts = 0;
+    for _ in 0..32 {
+        match read(fixture.root(), "busy.txt", range(0, size as u64)) {
+            Ok(read) => assert_eq!(read.bytes.len(), size),
+            Err(error) if error.code() == "CONFLICT" => conflicts += 1,
+            Err(error) => panic!("unexpected read error: {error}"),
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    writer.join().expect("writer thread");
+
+    assert!(
+        conflicts > 0,
+        "a read racing a writer must report CONFLICT rather than mixed bytes"
+    );
 }

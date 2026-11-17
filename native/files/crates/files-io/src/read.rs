@@ -3,6 +3,7 @@
 //! Range reads: the bytes an editor asks for, plus what it needs to decode and display them.
 
 use std::fs::File;
+use std::io::ErrorKind;
 use std::io::{Read as _, Seek as _, SeekFrom};
 
 use files_safe::Root;
@@ -40,6 +41,9 @@ pub struct Read {
 }
 
 /// Reads one slice of a file.
+///
+/// A file that changes while it is being read is a `CONFLICT`, not a mix of old and new bytes:
+/// the caller re-reads from the version in the error, as a download does.
 pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
     let absolute = root.resolve(path)?;
     let metadata = std::fs::metadata(&absolute)?;
@@ -47,24 +51,49 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
         return Err(Error::NotFile(path.to_owned()));
     }
     let mut file = File::open(&absolute)?;
+    let opened = file.metadata()?;
+    let size = opened.len();
+    let version = version_of(&absolute, &opened)?;
     let head = head(&mut file)?;
-    let detection = encoding::detect(&head);
-    let oversized = range.max_size.is_some_and(|max| metadata.len() > max);
+    let detection = encoding::detect(&head, size > head.len() as u64);
+    let oversized = range.max_size.is_some_and(|max| size > max);
+    if !oversized && range.offset > size {
+        return Err(conflict(path, Some(version)));
+    }
     let bytes = if oversized {
         Vec::new()
     } else {
-        slice(&mut file, metadata.len(), range)?
+        slice(&mut file, size, range)?
     };
-    let eof = !oversized && range.offset.saturating_add(bytes.len() as u64) >= metadata.len();
+    let after = file.metadata()?;
+    if version_of(&absolute, &after)? != version {
+        return Err(conflict(path, Some(version)));
+    }
+    let current = match std::fs::symlink_metadata(&absolute) {
+        Ok(metadata) => Some(version_of(&absolute, &metadata)?),
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    if current.as_deref() != Some(version.as_str()) {
+        return Err(conflict(path, current));
+    }
+    let eof = !oversized && range.offset.saturating_add(bytes.len() as u64) >= size;
     Ok(Read {
-        size: metadata.len(),
-        version: version_of(&absolute, &metadata)?,
+        size,
+        version,
         bytes,
         binary: detection.binary,
         encoding: detection.encoding,
         bom: detection.bom,
         eof,
     })
+}
+
+fn conflict(path: &str, current: Option<String>) -> Error {
+    Error::Conflict {
+        path: path.to_owned(),
+        current,
+    }
 }
 
 /// The first 8 KiB, which decide encoding and binary-ness for every range of the file.
