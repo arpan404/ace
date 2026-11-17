@@ -65,7 +65,7 @@ extension EmptyState where Action == EmptyView {
     /// A search that found nothing: what was searched, and what to try.
     static func search(_ text: String) -> EmptyState<EmptyView> {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return EmptyState(systemImage: "magnifyingglass", title: query.isEmpty ? "No results" : "No results for “\(query)”",
+        return EmptyState(icon: .magnifyingGlass, title: query.isEmpty ? "No results" : "No results for “\(query)”",
                           line: "Check the spelling or try another search.")
     }
 }

@@ -34,7 +34,7 @@ struct ThreadsTabsBar: View {
         .padding(.top, AceDesign.Space.aboveSegment)
         .padding(.bottom, AceDesign.Space.belowSegment)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Threads")
+        .accessibilityLabel("Projects")
     }
 
     private func item(_ tab: MergedInbox.Tab) -> some View {

@@ -10,10 +10,10 @@ import XCTest
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["thread.sidebar"].exists)
         // A thread page has no tab bar.
-        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Projects"].isHittable)
         back(in: app)
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.tabBars.firstMatch.buttons["Threads"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.firstMatch.buttons["Projects"].waitForExistence(timeout: 10))
         open("thread.ios-question", in: app)
         XCTAssertTrue(title("Clean up the release notes", in: app).waitForExistence(timeout: 20))
         back(in: app)
