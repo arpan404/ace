@@ -462,13 +462,29 @@ ace starts every agent session, so it gives the session's environment three vari
 - `ACE_HOME`: the home the session's daemon uses, so a CLI in an agent's shell talks to the right
   daemon.
 
-These are hints for an honest caller, **not a security boundary**: an agent runs as the person and
-can unset them or read the host token. What keeps the person in control is the daemon's rules
-(§12.5), the market's fresh-sign-in rule for sensitive actions (ADR 0174 §2), and the provider's
-own permissions over the shell command. Each provider's shell must be checked to inherit these
-variables (Codex's `shell_environment_policy`, Claude Code's Bash tool, Cursor, OpenCode, Pi,
-Antigravity) before the CLI relies on them; where one doesn't, the agent passes `--thread` and
-`--no-input` as today.
+These are hints for an honest caller, **not a security boundary**. The host token
+(`ACE_HOME/daemon-token`) is the person's whole authority: any process that can read it acts as
+the person. Spade's sandbox keeps its bots from it, but an unsandboxed coding agent with file
+access can read it, unset these variables and call the daemon as `ace-cli` or as anything else.
+So every check the CLI makes because of these variables guards honest agents only. What an agent
+can't do is what enforces the person's part (§12.7): answer from the app or a paired device, or
+complete a fresh ace sign-in in a browser. The provider's own permissions over the shell command
+come first, as always.
+
+In an agent's shell (`ACE_THREAD_ID` or `ACE_NO_INPUT` set) the CLI:
+
+- connects to the local daemon as `ace-agent`, with its own outbox (`ACE_HOME/cli-agent`), so the
+  daemon's agent rules apply to everything it sends: an agent's device never answers an approval,
+  plan, elicitation or browser-help request, and never writes or resets settings;
+- refuses what is the person's before reaching for a daemon, exit 2 with code `person_only`:
+  `request allow|deny|answer` (and the old `thread approve|deny`), `config set|unset`,
+  `feature on|off` and `spade on|off`, whatever `--yes` says, and market commands off the agents'
+  allowlist when there is no thread to ask the person in (§12.5);
+- on a remote profile, connects as the paired device, whose ticket admits no other id; the
+  refusals above are then all that holds there. Each provider's shell must be checked to inherit these
+  variables (Codex's `shell_environment_policy`, Claude Code's Bash tool, Cursor, OpenCode, Pi,
+  Antigravity) before the CLI relies on them; where one doesn't, the agent passes `--thread` and
+  `--no-input` as today.
 
 What the build found (2026-11-17). The daemon hands each session its variables as
 `SessionContext.agentEnv`, never as part of a shared process's environment or pool key:
@@ -488,7 +504,8 @@ What the build found (2026-11-17). The daemon hands each session its variables a
 
 `ace help agents` is the page for them: use `--json` to parse and human text to read (it is
 shorter and costs fewer tokens), check the exit code before the output, retry uncertain mutations
-with the same `--idempotency-key`, and treat exit 2 as "hand back to the person". The built-in
+with the same `--idempotency-key`, and treat exit 2 as "hand back to the person". It says in so
+many words that agents never answer requests. The built-in
 skills that mention the CLI (`ace-computer-use`) are updated with the new spellings.
 
 ### 11. The market for people
@@ -523,7 +540,8 @@ checklists. Without a terminal, `--yes` installs with the review's defaults (no 
 after printing the review to stderr; without `--yes` it exits 2 with the review in the error's
 evidence. A review that's blocked ("This Suit fails ace's checks") exits 4 with its sentence. The
 install sends the reviewed hash, so bytes that changed after the review aren't installed. From an
-agent, install is person-only (§12.5).
+agent, install is person-only (§12.5); from the host-token CLI with no thread it needs an ace
+sign-in from the last ten minutes, as the other person-only actions do (§12.7).
 
 ### 12. Publishing
 
@@ -580,9 +598,10 @@ sentence` and exit 1 before anything is uploaded.
 
 - **Signed out** (`signed_out`): "Sign in to publish." Exit 2, hint `ace login`. On a terminal the
   CLI offers to sign in now (the `ace login` flow) and then carries on.
-- **Sensitive actions** (withdraw, transfer and accepting one, changing the handle, editing a
-  verified profile, applying for verification) need a sign-in within ten minutes (`reauth`, ADR
-  0174 §2). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
+- **Sensitive actions** (install, withdraw, transfer and accepting one, changing the handle,
+  deleting an entry, editing a verified profile, applying for or checking verification) need a
+  sign-in within ten minutes (`reauth`, ADR 0174 §2). The market checks its share on the grant;
+  the daemon checks install and the rest when they arrive over the host token (§12.7). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
   once the new session is recorded. Without a terminal: exit 2, code `reauth`. The CLI never holds
   a grant: the daemon mints one per request and drops it, as ADR 0174 requires.
 - `suspended`, `quota`, `forbidden` and `conflict` exit 4 with the market's sentence.
@@ -598,33 +617,45 @@ full `MarketScanReport` and `problems` in the `CliError`.
 An agent publishes through **ace's MCP tools**, which know which thread is asking. The CLI is the
 person's tool and the fallback for a shell.
 
-- **Two ace MCP tools.** `market_read` (`readOnlyHint: true`) answers search, show, installed,
-  status, versions, check and draft reads. `market_publish` (not read-only, `openWorldHint: true`)
-  takes the publishing actions: create, update and delete drafts, publish a draft, describe,
-  changelog, latest, deprecate, visibility, archive and appeal. Annotations stay honest, so a
-  provider's own permission mode decides about each call, as for every ace tool.
-- **Person-only actions are not the agent's.** Withdraw, transfer (offering and accepting),
-  handle changes, deleting an entry, verified-profile edits, verification and **installing**
-  aren't actions `market_publish` performs. Asked for one, the tool answers that it's the
-  person's, and ace opens a request in the asking thread's strip, in the person's words: "Codex
-  asks you to withdraw suit/dusk-harbor 1.2.0: the colours fail contrast." with `Withdraw…` and
-  `Dismiss`. `Withdraw…` runs it under the person's hand, with the fresh sign-in if needed. Only a
-  person's device answers it; no agent, MCP grant or Spade bot can. This doesn't gate an ace tool:
-  the market itself refuses these without the person's recent sign-in (ADR 0174 §2).
+- **An allowlist, not a denylist** (`apps/daemon/src/marketplace/agent-gate.ts`). An agent may
+  run, under its provider's permissions: reads (sources, search, home, read, reading a review,
+  installed, discover, a publisher's page, pictures, Spade's market skills), local checks
+  (`draftCheck`, `privacyCheck`, what can be published), its drafts (create, read, update,
+  delete), publishing a draft, and its status, versions, signals and verification status.
+  **Everything else is the person's**, including any operation added later: installing,
+  updating, removing or turning an entry back on, adding, removing or switching sources,
+  reports, withdraw, transfer (offering and accepting), handle and profile changes, deleting an
+  entry, verification, listings and changelogs, latest, deprecation, visibility, archive and
+  appeals.
+- **Two ace MCP tools.** `market_read` (`readOnlyHint: true`) and `market_publish` (not
+  read-only, `openWorldHint: true`). Annotations stay honest, so a provider's own permission mode
+  decides about each call, as for every ace tool.
+- **Person-only actions become the person's request.** Asked for one, the tool answers that it's
+  the person's, and ace opens a request in the asking thread's strip, in the person's words:
+  "Codex asks you to withdraw suit/dusk-harbor 1.2.0: the colours fail contrast." with
+  `Withdraw…` and `Dismiss`. `Withdraw…` runs it under the person's hand. Who can answer it is in
+  §12.7; never an agent's device, MCP grant or Spade bot.
+- **Ask me before agents publish** (decision 1) makes publishing a draft the person's too. It
+  **fails closed**: settings not loaded yet, a read that fails, or a value that isn't a boolean
+  count as on. Over the host token it changes only after a fresh sign-in (§12.7); a settings
+  reset over the host token leaves it alone, and `ace config set` with ace down refuses to write
+  it to the file.
 - **Spade** uses the same two tools through its ace connection. Under ADR 0171 decision 3, ace
   declares their effects in the tool list it gives Spade: `market_read` is `read` and
   `market_publish` is `publish`, so Spade's reviewer looks at every publish (decision 4). The
   person-only actions reach the person the same way, which matches ADR 0171's rule that sends,
   payments and access changes are the person's. A sandboxed bot can't read the host token, so the
   MCP path is its only path.
-- **From an agent's shell** (`ACE_THREAD_ID` set), `ace market …` sends the thread id with its
-  request and the daemon applies the same split: publishing actions run (the provider asked about
-  the shell command), and person-only ones become the same request and exit 2 with its id.
-  `--yes` doesn't change that. As §10 says, an agent that strips its environment acts as the
-  person; the market's recent-sign-in rule, which an agent can't satisfy (it needs the person
-  in a browser), is what still holds for the sensitive actions.
-
-How a coding agent publishes, in its own words:
+- **From an agent's shell** with `ACE_THREAD_ID`, `ace market …` sends the thread id with its
+  request and the daemon applies the same allowlist: allowed actions run (the provider asked
+  about the shell command), and the rest become the same request and exit 2 with its id. With
+  only `ACE_NO_INPUT` there is no thread to ask in, and the CLI refuses them itself, exit 2
+  `person_only`. `--yes` changes neither.
+- **The thread field is the caller's word.** `marketplace.request` names a thread when an agent
+  asks, and the daemon can't verify that a host-token caller who names none is the person. So a
+  request without a thread isn't trusted as the person's: over the host token, its person-only
+  actions need a fresh sign-in (§12.7).
+  How a coding agent publishes, in its own words:
 
 ```
 $ ace market check ./suits/dusk-harbor --type suit --json        # local; fix any problems
@@ -645,7 +676,40 @@ appeals, appeal, verify, unverify, official). They are the one part of the CLI t
 through the daemon or an ace account. `ace help` doesn't list them; `ace market --help` ends with
 one line, "Maintainer tools: ace help market-maintainer", and every maintainer command's help and
 first error say "Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key." They get the
-same human, `--json` (now `--jq` too) and exit-code rules as everything else.
+same human, `--json` (now `--jq` too) and exit-code rules as everything else. They send
+`ACE_MARKET_SIGNER_TOKEN` to `market.acehq.dev` only; a development market must be named on
+purpose with `--dev-market URL` (https, or http on this machine), and the old `--url` naming any
+other host is a usage error, so a mistyped or planted origin never receives the token.
+
+#### 12.7 What enforces the person's part
+
+The host token is full person power (§10), so the daemon draws the line where an agent can't
+follow:
+
+| Who asks                                              | Answers a request                                                                   | Person-only market action  | "Ask me before agents publish" |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------- | ------------------------------ |
+| The app, a paired device                              | Yes                                                                                 | Yes                        | Yes                            |
+| The host-token CLI, a person at a terminal            | Typed confirmation; a market request also needs a fresh sign-in                     | Fresh sign-in              | Fresh sign-in                  |
+| The host-token CLI off a terminal                     | Never (exit 2, `confirm`)                                                           | Fresh sign-in              | Fresh sign-in                  |
+| An agent's shell (`ACE_THREAD_ID` or `ACE_NO_INPUT`)  | Never (exit 2, `person_only`)                                                       | A request for the person   | Never                          |
+| `ace-agent`, `ace-reviewer` (ace's own agent devices) | Never (`human_answer_required`), except a parent answering its own child's question | Only through the allowlist | Never                          |
+
+- **Fresh sign-in** means this machine's ace account signed in within the last ten minutes (ADR
+  0174 §2), read from a market grant the daemon takes for the check: the gap between its `iat`
+  and its `authAt`, both on the account backend's clock, so this machine's clock can't make a
+  stale sign-in look fresh. The sign-in happens in a browser, which an agent can't do for the
+  person. Refusals are `reauth`, saying to use the app or a paired device, or `ace login` and try
+  again within ten minutes.
+- **Typed confirmation.** Answering from the CLI needs a person at a terminal (stdin and stdout
+  both terminals, no `--json`, `--quiet` or `--no-input`) who types the verb (`allow`, `deny`,
+  `answer`); Enter alone doesn't confirm. Off a terminal nothing is answered, `ace chat`'s piped
+  `y` and `/approve` included. The interactive home's request strip answers with a deliberate key
+  (`y`, `n`, `a`), never Enter, which opens the details.
+- **What this doesn't stop.** A process that reads the host token can still drive a
+  pseudo-terminal it starts, or act as the person for everything the table leaves to the host
+  token. The typed confirmation and the agent checks raise the bar for honest agents and
+  mistakes; the fresh sign-in and the app are the boundary. A request or setting that matters
+  more than the host token goes behind them.
 
 ### 13. ADR 0092 still holds
 
@@ -731,6 +795,14 @@ table's flag definitions. Every file stays under the 400-line aim.
   own tests.
 - A crash inside the TUI must leave the terminal usable; the terminal shell restores it on every
   exit path, and a process test proves it.
+- Answering a request now needs the app, a paired device, or a person typing at a terminal:
+  scripts that piped `ace thread approve` or `y` into `ace chat` stop working, by design (exit 2,
+  `confirm`). An agent's shell can't answer at all.
+- The maintainer tools' `--url` gives way to `--dev-market`; `--url` naming anything but
+  `market.acehq.dev` is a usage error.
+- `ace request list` reads an in-memory set of the threads waiting on a person, kept by the event
+  writer and filled on first use from the live-threads partial index, so it does no
+  history-sized work (ADR 0170).
 
 ## Tests
 
@@ -754,6 +826,13 @@ test per wiring.
   the terminal after SIGINT; `ace market publish --draft` against a fake market and account
   reaches the draft, and `withdraw` from a shell with `ACE_THREAD_ID` set exits 2 with a request
   id; every alias of §8 reaches the same daemon operation as its new form.
+- **The person's part** (`answer-gate`, `fresh-sign-in`, `agent-gate`, `person-gate`): an
+  agent's shell can't allow, deny, answer or change settings; a host CLI off a terminal can't
+  answer, and at a terminal answers only with the typed word; ace's agent devices can't answer a
+  provider's approval or write settings through a real daemon; person-only market requests and
+  thread-less installs over the host token are refused without a fresh sign-in and run with one;
+  agent operations off the allowlist become the person's; the setting fails closed; request.list
+  stays bounded with a large thread table.
 
 ## The owner's decisions
 
@@ -763,7 +842,8 @@ does.
 1. **Agents' publishes don't come to the person first.** Publishing follows the provider's
    permission mode, plus Spade's reviewer for bots. Withdraw, transfer (offering and accepting),
    handle changes, deleting an entry, verified-profile edits, verification and installing are
-   person-only (§12.5). A global setting, **"Ask me before agents publish"**
+   person-only (§12.5); after the review below, agents run only an allowlist and everything else
+   is person-only. A global setting, **"Ask me before agents publish"**
    (`market.askBeforeAgentPublish`), off by default, turns every agent publish into a request in the
    asking thread's strip that only a person's device answers.
 2. **Bare `ace` without a terminal prints the overview and exits 0**, from this release. Nothing in
@@ -779,3 +859,24 @@ does.
    0.0.27 and are gone from 0.0.28 (`apps/daemon/src/cli/deprecation.ts`). The machine entry points
    of §8 never retire.
 7. **Maintainer tools live under the hidden `ace market maintainer …`** in the same binary.
+
+## Review follow-up (2026-11-17)
+
+A read-only review found that "agents never answer approvals" didn't hold through the new CLI,
+and that the market gate trusted a field the caller chooses (`thread`). The owner's decisions:
+
+1. In an agent's shell the CLI refuses answers, settings and person-only market verbs with
+   `person_only`, and connects as `ace-agent` so the daemon's checks apply (§10).
+2. Answering from the host-token CLI needs a person at a terminal who types the confirmation;
+   off a terminal it is refused (§12.7).
+3. Person-only market requests are answered from the app or a paired device, or from the CLI
+   after a fresh ace sign-in (ADR 0174 §2). Install joins the fresh-sign-in list. The same holds
+   for thread-less person-only market operations over the host token, and for changing "Ask me
+   before agents publish" (§12.5, §12.7).
+4. Agents' own approvals get the device check the market and ask paths have (§12.7).
+5. The market gate is an allowlist; "Ask me before agents publish" fails closed (§12.5).
+6. `request.list` reads no history-sized table (Consequences).
+7. The signer token goes only to market.acehq.dev unless `--dev-market` names another (§12.6).
+
+The ADR says plainly what each check is: the host token is full person power, so the CLI's agent
+checks guard honest agents, and the app, paired devices and fresh sign-ins are the boundary.
