@@ -144,7 +144,8 @@ export class RowSnapshots implements ReadSnapshotStorage {
       const due = this.#grown >= this.#policy.maxBytes / 16;
       return this.#rows.setRecord(key, text).then(
         () => {
-          if (due) void this.#sweep();
+          // A sweep that fails is the next write's to try.
+          if (due) void this.#sweep().catch(() => {});
         },
         () => {},
       );
@@ -166,7 +167,8 @@ export class RowSnapshots implements ReadSnapshotStorage {
       was === undefined || was !== write.settled || this.#grown >= this.#policy.maxBytes / 16;
     return this.#rows.putThread(write).then(
       () => {
-        if (due) void this.#sweep();
+        // A sweep that fails is the next write's to try.
+        if (due) void this.#sweep().catch(() => {});
       },
       () => {
         // Storage may hold any earlier state: the next write replaces it whole.
@@ -230,7 +232,8 @@ export class RowSnapshots implements ReadSnapshotStorage {
   #sweepOnce(): void {
     if (this.#swept) return;
     this.#swept = true;
-    void this.#sweep();
+    // #sweep keeps its own failures and retries what it was asked to repeat.
+    void this.#sweep().catch(() => {});
   }
 
   #sweep(): Promise<void> {
@@ -244,7 +247,8 @@ export class RowSnapshots implements ReadSnapshotStorage {
         this.#sweeping = undefined;
         if (this.#again) {
           this.#again = false;
-          void this.#sweep();
+          // #sweep keeps its own failures.
+          void this.#sweep().catch(() => {});
         }
       });
     return this.#sweeping;

@@ -85,7 +85,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     // While the list starts, its kept list for this filter is what its first subscribe waits
     // for (`sidebar-startup.ts`): the read settling, found or not, is one of its inputs.
     if (this.#startup.phase === "waiting")
-      void this.#binding.read.then(() => this.#drive({ type: "read", filter: key }));
+      // The read settling, found or not, is an input; a failed read leaves the opening deadline
+      // to start the list.
+      void this.#binding.read
+        .then(() => this.#drive({ type: "read", filter: key }))
+        .catch(() => {});
   }
   /** The key the current filter's kept list is stored under. */
   #key(): string {
@@ -109,7 +113,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#binding = undefined;
     if (!written) return;
     this.#checkpoints.add(written);
-    void written.finally(() => this.#checkpoints.delete(written));
+    // A checkpoint that fails writes nothing; the next change writes the newest copy.
+    void written.catch(() => {}).finally(() => this.#checkpoints.delete(written));
   }
   /**
    * Paint a half read back from disk until its subscription's snapshot arrives. A half is
@@ -271,7 +276,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       connected: ready(),
     });
     this.#persist();
-    void persistence?.welcomed?.().then(() => this.#drive({ type: "welcome" }));
+    // A welcome that fails leaves the read settling or the opening deadline to start the list.
+    void persistence
+      ?.welcomed?.()
+      .then(() => this.#drive({ type: "welcome" }))
+      .catch(() => {});
   }
   get ids(): readonly string[] {
     return this.#order;

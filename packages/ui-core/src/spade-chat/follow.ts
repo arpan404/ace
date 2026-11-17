@@ -233,11 +233,14 @@ export class SpadeLiveConversation<S, V> {
     if (this.snapshot.problem) return;
     if (!this.paged) {
       this.paging = true;
-      void this.page().finally(() => {
-        this.paging = false;
-        this.paged = true;
-        this.open();
-      });
+      // page() reports what stopped it; the end is marked either way.
+      void this.page()
+        .catch(() => {})
+        .finally(() => {
+          this.paging = false;
+          this.paged = true;
+          this.open();
+        });
       return;
     }
     const path = `/v1/conversations/${segment(this.conversation)}/live?after=${this.lastSeq}`;
