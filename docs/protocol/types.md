@@ -19570,7 +19570,7 @@ Type: ["user","update","kill","stop","storage"]. See JSON Schema for constraints
 Example:
 
 ```json
-"update"
+"kill"
 ```
 
 ## MaintenanceStatus

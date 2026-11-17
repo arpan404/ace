@@ -5657,15 +5657,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-<<<<<<< HEAD
-      "bytes": 1110603,
-      "sha256": "7b36f1b87a40b9c3e4b2d3c592ab7aebcdfdc4cb8fc95cb6fbac28e3e53ebeec"
-=======
-      "bytes": 1149237,
-      "sha256": "4964fb63e74f9eb4fbdef8210daabc4c398da0353c6b985ddc32e777e676593b"
->>>>>>> origin/main
+      "bytes": 1149255,
+      "sha256": "c60e634565ce32cdd1e8ac8384dafa57ee8bc2c2c9a2edc7dd643e889fc1b49c"
     }
   },
-  "input": "bab5ac0009d7e47d2731a58eec3d7e640dad39e5ba0ffbfc34ddd7b9c7314617",
+  "input": "cb6162a5b7c81202a9c030fa3f9f2af11632429ee22613b09232b688b9ee0f4b",
   "version": 1
 }
