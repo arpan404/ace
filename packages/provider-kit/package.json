@@ -12,6 +12,7 @@
     "./payload": "./src/payload.ts",
     "./record": "./src/record.ts",
     "./process": "./src/process.ts",
+    "./process-env": "./src/process-env.ts",
     "./user-tool-paths": "./src/user-tool-paths.ts",
     "./sdk": "./src/sdk.ts",
     "./ipc": "./src/ipc.ts",

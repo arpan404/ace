@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ENV_NAME_LIMIT, ENV_VALUE_LIMIT, ENV_VARIABLE_LIMIT } from "@ace/provider-kit/process-env";
 import {
   ProviderKind,
   AcpIdentity,
@@ -31,9 +32,9 @@ export const ModelInstance = z
     cwd: z.string().min(1).max(4096),
     args: z.array(z.string().max(4096)).max(64).default([]),
     env: z
-      .record(z.string().max(256), z.string().max(8192))
+      .record(z.string().max(ENV_NAME_LIMIT), z.string().max(ENV_VALUE_LIMIT))
       .default({})
-      .refine((env) => Object.keys(env).length <= 256),
+      .refine((env) => Object.keys(env).length <= ENV_VARIABLE_LIMIT),
     /** Variables the discovery process must not inherit from the daemon's own environment. */
     unsetEnv: z.array(z.string().min(1).max(256)).max(64).optional(),
   })
