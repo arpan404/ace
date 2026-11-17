@@ -9,6 +9,7 @@ import { useProfileName } from "@/lib/profile.ts";
 import { NavButtons } from "./app-header.tsx";
 import { panelCanvasClass } from "./canvas.ts";
 import { useViewFrame } from "./sidebar-frame.tsx";
+import { ReleaseLineWord } from "./release-line-word.tsx";
 import { UpdateButton } from "./update-button.tsx";
 import { PanelHeader } from "./view-frame.tsx";
 
@@ -69,6 +70,7 @@ function NoMachineRail() {
           </Link>
         </Tip>
         <span className="flex-1" />
+        <ReleaseLineWord />
         <UpdateButton />
         <Tip label="Settings" shortcut="settings">
           <Link

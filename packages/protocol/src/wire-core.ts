@@ -539,6 +539,11 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
      * Trusted only as received in a welcome under the pinned host key. Unknown names are ignored.
      */
     relayHandshakes: z.array(z.string().max(16)).max(8).optional(),
+    /**
+     * The release line the daemon's build belongs to (ADR 0177): `beta` for a beta build, so a
+     * client can say so; `stable` otherwise. Absent from older daemons; unknown names are kept.
+     */
+    releaseLine: z.string().min(1).max(32).optional(),
   }),
   /**
    * On a relay stream opened with Noise NK (ADR 0155): the daemon took the client's

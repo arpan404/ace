@@ -1,7 +1,7 @@
 import type { DesktopPreferencesPatch } from "@/boot/desktop-settings.ts";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { AppUpdateRow } from "./app-updates.tsx";
+import { AppUpdateRow, ReleaseLineRow } from "./app-updates.tsx";
 import { HelpRows } from "./help-rows.tsx";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { TerminalCommandRow } from "./terminal-command.tsx";
@@ -38,6 +38,7 @@ export function DesktopAppPreferences() {
       ))}
       <TerminalCommandRow />
       <AppUpdateRow />
+      <ReleaseLineRow />
       <HelpRows />
     </SettingSection>
   );

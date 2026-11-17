@@ -80,6 +80,8 @@ export interface AccessHttpOptions {
   maintenance?: MaintenanceGate;
   /** Where the desktop app reports its update status (host token only). */
   appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
+  /** The data formats the home holds, told to the app with each update reply (ADR 0177). */
+  homeData?: () => import("@ace/protocol").HomeData;
   /** The update's leased hold (`update-hold.ts`); without it the update route holds plainly. */
   updateHold?: import("./update-hold.ts").UpdateHold;
   version?: string;
@@ -103,6 +105,7 @@ export function accessHttp({
   sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
   maintenance,
   appUpdate,
+  homeData,
   updateHold,
   version = "development",
   serviceStatus,
@@ -199,7 +202,8 @@ export function accessHttp({
           if (request.method === "PUT") {
             const report = AppUpdateReport.safeParse(await body(request));
             if (!report.success) throw new AccessError(400, "Invalid update report");
-            result = appUpdate.set(report.data);
+            const reply = appUpdate.set(report.data);
+            result = homeData ? { ...reply, homeData: homeData() } : reply;
           } else if (request.method === "DELETE") result = appUpdate.clear();
           else throw new AccessError(405, "Unsupported method");
         } else if (path === "/v1/pairings" && request.method === "POST") {

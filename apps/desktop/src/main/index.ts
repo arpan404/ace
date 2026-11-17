@@ -5,7 +5,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-import type { AppUpdateInstruction } from "@ace/protocol";
+import type { AppUpdateInstruction, HomeData } from "@ace/protocol";
 import { desktopUpdateArgument } from "@ace/service/desktop-update-argument";
 import {
   app,
@@ -26,7 +26,7 @@ import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import { healthy, reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
-import { UpdateReporter } from "./daemon/update-report.ts";
+import { appUpdateReport, UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
 import { createPageConnection } from "./daemon/page-connection.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
@@ -262,10 +262,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
   // Paired clients read the app's update status from its daemon, and an administrator there can
   // ask for the update; the daemon's reply carries the request (ADR 0113).
   let remoteUpdate: ((instruction: AppUpdateInstruction) => void) | undefined;
+  // What the daemon's home holds, from its replies: an older release is offered only if it
+  // reads all of it (ADR 0177).
+  let homeData: HomeData | undefined;
   const updateReport = new UpdateReporter({
     ready: async () => healthy(await runtime.local()),
     send: async (report) => reportAppUpdate(await runtime.local(), report),
     instructed: (instruction) => remoteUpdate?.(instruction),
+    replied: (reply) => {
+      if (reply.homeData) homeData = reply.homeData;
+    },
     withdraw: async () => withdrawAppUpdate(await runtime.local()),
     timers,
     log: (message) => log("warn", message),
@@ -331,6 +337,18 @@ function main(target: DaemonTarget, crashDumps: string): void {
       await quitGate.shutDown();
     },
     quit: () => app.quit(),
+    chosenLine: () => settings.get().updateLine,
+    saveLine: async (line) => void (await settings.update({ updateLine: line })),
+    homeData: () => homeData,
+    // The guard's second look before an install: the daemon reads the home again on each report.
+    freshHomeData: async () => {
+      const reply = await reportAppUpdate(
+        await runtime.local(),
+        appUpdateReport(updates.current()),
+      ).catch(() => undefined);
+      if (reply?.homeData) homeData = reply.homeData;
+      return reply?.homeData;
+    },
     log: logger("updates"),
   });
   updateReport.status(updates.current());
