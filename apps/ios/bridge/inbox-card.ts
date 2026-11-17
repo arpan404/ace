@@ -8,6 +8,7 @@ import {
   type AccountView,
 } from "@ace/ui-core";
 import { agentUseMarks, type AgentUse } from "./inbox-agent-use.ts";
+import { readCursor } from "./inbox-look.ts";
 
 /*
  * The desktop row's and hover card's facts for one inbox row, from the shared card
@@ -33,6 +34,7 @@ export function rowCard(entry: ThreadListEntry, context: RowCardContext) {
     settled: context.settled,
     now: context.now,
     projectName: entry.details?.workspace?.name,
+    ...readCursor(entry),
   });
   const line = hoverStatusLine({
     attention: currentAttention(card.attention, true),
