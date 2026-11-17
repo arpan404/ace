@@ -381,7 +381,11 @@ export class AccountRegistry {
     const roots = new Map<string, Set<string>>();
     const settled: Promise<void>[] = [];
     let turn: Promise<void> = Promise.resolve();
-    for (const account of this.readAccounts()) {
+    // The CLIs' own logins touch no folder: checked first, they never wait behind a silent one.
+    const accounts = this.readAccounts().toSorted(
+      (a, b) => Number(!a.instance.implicit) - Number(!b.instance.implicit),
+    );
+    for (const account of accounts) {
       if (this.pending.has(account.instance.id)) continue;
       const mine = turn.then(() => this.checkHome(account, roots, check, signal));
       this.checks.set(account.instance.id, mine);
