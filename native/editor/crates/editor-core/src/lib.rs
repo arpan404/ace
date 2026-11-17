@@ -7,6 +7,7 @@
 //! document's text, selections, undo history and version. Every command builds a [`Transaction`]
 //! from the current selections and applies it to all of them at once.
 
+mod applied;
 mod buffer;
 mod commands;
 mod document;
@@ -23,4 +24,4 @@ pub use error::Error;
 pub use find::FindQuery;
 pub use position::{Position, Range};
 pub use selection::Selection;
-pub use transaction::{Applied, Change, Transaction};
+pub use transaction::{Applied, Change, LineEdit, Transaction};

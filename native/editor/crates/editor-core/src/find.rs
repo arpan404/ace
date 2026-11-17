@@ -5,6 +5,8 @@
 use regex::{Regex, RegexBuilder};
 
 use crate::buffer::is_word_char;
+use crate::document::Document;
+use crate::position::Range;
 
 /// What to search for in a document.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -43,6 +45,8 @@ pub(crate) fn compile(query: &FindQuery) -> Option<Regex> {
     };
     RegexBuilder::new(&pattern)
         .case_insensitive(!query.case_sensitive)
+        .multi_line(true)
+        .crlf(true)
         .build()
         .ok()
 }
@@ -62,4 +66,48 @@ pub(crate) fn occurrences(text: &str, needle: &str) -> Vec<(usize, usize)> {
     text.match_indices(needle)
         .map(|(start, matched)| (start, start + matched.len()))
         .collect()
+}
+
+impl Document {
+    /// Finds matches for a query, at most `limit` of them, in document order.
+    ///
+    /// A pattern that is not a valid regular expression finds nothing; callers validate queries
+    /// before they reach the editor. Zero-length matches such as `^` are returned as empty
+    /// ranges so anchors still work. The text is cached between finds and rebuilt only after the
+    /// document version changes.
+    pub fn find(&self, query: &FindQuery, limit: usize) -> Vec<Range> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let Some(regex) = compile(query) else {
+            return Vec::new();
+        };
+        let stale = self
+            .search_text
+            .borrow()
+            .as_ref()
+            .is_none_or(|(version, _)| *version != self.version);
+        if stale {
+            let text = self.buffer.text();
+            *self.search_text.borrow_mut() = Some((self.version, text));
+        }
+        let cache = self.search_text.borrow();
+        let Some((_, text)) = cache.as_ref() else {
+            return Vec::new();
+        };
+        let mut ranges = Vec::new();
+        for matched in regex.find_iter(text) {
+            if query.whole_word && !is_whole_word(text, matched.start(), matched.end()) {
+                continue;
+            }
+            ranges.push(Range::new(
+                self.buffer.position(matched.start()),
+                self.buffer.position(matched.end()),
+            ));
+            if ranges.len() >= limit {
+                break;
+            }
+        }
+        ranges
+    }
 }

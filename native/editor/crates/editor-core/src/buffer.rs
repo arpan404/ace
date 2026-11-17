@@ -72,55 +72,35 @@ impl Buffer {
         Cow::Owned(text)
     }
 
-    /// The UTF-16 width of one line's text, excluding its ending.
-    pub(crate) fn line_utf16_len(&self, index: usize) -> u32 {
-        if index >= self.len_lines() {
-            return 0;
-        }
-        let slice = self.rope.line(index);
-        let chars = slice.len_chars() - self.ending_len(index);
-        slice
-            .chars()
-            .take(chars)
-            .map(|ch| ch.len_utf16())
-            .sum::<usize>() as u32
-    }
-
-    /// The byte offset of a position, clamped to the document.
+    /// The byte offset of a position, clamped to the line's content and the document.
+    ///
+    /// Uses ropey's UTF-16 index, so a column in a five-megabyte line costs the same as one in a
+    /// short line. A column inside a surrogate pair rounds down to the character it belongs to.
     pub(crate) fn offset(&self, position: Position) -> usize {
         let line = (position.line as usize).min(self.len_lines() - 1);
-        let start = self.rope.line_to_byte(line);
-        let slice = self.rope.line(line);
-        let content_chars = slice.len_chars() - self.ending_len(line);
-        let target = position.column as usize;
-        let mut utf16 = 0;
-        let mut byte = start;
-        for ch in slice.chars().take(content_chars) {
-            let width = ch.len_utf16();
-            if utf16 + width > target {
-                break;
-            }
-            utf16 += width;
-            byte += ch.len_utf8();
-        }
-        byte
+        let start = self.rope.line_to_char(line);
+        let start_utf16 = self.rope.char_to_utf16_cu(start);
+        let end = start + self.content_chars(line);
+        let end_utf16 = self.rope.char_to_utf16_cu(end);
+        let target = start_utf16
+            .saturating_add(position.column as usize)
+            .min(end_utf16);
+        let char_idx = self.rope.utf16_cu_to_char(target);
+        self.rope.char_to_byte(char_idx)
     }
 
-    /// The position of a byte offset, clamped to the document and to character boundaries.
+    /// The position of a byte offset, clamped to the line's content and character boundaries.
     pub(crate) fn position(&self, offset: usize) -> Position {
         let char_idx = self.rope.byte_to_char(offset.min(self.len_bytes()));
-        let offset = self.rope.char_to_byte(char_idx);
-        let line = self.rope.byte_to_line(offset);
-        let start = self.rope.line_to_byte(line);
-        let end = self.line_content_end(line).max(start);
-        let end = offset.min(end);
-        let column: usize = self
-            .rope
-            .byte_slice(start..end)
-            .chars()
-            .map(char::len_utf16)
-            .sum();
-        Position::new(line as u32, column as u32)
+        let line = self.rope.char_to_line(char_idx);
+        let start = self.rope.line_to_char(line);
+        let end = start + self.content_chars(line);
+        let char_idx = char_idx.min(end);
+        let column = self.rope.char_to_utf16_cu(char_idx) - self.rope.char_to_utf16_cu(start);
+        Position::new(
+            u32::try_from(line).unwrap_or(u32::MAX),
+            u32::try_from(column).unwrap_or(u32::MAX),
+        )
     }
 
     /// The line containing a byte offset.
@@ -142,10 +122,6 @@ impl Buffer {
         } else {
             self.len_bytes()
         }
-    }
-
-    pub(crate) fn line_content_end(&self, line: usize) -> usize {
-        self.line_full_end(line) - self.ending_len(line)
     }
 
     /// The line's own ending, or `""` for a last line without one.
@@ -174,6 +150,11 @@ impl Buffer {
         } else {
             0
         }
+    }
+
+    /// The number of characters in a line before its ending.
+    fn content_chars(&self, line: usize) -> usize {
+        self.rope.line(line).len_chars() - self.ending_len(line)
     }
 
     /// The text between two byte offsets.
@@ -211,30 +192,29 @@ impl Buffer {
 
     /// The spaces and tabs a line starts with.
     pub(crate) fn leading_whitespace(&self, line: usize) -> String {
-        let text = self.line(line);
-        text.chars()
+        let line = line.min(self.len_lines() - 1);
+        self.rope
+            .line(line)
+            .chars()
             .take_while(|ch| *ch == ' ' || *ch == '\t')
             .collect()
     }
 
     /// The start of the grapheme cluster before a byte offset.
     ///
-    /// A line break counts as one cluster, so backspacing at a line start removes the whole
-    /// `\r\n` pair rather than leaving a stray `\r`.
+    /// Only the 64 characters before the offset are segmented, so backspacing in a five-megabyte
+    /// line does not walk the line. A line break counts as one cluster, so backspacing at a line
+    /// start removes the whole `\r\n` pair rather than leaving a stray `\r`.
     pub(crate) fn grapheme_before(&self, offset: usize) -> usize {
-        let offset = offset.min(self.len_bytes());
-        if offset == 0 {
+        const WINDOW: usize = 64;
+        let char_idx = self.rope.byte_to_char(offset.min(self.len_bytes()));
+        if char_idx == 0 {
             return 0;
         }
-        let line = self.rope.byte_to_line(offset);
-        let start = self.rope.line_to_byte(line);
-        if offset <= start {
-            if line == 0 {
-                return 0;
-            }
-            return start - self.ending_len(line - 1);
-        }
-        let text = self.rope.byte_slice(start..offset).to_string();
+        let start_char = char_idx.saturating_sub(WINDOW);
+        let start = self.rope.char_to_byte(start_char);
+        let end = self.rope.char_to_byte(char_idx);
+        let text = self.rope.byte_slice(start..end).to_string();
         let mut boundary = 0;
         for (index, _) in text.grapheme_indices(true) {
             boundary = index;

@@ -103,22 +103,42 @@ impl Transaction {
     }
 }
 
+/// One changed line span, ready for a line highlighter.
+///
+/// `first_line` is the first line of the span in the document *after* the edit. The old span
+/// covered `removed_lines` lines there and the new one covers `inserted_lines` lines, counting
+/// the first line. Applying a document's spans top to bottom with
+/// `edit(first_line, removed_lines, inserted_lines)` is correct because every `first_line` is
+/// already in post-edit coordinates.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LineEdit {
+    /// The first changed line in the post-edit document.
+    pub first_line: u32,
+    /// The number of old lines in the span.
+    pub removed_lines: u32,
+    /// The number of new lines in the span.
+    pub inserted_lines: u32,
+}
+
 /// What a highlighter needs to know about a completed edit.
 ///
-/// The changed span starts at `first_line`. In the old document it covered `removed_lines` lines
-/// and in the new one it covers `inserted_lines` lines, counting the first line, so any real edit
-/// reports at least one of each. With several cursors the span runs from the first change to the
-/// last, covering the unchanged lines between them. A line highlighter replaces
-/// `removed_lines` lines at `first_line` with the `inserted_lines` new lines there
-/// (`edit(first_line, removed_lines, inserted_lines)`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// `spans` holds one [`LineEdit`] per changed region, in post-edit coordinates and document order.
+/// Changes whose old line spans share or touch a line are joined, so cursors on the same line or
+/// on neighbouring lines produce one span while far-apart cursors produce several.
+///
+/// `first_line`, `removed_lines` and `inserted_lines` are the overall span covering every change.
+/// They are a cheap coarse range for a fallback, and are zero on a no-op along with an empty
+/// `spans`. A no-op leaves the version unchanged.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Applied {
-    /// The first changed line, zero-based.
+    /// The first line of the overall span, zero-based.
     pub first_line: u32,
-    /// How many lines the old text in the changed span occupied beyond the first.
+    /// How many old lines the overall span covers, counting the first line.
     pub removed_lines: u32,
-    /// How many lines the new text in the changed span occupies beyond the first.
+    /// How many new lines the overall span covers, counting the first line.
     pub inserted_lines: u32,
+    /// The precise spans to hand to a highlighter in order.
+    pub spans: Vec<LineEdit>,
     /// The document version after the edit.
     pub version: u64,
 }
@@ -158,14 +178,6 @@ impl EditSet {
 
     pub(crate) fn edits_mut(&mut self) -> &mut [Edit] {
         &mut self.edits
-    }
-
-    pub(crate) fn first(&self) -> Option<&Edit> {
-        self.edits.first()
-    }
-
-    pub(crate) fn last(&self) -> Option<&Edit> {
-        self.edits.last()
     }
 
     /// Each change's end in the document after the whole set is applied.

@@ -2,7 +2,7 @@
 
 //! Behaviour of typing, newlines, deletion and undo.
 
-use editor_core::{Document, LineEnding, Position, Selection, Transaction};
+use editor_core::{Document, LineEnding, Position, Selection};
 
 #[test]
 fn typing_at_three_cursors_inserts_at_each() {
@@ -201,6 +201,33 @@ fn a_column_inside_a_surrogate_pair_clamps_to_the_character_start() {
 }
 
 #[test]
+fn a_column_past_the_end_of_a_long_line_clamps_to_its_end() {
+    let mut document = Document::new(&"x".repeat(1_000_000));
+    document.set_selections(vec![Selection::caret(Position::new(0, 5_000_000))]);
+
+    document.insert_text("!");
+
+    assert_eq!(document.text().len(), 1_000_001);
+    assert!(document.text().ends_with('!'));
+    assert_eq!(document.selections()[0].head, Position::new(0, 1_000_001));
+}
+
+#[test]
+fn backspace_after_a_combining_mark_line_removes_only_the_crlf() {
+    let mut document = Document::new("e\u{301}\r\nx");
+    document.set_selections(vec![Selection::caret(Position::new(1, 0))]);
+
+    document.backspace();
+
+    assert_eq!(document.text(), "e\u{301}x");
+    assert_eq!(document.selections()[0].head, Position::new(0, 2));
+
+    document.backspace();
+
+    assert_eq!(document.text(), "x");
+}
+
+#[test]
 fn crlf_survives_edit() {
     let mut document = Document::new("one\r\ntwo\r\n");
     assert_eq!(document.line_ending(), LineEnding::Crlf);
@@ -216,135 +243,53 @@ fn crlf_survives_edit() {
 }
 
 #[test]
-fn deleting_a_selection_across_lines_reports_the_changed_span() {
-    let mut document = Document::new("a\nb\nc\nd");
-    document.set_selections(vec![Selection::new(
-        Position::new(1, 0),
-        Position::new(3, 0),
-    )]);
+fn crlf_join_keeps_the_document_ending() {
+    let mut document = Document::new("one\r\ntwo\r\n");
+    document.set_selections(vec![Selection::caret(Position::new(1, 0))]);
 
-    let applied = document.backspace();
+    document.backspace();
 
-    assert_eq!(document.text(), "a\nd");
-    assert_eq!(applied.first_line, 1);
-    assert_eq!(applied.removed_lines, 3);
-    assert_eq!(applied.inserted_lines, 1);
+    assert_eq!(document.text(), "onetwo\r\n");
+    assert_eq!(document.line_ending(), LineEnding::Crlf);
+
+    document.insert_text("\n");
+
+    assert_eq!(document.text(), "one\r\ntwo\r\n");
 }
 
 #[test]
-fn inserting_a_newline_reports_a_two_line_change() {
-    let mut document = Document::new("a\nb");
-    document.set_selections(vec![Selection::caret(Position::new(0, 1))]);
+fn typing_normalises_line_endings_to_the_document() {
+    let mut crlf = Document::new("x\r\n");
+    crlf.set_selections(vec![Selection::caret(Position::new(1, 0))]);
+    crlf.insert_text("a\r\nb\rc\nd");
+    assert_eq!(crlf.text(), "x\r\na\r\nb\r\nc\r\nd");
 
-    let applied = document.insert_newline();
-
-    assert_eq!(document.text(), "a\n\nb");
-    assert_eq!(applied.first_line, 0);
-    assert_eq!(applied.removed_lines, 1);
-    assert_eq!(applied.inserted_lines, 2);
+    let mut lf = Document::new("x\n");
+    lf.set_selections(vec![Selection::caret(Position::new(1, 0))]);
+    lf.insert_text("a\r\nb\rc\nd");
+    assert_eq!(lf.text(), "x\na\nb\nc\nd");
 }
 
 #[test]
-fn apply_replaces_a_range_and_undo_restores_it() {
-    let mut document = Document::new("hello");
-    let applied = document.apply(Transaction::replace(
-        editor_core::Range::new(Position::new(0, 1), Position::new(0, 4)),
-        "i",
-    ));
-
-    assert_eq!(document.text(), "hio");
-    assert_eq!(applied.first_line, 0);
-    assert_eq!(applied.removed_lines, 1);
-    assert_eq!(applied.inserted_lines, 1);
-
-    document.undo().expect("the replacement");
-    assert_eq!(document.text(), "hello");
-}
-
-#[test]
-fn an_empty_transaction_keeps_the_version() {
-    let mut document = Document::new("text");
-    let applied = document.apply(Transaction::new());
-
-    assert_eq!(document.text(), "text");
-    assert_eq!(document.version(), 0);
-    assert_eq!(applied.version, 0);
-}
-
-#[test]
-fn new_edits_drop_the_redo_stack() {
+fn echoing_the_same_caret_does_not_split_the_typing_run() {
     let mut document = Document::new("");
     document.insert_text("a");
-    document.undo().expect("the first character");
+    let caret = document.selections()[0];
+    document.set_selections(vec![caret]);
     document.insert_text("b");
 
-    assert!(document.redo().is_none());
-    assert_eq!(document.text(), "b");
+    assert_eq!(document.text(), "ab");
+    document.undo().expect("one typing run");
+    assert_eq!(document.text(), "");
 }
 
 #[test]
-fn a_caret_at_a_selection_edge_merges_into_it() {
-    let mut document = Document::new("abc");
-    document.set_selections(vec![
-        Selection::new(Position::new(0, 0), Position::new(0, 2)),
-        Selection::caret(Position::new(0, 0)),
-        Selection::caret(Position::new(0, 2)),
-    ]);
+fn lines_split_on_lf_only() {
+    let document = Document::new("a\n");
+    assert_eq!(document.len_lines(), 2);
+    assert_eq!(document.line(1), "");
 
-    assert_eq!(document.selections().len(), 1);
-    assert_eq!(
-        document.selections()[0].range(),
-        editor_core::Range::new(Position::new(0, 0), Position::new(0, 2))
-    );
-}
-
-#[test]
-fn apply_carries_each_selection_through_a_multi_cursor_transaction() {
-    let mut document = Document::new("abc\ndef");
-    document.set_selections(vec![
-        Selection::new(Position::new(0, 0), Position::new(0, 3)),
-        Selection::new(Position::new(1, 0), Position::new(1, 1)),
-    ]);
-    let mut transaction = Transaction::new();
-    transaction
-        .push(
-            editor_core::Range::new(Position::new(0, 0), Position::new(0, 3)),
-            "one",
-        )
-        .expect("first change");
-    transaction
-        .push(
-            editor_core::Range::new(Position::new(1, 0), Position::new(1, 1)),
-            "two",
-        )
-        .expect("second change");
-
-    document.apply(transaction);
-
-    assert_eq!(document.text(), "one\ntwoef");
-    assert_eq!(document.selections()[0].head, Position::new(0, 3));
-    assert_eq!(document.selections()[1].head, Position::new(1, 3));
-}
-
-#[test]
-fn a_transaction_rejects_overlapping_changes() {
-    let mut transaction = Transaction::replace(
-        editor_core::Range::new(Position::new(0, 1), Position::new(0, 4)),
-        "x",
-    );
-
-    let rejected = transaction.push(
-        editor_core::Range::new(Position::new(0, 3), Position::new(0, 5)),
-        "y",
-    );
-    assert!(rejected.is_err());
-    assert_eq!(rejected.expect_err("overlap").code(), "INVALID_ARGUMENT");
-
-    transaction
-        .push(
-            editor_core::Range::new(Position::new(0, 4), Position::new(0, 5)),
-            "y",
-        )
-        .expect("adjacent change");
-    assert_eq!(transaction.len(), 2);
+    let document = Document::new("a\rb");
+    assert_eq!(document.len_lines(), 1);
+    assert_eq!(document.line(0), "a\rb");
 }

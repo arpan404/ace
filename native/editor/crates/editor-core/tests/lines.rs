@@ -126,7 +126,7 @@ fn toggle_comment_on_mixed_lines() {
 
     assert_eq!(
         document.text(),
-        "// fn a() {}\n  // // fn b() {}\n\t// fn c() {}"
+        "// fn a() {}\n//   // fn b() {}\n// \tfn c() {}"
     );
 
     document.toggle_line_comment("//");
@@ -143,4 +143,52 @@ fn a_comment_token_already_followed_by_space_is_not_padded() {
     document.toggle_line_comment("-- ");
 
     assert_eq!(document.text(), "-- code");
+}
+
+#[test]
+fn move_line_down_at_the_last_line_without_a_trailing_newline_is_a_no_op() {
+    let mut document = Document::new("a\nb");
+    document.set_selections(vec![Selection::caret(Position::new(1, 0))]);
+
+    let applied = document.move_lines_down();
+
+    assert_eq!(document.text(), "a\nb");
+    assert_eq!(applied.version, 0);
+}
+
+#[test]
+fn move_line_up_to_the_start_preserves_the_missing_trailing_newline() {
+    let mut document = Document::new("a\nb");
+    document.set_selections(vec![Selection::caret(Position::new(1, 0))]);
+
+    document.move_lines_up();
+
+    assert_eq!(document.text(), "b\na");
+}
+
+#[test]
+fn move_line_down_to_the_end_preserves_the_missing_trailing_newline() {
+    let mut document = Document::new("a\nb");
+    document.set_selections(vec![Selection::caret(Position::new(0, 0))]);
+
+    document.move_lines_down();
+
+    assert_eq!(document.text(), "b\na");
+}
+
+#[test]
+fn toggle_comment_uses_the_smallest_indent_of_non_blank_lines() {
+    let mut document = Document::new("    foo\n  bar\n\n  // baz");
+    document.set_selections(vec![Selection::new(
+        Position::new(0, 0),
+        Position::new(3, 7),
+    )]);
+
+    document.toggle_line_comment("//");
+
+    assert_eq!(document.text(), "  //   foo\n  // bar\n\n  // // baz");
+
+    document.toggle_line_comment("//");
+
+    assert_eq!(document.text(), "    foo\n  bar\n\n  // baz");
 }

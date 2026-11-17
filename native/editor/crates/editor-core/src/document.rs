@@ -3,13 +3,14 @@
 //! The document: text, selections, version and the edit pipeline.
 
 use std::borrow::Cow;
+use std::cell::RefCell;
 
+use crate::applied::{OffsetMapper, Outcome};
 use crate::buffer::{Buffer, LineEnding};
-use crate::find::{self, FindQuery};
 use crate::history::{Entry, History};
-use crate::position::{Position, Range};
+use crate::position::Position;
 use crate::selection::Selection;
-use crate::transaction::{Applied, Edit, EditSet, Transaction, shift};
+use crate::transaction::{Applied, Edit, EditSet, Transaction};
 
 /// One open text file being edited.
 ///
@@ -18,14 +19,14 @@ use crate::transaction::{Applied, Edit, EditSet, Transaction, shift};
 pub struct Document {
     pub(crate) buffer: Buffer,
     pub(crate) selections: Vec<Selection>,
+    /// The index of the newest selection in `selections`; the UI reveals this one.
+    pub(crate) primary: usize,
     pub(crate) history: History,
     pub(crate) version: u64,
-}
-
-/// The result of applying one set of changes: what the highlighter needs and the inverse edits.
-pub(crate) struct Outcome {
-    pub applied: Applied,
-    pub inverse: EditSet,
+    /// The whole text, kept between finds and rebuilt when the version moves.
+    pub(crate) search_text: RefCell<Option<(u64, String)>>,
+    /// Whether the current next-occurrence chain started from a word under a caret.
+    pub(crate) word_chain: bool,
 }
 
 impl Document {
@@ -34,8 +35,11 @@ impl Document {
         Document {
             buffer: Buffer::new(text),
             selections: vec![Selection::caret(Position::new(0, 0))],
+            primary: 0,
             history: History::default(),
             version: 0,
+            search_text: RefCell::new(None),
+            word_chain: false,
         }
     }
 
@@ -64,17 +68,31 @@ impl Document {
         self.version
     }
 
-    /// The current cursors, in document order. The last one is the primary.
+    /// The current cursors, in document order.
     pub fn selections(&self) -> &[Selection] {
         &self.selections
     }
 
+    /// The index in [`Document::selections`] of the newest cursor, the one the UI reveals.
+    pub fn primary_selection(&self) -> usize {
+        self.primary.min(self.selections.len().saturating_sub(1))
+    }
+
     /// Replaces every selection, clamping positions to the document and merging overlaps.
     ///
-    /// This ends the current typing run: the next keystroke starts a new undo step.
+    /// The last selection in `selections` is the newest and becomes the primary. The current
+    /// typing run ends only if the normalised selections actually differ, so a client echoing
+    /// the carets back on every keystroke does not split the undo step.
     pub fn set_selections(&mut self, selections: Vec<Selection>) {
-        self.selections = self.normalize_selections(selections);
-        self.history.close();
+        let primary = selections.len().saturating_sub(1);
+        let (normalised, primary) = self.normalize_selections(selections, primary);
+        let changed = normalised != self.selections;
+        self.selections = normalised;
+        self.primary = primary;
+        if changed {
+            self.word_chain = false;
+            self.history.close();
+        }
     }
 
     /// Applies a transaction and reports the changed lines.
@@ -96,14 +114,34 @@ impl Document {
                 )
             })
             .collect();
+        let mapped: Vec<(usize, usize, bool)> = {
+            let mut mapper = OffsetMapper::new(&edits);
+            before
+                .into_iter()
+                .map(|(anchor, head)| {
+                    let forward = anchor <= head;
+                    let (start, end) = if forward {
+                        (anchor, head)
+                    } else {
+                        (head, anchor)
+                    };
+                    let start = mapper.map(start);
+                    let end = mapper.map(end);
+                    (start, end, forward)
+                })
+                .collect()
+        };
         let outcome = self.run(&edits);
-        let after = before
+        let after = mapped
             .into_iter()
-            .map(|(anchor, head)| {
-                Selection::new(
-                    self.buffer.position(map_offset(anchor, &edits)),
-                    self.buffer.position(map_offset(head, &edits)),
-                )
+            .map(|(start, end, forward)| {
+                let start = self.buffer.position(start);
+                let end = self.buffer.position(end);
+                if forward {
+                    Selection::new(start, end)
+                } else {
+                    Selection::new(end, start)
+                }
             })
             .collect();
         self.finish(edits, outcome, after, false)
@@ -114,7 +152,11 @@ impl Document {
         let mut entry = self.history.take_undo()?;
         let outcome = self.run(&entry.inverse);
         let before = std::mem::take(&mut entry.before);
-        self.selections = self.normalize_selections(before);
+        let primary = before.len().saturating_sub(1);
+        let (selections, primary) = self.normalize_selections(before, primary);
+        self.selections = selections;
+        self.primary = primary;
+        self.word_chain = false;
         self.history.push_redo(entry);
         Some(outcome.applied)
     }
@@ -124,40 +166,13 @@ impl Document {
         let mut entry = self.history.take_redo()?;
         let outcome = self.run(&entry.forward);
         let after = std::mem::take(&mut entry.after);
-        self.selections = self.normalize_selections(after);
+        let primary = after.len().saturating_sub(1);
+        let (selections, primary) = self.normalize_selections(after, primary);
+        self.selections = selections;
+        self.primary = primary;
+        self.word_chain = false;
         self.history.push_undo(entry);
         Some(outcome.applied)
-    }
-
-    /// Finds matches for a query, at most `limit` of them, in document order.
-    ///
-    /// A pattern that is not a valid regular expression finds nothing; callers validate queries
-    /// before they reach the editor. Empty patterns and empty matches are skipped.
-    pub fn find(&self, query: &FindQuery, limit: usize) -> Vec<Range> {
-        if limit == 0 {
-            return Vec::new();
-        }
-        let Some(regex) = find::compile(query) else {
-            return Vec::new();
-        };
-        let text = self.buffer.text();
-        let mut ranges = Vec::new();
-        for matched in regex.find_iter(&text) {
-            if matched.start() == matched.end() {
-                continue;
-            }
-            if query.whole_word && !find::is_whole_word(&text, matched.start(), matched.end()) {
-                continue;
-            }
-            ranges.push(Range::new(
-                self.buffer.position(matched.start()),
-                self.buffer.position(matched.end()),
-            ));
-            if ranges.len() >= limit {
-                break;
-            }
-        }
-        ranges
     }
 
     /// Ends the current typing run, so the next keystroke is a separate undo step.
@@ -172,59 +187,8 @@ impl Document {
             first_line: 0,
             removed_lines: 0,
             inserted_lines: 0,
+            spans: Vec::new(),
             version: self.version,
-        }
-    }
-
-    pub(crate) fn run(&mut self, edits: &EditSet) -> Outcome {
-        let (Some(first), Some(last)) = (edits.first(), edits.last()) else {
-            return Outcome {
-                applied: self.unchanged(),
-                inverse: EditSet::default(),
-            };
-        };
-        let first_line = self.buffer.line_at(first.start);
-        let removed_lines = self
-            .buffer
-            .line_at(last.end)
-            .saturating_sub(first_line)
-            .saturating_add(1);
-
-        let mut inverse = Vec::with_capacity(edits.len());
-        let mut delta: isize = 0;
-        for edit in edits.edits() {
-            let post_start = shift(edit.start, delta);
-            inverse.push(Edit {
-                start: post_start,
-                end: post_start + edit.text.len(),
-                text: self.buffer.slice(edit.start, edit.end),
-            });
-            delta += edit.text.len() as isize - (edit.end - edit.start) as isize;
-        }
-        let last_post_end = inverse.last().map_or(0, |edit| edit.end);
-
-        for edit in edits.edits().iter().rev() {
-            self.buffer.remove(edit.start, edit.end);
-            if !edit.text.is_empty() {
-                self.buffer.insert(edit.start, &edit.text);
-            }
-        }
-
-        self.version += 1;
-        let inserted_lines = self
-            .buffer
-            .line_at(last_post_end)
-            .saturating_sub(first_line)
-            .saturating_add(1);
-
-        Outcome {
-            applied: Applied {
-                first_line,
-                removed_lines,
-                inserted_lines,
-                version: self.version,
-            },
-            inverse: EditSet::new(inverse),
         }
     }
 
@@ -235,7 +199,10 @@ impl Document {
         after: Vec<Selection>,
         typing: bool,
     ) -> Applied {
-        let after = self.normalize_selections(after);
+        let primary = after.len().saturating_sub(1);
+        let (after, primary) = self.normalize_selections(after, primary);
+        self.primary = primary;
+        self.word_chain = false;
         if typing && self.history.absorb_typing(&forward, &after) {
             self.selections = after;
             return outcome.applied;
@@ -268,35 +235,63 @@ impl Document {
         self.finish(edits, outcome, after, typing)
     }
 
-    pub(crate) fn normalize_selections(&self, selections: Vec<Selection>) -> Vec<Selection> {
+    /// Sorts, clamps and merges selections. `primary` indexes `selections`; the returned index
+    /// points at the same selection after sorting and merging.
+    pub(crate) fn normalize_selections(
+        &self,
+        selections: Vec<Selection>,
+        primary: usize,
+    ) -> (Vec<Selection>, usize) {
         if selections.is_empty() {
-            return vec![Selection::caret(Position::default())];
+            return (vec![Selection::caret(Position::default())], 0);
         }
+        let primary = primary.min(selections.len() - 1);
+
         struct Span {
             start: usize,
             end: usize,
-            selection: Selection,
+            index: usize,
+            reversed: bool,
         }
         let mut spans: Vec<Span> = selections
             .into_iter()
-            .map(|selection| {
+            .enumerate()
+            .map(|(index, selection)| {
                 let anchor = self.buffer.offset(selection.anchor);
                 let head = self.buffer.offset(selection.head);
                 Span {
                     start: anchor.min(head),
                     end: anchor.max(head),
-                    selection,
+                    index,
+                    reversed: anchor > head,
                 }
             })
             .collect();
         spans.sort_by_key(|span| (span.start, span.end));
 
+        struct Open {
+            start: usize,
+            end: usize,
+            later: usize,
+            later_reversed: bool,
+            has_primary: bool,
+        }
         let mut out = Vec::with_capacity(spans.len());
-        let mut open: Option<Span> = None;
+        let mut primary_out = None;
+        let mut open: Option<Open> = None;
         for span in spans {
+            let has_primary = span.index == primary;
             match open.take() {
-                None => open = Some(span),
-                Some(current) => {
+                None => {
+                    open = Some(Open {
+                        start: span.start,
+                        end: span.end,
+                        later: span.index,
+                        later_reversed: span.reversed,
+                        has_primary,
+                    });
+                }
+                Some(mut current) => {
                     let caret_inside_selection = if current.start == current.end {
                         span.start <= current.start && current.start <= span.end
                     } else if span.start == span.end {
@@ -305,27 +300,54 @@ impl Document {
                         false
                     };
                     if span.start < current.end || caret_inside_selection {
-                        let start = current.start.min(span.start);
-                        let end = current.end.max(span.end);
-                        open = Some(Span {
-                            start,
-                            end,
-                            selection: Selection::new(
-                                self.buffer.position(start),
-                                self.buffer.position(end),
-                            ),
-                        });
+                        current.start = current.start.min(span.start);
+                        current.end = current.end.max(span.end);
+                        if span.index > current.later {
+                            current.later = span.index;
+                            current.later_reversed = span.reversed;
+                        }
+                        current.has_primary |= has_primary;
+                        open = Some(current);
                     } else {
-                        out.push(current.selection);
-                        open = Some(span);
+                        let out_index = out.len();
+                        if current.has_primary {
+                            primary_out = Some(out_index);
+                        }
+                        out.push(self.normalized_selection(
+                            current.start,
+                            current.end,
+                            current.later_reversed,
+                        ));
+                        open = Some(Open {
+                            start: span.start,
+                            end: span.end,
+                            later: span.index,
+                            later_reversed: span.reversed,
+                            has_primary,
+                        });
                     }
                 }
             }
         }
         if let Some(current) = open {
-            out.push(current.selection);
+            let out_index = out.len();
+            if current.has_primary {
+                primary_out = Some(out_index);
+            }
+            out.push(self.normalized_selection(current.start, current.end, current.later_reversed));
         }
-        out
+        let primary_out = primary_out.unwrap_or(out.len().saturating_sub(1));
+        (out, primary_out)
+    }
+
+    fn normalized_selection(&self, start: usize, end: usize, reversed: bool) -> Selection {
+        let start = self.buffer.position(start);
+        let end = self.buffer.position(end);
+        if reversed {
+            Selection::new(end, start)
+        } else {
+            Selection::new(start, end)
+        }
     }
 
     fn transaction_edits(&self, transaction: Transaction) -> EditSet {
@@ -345,18 +367,4 @@ impl Document {
         }
         EditSet::new(edits)
     }
-}
-
-fn map_offset(offset: usize, edits: &EditSet) -> usize {
-    let mut delta: isize = 0;
-    for edit in edits.edits() {
-        if offset < edit.start {
-            break;
-        }
-        if offset < edit.end {
-            return shift(edit.start, delta) + edit.text.len();
-        }
-        delta += edit.text.len() as isize - (edit.end - edit.start) as isize;
-    }
-    shift(offset, delta)
 }

@@ -10,8 +10,9 @@ impl Document {
     /// Comments the selected lines, or removes the comment from all of them when every non-blank
     /// line is already commented.
     ///
-    /// `token` is the language's line comment (`"//"`, `"--"`, `"#"`). It is inserted after the
-    /// line's indentation followed by one space, and that space is removed with it.
+    /// `token` is the language's line comment (`"//"`, `"--"`, `"#"`). It goes at the smallest
+    /// indentation of the non-blank selected lines, followed by one space, so the comments line
+    /// up; that space is removed with the token.
     pub fn toggle_line_comment(&mut self, token: &str) -> Applied {
         if token.is_empty() {
             return self.unchanged();
@@ -21,23 +22,38 @@ impl Document {
         for (start, end) in &spans {
             lines.extend(*start..*end);
         }
+
         let mut infos = Vec::with_capacity(lines.len());
+        let mut min_indent = usize::MAX;
         for line in lines {
-            let content = self.buffer.line(line);
+            let content = self.buffer.line(line).to_string();
             let trimmed = content.trim_start_matches([' ', '\t']);
             let indent = content.len() - trimmed.len();
-            infos.push((
-                line,
-                indent,
-                trimmed.trim().is_empty(),
-                trimmed.starts_with(token),
-            ));
+            let blank = trimmed.trim().is_empty();
+            if !blank {
+                min_indent = min_indent.min(indent);
+            }
+            infos.push((line, content, blank));
         }
-        let non_blank = infos.iter().filter(|info| !info.2).count();
-        let commented = infos.iter().filter(|info| !info.2 && info.3).count();
-        if non_blank == 0 {
+        if infos.iter().all(|info| info.2) {
             return self.unchanged();
         }
+        let indent = if min_indent == usize::MAX {
+            0
+        } else {
+            min_indent
+        };
+        let non_blank = infos.iter().filter(|info| !info.2).count();
+        let commented = infos
+            .iter()
+            .filter(|info| {
+                !info.2
+                    && info
+                        .1
+                        .get(indent..)
+                        .is_some_and(|rest| rest.starts_with(token))
+            })
+            .count();
         let remove = non_blank == commented;
         let insert = if token.ends_with(char::is_whitespace) {
             token.to_owned()
@@ -48,12 +64,12 @@ impl Document {
 
         let mut raw = Vec::new();
         let mut columns = Vec::new();
-        for (line, indent, blank, is_commented) in infos {
+        for (line, _, blank) in infos {
             if blank {
                 continue;
             }
             let offset = self.buffer.line_start(line) + indent;
-            if remove && is_commented {
+            if remove {
                 let mut width = token.len();
                 if self.buffer.slice(offset + width, offset + width + 1) == " " {
                     width += 1;
@@ -64,7 +80,7 @@ impl Document {
                     text: String::new(),
                 });
                 columns.push((line as u32, indent as u32, -(width as i64)));
-            } else if !remove {
+            } else {
                 raw.push(Edit {
                     start: offset,
                     end: offset,
