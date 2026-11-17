@@ -5,11 +5,18 @@ import {
   readArchive,
   typeLimits,
   verifyManifest,
+  verifyOfficialList,
   verifyReviewMark,
-  VersionBody,
   verifyWithdrawn,
 } from "@ace/marketplace";
-import { signPending, signReview, type SignerIo } from "@ace/marketplace/signer";
+import { VersionBody } from "@ace/protocol/marketplace";
+import {
+  signOfficialChange,
+  signPending,
+  signRevocation,
+  signReview,
+  type SignerIo,
+} from "@ace/marketplace/signer";
 import { folder, keySetOf, sampleSkill } from "@ace/marketplace/testing";
 import {
   asSigner,
@@ -19,6 +26,7 @@ import {
   startMarket,
   type Market,
 } from "./testing/harness.ts";
+import { approve } from "./testing/discover-harness.ts";
 
 /*
  * `ace market sign`'s core against the real Worker: what it signs is listed and verifies on a
@@ -59,6 +67,8 @@ it("signs what passed, lists it, and a device verifies the bytes it fetches", as
       })
     ).status,
   ).toBe(201);
+  // A new publisher's first version is held for a maintainer (ADR 0173 §9).
+  await approve(market, { type: "spade-skill", name: "signed-skill", files: [] });
   const report = await signPending(io, marketKey, now, keySetOf(marketKey));
   expect(report.signed).toContain("spade-skill/signed-skill@1.0.0");
   const body = VersionBody.parse(
@@ -99,6 +109,7 @@ it("signs a publisher's withdrawal into the withdrawn list", async () => {
     name: "gone-skill",
     files: sampleSkill("gone-skill"),
   });
+  await approve(market, { type: "spade-skill", name: "gone-skill", files: [] });
   await signPending(io, marketKey, now, keySetOf(marketKey));
   const withdraw = await market.fetch(
     "/v1/publish/spade-skill/gone-skill/versions/1.0.0/withdraw",
@@ -129,4 +140,53 @@ it("leaves a version unlisted when it fails the checks again", async () => {
   const report = await signPending(tampered, marketKey, now, keySetOf(marketKey));
   expect(report.refused.map((entry) => entry.version)).toContain("spade-skill/tight-skill@1.0.0");
   expect((await market.fetch("/v1/entries/spade-skill/tight-skill/1.0.0")).status).toBe(404);
+});
+
+it("two maintainers editing a list at once: the later edit is refused, never undoing the other", async () => {
+  const trusted = keySetOf(marketKey);
+  const official = (change: { account: string; add: boolean }, through = io) =>
+    signOfficialChange(through, marketKey, now, trusted, change, () => "pub_ace_made_here_000000");
+  expect((await official({ account: "acct_first", add: true })).status).toBe(200);
+  // The second maintainer reads the lists, then the first takes an account off.
+  const read = await io.get("/v1/signer/pending");
+  const stale: SignerIo = {
+    ...io,
+    get: async (path) => (path === "/v1/signer/pending" ? read : io.get(path)),
+  };
+  expect((await official({ account: "acct_first", add: false })).status).toBe(200);
+  const refused = await official({ account: "acct_second", add: true }, stale);
+  expect(refused.status).toBe(409);
+  expect(refused.text).toContain("run the command again");
+  const accounts = async () =>
+    verifyOfficialList(await (await market.fetch("/v1/official")).json(), trusted).accounts;
+  expect(await accounts()).toEqual([]);
+  // Run again, it starts from the stored list and keeps the first maintainer's change.
+  expect((await official({ account: "acct_second", add: true })).status).toBe(200);
+  expect(await accounts()).toEqual(["acct_second"]);
+
+  // The withdrawn list the same way: a revocation from a stale read never drops a newer one.
+  expect(
+    (await signRevocation(io, marketKey, now, trusted, { hash: "e".repeat(64), reason: "One" }))
+      .status,
+  ).toBe(200);
+  const readAgain = await io.get("/v1/signer/pending");
+  const staleAgain: SignerIo = {
+    ...io,
+    get: async (path) => (path === "/v1/signer/pending" ? readAgain : io.get(path)),
+  };
+  expect(
+    (await signRevocation(io, marketKey, now, trusted, { hash: "f".repeat(64), reason: "Two" }))
+      .status,
+  ).toBe(200);
+  expect(
+    (
+      await signRevocation(staleAgain, marketKey, now, trusted, {
+        hash: "0".repeat(64),
+        reason: "Three",
+      })
+    ).status,
+  ).toBe(409);
+  const withdrawn = verifyWithdrawn(await (await market.fetch("/v1/withdrawn")).json(), trusted);
+  expect(withdrawn.withdrawn.map((item) => item.reason)).toContain("Two");
+  expect(withdrawn.withdrawn.map((item) => item.reason)).not.toContain("Three");
 });

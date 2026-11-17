@@ -12,10 +12,10 @@
       "$ref": "https://ace.local/protocol/v1/PluginCommit.json"
     },
     "hash": {
-      "$ref": "https://ace.local/protocol/v1/PluginHash.json"
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
     },
     "name": {
-      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
     },
     "version": {
       "maxLength": 128,

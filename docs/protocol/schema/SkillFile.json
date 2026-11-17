@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/SkillFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "executable": {
+      "type": "boolean"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/SkillHash.json"
+    },
+    "path": {
+      "$ref": "https://ace.local/protocol/v1/ContainedPath.json"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "path",
+    "size",
+    "hash",
+    "executable"
+  ],
+  "type": "object"
+}

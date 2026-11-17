@@ -11,6 +11,7 @@ import {
   WrenchIcon,
 } from "@ace/icons";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useOpenMarket } from "@/lib/open-market.ts";
 import { useRef, useState } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { SlashIcon } from "@/components/slash-icon.tsx";
@@ -185,6 +186,7 @@ function SkillRow({ skill }: { skill: Skill }) {
 /** + : write a new skill, or install a plugin through its review. */
 function AddMenu() {
   const navigate = useNavigate();
+  const openMarket = useOpenMarket();
   const install = useInstallDialog();
   const marketplace = useBetaEnabled("marketplace") === true;
   return (
@@ -201,10 +203,7 @@ function AddMenu() {
           Install a plugin…
         </MenuItem>
         {marketplace && (
-          <MenuItem
-            icon={<Icon icon={StorefrontIcon} />}
-            onClick={() => void navigate({ to: "/marketplace", search: { type: "spade-skill" } })}
-          >
+          <MenuItem icon={<Icon icon={StorefrontIcon} />} onClick={() => openMarket("tools")}>
             From the marketplace
           </MenuItem>
         )}

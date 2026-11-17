@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketRoutineRow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "instruction": {
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 120,
+      "type": "string"
+    },
+    "schedule": {
+      "maxLength": 200,
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "instruction",
+    "schedule"
+  ],
+  "type": "object"
+}

@@ -24,6 +24,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useBetaEnabled } from "@/lib/beta-enabled.ts";
+import { useOpenMarket } from "@/lib/open-market.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 import { windowsHelpActions } from "@/boot/help-actions.ts";
 import { openNewTerminal } from "@/features/panels/index.ts";
@@ -113,6 +114,7 @@ export function usePaletteGroups(
   // Spade and the Marketplace are listed only while Settings › Beta has them on.
   const spadeShown = useSpadeShown() === true;
   const marketplace = useBetaEnabled("marketplace") === true;
+  const openMarket = useOpenMarket();
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
       close();
@@ -166,10 +168,7 @@ export function usePaletteGroups(
         value: "Go to",
         items: [
           ...views
-            .filter(
-              (view) =>
-                (view.id !== "spade" || spadeShown) && (view.id !== "marketplace" || marketplace),
-            )
+            .filter((view) => view.id !== "spade" || spadeShown)
             .map((view): PaletteCommand => {
               const command: PaletteCommand = {
                 id: `go-${view.id}`,
@@ -180,6 +179,17 @@ export function usePaletteGroups(
               if (view.shortcut) command.keys = keymap[view.shortcut].keys;
               return command;
             }),
+          // The Marketplace is a modal over the page, not a view.
+          ...(marketplace
+            ? [
+                {
+                  id: "go-marketplace",
+                  label: "Marketplace",
+                  icon: "view",
+                  run: run(() => openMarket()),
+                } satisfies PaletteCommand,
+              ]
+            : []),
           {
             id: "go-search",
             label: "Search all threads",
@@ -374,6 +384,7 @@ export function usePaletteGroups(
     openSearch,
     spadeShown,
     marketplace,
+    openMarket,
   ]);
   return useMemo(
     () =>

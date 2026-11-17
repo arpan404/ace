@@ -1,5 +1,15 @@
 import { z } from "zod";
-import { MarketEntryName, type MarketNeed, type MarketProblem } from "@ace/protocol/marketplace";
+import {
+  BotFileV1,
+  MarketEntryName,
+  Recipe,
+  recipeLimits,
+  RecipeConnectorId,
+  RecipePluginRef,
+  RecipeSkillRef,
+  type MarketNeed,
+  type MarketProblem,
+} from "@ace/protocol/marketplace";
 import { secretFieldNames, secretValueProblems } from "./secrets.ts";
 
 /*
@@ -7,37 +17,6 @@ import { secretFieldNames, secretValueProblems } from "./secrets.ts";
  * Version 1 files read as recipes too, their connector choices turned into needs. A recipe that
  * holds anything named or shaped like a secret is refused whole.
  */
-
-/** Spade's limit on a bot's standing task, in characters (`engine::TASK_CHARS`). */
-export const recipeTaskChars = 4000;
-export const recipeLimits = {
-  routines: 32,
-  skills: 32,
-  plugins: 16,
-  connectors: 32,
-  notes: 50,
-} as const;
-
-const ConnectorId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
-const HttpsUrl = z
-  .url()
-  .max(2048)
-  .refine((value) => value.startsWith("https://"), "A server is named by its https address");
-const why = z.string().trim().min(1).max(500);
-const ConnectorNeed = z.union([
-  z.strictObject({ id: ConnectorId, why, required: z.boolean().default(false) }),
-  z.strictObject({ url: HttpsUrl, why, required: z.boolean().default(false) }),
-]);
-const ToolName = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
-const RecipeRoutine = z.strictObject({
-  name: z.string().trim().min(1).max(120),
-  instruction: z.string().trim().min(1).max(4000),
-  /** A phrase or cron expression Spade's routines read (`weekdays at 8:00`). */
-  schedule: z.string().trim().min(1).max(200),
-});
-/** A skill from the same source (`spade-skill/<name>`) or a folder in the recipe (`skills/<name>`). */
-const SkillRef = z.string().regex(/^(?:spade-skill|skills)\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
-const PluginRef = z.string().regex(/^spade-plugin\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/);
 
 const known = new Set([
   "format",
@@ -53,53 +32,6 @@ const known = new Set([
   "needs",
   "notes",
 ]);
-
-export const Recipe = z.object({
-  format: z.literal("spade-bot"),
-  version: z.literal(2),
-  name: z.string().trim().min(1).max(80),
-  blurb: z.string().max(300).default(""),
-  task: z.string().max(recipeTaskChars).default(""),
-  /** The eight stored fields of Spade's face; Spade repairs an unknown value by its rules. */
-  face: z.record(z.string().max(40), z.unknown()).optional(),
-  model: z.enum(["fast", "capable"]).default("capable"),
-  routines: z.array(RecipeRoutine).max(recipeLimits.routines).default([]),
-  skills: z.array(z.string().max(80)).max(recipeLimits.skills).default([]),
-  plugins: z.array(z.string().max(80)).max(recipeLimits.plugins).default([]),
-  needs: z
-    .strictObject({
-      connectors: z.array(ConnectorNeed).max(recipeLimits.connectors).default([]),
-      /** Narrows the bot's built-in tools (ADR 0161: unset means all); it never adds one. */
-      tools: z.array(ToolName).max(64).optional(),
-    })
-    .default({ connectors: [] }),
-  notes: z.array(z.string().max(2000)).max(recipeLimits.notes).default([]),
-});
-export type Recipe = z.infer<typeof Recipe> & { extra?: Record<string, unknown> };
-
-/** Version 1 (ADR 0132), as an export between a person's own machines wrote it. */
-const BotFileV1 = z.object({
-  format: z.literal("spade-bot"),
-  version: z.literal(1),
-  name: z.string().trim().min(1).max(80),
-  task: z.string().max(recipeTaskChars).default(""),
-  avatar: z.unknown().optional(),
-  model: z.string().max(200).nullish(),
-  routines: z
-    .array(
-      z.object({
-        name: z.string().max(120),
-        instruction: z.string().max(4000),
-        trigger: z.unknown(),
-      }),
-    )
-    .max(64)
-    .default([]),
-  connectors: z
-    .object({ all: z.boolean(), connectors: z.array(z.string().max(64)).max(64).default([]) })
-    .nullish(),
-  notes: z.array(z.string().max(2000)).max(200).default([]),
-});
 
 export interface ReadRecipe {
   recipe: Recipe | undefined;
@@ -144,7 +76,7 @@ function fromV1(file: z.infer<typeof BotFileV1>, notes: string[]): Recipe {
     plugins: [],
     needs: {
       connectors: (file.connectors?.connectors ?? [])
-        .filter((id) => ConnectorId.safeParse(id).success)
+        .filter((id) => RecipeConnectorId.safeParse(id).success)
         .slice(0, recipeLimits.connectors)
         .map((id) => ({ id, why: "The bot this recipe came from used it.", required: false })),
     },
@@ -198,7 +130,7 @@ function issues(error: z.ZodError): MarketProblem[] {
 function referenceProblems(recipe: Recipe, folders: ReadonlySet<string>): MarketProblem[] {
   const problems: MarketProblem[] = [];
   for (const skill of recipe.skills) {
-    if (!SkillRef.safeParse(skill).success)
+    if (!RecipeSkillRef.safeParse(skill).success)
       problems.push({
         path,
         message: `${skill} isn't a skill of this source; a recipe can't name another source's entries`,
@@ -207,7 +139,7 @@ function referenceProblems(recipe: Recipe, folders: ReadonlySet<string>): Market
       problems.push({ path, message: `${skill} isn't a folder with a SKILL.md in this recipe` });
   }
   for (const plugin of recipe.plugins)
-    if (!PluginRef.safeParse(plugin).success)
+    if (!RecipePluginRef.safeParse(plugin).success)
       problems.push({
         path,
         message: `${plugin} isn't a plugin of this source; a recipe can't name another source's entries`,

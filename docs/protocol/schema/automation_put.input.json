@@ -38,6 +38,10 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "webhook": {
+      "description": "true: runs when its signed webhook is called, with {{body.field}} from the JSON body. The person makes its secret and URL in Automations. Not with schedule.",
+      "type": "boolean"
     }
   },
   "required": [
@@ -45,5 +49,6 @@
     "title",
     "prompt"
   ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "webhook and schedule can't both be set."
 }

@@ -67,6 +67,18 @@
             "schedule"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "webhook",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ]
     },

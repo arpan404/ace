@@ -1,0 +1,145 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketReviewItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "$ref": "https://ace.local/protocol/v1/MarketFileRow.json"
+        },
+        "kind": {
+          "const": "file",
+          "type": "string"
+        },
+        "section": {
+          "maxLength": 120,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "section",
+        "file"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "before": {
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "text",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "section": {
+          "maxLength": 120,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "section",
+        "path",
+        "text",
+        "before",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "execution": {
+          "$ref": "https://ace.local/protocol/v1/PluginExecution.json"
+        },
+        "kind": {
+          "const": "execution",
+          "type": "string"
+        },
+        "section": {
+          "maxLength": 120,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "section",
+        "execution"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "enum": [
+            "added",
+            "changed",
+            "removed"
+          ],
+          "type": "string"
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "change",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "section": {
+          "maxLength": 120,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "section",
+        "path",
+        "change",
+        "executable"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "note",
+          "type": "string"
+        },
+        "section": {
+          "maxLength": 120,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 2000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "section",
+        "text"
+      ],
+      "type": "object"
+    }
+  ]
+}

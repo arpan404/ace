@@ -51,6 +51,8 @@ export function triggerErrorCopy(
       return "Check the schedule and time zone in Edit, then retry.";
     case "manual":
       return "Check the automation in Edit, then run it again.";
+    case "webhook":
+      return "Check the automation in Edit, then call its webhook again.";
   }
 }
 

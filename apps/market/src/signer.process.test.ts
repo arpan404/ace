@@ -150,6 +150,7 @@ describe("the signer's routes", () => {
         ],
         { key: marketKey, issued: 200 },
       ),
+      basedOn: 100,
     });
     expect(both.status).toBe(200);
     const gone = await getJson<Index>(`/v1/index?since=${after.stamp}`);
