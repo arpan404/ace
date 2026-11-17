@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use spade_sandbox::egress::{EgressLog, Mode, NetworkPolicy, Proxy, SystemResolver};
-use spade_sandbox::windows::{Bridge, Container};
+use spade_sandbox::windows::Container;
 use spade_sandbox_windows::acl::{self, Access};
 use spade_sandbox_windows::fs::Object;
 use spade_sandbox_windows::job::{Job, Limits};
@@ -229,7 +229,7 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
 
     // Through the proxy: curl --fail exits 0 only on a 2xx, so this proves the whole path works.
     let (name, display) = (container.name.clone(), container.display.clone());
-    let bridge = Bridge {
+    let bridge = launch::Bridge {
         pipe: pipe.clone(),
         port: cmd_port,
     };
