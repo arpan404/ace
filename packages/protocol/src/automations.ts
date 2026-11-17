@@ -32,7 +32,7 @@ export const AutomationTrigger = z.discriminatedUnion("kind", [
     pollIntervalMs: z.number().int().min(60_000).max(86_400_000),
   }),
   z.object({ kind: z.literal("file"), paths: z.array(text).min(1).max(100) }),
-  /** A signed POST to the automation's webhook URL (ADR 0158). The secret is never here. */
+  /** A signed POST to the automation's webhook URL (ADR 0173). The secret is never here. */
   z.object({ kind: z.literal("webhook") }),
 ]);
 export type AutomationTrigger = z.infer<typeof AutomationTrigger>;
@@ -178,7 +178,7 @@ export type AutomationTriggerError = z.infer<typeof AutomationTriggerError>;
 export const AutomationWebhookVia = z.enum(["custom", "tailscale", "relay"]);
 export type AutomationWebhookVia = z.infer<typeof AutomationWebhookVia>;
 /**
- * A webhook automation's addresses, as the person's lists show them (ADR 0158). `urls` has one
+ * A webhook automation's addresses, as the person's lists show them (ADR 0173). `urls` has one
  * per way in that is on and serving, those ace cloud doesn't carry first; `url` is the first of
  * them, null until the person creates its secret or while no way in serves (`problem` says why).
  */
@@ -235,7 +235,7 @@ export const AutomationResponse = z.object({
 });
 export type AutomationResponse = z.infer<typeof AutomationResponse>;
 /**
- * The person's webhook secret controls (ADR 0158). Outside `AutomationRequest` on purpose: agents'
+ * The person's webhook secret controls (ADR 0173). Outside `AutomationRequest` on purpose: agents'
  * `automation.manage` carries only those, so no agent tool can create, read or rotate a secret.
  * `rotate` makes a secret (and the hook id, the first time) and returns it once; `revoke` deletes
  * both, so the URL stops answering. `source: "thread"` addresses an automation an agent made

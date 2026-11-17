@@ -10,7 +10,7 @@ export const notServed: RelayHttpHandler = async () => new Response(null, { stat
 /**
  * HTTP that ace's hosted relay forwards from `https://cloud.acehq.dev/m/<hostId>/…`: the outside
  * MCP endpoint with its OAuth endpoints and metadata (ADR 0122), and automations' webhooks under
- * `/hooks/` (ADR 0158). Each has its own setting, `remote.relayMcp` and `remote.relayWebhooks`,
+ * `/hooks/` (ADR 0173). Each has its own setting, `remote.relayMcp` and `remote.relayWebhooks`,
  * read for every request; with both off, the relay answers 404 without reaching a handler, and a
  * request for the one that's off gets 404 here.
  *

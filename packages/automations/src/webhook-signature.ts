@@ -1,5 +1,5 @@
 /*
- * Webhook signing as Standard Webhooks specifies it (ADR 0158): HMAC-SHA256 over
+ * Webhook signing as Standard Webhooks specifies it (ADR 0173): HMAC-SHA256 over
  * `id.timestamp.body` with the secret's bytes, sent base64 as `v1,<signature>`. Pure apart from
  * the hash; the clock and randomness are passed in.
  */

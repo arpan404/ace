@@ -150,7 +150,7 @@ export async function externalMcp(context: ServiceContext) {
     loopback: async (request, serve) => {
       const base = loopbackBase(request.headers, port, reachSettings.current().custom);
       if (!base) return new Response("Host not allowed", { status: 403 });
-      // Webhooks only at the person's own URL, never at the loopback address (ADR 0158).
+      // Webhooks only at the person's own URL, never at the loopback address (ADR 0173).
       const webhooks = context.services.automationWebhooks;
       // and never under a loopback Host, even when that URL was set to one.
       if (
@@ -213,7 +213,7 @@ export async function externalMcp(context: ServiceContext) {
       Promise.resolve(new Response(null, { status: 404 })),
   );
   /**
-   * A webhook on the Tailscale listener (ADR 0158): only with `remote.tailscaleWebhooks` on, at
+   * A webhook on the Tailscale listener (ADR 0173): only with `remote.tailscaleWebhooks` on, at
    * the ts.net name, as outside MCP is checked with its own switch.
    */
   const tailscaleHook = (request: IncomingMessage, response: ServerResponse): boolean => {

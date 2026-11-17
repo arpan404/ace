@@ -1,5 +1,5 @@
 /*
- * Webhook automations (ADR 0158): the person's secret controls and what one signed request does.
+ * Webhook automations (ADR 0173): the person's secret controls and what one signed request does.
  * No HTTP here: the daemon hands in the method, headers and raw body and sends back the answer.
  */
 import type { AutomationService } from "./service.ts";

@@ -195,7 +195,7 @@ export function daemonHandle({
     get externalMcp() {
       return services.externalMcp;
     },
-    /** Webhook automations: their URLs, secrets and relayed requests (ADR 0158). */
+    /** Webhook automations: their URLs, secrets and relayed requests (ADR 0173). */
     get automationWebhooks() {
       return services.automationWebhooks;
     },

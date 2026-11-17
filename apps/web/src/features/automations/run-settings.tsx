@@ -65,7 +65,7 @@ export function AutomationModelChip(props: {
 
 /**
  * How the automation's runs get approved, in the composer's access chip. Unset, a webhook's
- * runs are read-only, since their text comes from outside (ADR 0158, decision 9); any other
+ * runs are read-only, since their text comes from outside (ADR 0173, decision 9); any other
  * follows the project's default, else this machine's. A mode the provider can't express runs as
  * the nearest stricter one.
  */

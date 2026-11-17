@@ -1,5 +1,5 @@
 /*
- * Webhook automations in the daemon (ADR 0158): the URL each one has on ace cloud, the person's
+ * Webhook automations in the daemon (ADR 0173): the URL each one has on ace cloud, the person's
  * secret controls, and the `/hooks/<hookId>` requests ace's relay forwards. The decisions live in
  * `@ace/automations` (`AutomationWebhooks`); this is the I/O around them.
  *
@@ -41,7 +41,7 @@ export interface AutomationWebhookService {
   serve(request: Request, via: "tailscale" | "custom"): Promise<Response>;
 }
 
-/** The switch for each way in (ADR 0158, decision 3), and the person's own URL. */
+/** The switch for each way in (ADR 0173, decision 3), and the person's own URL. */
 const switches = {
   relay: "remote.relayWebhooks",
   tailscale: "remote.tailscaleWebhooks",
@@ -64,7 +64,7 @@ export async function startAutomationWebhooks(
   store: AutomationStore,
   service: AutomationService,
 ): Promise<AutomationWebhookService> {
-  // Each store has its own ids, so each has its own limit (ADR 0158, decision 10).
+  // Each store has its own ids, so each has its own limit (ADR 0173, decision 10).
   const deps = () => {
     const limit = new RateLimit({ ...webhookRate, now: context.now });
     return {

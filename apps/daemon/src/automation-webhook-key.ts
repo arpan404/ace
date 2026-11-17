@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import { webhookSecretBox, type SecretBox } from "@ace/automations";
 
-/** The key file, beside the stores and never inside them (ADR 0158, decision 11). */
+/** The key file, beside the stores and never inside them (ADR 0173, decision 11). */
 export const webhookKeyName = "automation-webhooks.key";
 const size = 32;
 const posix = process.platform !== "win32";

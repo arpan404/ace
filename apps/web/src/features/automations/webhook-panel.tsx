@@ -16,7 +16,7 @@ import { useCopy } from "@/components/use-copy.ts";
 import { useAutomationActions } from "@/features/automation-data/index.ts";
 
 /*
- * A webhook automation's addresses and secret (ADR 0158): a URL per way in that serves, or why
+ * A webhook automation's addresses and secret (ADR 0173): a URL per way in that serves, or why
  * there is none; the access its runs get; the person's Create, Rotate and Revoke; the new
  * secret once, right after it's made; and the headers and prompt variables senders and prompts
  * use. The secret lives only in this component's state, so closing it or leaving the screen
@@ -206,7 +206,7 @@ function AccessLine(props: { runsAt: RunsAt }) {
   return null;
 }
 
-/** What the secret's text reaches, said where it is shown (ADR 0158, Consequences). */
+/** What the secret's text reaches, said where it is shown (ADR 0173, Consequences). */
 function reach(runsAt: RunsAt): string {
   if (runsAt.thread) return "It runs in its agent's thread, at that thread's access.";
   if (runsAt.access === undefined) return "It runs read-only unless you change its access.";

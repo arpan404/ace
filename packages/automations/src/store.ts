@@ -54,7 +54,7 @@ export class AutomationStore {
   private catalogCache: z.infer<typeof CatalogMetadata>[] | undefined;
   private db: DatabaseSync;
   private statements = new Map<string, StatementSync>();
-  /** Webhook automations' hook ids and secrets (ADR 0158). */
+  /** Webhook automations' hook ids and secrets (ADR 0173). */
   readonly webhooks: WebhookKeys;
   constructor(path: string, options: { webhookSecrets?: SecretBox } = {}) {
     this.db = new DatabaseSync(path);
@@ -416,7 +416,7 @@ export class AutomationStore {
       input ? JSON.stringify(input) : null,
       run.finishedAt ?? null,
     );
-    // A webhook delivery's receipt commits with its run (ADR 0158, decision 6). A timestamp is
+    // A webhook delivery's receipt commits with its run (ADR 0173, decision 6). A timestamp is
     // accepted up to the tolerance either side of now, so twice it covers every replay.
     if (trigger === "webhook")
       this.webhooks.deliver(automation.id, event.key, id, now + 2 * webhookToleranceMs, now);

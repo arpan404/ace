@@ -32,7 +32,7 @@ export const triggerKinds: Choice<Trigger>[] = [
 ];
 /**
  * The same, with a webhook trigger before "By hand", for a client that can show the webhook's
- * URL and its secret (ADR 0158). The phone keeps `triggerKinds` until it can.
+ * URL and its secret (ADR 0173). The phone keeps `triggerKinds` until it can.
  */
 export const triggerKindsWithWebhook: Choice<Trigger>[] = [
   ...triggerKinds.slice(0, -1),

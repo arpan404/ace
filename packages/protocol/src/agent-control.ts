@@ -246,7 +246,7 @@ export type AgentAutomationSchedule = z.infer<typeof AgentAutomationSchedule>;
  * thread decides the provider, model, effort, account and access: the definition carries none of
  * them, and the daemon records the thread's provider. The daemon also supplies the caller's
  * project; agent jobs never use worktrees or jitter, and run by hand, on a schedule or on their
- * webhook. Only the person can create a webhook's secret (ADR 0158), so an agent's webhook
+ * webhook. Only the person can create a webhook's secret (ADR 0173), so an agent's webhook
  * automation waits for them.
  */
 export const AgentAutomation = Automation.omit({

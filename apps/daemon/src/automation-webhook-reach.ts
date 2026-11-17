@@ -1,5 +1,5 @@
 /*
- * Which addresses a webhook automation has (ADR 0158, decision 3). Pure: the person's switches
+ * Which addresses a webhook automation has (ADR 0173, decision 3). Pure: the person's switches
  * and what each way in knows about itself in, the state the person's apps show out. Ways ace
  * cloud doesn't carry come first, so the first URL keeps request bodies off ace cloud.
  */

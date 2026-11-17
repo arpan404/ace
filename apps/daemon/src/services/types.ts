@@ -55,7 +55,7 @@ export interface Services {
     service: import("@ace/automations").AutomationService;
     live(automationId: string): boolean;
   };
-  /** Webhook automations' URLs, secrets and relayed requests (ADR 0158). */
+  /** Webhook automations' URLs, secrets and relayed requests (ADR 0173). */
   automationWebhooks?: import("../automation-webhooks.ts").AutomationWebhookService;
   /** Automations agents made from threads, for the person's own controls. */
   threadAutomations?: import("../agent-control/thread-automations.ts").ThreadAutomations;

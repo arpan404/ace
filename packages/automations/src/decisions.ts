@@ -80,7 +80,7 @@ export function canPromote(facts: { active: number; total: number }): boolean {
 }
 /**
  * A webhook run's prompt with a closing note naming which of its text came from the request
- * (ADR 0158, decision 9): the `{{body.…}}` and `{{webhook.id}}` places in the saved prompt.
+ * (ADR 0173, decision 9): the `{{body.…}}` and `{{webhook.id}}` places in the saved prompt.
  * Unchanged when the prompt uses none.
  */
 export function withWebhookNote(prompt: string, template: string): string {
@@ -99,7 +99,7 @@ export function withWebhookNote(prompt: string, template: string): string {
 }
 /**
  * The access a run starts its thread with: the automation's own, else read-only for a webhook
- * automation (ADR 0158, decision 9), whose prompt carries outside text; else the machine's default.
+ * automation (ADR 0173, decision 9), whose prompt carries outside text; else the machine's default.
  */
 export function runAccess(automation: Automation): Automation["access"] {
   return automation.access ?? (automation.trigger.kind === "webhook" ? "read-only" : undefined);

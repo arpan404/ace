@@ -2,7 +2,7 @@ import type { DatabaseSync, StatementSync } from "@ace/provider-kit/sqlite";
 import type { SecretBox } from "./webhook-secret-box.ts";
 
 /**
- * Each webhook automation's hook id and secret (ADR 0158, decisions 2 and 5), in their own table
+ * Each webhook automation's hook id and secret (ADR 0173, decisions 2 and 5), in their own table
  * of `automations.sqlite`, never inside a definition's JSON, so nothing that reads definitions,
  * lists or runs can carry a secret out. Secrets are sealed with `box` (decision 11); without
  * one, no secret can be made.

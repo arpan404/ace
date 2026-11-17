@@ -2,7 +2,7 @@
  * Automations from the daemon (ADR 0015): `automation.list` (definitions and their next
  * scheduled start), `automation.inbox` (recent runs), and the `automation.put`,
  * `remove`, `setEnabled`, `retry` and `run` writes, and the person's webhook secret
- * controls (`automation.webhook`, ADR 0158). Each is a correlated request; a
+ * controls (`automation.webhook`, ADR 0173). Each is a correlated request; a
  * refusal rejects with the daemon's reason. Writes carry the entry's revision as a
  * compare-and-swap: omitted for backward compatibility, null for create-only, and a
  * number for stale-edit protection.

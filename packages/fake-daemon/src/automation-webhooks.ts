@@ -1,7 +1,7 @@
 import type { AutomationWebhookState, AutomationWebhookVia, SettingsKey } from "@ace/protocol";
 import { sha256Hex } from "./sha256.ts";
 
-/** Where the fake machine's webhooks are reached on each way in (ADR 0158, decision 3). */
+/** Where the fake machine's webhooks are reached on each way in (ADR 0173, decision 3). */
 const bases = {
   tailscale: "https://fake-mac.tail0fake.ts.net",
   relay: "https://cloud.acehq.dev/m/fake-host",

@@ -1,5 +1,5 @@
 /*
- * Webhook secrets at rest (ADR 0158, decision 11): AES-256-GCM under a key kept outside the
+ * Webhook secrets at rest (ADR 0173, decision 11): AES-256-GCM under a key kept outside the
  * store, so a copy of `automations.sqlite` (a backup, a support bundle, a copied home) holds no
  * usable secret. Each secret is bound to its automation's id, so rows can't be swapped.
  */

@@ -74,7 +74,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
     return thread && thread.deletedAt === undefined ? thread.id : undefined;
   };
   const threadAutomations = createThreadAutomations(automations, live);
-  // Webhook automations agents make get their secret from the person, in this store (ADR 0158).
+  // Webhook automations agents make get their secret from the person, in this store (ADR 0173).
   context.services.agentAutomations = {
     store: automationStore,
     service: automations,

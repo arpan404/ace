@@ -4,12 +4,12 @@ import { settingKeys, type SettingDef } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { PathSwitch } from "./path-switch.tsx";
 
-/** What each way in means for a webhook's request body (ADR 0158, Consequences). */
+/** What each way in means for a webhook's request body (ADR 0173, Consequences). */
 const throughCloud = "ace cloud carries webhook bodies in plain text, never the secret.";
 
 /**
  * Settings › a machine › Automation webhooks: one switch per way a signed webhook can reach
- * this machine (ADR 0158, decision 3), apart from outside apps' switches. Each reloads the
+ * this machine (ADR 0173, decision 3), apart from outside apps' switches. Each reloads the
  * automation lists, whose webhooks list a URL per way that serves.
  */
 export function AutomationWebhooks() {

@@ -1,5 +1,5 @@
 /*
- * A webhook's JSON body as prompt variables (ADR 0158, decision 7). Pure. Every limit refuses the
+ * A webhook's JSON body as prompt variables (ADR 0173, decision 7). Pure. Every limit refuses the
  * whole body: a run never starts on part of what the sender sent.
  */
 import type { TriggerVariables } from "@ace/protocol";

@@ -15,7 +15,7 @@ import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { connectAutomations } from "./automation-socket-test-support.ts";
 import { answer, personCommand } from "./automation-one-thread-test-support.ts";
 
-// Webhook automations (ADR 0158) on a real daemon: the person's socket, the automation store on
+// Webhook automations (ADR 0173) on a real daemon: the person's socket, the automation store on
 // disk, a restart, and the handler ace's relay forwards `/m/<hostId>/hooks/…` to. ace cloud's
 // own forwarding is covered under real workerd in apps/cloud/src/http.process.test.ts.
 
