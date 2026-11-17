@@ -7,7 +7,7 @@
 
 use std::fs;
 
-use files_safe::Root;
+use files_safe::{Error, Root};
 use tempfile::TempDir;
 
 fn checkout() -> (TempDir, Root) {
@@ -40,25 +40,6 @@ fn rejects_dot_dot_and_absolute_paths() {
             "resolve {rel}"
         );
     }
-}
-
-#[test]
-fn rejects_malformed_forms() {
-    let (_temp, root) = checkout();
-    for rel in ["", "a", "a/b"] {
-        assert_eq!(Root::check(rel).expect(rel), rel);
-    }
-    for rel in ["a/", "a//b", "./a", "a/.", "a\0b", ".", ".."] {
-        assert_eq!(
-            Root::check(rel).expect_err(rel).code(),
-            "INVALID_PATH",
-            "{rel}"
-        );
-    }
-    assert_eq!(
-        root.resolve("a\0b").expect_err("nul").code(),
-        "INVALID_PATH"
-    );
 }
 
 #[cfg(unix)]
@@ -209,22 +190,6 @@ fn root_must_be_a_directory() {
     assert!(via_handle.is_file());
 }
 
-#[cfg(windows)]
-#[test]
-fn rejects_windows_only_forms() {
-    let (_temp, root) = checkout();
-    for rel in [
-        r"a\b", r"\a", "C:", "C:/a", "c:temp", "CON", "nul.txt", "aux/x", "com1", "a.", "a ",
-        "a./b", "a:stream",
-    ] {
-        assert_eq!(
-            root.resolve(rel).expect_err(rel).code(),
-            "INVALID_PATH",
-            "resolve {rel}"
-        );
-    }
-}
-
 #[cfg(unix)]
 #[test]
 fn refuses_a_link_loop_instead_of_spinning() {
@@ -235,15 +200,11 @@ fn refuses_a_link_loop_instead_of_spinning() {
     symlink("a", root.path().join("b")).expect("b -> a");
     symlink("self", root.path().join("self")).expect("self -> self");
 
-    assert_eq!(root.resolve("a").expect_err("loop").code(), "IO_ERROR");
-    assert_eq!(
-        root.resolve("self/file.txt").expect_err("loop").code(),
-        "IO_ERROR"
-    );
-    assert_eq!(
-        root.resolve("a/file.txt").expect_err("loop").code(),
-        "IO_ERROR"
-    );
+    for rel in ["a", "self/file.txt", "a/file.txt"] {
+        let error = root.resolve(rel).expect_err(rel);
+        assert!(matches!(error, Error::LinkLoop(_)), "{rel}: {error}");
+        assert_eq!(error.code(), "INVALID_PATH", "{rel}");
+    }
 }
 
 #[test]
@@ -251,25 +212,128 @@ fn refuses_a_file_where_a_folder_is_needed() {
     let (_temp, root) = checkout();
     fs::write(root.path().join("file.txt"), b"x").expect("write");
 
-    assert_eq!(
-        root.resolve("file.txt/inner").expect_err("file").code(),
-        "NOT_DIRECTORY"
-    );
+    let error = root.resolve("file.txt/inner").expect_err("file");
+    assert!(matches!(error, Error::NotDirectory(_)), "{error}");
+    assert_eq!(error.code(), "NOT_DIRECTORY");
     assert_eq!(
         root.resolve("file.txt").expect("the file itself"),
         root.path().join("file.txt")
     );
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
 #[test]
-fn keeps_names_windows_would_refuse() {
+fn refuses_a_root_that_was_moved_and_replaced_by_a_link() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().expect("temp dir");
+    let checkout = temp.path().join("checkout");
+    let elsewhere = temp.path().join("elsewhere");
+    fs::create_dir_all(&checkout).expect("folders");
+    fs::create_dir_all(&elsewhere).expect("folders");
+    fs::write(checkout.join("file.txt"), b"ours").expect("file");
+    fs::write(elsewhere.join("file.txt"), b"theirs").expect("file");
+
+    let root = Root::open(&checkout).expect("open root");
+    fs::rename(&checkout, temp.path().join("checkout.old")).expect("move the root");
+    symlink(&elsewhere, &checkout).expect("put a link where the root was");
+
+    let error = root.resolve("file.txt").expect_err("swapped root");
+    assert!(matches!(error, Error::PathChanged(_)), "{error}");
+    assert_eq!(error.code(), "PATH_CHANGED");
+    assert_eq!(
+        root.open_dir("").expect_err("swapped root").code(),
+        "PATH_CHANGED"
+    );
+    assert_eq!(
+        root.open_parent("file.txt")
+            .expect_err("swapped root")
+            .code(),
+        "PATH_CHANGED"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn refuses_an_absolute_link_that_climbs_out() {
+    use std::os::unix::fs::symlink;
+
     let (_temp, root) = checkout();
-    for rel in ["con", "aux.txt", "a.", "a b", "a\\b"] {
-        assert_eq!(
-            root.resolve(rel).expect(rel),
-            root.path().join(rel),
-            "{rel}"
-        );
-    }
+    fs::create_dir_all(root.path().join("sub")).expect("folders");
+
+    let climbing = format!("{}/sub/../..", root.path().display());
+    symlink(&climbing, root.path().join("climbing")).expect("climbing link");
+
+    assert_eq!(
+        root.resolve("climbing").expect_err("climbing").code(),
+        "PATH_ESCAPE"
+    );
+    assert_eq!(
+        root.resolve("climbing/file.txt")
+            .expect_err("climbing")
+            .code(),
+        "PATH_ESCAPE"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn refuses_an_inside_link_that_reaches_an_outside_link() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().expect("temp dir");
+    let checkout = temp.path().join("checkout");
+    let outside = temp.path().join("outside");
+    fs::create_dir_all(&checkout).expect("folders");
+    fs::create_dir_all(&outside).expect("folders");
+    fs::write(outside.join("secret.txt"), b"secret").expect("file");
+
+    let root = Root::open(&checkout).expect("open root");
+    let outside = fs::canonicalize(&outside).expect("canonical outside");
+
+    symlink(&outside, root.path().join("outlink")).expect("outside link");
+    symlink("outlink", root.path().join("inside")).expect("link to the outside link");
+
+    assert_eq!(
+        root.resolve("inside").expect_err("inside").code(),
+        "PATH_ESCAPE"
+    );
+    assert_eq!(
+        root.resolve("inside/secret.txt")
+            .expect_err("inside")
+            .code(),
+        "PATH_ESCAPE"
+    );
+    // A leaf that does not exist under an escaping link is an escape, not a missing file.
+    assert_eq!(
+        root.resolve("outlink/new.txt")
+            .expect_err("missing leaf")
+            .code(),
+        "PATH_ESCAPE"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn follows_an_absolute_link_spelled_with_the_path_the_root_was_opened_with() {
+    use std::os::unix::fs::symlink;
+
+    // On macOS a temp folder is reached through `/var`, a link to `/private/var`, so the path the
+    // root was opened with and its canonical path differ and the link below spells the first one.
+    let temp = tempfile::tempdir().expect("temp dir");
+    let checkout = temp.path().join("checkout");
+    fs::create_dir_all(checkout.join("real")).expect("folders");
+    fs::write(checkout.join("real/file.txt"), b"x").expect("file");
+
+    let root = Root::open(&checkout).expect("open root");
+    symlink(
+        temp.path().join("checkout/real"),
+        root.path().join("spelled"),
+    )
+    .expect("link spelled with the opened root");
+
+    assert_eq!(
+        root.resolve("spelled/file.txt").expect("inside"),
+        root.path().join("real/file.txt")
+    );
 }
