@@ -51,6 +51,10 @@ pub struct Job<'a> {
     pub kind: Kind,
     /// Run with no sandbox: the gate decided this one call runs outside it (ADR 0171).
     pub outside: bool,
+    /// Whether this call is allowed to run uncontained — because it was reviewed (or approved to
+    /// run outside), not because the gate skipped its review expecting containment. When a bot run
+    /// turns out to need review and this is `false`, it is refused rather than run plainly.
+    pub may_run_uncontained: bool,
 }
 
 /// Whose a sandboxed run is (ADR 0167): its network policy and what else it may read follow.
@@ -67,12 +71,25 @@ pub enum Kind {
     Plugin { root: PathBuf },
 }
 
+/// What confining a run decided (ADR 0167). Never `Ok(None)` for a bot run that can't be held:
+/// the ambiguity between "no sandbox applies" and "needs review" was a fail-open, so the two are
+/// now distinct and a caller must route [`Confinement::NeedsReview`] to review or refuse it.
+pub enum Confinement {
+    /// No sandbox applies — not a bot's workspace, or this machine has none. Runs as today.
+    None,
+    /// Held in the OS sandbox.
+    Contained(Box<Confined>),
+    /// A bot run that can't be contained here (on Windows, it would need ACL changes on the
+    /// person's own folders). It must be reviewed, or refused — never launched plainly.
+    NeedsReview(String),
+}
+
 /// The OS sandbox a bot's runs go through (ADR 0167), set by the server.
 pub trait Confine: Send + Sync {
-    /// How to run a command whose home is `home`: `Ok(None)` when no sandbox applies (not a bot's
-    /// workspace, or none on this machine), `Err` when one should but can't, so it never runs
-    /// unconfined.
-    fn confine(&self, home: &Path, kind: &Kind) -> Result<Option<Confined>, String>;
+    /// How to run a command whose home is `home`. `Err` means a sandbox should hold it but can't,
+    /// so it never runs unconfined; `Ok(Confinement::NeedsReview)` means it can't be contained by
+    /// design and must be reviewed or refused.
+    fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String>;
 
     /// Whether a bot command with home `home` runs contained (files and network) on this machine.
     fn contains(&self, home: &Path) -> bool;
@@ -206,10 +223,10 @@ impl Shell {
 
     /// How a run of `kind` with home `home` is confined, for a process this shell doesn't start
     /// itself (a plugin's server): as [`Confine::confine`].
-    pub fn confine(&self, home: &Path, kind: &Kind) -> Result<Option<Confined>, String> {
+    pub fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         match &self.confine {
             Some(confine) => confine.confine(home, kind),
-            None => Ok(None),
+            None => Ok(Confinement::None),
         }
     }
 
@@ -280,6 +297,8 @@ impl Shell {
             stdin: None,
             kind: Kind::Command,
             outside: false,
+            // Spade's own internal command: always expected to be containable.
+            may_run_uncontained: false,
         })
         .await
     }
@@ -296,7 +315,7 @@ impl Shell {
         let mark = uuid::Uuid::new_v4().simple().to_string();
         // Before it starts, so everything of its group started after this.
         let spawned_us = platform::now_us();
-        let confined = match &self.confine {
+        let confined: Option<Confined> = match &self.confine {
             // Outside the sandbox: no checkpoint, no proxy, the person's machine as it is.
             Some(_) if job.outside => None,
             Some(confine) => {
@@ -309,7 +328,23 @@ impl Shell {
                         }
                     }
                 }
-                confine.confine(home, &job.kind)?
+                match confine.confine(home, &job.kind)? {
+                    Confinement::None => None,
+                    Confinement::Contained(confined) => Some(*confined),
+                    // A bot run that can't be contained. If it was reviewed (or approved to run
+                    // outside) it may run plainly; otherwise the gate skipped its review expecting
+                    // containment, and it must not launch — it fails closed and is re-reviewed.
+                    Confinement::NeedsReview(reason) => {
+                        if job.may_run_uncontained {
+                            None
+                        } else {
+                            return Err(format!(
+                                "The command wasn't run: it needs your folders, so Spade asks \
+                                 first ({reason})."
+                            ));
+                        }
+                    }
+                }
             }
             None => None,
         };

@@ -585,6 +585,10 @@ impl Tool for ShellTool {
                             stdin: None,
                             kind: crate::workspace::shell::Kind::Command,
                             outside,
+                            // When the gate did not expect containment (`!sandboxed`), this call
+                            // was reviewed or approved to run outside, so it may run uncontained;
+                            // when it did, a run that turns out to need review must not launch.
+                            may_run_uncontained: !sandboxed,
                         })
                         .await
                 }

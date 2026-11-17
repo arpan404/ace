@@ -134,6 +134,9 @@ impl Services {
                             stdin: None,
                             kind: crate::workspace::shell::Kind::Command,
                             outside: false,
+                            // An owned service must be contained; if it can't be, it is refused,
+                            // not started unconfined.
+                            may_run_uncontained: false,
                         },
                     )
                     .await;

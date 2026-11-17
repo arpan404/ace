@@ -282,6 +282,8 @@ impl Stage for SandboxStage {
                             scratch: staging.into.clone(),
                         },
                         outside: false,
+                        // Spade's own internal command: always expected to be containable.
+                        may_run_uncontained: false,
                     },
                 )
                 .await?;

@@ -90,6 +90,9 @@ impl Plugins {
                         root: std::path::PathBuf::from(&root),
                     },
                     outside: false,
+                    // A plugin hook isn't reviewed; if it can't be contained it is refused, never
+                    // run unconfined.
+                    may_run_uncontained: false,
                 })
                 .await;
             let result = match ran {

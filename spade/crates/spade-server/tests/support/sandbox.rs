@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use spade_server::clock::{CountingIds, SystemClock};
 use spade_server::security::{Security, Setup};
 use spade_server::tools::{EngineHandle, Tool};
-use spade_server::workspace::shell::{Confine, Confined, Kind, Shell};
+use spade_server::workspace::shell::{Confine, Confinement, Kind, Shell};
 use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_store::Store;
 use spade_testkit::Script;
@@ -21,7 +21,7 @@ use super::{Result, Spade};
 pub struct Late(OnceLock<Arc<Security>>);
 
 impl Confine for Late {
-    fn confine(&self, home: &Path, kind: &Kind) -> std::result::Result<Option<Confined>, String> {
+    fn confine(&self, home: &Path, kind: &Kind) -> std::result::Result<Confinement, String> {
         match self.0.get() {
             Some(security) => security.confine(home, kind),
             None => Err("the security service isn't set".to_owned()),

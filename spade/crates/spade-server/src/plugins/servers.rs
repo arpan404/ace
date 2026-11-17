@@ -153,13 +153,14 @@ impl Servers {
             command.idle = idle;
         }
         // The bot's sandbox, reading the plugin's folder too (ADR 0167). Where it should hold
-        // the server and can't, the server doesn't start.
-        let (hold, problem) = match shell.confine(
+        // the server and can't — including a run that needs review — the server doesn't start.
+        let (hold, problem) = match server_plan(shell.confine(
             dir,
             &crate::workspace::shell::Kind::Plugin { root: root.into() },
-        ) {
-            Ok(None) => (None, None),
-            Ok(Some(confined)) => {
+        )) {
+            ServerPlan::Plain => (None, None),
+            ServerPlan::Refuse(why) => (None, Some(why)),
+            ServerPlan::Wrap(confined) => {
                 let args: Vec<std::ffi::OsString> = command.args.iter().map(Into::into).collect();
                 match (confined.launch)(Path::new(&command.program), &args) {
                     Ok((program, args)) => {
@@ -179,7 +180,6 @@ impl Servers {
                     Err(why) => (None, Some(why)),
                 }
             }
-            Err(why) => (None, Some(why)),
         };
         if problem.is_some() {
             // Never started unconfined: a program that can't be found.
@@ -315,3 +315,50 @@ pub fn tool_name(plugin: &str, tool: &str) -> String {
 }
 
 pub use crate::tools::PluginTools;
+
+use crate::workspace::shell::{Confined, Confinement};
+
+/// What a server's confinement means for starting it (ADR 0167 Windows hardening, review round 3
+/// item 1): run plain (no sandbox applies), wrap in the sandbox, or refuse with a problem. A run
+/// that needs review, or a sandbox that should hold the server but can't, is a refusal — a plugin
+/// server is never launched unconfined behind the daemon's back.
+enum ServerPlan {
+    Plain,
+    Wrap(Box<Confined>),
+    Refuse(String),
+}
+
+fn server_plan(confinement: Result<Confinement, String>) -> ServerPlan {
+    match confinement {
+        Ok(Confinement::None) => ServerPlan::Plain,
+        Ok(Confinement::Contained(confined)) => ServerPlan::Wrap(confined),
+        Ok(Confinement::NeedsReview(reason)) => ServerPlan::Refuse(reason),
+        Err(why) => ServerPlan::Refuse(why),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_server_that_needs_review_or_fails_to_confine_is_refused_not_launched() {
+        // No sandbox applies: the server runs as today.
+        assert!(matches!(
+            server_plan(Ok(Confinement::None)),
+            ServerPlan::Plain
+        ));
+        // A run that can't be contained must not launch unconfined — it is refused.
+        assert!(matches!(
+            server_plan(Ok(Confinement::NeedsReview(
+                "needs your folders".to_owned()
+            ))),
+            ServerPlan::Refuse(_)
+        ));
+        // A sandbox that should hold it but errored is also a refusal.
+        assert!(matches!(
+            server_plan(Err("the sandbox could not start".to_owned())),
+            ServerPlan::Refuse(_)
+        ));
+    }
+}

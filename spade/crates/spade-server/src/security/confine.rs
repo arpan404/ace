@@ -9,16 +9,16 @@ use spade_sandbox::egress::Mode;
 use spade_sandbox::{Facts, Policy};
 
 use super::{Security, toolchains};
-use crate::workspace::shell::{Confine, Confined, Kind};
+use crate::workspace::shell::{Confine, Confined, Confinement, Kind};
 
 impl Confine for Security {
-    fn confine(&self, home: &Path, kind: &Kind) -> Result<Option<Confined>, String> {
+    fn confine(&self, home: &Path, kind: &Kind) -> Result<Confinement, String> {
         let Some(bot) = self.bot_of(home) else {
-            return Ok(None);
+            return Ok(Confinement::None);
         };
         // No sandbox on this machine: commands run as before, and stay reviewed (decision 9).
         if !self.runner.status().usable() {
-            return Ok(None);
+            return Ok(Confinement::None);
         }
         let settings = self.bot(&bot);
         let held = self.effective(&bot);
@@ -82,7 +82,9 @@ impl Confine for Security {
                 &real(&self.spade_data),
                 &real(&self.home),
             ) {
-                return Ok(None);
+                return Ok(Confinement::NeedsReview(
+                    "it needs folders outside Spade's own".to_owned(),
+                ));
             }
         }
         // Windows: each run gets its own AppContainer identity, and its SID is granted on the
@@ -168,12 +170,12 @@ impl Confine for Security {
         #[cfg(not(windows))]
         let hold: Box<dyn std::any::Any + Send + Sync> = Box::new(ticket);
 
-        Ok(Some(Confined {
+        Ok(Confinement::Contained(Box::new(Confined {
             launch,
             env,
             path_first,
             hold,
-        }))
+        })))
     }
 
     fn contains(&self, home: &Path) -> bool {
