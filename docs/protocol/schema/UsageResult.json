@@ -25,6 +25,25 @@
       "minimum": 0,
       "type": "integer"
     },
+    "filling": {
+      "properties": {
+        "head": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "through": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "through",
+        "head"
+      ],
+      "type": "object"
+    },
     "omittedEvents": {
       "default": 0,
       "maximum": 9007199254740991,

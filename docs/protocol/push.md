@@ -2049,6 +2049,10 @@ Example:
   "result": {
     "costLabel": "estimate",
     "cursor": 9,
+    "filling": {
+      "head": 3,
+      "through": 1
+    },
     "priceAsOf": "1165-02-10",
     "priceSources": [],
     "priceVersion": "example",
