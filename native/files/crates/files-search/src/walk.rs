@@ -232,7 +232,7 @@ impl Worker<'_> {
         if !self.shared.accepts(&relative) {
             return;
         }
-        search_file(&mut self.searcher, self.shared, &relative);
+        search_file(&mut self.searcher, self.shared, entry, &relative);
     }
 }
 

@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use grep_matcher::Matcher;
 use grep_searcher::{Searcher, Sink, SinkMatch};
+use ignore::DirEntry;
 
 use crate::open;
 use crate::preview;
@@ -15,19 +16,23 @@ use crate::walk::{Shared, emit};
 
 /// Searches one file the walker handed over.
 ///
-/// The path is resolved through the root before it is opened, and the open refuses a symlink in
-/// the last path component, so a link swapped in after the walk cannot redirect the read. A file
-/// that cannot be read, changes while the walk runs, or looks binary is skipped: one bad file in
-/// a checkout must not fail the whole search, and its reserved match slots go back to the other
-/// walker threads.
-pub(crate) fn search_file(searcher: &mut Searcher, shared: &Shared<'_>, relative: &str) {
+/// The file is opened through the folder that holds it, and only if it is still the entry the
+/// walk saw: a name rewritten after the walk cannot redirect the read. A file that cannot be
+/// opened, looks binary, or fails while being read is skipped: one bad file in a checkout must
+/// not fail the whole search, and its reserved match slots go back to the other walker threads.
+pub(crate) fn search_file(
+    searcher: &mut Searcher,
+    shared: &Shared<'_>,
+    entry: &DirEntry,
+    relative: &str,
+) {
     if shared.halted() {
         return;
     }
-    let Ok(resolved) = shared.root.resolve(relative) else {
+    let Ok((folder, name)) = shared.root.open_parent(relative) else {
         return;
     };
-    let Ok(file) = open::open(&resolved) else {
+    let Some(file) = open::open(&folder, &name, entry) else {
         return;
     };
     let Ok(metadata) = file.metadata() else {

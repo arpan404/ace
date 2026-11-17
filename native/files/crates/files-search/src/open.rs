@@ -1,35 +1,54 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Opens a resolved file for reading without following a symlink in its last component.
+//! Opens the file a walker saw, through the folder that holds it.
 
-use std::fs::{File, OpenOptions};
-use std::io;
-use std::path::Path;
+use cap_fs_ext::{FollowSymlinks, OpenOptions, OpenOptionsFollowExt};
+use cap_std::fs::{Dir, File};
+use ignore::DirEntry;
 
-/// Opens `path` read-only, refusing a symlink as the last component.
+/// Opens `name` inside `folder` for reading without following a final symlink.
 ///
-/// `files_safe::Root::resolve` has already confirmed the path is inside the root; refusing the
-/// last symlink keeps a link swapped in afterwards from redirecting the read elsewhere.
-pub(crate) fn open(path: &Path) -> io::Result<File> {
+/// `None` means the file could not be opened, or is no longer the file the walker saw, so it must
+/// not be searched.
+pub(crate) fn open(folder: &Dir, name: &str, seen: &DirEntry) -> Option<File> {
     let mut options = OpenOptions::new();
-    options.read(true);
-    no_follow(&mut options);
-    options.open(path)
+    options.read(true).follow(FollowSymlinks::No);
+    let file = folder.open_with(name, &options).ok()?;
+    still_the_entry(&file, seen).then_some(file)
 }
 
+/// Whether the opened file is the entry the walker produced.
+///
+/// The walker's path can be rewritten between the walk and the open; comparing the two entries
+/// keeps a search from reading a file that was swapped in after it was listed.
 #[cfg(unix)]
-fn no_follow(options: &mut OpenOptions) {
-    use std::os::unix::fs::OpenOptionsExt;
-    options.custom_flags(libc::O_NOFOLLOW);
+fn still_the_entry(file: &File, seen: &DirEntry) -> bool {
+    use cap_fs_ext::OsMetadataExt as CapMetadata;
+    use std::os::unix::fs::MetadataExt as StdMetadata;
+
+    let (Ok(opened), Ok(seen)) = (file.metadata(), seen.metadata()) else {
+        return false;
+    };
+    opened.dev() == seen.dev() && opened.ino() == seen.ino()
 }
 
+/// Windows identifies files by volume and file index rather than device and inode.
 #[cfg(windows)]
-fn no_follow(options: &mut OpenOptions) {
-    use std::os::windows::fs::OpenOptionsExt;
-    /// `FILE_FLAG_OPEN_REPARSE_POINT`: open the link itself, never its target.
-    const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    options.custom_flags(OPEN_REPARSE_POINT);
+fn still_the_entry(file: &File, seen: &DirEntry) -> bool {
+    let Ok(clone) = file.try_clone() else {
+        return false;
+    };
+    let (Ok(opened), Ok(seen)) = (
+        same_file::Handle::from_file(clone.into_std_file()),
+        same_file::Handle::from_path(seen.path()),
+    ) else {
+        return false;
+    };
+    opened == seen
 }
 
+/// Platforms without a file identity cannot tell, so the open alone decides.
 #[cfg(not(any(unix, windows)))]
-fn no_follow(_options: &mut OpenOptions) {}
+fn still_the_entry(_file: &File, _seen: &DirEntry) -> bool {
+    true
+}
