@@ -58,11 +58,12 @@ export class FileIndex {
   private readonly jobs = new Map<string, Job>();
   private readonly scans = new Map<string, Scan>();
   /**
-   * Paths whose calls failed without an answer, retried by the recovery loop until their folder
-   * answers. The recovery ring alone can't do it: a path that is gone reads as unknown too.
-   * `reported` marks a diagnostic of ours, cleared once the folder answers.
+   * Paths whose calls failed without an answer, retried by the recovery loop until they are
+   * read, listed to the end or removed. A path whose metadata never changed, such as a listing
+   * that failed partway, would otherwise wait for the next watcher event. Their diagnostics stay
+   * until then, so a retry that fails again changes nothing and the loop backs off.
    */
-  private readonly unanswered = new Map<string, { job: Job; reported: boolean }>();
+  private readonly unanswered = new Map<string, Job>();
   private readonly watch: (root: RegisteredRoot, path: string) => void;
   private readonly unwatch: (root: RegisteredRoot, path: string) => void;
   private readonly missing: (root: RegisteredRoot) => Promise<void>;
@@ -136,6 +137,7 @@ export class FileIndex {
     const id = this.sources.get(slot);
     if (id) this.removeSource(id);
     this.sources.delete(slot);
+    this.unanswered.delete(slot);
   }
   private async stopScan(slot: string): Promise<void> {
     const scan = this.scans.get(slot);
@@ -193,11 +195,9 @@ export class FileIndex {
       slot = key(root, path);
     this.counters.metadataChecks++;
     const stat = await this.io.stat(root, path);
-    if (this.unanswered.get(slot)?.reported) this.clearSource(slot);
-    this.unanswered.delete(slot);
     if (!stat) {
       if (path === root.path) {
-        this.recovery.track(path, undefined);
+        this.recovery.trackMissing(path);
         await this.missing(root);
       }
       this.queue({ ...job, kind: "remove" });
@@ -304,9 +304,11 @@ export class FileIndex {
             : parseMarkdown(read.text, { ...ctx, format: root.format });
       if (!this.replaceSource(id, parsed)) {
         this.report(root, path, "Catalog admission limit exceeded");
+        this.unanswered.delete(slot);
         return;
       }
       this.sources.set(slot, id);
+      this.unanswered.delete(slot);
     } catch {
       // Closing cancels calls in flight; the cached definitions stay as they are.
       if (this.stopped) return;
@@ -396,27 +398,20 @@ export class FileIndex {
     const node = this.nodes.get(slot);
     if (node) node.version = "";
     this.recovery.track(job.path, undefined);
-    const known = this.unanswered.get(slot);
-    if (!known && this.unanswered.size >= 256) return;
-    let reported = known?.reported ?? false;
     // A removal that failed retries quietly; anything else says why its commands are missing.
-    if (job.kind === "inspect" || job.kind === "scan") {
-      this.report(job.root, job.path, message);
-      reported ||= this.sources.has(slot);
-    }
-    this.unanswered.set(slot, {
-      job: { ...job, kind: job.kind === "scan" ? "inspect" : job.kind },
-      reported,
-    });
+    if (job.kind === "inspect" || job.kind === "scan") this.report(job.root, job.path, message);
+    // Past the cap a path still has the recovery ring, which notices it answer or go missing.
+    if (this.unanswered.has(slot) || this.unanswered.size < 256)
+      this.unanswered.set(slot, { ...job, kind: job.kind === "scan" ? "inspect" : job.kind });
   }
   /** Queue up to `limit` paths still waiting on an answer, oldest first, for one more try. */
   retryUnanswered(limit = 32): void {
     const due = [...this.unanswered].slice(0, limit);
-    for (const [slot, entry] of due) {
+    for (const [slot, job] of due) {
       // To the back, so a folder that never answers can't starve the others.
       this.unanswered.delete(slot);
-      this.unanswered.set(slot, entry);
-      this.queue(entry.job);
+      this.unanswered.set(slot, job);
+      this.queue(job);
     }
   }
   clear(): void {

@@ -308,7 +308,8 @@ async function stallingFolder() {
   const recover = async () => {
     for (let i = 0; i < 4; i++) await recoveries[0]?.();
   };
-  return { files, stuck, state, hung, recover, names, diagnostics, unanswered };
+  const tick = () => recoveries[0]?.() ?? Promise.resolve(false);
+  return { files, stuck, state, hung, recover, tick, names, diagnostics, unanswered };
 }
 
 it("a folder that stops answering costs only its own commands, which return once it answers", async () => {
@@ -378,6 +379,22 @@ it("closing while a stuck folder's call is in flight keeps its cached commands",
   files.invalidate(join(stuck, "later.md"));
   await hung.promise;
   await files.close();
+  expect(names()).toEqual(["fine", "stuck:later"]);
+  expect(diagnostics()).toEqual([]);
+});
+
+it("recovery backs off while a folder keeps failing to list, and catches up once it lists", async () => {
+  const { files, state, tick, names, diagnostics } = await stallingFolder();
+  state.stalled = false;
+  state.unlistable = true;
+  await files.start();
+  // Each retry fails the same way: no progress, so the recovery loop waits longer each time.
+  expect(await tick()).toBe(false);
+  expect(await tick()).toBe(false);
+  expect(diagnostics()).toEqual(["Cannot scan commands directory"]);
+  state.unlistable = false;
+  expect(await tick()).toBe(true);
+  for (let i = 0; i < 3; i++) await tick();
   expect(names()).toEqual(["fine", "stuck:later"]);
   expect(diagnostics()).toEqual([]);
 });
