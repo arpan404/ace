@@ -66,7 +66,12 @@ private struct MessageMenu: ViewModifier {
                         if !offered.isEmpty {
                             Section {
                                 ForEach(offered, id: \.self) { action in
-                                    Button(action.label, ace: action.icon) { asking = transitions.choose(action, row) }
+                                    Button(action.label, ace: action.icon) {
+                                        guard let question = transitions.choose(action, row) else { return }
+                                        // The menu is still closing when its action runs, and an
+                                        // alert asked for then never shows: ask on the next turn.
+                                        DispatchQueue.main.async { asking = question }
+                                    }
                                 }
                             }
                         }

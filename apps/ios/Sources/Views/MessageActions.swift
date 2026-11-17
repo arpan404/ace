@@ -26,8 +26,8 @@ struct MessageTransitions: Equatable {
     /// so a redraw of the screen never redraws every message row.
     static func == (lhs: MessageTransitions, rhs: MessageTransitions) -> Bool { lhs.row == rhs.row }
     /// Chooses `action` from `row`'s menu: runs it now, or hands back the question it asks first
-    /// (Rewind's). The message presents that question itself, from its own menu, so it shows once
-    /// the menu has closed: a question raised further up while the menu is open never appears.
+    /// (Rewind's). The message presents that question itself, from its own menu, once the menu has
+    /// closed: a question raised further up, or while the menu is still closing, never appears.
     func choose(_ action: MessageAction, _ row: TranscriptRow) -> MessageQuestion? {
         if action == .rewind { return .rewind }
         run(action, row)

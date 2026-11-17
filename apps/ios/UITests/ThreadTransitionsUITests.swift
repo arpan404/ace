@@ -108,7 +108,9 @@ import XCTest
         // tap to close a long-press menu can miss its backdrop.
         let answers = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.answer."))
         openMenu(of: answers.element(boundBy: 0), in: app)
-        app.buttons["Rewind to here"].tap()
+        // Off the item's centre: a tap there, the last row of a menu low on the screen, left the
+        // menu open without running the action.
+        app.buttons["Rewind to here"].coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
         XCTAssertTrue(app.buttons["rewind.confirm"].waitForExistence(timeout: 10))
         screenshot("rewind-confirm")
         app.alerts.firstMatch.buttons["Cancel"].tap()
