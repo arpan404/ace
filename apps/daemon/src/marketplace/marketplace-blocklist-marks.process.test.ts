@@ -21,7 +21,7 @@ import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
 /*
  * The signed blocklist holds at install and is enforced again on every refresh and at startup;
  * "By ace" and "Verified" on list rows rest on a signed manifest the device verified, never on the
- * publisher id in the unsigned index or Discover (ADR 0173 §8, §13, §14).
+ * publisher id in the unsigned index or Discover (ADR 0174 §8, §13, §14).
  */
 
 let market: Awaited<ReturnType<typeof fakeMarket>>;

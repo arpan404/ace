@@ -11,21 +11,37 @@ import { allows } from "./devices.ts";
  * the person's business.
  */
 export function iconsHttp(
-  options: ServerOptions,
-  auth: RemoteAuth,
+  options: Pick<ServerOptions, "webOrigins" | "log"> & {
+    icons?: Pick<NonNullable<ServerOptions["icons"]>, "read"> | undefined;
+  },
+  auth: Pick<RemoteAuth, "localBearer" | "deviceBearer">,
   remote: boolean,
   next: (request: IncomingMessage, response: ServerResponse) => void,
 ) {
   const origins = webOriginAllowlist(options.webOrigins);
   return (request: IncomingMessage, response: ServerResponse) => {
-    void serve(request, response);
-  };
-  async function serve(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const path = request.url?.split("?")[0] ?? "";
     if (!path.startsWith("/v1/icons/")) {
       next(request, response);
       return;
     }
+    // A failed read (the icon store, or the bearer check's own store) answers this request
+    // with a 500; it never escapes as an unhandled rejection that would end the daemon.
+    serve(request, response, path).catch((error: unknown) => {
+      options.log?.(error);
+      if (response.headersSent || response.destroyed) {
+        response.destroy();
+        return;
+      }
+      response.statusCode = 500;
+      response.end();
+    });
+  };
+  async function serve(
+    request: IncomingMessage,
+    response: ServerResponse,
+    path: string,
+  ): Promise<void> {
     request.resume();
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("Referrer-Policy", "no-referrer");

@@ -1711,8 +1711,19 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "op": "sources",
-    "sources": []
+    "leftOut": [],
+    "op": "botRecipe",
+    "recipe": {
+      "face": {},
+      "format": "spade-bot",
+      "name": "example",
+      "needs": {
+        "connectors": [],
+        "tools": []
+      },
+      "task": "example",
+      "version": 2
+    }
   },
   "type": "marketplace.result"
 }

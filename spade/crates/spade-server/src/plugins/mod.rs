@@ -324,6 +324,11 @@ impl Plugins {
         Ok(())
     }
 
+    /// The plugins the person allowed `agent`, by name, whether or not they are on now.
+    pub fn allowed(&self, agent: &str) -> BTreeSet<String> {
+        self.access.allowed(agent)
+    }
+
     /// Forgets a deleted bot: its allow list and its servers.
     pub fn forget(&self, agent: &str) {
         if let Err(error) = self.access.set(agent, BTreeSet::new()) {

@@ -1,4 +1,4 @@
--- ADR 0173 §16: refresh work that must survive a cut-off, written in the batch that makes it.
+-- ADR 0174 §16: refresh work that must survive a cut-off, written in the batch that makes it.
 
 -- Entries a withdrawn list's marks touched, waiting to be brought in step. The marking batch
 -- writes a row per affected entry; a row is removed only after its entry was refreshed and only

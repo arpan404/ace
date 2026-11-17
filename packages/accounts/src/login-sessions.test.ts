@@ -243,3 +243,21 @@ test("provider exception text never reaches the sign-out result", async () => {
     await sessions.close();
   }
 });
+
+test("a CLI that ends with a message longer than the wire allows still ends the sign-in as failed", async () => {
+  const sessions = new ProviderLoginSessions({
+    now: () => 100,
+    id: () => "long-message",
+    schedule: () => () => {},
+    prepare: async () => ({ run: async () => ({ success: false, message: "x".repeat(4000) }) }),
+  });
+  try {
+    await sessions.handle("owner", start);
+    const done = await sessions.completed("owner", "long-message");
+    expect(done.state).toBe("failed");
+    expect(done.message?.length).toBeLessThanOrEqual(256);
+    expect(sessions.busy("codex")).toBe(false);
+  } finally {
+    await sessions.close();
+  }
+});

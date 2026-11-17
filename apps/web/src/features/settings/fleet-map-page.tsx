@@ -11,6 +11,11 @@ import { FleetFrame } from "./fleet-frame.tsx";
 
 /** The map's smallest words are 12px: drawn smaller than this scale they'd fall under 11px. */
 export const minScale = 11 / 12;
+/**
+ * Below this column width the map is a list. From it up, a map too wide for the column is drawn
+ * at `minScale` and scrolls sideways, so a large fleet still gets its map.
+ */
+const listBelow = 420;
 /** The panel sits beside the map from this column width, when the map still fits beside it. */
 const besideFrom = 980;
 const panelWidth = 260;
@@ -29,7 +34,8 @@ function Toggle(props: { label: string; checked: boolean; onChange(next: boolean
  * Settings › Fleet › Map: the fleet as a network diagram. ace's relay is a cloud, the local
  * network and the tailnet are zones, every machine and device is a node wired to this computer
  * the way it reaches it, and a broken wire says why. Selecting a node says more and offers its
- * fix. Too narrow to draw at a readable size, the same nodes are a list.
+ * fix. Wider than the column, it scrolls sideways at its smallest readable size; only a column
+ * narrower than a phone's gets the same nodes as a list.
  */
 export function FleetMapPage() {
   const openings = useAccountOpenings();
@@ -44,7 +50,8 @@ export function FleetMapPage() {
   const fits = (room: number) => room >= layout.width * minScale;
   const beside = width >= besideFrom && fits(width - panelWidth - gap);
   const room = beside ? width - panelWidth - gap : width;
-  const drawn = fits(room);
+  const drawn = fits(room) || room >= listBelow;
+  const scrolls = drawn && !fits(room);
   // The first node that needs the person, else this computer, until one is picked.
   const selectedId =
     (picked && map.nodes.some((node) => node.id === picked) ? picked : undefined) ??
@@ -64,16 +71,18 @@ export function FleetMapPage() {
             <Toggle label="Problems only" checked={problemsOnly} onChange={setProblemsOnly} />
           </div>
           {drawn ? (
-            <FleetMapSvg
-              map={map}
-              layout={layout}
-              ownId={ownId}
-              selected={selectedId}
-              agentLinks={agentLinks}
-              problemsOnly={problemsOnly}
-              width={Math.min(room, layout.width)}
-              onSelect={setPicked}
-            />
+            <div className={cn(scrolls && "overflow-x-auto pb-2")}>
+              <FleetMapSvg
+                map={map}
+                layout={layout}
+                ownId={ownId}
+                selected={selectedId}
+                agentLinks={agentLinks}
+                problemsOnly={problemsOnly}
+                width={scrolls ? Math.ceil(layout.width * minScale) : Math.min(room, layout.width)}
+                onSelect={setPicked}
+              />
+            </div>
           ) : (
             <MapList
               map={map}

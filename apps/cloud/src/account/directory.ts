@@ -51,7 +51,7 @@ export function directoryRoutes(deps: {
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");
         if (purpose === "spade-cloud" && kind !== "machine") return fail(400, "invalid_request");
-        // Publishing only ever as an account whose email WorkOS verified (ADR 0173 §2).
+        // Publishing only ever as an account whose email WorkOS verified (ADR 0174 §2).
         if (purpose === "market-publish" && account.emailVerified !== true)
           return fail(403, "email_unverified");
         const iat = now();

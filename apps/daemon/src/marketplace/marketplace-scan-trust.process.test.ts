@@ -11,7 +11,7 @@ import type { MarketInstallChoices } from "@ace/protocol/marketplace";
 import { fakeMarket, fakeSpade, marketplaceHarness } from "./test-support.ts";
 
 /*
- * What the device decides for itself (ADR 0173 §8, §13, §14): its own scan of the bytes it
+ * What the device decides for itself (ADR 0174 §8, §13, §14): its own scan of the bytes it
  * verified, the signed blocklist against what is installed, and "Verified" and "By ace" only
  * from lists signed by a key this build ships.
  */

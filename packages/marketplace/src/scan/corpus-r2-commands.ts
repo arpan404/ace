@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus.ts";
 
 /*
- * Inert samples for the instruction-file and interpreter-operand fixes (ADR 0173 §8): commands
+ * Inert samples for the instruction-file and interpreter-operand fixes (ADR 0174 §8): commands
  * an entry's instructions tell an agent to run, and fetched or decoded files run through a shell's
  * options. Each is a short string written for the tests, every host is `.invalid`, and none runs.
  */

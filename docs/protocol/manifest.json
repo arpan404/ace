@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 126340,
-      "sha256": "f426387cc3cb01d1f3cc7d9b2a5773d3a59dbdf9c7ca8f06831d6469c90371c8"
+      "bytes": 126553,
+      "sha256": "65e19f06fb56b6754ecb19fe0e6db4a5846d5e5e0158c21928aa157ef88b240b"
     },
     "requests.md": {
-      "bytes": 120869,
-      "sha256": "17ec6b8adb3ee3c4b0271a9a8ef4a821d7be0333bbbde12be561d7d318a278be"
+      "bytes": 120823,
+      "sha256": "c32dbb3b4fec149fc59daff12760d5c485dd8a2f0834be21c450265e1d33ae28"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -2624,6 +2624,10 @@
       "bytes": 1722,
       "sha256": "f20d6272934e32339a77fb7b3fd98fb4522aa1cc0160f685f51bf36edcf4d622"
     },
+    "schema/MarketBotReview.json": {
+      "bytes": 1527,
+      "sha256": "b959ae4fbbe964c1261b248906f6a60ef77039eae582e254a7a4a2448ae7e307"
+    },
     "schema/MarketCatalogFile.json": {
       "bytes": 537,
       "sha256": "4d03ea98284d9f0c18107250464aedceedbdc794535ab6664d3ba20f37de584b"
@@ -2684,17 +2688,37 @@
       "bytes": 1647,
       "sha256": "b58330c2bd965c51215bfc6534907e075de202b3800c7c12e6ca869614afac15"
     },
+    "schema/MarketDraftCheck.json": {
+      "bytes": 946,
+      "sha256": "6c075fbfc5ac1576a8b9370382a66ba30378d0707d88ed36e683bc55b23af051"
+    },
+    "schema/MarketDraftChecked.json": {
+      "bytes": 2030,
+      "sha256": "7245fd03c95ab9a463d608a9f9f4ec9c0a5f460165ef15bdec03cbbaf0fe5532"
+    },
+    "schema/MarketDraftFile.json": {
+      "bytes": 499,
+      "sha256": "da27798c7dcc60d4c7382b9b463c61ee01bcb13b9f373b3c2e2074915a714cb8"
+    },
+    "schema/MarketDraftFinding.json": {
+      "bytes": 881,
+      "sha256": "f0e41985c544a3ab977dd9fab9c9919212aacb34ea6aab7484cd41a18e3c49fc"
+    },
     "schema/MarketDraftId.json": {
       "bytes": 182,
       "sha256": "aed6d3a86b651bc1cda34619c3bd90de25e31c27fdfd15a419de131004a3bf80"
+    },
+    "schema/MarketDraftLeftOut.json": {
+      "bytes": 451,
+      "sha256": "15b0d0fec69b8cc439e3504d33e168701173ad948cb3accd87c29d0b2f07fa02"
     },
     "schema/MarketDraftPatch.json": {
       "bytes": 366,
       "sha256": "15e2ffca6ce344d42fea436f960005c8e7eba66e630bfe3c96ea00ce215365b4"
     },
     "schema/MarketDraftSource.json": {
-      "bytes": 1181,
-      "sha256": "9dc6931be822767b474f36ebf4e48e7e9826d865fd84a9c6c3c85b09fd096656"
+      "bytes": 2664,
+      "sha256": "bff675842e720d029a7f76d76f739a4c231be89bcaa77e8b51c400b32aadb157"
     },
     "schema/MarketEntryDetail.json": {
       "bytes": 705,
@@ -2805,8 +2829,8 @@
       "sha256": "954128bea532e478cef2ba62eba9b50d518474d83cb3c6bb331716bbe2d342e4"
     },
     "schema/MarketOperation.json": {
-      "bytes": 10203,
-      "sha256": "b6e353af9618a9ba78eff97ee9ad3ceec3665585ba0f65ea4a3c68080c4c99e4"
+      "bytes": 11372,
+      "sha256": "ee1603ecd58e7264d26b07b2c304ada678365aef1dd66ebdf430d1a29dbd5eff"
     },
     "schema/MarketOwnEntry.json": {
       "bytes": 1249,
@@ -2820,6 +2844,10 @@
       "bytes": 1354,
       "sha256": "fcb682c947faff3c3a58bbe0876a36f88c3b0e9d8a1d15e3372b695f6b88cd99"
     },
+    "schema/MarketPickType.json": {
+      "bytes": 218,
+      "sha256": "53562bf9527a10fc3cf02a4cc61689aa7d22b524ce4b558eca0a7d3f249f7594"
+    },
     "schema/MarketPictureKind.json": {
       "bytes": 194,
       "sha256": "56c1bd153872bc083bb34cbc86098b257545ad5060c6e24b3bf48ef5ce55314b"
@@ -2827,6 +2855,14 @@
     "schema/MarketPinsSet.json": {
       "bytes": 396,
       "sha256": "10f2e2c9b0c8c1f6f08e4fde291e80964a19f9e2db1c649d825671f91715f565"
+    },
+    "schema/MarketPrivacyKind.json": {
+      "bytes": 257,
+      "sha256": "dda0517575b93bb0a6d714cf4ec8a8c5925b0a3d76896b64f4c4193a698576ec"
+    },
+    "schema/MarketPrivacySpan.json": {
+      "bytes": 719,
+      "sha256": "5f53d25fa86abf1afc3891656055ecaa67b49a414b8464397eda47abaf12989f"
     },
     "schema/MarketProblem.json": {
       "bytes": 483,
@@ -2845,12 +2881,16 @@
       "sha256": "f64e7268b3a306d19e7880cf3da5c3b3dd858f9cc2b20cffd883f9ce559bba31"
     },
     "schema/MarketPublishAction.json": {
-      "bytes": 14785,
-      "sha256": "c00d234ed9c8aa4f5a5d82895479e86421cf549a3a6b28cf3fee8d7f3eef43d9"
+      "bytes": 15591,
+      "sha256": "5f4b6db13cf78040cde4216418c84b2bd382dfd7b052a16aca37625a4a7d7ce3"
     },
     "schema/MarketPublishAnswer.json": {
-      "bytes": 3636,
-      "sha256": "442de9f1d0e65defc20cd5c9e20ddc4a857ea15746e3b0ec43f1e0ea6a4476fe"
+      "bytes": 3988,
+      "sha256": "89e2ab569471cd707f9b42966542e8bafa6bd9e6348e8580c8a7d042b913c896"
+    },
+    "schema/MarketPublishable.json": {
+      "bytes": 2739,
+      "sha256": "4f4945b86eb00e4128bcee130e9904b67e48df19d43205cb08e0332e15ecf1f4"
     },
     "schema/MarketPublisher.json": {
       "bytes": 423,
@@ -2897,8 +2937,8 @@
       "sha256": "1fa6f7e0cfbd04ea8590850543c3e266ad5c225f881bfb17fd121e37e38758ba"
     },
     "schema/MarketResult.json": {
-      "bytes": 8236,
-      "sha256": "73b810826ed8670f95a28c6f09e39a6012abf3f2faa682363dee4d218c0f28e0"
+      "bytes": 9960,
+      "sha256": "e44490631adc1d36f45dbd5f2c7db0c1517cda4f6cadc15e8ab41ed8748a1143"
     },
     "schema/MarketReview.json": {
       "bytes": 1938,
@@ -6141,10 +6181,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1250248,
-      "sha256": "a04831423e7aa888581c4bf87e0cd54fad46793cefd58ab4a4ed053632b1c492"
+      "bytes": 1260859,
+      "sha256": "48bad2fe7a16bafae6231551d4a4ea3031422bce2a3b121b6f21ba45088b3ca6"
     }
   },
-  "input": "ed0ab9c7eab37a6f88f3ae713aeb1b883f27c0de970229acfbbbd4c9ae8a232b",
+  "input": "ba3c775d82599524adaf274a959a52534632841e11ea1ba410e86cc46b6ab814",
   "version": 1
 }

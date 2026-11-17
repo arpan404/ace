@@ -77,9 +77,20 @@ export function sessionLifetime(config: {
     })();
     return closePromise;
   }
-  const abort = () => {
-    void stop("aborted");
+  /**
+   * A stop nobody awaits. Its failure (a Windows tree that outlived its stop) is recorded on the
+   * session; an awaited close of the same session still rejects with it.
+   */
+  const stopUnawaited = (reason: Retirement) => {
+    void stop(reason).catch((error: unknown) =>
+      config.emit("note", {
+        event: "codex-stop-failed",
+        retirement: reason,
+        message: redact(error instanceof Error ? error.message : String(error)),
+      }),
+    );
   };
+  const abort = () => stopUnawaited("aborted");
   ctx.signal.addEventListener("abort", abort, { once: true });
   return {
     attached(value: CodexChannel): void {
@@ -123,7 +134,8 @@ export function sessionLifetime(config: {
     },
     close: (reason: "idle" | "user" | "shutdown") => stop(reason),
     failOpen: () => stop("open_failed"),
-    failTransport: () => stop("rpc_failed"),
+    /** Fire-and-forget from RPC callbacks; a failed stop is recorded on the session. */
+    failTransport: (): void => stopUnawaited("rpc_failed"),
     isClosed: () => closed,
   };
 }

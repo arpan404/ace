@@ -5,7 +5,8 @@ const cleanup: Cleanup = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-const fixture = (options: { ffmpeg?: boolean } = {}) => scrcpyFixture(cleanup, options);
+const fixture = (options: { ffmpeg?: boolean; resetAtControl?: boolean } = {}) =>
+  scrcpyFixture(cleanup, options);
 it("the live view is the emulator's own H.264, and every keyframe can start a decoder", async () => {
   const { frames, commands } = await fixture();
   await until(() => (frames.length >= 2 ? true : undefined));
@@ -187,5 +188,11 @@ it("input after the emulator went away says the view ended, not that control is 
   await expect(capture.input?.({ kind: "tap", x: 10, y: 10 }, () => {})).rejects.toMatchObject({
     code: "command_failed",
     message: "The Android screen stream ended",
+  });
+});
+
+it("an emulator that resets its sockets during startup fails the view, not the daemon", async () => {
+  await expect(fixture({ resetAtControl: true })).rejects.toMatchObject({
+    code: "command_failed",
   });
 });

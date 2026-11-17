@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { entry, findMarket, openApp, seed } from "./market-test-seed.ts";
 
-/* Discover's ranked sections, publisher pages, your profile, publishing and managing (ADR 0173). */
+/* Discover's ranked sections, publisher pages, your profile, publishing and managing (ADR 0174). */
 
 configure({ asyncUtilTimeout: 10000 });
 afterEach(() => localStorage.clear());
@@ -145,8 +145,15 @@ test("publishing holds Next on a failed check until Check again passes", async (
   await userEvent.click(
     await within(market).findByRole("button", { name: /Instructions and scripts a bot can use/ }),
   );
+  await userEvent.click(await within(market).findByRole("button", { name: "Choose a folder…" }));
   await userEvent.type(within(market).getByLabelText("Name in the marketplace"), "sort-receipts");
   await userEvent.type(within(market).getByLabelText("Folder on this machine"), "/Users/me/sort");
+  await within(market).findByRole("list", { name: "What will upload" });
+  await waitFor(() =>
+    expect(within(market).getByRole("button", { name: "Next" }).hasAttribute("disabled")).toBe(
+      false,
+    ),
+  );
   await userEvent.click(within(market).getByRole("button", { name: "Next" }));
 
   expect(await within(market).findByText("A script downloads code and runs it.")).toBeTruthy();

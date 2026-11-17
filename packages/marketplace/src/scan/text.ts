@@ -1,5 +1,5 @@
 /*
- * Text as the scanner reads it (ADR 0173 §8), ported from Spade's `spade-classify::text`: NFKC
+ * Text as the scanner reads it (ADR 0174 §8), ported from Spade's `spade-classify::text`: NFKC
  * normalisation, zero-width and tag characters removed, and look-alike letters folded to the
  * ASCII letter they imitate, so a Cyrillic-c `curl` and a zero-width-split `curl` both read as
  * `curl`. What was hidden is kept as a fact of its own, since hiding a word is itself a signal.
@@ -155,7 +155,7 @@ export function mixedScriptWord(input: string): string | undefined {
 }
 
 /**
- * The confusable **skeleton** of a handle or name (ADR 0173 §3, §8): lower-cased, NFKC, look-alike
+ * The confusable **skeleton** of a handle or name (ADR 0174 §3, §8): lower-cased, NFKC, look-alike
  * letters and digits folded (`0→o`, `1→l`, `3→e`, `5→s`, `rn→m`, `vv→w`, `i`/`l` together), all
  * separators dropped. Two names with one skeleton can't both exist, so `ace-team` and `acc-tearn`
  * collide.

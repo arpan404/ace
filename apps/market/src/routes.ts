@@ -14,7 +14,7 @@ import { meRoutes, signerRoutes } from "./routes-more.ts";
 export type { EntryKey, Matched, Methods, Route, VersionKey } from "./route-keys.ts";
 
 /*
- * Which route a request names (ADR 0168 §3, §7; ADR 0173 §11; the contracts are in
+ * Which route a request names (ADR 0168 §3, §7; ADR 0174 §11; the contracts are in
  * @ace/protocol/marketplace). Pure: a method and a path in, a route or a refusal out. A path
  * segment that isn't a valid type, name, version, hash, handle or id names nothing.
  */
@@ -77,12 +77,7 @@ function publishPath(parts: readonly string[]): Methods | undefined {
 /** Every method `pathname` takes, with the route each names. */
 export function routesFor(pathname: string): Methods | undefined {
   const parts = pathname.split("/").slice(1);
-  if (pathname === "/") return get({ kind: "page-home" });
-  if (parts[0] !== "v1") {
-    if (parts.length === 1 && parts[0] === "search") return get({ kind: "page-search" });
-    const entry = parts.length === 2 ? entryKey(parts[0], parts[1]) : undefined;
-    return entry ? get({ kind: "page-entry", ...entry }) : undefined;
-  }
+  if (parts[0] !== "v1") return undefined;
   if (parts.length > 9) return undefined;
   switch (parts[1]) {
     case "publish":

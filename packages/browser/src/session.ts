@@ -1004,6 +1004,8 @@ export class BrowserSession {
         .then((changed) => {
           if (changed) this.emit();
         })
+        // A turn that failed changes nothing; the next one runs on schedule.
+        .catch(() => {})
         .finally(() => this.scheduleLifecycle());
     });
   }

@@ -1,4 +1,4 @@
-# 0173: The market's publishers, discovery and scanning
+# 0174: The market's publishers, discovery and scanning
 
 Status: proposed. Date: 2026-11-16. Decided by: the owner (2026-11-16: publisher profiles,
 trending and discovery, publishing from the app, publishers managing their own publications, and
@@ -16,7 +16,9 @@ classifier), and [ADR 0125](0125-validate-at-trust-boundaries.md).
 
 ADR 0168 phase 1 built `market.acehq.dev` (`apps/market`, D1 and R2), the shared checks in
 `@ace/marketplace`, the signer and the daemon's client. A publisher can upload a version from the
-CLI and withdraw it; that's all. The owner now wants:
+CLI and withdraw it; that's all. The Worker serves the API only: the public web page ADR 0168
+first described was removed at the owner's request (2026-11-16), so every "page" below (a
+publisher's, an entry's, a review) is a view inside the ace app. The owner now wants:
 
 - publishers with public profiles, and a page of their own with every entry's state;
 - Discover: a hero, Trending this week, New and notable, collections and top publishers;

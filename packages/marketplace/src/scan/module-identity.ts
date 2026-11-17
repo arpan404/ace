@@ -1,7 +1,7 @@
 import { walk, type JsNode } from "./js-ast.ts";
 
 /*
- * Module identities in a JavaScript or TypeScript parse (ADR 0173 §8). The data-flow rule must
+ * Module identities in a JavaScript or TypeScript parse (ADR 0174 §8). The data-flow rule must
  * know that `e` in `const e = require("process").env` is the environment, the same as a literal
  * `process.env`, and that `readFileSync` imported from `node:fs` is a file read. This module binds
  * local names to the modules they stand for, through `require`, `import` (default, named,

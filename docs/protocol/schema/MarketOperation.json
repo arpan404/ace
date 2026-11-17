@@ -460,6 +460,65 @@
     {
       "additionalProperties": false,
       "properties": {
+        "op": {
+          "const": "publishables",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketPickType.json"
+        }
+      },
+      "required": [
+        "op",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "op": {
+          "const": "botRecipe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "privacyCheck",
+          "type": "string"
+        },
+        "texts": {
+          "items": {
+            "maxLength": 8000,
+            "type": "string"
+          },
+          "maxItems": 40,
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "texts"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "name": {
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },

@@ -82,11 +82,11 @@ export const MarketFeedEntryWire = z.object({
   byAce: orElse(z.boolean(), false),
   updated: orElse(z.number().int().nonnegative(), 0),
   downloads: orElse(z.number().int().nonnegative(), 0),
-  /** The publisher carries ace's verified mark (ADR 0173 §3). */
+  /** The publisher carries ace's verified mark (ADR 0174 §3). */
   verified: orElse(z.boolean(), false),
   /** The publisher's note on the latest version, when they deprecated it. */
   deprecated: orElse(z.string().max(500).optional(), undefined),
-  /** The listing pictures by sha256 (ADR 0173 §5), served at `/v1/previews/{sha256}`. */
+  /** The listing pictures by sha256 (ADR 0174 §5), served at `/v1/previews/{sha256}`. */
   previews: orElse(z.array(MarketHash).max(4).optional(), undefined),
 });
 
@@ -150,7 +150,7 @@ export const MarketLink = z.strictObject({
 });
 export type MarketLink = z.infer<typeof MarketLink>;
 
-/** `/v1/entries/{type}/{name}`. Links and pictures are ADR 0173's listing edits. */
+/** `/v1/entries/{type}/{name}`. Links and pictures are ADR 0174's listing edits. */
 export const EntryBody = z.object({
   entry: z.unknown(),
   description: orElse(z.string().max(8192), ""),
@@ -163,7 +163,7 @@ export const EntryBody = z.object({
     z.array(MarketLink).max(5),
   ).default([]),
   previews: orElse(z.array(MarketHash).max(4), []).default([]),
-  /** The entry is unlisted: found by link, never by search (ADR 0173 §5). */
+  /** The entry is unlisted: found by link, never by search (ADR 0174 §5). */
   unlisted: orElse(z.boolean(), false).default(false),
 });
 export type EntryBody = z.infer<typeof EntryBody>;

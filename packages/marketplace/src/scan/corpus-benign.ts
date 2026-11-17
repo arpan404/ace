@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus.ts";
 
 /*
- * The benign corpus (ADR 0173 §8, Tests): realistic skills, plugins, Suits and recipes written for
+ * The benign corpus (ADR 0174 §8, Tests): realistic skills, plugins, Suits and recipes written for
  * these tests, none of which carries malware or runs. The false-positive test scans every one and
  * asserts that none is blocked; the detection test counts how many are warned. Each sample only
  * does ordinary, useful work. If a real entry like one of these is ever blocked, a rule is too

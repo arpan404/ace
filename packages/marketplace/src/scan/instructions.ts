@@ -5,7 +5,7 @@ import { scanText } from "./decode.ts";
 import { held, truncated } from "./fail-closed.ts";
 
 /*
- * Commands an entry's instructions tell an agent to run (ADR 0173 §8). An agent reads a skill's
+ * Commands an entry's instructions tell an agent to run (ADR 0174 §8). An agent reads a skill's
  * SKILL.md, a plugin's README, AGENTS, CLAUDE and docs markdown, a recipe's task, blurb, notes
  * and routines, and a plugin's description, and runs what they say, so the code in them is read
  * as scripts are: fenced blocks (any tag or none), indented blocks, inline backtick spans that
@@ -268,7 +268,7 @@ function extract(sources: readonly Source[]): { scripts: InstructionScript[]; cu
 }
 
 /**
- * The fail-closed findings of an entry's instructions (ADR 0173 §8): a `scan-truncated` block
+ * The fail-closed findings of an entry's instructions (ADR 0174 §8): a `scan-truncated` block
  * for every source a cap cut short, and a hold for prose that tells an agent to run something
  * no code-shaped command carries.
  *

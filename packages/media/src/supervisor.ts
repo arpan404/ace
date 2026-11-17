@@ -413,7 +413,15 @@ export class MediaSupervisor {
         this.#options.log("error", "ace-media sent invalid framing", { error: String(error) });
         return this.#kill(run, "protocol");
       }
-      for (const frame of frames) onFrame(frame);
+      for (const frame of frames) {
+        // A consumer that throws on one frame costs that frame, not the daemon: this runs
+        // inside a socket's data event.
+        try {
+          onFrame(frame);
+        } catch (error) {
+          this.#options.log("error", "ace-media frame handler failed", { error: String(error) });
+        }
+      }
     });
   }
 

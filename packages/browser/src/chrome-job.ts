@@ -150,7 +150,9 @@ export function chromeJobs(
         job.assign(child.pid);
         byPid.set(child.pid, job);
       } catch (error) {
-        // Never opened, the gate exits without starting Chrome.
+        // Never opened, the gate exits without starting Chrome. A spawn that failed reports
+        // its error event after this throw, with no other listener yet: it is heard here.
+        child.on("error", () => {});
         gate.close();
         child.kill();
         throw error;

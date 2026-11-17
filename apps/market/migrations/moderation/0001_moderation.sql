@@ -1,4 +1,4 @@
--- Moderation (ADR 0173 §5, §7, §8, §16): abuse reports, appeals and the signed blocklist.
+-- Moderation (ADR 0174 §5, §7, §8, §16): abuse reports, appeals and the signed blocklist.
 -- Nothing here names a reader: reports keep no address and no account.
 
 -- Anonymous abuse reports (§7). An entry holds at most 500 open ones.

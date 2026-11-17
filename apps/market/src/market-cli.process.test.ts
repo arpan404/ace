@@ -12,7 +12,7 @@ import { marketKey, publish, signerToken, startMarket, type Market } from "./tes
 import { publishLive } from "./testing/discover-harness.ts";
 
 /*
- * The maintainers' `ace market` commands (ADR 0173 §10) as a maintainer runs them: the real CLI
+ * The maintainers' `ace market` commands (ADR 0174 §10) as a maintainer runs them: the real CLI
  * in its own process, over HTTP to the Worker, with the signer's token and a key file.
  */
 

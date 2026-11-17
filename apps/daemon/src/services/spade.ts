@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { logError } from "@ace/diagnostics";
 import { newSpadeNonce, proveSpade } from "@ace/service/spade";
 import { GrantStore } from "../external-mcp/grants.ts";
 import { GrantTokens } from "../external-mcp/tokens.ts";
@@ -53,6 +54,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     dataDir,
     runtime: options.runtime ?? nodeSpadeLinkRuntime({ service, now: context.now }),
     ...(options.pollMs ? { pollMs: options.pollMs } : {}),
+    report: (error) => log.log("error", "Spade's status check failed", logError(error)),
   });
   services.spade = link;
   context.resources.own(() => link.close(), "spade");

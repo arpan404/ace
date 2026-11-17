@@ -38,6 +38,21 @@ const secretFiles = [
   /\.(?:pem|p12|pfx|key|keystore|jks)$/,
 ];
 
+/**
+ * A file named like a credential, by its own name: `.env*`, SSH keys (`id_*`), `.npmrc`,
+ * `.netrc`, anything named `credentials`, and key or certificate stores. A folder publishing
+ * leaves these out before anything is read.
+ */
+export function credentialFile(name: string): boolean {
+  return (
+    /^\.env(?:\..*)?$/i.test(name) ||
+    /^id_[a-z0-9]+(?:\.pub)?$/i.test(name) ||
+    /^\.(?:npmrc|netrc|pgpass|pypirc|git-credentials)$/i.test(name) ||
+    /credentials/i.test(name) ||
+    /\.(?:pem|key|p12|pfx|keystore|jks|kdbx|ppk|gpg|asc|ovpn)$/i.test(name)
+  );
+}
+
 /** A field name that reads as a secret: `token`, `apiKey`, `webhook_secret`, `password`, … */
 export const secretName =
   /(?:secret|token|passw(?:or)?d|api[_-]?key|access[_-]?key|private[_-]?key|credential|bearer|authorization|cookie|session[_-]?id)/i;
@@ -64,6 +79,15 @@ export function secretValueProblems(text: string, path: string): MarketProblem[]
         break;
       }
   return problems;
+}
+
+/** Where in `text` each value shaped like a secret is, with what it looks like. */
+export function secretSpans(text: string): { start: number; end: number; label: string }[] {
+  const spans: { start: number; end: number; label: string }[] = [];
+  for (const { label, pattern } of valuePatterns)
+    for (const match of text.matchAll(new RegExp(pattern.source, `${pattern.flags}g`)))
+      spans.push({ start: match.index, end: match.index + match[0].length, label });
+  return spans;
 }
 
 /** Field names anywhere in a JSON value that read as secrets, by their dotted path. */

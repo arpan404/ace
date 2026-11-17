@@ -24,7 +24,7 @@ import { storePending } from "./store/publish.ts";
 import { chargeGraceMs, reconcileUsage } from "./store/usage.ts";
 
 /*
- * The market across its databases (ADR 0173 §16): each type's entries stay in its own
+ * The market across its databases (ADR 0174 §16): each type's entries stay in its own
  * catalogue, `since` stays exact over several stamps, and every protocol that spans two
  * databases finishes after a cut-off at any step, through a retry or the cron.
  */

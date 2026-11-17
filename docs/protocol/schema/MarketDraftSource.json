@@ -55,6 +55,80 @@
         "id"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "spade-bot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "spade-skill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SkillId.json"
+        },
+        "kind": {
+          "const": "ace-skill",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "plugin",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "type": "object"
     }
   ]
 }

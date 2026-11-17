@@ -82,7 +82,20 @@ export type HostConfig = {
   onRetired(): void;
   /** Platform override for the Windows branch; tests inject "win32" without a Windows host. */
   platform?: NodeJS.Platform;
+  /**
+   * Windows: ends the process and its recorded tree (provider-kit's stopTreeAfterEof). Rejects
+   * when a member outlived its stop. Tests inject it to decide the outcome.
+   */
+  stopTree?: (proc: SupervisedProcess, graceMs: number) => Promise<unknown>;
 };
+
+const stopTreeAfterEof = async (proc: SupervisedProcess, graceMs: number): Promise<unknown> =>
+  (await import("@ace/provider-kit/tree-stop")).stopTreeAfterEof(proc, graceMs);
+
+/** Shared-host retirement with no session left to tell: the daemon's process warnings. */
+function reportRetireFailure(error: unknown): void {
+  process.emitWarning(`Codex app-server did not stop cleanly: ${String(error)}`);
+}
 
 const holdThreads = 64;
 const holdFrames = 256;
@@ -291,7 +304,7 @@ export class CodexHost {
       tenant.exited = true;
       this.#tenants.delete(tenant);
       this.#router.release(tenant);
-      void this.#vacated(false);
+      void this.#vacated(false).catch(reportRetireFailure);
       throw error;
     }
   }
@@ -354,9 +367,9 @@ export class CodexHost {
     if ((this.#config.platform ?? process.platform) === "win32") {
       const proc = this.#proc;
       const graceMs = this.#config.graceMs;
-      this.#retiring = import("@ace/provider-kit/tree-stop")
-        .then(({ stopTreeAfterEof }) => stopTreeAfterEof(proc, graceMs))
-        .then(() => {});
+      // Rejects when a member of the tree outlived its stop: an awaited retire (a busy session
+      // stopping its shared host) must not report its work stopped while shells still run.
+      this.#retiring = (this.#config.stopTree ?? stopTreeAfterEof)(proc, graceMs).then(() => {});
       return this.#retiring;
     }
     this.#retiring = this.#proc.stop({ graceMs: this.#config.graceMs }).then(() => {});
@@ -372,8 +385,13 @@ export class CodexHost {
     this.#cancelIdle?.();
     this.#cancelIdle = this.#config.schedule(() => {
       this.#cancelIdle = undefined;
-      if (!this.#tenants.size) void this.retire();
+      if (!this.#tenants.size) this.#retireUnawaited();
     }, this.#config.idleMs);
+  }
+
+  /** A retire nobody waits on: its failure is reported here, since no caller can see it. */
+  #retireUnawaited(): void {
+    void this.retire().catch(reportRetireFailure);
   }
 
   #exited(exit: HostExit): void {
