@@ -10,7 +10,7 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
+import { registerGroup, signalTree, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { toWindowsCommand } from "./process-owner.ts";
 import {
@@ -101,14 +101,6 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
   const killTree = options.windowsKillTree ?? killWindowsTree;
-  const terminate = (pid: number) => {
-    if (windows) killTree(pid, false);
-    else killGroup(pid, "SIGTERM");
-  };
-  const destroy = (pid: number) => {
-    if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL");
-  };
   const stopRetained = (pid: number, graceMs: number) =>
     windows
       ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
@@ -129,6 +121,9 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     stdio: ["pipe", "pipe", "pipe"],
   });
   reportBunStdinFailures(child.stdin);
+  // Never throws: stops run from timers, exit listeners and voided stop() calls.
+  const terminate = (pid: number) => signalTree(pid, false, windows, killTree, child);
+  const destroy = (pid: number) => signalTree(pid, true, windows, killTree, child);
   const controller = new AbortController();
   const pid = child.pid;
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
@@ -190,11 +185,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       // This runs in the child's exit listener, where a throw would be uncaught (and would end
       // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
       // without a kernel32 binding, is reported and ownership still ends.
-      try {
-        destroy(pid);
-      } catch (error) {
-        process.emitWarning(`Could not stop process tree ${pid} after it exited: ${String(error)}`);
-      }
+      destroy(pid);
       unregisterGroup(pid);
       job?.dispose();
     }
@@ -251,8 +242,16 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
                 job?.dispose();
               })
             : stopRetained(pid, graceMs);
-          retainedStop = stopping.then(() => exited);
-          void stopping.finally(() => clearTimeout(retainedKill));
+          retainedStop = stopping.then(
+            () => exited,
+            (error: unknown) => {
+              // The group could not be stopped politely: it is killed, and the stop still ends.
+              process.emitWarning(`Could not stop process group ${pid}: ${String(error)}`);
+              destroy(pid);
+              return exited;
+            },
+          );
+          void retainedStop.finally(() => clearTimeout(retainedKill));
         } else if (shortens(graceMs)) {
           // The group can outlive its leader, so this deadline survives the leader's exit.
           clearTimeout(retainedKill);

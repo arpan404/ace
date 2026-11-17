@@ -374,6 +374,31 @@ describe("supervised processes", () => {
       process.off("warning", warn);
     }
   });
+  it("a stop whose tree signal cannot run still ends the process instead of throwing", async () => {
+    const warnings: string[] = [];
+    const warn = (warning: Error) => warnings.push(warning.message);
+    process.on("warning", warn);
+    try {
+      const proc = spawnRawSupervised({
+        command: process.execPath,
+        args: ["-e", "setInterval(() => {}, 1000)"],
+        env: {},
+        name: "stuck",
+        platform: "win32",
+        windowsJobFactory: () => undefined,
+        windowsKillTree: () => {
+          throw new Error("taskkill unavailable");
+        },
+      });
+      // Voided stops run inside abort listeners and timers, where a throw ends the daemon.
+      let stopping: Promise<unknown> | undefined;
+      expect(() => (stopping = proc.stop({ graceMs: 50 }))).not.toThrow();
+      expect(await stopping).toMatchObject({ reason: "stopped" });
+      await expect.poll(() => warnings.join("\n")).toContain("taskkill unavailable");
+    } finally {
+      process.off("warning", warn);
+    }
+  });
   it("rejects probe output beyond the capture byte budget", async () => {
     await expect(
       probeOutput(

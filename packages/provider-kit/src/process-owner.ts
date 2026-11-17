@@ -39,6 +39,31 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
   }
 }
+/**
+ * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
+ * listeners and voided stop() calls. A group signal refused (EPERM when every member left runs
+ * as another user, or a Windows tree stop that cannot run) is reported, and the leader is still
+ * signalled through its own handle, which never reaches a reused pid once it has exited.
+ */
+export function signalTree(
+  pid: number,
+  force: boolean,
+  windows: boolean,
+  killTree: WindowsKillTree,
+  leader: { kill(signal: NodeJS.Signals): boolean },
+): void {
+  try {
+    if (windows) killTree(pid, force);
+    else killGroup(pid, force ? "SIGKILL" : "SIGTERM");
+  } catch (error) {
+    process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
+    try {
+      leader.kill(force ? "SIGKILL" : "SIGTERM");
+    } catch {
+      /* Already gone. */
+    }
+  }
+}
 /** A retained group's lifetime is independent of its leader and inherited pipes. */
 export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
   killGroup(pid, "SIGTERM");

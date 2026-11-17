@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import type { Readable } from "node:stream";
 import { terminateDirectoryProcesses } from "./directory-processes.ts";
-import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { registerGroup, signalTree, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import {
   createKillOnCloseJob,
@@ -54,10 +54,6 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
   const killTree = options.windowsKillTree ?? killWindowsTree;
-  const destroy = (pid: number) => {
-    if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL");
-  };
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
@@ -69,6 +65,8 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const pid = child.pid;
+  // Never throws: it runs in the child's exit listener.
+  const destroy = (pid: number) => signalTree(pid, true, windows, killTree, child);
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
