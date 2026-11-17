@@ -378,6 +378,14 @@ struct ConversationFeed: View {
             .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
             .modifier(SpacerCounts(before: extent.before, after: extent.after))
             .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
+            // The rows of an opened thread measure within a few frames of landing; then new rows and
+            // the reader's drags grow under a held top, as before (`TranscriptGrowthAnchor`).
+            .task(id: initialScroll) {
+                guard initialScroll else { return }
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                growth.openSettled()
+            }
             .onChange(of: reading.loading) { _, loading in
                 if loading, reading.operation == "older" { TranscriptJumpHooks.begin("older") }
                 if !loading { pageIfNeeded(proxy) }

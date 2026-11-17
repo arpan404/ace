@@ -25,4 +25,11 @@ import Testing
         anchor.leftEnd()
         #expect(!anchor.keepsEnd)
     }
+
+    @Test func anOpeningThatHasSettledHoldsItsTopAgain() {
+        var anchor = TranscriptGrowthAnchor()
+        anchor.opened(atEnd: true)
+        anchor.openSettled()
+        #expect(!anchor.keepsEnd, "new rows and a later drag behave as they did before the open")
+    }
 }

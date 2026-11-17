@@ -6,8 +6,9 @@
 /// and then jumps there. Holding the bottom still instead keeps what is on screen where it is.
 ///
 /// The bottom holds only while nothing but those corrections changes the size: from a thread
-/// opening at its end until the reader first moves it or the feed leaves the end. Anything the
-/// reader opens, a keyboard and older pages grow under a held top, as before. Pure.
+/// opening at its end until its rows have settled, the reader first moves it, or the feed leaves
+/// the end. Anything the reader opens, a keyboard and older pages grow under a held top, as
+/// before. Pure.
 struct TranscriptGrowthAnchor: Equatable, Sendable {
     private var opening = false
 
@@ -18,6 +19,9 @@ struct TranscriptGrowthAnchor: Equatable, Sendable {
     mutating func opened(atEnd: Bool) {
         if atEnd { opening = true }
     }
+
+    /// The opened rows have measured: size changes keep the top again.
+    mutating func openSettled() { opening = false }
 
     /// The feed stopped following the end without the reader's hand (a jump, a turn key).
     mutating func leftEnd() { opening = false }
