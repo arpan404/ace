@@ -102,9 +102,11 @@ test("a full disk met by a background pass holds new work on the daemon, and fre
   onTestFinished(() => daemon.close());
   const origin = await readFile(join(home, "daemon-endpoint"), "utf8");
   const token = await readFile(daemon.tokenPath, "utf8");
-  const holds = async () =>
-    ((await accessRequest(origin, "/v1/status", { token })) as { admission: { holds: string[] } })
-      .admission.holds;
+  const holds = async () => daemon.maintenance.status().holds;
+  /** Whether the local app's health check reads admission closed (it is not told why). */
+  const closed = async () =>
+    ((await accessRequest(origin, "/v1/status", { token })) as { admission: { draining: boolean } })
+      .admission.draining;
   expect(await holds()).toEqual([]);
   const storage = daemon.storage;
   if (!storage) throw new Error("Storage service did not start");
@@ -113,6 +115,7 @@ test("a full disk met by a background pass holds new work on the daemon, and fre
   for (let attempt = 0; attempt < 100 && (await holds()).length === 0; attempt++)
     await new Promise((resolve) => setTimeout(resolve, 20));
   expect(await holds()).toEqual(["storage"]);
+  expect(await closed()).toBe(true);
   // Still held while the volume stays nearly full; released once a read finds room.
   freeBlocks = 10;
   reads.shift()?.();
@@ -120,4 +123,5 @@ test("a full disk met by a background pass holds new work on the daemon, and fre
   freeBlocks = 1_000_000;
   reads.shift()?.();
   expect(await holds()).toEqual([]);
+  expect(await closed()).toBe(false);
 });
