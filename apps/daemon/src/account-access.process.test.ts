@@ -723,3 +723,58 @@ it("Spade obtains a cloud-only credential instead of a replayable machine grant"
     ),
   ).toThrow();
 });
+
+it("closing during the first sign-in request gives it up: no polling starts and no session is written", async () => {
+  const backend = await startFakeAccountBackend(Date.now);
+  cleanup.push(() => backend.close());
+  // The network holds the first sign-in request until the test lets it through, and gives it
+  // up when its signal aborts, as a real request does.
+  const release = Promise.withResolvers<void>();
+  let held = 0;
+  const slowFetch: typeof fetch = async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (new URL(url).pathname === "/v1/account/login") {
+      held++;
+      const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+      await new Promise<void>((resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        void release.promise.then(resolve);
+      });
+      const answer = await globalThis.fetch(input, init);
+      // The person finished signing in meanwhile: a poll that runs would get a session.
+      backend.completeLogins();
+      return answer;
+    }
+    return globalThis.fetch(input, init);
+  };
+  const root = await mkdtemp(join(tmpdir(), "ace-account-login-close-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const store = new Store(join(root, "store.sqlite"));
+  cleanup.push(() => store.close());
+  let timers = 0;
+  const account = machineAccount({
+    dataDir: root,
+    codes: store.machineCodes,
+    fetch: slowFetch,
+    now: Date.now,
+    randomBytes,
+    delay: (run: () => void) => {
+      timers++;
+      const timer = setTimeout(run, 10);
+      return () => clearTimeout(timer);
+    },
+    defaultOrigin: backend.origin,
+  });
+  const starting = account.startLogin();
+  starting.catch(() => {});
+  await expect.poll(() => held).toBe(1);
+
+  await account.close();
+  // The answer would come now, late: nothing takes it up.
+  release.resolve();
+  await expect(starting).rejects.toMatchObject({ status: 502 });
+  expect(timers).toBe(0);
+  expect(account.status()).toMatchObject({ signedIn: false });
+  expect(account.status().login).toBeUndefined();
+  await expect(stat(join(root, "ace-account.json"))).rejects.toMatchObject({ code: "ENOENT" });
+});

@@ -26,6 +26,8 @@ const unauthorized = (message = "Valid hello required"): DeviceAdmission => ({
   message,
 });
 const loginPollMs = 2_000;
+/** A sign-in that couldn't reach the backend, or was given up as the account closed. */
+const unreachable = () => new AccessError(502, "Couldn't reach your ace account.");
 /**
  * How often the daemon reads its session back from the backend. Each read renews it there
  * (ADR 0100), and the answer carries the new expiry, so a machine left running stays signed in.
@@ -292,6 +294,8 @@ export function machineAccount(options: {
         );
       }
       await adopt({ origin, token, ...checked, source: "handover" }, () => {
+        // Closed while the backend vouched for it: the session isn't taken up or written.
+        if (closed) throw unreachable();
         if (condition && (condition.session !== sessionId || login)) throw accountChanged();
         stopLogin();
       });
@@ -302,14 +306,19 @@ export function machineAccount(options: {
       if (!origin)
         throw new AccessError(400, "No ace account address. Set ACE_ACCOUNT_URL or pass --origin.");
       stopLogin();
+      // Closing the account gives the sign-in up too, from its first request on.
       const controller = new AbortController();
+      const signal = AbortSignal.any([controller.signal, closing.signal]);
       const account = client(origin);
+      if (closed) throw unreachable();
       let started;
       try {
-        started = await account.login(controller.signal);
+        started = await account.login(signal);
       } catch {
-        throw new AccessError(502, "Couldn't reach your ace account.");
+        throw unreachable();
       }
+      // Closed while asking: nothing is installed, polled or written for it.
+      if (closed) throw unreachable();
       let cancelPoll: () => void = noop;
       const current = {
         url: started.loginUrl,
@@ -321,23 +330,24 @@ export function machineAccount(options: {
       };
       login = current;
       const poll = () => {
+        if (closed || login !== current) return;
         cancelPoll = options.delay(() => {
-          if (login !== current) return;
+          if (closed || login !== current) return;
           if (options.now() >= current.expiresAt) {
             stopLogin();
             return;
           }
           account
-            .poll(started, controller.signal)
+            .poll(started, signal)
             .then(async (result) => {
-              if (login !== current) return;
+              if (closed || login !== current) return;
               if (result.status === "pending") return poll();
               login = undefined;
               const { token, account: who, expiresAt } = result.session;
               await adopt({ origin, token, account: who, expiresAt, source: "login" });
             })
             .catch((error: unknown) => {
-              if (login !== current) return;
+              if (closed || login !== current) return;
               // An expired or cancelled sign-in ends; a network blip keeps polling.
               if (error instanceof AceAccountError && [401, 404, 410].includes(error.status))
                 stopLogin();
