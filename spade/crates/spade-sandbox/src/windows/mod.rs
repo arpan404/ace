@@ -128,10 +128,34 @@ pub fn grants(policy: &Policy, spade_data: &std::path::Path) -> Vec<Grant> {
     grants
 }
 
-/// The native hard-link attempt, re-exported so the test helper (in this crate) can reach it
-/// without depending on the platform crate directly.
+/// The hard-link attempts (Win32 and native), re-exported so the test helper (in this crate) can
+/// reach them without depending on the platform crate directly.
 #[cfg(windows)]
-pub use spade_sandbox_windows::fs::hard_link_via_nt;
+pub use spade_sandbox_windows::link;
+
+/// The line the person reads when a networked bot's commands keep the review path on Windows.
+/// Under a Less Privileged AppContainer `WSAStartup` fails, so a networked run would have to be a
+/// plain AppContainer, which keeps ambient read access to what every app package may read; such a
+/// run is not reported `contained` (ADR 0167, Windows amendment).
+pub const NETWORK_REVIEW: &str =
+    "Windows can't seal off network commands yet, so Spade asks first.";
+
+/// The line the person reads when a bot's commands need the person's own folders on Windows.
+pub const FOLDERS_REVIEW: &str = "This needs your folders, so Spade asks first.";
+
+/// Why a bot's commands keep the review path on Windows, as the person reads it, or `None` when
+/// they are contained: only a run with no network (`networked` false, so it is a Less Privileged
+/// AppContainer) whose every place is Spade-owned (`owned_only`) is contained. Network is named
+/// first, since no networked run is contained however its folders stand.
+pub fn review_line(networked: bool, owned_only: bool) -> Option<&'static str> {
+    if networked {
+        Some(NETWORK_REVIEW)
+    } else if !owned_only {
+        Some(FOLDERS_REVIEW)
+    } else {
+        None
+    }
+}
 
 /// What a run would touch, for deciding whether it can be contained on Windows.
 #[cfg(windows)]
@@ -270,6 +294,17 @@ mod tests {
         let home = crate::policy::real(&home);
         assert!(grants.iter().all(|g| g.path != home.join("code/app")));
         assert!(grants.iter().all(|g| g.path != home.join(".cargo/bin")));
+    }
+
+    #[test]
+    fn only_a_run_with_no_network_on_spade_owned_folders_is_contained() {
+        // No network and only Spade's own folders: contained, no line.
+        assert_eq!(review_line(false, true), None);
+        // Networked: never contained, whatever its folders — and the line says why.
+        assert_eq!(review_line(true, true), Some(NETWORK_REVIEW));
+        assert_eq!(review_line(true, false), Some(NETWORK_REVIEW));
+        // No network but the person's folders: reviewed for the folders.
+        assert_eq!(review_line(false, false), Some(FOLDERS_REVIEW));
     }
 
     // `containable` now proves ancestry by file identity (real handles), so it is exercised on a

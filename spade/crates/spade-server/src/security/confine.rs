@@ -67,11 +67,18 @@ impl Confine for Security {
         std::fs::create_dir_all(&policy.temp).map_err(|error| {
             format!("the sandbox's temporary folder could not be made: {error}")
         })?;
-        // Windows reports `contained` only for runs that touch no ACLs on the person's folders
-        // (ADR 0167 narrowing). A run that needs a consented folder or a toolchain under the home
-        // keeps the review path, unconfined — Spade asks first.
+        // Windows reports `contained` only for runs with no network (a Less Privileged
+        // AppContainer: a networked run can't be one, since `WSAStartup` fails under LPAC, and as
+        // a plain AppContainer it keeps ambient app-package read access) that touch no ACLs on the
+        // person's folders (ADR 0167 narrowing). Any other run keeps the review path — Spade asks
+        // first — and one that skipped review is refused, never launched plainly.
         #[cfg(windows)]
         {
+            if ticket.is_some() {
+                return Ok(Confinement::NeedsReview(
+                    spade_sandbox::windows::NETWORK_REVIEW.to_owned(),
+                ));
+            }
             let workspace = policy.workspace.clone();
             let scratch = policy.scratch.clone();
             let plugin_real = plugin_root.as_ref().map(|p| spade_sandbox::policy::real(p));
@@ -88,7 +95,7 @@ impl Confine for Security {
             };
             if !spade_sandbox::windows::containable(&spec) {
                 return Ok(Confinement::NeedsReview(
-                    "it needs folders outside Spade's own".to_owned(),
+                    spade_sandbox::windows::FOLDERS_REVIEW.to_owned(),
                 ));
             }
         }
@@ -187,20 +194,7 @@ impl Confine for Security {
         let Some(bot) = self.bot_of(home) else {
             return false;
         };
-        if !Security::contains(self) {
-            return false;
-        }
-        // Windows contains a run only when it touches no ACLs on the person's folders (a consented
-        // folder or a toolchain under the home folder sends it to review instead).
-        #[cfg(windows)]
-        {
-            self.windows_containable(&bot)
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = bot;
-            true
-        }
+        self.bot_containment(&bot).0
     }
 
     fn outside(&self, home: &Path) -> bool {
@@ -252,6 +246,35 @@ impl Drop for RunHold {
                 %error,
                 "a sandbox run's ACL grants could not be fully taken back; the bot is held until they clear",
             );
+        }
+    }
+}
+
+impl Security {
+    /// Whether `bot`'s commands are contained here, and when they aren't on Windows, the line the
+    /// person reads for why (they keep the review path). With no sandbox on this machine they
+    /// aren't contained and the machine's own status says why.
+    pub fn bot_containment(&self, bot: &str) -> (bool, Option<&'static str>) {
+        if !Security::contains(self) {
+            return (false, None);
+        }
+        // Windows contains a run only with no network (a Less Privileged AppContainer) and when
+        // it touches no ACLs on the person's folders (a consented folder or a toolchain under the
+        // home folder sends it to review instead).
+        #[cfg(windows)]
+        {
+            let networked = matches!(
+                self.effective(bot).network.mode,
+                Mode::AllowList | Mode::Open
+            );
+            let line =
+                spade_sandbox::windows::review_line(networked, self.windows_containable(bot));
+            (line.is_none(), line)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = bot;
+            (true, None)
         }
     }
 }
