@@ -21,6 +21,10 @@ cargo run -p spade-server
 curl localhost:3000/health   # {"ok":true,"version":"0.1.0","api":1}
 ```
 
+On Linux, the sandbox's seccomp filter links the system's libseccomp: install `build-essential`,
+`pkg-config` and `libseccomp-dev` first (Debian and Ubuntu; `libseccomp-devel` on Fedora). See
+[docs/security.md](docs/security.md#linux).
+
 ## Commands
 
 | Command                                                         | What it does                          |

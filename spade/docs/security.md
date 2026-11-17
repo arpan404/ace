@@ -1,6 +1,6 @@
 # Security boundaries
 
-Date: 2026-11-15, amended 2026-11-16. As built for
+Date: 2026-11-15, amended 2026-11-16 and 2026-11-17 (Linux). As built for
 [ADR 0167](../../docs/adr/0167-spade-security-boundaries.md) and
 [ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md), in
 `spade-sandbox` (the sandbox, the credential deny-list and the egress proxy), `spade_core::grant`
@@ -10,15 +10,18 @@ servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
 
 ## What is built where
 
-| Platform | Mechanism                                                  | Files     | Network                                       | Reviews dropped |
-| -------- | ---------------------------------------------------------- | --------- | --------------------------------------------- | --------------- |
-| macOS    | Seatbelt profile per run, `/usr/bin/sandbox-exec -p`       | contained | contained (TCP to the proxy's port only)      | yes             |
-| Linux    | Landlock via `spade sandbox-exec`, `landlock` feature, off | contained | partial (TCP only; UDP and Unix sockets open) | no              |
-| Windows  | AppContainer, designed, not built                          | none      | none                                          | no              |
+| Platform | Mechanism                                              | Files     | Network                                  | Reviews dropped |
+| -------- | ------------------------------------------------------ | --------- | ---------------------------------------- | --------------- |
+| macOS    | Seatbelt profile per run, `/usr/bin/sandbox-exec -p`   | contained | contained (TCP to the proxy's port only) | yes             |
+| Linux    | Landlock and a seccomp filter via `spade sandbox-exec` | contained | contained (TCP to the proxy's port only) | yes             |
+| Windows  | AppContainer, designed, not built                      | none      | none                                     | no              |
 
-Spade probes the sandbox once at start (`Runner::probe`: the real profile on a throwaway folder
-running `/usr/bin/true`). `SPADE_SANDBOX=off` turns it off. Without a sandbox that holds both
-files and network, and the proxy listening, nothing about reviews changes.
+Spade probes the sandbox once at start (`Runner::probe`). On macOS: the real profile on a
+throwaway folder running `/usr/bin/true`. On Linux: a real sandbox through the launcher on a
+throwaway folder, whose check (`spade sandbox-check`) writes in its workspace and not beside it,
+reaches a listener standing in for the proxy and can't open a UDP socket (see
+[Linux](#linux)). `SPADE_SANDBOX=off` turns it off. Without a sandbox that holds both files and
+network, and the proxy listening, nothing about reviews changes.
 
 ## What a sandboxed run may touch
 
@@ -50,7 +53,8 @@ reads it). On Linux: `/usr`, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/etc`
 read rule names what it opens.
 
 Network: TCP to the egress proxy on `127.0.0.1` and nothing else, no DNS. Listening on loopback
-is allowed, so a dev server can start. On macOS there are no Apple Events and no LaunchServices
+is allowed, so a dev server can start. On Linux, Unix sockets inside the workspace can also be
+connected to and bound (a database a test starts there); none outside it. On macOS there are no Apple Events and no LaunchServices
 (`open` and `osascript` can't reach other apps); the mach services allowed are directory lookups,
 logging, notifications and certificate checks (`trustd`), never `SecurityServer`.
 
@@ -73,9 +77,93 @@ ace's data is followed by the credential places closed once more. Landlock has n
 readable folder holding a listed place is opened child by child around it, by the launcher
 itself and on opened objects: each child is opened with `openat` and `O_PATH | O_NOFOLLOW`
 beside its opened folder, a link met while carving is skipped (never followed or granted), an
-object that is a denied one (same device and inode, a hard link included) is left out, and the
-descriptors carving opened are the ones the rules are installed on. The word list in
+object that is a denied one (same device and inode, a hard link included) is left out, a file
+with more than one name is left out (a rule on a file holds its inode, so it would open the
+file's other names, a credential's included), and the descriptors carving opened are the ones
+the rules are installed on. The word list in
 `spade_core::autonomy::secrets` still refuses a call naming these places before anything runs.
+
+## Linux
+
+`spade_sandbox::linux` ([ADR 0167](../../docs/adr/0167-spade-security-boundaries.md) amendment
+1). Built by default (`landlock` feature of `spade-sandbox` and `spade-server`; it does nothing
+on other systems).
+
+**The launcher.** `spade sandbox-exec <plan> <program> <args>…` stays outside the sandbox as the
+run's supervisor. It carves the plan's roots, lowers its limits, sets itself as the subreaper,
+and starts one thread that applies Landlock and the seccomp filter to itself and starts the
+command, which inherits both. It passes `SIGTERM` and `SIGHUP` on, outlives `SIGINT` and
+`SIGQUIT` (the terminal sends those to the command as well), reaps what it adopted and exits as
+the command did: its code, or the same signal. A run that can't be confined answers 126 with
+`spade sandbox-exec: …` on stderr.
+
+**Landlock.** The highest ABI the kernel offers (asked at 9, used at what the kernel has),
+best effort, with `restrict_self` refused if nothing is enforced. Files as in the table above;
+TCP connects to the proxy's port only (ABI 4); signals and abstract Unix sockets scoped to the
+sandbox (ABI 6). The status carries `landlock_abi`.
+
+**The seccomp filter** (`linux/seccomp.rs`, libseccomp, this machine's architecture only; a call
+through another one kills the process). `EPERM` for:
+
+| What                     | Calls                                                                                                                                                                                                                                              |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sockets                  | `socket` of any family but `AF_UNIX`, `AF_INET`, `AF_INET6`; TCP only as `SOCK_STREAM` with protocol 0 or `IPPROTO_TCP`; Unix only stream or seqpacket (`socketpair` too); `MSG_FASTOPEN` on the send calls                                        |
+| Other processes          | `ptrace`, `process_vm_readv`, `process_vm_writev`, `pidfd_getfd`, `kcmp`                                                                                                                                                                           |
+| The kernel               | `bpf`, `perf_event_open`, `userfaultfd`, `keyctl`, `add_key`, `request_key`, `io_uring_*`, modules, `kexec_*`, `reboot`, `swapon`, `swapoff`, `acct`, `syslog`, `quotactl`, `iopl`, `ioperm`, `modify_ldt`                                         |
+| File systems, namespaces | `mount`, `umount2`, `move_mount`, `open_tree`, `fsopen`, `fsconfig`, `fsmount`, `fspick`, `mount_setattr`, `pivot_root`, `chroot`, `unshare`, `setns`, `clone` with a `CLONE_NEW*` flag, `open_by_handle_at`, `name_to_handle_at`, `fanotify_init` |
+| The terminal             | `ioctl` `TIOCSTI` and `TIOCLINUX`                                                                                                                                                                                                                  |
+| The filter itself        | `seccomp` with `SECCOMP_FILTER_FLAG_NEW_LISTENER`                                                                                                                                                                                                  |
+| Below Landlock ABI 3     | `truncate`                                                                                                                                                                                                                                         |
+
+`clone3` answers `ENOSYS` (its flags are behind a pointer), so the C library falls back to
+`clone`. `connect`, `bind` and `listen` go to the supervisor.
+
+**The supervisor** (`linux/supervise.rs`, decisions in `linux/net.rs`, pure). For each call it
+opens the caller's process (`pidfd_open`), checks the notification is still pending (so the
+number wasn't reused), reads the address from `/proc/<tid>/mem`, decides, takes the caller's
+socket with `pidfd_getfd` and makes the call itself:
+
+| Call      | Allowed                                                                                                         | Done as                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `connect` | `127.0.0.1:<proxy>`, `[::1]:<proxy>`, `[::ffff:127.0.0.1]:<proxy>`; a Unix socket in the workspace; `AF_UNSPEC` | `127.0.0.1:<proxy>` (`::ffff:127.0.0.1` on IPv6); the opened socket file's `/proc/self/fd` name |
+| `bind`    | `127.0.0.0/8`, `::1`, mapped loopback, any port; a new Unix socket in the workspace                             | the judged address; `/proc/self/fd/<folder>/<name>`                                             |
+| `listen`  | a socket bound on loopback at a port, or a Unix socket                                                          | `listen` on that socket                                                                         |
+
+Everything else is `EPERM`: other hosts and ports (the proxy's port at another address
+included), other loopback ports, DNS over TCP, Unix sockets outside the workspace or reached
+through a link, abstract and unnamed Unix sockets, `bind` with `AF_UNSPEC` (every interface),
+`listen` on an unbound socket (the kernel would bind every interface). The command's own call is
+never continued, so a thread that rewrites the address after it was read changes nothing. A
+supervisor that dies leaves every such call failing (`ENOSYS`).
+
+**Limits.** `no_new_privs`; open files at most 65,536; tasks at what the machine runs now
+(`/proc/loadavg`) plus 4,096, since `RLIMIT_NPROC` counts all of the person's.
+
+**Apps.** The session bus (`$XDG_RUNTIME_DIR/bus`, or an abstract address), Wayland
+(`$XDG_RUNTIME_DIR/wayland-0`) and X11 (`/tmp/.X11-unix/X0`, `@/tmp/.X11-unix/X0`, or TCP 6000)
+are all sockets outside the workspace or in the abstract namespace, so they are refused, and the
+environment carries no `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY` or
+`XDG_RUNTIME_DIR`. `xdg-open`, `gio open`, `notify-send`, `systemd-run --user` and any app a
+command starts can't reach the desktop. There is no grant for them yet.
+
+**Fallbacks.** The probe tries the filter, then Landlock alone:
+
+| The machine                                                           | Status                                                    | Runs                    |
+| --------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------- |
+| Landlock and the filter hold                                          | `files: contained`, `network: contained`                  | Landlock and the filter |
+| Landlock holds, the filter doesn't (no libseccomp listener, Yama 2–3) | `files: contained`, `network: partial` (ABI 4+) or `none` | Landlock alone          |
+| No Landlock (not built or not enabled, as Docker Desktop's kernel)    | `mechanism: none`                                         | as before, reviewed     |
+
+**Not held.** `/proc` stays readable, so other processes' command lines and status are visible
+(not their memory, environment, files or folders: Landlock refuses ptrace access outside the
+sandbox). Below ABI 6 a command can signal the person's other processes. A hard link to a
+credential put inside a folder granted whole reads as that folder's file, as on macOS. Listing
+another process's `/proc/<pid>/fd` shows numbers, not targets.
+
+**Building.** On Debian 12 (the release image) or Ubuntu: `build-essential`, `pkg-config` and
+`libseccomp-dev` (2.5 or later), then `cargo build -p spade-server`. aws-lc and SQLite build
+with the C compiler alone; neither `cmake` nor `clang` is needed. Running needs
+`libseccomp.so.2`, which Ubuntu, Debian, Fedora and Arch install with systemd.
 
 ## The egress proxy
 
@@ -257,9 +345,10 @@ is kept for the bot and tool.
 
 - A size bound on checkpoints (count and age only today; clones cost little on APFS, plain
   copies on other volumes don't).
-- Linux's seccomp filter (UDP, raw and Unix sockets) and Windows' AppContainer, the next
-  phases (ADR 0171 decision 6): once each counts as contained, its commands skip the classifier
-  and the review as macOS's do.
+- Windows' AppContainer, the next phase (ADR 0171 decision 6): once it counts as contained, its
+  commands skip the classifier and the review as macOS's and Linux's do.
+- A grant for the session bus or the display server on Linux: a tool that needs either runs
+  outside the sandbox.
 - Per-value provenance at egress, `derived` trust for network-off runs (each run's proxy usage
   is already counted), and quarantined readers.
 - CLI brains in the sandbox (ADR 0133 keeps them on their own read-only modes).

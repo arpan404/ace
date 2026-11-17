@@ -1,7 +1,8 @@
 # 0167: Spade's security boundaries
 
-Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15: the capability waves are
-done; add security at the real boundaries so the blanket asks can go). From the Spade harness
+Status: accepted; amended 2026-11-17 (amendment 1: Linux). Date: 2026-11-15. Decided by: the
+owner (2026-11-15: the capability waves are done; add security at the real boundaries so the
+blanket asks can go). From the Spade harness
 audit (part C, the security model; wave 1 and the security items of wave 4) and its research
 notes (topic 5). Amends [ADR 0130](0130-spade-skills-and-workspace.md) (the shell's rules),
 [ADR 0142](0142-a-bots-computer.md) (what a bot's commands run in) and
@@ -235,3 +236,71 @@ filesystem and network isolation are both required.
 - `spade_core::grant` gets tables for matching and subsets.
 - The engine is tested through the API: a contained shell call runs unreviewed, and a call that
   isn't contained, or one with a kept finding, is still reviewed.
+
+## Amendment 1: Linux's sandbox, as built (2026-11-17)
+
+Replaces the Linux bullet of decision 1, the Linux part of decision 9 and the last consequence.
+Linux now holds files and network, so it counts as `contained` and ADR 0171's sandboxed path
+(no classifier, no reviewer) applies there as on macOS.
+
+1. **The launcher stays outside as the run's supervisor.** `spade sandbox-exec <plan> <program>
+<args>…` carves the plan's roots (opening each place it grants), lowers its limits, and starts
+   one thread that applies Landlock and a seccomp filter to itself alone and then starts the
+   command, which inherits both. The launcher's other threads answer the filter, pass `SIGTERM`
+   and `SIGHUP` on to the command, outlive Ctrl-C (the terminal sends it to the command too),
+   adopt what the command leaves running (`PR_SET_CHILD_SUBREAPER`) and end with the command's
+   own exit code or signal. Spade forbids `unsafe`, so the work is done through crates: `landlock`,
+   `libseccomp` (bindings to the system's libseccomp 2.5 or later, LGPL, linked dynamically),
+   `rustix` and `signal-hook`.
+2. **Files: Landlock at the highest ABI the kernel offers.** Read-write: the workspace, its
+   `.spade/tmp`, folders granted for writing, a terminal's state files, `/dev/null`, `/dev/zero`,
+   `/dev/tty`, `/dev/pts`. Read-only: the system's folders (`/usr`, `/bin`, `/sbin`, `/lib*`,
+   `/etc`, `/opt`, `/nix`, `/snap`, `/var/lib`, `/proc`, `/sys`, `/dev`), confirmed toolchains,
+   folders granted for reading and a plugin's own folder. Nothing else. Landlock can't deny inside
+   an allowed folder, so a folder holding a deny-list place is carved: opened child by child
+   without following links, links skipped, a child that is a denied object (same device and
+   inode) left out. A file met while carving that has more than one name is left out too: a rule
+   on a file holds its inode, so granting a hard link would open every other name of it,
+   `~/.ssh/id_ed25519` included. On ABI 4 and later TCP connects are allowed only to the proxy's
+   port, and on ABI 6 and later signals and abstract Unix sockets stay inside the sandbox. The
+   ABI in force is in the sandbox status (`landlock_abi`).
+3. **Network: a seccomp filter and its supervisor.** Landlock's TCP rule holds a port, not an
+   address, and seccomp can't read an address behind a pointer. So the filter sends every
+   `connect`, `bind` and `listen` to the launcher. It reads the address from the command's memory,
+   decides, takes the command's socket (`pidfd_getfd`) and makes the call itself, with the address
+   it judged, never continuing the command's own call. A thread that rewrites the address after
+   it was read changes nothing. What is allowed: TCP to `127.0.0.1:<proxy port>` and `[::1]` (as
+   `::ffff:127.0.0.1`), binds on loopback, `listen` on a socket bound on loopback, and Unix
+   sockets in the workspace, reached through `/proc/self/fd` after a walk that opens each folder
+   without following a link. Everything else is `EPERM`. The filter itself refuses: sockets
+   other than TCP and Unix stream or seqpacket (no UDP and so no DNS, no raw, packet or netlink
+   sockets, no Unix datagrams, which could be sent to any socket by path), `MSG_FASTOPEN`,
+   `ptrace`, `process_vm_*`, `pidfd_getfd`, `bpf`, `perf_event_open`, `userfaultfd`, the key
+   calls, `io_uring` (its operations skip seccomp), `mount` and the new mount calls, `pivot_root`,
+   `chroot`, `unshare`, `setns`, namespace flags on `clone` (`clone3` answers `ENOSYS`, so the C
+   library falls back), modules, `kexec`, `reboot`, `swap`, `TIOCSTI` and `TIOCLINUX`, a nested
+   seccomp listener (which would answer for itself), and `truncate` by path below Landlock ABI 3.
+   A call made through another architecture's ABI kills the process. `no_new_privs` is set, the
+   open-file limit is at most 65,536 and the task limit is what the machine runs now plus 4,096.
+4. **Apps.** Nothing on a Linux desktop starts or drives an app without the session bus or the
+   display server, and both are sockets outside the workspace (`$XDG_RUNTIME_DIR/bus`,
+   `wayland-0`, `/tmp/.X11-unix/X0`) or in the abstract namespace. All are refused, and the
+   built environment carries none of `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY` or
+   `XDG_RUNTIME_DIR`. So `xdg-open`, `gio open`, `notify-send` and `systemd-run --user` fail.
+   There is no grant for the bus or the display yet. A tool that needs them runs outside the
+   sandbox (ADR 0171 decision 5).
+5. **The probe and the fallbacks.** At start Spade runs a real sandbox through the launcher on a
+   throwaway folder: the check inside writes in its workspace and not beside it, reaches a
+   listener standing in for the proxy, and can't open a UDP socket. If that holds, the status is
+   `contained`. If only Landlock holds (the filter can't load, or Yama's `ptrace_scope` 2 or 3
+   stops the supervisor), runs use Landlock alone, the network is `partial` (ABI 4 and later) or
+   `none`, and commands keep their reviews. Without Landlock (a kernel that lacks it or doesn't
+   enable it, as Docker Desktop's), the sandbox is unavailable and nothing changes. Each case
+   says why in one sentence.
+6. **What it doesn't hold.** `/proc` stays readable, so the command lines and status of the
+   person's other processes are visible (their memory, environment, files and working folders
+   are not: Landlock refuses ptrace access to processes outside the sandbox). Below ABI 6 a
+   command can signal the person's other processes. A hard link to a credential that the person
+   put inside a folder granted whole reads as that folder's file (as on macOS). Builds need
+   `libseccomp-dev` and the machine needs `libseccomp.so.2`, which Ubuntu, Debian, Fedora and Arch
+   ship as part of systemd.
