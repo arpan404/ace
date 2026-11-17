@@ -2,9 +2,20 @@ import { z } from "zod";
 import { PluginHash, PluginName } from "./plugins.ts";
 
 /*
- * The marketplace's primitives (ADR 0168, 0173): entry types, names, versions, hashes,
+ * The marketplace's primitives (ADR 0168, 0174): entry types, names, versions, hashes,
  * publishers and categories, shared by every marketplace contract. Schema only.
  */
+
+/**
+ * Text a person typed: surrounding whitespace is removed, then the length limits apply. The
+ * rule is declared for the protocol reference, which can't state a normalization in JSON Schema.
+ */
+export function trimmedText(min: number, max: number) {
+  return z.string().trim().min(min).max(max).meta({
+    "x-ace-constraint":
+      "Leading and trailing whitespace is removed before the length limits apply.",
+  });
+}
 
 /** The entry types this build knows. Others are kept as their raw string and never installed. */
 export const MarketEntryType = z.enum([
@@ -61,7 +72,7 @@ export const MarketEntryVersion = z.strictObject({
   published: z.number().int().nonnegative(),
   downloads: z.number().int().nonnegative(),
   withdrawn: z.string().max(500).optional(),
-  /** Its publisher's note when they deprecated it (ADR 0173 §5); installs show it. */
+  /** Its publisher's note when they deprecated it (ADR 0174 §5); installs show it. */
   deprecated: z.string().max(500).optional(),
   /** What changed in this version, in its publisher's words. */
   changelog: z.string().max(4000).optional(),
@@ -95,7 +106,7 @@ export const MarketEntrySummary = z.strictObject({
   supported: z.boolean(),
   /** A git catalog's address, shown as "From <address>". */
   from: z.string().max(2048).optional(),
-  /** The publisher carries ace's verified mark (ADR 0173 §3). */
+  /** The publisher carries ace's verified mark (ADR 0174 §3). */
   verified: z.boolean().optional(),
   /** The latest version is deprecated, with its publisher's note. */
   deprecated: z.string().max(500).optional(),

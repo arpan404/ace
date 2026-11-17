@@ -2,7 +2,7 @@ import type { MarketEntryType } from "@ace/protocol/marketplace";
 import type { Env } from "../env.ts";
 
 /*
- * Which D1 database holds what (ADR 0173 §16): a catalogue per entry type, and one database per
+ * Which D1 database holds what (ADR 0174 §16): a catalogue per entry type, and one database per
  * shared domain. Store modules take the one database they need; only this module reads the
  * bindings. A new type is a binding, an entry in `catalogueBindings` and a database created
  * from `migrations/catalogue`.

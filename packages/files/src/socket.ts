@@ -140,8 +140,14 @@ export function attachFilesChannel(
           state.credits = Math.max(1, state.credits);
       }
     } catch (error) {
-      if (!state.cancelled && !closed) failure(error, { channel: id });
-      await stop(id);
+      // pump() is never awaited: the failure goes to the client, and a close that fails too
+      // (EIO on a volume that went away) leaves nothing more to tell it.
+      try {
+        if (!state.cancelled && !closed) failure(error, { channel: id });
+        await stop(id);
+      } catch {
+        /* The channel is already gone from outgoing. */
+      }
     } finally {
       state.pumping = false;
     }
@@ -280,8 +286,9 @@ export function attachFilesChannel(
     closed = true;
     unsubscribe();
     stopClose?.();
-    for (const id of outgoing.keys()) void stop(id);
-    for (const id of incoming.keys()) void stop(id);
+    // The client is gone: a transfer whose close fails has nobody left to tell.
+    for (const id of outgoing.keys()) void stop(id).catch(() => {});
+    for (const id of incoming.keys()) void stop(id).catch(() => {});
   };
   stopClose = transport.onClose(close);
   if (closed) stopClose();

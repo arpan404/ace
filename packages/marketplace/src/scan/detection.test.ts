@@ -5,7 +5,7 @@ import { maliciousCorpus, type CorpusSample } from "./corpus-malicious.ts";
 import { disposition, scanEntry, type ScanContext } from "./index.ts";
 
 /*
- * The scanner against the inert malicious corpus (ADR 0173 §8): every sample is refused or held,
+ * The scanner against the inert malicious corpus (ADR 0174 §8): every sample is refused or held,
  * as it says, and the detection rate is measured. The benign corpus's false positives are
  * measured beside it (corpus-benign.test.ts).
  */

@@ -1,6 +1,6 @@
 export interface Env {
   /*
-   * D1, one database per entry type and per shared domain (ADR 0173 §16). Read them through
+   * D1, one database per entry type and per shared domain (ADR 0174 §16). Read them through
    * `store/databases.ts`, never by binding name.
    */
   /** The catalogue of `suit` entries. */
@@ -19,7 +19,7 @@ export interface Env {
   MARKET_MODERATION: D1Database;
   /** The withdrawn list, categories, featured and collections. */
   MARKET_LISTS: D1Database;
-  /** Archives, drafts, pictures and scan reports, by prefix (ADR 0173 §1). */
+  /** Archives, drafts, pictures and scan reports, by prefix (ADR 0174 §1). */
   OBJECTS: R2Bucket;
   /** Reads per caller address, API and pages. Absent where no limit is configured. */
   READS?: RateLimit;
@@ -27,7 +27,7 @@ export interface Env {
   PUBLISHES?: RateLimit;
   /** Counted downloads per caller address and hash; past it a fetch is served, not counted. */
   DOWNLOADS?: RateLimit;
-  /** Anonymous abuse reports per caller address (ADR 0173 §7). */
+  /** Anonymous abuse reports per caller address (ADR 0174 §7). */
   REPORTS?: RateLimit;
   /** The market's public keys as a JSON `MarketKeySet`: signer uploads must verify with one. */
   MARKET_PUBLIC_KEYS?: string;

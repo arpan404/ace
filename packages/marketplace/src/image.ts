@@ -1,7 +1,7 @@
 import type { MarketProblem } from "@ace/protocol/marketplace";
 
 /*
- * Publisher pictures (ADR 0173 §3): avatars and listing pictures. The Worker can't decode pixels,
+ * Publisher pictures (ADR 0174 §3): avatars and listing pictures. The Worker can't decode pixels,
  * so it validates and strips the container instead: PNG chunks with their CRCs, JPEG segments,
  * WebP RIFF chunks. Only the image's own chunks are kept; text, EXIF, XMP, ICC profiles, data
  * after the end marker and animation are dropped, and the declared dimensions are checked. Pure:

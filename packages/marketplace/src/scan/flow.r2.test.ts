@@ -6,7 +6,7 @@ import { flowBenign, flowCorpus } from "./corpus-r2-flow.ts";
 import { disposition, scanEntry, type ScanContext } from "./index.ts";
 
 /*
- * The data-flow rule (ADR 0173 §8): a sensitive value reaching the network across lines is caught
+ * The data-flow rule (ADR 0174 §8): a sensitive value reaching the network across lines is caught
  * where a one-line regex missed it, and ordinary config reads stay clean. Each malicious sample
  * fails before the fix.
  */

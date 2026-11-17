@@ -141,6 +141,12 @@
                   "step": {
                     "maxLength": 60,
                     "type": "string"
+                  },
+                  "waitingFor": {
+                    "enum": [
+                      "storage"
+                    ],
+                    "type": "string"
                   }
                 },
                 "required": [

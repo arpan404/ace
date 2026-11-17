@@ -269,3 +269,29 @@ test("a batch that keeps failing quarantines only its thread and the store stays
   expect(storedText(state.store, healthy, 1)).toBe("saved again");
   expect(storedText(state.store, broken, 0)).toBe("after");
 });
+
+test("a batch that fails because the disk is full waits for space instead of dropping the output", async () => {
+  const state = setup(1);
+  const [id] = state.ids;
+  if (!id) throw new Error("Missing thread");
+  // The disk boundary: the store's own connection may not grow the file, so SQLite fails the
+  // batch with SQLITE_FULL exactly as a full volume does. The cap is lifted on that connection.
+  const disk = state.store.atomic((db) => {
+    db.exec(`PRAGMA max_page_count=${Number(db.prepare("PRAGMA page_count").get()?.page_count)}`);
+    return db;
+  });
+  const answer = words(4000).join("");
+  stream(state.store, id, 0, [answer]);
+  const error = failure(() => state.store.flushLiveWrites());
+  expect(isStoreRetry(error)).toBe(true);
+  // Far past the bound that quarantines a broken batch: nothing is dropped, writes still wait.
+  for (let step = 0; step < 120; step++) state.clock.advance(state.clock.time + 1000);
+  expect(state.quarantined).toEqual([]);
+  expect(state.store.liveWriteBlocked()).toBe(true);
+  // Space is back; the next retry stores the whole answer once.
+  disk.exec("PRAGMA max_page_count=1073741823");
+  state.clock.advance(state.clock.time + 5000);
+  expect(state.store.liveWriteBlocked()).toBe(false);
+  await state.reopen();
+  expect(storedText(state.store, id)).toBe(answer);
+});

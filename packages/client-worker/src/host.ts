@@ -558,6 +558,17 @@ class Tab {
       this.#flush();
     });
   }
+  /**
+   * Send the changes waiting for the next frame now: a call's reply never reaches the tab ahead
+   * of the changes the call made (a page of older threads is in the tab's list once
+   * `threadsMore` resolves there).
+   */
+  #flushNow(): void {
+    if (!this.#flushing) return;
+    this.#flushing();
+    this.#flushing = undefined;
+    this.#flush();
+  }
   #flush(): void {
     if (this.#visible) this.#flushPending();
     const leases: LeaseChanges[] = [];
@@ -681,8 +692,10 @@ class Tab {
                   : client,
               );
       if (method === "request" && isUploadOpen(value)) this.#uploads.add(value.requestId);
+      this.#flushNow();
       this.#post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
+      this.#flushNow();
       this.#post({ t: "failed", call, error: errorShape(error) });
     } finally {
       this.#calls.delete(call);

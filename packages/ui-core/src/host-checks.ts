@@ -72,6 +72,7 @@ const systemHolds = {
   update: "Updating ace · new work resumes after",
   kill: "Stopping all work · new work resumes after",
   stop: "ace is shutting down",
+  storage: "The disk is full · new work resumes once space is freed",
 } as const;
 
 /** How much work is still running while admission is closed, waiting-on-you counted apart. */

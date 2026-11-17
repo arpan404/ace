@@ -82,7 +82,7 @@ describe("reading the catalog", () => {
   });
 
   it("a download raises only that version's total", async () => {
-    // Each caller counts once a minute per hash (ADR 0173 §6), so each fetch is another caller.
+    // Each caller counts once a minute per hash (ADR 0174 §6), so each fetch is another caller.
     const response = await market.fetch(`/v1/objects/${hashes["1.0.0"]}`, from("192.0.2.1"));
     expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     await response.arrayBuffer();

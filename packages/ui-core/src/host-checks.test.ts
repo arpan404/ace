@@ -78,3 +78,9 @@ test("the desktop app's update reads as its version and one line, loud only for 
     }),
   ).toEqual({ version: "1.4.1", line: "Restart to finish updating", needsYou: true });
 });
+
+test("a disk too full for new work says so and that it resumes on its own", () => {
+  expect(admissionWords({ holds: ["storage"], busy: 1, waiting: 0 }).line).toBe(
+    "The disk is full · new work resumes once space is freed",
+  );
+});

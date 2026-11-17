@@ -33,7 +33,12 @@ export function watchMemory(options: MemoryWatchdogOptions): () => void {
     if (stopped) return;
     if (bytes !== undefined && bytes > options.limitBytes) {
       stopped = true;
-      options.onExceeded(bytes);
+      // This runs from a timer: a kill that throws is reported like a failed reading.
+      try {
+        options.onExceeded(bytes);
+      } catch (error) {
+        options.onSampleError?.(error);
+      }
       return;
     }
     cancel = options.schedule(() => void tick(), options.intervalMs);

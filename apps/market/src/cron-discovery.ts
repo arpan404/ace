@@ -11,7 +11,7 @@ import { pruneDownloads } from "./store/downloads.ts";
 import { officialPublisher } from "./store/lists.ts";
 
 /*
- * Discover's cron steps (ADR 0173 §6, §16), each bounded: old download buckets pruned in
+ * Discover's cron steps (ADR 0174 §6, §16), each bounded: old download buckets pruned in
  * batches; trending scored 500 entries a step, walking each catalogue in turn with a cursor
  * (the catalogue and its row) in the counts database's `meta`, into `trending_scores`, then
  * swapped into `trending` when a pass has walked every catalogue, with top publishers ranked at

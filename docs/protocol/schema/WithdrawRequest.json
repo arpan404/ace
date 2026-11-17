@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/WithdrawRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "type": "object"
+}

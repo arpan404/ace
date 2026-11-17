@@ -4,7 +4,7 @@ import { folder } from "../testing.ts";
 import { disposition, scanEntry, type ScanContext } from "./index.ts";
 
 /*
- * The policy layer (ADR 0173 §8): a version with runnable content is held for a maintainer, only
+ * The policy layer (ADR 0174 §8): a version with runnable content is held for a maintainer, only
  * pure data lists on scan pass alone, and an undecodable file that isn't recognised data is held
  * (finding 1). The scanner is a filter in front of runtime containment, not the boundary.
  */

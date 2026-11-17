@@ -201,7 +201,8 @@ export function NewThreadPage(props: {
       <Screen page="new-thread" title="New thread">
         <div className="px-5 py-6">
           <p role="alert" className="text-ui text-status-failed">
-            Couldn't start a chat without a project. Check the connection and try again.
+            Couldn't start a chat without a project.
+            {chat.reason ? ` ${chat.reason}` : " Check the connection and try again."}
           </p>
           <Button type="button" size="sm" variant="ghost" className="mt-2" onClick={chat.retry}>
             Try again

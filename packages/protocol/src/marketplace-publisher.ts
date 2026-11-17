@@ -7,13 +7,14 @@ import {
   MarketProblem,
   MarketPublisherName,
   MarketVersion,
+  trimmedText,
 } from "./marketplace-base.ts";
 import { MarketLink } from "./marketplace-catalog.ts";
 import { MarketScanReport, MarketScanState } from "./marketplace-scan.ts";
 import { MarketVerificationProof } from "./marketplace-signed.ts";
 
 /*
- * Publishers on the wire (ADR 0173 §2 to §5, §7): public profiles, the signed-in publisher's own
+ * Publishers on the wire (ADR 0174 §2 to §5, §7): public profiles, the signed-in publisher's own
  * page, drafts and every action a publisher takes on their publications, transfers, signals,
  * appeals and abuse reports. Every write needs a market grant; reports need none. Schema only.
  */
@@ -24,7 +25,7 @@ import { MarketVerificationProof } from "./marketplace-signed.ts";
 export const MarketHandle = MarketPublisherName.refine((value) => value.length >= 3, {
   message: "A handle is at least 3 characters",
 });
-export const MarketDisplayName = z.string().trim().min(1).max(60);
+export const MarketDisplayName = trimmedText(1, 60);
 export const MarketBio = z.string().max(500);
 export const MarketPublisherState = z.enum(["active", "suspended", "deleted"]);
 export type MarketPublisherState = z.infer<typeof MarketPublisherState>;
@@ -40,7 +41,7 @@ export const MarketProfile = z.strictObject({
   /** The picture's sha256, served at `/v1/avatars/{sha256}`. */
   avatar: MarketHash.optional(),
   joined: z.number().int().nonnegative(),
-  /** Verified by ace's maintainers, on the signed verified list (ADR 0173 §13). */
+  /** Verified by ace's maintainers, on the signed verified list (ADR 0174 §13). */
   verified: z.boolean(),
   /** The proofs behind the mark: "Verified · owns example.com". */
   proofs: z.array(MarketVerificationProof).max(8),
@@ -77,7 +78,7 @@ export const MarketPinsSet = z.strictObject({ entries: z.array(MarketEntryRef).m
 
 /* ---------------------------------------------------------------- versions and entries */
 
-/** A version as its publisher sees it (ADR 0173 §4). */
+/** A version as its publisher sees it (ADR 0174 §4). */
 export const MarketVersionStatus = z.enum([
   "waiting",
   "live",
@@ -123,11 +124,11 @@ export type MarketVisibility = z.infer<typeof MarketVisibility>;
 
 /** The words an entry is listed with, set by `market.json` or a listing edit. */
 export const MarketListingEdit = z.strictObject({
-  title: z.string().trim().min(1).max(120),
-  line: z.string().trim().max(300),
+  title: trimmedText(1, 120),
+  line: trimmedText(0, 300),
   description: z.string().max(8192),
   categories: z.array(MarketCategoryId).max(3),
-  keywords: z.array(z.string().trim().min(1).max(40)).max(16),
+  keywords: z.array(trimmedText(1, 40)).max(16),
   links: z.array(MarketLink).max(5),
   /** Listing pictures uploaded with `PUT …/previews/{n}`, by sha256. */
   previews: z.array(MarketHash).max(4),
@@ -201,13 +202,13 @@ export const MarketDraftPatch = z.strictObject({
 
 export const MarketChangelogSet = z.strictObject({ text: z.string().max(4000) });
 export const MarketLatestSet = z.strictObject({ version: MarketVersion.nullable() });
-export const MarketDeprecation = z.strictObject({ note: z.string().trim().min(1).max(500) });
-export const MarketWithdrawRequest = z.strictObject({ reason: z.string().trim().min(1).max(500) });
+export const MarketDeprecation = z.strictObject({ note: trimmedText(1, 500) });
+export const MarketWithdrawRequest = z.strictObject({ reason: trimmedText(1, 500) });
 export const MarketVisibilitySet = z.strictObject({ visibility: MarketVisibility });
 export const MarketArchivedSet = z.strictObject({ archived: z.boolean() });
 export const MarketTransferOffer = z.strictObject({ to: MarketPublisherName });
 export const MarketAppealRequest = z.strictObject({
-  note: z.string().trim().min(1).max(2000),
+  note: trimmedText(1, 2000),
   /** A newer version uploaded to answer the block or hold. */
   replacement: MarketVersion.optional(),
 });
@@ -272,7 +273,7 @@ export const MarketLimits = z.strictObject({
 export const MarketMe = z.strictObject({
   profile: MarketProfile.optional(),
   state: MarketPublisherState,
-  /** Stricter thresholds apply (ADR 0173 §9). */
+  /** Stricter thresholds apply (ADR 0174 §9). */
   newPublisher: z.boolean(),
   limits: MarketLimits,
   entries: z.array(MarketOwnEntrySummary).max(500),

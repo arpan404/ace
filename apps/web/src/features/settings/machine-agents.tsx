@@ -13,8 +13,8 @@ import { GrantRow } from "./permissions-sheet.tsx";
 
 /**
  * A machine's agents, both ways: how far other machines' agents may go on it, what each
- * direction may use (each Edit opens the sheet for this machine's links alone), whether its
- * agents move threads, and its links with the other machines.
+ * direction may use (each Edit opens the sheet for this machine's links alone), and whether its
+ * agents move threads. Its links with the other machines sit with how it's reached.
  */
 export function MachineAgents(props: { machine: Machine; fleet: Fleet }) {
   const { machine, fleet } = props;
@@ -32,7 +32,7 @@ export function MachineAgents(props: { machine: Machine; fleet: Fleet }) {
       )}
       <GrantRow
         fleet={fleet}
-        title={`${machine.name}'s agents on your other machines`}
+        title={`${machine.name}'s agents elsewhere`}
         scope={{
           hosts: connected,
           peer: machine.id,
@@ -42,7 +42,7 @@ export function MachineAgents(props: { machine: Machine; fleet: Fleet }) {
       />
       <GrantRow
         fleet={fleet}
-        title={`Your other machines' agents on ${machine.name}`}
+        title="What they may use here"
         scope={{
           hosts: [machine],
           peer: "all",
@@ -55,7 +55,6 @@ export function MachineAgents(props: { machine: Machine; fleet: Fleet }) {
           <TransfersRow />
         </MachineScope>
       )}
-      <LinksRow machine={machine} fleet={fleet} others={others} />
     </RowGroup>
   );
 }
@@ -64,7 +63,7 @@ export function MachineAgents(props: { machine: Machine; fleet: Fleet }) {
 const held = (kind: string) => kind !== "missing" && kind !== "unknown";
 
 /** Whether this machine and the others hold links both ways; Link fills the gaps, Unlink ends them. */
-function LinksRow(props: { machine: Machine; fleet: Fleet; others: readonly Machine[] }) {
+export function LinksRow(props: { machine: Machine; fleet: Fleet; others: readonly Machine[] }) {
   const { machine, fleet } = props;
   const toast = useToast();
   const [confirming, setConfirming] = useState<Confirming>();

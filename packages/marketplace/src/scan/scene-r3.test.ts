@@ -4,7 +4,7 @@ import { sceneCheck } from "./checks-scene.ts";
 import { benignThisScenes, blockedThisScenes } from "./corpus-r3-scene.ts";
 
 /*
- * A scene's `this` (ADR 0173 §8, fail closed): a function a timer or listener runs sees the global
+ * A scene's `this` (ADR 0174 §8, fail closed): a function a timer or listener runs sees the global
  * object as `this`, so an unproven `this` is held to the allowlist as `globalThis` is, and the
  * frame members (`parent`, `top`, `opener`, `frames`, `postMessage`) are a block through any alias
  * or built name. Drawing with the scene's own parameters still passes.

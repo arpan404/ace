@@ -178,6 +178,9 @@ export async function createPreviewGateway(options: GatewayOptions) {
     server.once("error", reject);
     server.listen(options.port ?? 0, options.host, () => {
       server.removeListener("error", reject);
+      // A listening server still reports failed accepts (EMFILE when descriptors run out) as
+      // error events. They cost that connection only, never the daemon.
+      server.on("error", () => {});
       resolve();
     });
   });

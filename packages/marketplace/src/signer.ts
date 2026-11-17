@@ -28,7 +28,7 @@ import {
  * the trusted key set, not only the key signing now, so a rotation keeps both working. The I/O
  * is passed in, so the same core runs against the real market or a test's.
  *
- * Before signing it scans again (ADR 0173 §8) with the newest blocklist and the market's scan
+ * Before signing it scans again (ADR 0174 §8) with the newest blocklist and the market's scan
  * context: a block is refused for good, a warn a maintainer hasn't approved is held for one, and
  * so is every version by the official publisher (and a new publisher's strict notes).
  */

@@ -684,7 +684,13 @@ export async function startServer(options: ServerOptions): Promise<{
             encoder,
             send,
           }).map((subscribe) => JSON.stringify(subscribe));
-          void afterConfirm(early, actor, message.channel, epoch);
+          // A failure finishing the hello (a store read, a service's welcome) ends this socket,
+          // as a failed service authentication does, never the daemon.
+          afterConfirm(early, actor, message.channel, epoch).catch((error: unknown) => {
+            options.log?.(error);
+            early.readable.resolve(false);
+            socket.close(1011, "service_unavailable");
+          });
         }
         return;
       }

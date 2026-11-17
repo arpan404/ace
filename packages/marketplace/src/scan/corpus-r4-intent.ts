@@ -1,7 +1,7 @@
 import type { CorpusSample } from "./corpus.ts";
 
 /*
- * Inert samples for the round-4 instruction fix (ADR 0173 §8, fail closed): execution intent split
+ * Inert samples for the round-4 instruction fix (ADR 0174 §8, fail closed): execution intent split
  * across sentences, paragraphs or a recipe's parts still counts. Every host is `.invalid` and
  * nothing here runs; each is a string written for the tests.
  */

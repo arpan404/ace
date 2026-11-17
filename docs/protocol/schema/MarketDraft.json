@@ -1,0 +1,77 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketDraft.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "changelog": {
+      "maxLength": 4000,
+      "type": "string"
+    },
+    "created": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "files": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/MarketDraftId.json"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+    },
+    "problems": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketProblem.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/MarketScanState.json"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+    },
+    "updated": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "name",
+    "version",
+    "hash",
+    "size",
+    "files",
+    "created",
+    "updated",
+    "changelog",
+    "title",
+    "problems",
+    "scan"
+  ],
+  "type": "object"
+}

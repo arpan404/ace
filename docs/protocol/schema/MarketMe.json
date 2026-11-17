@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketMe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "drafts": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketDraft.json"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketOwnEntrySummary.json"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "limits": {
+      "$ref": "https://ace.local/protocol/v1/MarketLimits.json"
+    },
+    "newPublisher": {
+      "type": "boolean"
+    },
+    "profile": {
+      "$ref": "https://ace.local/protocol/v1/MarketProfile.json"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/MarketPublisherState.json"
+    },
+    "transfers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketTransfer.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    }
+  },
+  "required": [
+    "state",
+    "newPublisher",
+    "limits",
+    "entries",
+    "drafts",
+    "transfers"
+  ],
+  "type": "object"
+}

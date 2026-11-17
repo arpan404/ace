@@ -163,7 +163,10 @@ export class ExecutionOwner {
         }
       }
     };
-    const tracked = operation().finally(() => this.pending.delete(tracked));
+    // Recording the outcome is a store write that can fail too: reported, never unhandled.
+    const tracked = operation()
+      .catch((error: unknown) => this.report(error))
+      .finally(() => this.pending.delete(tracked));
     this.pending.add(tracked);
   }
 }

@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import { marketOrigin, shippedMarketKeys } from "@ace/marketplace";
 import { gitRuntime } from "@ace/plugins";
@@ -9,6 +10,7 @@ import {
 } from "@ace/protocol/marketplace";
 import type { SettingsService } from "@ace/settings";
 import { betaKeys } from "@ace/settings/beta";
+import { pickPorts } from "../marketplace/pick-ports.ts";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
@@ -30,6 +32,13 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
     suits: () => services.suits,
     plugins: () => (services.plugins ? plugins : undefined),
     spade: spadePort(() => services.spade?.ready()?.connection),
+    pick: pickPorts({
+      spade: () => services.spade?.ready()?.connection,
+      skills: () => services.skillLibrary,
+      plugins: () => services.plugins,
+      aceData: config.dataDir,
+      names: () => [userInfo().username],
+    }),
     // Settings › Beta: off, the service refuses requests, queued work, fetches and install steps.
     enabled: () => marketplaceTurnedOn(services.settings),
     schedule: (run, ms) => {
@@ -99,8 +108,16 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       // alone; it never reaches the socket, the disk or a log.
       const account = options.machineAccount;
       const grant = account ? () => account.marketGrant(options.hostId) : undefined;
+      // The signed-in person's name and email, for the privacy pass over what they publish.
+      const signedIn = account?.account();
+      const names = signedIn
+        ? [signedIn.name, signedIn.email, signedIn.email.split("@")[0] ?? ""]
+        : [];
       const task = marketplace
-        .request(message.operation, message.operation.op === "publish" ? { grant } : {})
+        .request(
+          message.operation,
+          message.operation.op === "publish" ? { grant, names } : { names },
+        )
         .then(reply);
       tasks.add(task);
       void task.finally(() => tasks.delete(task));
