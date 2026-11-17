@@ -82,6 +82,22 @@ export function delegationCommandPolicy(deps: {
       return accepted;
     }
     if (!deps.admits()) return fail("Admission closed");
+    const settled = deps.journal.get(p.threadId);
+    // A child whose parent is gone is the person's own thread now (ADR 0177): their explicit
+    // work carries it on, unfenced by the tree it left. Its edge stays settled and nothing
+    // reaches the parent. Work still being cancelled from the deletion stays cancelled.
+    if (
+      explicit &&
+      settled?.phase === "settled" &&
+      threadGone((id) => deps.store.getThread(id), deps.engine, settled.parentId)
+    ) {
+      const accepted = accept();
+      if (!accepted.ok) return accepted;
+      deps.journal.resumeMember(p.threadId, deps.now());
+      if (carryOn) deps.resumeRestartHeld?.(p.threadId, command.id);
+      deps.changed();
+      return accepted;
+    }
     if (!explicit && deps.journal.stopped(p.threadId)) return fail("cancelled");
     if (
       deps.journal.get(p.threadId)?.phase === "cancelling" ||
@@ -96,8 +112,7 @@ export function delegationCommandPolicy(deps: {
     if (!accepted.ok) return accepted;
     if (explicit) deps.journal.resumeMember(p.threadId, deps.now());
     if (carryOn) deps.resumeRestartHeld?.(p.threadId, command.id);
-    // A child whose parent is gone runs on its own: its edge stays settled, nothing reaches the
-    // parent.
+    // Automatic work on a child whose parent is gone reaches nothing there either.
     if (threadGone((id) => deps.store.getThread(id), deps.engine, edge.parentId)) {
       deps.changed();
       return accepted;

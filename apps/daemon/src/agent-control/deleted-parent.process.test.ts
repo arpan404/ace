@@ -149,3 +149,48 @@ test("a child still queued for its parent's slot when the parent was purged is d
   expect(missingState(h)).toEqual([]);
   await delegatesAgain(h);
 });
+
+test("the person can carry on a limited child of a deleted, purged middle thread on its own", async () => {
+  const h = setup();
+  const root = await h.parent();
+  const middle = h.delegate(root, "middle");
+  await h.engine.flush();
+  const limited = h.delegate(h.caller(middle.childId), "limited");
+  const running = h.delegate(h.caller(middle.childId), "running");
+  await h.engine.flush();
+  await h.emit(limited.childId, ...stopsOnLimit);
+  expect(h.service.journal.get(limited.childId)?.phase).toBe("settled");
+
+  h.engine.prepareDeletion(middle.childId, "delete-middle");
+  await markDeleted(h, middle.childId);
+  purge(h, middle.childId);
+  // Work running when the middle thread went is still cancelled.
+  expect(h.interrupts).toContain(running.childId);
+  expect(h.service.journal.get(running.childId)).toMatchObject({
+    phase: "settled",
+    outcome: { outcome: "cancelled" },
+  });
+
+  const sent = h.service.command("carry-on", {
+    type: "thread.send",
+    threadId: limited.childId,
+    input: [{ type: "text", text: "Carry on" }],
+  });
+  expect(sent).toMatchObject({ ok: true });
+  // Past its reset, the person resumes it, and it runs again on its own.
+  h.clock.advance(5001);
+  await h.engine.flush();
+  const resumed = h.service.command("resume", {
+    type: "thread.resume",
+    threadId: limited.childId,
+    expectedRevision: h.engine.queue(limited.childId).revision,
+  });
+  expect(resumed).toMatchObject({ ok: true });
+  await h.engine.flush();
+  await h.emit(limited.childId, start);
+  expect(h.store.getThread(limited.childId)?.status.state).toBe("working");
+  // Its edge stays settled: nothing is reported to the middle thread that is gone.
+  expect(h.service.journal.get(limited.childId)).toMatchObject({ phase: "settled" });
+  expect(h.service.journal.nextWake()).toBeUndefined();
+  expect(missingState(h)).toEqual([]);
+});
