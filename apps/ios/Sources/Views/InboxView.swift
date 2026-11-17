@@ -183,8 +183,10 @@ struct InboxView: View {
         .animation(.default, value: organize.undo?.serial)
     }
 
-    /// The tab bar's and the iPad sidebar's choice. Tapping Search while it shows asks for its
-    /// field, as a second tap on a tab acts on the page it already shows.
+    /// The tab bar's choice, and the sidebar's at the foot of Search and Code review. Tapping
+    /// Search while it shows asks for its field, as a second tap on a tab acts on the page it
+    /// already shows. The thread lists keep `$tab`: Search never shows beside them, and a binding
+    /// made afresh each render would redraw them on every change here.
     private var tabChoice: Binding<InboxTab> {
         Binding(get: { tab }, set: { chosen in
             if chosen == .search && tab == .search { searchFocusAsks += 1 }
@@ -291,7 +293,7 @@ struct InboxView: View {
     private func path(_ place: InboxTab) -> Binding<[InboxRoute]> { place == .chats ? $chatsPath : $threadsPath }
 
     private func stack(_ list: InboxTab, path: Binding<[InboxRoute]>, drawer: Binding<ThreadDrawer>) -> some View {
-        InboxStack(inbox: inbox, path: path, list: list, tab: tabChoice, drawer: drawer,
+        InboxStack(inbox: inbox, path: path, list: list, tab: $tab, drawer: drawer,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { startThread() }),
                    machine: $machineFilter, project: $projectFilter,
