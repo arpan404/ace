@@ -68,6 +68,27 @@ import XCTest
         capture("settings")
     }
 
+    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() {
+        let app = launch()
+        app.openSearch()
+        // No pull-down: the field is there as the tab opens.
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(field.isHittable, "Search's field is hidden until the list is pulled down")
+        capture("search-field")
+        // Where Search is a plain tab (iOS 27, compose detached), the first tap shows Search and
+        // tapping it again focuses the field. On iOS 26 the system's own search tab turns into
+        // the field, which takes the tap.
+        let tab = app.tabBars.firstMatch.buttons["Search"]
+        if tab.exists && tab.isHittable {
+            XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
+            tab.tap()
+        } else {
+            field.tap()
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
+    }
+
     func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
         let app = launch()
         for (place, title) in [("usage", "Usage"), ("automations", "Automations"), ("history", "History"), ("archived", "Archived")] {
