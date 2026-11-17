@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
+msrv = "1.87"
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

@@ -1,0 +1,366 @@
+# Rust files and editor core: build plan
+
+ADR 0178 records the decision. This file is the contract every builder works from. If something
+here is wrong or missing, stop and say so in your final message; never invent a different
+interface.
+
+## Why
+
+The Files panel lists the checkout with one capped walk (`list`, 1,000 paths, breadth-first), so
+large checkouts show half-filled folders, the tree never updates when agents write files, and
+the TypeScript watcher and path index have known gaps. ace replaces listing, watching, the path
+index, content search and file I/O with a Rust process, `ace-files`, and replaces the text view
+with an editor whose core is Rust compiled to Wasm. The bar is VS Code: open any folder of any
+checkout instantly, see changes within ~100 ms, quick-open over a million paths without lag.
+
+Use existing, well-maintained crates for every hard part. Write glue, not engines.
+
+## Layout
+
+```
+native/files/                 Cargo workspace (own Cargo.lock), bun run check:files
+  crates/files-safe           root confinement: every relative path resolves inside the root
+  crates/files-list           one folder per request, paged, git-ignore aware, VS Code order
+  crates/files-watch          recursive watching, coalesced batches, overflow -> rescan
+  crates/files-index          quick-open path index: parallel walk, fuzzy match, live updates
+  crates/files-search         content search in-process (ripgrep's libraries)
+  crates/files-io             read ranges, encoding/binary detection, atomic writes, mutations
+  crates/files-wire           the daemon <-> ace-files protocol: frames, messages, golden vectors
+  crates/ace-files            the binary (wave 2): tokio runtime, dispatch, subscriptions
+  vectors/                    golden wire vectors, shared with the TypeScript client
+native/editor/                Cargo workspace built to wasm32-unknown-unknown
+  crates/editor-core          text buffer, edits, undo, selections, find, line index
+  crates/editor-diff          gutter marks against the original text
+  crates/editor-wasm          wasm-bindgen surface (wave 2)
+packages/files-native         (wave 2) daemon-side supervisor and typed client for ace-files
+packages/editor               (wave 2) Wasm loader and TypeScript bindings
+```
+
+Syntax highlighting is markit's (syntect, TextMate grammars, same colours as chat). markit gains
+a line-level incremental API (see "markit"); the editor never carries a second highlighter.
+
+## Rules for every builder
+
+1. Scope: touch only the paths your brief names. Never edit another crate, `Cargo.toml` at the
+   workspace root, `apps/`, or other `packages/`. Never hand-edit `Cargo.lock`; let cargo write it.
+2. Crates: prefer the crates listed per section. Before adding any other dependency, check its
+   licence is in `deny.toml` (`Apache-2.0`, MIT, BSD, ISC, Zlib, Unicode-3.0, Unlicense, and
+   CC0-1.0 in `native/files` only). MPL-2.0, GPL, LGPL, AGPL, SSPL: never. No git dependencies
+   except markit in `native/editor`.
+3. Lints are workspace-wide and deny: no `unsafe`, no `unwrap`/`expect` outside tests, clippy
+   `all`. Every crate's `Cargo.toml` has `[lints] workspace = true`, `edition.workspace = true`,
+   `license.workspace = true`, `version.workspace = true`, `publish.workspace = true`,
+   `rust-version.workspace = true`, and starts with `# SPDX-License-Identifier: Apache-2.0`.
+   Every `.rs` file starts with `// SPDX-License-Identifier: Apache-2.0`.
+4. Errors: one `thiserror` enum per crate. Each error has `pub fn code(&self) -> &'static str`
+   returning one of: `INVALID_PATH`, `PATH_ESCAPE`, `PATH_CHANGED`, `NOT_FOUND`, `NOT_DIRECTORY`,
+   `NOT_FILE`, `PERMISSION_DENIED`, `CONFLICT`, `TOO_LARGE`, `INVALID_ARGUMENT`,
+   `INVALID_CURSOR`, `LIMIT_EXCEEDED`, `ABORTED`, `UNSUPPORTED`, `IO_ERROR`. Map `io::ErrorKind`
+   the obvious way. Never panic on input; malformed input is an error value.
+5. Paths: library APIs take the canonical root `&Path` plus relative paths as `&str`, `/`
+   separated, no leading `/`, no `.`/`..` segments, no NUL, never ending in `/`. Results carry
+   the same form. Only `files-safe` validates and confines; other crates call it.
+6. Injected effects: no global clocks or randomness in logic. Time comes from a parameter or a
+   `Clock` trait the caller passes; tests use a fake clock.
+7. Size: no source file over 400 lines; split by responsibility. Keep the public surface small and
+   documented with `///` comments that say what and why in plain words. No commented-out code, no
+   narrating comments, no TODOs.
+8. Tests: behaviour tests through the public API on real temp directories (`tempfile`). Name them
+   after the behaviour (`lists_folders_before_files_in_natural_order`). No tests that only check
+   that a type exists or restate a constant. Every test in your brief's acceptance list must exist
+   and pass.
+9. Load: this Mac is shared and heavily loaded. Always `export CARGO_BUILD_JOBS=2`. Run only your
+   own crate: `cargo fmt --all --check`, `cargo clippy -p <crate> --all-targets --locked` (first
+   run without `--locked` to create the lockfile entries), `cargo test -p <crate>`. Never run
+   `bun run test`, `bun run check`, vitest, or the whole workspace's tests. Benches run once,
+   `--release`, and their numbers go in your final message.
+10. Git: work in your own worktree on the branch your brief names. Commit after each meaningful
+    step with a plain imperative message ending in the trailer
+    `Co-Authored-By: spade <bot@acehq.dev>` and nothing else (no other trailers, no tool names).
+    Push with an explicit refspec, `git push origin HEAD:<your-branch>`, and check
+    `git rev-parse HEAD origin/<your-branch>` match. Never rebase or force-push. Never touch
+    `main`. Don't open a PR; the orchestrator merges.
+11. Finish: your final message lists what you built, the public API, each acceptance test name,
+    bench numbers, any dependency you added with its licence, and anything you could not do.
+
+## Wave 1 crates
+
+### files-safe
+
+Crates: `cap-std`, `thiserror`. API:
+
+```rust
+pub struct Root;                                     // Clone, Send, Sync
+impl Root {
+    pub fn open(path: &Path) -> Result<Root, Error>;     // canonicalizes; must be a directory
+    pub fn path(&self) -> &Path;                         // canonical absolute root
+    pub fn dir(&self) -> &cap_std::fs::Dir;              // capability handle for I/O crates
+    pub fn check(rel: &str) -> Result<&str, Error>;      // syntax only (rule 5); "" is the root
+    pub fn resolve(&self, rel: &str) -> Result<PathBuf, Error>; // absolute, symlinks resolved,
+                                                         // PATH_ESCAPE if it leaves the root
+    pub fn relative(&self, absolute: &Path) -> Option<String>;  // inverse; None outside root
+}
+```
+
+On Windows also reject `\`, drive prefixes, reserved names (`CON`, `NUL`, ...) and trailing dots
+or spaces. Acceptance: `rejects_dot_dot_and_absolute_paths`, `rejects_symlink_that_leaves_root`,
+`follows_symlink_that_stays_inside_root`, `resolves_missing_leaf_under_existing_parent`,
+`relative_round_trips_resolve`, `root_must_be_a_directory`.
+
+### files-list
+
+Crates: `files-safe` (path dependency), `ignore`, `natord` (or an equivalent MIT natural sort).
+
+```rust
+pub struct Lister;                                   // Send + Sync, one per root
+impl Lister {
+    pub fn new(root: files_safe::Root) -> Lister;
+    pub fn list(&self, dir: &str, options: &ListOptions) -> Result<Page, Error>;
+    pub fn stat(&self, path: &str) -> Result<Entry, Error>;
+    pub fn invalidate(&self, dirs: &[&str]);         // drops cached ignore rules / snapshots
+}
+pub struct ListOptions { pub limit: usize, pub cursor: Option<String>, pub hide: Vec<String> }
+pub struct Page { pub entries: Vec<Entry>, pub next_cursor: Option<String>, pub total: usize }
+pub struct Entry { pub path: String, pub name: String, pub kind: Kind, pub size: u64,
+                   pub mtime_ms: i64, pub ignored: bool }
+pub enum Kind { File, Directory, Symlink { target: Option<Box<Kind>> }, Other }
+```
+
+Behaviour: one folder, not recursive. Ignored entries are listed with `ignored: true` (the UI dims
+them, as VS Code does). Ignore rules are git's: every `.gitignore` from the root down, `.git/info/
+exclude`, and `core.excludesFile`, built with `ignore::gitignore::GitignoreBuilder` and cached per
+folder. `hide` holds glob patterns that never list (default caller value `[".git", ".DS_Store"]`).
+Order: folders first, then files; within each, case-insensitive natural order (`file2` before
+`file10`), ties broken by exact name. `limit` 1..=5000 (else `INVALID_ARGUMENT`). The cursor is
+opaque and encodes the folder's mtime and position; a cursor for a folder that changed since is
+`INVALID_CURSOR`. A symlink reports its target kind without following it outside the root.
+Acceptance: `lists_one_level_only`, `lists_folders_before_files_in_natural_order`,
+`marks_gitignored_entries_without_hiding_them`, `nested_gitignore_applies_to_its_folder_only`,
+`hide_patterns_never_list`, `pages_through_a_folder_of_12000_files_without_gaps_or_repeats`,
+`cursor_from_a_changed_folder_is_rejected`, `symlink_reports_target_kind`,
+`listing_a_file_is_not_directory`. Bench: list a folder of 100,000 files, first page of 500.
+
+### files-watch
+
+Crates: `notify`, `notify-debouncer-full`, `files-safe`, `globset`.
+
+```rust
+pub struct Watcher;                                  // drop = stop
+impl Watcher {
+    pub fn start(root: files_safe::Root, options: WatchOptions,
+                 sink: Box<dyn Fn(Batch) + Send + Sync>) -> Result<Watcher, Error>;
+    pub fn mode(&self) -> Mode;                      // Native | Polling
+}
+pub struct WatchOptions { pub debounce: Duration, pub exclude: Vec<String>, pub max_batch: usize }
+pub enum Batch { Changes(Vec<Change>), Rescan { dir: Option<String> }, Warning(String) }
+pub struct Change { pub path: String, pub kind: ChangeKind, pub directory: bool }
+pub enum ChangeKind { Created, Modified, Deleted }
+```
+
+Behaviour: watches the whole root recursively. Defaults the caller passes: debounce 75 ms,
+exclude `["**/.git/objects/**", "**/.git/subtree-cache/**", "**/node_modules/*/**"]`, max_batch
+5,000. A rename is a `Deleted` plus a `Created`. Coalesce within a window: created then deleted
+drops both; deleted then created is `Modified`; repeated modifies are one. More than `max_batch`
+changes in one window, or an OS overflow signal (inotify `Q_OVERFLOW`, FSEvents must-scan), sends
+`Rescan` for the narrowest folder known, `None` for the whole root. Linux: never add inotify
+watches inside excluded folders; walk with per-folder non-recursive watches and add new folders as
+they appear. If native watching cannot start or hits the inotify limit, fall back to notify's
+`PollWatcher` (2 s) and send one `Warning` saying why. Paths outside the root (symlink targets) are
+never reported. Acceptance (real temp dirs, generous timeouts, no sleeps shorter than the
+debounce): `reports_a_created_file`, `reports_a_deleted_folder`, `rename_is_delete_plus_create`,
+`create_then_delete_in_one_window_reports_nothing`, `many_writes_to_one_file_coalesce`,
+`burst_over_max_batch_becomes_rescan`, `excluded_folders_report_nothing`,
+`new_subfolder_is_watched` (create `a/`, then write `a/b.txt`, expect it).
+
+### files-index
+
+Crates: `ignore` (`WalkParallel`), `frizbee` if its licence and API fit, otherwise
+`fuzzy-matcher` (`SkimMatcherV2`), `rayon`, `files-safe`.
+
+```rust
+pub struct PathIndex;
+impl PathIndex {
+    pub fn build(root: &files_safe::Root, options: &IndexOptions,
+                 cancel: &AtomicBool) -> Result<PathIndex, Error>;
+    pub fn apply(&mut self, root: &files_safe::Root, changes: &[IndexChange]);
+    pub fn search(&self, query: &str, limit: usize) -> Vec<Hit>;
+    pub fn len(&self) -> usize;
+    pub fn truncated(&self) -> bool;
+}
+pub struct IndexOptions { pub max_files: usize, pub include_ignored: bool, pub hide: Vec<String> }
+pub struct IndexChange { pub path: String, pub deleted: bool, pub directory: bool }
+pub struct Hit { pub path: String, pub score: u32, pub positions: Vec<u32> }
+```
+
+Behaviour: files only, git-ignore rules respected unless `include_ignored`, `hide` as in
+files-list, cap `max_files` (default 1,000,000; past it `truncated()`). Store paths in one arena
+(`String` plus `u32` offsets), not a `Vec<String>`. `apply` adds and removes files; a created
+directory walks its subtree, a deleted directory drops its subtree. Ranking like VS Code's quick
+open: matches in the file name beat matches spread over folders, contiguous runs beat scattered
+ones, shorter paths win ties; a query containing `/` matches across segments. `positions` are
+byte offsets into `path` for highlighting. Empty query returns nothing. Acceptance:
+`finds_file_by_scattered_letters`, `file_name_match_ranks_above_folder_match`,
+`slash_query_matches_path_segments`, `respects_gitignore`, `apply_adds_and_removes_files`,
+`deleted_folder_drops_its_subtree`, `created_folder_adds_its_subtree`,
+`stops_at_max_files_and_reports_truncated`, `cancel_stops_build`. Bench (generated tree of
+1,000,000 paths): build time, memory per path, and p50 query time for `srvmain`, `main.rs`,
+`crates/ace` (target under 30 ms on an unloaded machine).
+
+### files-search
+
+Crates: `grep-searcher`, `grep-regex`, `grep-matcher`, `ignore` (`WalkParallel`), `globset`,
+`files-safe`.
+
+```rust
+pub fn search(root: &files_safe::Root, query: &Query, cancel: &AtomicBool,
+              sink: &(dyn Fn(FileMatches) -> bool + Sync)) -> Result<Summary, Error>;
+pub struct Query { pub pattern: String, pub regex: bool, pub case: Case, pub whole_word: bool,
+                   pub include: Vec<String>, pub exclude: Vec<String>, pub include_ignored: bool,
+                   pub max_matches: usize, pub max_file_bytes: u64 }
+pub enum Case { Sensitive, Insensitive, Smart }
+pub struct FileMatches { pub path: String, pub lines: Vec<LineMatch> }
+pub struct LineMatch { pub line: u64, pub preview: String, pub ranges: Vec<(u32, u32)> }
+pub struct Summary { pub files: u64, pub bytes: u64, pub matches: u64, pub limit_hit: bool }
+```
+
+Behaviour: streams one `FileMatches` per file as found; the sink returning `false` stops the
+search. Binary files are skipped (quit on NUL). Previews are at most 400 bytes around the match,
+lossy UTF-8, `ranges` are byte offsets inside the preview. Invalid regex is `INVALID_ARGUMENT`.
+Acceptance: `finds_literal_across_files`, `regex_with_groups`, `smart_case_is_insensitive_for_
+lowercase_query`, `whole_word_skips_substrings`, `include_and_exclude_globs`,
+`skips_gitignored_unless_asked`, `skips_binary_files`, `stops_at_max_matches_with_limit_hit`,
+`sink_false_stops_search`, `long_line_preview_is_bounded`. Bench: literal search over this repo
+(`apps/` and `packages/`), report time and bytes.
+
+### files-io
+
+Crates: `files-safe`, `cap-std`, `encoding_rs`, `chardetng`, `tempfile`, `content_inspector` (or
+the NUL heuristic), `trash` is NOT used (ace keeps its own recently-deleted area, wave 3).
+
+```rust
+pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error>;
+pub fn stat_version(root: &Root, path: &str) -> Result<Option<String>, Error>;
+pub fn write(root: &Root, path: &str, bytes: &[u8], expected: Option<&str>) -> Result<String, Error>;
+pub fn create_file(root: &Root, path: &str, bytes: &[u8]) -> Result<String, Error>;
+pub fn create_dir(root: &Root, path: &str) -> Result<(), Error>;
+pub fn rename(root: &Root, from: &str, to: &str, overwrite: bool) -> Result<(), Error>;
+pub fn remove(root: &Root, path: &str) -> Result<(), Error>;
+pub struct ReadRange { pub offset: u64, pub length: u64, pub max_size: Option<u64> }
+pub struct Read { pub size: u64, pub version: String, pub bytes: Vec<u8>, pub binary: bool,
+                  pub encoding: &'static str, pub bom: bool, pub eof: bool }
+```
+
+Behaviour: `version` must equal the TypeScript daemon's format exactly, so stored drafts keep
+working: `"{dev}:{ino}:{size}:{mtimeMs}:{ctimeMs}"` where the times are milliseconds as
+JavaScript prints a float (`1731800000123.4567` keeps its fraction; integers print without `.0`).
+Read `packages/files/src/types.ts` (`version`) and match it; on Windows use the file index and
+volume serial as `dev`/`ino`. `write` with `expected` set compares the current version first and
+returns `CONFLICT` if it differs; it writes to a temp file in the same folder, fsyncs, then renames
+over, preserving the original mode. `None` for `expected` means create only (`CONFLICT` if it
+exists). Detect encoding from the BOM, else UTF-8 if valid, else `chardetng`; report
+`binary: true` when the first 8 KiB has a NUL. `max_size`: no bytes if the file is larger.
+`rename` never overwrites unless asked. `remove` deletes files and folders (recursive). All
+operations go through `files-safe`. Acceptance: `version_matches_javascript_format`,
+`write_with_stale_version_conflicts`, `write_is_atomic_on_crash_simulated_by_temp_left_behind`,
+`write_keeps_file_mode`, `create_refuses_existing_file`, `reads_a_range`,
+`detects_utf16_bom_and_latin1`, `binary_file_is_flagged`, `max_size_returns_no_bytes`,
+`rename_refuses_to_overwrite`, `remove_folder_recursively`, `operations_refuse_paths_outside_root`.
+
+### files-wire
+
+Crates: `serde`, `serde_json`, `thiserror`.
+
+Framing on stdio, both directions: `u32` little-endian length of the rest, one `u8` kind, then
+the payload. Kind `1`: a UTF-8 JSON message. Kind `2`: a binary body, `u64` LE request id then the
+bytes; it belongs to the JSON message with the same id that says `"body": true`. Frames over
+16 MiB are an error. Provide `encode(&Message) -> Vec<u8>`, `encode_body(id, &[u8])`, and an
+incremental `Decoder` that takes byte chunks and yields complete frames, never panics on garbage,
+and reports oversize frames as errors.
+
+Messages (serde, `tag = "type"`, `rename_all = "camelCase"`, unknown fields ignored):
+
+- daemon -> ace-files: `hello { protocol: 1 }`, `request { id, op }`, `cancel { id }`.
+- ace-files -> daemon: `hello { protocol: 1, version }`, `response { id, result }`,
+  `error { id, code, message, current? }`, `event { subscription, payload }`.
+- `op` (`tag = "op"`): `openRoot { path }` -> `{ root }` (a number); `closeRoot { root }`;
+  `list { root, dir, limit, cursor?, hide }`; `stat { root, path }`;
+  `read { root, path, offset, length, maxSize? }` -> metadata, bytes as a body;
+  `write { root, path, expected? }` with a body -> `{ version }`; `createFile`, `createDir`,
+  `rename { root, from, to, overwrite }`, `remove { root, path }`;
+  `watch { root }` -> `{ subscription }` then `event` payloads `changes { changes }`,
+  `rescan { dir? }`, `warning { message }`; `unwatch { subscription }`;
+  `indexQuery { root, query, limit }` -> `{ hits, total, truncated, ready }`;
+  `search { root, query… }` -> `{ subscription }`, events `matches { file }`, then
+  `searchDone { summary }`.
+
+Put one golden vector per message in `native/files/vectors/*.json` (the exact JSON plus the hex of
+its frame); the Rust tests round-trip them and the TypeScript client (wave 2) tests the same files.
+Acceptance: `every_vector_round_trips`, `decoder_handles_split_and_joined_frames`,
+`decoder_rejects_oversize_frame`, `unknown_fields_are_ignored`, `unknown_op_is_an_error_value`.
+
+### editor-core (native/editor)
+
+Crates: `ropey`, `regex`, `unicode-segmentation`, `thiserror`. Pure Rust, no wasm-bindgen here
+(that's `editor-wasm`, wave 2), builds for `wasm32-unknown-unknown` and native.
+
+```rust
+pub struct Document;
+impl Document {
+    pub fn new(text: &str) -> Document;
+    pub fn text(&self) -> String;  pub fn len_lines(&self) -> usize;
+    pub fn line(&self, index: usize) -> Cow<'_, str>;
+    pub fn apply(&mut self, edit: Transaction) -> Applied;     // returns changed line range
+    pub fn undo(&mut self) -> Option<Applied>;  pub fn redo(&mut self) -> Option<Applied>;
+    pub fn selections(&self) -> &[Selection];  pub fn set_selections(&mut self, s: Vec<Selection>);
+    pub fn find(&self, query: &FindQuery, limit: usize) -> Vec<Range>;
+    pub fn version(&self) -> u64;
+}
+```
+
+Positions are `(line, column)` with column in UTF-16 code units (what the DOM uses), converted
+internally. Edits: insert/delete/replace at every selection (multi-cursor), with commands for
+typing, newline with indentation carried over, backspace by grapheme, delete word, indent/outdent
+lines, move line up/down, duplicate line, toggle line comment (comment token passed in), select
+next occurrence, column (box) selection. Undo groups consecutive typing until a pause the caller
+signals, a selection jump, or a newline. Line endings: detect `\n` / `\r\n` on load and keep them.
+Acceptance: `typing_at_three_cursors_inserts_at_each`, `undo_restores_text_and_selections`,
+`typing_run_undoes_as_one_step`, `newline_keeps_indentation`,
+`backspace_removes_one_grapheme_cluster` (emoji with modifiers), `utf16_columns_round_trip`,
+`move_line_down_keeps_selection`, `toggle_comment_on_mixed_lines`, `crlf_survives_edit`,
+`find_regex_and_whole_word`, `select_next_occurrence_adds_cursor`. Bench: 200,000-line file:
+load time, 1,000 single-character inserts at random lines, `line()` p50.
+
+### editor-diff (native/editor)
+
+Crates: `imara-diff`. `pub fn line_marks(original: &str, current: &str) -> Vec<Mark>` with
+`Mark { line: u32, kind: Added | Modified | Removed }`, matching what
+`packages/ui-core` `LineMark` means today (read its source). Acceptance: `added_lines`,
+`removed_lines_mark_the_line_below`, `modified_block`, `identical_text_has_no_marks`. Bench:
+200,000-line file with 100 scattered edits under 20 ms.
+
+## markit
+
+In the markit repository (`arpan404/markit`), add a line-level incremental highlighter beside
+`highlight(code, language)`: a `LineHighlighter` that holds per-line boundaries and runs (the
+existing `Boundary`/`ParsedLine` logic, reused, not copied), with
+`new(language)`, `set_text(text)`, `edit(start_line, removed_lines, inserted: &[&str])`, and
+`tokens(start_line, end_line) -> Vec<Vec<CodeToken>>` that parses lazily up to `end_line` and
+stops re-parsing once a line's boundary matches the cached one. Same colours and tokens as
+`highlight` for the same text (test that on the existing fixtures). Expose it through
+`markit-wasm` and `markit-ffi` (Swift, Kotlin) in the same shape.
+
+## Waves and branches
+
+- Integration branch: `ace/rust-files` on origin. Each builder branches from it in its own
+  worktree and pushes `ace/rust-files-<crate>`. The orchestrator reviews and merges.
+- Wave 1 (parallel): files-safe, files-list, files-watch, files-index, files-search, files-io,
+  files-wire, editor-core, editor-diff, markit line highlighter. `files-safe` already exists on
+  the integration branch with the API above and a simple body; the files-safe builder hardens it
+  (cap-std resolution, Windows rules, tests) without changing its signatures. Other crates use it
+  as a path dependency, `files-safe = { path = "../files-safe" }`.
+- Wave 2: `ace-files` binary; `packages/files-native` supervisor and client; protocol ops
+  (`list` per folder, `watch`, `indexQuery`, `search`) in `packages/protocol`; daemon wiring;
+  file tree rewrite (lazy folders, live updates); `editor-wasm` and `packages/editor`; editor
+  view in the Files tab; iOS bridge; release staging (`stageAceFiles`, desktop build, verify).
+- Wave 3: recently-deleted, uploads and archives on ace-files; delete the TypeScript list,
+  watch, search and path-index code; Windows VM and Linux runs; benches on a 1M-file checkout.
