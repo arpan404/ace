@@ -3,7 +3,7 @@ import type { ArchiveFile } from "../archive.ts";
 import { isLicencePath, licenceProblem } from "./licence.ts";
 
 /*
- * The `files` check (ADR 0173 §8): nothing executable or packaged travels in an entry. Native
+ * The `files` check (ADR 0174 §8): nothing executable or packaged travels in an entry. Native
  * programs are told by their first bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a
  * plugin by its header, a compiled AppleScript by its `FasdUAS` marker, and an archive inside the
  * archive by its own magic (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg). An executable bit on a

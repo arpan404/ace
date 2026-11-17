@@ -10,10 +10,10 @@ import { storedBytesSql } from "./me-limits.ts";
 import { getReport } from "./me-scan.ts";
 
 /*
- * Drafts (ADR 0173 §5), in the publishers database: the archive at `drafts/<id>/<hash>`, its
+ * Drafts (ADR 0174 §5), in the publishers database: the archive at `drafts/<id>/<hash>`, its
  * scan report at `reports/drafts/<id>/<hash>.json`, and a scan that didn't fit one request in
  * `scan_jobs`. The bytes are keyed by the hash the row names, so the row never points at another
- * revision's. Publishing claims the draft first (`claimDraft`, ADR 0173 §16): a claimed draft
+ * revision's. Publishing claims the draft first (`claimDraft`, ADR 0174 §16): a claimed draft
  * isn't replaced, edited or deleted until the publish finishes or is released.
  */
 
@@ -204,7 +204,7 @@ export async function patchDraft(
 }
 
 /**
- * Claims the draft for publishing `item` (ADR 0173 §16): only while it still holds `hash` with
+ * Claims the draft for publishing `item` (ADR 0174 §16): only while it still holds `hash` with
  * its scan done, and not claimed for another version. In the same batch its bytes move onto the
  * version's charge, so they count once, and the publisher is marked for the quota reconcile.
  * Claiming again for the same version is fine: that is how a cut-off publish resumes.

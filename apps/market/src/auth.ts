@@ -11,7 +11,7 @@ import { liveVersionsOf } from "./store/copies.ts";
 import type { Databases } from "./store/databases.ts";
 
 /*
- * Who is writing (ADR 0173 §2). Every write route calls `authenticate` first: a market grant from
+ * Who is writing (ADR 0174 §2). Every write route calls `authenticate` first: a market grant from
  * the account backend, checked for its signature, audience, purpose, lifetime and issuer, then a
  * verified email, then a recent sign-in for sensitive actions, then the publisher's state. An
  * account on the signed official list acts as the `ace` publisher (§14). Nothing else is a
@@ -52,7 +52,7 @@ const columns = "p.id, p.name, p.state, p.created, p.verified";
 
 /**
  * The publisher an account writes as: the `ace` publisher for an official account, else its own.
- * Its live versions are summed over the catalogues (ADR 0173 §16).
+ * Its live versions are summed over the catalogues (ADR 0174 §16).
  */
 async function publisherFor(dbs: Databases, account: string): Promise<AuthedPublisher | undefined> {
   const db = dbs.publishers;

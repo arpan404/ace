@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { entry, findMarket, openApp, seed } from "./market-test-seed.ts";
 
-/* Discover's ranked sections, publisher pages, your profile, publishing and managing (ADR 0173). */
+/* Discover's ranked sections, publisher pages, your profile, publishing and managing (ADR 0174). */
 
 configure({ asyncUtilTimeout: 10000 });
 afterEach(() => localStorage.clear());

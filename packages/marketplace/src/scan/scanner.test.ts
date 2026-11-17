@@ -380,7 +380,7 @@ describe("cost", () => {
     const started = performance.now();
     const made = scanEntry(input);
     expect(performance.now() - started).toBeLessThan(2000);
-    // A script the scanner couldn't read whole blocks: fail closed (ADR 0173 §8).
+    // A script the scanner couldn't read whole blocks: fail closed (ADR 0174 §8).
     expect(made.findings.some((f) => f.rule === "scan-truncated" && f.level === "block")).toBe(
       true,
     );

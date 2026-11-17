@@ -6,11 +6,11 @@ export type MarketLimits = z.infer<typeof Schema>;
 export type Caps = ReturnType<typeof publisherLimits>;
 
 /*
- * A publisher's limits (ADR 0173 §9), in the publishers database: uploads a day, bytes stored in
+ * A publisher's limits (ADR 0174 §9), in the publishers database: uploads a day, bytes stored in
  * versions, drafts and pictures, and drafts. Publishers are accounts, so counting them tracks no
  * reader. Each limit is checked in the statement that uses it up, never read first and written
  * after, so concurrent uploads can't all take the last slot. Versions live in their type's
- * catalogue, so their bytes are counted through the quota ledger (`charges`, ADR 0173 §16): a
+ * catalogue, so their bytes are counted through the quota ledger (`charges`, ADR 0174 §16): a
  * charge is written before its version, here, and only the cron's reconcile drops or corrects
  * one (`store/usage.ts`).
  */

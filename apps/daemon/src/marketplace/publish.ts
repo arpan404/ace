@@ -19,7 +19,7 @@ import { MarketHttpError, type MarketHttp } from "./http.ts";
 import { Refused } from "./prepare.ts";
 
 /*
- * Publishing through the daemon (ADR 0173 §2, §11): a thin proxy from each `publish` action to
+ * Publishing through the daemon (ADR 0174 §2, §11): a thin proxy from each `publish` action to
  * its Worker route under `/v1/me`, every answer parsed with the protocol's schema and every
  * Worker error mapped to a `MarketErrorCode`. A market grant is minted for each action through
  * the machine's signed-in ace account and goes only as `Authorization` to the market's origin;

@@ -6,7 +6,7 @@ import { Refused } from "./prepare.ts";
 import { pictureType } from "./pictures.ts";
 
 /*
- * A draft's bytes from what the app sends (ADR 0173 §5): a folder on this machine read as the
+ * A draft's bytes from what the app sends (ADR 0174 §5): a folder on this machine read as the
  * CLI reads one (regular files only, no links, `.git` left out) and written as the canonical
  * archive, or an archive the app made, decoded with a cap. Pictures are base64 decoded, capped.
  */

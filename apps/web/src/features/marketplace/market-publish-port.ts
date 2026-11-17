@@ -12,7 +12,7 @@ import { findingSentences } from "./market-model.ts";
 import { usePublishRequest, usePublishSend } from "./market-publishing.ts";
 
 /*
- * What the publish flow runs on (ADR 0173 §2): the person's own things of a type, a draft made
+ * What the publish flow runs on (ADR 0174 §2): the person's own things of a type, a draft made
  * from one and checked by ace's scan (read again until the scan is done), and publishing it with
  * its listing. Pure helpers for the words; the daemon's publish actions do the work.
  */

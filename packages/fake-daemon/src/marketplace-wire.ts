@@ -49,7 +49,7 @@ export interface MarketplaceSeed {
   readAt?: number;
   /** A `prepare` for these `type/name` keys is refused with this message. */
   refuse?: Record<string, string>;
-  /** Publishing, Discover and publisher pages (ADR 0173). */
+  /** Publishing, Discover and publisher pages (ADR 0174). */
   publishing?: MarketPublishSeed;
   /** Listing pictures and avatars the `picture` op answers, by sha256. */
   pictures?: Record<string, { type: "image/png" | "image/jpeg" | "image/webp"; data: string }>;

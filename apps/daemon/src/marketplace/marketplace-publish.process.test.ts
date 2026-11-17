@@ -13,7 +13,7 @@ import type {
 import { fakeMarket, fakeSpade, marketplaceHarness, type Seen } from "./test-support.ts";
 
 /*
- * Publishing through the daemon (ADR 0173 §2, §6): a market grant per action, sent only as
+ * Publishing through the daemon (ADR 0174 §2, §6): a market grant per action, sent only as
  * Authorization to the market and never kept; signed out and stale sign-ins in the words the
  * app shows; a folder uploaded as its canonical archive; Discover answered offline.
  */

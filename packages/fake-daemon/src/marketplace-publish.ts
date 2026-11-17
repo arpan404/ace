@@ -18,7 +18,7 @@ import type {
 import { report } from "@ace/marketplace/scan";
 
 /*
- * Publishing, Discover, publisher pages and reports (ADR 0173) as the fake daemon answers them,
+ * Publishing, Discover, publisher pages and reports (ADR 0174) as the fake daemon answers them,
  * from seeded state: the publisher's page, entries with version statuses, drafts whose scan runs
  * (`scanning` on create, `done` on the next read), publishes held or blocked, signals,
  * verification and transfers. Signed out when seeded so. No market and no network.

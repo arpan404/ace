@@ -11,7 +11,7 @@ import { disposition, scanEntry, type ScanContext, type ScanInput } from "./inde
 import { instructionTruncations } from "./instructions.ts";
 
 /*
- * Instruction text fails closed (ADR 0173 §8): a cap never drops instruction text without a
+ * Instruction text fails closed (ADR 0174 §8): a cap never drops instruction text without a
  * block, and prose that tells an agent to run a download, a pipe into an interpreter or a decoded
  * blob is held even when no code-shaped command carries it. Ordinary docs stay clean.
  */

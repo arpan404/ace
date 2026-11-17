@@ -308,7 +308,7 @@ export function machineAccount(options: {
       return obtainGrant(hostId, "spade-cloud", signal);
     },
     /**
-     * A market grant for one publishing request (ADR 0173 §2), or undefined when no ace account
+     * A market grant for one publishing request (ADR 0174 §2), or undefined when no ace account
      * is signed in here. The caller holds it for that request only.
      */
     async marketGrant(hostId: string, signal?: AbortSignal): Promise<string | undefined> {

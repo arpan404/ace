@@ -7,7 +7,7 @@ import { pinsOf, profileOf, publisherByHandle } from "./store/profiles.ts";
 import { publisherEntries } from "./store/read.ts";
 
 /*
- * Public profile reads (ADR 0173 §3, §6): a publisher's page, avatars and listing pictures.
+ * Public profile reads (ADR 0174 §3, §6): a publisher's page, avatars and listing pictures.
  * Pictures are served as their own type, `nosniff`, immutable, under a CSP that runs nothing.
  */
 
@@ -46,7 +46,7 @@ export async function profileRoute(
     case "publisher": {
       const row = await publisherByHandle(context.dbs.publishers, route.handle);
       if (!row || row.state !== "active") return notFound();
-      // Listed entries only: unlisted and archived ones leave the profile (ADR 0173 §5).
+      // Listed entries only: unlisted and archived ones leave the profile (ADR 0174 §5).
       const entries = await publisherEntries(context.dbs, row.id);
       const byKey = new Map(entries.map((entry) => [`${entry.type}/${entry.name}`, entry]));
       // Pins are kept to the publisher's listed entries here, whatever moved on the way (§16).

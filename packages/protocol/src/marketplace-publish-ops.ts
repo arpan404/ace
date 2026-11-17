@@ -35,7 +35,7 @@ import { MarketScanReport } from "./marketplace-scan.ts";
 import { SuitId } from "./suits.ts";
 
 /*
- * Publishing and Discover through the daemon (ADR 0173 §2, §11): what `marketplace.request`
+ * Publishing and Discover through the daemon (ADR 0174 §2, §11): what `marketplace.request`
  * carries for the app. `publish` needs the admin scope and mints a market grant through the
  * machine's signed-in ace account for each request; signed out, it answers `signed_out`.
  * `discover` and `publisher` are reads. Schema only.
@@ -195,12 +195,12 @@ export const MarketPublisherPage = z.strictObject({
   pinned: z.array(MarketEntrySummary).max(6),
   entries: z.array(MarketEntrySummary).max(500),
   downloads: z.number().int().nonnegative(),
-  /** ace's own publisher, by the signed official list (ADR 0173 §14). */
+  /** ace's own publisher, by the signed official list (ADR 0174 §14). */
   official: z.boolean().optional(),
 });
 export type MarketPublisherPage = z.infer<typeof MarketPublisherPage>;
 
-/** The ops `marketplace.request` gains (ADR 0173 §11). */
+/** The ops `marketplace.request` gains (ADR 0174 §11). */
 export const marketPublishOperations = [
   z.strictObject({ op: z.literal("discover") }),
   z.strictObject({ op: z.literal("publisher"), handle: MarketPublisherName }),

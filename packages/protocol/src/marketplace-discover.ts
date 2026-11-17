@@ -3,7 +3,7 @@ import { MarketCategoryId, MarketHash, MarketPublisherName } from "./marketplace
 import { MarketDisplayName } from "./marketplace-publisher.ts";
 
 /*
- * Discover on the wire (ADR 0173 §6): the hero, featured, Trending this week, New and notable,
+ * Discover on the wire (ADR 0174 §6): the hero, featured, Trending this week, New and notable,
  * collections and top publishers, in one body from `GET /v1/discover`. Entries are index entries,
  * read as the index is. Schema only; the ranking is `@ace/marketplace`'s `rankTrending`.
  */

@@ -2,7 +2,7 @@ import type { ScriptRule } from "./rule.ts";
 import { scriptOperand, type ScriptView } from "./script-view.ts";
 
 /*
- * The `scripts` check's rules (ADR 0173 §8): what a skill script, a plugin's hook or server
+ * The `scripts` check's rules (ADR 0174 §8): what a skill script, a plugin's hook or server
  * command, or a recipe's bundled script does that no entry should. Each rule reads the shell
  * reader's commands where the script is shell, and token patterns over the normalised text
  * otherwise. Every pattern is linear: no nested quantifiers, lines read are capped.

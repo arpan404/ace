@@ -38,11 +38,11 @@ import { hasBidi, hasInvisible, mixedScriptWord } from "./text.ts";
 import { linkProblem, readsAsAce, skeleton } from "../profile.ts";
 import type { MarketLink } from "@ace/protocol/marketplace";
 
-/** The most text read from one file (ADR 0173 §8): past it a script is a `warn`, not read whole. */
+/** The most text read from one file (ADR 0174 §8): past it a script is a `warn`, not read whole. */
 const MAX_FILE_BYTES = 1024 * 1024;
 
 /*
- * The scanner (ADR 0173 §8): one pure module the Worker, the signer and the device run on the
+ * The scanner (ADR 0174 §8): one pure module the Worker, the signer and the device run on the
  * same bytes. Each check answers pass, warn or block from its findings; each finding is one plain
  * sentence. It works in budgeted steps so a Worker request never reads more than it may, and the
  * same steps run whole on the signer and the device.
@@ -54,7 +54,7 @@ const MAX_FILE_BYTES = 1024 * 1024;
 export interface ScanContext {
   /** Entries already in the market, other publishers' and the scanned publisher's own. */
   entries: readonly { type: string; name: string; publisher: string; downloads: number }[];
-  /** Verified publishers' handles and display names (ADR 0173 §13). */
+  /** Verified publishers' handles and display names (ADR 0174 §13). */
   verified: readonly { handle: string; displayName: string }[];
   /** The publisher being scanned: its handle, and whether it is the official `ace` (§14). */
   publisher?: { handle: string; official: boolean } | undefined;
@@ -78,7 +78,7 @@ export interface ScanBudget {
   textBytes: number;
   files: number;
 }
-/** A Worker request's budget (ADR 0173 §8): 4 MiB of text or 600 files. */
+/** A Worker request's budget (ADR 0174 §8): 4 MiB of text or 600 files. */
 export const requestBudget: ScanBudget = { textBytes: 4 * 1024 * 1024, files: 600 };
 /** No bound: the signer and the device scan whole. */
 export const wholeBudget: ScanBudget = {
@@ -147,7 +147,7 @@ function scanFile(
 
   const decoded = scanText(file.content);
   if (decoded === undefined) {
-    // A file the scanner can't decode as text (ADR 0173 §8, finding 1). The `files` check reads
+    // A file the scanner can't decode as text (ADR 0174 §8, finding 1). The `files` check reads
     // its first bytes for a known-bad format; on top of that, an executable file, an
     // instruction-referenced one, a script-like name or location, or any binary that isn't a
     // recognised safe data format is held — never passed on unrecognised magic.
@@ -181,7 +181,7 @@ function scanFile(
   const text = tooLong ? source.slice(0, MAX_FILE_BYTES) : source;
   if (tooLong) {
     // Executable or instructional content the scanner couldn't read whole is blocked (fail
-    // closed, ADR 0173 §8): a buried `curl … | sh` past the cap can't slip through. A plain data
+    // closed, ADR 0174 §8): a buried `curl … | sh` past the cap can't slip through. A plain data
     // file isn't executable, so truncating its scan isn't a gap.
     const scripty = isScriptLike(file.path, source, script) || instructionFile.test(file.path);
     state.findings.push(
@@ -272,7 +272,7 @@ export function finishScan(state: ScanState, input: ScanInput): MarketScanReport
 
   // A scan that never read every file (a budget ran out, a step was skipped) is never a pass:
   // an unread file could hide a block. The Worker only calls this once a scan is done; this
-  // guard holds the invariant even for a direct, cut-short call (ADR 0173 §8).
+  // guard holds the invariant even for a direct, cut-short call (ADR 0174 §8).
   if (state.cursor < sortedFiles(input).length)
     findings.push(
       mkFinding(
@@ -338,7 +338,7 @@ export function scanEntry(input: ScanInput): MarketScanReport {
   return finishScan(state, input);
 }
 
-/** A listing edit or changelog (ADR 0173 §5): hidden unicode, links, injection, impersonation. */
+/** A listing edit or changelog (ADR 0174 §5): hidden unicode, links, injection, impersonation. */
 export function scanListing(
   listing: Partial<MarketListingEdit> & { changelog?: string },
   context: ScanContext,
@@ -397,7 +397,7 @@ export function knownBad(
   return knownBadFindings(files, hash, blocklist);
 }
 
-/** What a report means for listing (ADR 0173 §9). */
+/** What a report means for listing (ADR 0174 §9). */
 export type Disposition = "list" | "hold" | "block";
 
 /**
@@ -412,7 +412,7 @@ export function disposition(
   if (scan.verdict === "block") return "block";
   if (publisher.approved) return "list";
   if (scan.verdict === "warn") return "hold";
-  // The policy layer (ADR 0173 §8): a version with runnable content is held for a maintainer on
+  // The policy layer (ADR 0174 §8): a version with runnable content is held for a maintainer on
   // scan pass alone, whatever the publisher. Only pure data lists without review.
   if (scan.runnable) return "hold";
   if (publisher.official || (publisher.newPublisher && publisher.firstVersion)) return "hold";

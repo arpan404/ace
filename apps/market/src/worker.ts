@@ -111,7 +111,7 @@ export default {
     return dispatch(request, url, route, context);
   },
   /**
-   * The cron, every quarter hour, each step bounded (ADR 0173 §1, §16): download totals into the
+   * The cron, every quarter hour, each step bounded (ADR 0174 §1, §16): download totals into the
    * catalogues, then the publishers' work (the cross-database protocols' resumption, scan jobs,
    * drafts, transfers, verification re-checks, pictures, stamps, sizes) and Discover's (download
    * buckets, trending, top publishers).
