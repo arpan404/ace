@@ -19,13 +19,16 @@ export type ReleaseData = z.infer<typeof ReleaseData>;
 
 /**
  * What a data home holds now, as its daemon reads it: the home's format marker and each
- * database's stored schema version. Null where the home has no such file yet (Spade never
- * started, no notification ever stored) or its version can't be read.
+ * database's stored schema version. Null where the home has no such file (Spade never started,
+ * no notification ever stored). A file that is there but couldn't be read (locked, damaged, a
+ * timeout) is null too and named in `unreadable`, which blocks any switch to an older release:
+ * its version is unknown, not absent. Daemons from before `unreadable` never send it.
  */
 export const HomeData = z.looseObject({
   home: FormatNumber.nullable(),
   daemon: FormatNumber.nullable(),
   notify: FormatNumber.nullable(),
   spade: FormatNumber.nullable(),
+  unreadable: z.array(z.string().min(1).max(64)).max(32).optional(),
 });
 export type HomeData = z.infer<typeof HomeData>;

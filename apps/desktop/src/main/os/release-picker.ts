@@ -123,21 +123,25 @@ export type Guard =
   | { ok: true }
   /**
    * `unreadable`: the release publishes no `ace-data.json` (or one that can't be read).
-   * `home-unknown`: the daemon hasn't said what the home holds. `newer-data`: the home holds a
-   * format newer than the release reads.
+   * `home-unknown`: the daemon hasn't said what the home holds. `home-unreadable`: a file the
+   * home has couldn't be read, so its version is unknown. `newer-data`: the home holds a format
+   * newer than the release reads.
    */
-  | { ok: false; reason: "unreadable" | "home-unknown" | "newer-data" };
+  | { ok: false; reason: GuardReason };
+
+export type GuardReason = "unreadable" | "home-unknown" | "home-unreadable" | "newer-data";
 
 /**
  * Whether an older release can read the home (ADR 0174): every format the home holds must be at
  * most the number in the release's `ace-data.json`. A format the home doesn't have yet (null)
- * never blocks; one the release doesn't name always does.
+ * never blocks; one the daemon couldn't read, or the release doesn't name, always does.
  */
 export function guardSwitch(target: ReleaseData | undefined, home: HomeData | undefined): Guard {
   if (!target) return { ok: false, reason: "unreadable" };
   if (!home) return { ok: false, reason: "home-unknown" };
+  if (home.unreadable?.length) return { ok: false, reason: "home-unreadable" };
   for (const [name, held] of Object.entries(home)) {
-    if (typeof held !== "number") continue;
+    if (name === "unreadable" || typeof held !== "number") continue;
     const reads: unknown = Reflect.get(target, name);
     if (typeof reads !== "number" || reads < held) return { ok: false, reason: "newer-data" };
   }
@@ -145,13 +149,11 @@ export function guardSwitch(target: ReleaseData | undefined, home: HomeData | un
 }
 
 /** The one sentence Settings shows when the guard keeps ace where it is. */
-export function blockedSentence(
-  reason: "unreadable" | "home-unknown" | "newer-data",
-  from: ReleaseLine,
-  to: ReleaseLine,
-): string {
+export function blockedSentence(reason: GuardReason, from: ReleaseLine, to: ReleaseLine): string {
   if (reason === "home-unknown")
     return "ace can't switch yet: its daemon hasn't said which data this install holds.";
+  if (reason === "home-unreadable")
+    return "ace can't switch yet: it couldn't read which data this install holds. It tries again at the next check.";
   if (from === "beta" && to === "stable")
     return "Stable can't read this beta's data yet. You can switch once stable reaches a newer release.";
   return "The release on offer can't read this install's data, so ace stays on this version.";

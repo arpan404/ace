@@ -181,6 +181,12 @@ describe("the guard on switching to an older release", () => {
     expect(guardSwitch(target, home).ok).toBe(allowed);
   });
 
+  it("blocks when the home has a database its daemon couldn't read, but not one it lacks", () => {
+    const unreadSpade = { home: 1, daemon: 63, notify: 5, spade: null, unreadable: ["spade"] };
+    expect(guardSwitch(target, unreadSpade)).toEqual({ ok: false, reason: "home-unreadable" });
+    expect(guardSwitch(target, { home: 1, daemon: 63, notify: 5, spade: null }).ok).toBe(true);
+  });
+
   it("refuses a release without ace-data.json, and a home nobody has described", () => {
     expect(guardSwitch(undefined, { home: 1, daemon: 1, notify: 1, spade: 1 })).toEqual({
       ok: false,

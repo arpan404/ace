@@ -53,10 +53,41 @@ describe("the data formats a home holds", () => {
     }
   });
 
-  it("is null for each file the home doesn't have or can't be read", () => {
+  it("is null for each file the home doesn't have, and names none unreadable", () => {
+    expect(readHomeData(newHome())).toEqual({
+      home: null,
+      daemon: null,
+      notify: null,
+      spade: null,
+    });
+  });
+
+  it("names each file that is there but can't be read, rather than call it absent", () => {
     const root = newHome();
     writeFileSync(join(root, "ace-format.json"), "not a marker");
     writeFileSync(join(root, "notifications.sqlite"), "not a database");
-    expect(readHomeData(root)).toEqual({ home: null, daemon: null, notify: null, spade: null });
+    database(join(root, "events.sqlite"), "CREATE TABLE other (id INTEGER);").close();
+    expect(readHomeData(root)).toEqual({
+      home: null,
+      daemon: null,
+      notify: null,
+      spade: null,
+      unreadable: ["home", "daemon", "notify"],
+    });
+  });
+
+  it("names a database another process holds locked as unreadable", () => {
+    const root = newHome();
+    mkdirSync(join(root, "spade"));
+    const spade = database(join(root, "spade", "spade.sqlite"), "PRAGMA user_version = 9;");
+    try {
+      spade.exec(
+        "PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; CREATE TABLE held (id INTEGER);",
+      );
+      expect(readHomeData(root)).toMatchObject({ spade: null, unreadable: ["spade"] });
+    } finally {
+      spade.exec("COMMIT;");
+      spade.close();
+    }
   });
 });
