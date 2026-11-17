@@ -1,0 +1,10 @@
+{
+  "json": {
+    "code": "NOT_FOUND",
+    "id": 4,
+    "message": "crates/files-wire/src/lib.rs does not exist",
+    "type": "error"
+  },
+  "text": "{\"type\":\"error\",\"id\":4,\"code\":\"NOT_FOUND\",\"message\":\"crates/files-wire/src/lib.rs does not exist\"}",
+  "frame": "63000000017b2274797065223a226572726f72222c226964223a342c22636f6465223a224e4f545f464f554e44222c226d657373616765223a226372617465732f66696c65732d776972652f7372632f6c69622e727320646f6573206e6f74206578697374227d"
+}

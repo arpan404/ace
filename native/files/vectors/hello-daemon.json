@@ -3,5 +3,6 @@
     "protocol": 1,
     "type": "hello"
   },
+  "text": "{\"type\":\"hello\",\"protocol\":1}",
   "frame": "1e000000017b2274797065223a2268656c6c6f222c2270726f746f636f6c223a317d"
 }

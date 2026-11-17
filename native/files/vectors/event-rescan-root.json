@@ -6,5 +6,6 @@
     "subscription": 2,
     "type": "event"
   },
+  "text": "{\"type\":\"event\",\"subscription\":2,\"payload\":{\"type\":\"rescan\"}}",
   "frame": "3e000000017b2274797065223a226576656e74222c22737562736372697074696f6e223a322c227061796c6f6164223a7b2274797065223a2272657363616e227d7d"
 }

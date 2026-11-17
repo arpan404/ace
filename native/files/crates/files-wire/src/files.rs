@@ -4,12 +4,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// What a listed path is.
+/// What a listed path is, tagged by `type` like every other value on the wire: `{"type":"file"}`,
+/// `{"type":"symlink","target":{"type":"directory"}}`.
 ///
 /// A symlink carries the kind of its target when the target resolves inside the root; when it
 /// does not, `target` is absent and the client shows an unknown target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum Kind {
     /// A regular file.
     File,

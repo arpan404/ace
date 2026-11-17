@@ -7,5 +7,6 @@
     "subscription": 2,
     "type": "event"
   },
+  "text": "{\"type\":\"event\",\"subscription\":2,\"payload\":{\"type\":\"rescan\",\"dir\":\"node_modules\"}}",
   "frame": "53000000017b2274797065223a226576656e74222c22737562736372697074696f6e223a322c227061796c6f6164223a7b2274797065223a2272657363616e222c22646972223a226e6f64655f6d6f64756c6573227d7d"
 }
