@@ -49,24 +49,29 @@ mod windows {
                 }
                 Err(_) => 2,
             },
-            // `hardlink <existing> <link>`: the Win32 CreateHardLink path (via std).
-            Some("hardlink") => {
-                match std::fs::hard_link(rest.first().unwrap_or(&""), rest.get(1).unwrap_or(&"")) {
-                    Ok(()) => 0,
-                    Err(_) => 2,
-                }
-            }
-            // `hardlink-nt <existing> <link>`: the native NtSetInformationFile path.
-            Some("hardlink-nt") => {
-                match spade_sandbox::windows::hard_link_via_nt(
-                    std::path::Path::new(rest.first().unwrap_or(&"")),
-                    std::path::Path::new(rest.get(1).unwrap_or(&"")),
-                ) {
-                    Ok(()) => 0,
-                    Err(_) => 2,
-                }
-            }
+            // `hardlink <existing> <link>`: the Win32 CreateHardLink path. `hardlink-nt`: the
+            // native NtSetInformationFile path. 0 made, 2 stopped opening the source, 5 the source
+            // opened but the link couldn't be created.
+            Some("hardlink") => linked(spade_sandbox::windows::link::via_win32, &rest),
+            Some("hardlink-nt") => linked(spade_sandbox::windows::link::via_nt, &rest),
             _ => 3,
+        }
+    }
+
+    /// Runs one hard-link attempt on `rest` (`<existing> <link>`) and reports its stage.
+    fn linked(
+        attempt: fn(
+            &std::path::Path,
+            &std::path::Path,
+        ) -> Result<(), spade_sandbox::windows::link::LinkError>,
+        rest: &[&str],
+    ) -> u8 {
+        use spade_sandbox::windows::link::Stage;
+        let path = |at: usize| std::path::Path::new(rest.get(at).copied().unwrap_or(""));
+        match attempt(path(0), path(1)) {
+            Ok(()) => 0,
+            Err(failed) if failed.stage == Stage::OpenSource => 2,
+            Err(_) => 5,
         }
     }
 

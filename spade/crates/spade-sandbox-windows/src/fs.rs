@@ -3,14 +3,14 @@
 //! nothing can be swapped in between a check and a change.
 
 use std::ffi::{OsStr, OsString};
-use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::ffi::OsStringExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 
 use windows::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use windows::Wdk::Storage::FileSystem::{
-    FILE_LINK_INFORMATION, FILE_OPEN, FILE_OPEN_FOR_BACKUP_INTENT, FILE_OPEN_REPARSE_POINT,
-    FILE_SYNCHRONOUS_IO_NONALERT, FileLinkInformation, NtCreateFile, NtSetInformationFile,
+    FILE_OPEN, FILE_OPEN_FOR_BACKUP_INTENT, FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+    NtCreateFile,
 };
 use windows::Win32::Foundation::{
     ERROR_NO_MORE_FILES, HANDLE, RtlNtStatusToDosError, UNICODE_STRING,
@@ -19,9 +19,9 @@ use windows::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
     FILE_FLAGS_AND_ATTRIBUTES, FILE_FULL_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FILE_WRITE_ATTRIBUTES,
-    FileFullDirectoryInfo, FileFullDirectoryRestartInfo, GetFileInformationByHandle,
-    GetFileInformationByHandleEx, OPEN_EXISTING, READ_CONTROL, SYNCHRONIZE, WRITE_DAC,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileFullDirectoryInfo,
+    FileFullDirectoryRestartInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
+    OPEN_EXISTING, READ_CONTROL, SYNCHRONIZE, WRITE_DAC,
 };
 use windows::Win32::System::IO::IO_STATUS_BLOCK;
 use windows::core::PWSTR;
@@ -320,72 +320,6 @@ impl Object {
 
 fn reparse_refused() -> std::io::Error {
     std::io::Error::other("a reparse point in the path is not allowed")
-}
-
-/// Attempts to create a hard link `link` pointing at the existing file `existing`, using the native
-/// `NtSetInformationFile(FileLinkInformation)` path — the one that bypasses the Win32
-/// `CreateHardLink`. The sandbox tests use it (together with `std::fs::hard_link`, which is the
-/// Win32 path) to prove a contained process cannot give one of the person's files a second name
-/// inside a folder it does control: the attempt opens `existing` first, and a run with no access to
-/// that file is refused there, so the data behind it never becomes reachable through a granted
-/// folder. Returns `Ok(())` only if the link was actually created.
-pub fn hard_link_via_nt(existing: &Path, link: &Path) -> std::io::Result<()> {
-    // Opening the source is the gate: a contained process has no handle to a file outside its
-    // grants, so this fails for exactly the files a hard link must not be able to reach.
-    let source = crate::wide(existing.as_os_str());
-    // SAFETY: `source` is NUL-terminated and outlives the call; the handle is owned just below.
-    let handle = unsafe {
-        CreateFileW(
-            windows::core::PCWSTR(source.as_ptr()),
-            FILE_WRITE_ATTRIBUTES.0 | SYNCHRONIZE.0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            None,
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
-            None,
-        )
-    }
-    .map_err(crate::io)?;
-    // SAFETY: a fresh handle this scope now owns alone.
-    let source = unsafe { OwnedHandle::from_raw_handle(handle.0) };
-
-    // The destination as an NT path (`\??\<full path>`), UTF-16, no trailing NUL.
-    let mut target = OsString::from(r"\??\");
-    target.push(link.as_os_str());
-    let name: Vec<u16> = target.encode_wide().collect();
-    let name_bytes =
-        u32::try_from(name.len() * 2).map_err(|_| std::io::Error::other("a link name too long"))?;
-
-    // FILE_LINK_INFORMATION is a fixed header plus a trailing variable-length name. Lay it out in a
-    // byte buffer: the zeroed header leaves ReplaceIfExists false and RootDirectory null, which is
-    // what we want (never clobber, resolve the name against `\??\`).
-    let head = std::mem::offset_of!(FILE_LINK_INFORMATION, FileName);
-    let length_at = std::mem::offset_of!(FILE_LINK_INFORMATION, FileNameLength);
-    let mut buffer = vec![0u8; head + name.len() * 2];
-    buffer[length_at..length_at + 4].copy_from_slice(&name_bytes.to_le_bytes());
-    for (index, unit) in name.iter().enumerate() {
-        let at = head + index * 2;
-        buffer[at..at + 2].copy_from_slice(&unit.to_le_bytes());
-    }
-
-    let mut iosb = IO_STATUS_BLOCK::default();
-    // SAFETY: `source` is a live handle; `buffer` holds a valid FILE_LINK_INFORMATION whose name is
-    // `name_bytes` long, and `iosb` is a live local.
-    let status = unsafe {
-        NtSetInformationFile(
-            HANDLE(source.as_raw_handle()),
-            &mut iosb,
-            buffer.as_ptr().cast(),
-            buffer.len() as u32,
-            FileLinkInformation,
-        )
-    };
-    if status.0 < 0 {
-        // SAFETY: translating a returned NTSTATUS to a Win32 error code.
-        let code = unsafe { RtlNtStatusToDosError(status) };
-        return Err(std::io::Error::from_raw_os_error(code as i32));
-    }
-    Ok(())
 }
 
 /// Splits an absolute, drive-rooted path into its volume root (`\\?\C:\`) and the `Normal`

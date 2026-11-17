@@ -13,6 +13,8 @@ pub mod job;
 #[cfg(windows)]
 pub mod launch;
 #[cfg(windows)]
+pub mod link;
+#[cfg(windows)]
 pub mod pipe;
 #[cfg(windows)]
 pub mod profile;

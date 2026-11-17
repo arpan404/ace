@@ -865,48 +865,105 @@ fn only_spade_owned_and_system_toolchains_are_containable() {
 
 // ---- Group G: hard links can't give the person's files a second name in a granted folder ----
 
+/// Runs the helper with `args` in `container` under the token chosen: a Less Privileged
+/// AppContainer (`lpac`) or a plain one, with no network either way.
+fn run_helper_as(container: &Container, sid: &Sid, lpac: bool, args: &[&str]) -> u32 {
+    grant(
+        helper().parent().unwrap_or_else(|| std::process::abort()),
+        sid,
+        Access::Read,
+    );
+    let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    launch::run_in(
+        lpac,
+        &container.name,
+        &container.display,
+        limits(),
+        None,
+        None,
+        helper().as_os_str(),
+        &args,
+    )
+    .unwrap_or_else(|e| panic!("launch: {e}"))
+}
+
+/// The helper's exit codes for a hard-link attempt.
+const LINKED: u32 = 0;
+const SOURCE_REFUSED: u32 = 2;
+const LINK_REFUSED: u32 = 5;
+
 #[test]
-fn a_contained_run_cannot_hard_link_a_file_it_cannot_open() {
-    // The workspace is granted; a sibling folder, standing in for the person's, is not. A file in
-    // the person's folder is the target. A hard link would be a second name for that file's data,
-    // and the new name would land in the granted workspace — so if either the Win32 CreateHardLink
-    // path or the native NtSetInformationFile path succeeded, the run could read and write the
-    // person's file through the workspace. Both must fail, because creating the link must first
-    // open the source, which the run has no access to.
-    let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
-    let workspace = dir.path().join("ws");
-    let persons = dir.path().join("persons");
-    std::fs::create_dir_all(&workspace).unwrap_or_else(|_| std::process::abort());
-    std::fs::create_dir_all(&persons).unwrap_or_else(|_| std::process::abort());
-    let secret = persons.join("secret.txt");
-    std::fs::write(&secret, b"the person's bytes").unwrap_or_else(|_| std::process::abort());
+fn a_contained_run_links_only_its_own_files_into_its_own_folders() {
+    // A hard link is a second name for one file's data. A contained run may make one between its
+    // own files (the control: this must work, or the refusals below prove nothing); it must stop
+    // at *opening the source* for one of the person's files, and at *creating the link* for one
+    // of its own files into a folder it wasn't granted. Both the Win32 CreateHardLink path and the
+    // native NtSetInformationFile path, under both the LPAC token and a plain AppContainer one.
+    for lpac in [true, false] {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let workspace = dir.path().join("ws");
+        let persons = dir.path().join("persons");
+        let ungranted = dir.path().join("ungranted");
+        for folder in [&workspace, &persons, &ungranted] {
+            std::fs::create_dir_all(folder).unwrap_or_else(|_| std::process::abort());
+        }
+        let secret = persons.join("secret.txt");
+        std::fs::write(&secret, b"the person's bytes").unwrap_or_else(|_| std::process::abort());
 
-    let (container, _profile) = container();
-    let sid = profile::ensure(&container.name, &container.display)
-        .unwrap_or_else(|_| std::process::abort());
-    // The workspace is writable to the run; the person's folder is granted nothing.
-    grant(&workspace, &sid, Access::Write);
+        let (container, _profile) = container();
+        let sid = profile::ensure(&container.name, &container.display)
+            .unwrap_or_else(|_| std::process::abort());
+        grant(&workspace, &sid, Access::Write);
+        // The run's own file, made after the grant so it carries the inherited ACE.
+        let own = workspace.join("own.txt");
+        std::fs::write(&own, b"the run's bytes").unwrap_or_else(|_| std::process::abort());
 
-    let secret_arg = secret.to_string_lossy();
-    for (how, link_name) in [("hardlink", "win32.txt"), ("hardlink-nt", "native.txt")] {
-        let link = workspace.join(link_name);
+        for how in ["hardlink", "hardlink-nt"] {
+            let token = if lpac { "LPAC" } else { "plain AppContainer" };
+            let run = |args: &[&str]| run_helper_as(&container, &sid, lpac, args);
+            let arg = |path: &Path| path.to_string_lossy().into_owned();
+
+            // Control: its own file, a new name in its own folder — made, and the same file.
+            let made = workspace.join(format!("{how}-own.txt"));
+            assert_eq!(
+                run(&[how, &arg(&own), &arg(&made)]),
+                LINKED,
+                "{how} under {token}: a link between the run's own files should be made"
+            );
+            let id = |path: &Path| {
+                Object::open(path)
+                    .and_then(|object| object.info())
+                    .map(|info| info.id)
+                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+            };
+            assert_eq!(
+                id(&made),
+                id(&own),
+                "{how} under {token}: not the same file"
+            );
+
+            // The person's file: stopped at opening the source; no second name appears.
+            let smuggled = workspace.join(format!("{how}-secret.txt"));
+            assert_eq!(
+                run(&[how, &arg(&secret), &arg(&smuggled)]),
+                SOURCE_REFUSED,
+                "{how} under {token}: the person's file must be refused at the source"
+            );
+            assert!(!smuggled.exists(), "{how} under {token}: a link appeared");
+
+            // Its own file into a folder it wasn't granted: the source opens, the link is refused.
+            let escaped = ungranted.join(format!("{how}-out.txt"));
+            assert_eq!(
+                run(&[how, &arg(&own), &arg(&escaped)]),
+                LINK_REFUSED,
+                "{how} under {token}: a link into an ungranted folder must be refused"
+            );
+            assert!(!escaped.exists(), "{how} under {token}: a link appeared");
+        }
+        // The person's file is untouched.
         assert_eq!(
-            run_helper(
-                &container,
-                &sid,
-                &[how, &secret_arg, &link.to_string_lossy()]
-            ),
-            2,
-            "a contained run must not hard-link the person's file via {how}"
-        );
-        assert!(
-            !link.exists(),
-            "no second name for the person's file may appear in the workspace ({how})"
+            std::fs::read(&secret).unwrap_or_else(|_| std::process::abort()),
+            b"the person's bytes"
         );
     }
-    // The person's file is untouched: still one name, original bytes.
-    assert_eq!(
-        std::fs::read(&secret).unwrap_or_else(|_| std::process::abort()),
-        b"the person's bytes"
-    );
 }

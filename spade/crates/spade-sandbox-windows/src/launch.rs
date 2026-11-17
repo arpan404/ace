@@ -69,16 +69,35 @@ pub fn run_with(
     program: &OsStr,
     args: &[OsString],
 ) -> std::io::Result<u32> {
-    let sid = profile::ensure(name, display)?;
-    // A run with no network is a Less Privileged AppContainer; a networked run is not. The
-    // in-container egress bridge (and any networked command) must call `WSAStartup`, which fails
-    // under LPAC — the Winsock catalog resources are reachable by `ALL APPLICATION PACKAGES` but not
-    // by the restricted group an LPAC keeps — and the only capability that would fix it (a network
-    // capability) would also let the container reach the network directly, past the proxy. So a
-    // networked run stays a no-capability AppContainer (still contained: its sole egress is the
-    // SID-scoped pipe), and LPAC is applied only where it costs nothing: runs that never open a
-    // socket. See ADR 0167.
+    // A run with no network is a Less Privileged AppContainer; a networked run is not.
     let lpac = bridge.is_none();
+    run_in(
+        lpac, name, display, limits, bridge, bridge_exe, program, args,
+    )
+}
+
+/// [`run_with`], with the token chosen explicitly: a Less Privileged AppContainer (`lpac`) or a
+/// plain one. Production goes through [`run`]/[`run_with`], which choose by network; tests use
+/// this to check a boundary under both tokens.
+#[allow(clippy::too_many_arguments)]
+pub fn run_in(
+    lpac: bool,
+    name: &str,
+    display: &str,
+    limits: Limits,
+    bridge: Option<Bridge>,
+    bridge_exe: Option<&std::path::Path>,
+    program: &OsStr,
+    args: &[OsString],
+) -> std::io::Result<u32> {
+    let sid = profile::ensure(name, display)?;
+    // Why `run_with` ties the token to network: the in-container egress bridge (and any networked
+    // command) must call `WSAStartup`, which fails under LPAC — the Winsock catalog is reachable by
+    // `ALL APPLICATION PACKAGES` but not by the restricted group an LPAC keeps — and the only
+    // capability that would fix it (a network capability) would also let the container reach the
+    // network directly, past the proxy. So a networked run can only be a plain no-capability
+    // AppContainer, which keeps ambient app-package read access; Spade therefore never reports such
+    // a run `contained` (it keeps the review path), and only LPAC runs are. See ADR 0167.
     let mut caps = Capabilities::new(&sid, lpac)?;
     let job = Job::create(limits)?;
 
@@ -182,7 +201,8 @@ fn spawn_bridge(
 /// It is **not** applied to a networked run: `WSAStartup` needs Winsock catalog resources reachable
 /// by `ALL APPLICATION PACKAGES` but not by the restricted group, so sockets fail under LPAC, and
 /// the only capability that would restore them would also let the container reach the network past
-/// the proxy. A networked run is therefore a plain no-capability AppContainer (`policy` is `None`).
+/// the proxy. A networked run is therefore a plain no-capability AppContainer (`policy` is `None`),
+/// and Spade does not report it `contained`.
 struct Capabilities {
     _sid: Sid,
     caps: Box<SECURITY_CAPABILITIES>,
