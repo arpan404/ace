@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
@@ -16,6 +16,33 @@ const homes: string[] = [];
 export function ownClose(adapter: ReturnType<typeof createOpenCodeAdapter>): void {
   const index = owners.indexOf(adapter);
   if (index !== -1) owners.splice(index, 1);
+}
+/**
+ * What one local shell command sees when the fake server at `origin` runs it for `sessionID`,
+ * read back from the real child process it spawned.
+ */
+export async function shellEnvironment(
+  transport: { url: string; authorization: string },
+  sessionID: string,
+): Promise<Record<string, string>> {
+  const directory = await mkdtemp(join(tmpdir(), "ace-opencode-shell-"));
+  try {
+    const file = join(directory, "env.json");
+    const response = await fetch(new URL("/test/shell", transport.url), {
+      method: "POST",
+      headers: { authorization: transport.authorization, "content-type": "application/json" },
+      body: JSON.stringify({ sessionID, file }),
+    });
+    if (!response.ok) throw new Error("The fake shell did not run");
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    return Object.fromEntries(
+      Object.entries(object(parsed)).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 export function deferred<T>() {
   return Promise.withResolvers<T>();

@@ -28,9 +28,12 @@ export class SessionOwnership {
   directChildren(id: string): ReadonlySet<string> {
     return this.children.get(id) ?? new Set<string>();
   }
-  constructor(directory: string, root: string) {
+  /** Told each child session once, when it first joins the tree. */
+  private admitted: ((id: string) => void) | undefined;
+  constructor(directory: string, root: string, admitted?: (id: string) => void) {
     this.directory = directory;
     this.root = root;
+    this.admitted = admitted;
   }
   establish(value: unknown): void {
     const info = SessionInfo.parse(value);
@@ -66,8 +69,8 @@ export class SessionOwnership {
       (this.sessions.has(info.id) && this.sessions.get(info.id)?.parent !== parent)
     )
       throw new Error("OpenCode child ownership mismatch");
-    if (this.sessions.size >= 1024 && !this.sessions.has(info.id))
-      throw new Error("OpenCode tree limit");
+    const joining = !this.sessions.has(info.id);
+    if (this.sessions.size >= 1024 && joining) throw new Error("OpenCode tree limit");
     this.put(info.id, {
       parent,
       directory: info.location.directory,
@@ -76,6 +79,7 @@ export class SessionOwnership {
     const children = this.children.get(parent) ?? new Set<string>();
     children.add(info.id);
     this.children.set(parent, children);
+    if (joining) this.admitted?.(info.id);
   }
   accept(value: unknown): boolean {
     const parsed = NativeEvent.safeParse(value);

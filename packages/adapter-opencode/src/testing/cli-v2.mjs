@@ -78,6 +78,7 @@ let catalogSkills = [
 const streams = new Set(),
   requests = [],
   sessions = new Map(),
+  environments = new Map(),
   messages = new Map(),
   inbox = new Map();
 let permissions = [],
@@ -420,6 +421,17 @@ const server = createServer(async (req, res) => {
     json(true);
     return;
   }
+  // Runs one local shell command for a session the way OpenCode 2's shell does: with the
+  // session's environment when one was set, else the server's own, plus the session's ID.
+  if (path === "/test/shell") {
+    const { spawnSync } = await import("node:child_process");
+    const env = { ...(environments.get(body.sessionID) ?? process.env) };
+    env.OPENCODE_SESSION_ID = body.sessionID;
+    const script = "require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.env))";
+    const run = spawnSync(process.execPath, ["-e", script, body.file], { env });
+    json({ status: run.status });
+    return;
+  }
   if (path === "/test/drop") {
     for (const stream of streams) stream.end();
     json(true);
@@ -655,6 +667,15 @@ const server = createServer(async (req, res) => {
         return;
       }
       json({ data: info });
+      return;
+    }
+    if (suffix === "/environment" && req.method === "PUT") {
+      if (!sessions.has(id)) {
+        res.writeHead(404).end();
+        return;
+      }
+      environments.set(id, { ...body.variables });
+      empty();
       return;
     }
     if (suffix === "/instructions/entries/ace.tool-guidance" && req.method === "PUT") {

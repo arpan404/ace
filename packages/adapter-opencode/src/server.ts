@@ -1,4 +1,5 @@
 import { aceConfigEnvironment } from "./mcp-ready.ts";
+import { sessionShellEnvironment } from "./agent-env.ts";
 import { metadataFailure } from "./metadata-failure.ts";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
@@ -123,6 +124,16 @@ export class OpenCodeServer {
     return this.installed;
   }
   private installed: { path: string; identity: string | undefined } | undefined;
+  /** What the owned process inherited: the spawn's own environment merged over ace's. */
+  private inherited: NodeJS.ProcessEnv | undefined;
+  /**
+   * The environment one session's shell commands run with, carrying its thread's variables
+   * (agent-env.ts). Undefined for an attached server: ace didn't start it and doesn't know what
+   * its shells inherit, so it never replaces their environment.
+   */
+  shellEnvironment(agentEnv: Readonly<Record<string, string>>): Record<string, string> | undefined {
+    return this.inherited && sessionShellEnvironment(this.inherited, agentEnv);
+  }
   /**
    * A spare started before its session gets that session's credential here, before any request
    * can carry it. Clients made at startup share the array, so they redact it too.
@@ -240,6 +251,8 @@ export class OpenCodeServer {
                 { plugin: this.options.mcpReadyPlugin, skills: this.options.skillDirectories },
               )
             : providerEnv;
+        // The spawn merges its environment over ace's own the same way.
+        this.inherited = { ...process.env, ...env };
         const proc = spawnOwnedServer({
           spawn: this.runtime.spawn,
           command: cli.path,

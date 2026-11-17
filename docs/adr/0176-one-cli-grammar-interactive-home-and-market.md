@@ -498,16 +498,35 @@ What the build found (2026-11-17). The daemon hands each session its variables a
 
 - **Claude Code, Pi, ACP agents (Antigravity, Gemini):** one process per session, so the
   variables go into its environment and the shell tool inherits them. Claude Code's Bash and Pi's
-  bash inherit the process environment; Antigravity's shell is believed to, not yet checked on a
-  real run.
+  bash inherit the process environment. ace offers ACP agents no client terminal, so an ACP
+  agent runs its shell commands itself; a fake agent's shell command sees the variables whether
+  Antigravity starts from its installed command or a resolved launch plan. That
+  `agy_acp_server`'s own shell tool keeps its process environment is still not checked on a real
+  run.
 - **Codex:** one app-server serves many threads, so its environment can't name a thread. Each
   thread's `thread/start|resume|fork` carries `shell_environment_policy.set.<NAME>` overrides, one
   dotted key per variable, so the person's own `set` entries stay.
-- **Cursor:** the SDK host is started per session with them; that the SDK's local shell keeps the
-  host's environment is not yet checked on a real run.
-- **OpenCode:** not given them. ace pre-starts a spare server per account so a session opens
-  quickly, and that server's environment is fixed before the thread exists. OpenCode agents pass
-  `--thread` and `--no-input`.
+- **Cursor:** the SDK host is started per session with them. Cursor SDK 1.0.35's local shell
+  executors (bash, zsh, PowerShell and the plain one) all run commands with
+  `{ ...process.env, ...sdkVariables, ...callEnv }`, so they keep the host's environment; a fake
+  host's shell command sees the variables. Not yet seen on a real run.
+- **OpenCode:** one server serves many sessions, and ace pre-starts a spare per account before
+  the thread exists, so the server's environment can't name a thread. OpenCode's own
+  `PUT /api/session/:id/environment` (in `@opencode/client` 2.0.22, the minimum; now a required
+  route) replaces the server's process environment for one session's local shell commands; it
+  is what OpenCode's CLI sends when it attaches to a shared server. ace sends what the server's
+  process inherited, without OpenCode's server password, plus the thread's variables: for the
+  root session at every open, before any input, and for each subagent session as ace admits it
+  to the tree, since OpenCode doesn't pass a session's environment on to its subagents. OpenCode
+  keeps it in the server's memory only (a location rebuild keeps it), so a resume on a restarted
+  daemon, which starts a new server, sets it again. Spares start as before, so the open stays
+  fast, and the body is never recorded in the thread's frames. Limits: a subagent's commands see
+  the variables once ace has seen it created, about 3 s before its first tool call in the
+  recorded subagent run, and a command that beat it would get the server's environment, which
+  names no thread; an externally attached server's shells are left alone. Rejected: a plugin
+  hook (`shell.create.before` isn't told the session), a server per thread (no fast open), a
+  wrapper shell (replaces the person's shell) and a later handshake (the same subagent window
+  and a second channel).
 
 `ace help agents` is the page for them: use `--json` to parse and human text to read (it is
 shorter and costs fewer tokens), check the exit code before the output, retry uncertain mutations
