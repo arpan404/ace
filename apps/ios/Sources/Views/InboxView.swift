@@ -183,8 +183,8 @@ struct InboxView: View {
         .animation(.default, value: organize.undo?.serial)
     }
 
-    /// The tab bar's choice. Tapping Search while it shows asks for its field, as a second tap
-    /// on a tab acts on the page it already shows.
+    /// The tab bar's and the iPad sidebar's choice. Tapping Search while it shows asks for its
+    /// field, as a second tap on a tab acts on the page it already shows.
     private var tabChoice: Binding<InboxTab> {
         Binding(get: { tab }, set: { chosen in
             if chosen == .search && tab == .search { searchFocusAsks += 1 }
@@ -197,7 +197,7 @@ struct InboxView: View {
     private var search: some View {
         SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
@@ -207,7 +207,7 @@ struct InboxView: View {
         CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
                       openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
             .inboxFootBar {
-                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+                if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
@@ -291,7 +291,7 @@ struct InboxView: View {
     private func path(_ place: InboxTab) -> Binding<[InboxRoute]> { place == .chats ? $chatsPath : $threadsPath }
 
     private func stack(_ list: InboxTab, path: Binding<[InboxRoute]>, drawer: Binding<ThreadDrawer>) -> some View {
-        InboxStack(inbox: inbox, path: path, list: list, tab: $tab, drawer: drawer,
+        InboxStack(inbox: inbox, path: path, list: list, tab: tabChoice, drawer: drawer,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { startThread() }),
                    machine: $machineFilter, project: $projectFilter,

@@ -268,6 +268,26 @@ import XCTest
         XCTAssertTrue(app.buttons["settings.machines"].waitForExistence(timeout: 10))
     }
 
+    func testASecondTapOnSearchInTheIPadSidebarFocusesItsField() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launch()
+        let row = app.buttons["thread.ios-form"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        let search = app.buttons["sidebar.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        XCTAssertFalse(field.focused, "the first tap shows Search without focusing its field")
+        // Search's own page carries the sidebar's places too; Search again asks for the field.
+        XCTAssertTrue(search.waitForHittable(timeout: 10))
+        search.tap()
+        XCTAssertTrue(field.waitFor({ $0.focused }, timeout: 5), "a second tap on Search focuses its field")
+        capture("ipad-search-focused")
+    }
+
     func testCodeReviewIsAHomeTabForPullRequestsAndIssues() {
         let app = launch()
         let review = app.tabBars.firstMatch.buttons["Code review"]
@@ -321,5 +341,20 @@ import XCTest
             let scheme = ProcessInfo.processInfo.environment["ACE_SHOT_APPEARANCE"] ?? "dark"
             try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name)-\(scheme).png"))
         }
+    }
+}
+
+private extension XCUIElement {
+    /// Holds the keyboard's focus. An iPad with a hardware keyboard shows no on-screen one.
+    var focused: Bool { (value(forKey: "hasKeyboardFocus") as? Bool) ?? false }
+    var reachable: Bool { exists && isHittable }
+    func waitForHittable(timeout: TimeInterval) -> Bool { waitFor({ $0.reachable }, timeout: timeout) }
+    func waitFor(_ condition: (XCUIElement) -> Bool, timeout: TimeInterval) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if condition(self) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return condition(self)
     }
 }
