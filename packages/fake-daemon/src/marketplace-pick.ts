@@ -1,6 +1,9 @@
+import { privacySpans } from "@ace/marketplace";
 import type {
+  MarketDraftCheck,
   MarketPickType,
   MarketPublishable,
+  MarketPublishAction,
   MarketResult,
   Recipe,
 } from "@ace/protocol/marketplace";
@@ -17,7 +20,23 @@ export interface MarketPickSeed {
   recipes?: Record<string, { recipe: Recipe; leftOut: string[] }>;
   /** Places that couldn't be read, by type: "Spade isn't running." */
   unavailable?: Partial<Record<MarketPickType, string[]>>;
+  /**
+   * What `draftCheck` answers for a source, by its JSON; absent, one clean SKILL.md. A bot's
+   * check is built from its recipe with the real privacy pass.
+   */
+  checks?: Record<string, Omit<MarketDraftCheck, "hash" | "bot">>;
+  /** The person's own name and username, which the privacy pass flags. */
+  names?: string[];
 }
+
+type DraftSource = Extract<MarketPublishAction, { action: "draftCreate" }>["source"];
+/** Sources checked on the machine before a draft is made, as the daemon checks them. */
+const checkedKinds = new Set(["folder", "spade-bot", "spade-skill", "ace-skill", "plugin"]);
+const hashOf = (source: DraftSource) =>
+  [...JSON.stringify(source).padEnd(64, "0")]
+    .map((char) => (char.charCodeAt(0) % 16).toString(16))
+    .join("")
+    .slice(0, 64);
 
 export class FakeMarketPick {
   #seed: MarketPickSeed = {};
@@ -32,6 +51,65 @@ export class FakeMarketPick {
       items: (this.#seed.items ?? []).filter((item) => item.type === type),
       unavailable: this.#seed.unavailable?.[type] ?? [],
     };
+  }
+
+  /** The privacy pass, as the daemon runs it. */
+  privacy(texts: readonly string[]): MarketResult {
+    const names = this.#seed.names ?? [];
+    return { op: "privacyCheck", spans: texts.map((text) => privacySpans(text, { names })) };
+  }
+
+  /** What a draft from `source` would upload. */
+  check(source: DraftSource): MarketResult {
+    const hash = hashOf(source);
+    if (source.kind === "spade-bot") {
+      const found = this.#seed.recipes?.[source.id];
+      if (!found) return { op: "error", code: "not_found", message: "no such agent" };
+      const names = this.#seed.names ?? [];
+      const spans = (text: string) => privacySpans(text, { names });
+      const { recipe } = found;
+      const check: MarketDraftCheck = {
+        files: [],
+        excluded: [],
+        findings: [],
+        hash,
+        bot: {
+          recipe,
+          leftOut: found.leftOut,
+          name: spans(recipe.name),
+          task: spans(recipe.task),
+          routines: recipe.routines.map((routine) => ({
+            name: spans(routine.name),
+            instruction: spans(routine.instruction),
+          })),
+        },
+      };
+      return { op: "publish", answer: { kind: "checked", check } };
+    }
+    const seeded = this.#seed.checks?.[JSON.stringify(source)] ?? {
+      files: [{ path: "SKILL.md", bytes: 120, binary: false }],
+      excluded: [],
+      findings: [],
+    };
+    return {
+      op: "publish",
+      answer: { kind: "checked", check: { ...structuredClone(seeded), hash } },
+    };
+  }
+
+  /** Why a draft can't be made yet: its source wasn't checked, or its check changed. */
+  refusal(action: MarketPublishAction): MarketResult | undefined {
+    if (action.action !== "draftCreate" && action.action !== "draftUpdate") return undefined;
+    if (!action.source || !checkedKinds.has(action.source.kind)) return undefined;
+    if (!action.checked)
+      return {
+        op: "error",
+        code: "refused",
+        message: "Check what will upload and confirm it first",
+      };
+    if (action.checked.hash !== hashOf(action.source))
+      return { op: "error", code: "refused", message: "It changed since you checked it" };
+    return undefined;
   }
 
   botRecipe(id: string): MarketResult {

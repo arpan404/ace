@@ -110,6 +110,8 @@ beforeEach(async () => {
       },
       aceSkills: async () => aceSkills,
       plugins: undefined,
+      names: async () => [],
+      installedFromMarket: () => false,
     },
   });
   uploads = [];
@@ -235,13 +237,17 @@ describe("drafts", () => {
       await mkdir(dirname(join(folder, file.path)), { recursive: true });
       await writeFile(join(folder, file.path), file.content);
     }
+    const key = { type: "spade-skill", name: "triage-mail" } as const;
+    const source = { kind: "folder", path: folder } as const;
+    const checked = await publish({ action: "draftCheck", ...key, source }, grant);
+    if (checked.op !== "publish" || checked.answer.kind !== "checked") throw new Error("no check");
     const result = await publish(
       {
         action: "draftCreate",
-        type: "spade-skill",
-        name: "triage-mail",
+        ...key,
         version: "1.0.0",
-        source: { kind: "folder", path: folder },
+        source,
+        checked: { hash: checked.answer.check.hash, binaries: [], accepted: [] },
       },
       grant,
     );
@@ -256,43 +262,44 @@ describe("drafts", () => {
     expect(Buffer.from(writeArchive(sent)).equals(Buffer.from(body))).toBe(true);
   });
 
-  it("upload a skill picked from ace's library by id, read from its folder here", async () => {
+  it("upload a picked skill only after its check here was confirmed, and only what it listed", async () => {
     const files = sampleSkill("triage-mail", { "scripts/sort.sh": "#!/bin/sh\necho sorted\n" });
-    for (const file of files) {
+    for (const file of [...files, { path: ".env", content: "TOKEN=hunter2" }]) {
       await mkdir(dirname(join(folder, file.path)), { recursive: true });
       await writeFile(join(folder, file.path), file.content);
     }
     const id = `skl_${"d".repeat(40)}`;
     aceSkills = [{ id, name: "triage-mail", title: undefined, description: "", folder }];
+    const key = { type: "spade-skill", name: "triage-mail" } as const;
+    const source = { kind: "ace-skill", id } as const;
+
+    // Unconfirmed, nothing is uploaded.
+    expect(
+      await publish({ action: "draftCreate", ...key, version: "1.0.0", source }, grant),
+    ).toMatchObject({ op: "error", code: "refused" });
+    expect(uploads).toHaveLength(0);
+
+    const checked = await publish({ action: "draftCheck", ...key, source }, grant);
+    if (checked.op !== "publish" || checked.answer.kind !== "checked") throw new Error("no check");
+    const { check } = checked.answer;
+    expect(check.files.map((file) => file.path)).toEqual(files.map((file) => file.path).toSorted());
+    expect(check.excluded).toEqual([{ path: ".env", reason: "hidden" }]);
+    expect(uploads).toHaveLength(0);
+
     const result = await publish(
       {
         action: "draftCreate",
-        type: "spade-skill",
-        name: "triage-mail",
+        ...key,
         version: "1.0.0",
-        source: { kind: "ace-skill", id },
+        source,
+        checked: { hash: check.hash, binaries: [], accepted: [] },
       },
       grant,
     );
     expect(result).toMatchObject({ op: "publish", answer: { kind: "draft" } });
     const sent = readArchive(new Uint8Array(uploads[0]?.body ?? []), typeLimits["spade-skill"]);
     expect(contentHash(hashFiles(sent))).toBe(contentHash(hashFiles(files)));
-
-    // One that isn't the person's own asks the market nothing.
-    aceSkills = [];
-    expect(
-      await publish(
-        {
-          action: "draftCreate",
-          type: "spade-skill",
-          name: "triage-mail",
-          version: "1.0.0",
-          source: { kind: "ace-skill", id },
-        },
-        grant,
-      ),
-    ).toMatchObject({ op: "error", code: "not_found" });
-    expect(uploads).toHaveLength(1);
+    expect(Buffer.from(uploads[0]?.body ?? []).includes("hunter2")).toBe(false);
   });
 
   it("upload one of the person's Suits from its folder in their library, named by id", async () => {
@@ -317,17 +324,16 @@ describe("drafts", () => {
     expect(sent.map((file) => file.path)).toEqual(["suit.json"]);
   });
 
-  it("refuse a folder holding a link, before any grant is asked for", async () => {
+  it("refuse to check a folder holding a link, before any grant is asked for", async () => {
     await writeFile(join(folder, "SKILL.md"), "---\nname: x\ndescription: y\n---\n");
     const { symlink } = await import("node:fs/promises");
     await symlink("/etc/hosts", join(folder, "hosts"));
     let asked = false;
     const result = await publish(
       {
-        action: "draftCreate",
+        action: "draftCheck",
         type: "spade-skill",
         name: "triage-mail",
-        version: "1.0.0",
         source: { kind: "folder", path: folder },
       },
       () => {

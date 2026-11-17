@@ -25,6 +25,8 @@ test("hidden files and folders and credential-shaped files are left out, each sa
   const root = await folderWith({
     "SKILL.md": "---\nname: x\n---\nDo it.\n",
     "scripts/run.sh": "#!/bin/sh\n",
+    ".claude-plugin/plugin.json": "{}",
+    "docs/.claude-plugin/notes.md": "x",
     ".env": "TOKEN=1",
     ".env.production": "TOKEN=2",
     ".config/app/settings.json": "{}",
@@ -42,11 +44,16 @@ test("hidden files and folders and credential-shaped files are left out, each sa
     "release.keystore": "x",
   });
   const read = await readFolder(root);
-  expect(read.files.map((file) => file.path).toSorted()).toEqual(["SKILL.md", "scripts/run.sh"]);
+  expect(read.files.map((file) => file.path).toSorted()).toEqual([
+    ".claude-plugin/plugin.json",
+    "SKILL.md",
+    "scripts/run.sh",
+  ]);
   expect(Object.fromEntries(read.excluded.map((item) => [item.path, item.reason]))).toEqual({
     ".env": "hidden",
     ".env.production": "hidden",
     ".config": "hidden",
+    "docs/.claude-plugin": "hidden",
     ".DS_Store": "hidden",
     "keys/server.pem": "credential",
     "keys/signing.key": "credential",

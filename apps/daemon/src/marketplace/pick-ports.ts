@@ -1,5 +1,5 @@
 import { lstat } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { pluginManifests, type ArchiveFile } from "@ace/marketplace";
 import type { SkillLibrary } from "@ace/commands";
 import type { PluginService } from "@ace/plugins";
@@ -23,6 +23,8 @@ const Bots = z.object({
         name: z.string().max(200),
         task: z.string().max(20_000).catch(""),
         avatar: z.record(z.string(), z.unknown()).nullish().catch(undefined),
+        /** Set when the bot was made from a marketplace recipe. */
+        from_recipe: z.unknown().optional(),
       }),
     )
     .max(10_000),
@@ -69,6 +71,7 @@ function spadePick(connection: () => SpadeConnection | undefined): PickPorts["sp
           name: agent.name,
           task: agent.task,
           face: agent.avatar?.["kind"] === "character" ? agent.avatar : undefined,
+          fromMarket: agent.from_recipe !== undefined && agent.from_recipe !== null,
         }));
     },
     recipe: (id) => spadeCall(live(), "GET", `/v1/agents/${segment(id)}/recipe`),
@@ -118,8 +121,14 @@ async function pluginFolder(repository: string, name: string): Promise<string | 
   return undefined;
 }
 
-/** Installed plugins whose origin is a folder on this machine: the ones the person made. */
-function ownPlugins(service: () => PluginService | undefined): PickPorts["plugins"] {
+/**
+ * Installed plugins whose origin is a folder on this machine the person keeps: not a git
+ * repository's clone and not anything under ace's own data folder (the marketplace's catalogs).
+ */
+function ownPlugins(
+  service: () => PluginService | undefined,
+  aceData: string,
+): PickPorts["plugins"] {
   return async (): Promise<PickPlugin[]> => {
     const plugins = service();
     if (!plugins) throw new Error("Plugins aren't ready.");
@@ -132,6 +141,8 @@ function ownPlugins(service: () => PluginService | undefined): PickPorts["plugin
     for (const install of list.installs) {
       const origin = origins.origins.find((each) => each.name === install.name);
       if (!origin || !isAbsolute(origin.repository)) continue;
+      const inside = relative(aceData, origin.repository);
+      if (inside === "" || (!inside.startsWith("..") && !isAbsolute(inside))) continue;
       const folder = await pluginFolder(origin.repository, install.name);
       if (folder) own.push({ name: install.name, version: install.version, folder });
     }
@@ -143,10 +154,17 @@ export function pickPorts(input: {
   spade: () => SpadeConnection | undefined;
   skills: () => SkillLibrary | undefined;
   plugins: () => PluginService | undefined;
+  /** ace's data folder: a plugin installed from in here was installed by ace, not made. */
+  aceData: string;
+  /** The person's own name, email and username, for the privacy pass. */
+  names: () => string[];
 }): PickPorts {
   return {
     spade: spadePick(input.spade),
     aceSkills: aceSkills(input.skills),
-    plugins: ownPlugins(input.plugins),
+    plugins: ownPlugins(input.plugins, input.aceData),
+    names: async () => input.names(),
+    // The marketplace service knows its installs and answers this itself.
+    installedFromMarket: () => false,
   };
 }

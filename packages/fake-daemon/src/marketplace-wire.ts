@@ -435,8 +435,13 @@ export class FakeMarketplaceWire {
         );
       case "publisher":
         return this.publishing.publisher(operation.handle);
-      case "publish":
-        return this.publishing.publish(operation.request);
+      case "publish": {
+        const request = operation.request;
+        if (request.action === "draftCheck") return this.pick.check(request.source);
+        return this.pick.refusal(request) ?? this.publishing.publish(request);
+      }
+      case "privacyCheck":
+        return this.pick.privacy(operation.texts);
       case "report":
         return this.publishing.report(operation);
       case "publishables":

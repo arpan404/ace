@@ -32,9 +32,13 @@ import {
   MarketEntryRef,
 } from "./marketplace-publisher.ts";
 import {
+  MarketDraftCheck,
+  MarketDraftChecked,
   marketPickedSources,
   marketPickOperations,
   marketPickResults,
+  marketPrivacyOperations,
+  marketPrivacyResults,
 } from "./marketplace-publish-pick.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
 import { SuitId } from "./suits.ts";
@@ -78,7 +82,11 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     ...versionKey,
     source: MarketDraftSource,
     changelog: z.string().max(4000).optional(),
+    /** The person's confirmation of `draftCheck`; required for a picked thing or a folder. */
+    checked: MarketDraftChecked.optional(),
   }),
+  /** What a draft from `source` would upload, checked here first; nothing leaves the machine. */
+  z.strictObject({ action: z.literal("draftCheck"), ...entry, source: MarketDraftSource }),
   z.strictObject({ action: z.literal("draftRead"), id: MarketDraftId }),
   z.strictObject({
     action: z.literal("draftUpdate"),
@@ -87,6 +95,7 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     changelog: z.string().max(4000).optional(),
     /** New files for the draft, scanned again. */
     source: MarketDraftSource.optional(),
+    checked: MarketDraftChecked.optional(),
   }),
   z.strictObject({ action: z.literal("draftDelete"), id: MarketDraftId }),
   z.strictObject({ action: z.literal("draftPublish"), id: MarketDraftId }),
@@ -143,6 +152,7 @@ export const MarketPublishAnswer = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("entry"), entry: MarketOwnEntry }),
   z.strictObject({ kind: z.literal("profile"), profile: MarketProfile }),
   z.strictObject({ kind: z.literal("draft"), draft: MarketDraft }),
+  z.strictObject({ kind: z.literal("checked"), check: MarketDraftCheck }),
   z.strictObject({ kind: z.literal("signals"), signals: MarketSignals }),
   z.strictObject({ kind: z.literal("verification"), verification: MarketVerificationStatus }),
   /** A version stored and waiting; `held` when a maintainer must look first. */
@@ -224,6 +234,7 @@ export const marketPublishOperations = [
     note: z.string().max(1000).default(""),
   }),
   ...marketPickOperations,
+  ...marketPrivacyOperations,
 ] as const;
 
 export const marketPublishResults = [
@@ -237,4 +248,5 @@ export const marketPublishResults = [
   }),
   z.strictObject({ op: z.literal("publish"), answer: MarketPublishAnswer }),
   ...marketPickResults,
+  ...marketPrivacyResults,
 ] as const;

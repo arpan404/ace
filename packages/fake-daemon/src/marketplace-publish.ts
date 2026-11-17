@@ -1,6 +1,7 @@
 import type {
   MarketDiscover,
   MarketDraft,
+  MarketDraftChecked,
   MarketDraftSource,
   MarketEntrySummary,
   MarketMe,
@@ -93,7 +94,12 @@ export class FakeMarketPublishing {
   #counter = 0;
   readonly #now: () => number;
   /** Where each draft's files came from, as the app sent them, oldest first. */
-  readonly sources: { type: string; name: string; source: MarketDraftSource }[] = [];
+  readonly sources: {
+    type: string;
+    name: string;
+    source: MarketDraftSource;
+    checked?: MarketDraftChecked | undefined;
+  }[] = [];
   /** Every report the person sent, oldest first. */
   readonly reports: Extract<MarketOperation, { op: "report" }>[] = [];
 
@@ -181,7 +187,12 @@ export class FakeMarketPublishing {
         return ok({ kind: "profile", profile });
       }
       case "draftCreate": {
-        this.sources.push({ type: action.type, name: action.name, source: action.source });
+        this.sources.push({
+          type: action.type,
+          name: action.name,
+          source: action.source,
+          ...(action.checked ? { checked: action.checked } : {}),
+        });
         const draft: MarketDraft = {
           id: `drf_fake${String(++this.#counter).padStart(4, "0")}`,
           type: action.type,
@@ -208,7 +219,12 @@ export class FakeMarketPublishing {
           if (action.version) draft.version = action.version;
           if (action.changelog !== undefined) draft.changelog = action.changelog;
           if (action.source) {
-            this.sources.push({ type: draft.type, name: draft.name, source: action.source });
+            this.sources.push({
+              type: draft.type,
+              name: draft.name,
+              source: action.source,
+              ...(action.checked ? { checked: action.checked } : {}),
+            });
             draft.scan = { state: "scanning", read: 0, files: draft.files };
           }
           draft.updated = this.#now();

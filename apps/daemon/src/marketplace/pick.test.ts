@@ -1,11 +1,9 @@
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readArchive, readRecipe, typeLimits, type ArchiveFile } from "@ace/marketplace";
+import type { ArchiveFile } from "@ace/marketplace";
 import { afterEach, expect, test } from "vitest";
-import { draftArchive } from "./draft-files.ts";
-import { entryNameOf, listPublishables, pickedSource, type PickPorts } from "./pick.ts";
-import { Refused } from "./prepare.ts";
+import { entryNameOf, listPublishables, readPicked, type PickPorts } from "./pick.ts";
 
 /* The publish flow's picker: what the person can publish, and the files of what they picked. */
 
@@ -37,25 +35,17 @@ function ports(
     spade?: Partial<PickPorts["spade"]>;
     aceSkills?: PickPorts["aceSkills"];
     plugins?: PickPorts["plugins"];
+    installedFromMarket?: PickPorts["installedFromMarket"];
   } = {},
 ): PickPorts {
   return {
-    spade: {
-      bots: away,
-      recipe: away,
-      skills: away,
-      skillFiles: away,
-      ...over.spade,
-    },
+    spade: { bots: away, recipe: away, skills: away, skillFiles: away, ...over.spade },
     aceSkills: over.aceSkills,
     plugins: over.plugins,
+    names: async () => [],
+    installedFromMarket: over.installedFromMarket ?? (() => false),
   };
 }
-
-const files = (archive: Uint8Array) =>
-  new Map(
-    readArchive(archive, typeLimits["spade-skill"]).map((file) => [file.path, file] as const),
-  );
 
 test("a picked ace skill is read from its own folder: its files, their run bits, never .git", async () => {
   const folder = await skillFolder();
@@ -65,75 +55,90 @@ test("a picked ace skill is read from its own folder: its files, their run bits,
       { id, name: "triage-mail", title: undefined, description: "Sorts mail.", folder },
     ],
   });
-  const source = await pickedSource(pick, { kind: "ace-skill", id });
-  expect(source).toEqual({ kind: "folder", path: folder });
-  if (!source) throw new Error("no source");
-  const read = files(await draftArchive(source));
-  expect([...read.keys()].toSorted()).toEqual(["SKILL.md", "scripts/sort.sh"]);
-  expect(read.get("scripts/sort.sh")?.executable).toBe(true);
-  expect(new TextDecoder().decode(read.get("SKILL.md")?.content)).toContain("Sort it.");
+  const read = await readPicked(pick, "spade-skill", { kind: "ace-skill", id });
+  if (read?.kind !== "files") throw new Error("no files");
+  expect(read.files.map((file) => file.path).toSorted()).toEqual(["SKILL.md", "scripts/sort.sh"]);
+  expect(read.files.find((file) => file.path === "scripts/sort.sh")?.executable).toBe(true);
+  expect(read.picked).toBe("triage-mail");
 });
 
-test("a skill that isn't one of the person's own is refused, and a linked file stops the draft", async () => {
+test("a skill that isn't one of the person's own is refused, and a linked file stops the read", async () => {
   const folder = await skillFolder();
   const id = `skl_${"b".repeat(40)}`;
-  const pick = ports({ aceSkills: async () => [] });
-  await expect(pickedSource(pick, { kind: "ace-skill", id })).rejects.toMatchObject({
-    code: "not_found",
-  });
+  await expect(
+    readPicked(ports({ aceSkills: async () => [] }), "spade-skill", { kind: "ace-skill", id }),
+  ).rejects.toMatchObject({ code: "not_found" });
 
   await symlink("/etc/hosts", join(folder, "hosts"));
   const linked = ports({
     aceSkills: async () => [{ id, name: "triage-mail", title: undefined, description: "", folder }],
   });
-  const source = await pickedSource(linked, { kind: "ace-skill", id });
-  if (!source) throw new Error("no source");
-  await expect(draftArchive(source)).rejects.toThrow(Refused);
-  await expect(draftArchive(source)).rejects.toThrow(/hosts is a link/);
+  await expect(readPicked(linked, "spade-skill", { kind: "ace-skill", id })).rejects.toThrow(
+    /hosts is a link/,
+  );
 });
 
-test("a picked Spade skill's files become the draft's archive as Spade gave them", async () => {
-  const given: ArchiveFile[] = [
-    { path: "SKILL.md", executable: false, content: new TextEncoder().encode("# Notes\n") },
-    { path: "tool.sh", executable: true, content: new TextEncoder().encode("#!/bin/sh\n") },
-  ];
-  const pick = ports({ spade: { skillFiles: async () => given } });
-  const source = await pickedSource(pick, { kind: "spade-skill", id: "sks_01" });
-  if (!source) throw new Error("no source");
-  const read = files(await draftArchive(source));
-  expect(read.get("tool.sh")?.executable).toBe(true);
-  expect(new TextDecoder().decode(read.get("SKILL.md")?.content)).toBe("# Notes\n");
-});
-
-test("a picked bot is its recipe as bot.json, with nothing Spade sent beyond the recipe", async () => {
+test("a Spade skill's files keep the folder rules: hidden and credential files stay home", async () => {
+  const text = (path: string, executable = false): ArchiveFile => ({
+    path,
+    executable,
+    content: new TextEncoder().encode("x"),
+  });
   const pick = ports({
     spade: {
-      recipe: async () => ({
-        recipe: {
-          format: "spade-bot",
-          version: 2,
-          name: "Inbox",
-          task: "You look after the inbox.",
-          model: "fast",
-          routines: [{ name: "Morning", instruction: "Sort it.", schedule: "weekdays at 8:00" }],
-          needs: { connectors: [{ id: "gmail", why: "Reads mail.", required: true }] },
-          grants: { connectors: ["con_1"] },
-        },
-        left_out: ["Its heartbeat isn't part of a recipe."],
-        token: "never",
-      }),
+      skills: async () => [{ id: "sks_01", name: "notes", description: "" }],
+      skillFiles: async () => [
+        text("SKILL.md"),
+        text("tool.sh", true),
+        text(".env"),
+        text("keys/id_rsa"),
+      ],
     },
   });
-  const source = await pickedSource(pick, { kind: "spade-bot", id: "a_inbox" });
-  if (!source) throw new Error("no source");
-  const read = files(await draftArchive(source));
-  expect([...read.keys()]).toEqual(["bot.json"]);
-  const text = new TextDecoder().decode(read.get("bot.json")?.content);
-  expect(text).not.toContain("grants");
-  expect(text).not.toContain("never");
-  const recipe = readRecipe(text);
-  expect(recipe.problems).toEqual([]);
-  expect(recipe.recipe?.routines[0]?.schedule).toBe("weekdays at 8:00");
+  const read = await readPicked(pick, "spade-skill", { kind: "spade-skill", id: "sks_01" });
+  if (read?.kind !== "files") throw new Error("no files");
+  expect(read.files.map((file) => file.path)).toEqual(["SKILL.md", "tool.sh"]);
+  expect(read.excluded).toEqual([
+    { path: ".env", reason: "hidden" },
+    { path: "keys/id_rsa", reason: "credential" },
+  ]);
+});
+
+test("nothing installed from the marketplace or a catalog is listed as the person's own", async () => {
+  const market = (type: string, name: string) =>
+    (type === "spade-skill" && name === "triage-mail") ||
+    (type === "spade-plugin" && name === "calendar");
+  const pick = ports({
+    spade: {
+      bots: async () => [
+        { id: "a_1", name: "Mine", task: "", face: undefined, fromMarket: false },
+        { id: "a_2", name: "Installed", task: "", face: undefined, fromMarket: true },
+      ],
+      skills: async () => [{ id: "sks_1", name: "triage-mail", description: "" }],
+    },
+    aceSkills: async () => [
+      {
+        id: `skl_${"c".repeat(40)}`,
+        name: "notes",
+        title: undefined,
+        description: "",
+        folder: "/x",
+      },
+    ],
+    plugins: async () => [
+      { name: "calendar", version: "1.0.0", folder: "/y" },
+      { name: "mail-tools", version: "1.0.0", folder: "/z" },
+    ],
+    installedFromMarket: market,
+  });
+  const titles = async (type: "spade-bot" | "spade-skill" | "spade-plugin") =>
+    (await listPublishables(pick, type)).items.map((item) => item.title);
+  expect(await titles("spade-bot")).toEqual(["Mine"]);
+  expect(await titles("spade-skill")).toEqual(["notes"]);
+  expect(await titles("spade-plugin")).toEqual(["mail-tools"]);
+  await expect(
+    readPicked(pick, "spade-plugin", { kind: "plugin", name: "calendar" }),
+  ).rejects.toThrow(/isn't yours to publish/);
 });
 
 test("skills list from Spade and ace's library, and a place that's away says so", async () => {

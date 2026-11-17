@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import {
   credentialFile,
   maxArchiveBytes,
+  pluginManifests,
   previewBytes,
   writeArchive,
   type ArchiveFile,
@@ -44,6 +45,15 @@ const anyEntry: FolderLimits = {
   totalBytes: maxArchiveBytes,
 };
 
+/** The hidden folders a plugin keeps its manifest in (`.claude-plugin/plugin.json`): kept. */
+export const manifestFolders: ReadonlySet<string> = new Set(
+  pluginManifests.filter((path) => path.includes("/")).map((path) => path.split("/")[0] ?? ""),
+);
+
+/** Whether a hidden name at `depth` (0 at the top) is left out. */
+export const leftHome = (name: string, depth: number) =>
+  name.startsWith(".") && !(depth === 0 && manifestFolders.has(name));
+
 /** What a folder's read left out, and why: hidden, or named like a credential. */
 export interface LeftOut {
   path: string;
@@ -68,7 +78,7 @@ export async function readFolder(
     for await (const entry of await opendir(folder)) {
       const path = join(folder, entry.name);
       const name = relative(root, path).split(sep).join("/");
-      if (entry.name.startsWith(".")) {
+      if (leftHome(entry.name, depth)) {
         if (entry.name !== ".git") excluded.push({ path: name, reason: "hidden" });
         continue;
       }

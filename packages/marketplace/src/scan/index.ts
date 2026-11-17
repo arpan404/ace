@@ -494,3 +494,6 @@ export function report(
     read,
   };
 }
+
+/** Bidirectional controls and hidden characters in one text file, by line. */
+export { hiddenFileFindings } from "./checks-hidden.ts";

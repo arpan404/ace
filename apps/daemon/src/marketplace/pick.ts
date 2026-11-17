@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { writeArchive, type ArchiveFile } from "@ace/marketplace";
+import { credentialFile, typeLimits, type ArchiveFile } from "@ace/marketplace";
 import {
   MarketEntryName,
   Recipe,
@@ -8,6 +8,7 @@ import {
   type MarketPublishAction,
   type MarketResult,
 } from "@ace/protocol/marketplace";
+import { leftHome, readFolder, type LeftOut } from "./draft-files.ts";
 import { Refused } from "./prepare.ts";
 
 /*
@@ -25,6 +26,8 @@ export interface PickBot {
   name: string;
   task: string;
   face: Record<string, unknown> | undefined;
+  /** It was installed from a marketplace recipe: someone else's work, never listed. */
+  fromMarket: boolean;
 }
 /** A skill written in Spade, as `GET /v1/skills` lists it with origin `spade`. */
 export interface PickSpadeSkill {
@@ -59,6 +62,10 @@ export interface PickPorts {
   };
   aceSkills: (() => Promise<PickAceSkill[]>) | undefined;
   plugins: (() => Promise<PickPlugin[]>) | undefined;
+  /** The person's own name, username and the like, for the privacy pass. */
+  names: () => Promise<string[]>;
+  /** Whether a skill or plugin of this name was installed from the marketplace or a catalog. */
+  installedFromMarket: (type: "spade-skill" | "spade-plugin", name: string) => boolean;
 }
 
 /** A marketplace name from a thing's own name: "Inbox Sorter" → "inbox-sorter". */
@@ -106,45 +113,49 @@ export async function listPublishables(
   };
   if (type === "spade-bot")
     for (const bot of await read("Spade's bots", () => ports.spade.bots()))
-      items.push({
-        type,
-        name: entryNameOf(bot.name, "my-bot"),
-        title: title(bot.name, "Bot"),
-        line: oneLine(bot.task),
-        from: "spade",
-        ...(bot.face ? { face: bot.face } : {}),
-        source: { kind: "spade-bot", id: bot.id },
-      });
+      if (!bot.fromMarket)
+        items.push({
+          type,
+          name: entryNameOf(bot.name, "my-bot"),
+          title: title(bot.name, "Bot"),
+          line: oneLine(bot.task),
+          from: "spade",
+          ...(bot.face ? { face: bot.face } : {}),
+          source: { kind: "spade-bot", id: bot.id },
+        });
   if (type === "spade-skill") {
     for (const skill of await read("Spade's skills", () => ports.spade.skills()))
-      items.push({
-        type,
-        name: entryNameOf(skill.name, "my-skill"),
-        title: title(skill.name, "Skill"),
-        line: oneLine(skill.description),
-        from: "spade",
-        source: { kind: "spade-skill", id: skill.id },
-      });
+      if (!ports.installedFromMarket("spade-skill", skill.name))
+        items.push({
+          type,
+          name: entryNameOf(skill.name, "my-skill"),
+          title: title(skill.name, "Skill"),
+          line: oneLine(skill.description),
+          from: "spade",
+          source: { kind: "spade-skill", id: skill.id },
+        });
     for (const skill of await read("ace's skills", ports.aceSkills))
-      items.push({
-        type,
-        name: entryNameOf(skill.name, "my-skill"),
-        title: title(skill.title ?? skill.name, "Skill"),
-        line: oneLine(skill.description),
-        from: "ace",
-        source: { kind: "ace-skill", id: skill.id },
-      });
+      if (!ports.installedFromMarket("spade-skill", skill.name))
+        items.push({
+          type,
+          name: entryNameOf(skill.name, "my-skill"),
+          title: title(skill.title ?? skill.name, "Skill"),
+          line: oneLine(skill.description),
+          from: "ace",
+          source: { kind: "ace-skill", id: skill.id },
+        });
   }
   if (type === "spade-plugin")
     for (const plugin of await read("Plugins", ports.plugins))
-      items.push({
-        type,
-        name: plugin.name,
-        title: plugin.name,
-        line: `Version ${plugin.version}`.slice(0, 300),
-        from: "plugin",
-        source: { kind: "plugin", name: plugin.name },
-      });
+      if (!ports.installedFromMarket("spade-plugin", plugin.name))
+        items.push({
+          type,
+          name: plugin.name,
+          title: plugin.name,
+          line: `Version ${plugin.version}`.slice(0, 300),
+          from: "plugin",
+          source: { kind: "plugin", name: plugin.name },
+        });
   return { op: "publishables", items: items.slice(0, 1000), unavailable };
 }
 
@@ -161,28 +172,50 @@ export async function botRecipe(
   return { op: "botRecipe", recipe: recipe.data, leftOut };
 }
 
-const encoder = new TextEncoder();
+/** What was picked, read: a bot's recipe, or files with what was left out of them. */
+export type Picked =
+  | { kind: "bot"; recipe: Recipe; leftOut: string[] }
+  | {
+      kind: "files";
+      files: ArchiveFile[];
+      excluded: LeftOut[];
+      /** The name the picked thing has where it lives, which its manifest must still give. */
+      picked: string | undefined;
+    };
+
 type DraftSource = Extract<MarketPublishAction, { action: "draftCreate" }>["source"];
-const archive = (files: readonly ArchiveFile[]) =>
-  ({ kind: "archive", archive: Buffer.from(writeArchive(files)).toString("base64") }) as const;
+
+const notOwn = (what: string) =>
+  new Refused(`That ${what} was installed from the marketplace, so it isn't yours to publish`);
 
 /**
- * Where a picked thing's files are: an ace skill's or a plugin's folder on this machine, or the
- * archive of a bot's `bot.json` or a Spade skill's files. Undefined when `source` names a folder,
- * archive or Suit itself.
+ * The picked thing's files: a bot's recipe from Spade, a Spade skill's files, an ace skill's or
+ * a plugin's folder (hidden and credential-shaped files left out), or a folder the person chose.
+ * Undefined for a Suit or an archive, which aren't checked here.
  */
-export async function pickedSource(
+export async function readPicked(
   ports: PickPorts,
+  type: MarketPickType,
   source: DraftSource,
-): Promise<Extract<DraftSource, { kind: "folder" | "archive" }> | undefined> {
+): Promise<Picked | undefined> {
+  const limits = typeLimits[type];
+  const folder = {
+    files: limits.files,
+    fileBytes: limits.fileBytes,
+    totalBytes: limits.totalBytes,
+  };
   switch (source.kind) {
     case "spade-bot": {
-      const { recipe } = await botRecipe(ports, source.id);
-      const text = `${JSON.stringify(recipe, null, 2)}\n`;
-      return archive([{ path: "bot.json", executable: false, content: encoder.encode(text) }]);
+      const read = await botRecipe(ports, source.id);
+      return { kind: "bot", recipe: read.recipe, leftOut: read.leftOut };
     }
-    case "spade-skill":
-      return archive(await ports.spade.skillFiles(source.id));
+    case "spade-skill": {
+      const skill = (await ports.spade.skills()).find((each) => each.id === source.id);
+      if (!skill) throw new Refused("That skill isn't one written in Spade", { code: "not_found" });
+      if (ports.installedFromMarket("spade-skill", skill.name)) throw notOwn("skill");
+      const files = await ports.spade.skillFiles(source.id);
+      return { kind: "files", ...leaveOut(files), picked: skill.name };
+    }
     case "ace-skill": {
       const skills = ports.aceSkills ? await ports.aceSkills() : [];
       const skill = skills.find((each) => each.id === source.id);
@@ -190,27 +223,35 @@ export async function pickedSource(
         throw new Refused("That skill isn't one of your own in ace's library", {
           code: "not_found",
         });
-      return { kind: "folder", path: skill.folder };
+      if (ports.installedFromMarket("spade-skill", skill.name)) throw notOwn("skill");
+      return { kind: "files", ...(await readFolder(skill.folder, folder)), picked: skill.name };
     }
     case "plugin": {
       const plugins = ports.plugins ? await ports.plugins() : [];
       const plugin = plugins.find((each) => each.name === source.name);
       if (!plugin)
         throw new Refused("That plugin isn't one made on this machine", { code: "not_found" });
-      return { kind: "folder", path: plugin.folder };
+      if (ports.installedFromMarket("spade-plugin", plugin.name)) throw notOwn("plugin");
+      return { kind: "files", ...(await readFolder(plugin.folder, folder)), picked: plugin.name };
     }
+    case "folder":
+      return { kind: "files", ...(await readFolder(source.path, folder)), picked: undefined };
     default:
       return undefined;
   }
 }
 
-/** A draft action with its picked source read into a folder or archive the market takes. */
-export async function withPickedFiles(
-  ports: PickPorts,
-  action: MarketPublishAction,
-): Promise<MarketPublishAction> {
-  if (action.action !== "draftCreate" && action.action !== "draftUpdate") return action;
-  if (!action.source) return action;
-  const source = await pickedSource(ports, action.source);
-  return source ? { ...action, source } : action;
+/** Files given whole (from Spade) with the same rules a folder read applies. */
+function leaveOut(files: readonly ArchiveFile[]): { files: ArchiveFile[]; excluded: LeftOut[] } {
+  const kept: ArchiveFile[] = [];
+  const excluded: LeftOut[] = [];
+  for (const file of files) {
+    const parts = file.path.split("/");
+    const name = parts.at(-1) ?? "";
+    if (parts.some((part, depth) => leftHome(part, depth)))
+      excluded.push({ path: file.path, reason: "hidden" });
+    else if (credentialFile(name)) excluded.push({ path: file.path, reason: "credential" });
+    else kept.push(file);
+  }
+  return { files: kept, excluded };
 }
