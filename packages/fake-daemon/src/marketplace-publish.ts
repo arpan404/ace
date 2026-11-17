@@ -1,6 +1,7 @@
 import type {
   MarketDiscover,
   MarketDraft,
+  MarketDraftSource,
   MarketEntrySummary,
   MarketMe,
   MarketOperation,
@@ -91,6 +92,8 @@ export class FakeMarketPublishing {
   #publishers = new Map<string, MarketPublisherPage>();
   #counter = 0;
   readonly #now: () => number;
+  /** Where each draft's files came from, as the app sent them, oldest first. */
+  readonly sources: { type: string; name: string; source: MarketDraftSource }[] = [];
   /** Every report the person sent, oldest first. */
   readonly reports: Extract<MarketOperation, { op: "report" }>[] = [];
 
@@ -178,6 +181,7 @@ export class FakeMarketPublishing {
         return ok({ kind: "profile", profile });
       }
       case "draftCreate": {
+        this.sources.push({ type: action.type, name: action.name, source: action.source });
         const draft: MarketDraft = {
           id: `drf_fake${String(++this.#counter).padStart(4, "0")}`,
           type: action.type,
@@ -203,7 +207,10 @@ export class FakeMarketPublishing {
         if (action.action === "draftUpdate") {
           if (action.version) draft.version = action.version;
           if (action.changelog !== undefined) draft.changelog = action.changelog;
-          if (action.source) draft.scan = { state: "scanning", read: 0, files: draft.files };
+          if (action.source) {
+            this.sources.push({ type: draft.type, name: draft.name, source: action.source });
+            draft.scan = { state: "scanning", read: 0, files: draft.files };
+          }
           draft.updated = this.#now();
         } else if (draft.scan.state === "scanning")
           // The scan finishes by the next read, as the Worker's steps would.

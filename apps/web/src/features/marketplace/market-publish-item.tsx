@@ -2,7 +2,10 @@ import type { MarketMe } from "@ace/protocol/marketplace";
 import { MarketEntryName } from "@ace/protocol/marketplace";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { typeWord } from "./market-model.ts";
+import { useNativePicker } from "@/lib/native-picker.ts";
+import { MarketFailure, typeWord } from "./market-model.ts";
+import { PickChoices, RecipePreview } from "./market-publish-pick.tsx";
+import { useBotRecipe } from "./market-publish-pick.ts";
 import { Foot, keyOf, Steps } from "./market-publish-parts.tsx";
 import {
   standing,
@@ -14,8 +17,10 @@ import { Stage } from "./market-stage.tsx";
 
 /*
  * The Item step: which one. A look is one of the person's own Suits, read from their library by
- * id. A bot, skill or plugin is a folder on this machine, under a name: a new entry, or a new
- * version of one they already published.
+ * id. A bot, skill or plugin is picked from the person's own (Spade's bots, Spade's and ace's
+ * skills, plugins they made), and the daemon reads its files; a bot shows its recipe first.
+ * "Choose a folder…" stays for anything else: the app's folder picker on desktop, a path on the
+ * web, under a name.
  */
 
 function SuitChoices(props: {
@@ -49,10 +54,12 @@ function SuitChoices(props: {
 function FolderChoice(props: {
   type: MarketPublishType;
   me: MarketMe | undefined;
+  /** A folder the app's picker chose. */
+  path: string;
   onChoose(item: MarketPublishItem | undefined): void;
 }) {
   const [name, setName] = useState("");
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState(props.path);
   const mine = props.me?.entries.filter((entry) => entry.type === props.type) ?? [];
   const update = (nextName: string, nextPath: string) => {
     setName(nextName);
@@ -121,6 +128,19 @@ function FolderChoice(props: {
   );
 }
 
+/** The bot's recipe for a picked bot, and why it can't be published when Spade refused it. */
+function useChosenRecipe(chosen: MarketPublishItem | undefined) {
+  const id = chosen?.source?.kind === "spade-bot" ? chosen.source.id : undefined;
+  const recipe = useBotRecipe(id);
+  const error = recipe.error;
+  const failed = error
+    ? error instanceof MarketFailure && error.detail
+      ? error.detail
+      : "Spade couldn't give this bot's recipe."
+    : undefined;
+  return { id, data: recipe.data, failed };
+}
+
 export function ChooseItem(props: {
   type: MarketPublishType;
   me: MarketMe | undefined;
@@ -131,6 +151,15 @@ export function ChooseItem(props: {
   onNext(item: MarketPublishItem): void;
 }) {
   const { type, chosen } = props;
+  const [folder, setFolder] = useState<{ path: string }>();
+  const picker = useNativePicker(true);
+  const recipe = useChosenRecipe(chosen);
+  const waiting = recipe.id !== undefined && (!recipe.data || recipe.failed !== undefined);
+  const chooseFolder = async () => {
+    props.onChoose(undefined);
+    const path = picker ? await picker.choose() : "";
+    if (path !== null) setFolder({ path });
+  };
   return (
     <div className="mk-inner" data-width="form">
       <Steps now={props.now} />
@@ -139,17 +168,47 @@ export function ChooseItem(props: {
       </h1>
       {type === "suit" ? (
         <SuitChoices me={props.me} chosen={chosen} onChoose={props.onChoose} />
+      ) : folder ? (
+        <FolderChoice type={type} me={props.me} path={folder.path} onChoose={props.onChoose} />
       ) : (
-        <FolderChoice type={type} me={props.me} onChoose={props.onChoose} />
+        <>
+          <PickChoices type={type} me={props.me} chosen={chosen} onChoose={props.onChoose} />
+          {recipe.id !== undefined && (
+            <RecipePreview
+              recipe={recipe.data?.recipe}
+              leftOut={recipe.data?.leftOut ?? []}
+              failed={recipe.failed}
+            />
+          )}
+        </>
       )}
-      <Foot>
+      <Foot
+        left={
+          type === "suit" ? null : folder ? (
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={() => {
+                setFolder(undefined);
+                props.onChoose(undefined);
+              }}
+            >
+              Back to yours
+            </Button>
+          ) : (
+            <Button variant="ghost" size="lg" onClick={() => void chooseFolder()}>
+              Choose a folder…
+            </Button>
+          )
+        }
+      >
         <Button variant="ghost" size="lg" onClick={props.onBack}>
           Back
         </Button>
         <Button
           variant="primary"
           size="lg"
-          disabled={!chosen}
+          disabled={!chosen || waiting}
           onClick={() => chosen && props.onNext(chosen)}
         >
           Next

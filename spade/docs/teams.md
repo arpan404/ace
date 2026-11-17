@@ -244,11 +244,11 @@ removed again. A newer recipe never changes the bot.
 
 ## Duplicate, export, import
 
-| Method and path               | Body         | Answer                                      |
-| ----------------------------- | ------------ | ------------------------------------------- |
-| `POST /agents/{id}/duplicate` | `{name?}`    | `201 {"agent"}`                             |
-| `GET /agents/{id}/export`     |              | `200` the bot file (below)                  |
-| `POST /agents/import`         | the bot file | `201 {"agent", "left_out": ["<one line>"]}` |
+| Method and path               | Body         | Answer                                       |
+| ----------------------------- | ------------ | -------------------------------------------- |
+| `POST /agents/{id}/duplicate` | `{name?}`    | `201 {"agent"}`                              |
+| `GET /agents/{id}/export`     |              | `200` the bot file (below)                   |
+| `POST /agents/import`         | the bot file | `201 {"agent", "left_out": ["<one line>"]}`  |
 | `GET /agents/{id}/recipe`     |              | `200 {"recipe", "left_out": ["<one line>"]}` |
 
 **Recipe** is the bot as a marketplace recipe (`spade-bot` version 2, ADR 0168 §5), which the
