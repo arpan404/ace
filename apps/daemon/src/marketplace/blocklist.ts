@@ -5,7 +5,7 @@ import { turnOff, type InstallPorts } from "./install.ts";
 import type { StoredInstall } from "./store.ts";
 
 /*
- * Installed entries against the signed blocklist (ADR 0173 §8). At startup and on every refresh
+ * Installed entries against the signed blocklist (ADR 0174 §8). At startup and on every refresh
  * the pinned bytes of every install not yet blocked are checked against the stored list, so a
  * failure or crash part way is put right the next time; a match is turned off as `blocked`, with
  * the reason. An install checks the bytes it is about to land the same way. Nothing is deleted,

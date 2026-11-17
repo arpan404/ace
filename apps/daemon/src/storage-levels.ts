@@ -1,5 +1,5 @@
 /**
- * When the disk under ACE_HOME is too full for the daemon to store new work (ADR 0174). Pure:
+ * When the disk under ACE_HOME is too full for the daemon to store new work (ADR 0176). Pure:
  * the watch in `storage-watch.ts` reads free space and applies the result.
  *
  * Writes fail well before a volume reads zero (the reported crashes left 111-127 MB free), so new

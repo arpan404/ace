@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { isDiskFull } from "./sqlite-failure.ts";
 
 /**
- * Space ace keeps for itself under ACE_HOME (ADR 0174): one file of zeros, written while the
+ * Space ace keeps for itself under ACE_HOME (ADR 0176): one file of zeros, written while the
  * disk has room and removed the moment it fills. On a disk with no free block at all SQLite
  * cannot even open a database in WAL mode, since a clean close removed its `-wal` and `-shm`
  * files and they can't be made again. With the reserve removed the daemon's stores open, its

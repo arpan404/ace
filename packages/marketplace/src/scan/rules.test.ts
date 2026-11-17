@@ -5,7 +5,7 @@ import { folder } from "../testing.ts";
 import { scanEntry } from "./index.ts";
 
 /*
- * The attack-pattern rules one at a time (ADR 0173 §8): each rule fires on what it names and
+ * The attack-pattern rules one at a time (ADR 0174 §8): each rule fires on what it names and
  * stays quiet on the ordinary script that looks like it. The adversarial variants are in the
  * malicious corpus (detection.test.ts); every host here is under `.invalid`.
  */

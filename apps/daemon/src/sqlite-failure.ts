@@ -62,7 +62,7 @@ export class DiskFullAtStartError extends Error {
 
 /**
  * Opens a store at startup. A disk with no free block at all keeps SQLite from making the files a
- * WAL database needs, so it can't be opened, even to read (ADR 0174). That failure is said as
+ * WAL database needs, so it can't be opened, even to read (ADR 0176). That failure is said as
  * what it is, with the free space, instead of "unable to open database file".
  */
 export function openAtStart<T>(

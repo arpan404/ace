@@ -1,4 +1,5 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -22,9 +23,15 @@ async function fleet(links: { macToBuild: boolean; buildToMac: boolean }) {
   return { machines, row };
 }
 
-test("two machines linked both ways read as linked, with no Link button", async () => {
-  const { machines } = await fleet({ macToBuild: true, buildToMac: true });
-  await waitFor(() => expect(within(machines).getAllByText("Linked")).toHaveLength(1));
+test("two machines linked both ways read as linked on the machine's page, and Fleet shows no gap or Link button", async () => {
+  const { row } = await fleet({ macToBuild: true, buildToMac: true });
+  await userEvent.click(within(row("Build server")).getByRole("link", { name: "Build server" }));
+  const reached = await screen.findByRole("region", { name: "Reached through" });
+  expect(await within(reached).findByText("Linked with This Mac.")).toBeTruthy();
+  expect(within(reached).queryByRole("button", { name: "Link" })).toBeNull();
+  await userEvent.click(screen.getByRole("link", { name: "Back to Fleet" }));
+  const machines = await screen.findByRole("region", { name: "Machines" });
+  await within(machines).findByRole("link", { name: "Build server" });
   expect(within(machines).queryByText(/Not linked|can't use/i)).toBeNull();
   expect(within(machines).queryByRole("button", { name: /^Link / })).toBeNull();
 }, 30_000);

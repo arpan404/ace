@@ -42,7 +42,7 @@ export const CloudGrantClaims = GrantClaims.extend({
 });
 export type CloudGrantClaims = z.infer<typeof CloudGrantClaims>;
 /**
- * A publisher's grant for ace's marketplace (ADR 0168 §7, ADR 0173 §2), from a machine or a
+ * A publisher's grant for ace's marketplace (ADR 0168 §7, ADR 0174 §2), from a machine or a
  * device. The relay and ace cloud refuse it, and the market refuses theirs: each parser is strict
  * about its own. `iss` names the backend that minted it, `emailVerified` what WorkOS said of the
  * account's email, and `authAt` when the session behind it signed in, for actions that need a

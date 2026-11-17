@@ -87,7 +87,7 @@ export interface TargetThreadDeps {
   report(error: unknown): void;
   /** Admission here (ADR 0041): while closed, children other machines send wait queued. */
   admitsWork?(): boolean;
-  /** Whether this machine's disk is too full for new work (the `storage` hold, ADR 0174). */
+  /** Whether this machine's disk is too full for new work (the `storage` hold, ADR 0176). */
   storageFull?(): boolean;
 }
 type Delegate = Extract<MachineCall, { op: "delegate" }>;
@@ -867,7 +867,7 @@ export class TargetThreads {
         ...base,
         state: "queued",
         elapsedSeconds: elapsedSeconds(thread.createdAt, this.deps.now()),
-        // Its parent's machine reads why it waits: a free slot, or here the disk (ADR 0174).
+        // Its parent's machine reads why it waits: a free slot, or here the disk (ADR 0176).
         status: queuedChildStatus(this.deps.storageFull?.() ? diskWait : undefined),
         step: this.deps.storageFull?.() ? diskWaitStep : queuedStep,
       };

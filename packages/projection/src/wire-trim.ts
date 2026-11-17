@@ -35,7 +35,7 @@ export const wireTrims = {
    * raw-frames view reads them with `item.raw`.
    */
   rawOnDemand: "raw-on-demand",
-  /** Accepts the `storage` admission hold, a disk too full for new work (ADR 0174). */
+  /** Accepts the `storage` admission hold, a disk too full for new work (ADR 0176). */
   storageHold: "storage-hold",
 } as const;
 /** Every trim this build can undo; what a client lists in its hello. */

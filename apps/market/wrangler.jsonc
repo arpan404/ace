@@ -1,13 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // ace's marketplace (ADR 0168): the catalog API, publishing, the signer's routes and the
-  // public web page, at market.acehq.dev. Separate from ace cloud so a market deploy or fault
+  // ace's marketplace (ADR 0168): the catalog API, publishing, and the signer's routes
+  // (the API only, no web page), at market.acehq.dev. Separate from ace cloud so a market deploy or fault
   // never touches sign-in or the relay.
   "name": "ace-market",
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
-  // ADR 0173 §16: one database per entry type (the catalogues share `migrations/catalogue`) and
+  // ADR 0174 §16: one database per entry type (the catalogues share `migrations/catalogue`) and
   // one per shared domain. The ids here are for development and tests only; see
   // docs/market/deploy.md for production.
   "d1_databases": [
@@ -70,7 +70,7 @@
     { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
     // One counted download per address and hash a minute: past it a fetch is served, not counted.
     { "name": "DOWNLOADS", "namespace_id": "2003", "simple": { "limit": 1, "period": 60 } },
-    // Anonymous abuse reports per address (ADR 0173 §7).
+    // Anonymous abuse reports per address (ADR 0174 §7).
     { "name": "REPORTS", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
   ],
   // No request logs: nothing records who read or searched what (ADR 0168 §10).

@@ -45,7 +45,7 @@ test("each device holds at most its count and its bytes, and copies of held mess
   expect(messages.hold("b1", "phone", message("b1", big), roomy)).toBe("held");
   expect(messages.hold("b2", "phone", message("b2", big), roomy)).toBe("full");
   expect(messages.hold("b3", "phone", message("b3"), roomy)).toBe("held");
-  expect(messages.oldest().map((held) => held.key)).toEqual(["a1", "a2", "b1", "b3"]);
+  expect(messages.oldest().map((kept) => kept.key)).toEqual(["a1", "a2", "b1", "b3"]);
 });
 
 test("the machine as a whole holds at most its count and its bytes, across devices", () => {

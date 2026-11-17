@@ -1,7 +1,7 @@
 import type { MarketKeySet, SignerPending, Withdrawal } from "@ace/protocol/marketplace";
 import { signWithdrawn, verifyWithdrawn, withdrawalKey, type MarketSigningKey } from "./signing.ts";
 
-/* The signer's I/O and the pieces its commands share (ADR 0168 §6, ADR 0173 §10). */
+/* The signer's I/O and the pieces its commands share (ADR 0168 §6, ADR 0174 §10). */
 
 export interface SignerIo {
   /** GET a signer or read route; parsed JSON. */

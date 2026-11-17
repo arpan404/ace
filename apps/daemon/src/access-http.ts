@@ -14,7 +14,7 @@ import { issuePairing } from "./pairing-issue.ts";
 
 /**
  * Admission as the local app's main process reads it over HTTP. It asks only whether the
- * person paused, and builds that predate the `storage` hold (ADR 0174) reject the whole answer
+ * person paused, and builds that predate the `storage` hold (ADR 0176) reject the whole answer
  * for it: a health check would read the daemon as unhealthy while the disk is full. So the hold
  * is left out here and admission still reads closed (`draining`); clients hear of it over the
  * socket.

@@ -18,7 +18,7 @@ import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   /** Free space of the volume holding ACE_HOME, reported with storage failures. */
   diskSpace?: import("../sqlite-failure.ts").DiskSpace;
-  /** The storage-full watch's timer and thresholds (ADR 0174); tests drive them. */
+  /** The storage-full watch's timer and thresholds (ADR 0176); tests drive them. */
   storageWatch?: Pick<
     import("../storage-watch.ts").StorageWatchOptions,
     "delay" | "levels" | "intervals"

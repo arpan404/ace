@@ -14,7 +14,7 @@ export function startThreadOrganization(context: ServiceContext): void {
     undefined,
     backgroundFailure(context, "Thread organizer could not queue a thread; retrying"),
   );
-  // A mark a full disk held back is written as soon as space is back (ADR 0174).
+  // A mark a full disk held back is written as soon as space is back (ADR 0176).
   const stopResuming = context.diskFull?.onRoom(() => organizer.resume());
   resources.own(() => {
     stopResuming?.();

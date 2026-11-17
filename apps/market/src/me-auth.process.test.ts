@@ -16,7 +16,7 @@ import {
 
 /*
  * Every write refuses anything but a fresh market grant from the account backend for a verified
- * email and an active publisher (ADR 0173 §2); entry routes refuse another account's entry;
+ * email and an active publisher (ADR 0174 §2); entry routes refuse another account's entry;
  * sensitive actions refuse an old sign-in.
  */
 

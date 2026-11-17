@@ -1,65 +1,52 @@
 import type { MapArt, MapTone } from "@ace/ui-core/fleet-map";
 
 /*
- * The Fleet map's drawings: each kind of machine or device as line artwork about 44 wide around
- * its centre, and ace's relay as a cloud. Grey ink only; colour belongs to the state dot.
+ * The Fleet map's drawings: each kind of machine or device as a tile with a line glyph, and ace's
+ * relay as a rounded region with its name and host. Grey ink only; colour belongs to the state
+ * dot and the status words.
  */
 
-const line = { strokeWidth: 1.6, strokeLinejoin: "round", strokeLinecap: "round" } as const;
+/** A glyph on a 16-unit grid, drawn 20 wide inside the node's tile. */
+const glyphs: Record<MapArt, string> = {
+  laptop: "M3.5 3.5h9a1 1 0 0 1 1 1v6h-11v-6a1 1 0 0 1 1-1ZM1 12.5h14",
+  desktop:
+    "M3 2.5h10a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1ZM6 13.5h4M8 11v2.5",
+  server:
+    "M3.5 2.5h9a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1ZM3.5 9h9a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1ZM5 4.75h.01M5 11.25h.01",
+  phone:
+    "M6.3 1.5h3.4a1.8 1.8 0 0 1 1.8 1.8v9.4a1.8 1.8 0 0 1-1.8 1.8H6.3a1.8 1.8 0 0 1-1.8-1.8V3.3a1.8 1.8 0 0 1 1.8-1.8ZM7.2 12.4h1.6",
+  tablet:
+    "M4.5 1.5h7A1.5 1.5 0 0 1 13 3v10a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13V3a1.5 1.5 0 0 1 1.5-1.5ZM7.2 12.4h1.6",
+  browser: "M3 2.5h10a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1ZM2 5.5h12",
+};
 
-/** One kind's artwork, drawn around (0, 0). `quiet` draws it in the subtle ink (offline). */
+/** Half a node tile's side. */
+export const tileHalf = 22;
+
+/** A node's tile and glyph around (0, 0). `quiet` draws the glyph in the subtle ink (offline). */
 export function DeviceArt(props: { art: MapArt; quiet: boolean }) {
-  const stroke = props.quiet ? "var(--subtle-foreground)" : "var(--foreground)";
-  const body = { ...line, stroke, fill: "var(--card)" };
-  const screen = { ...line, stroke, fill: "var(--surface-2)" };
-  switch (props.art) {
-    case "laptop":
-      return (
-        <g aria-hidden>
-          <rect {...screen} x={-18} y={-18} width={36} height={24} rx={2.5} />
-          <path {...body} d="M-24 9 H24 L20 14 H-20 Z" />
-        </g>
-      );
-    case "desktop":
-      return (
-        <g aria-hidden>
-          <rect {...screen} x={-20} y={-20} width={40} height={28} rx={2.5} />
-          <path {...body} d="M-6 8 L-8 15 H8 L6 8 M-12 15 H12" />
-        </g>
-      );
-    case "server":
-      return (
-        <g aria-hidden>
-          {[-19, -6, 7].map((y) => (
-            <g key={y}>
-              <rect {...body} x={-18} y={y} width={36} height={11} rx={2} />
-              <path {...body} d={`M-12 ${y + 5.5} h2 M-6 ${y + 5.5} h2`} />
-            </g>
-          ))}
-        </g>
-      );
-    case "phone":
-      return (
-        <g aria-hidden>
-          <rect {...screen} x={-10} y={-19} width={20} height={36} rx={4} />
-          <path {...body} d="M-3 12 h6" />
-        </g>
-      );
-    case "tablet":
-      return (
-        <g aria-hidden>
-          <rect {...screen} x={-16} y={-19} width={32} height={36} rx={4} />
-          <path {...body} d="M-3 12 h6" />
-        </g>
-      );
-    case "browser":
-      return (
-        <g aria-hidden>
-          <rect {...screen} x={-20} y={-17} width={40} height={30} rx={3} />
-          <path {...body} d="M-20 -9 H20 M-15 -13 h1 M-11 -13 h1" />
-        </g>
-      );
-  }
+  return (
+    <g aria-hidden>
+      <rect
+        x={-tileHalf}
+        y={-tileHalf}
+        width={tileHalf * 2}
+        height={tileHalf * 2}
+        rx={12}
+        fill="var(--card)"
+        stroke="var(--border-strong)"
+      />
+      <path
+        d={glyphs[props.art]}
+        transform="translate(-10 -10) scale(1.25)"
+        fill="none"
+        stroke={props.quiet ? "var(--subtle-foreground)" : "var(--foreground)"}
+        strokeWidth={1.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </g>
+  );
 }
 
 /** A state's colour: done, needs you, failed, else the subtle ink for what isn't known. */
@@ -70,17 +57,26 @@ export const toneColor: Record<MapTone, string> = {
   unknown: "var(--subtle-foreground)",
 };
 
-/** ace's relay: a cloud with its name and host, centred on (x, y). */
+/** ace's relay: a rounded region with its name and host, centred on (x, y). */
 export function RelayCloud(props: { x: number; y: number; label: string; host: string }) {
   return (
     <g transform={`translate(${props.x} ${props.y})`}>
-      <path
-        d="M-58 22 C-80 22 -82 -6 -60 -8 C-60 -30 -30 -36 -18 -20 C-10 -40 26 -40 30 -16 C52 -22 70 -2 58 12 C72 18 64 30 48 26 Z"
+      <rect
+        x={-80}
+        y={-30}
+        width={160}
+        height={56}
+        rx={18}
         fill="var(--card)"
-        stroke="var(--muted-foreground)"
-        strokeWidth={1.5}
+        stroke="var(--border-strong)"
       />
-      <text y={-2} textAnchor="middle" fontSize={14} fontWeight={600} fill="var(--foreground)">
+      <text
+        y={props.host ? -3 : 4}
+        textAnchor="middle"
+        fontSize={13.5}
+        fontWeight={600}
+        fill="var(--foreground)"
+      >
         {props.label}
       </text>
       {props.host && (

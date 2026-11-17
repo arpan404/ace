@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * What holds admission closed: the person's pause (`user`), an app update draining work
  * (`update`), kill-all's fence (`kill`), a stop (`stop`) or a disk too full to store new work
- * (`storage`, ADR 0174). A client may add or remove only `user`; the others end on their own.
+ * (`storage`, ADR 0176). A client may add or remove only `user`; the others end on their own.
  */
 export const MaintenanceHold = z.enum(["user", "update", "kill", "stop", "storage"]);
 export type MaintenanceHold = z.infer<typeof MaintenanceHold>;

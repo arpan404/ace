@@ -1,5 +1,5 @@
 /**
- * Bookkeeping writes that failed (a full disk, ADR 0174) and must not be lost: each waits in
+ * Bookkeeping writes that failed (a full disk, ADR 0176) and must not be lost: each waits in
  * memory under a key and runs again on the owner's next pass, in the order it was first held.
  * Every write held here must be idempotent ("mark this thread due"), so running it late, or
  * once more than needed, changes nothing. A later write under the same key replaces the held

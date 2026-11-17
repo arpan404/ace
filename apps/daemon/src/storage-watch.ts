@@ -74,7 +74,7 @@ export const systemStorageDelay: StorageDelay = (run, ms) => {
 };
 
 /**
- * The daemon's "storage full" condition (ADR 0174). The first write that fails for want of
+ * The daemon's "storage full" condition (ADR 0176). The first write that fails for want of
  * space, or free space under `pauseBelow`, holds admission with `storage`: new threads, turns
  * and messages wait, and every client says why. Running turns keep going; their live output
  * waits in memory and is retried, never dropped (`store-stream.ts`). Free space is read on a

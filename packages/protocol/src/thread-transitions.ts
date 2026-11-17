@@ -211,7 +211,7 @@ export const QueueFacts = z.object({
   queuePosition: z.number().int().positive(),
   /**
    * What the child waits for besides a slot: `storage`, the machine's disk too full to start it
-   * (ADR 0174). It starts on its own once space is freed. Older clients ignore it.
+   * (ADR 0176). It starts on its own once space is freed. Older clients ignore it.
    */
   waitingFor: z.enum(["storage"]).optional(),
 });

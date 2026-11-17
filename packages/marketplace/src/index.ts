@@ -7,7 +7,7 @@ export {
 } from "./archive.ts";
 export { contentHash, hashFiles, sha256Hex, type HashedFile } from "./hash.ts";
 export { maxArchiveBytes, listingBytes, previewBytes, typeLimits } from "./limits.ts";
-export { describeEntry, frontmatter, type Listing } from "./listing.ts";
+export { describeEntry, frontmatter, pluginManifests, type Listing } from "./listing.ts";
 export {
   entryKey,
   FeedError,
@@ -42,7 +42,23 @@ export {
   type TrendRow,
 } from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
-export { secretFieldNames, secretFileProblem, secretName, secretValueProblems } from "./secrets.ts";
+export {
+  credentialFile,
+  secretFieldNames,
+  secretFileProblem,
+  secretName,
+  secretSpans,
+  secretValueProblems,
+} from "./secrets.ts";
+export {
+  privacyQuote,
+  privacySpans,
+  privacyWords,
+  withSentences,
+  type PrivacyContext,
+  type PrivacyKind,
+  type PrivacySpan,
+} from "./privacy.ts";
 export {
   canonicalJson,
   manifestMismatch,

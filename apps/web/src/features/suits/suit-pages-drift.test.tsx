@@ -81,6 +81,8 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/beta": ["/settings/beta", "settings"],
   "/settings/remote/": ["/settings/remote", "settings"],
   "/settings/remote/$machine": ["/settings/remote/machine-missing", "settings"],
+  "/settings/remote/$machine_/apps": ["/settings/remote/machine-missing/apps", "settings"],
+  "/settings/remote/every-machine": ["/settings/remote/every-machine", "settings"],
   "/settings/remote/map": ["/settings/remote/map", "settings"],
 };
 

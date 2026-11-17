@@ -42,7 +42,7 @@ export interface PreparedEntry {
   pluginInput?: import("./prepare.ts").PluginFilesInput | undefined;
   /** The installed version this one would replace. */
   previous?: { version: string; files: readonly ArchiveFile[] } | undefined;
-  /** The device's scan of these bytes (ADR 0173 §8); a block never reaches a review. */
+  /** The device's scan of these bytes (ADR 0174 §8); a block never reaches a review. */
   scan?: MarketScanReport | undefined;
   /** Its publisher deprecated this version, with this note. */
   deprecated?: string | undefined;

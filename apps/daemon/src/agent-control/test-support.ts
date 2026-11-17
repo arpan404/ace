@@ -72,7 +72,7 @@ export function setup(
   });
   const frames = scriptFrames();
   let admitting = true;
-  /** The machine's `storage` hold (ADR 0174): its disk too full for new work. */
+  /** The machine's `storage` hold (ADR 0176): its disk too full for new work. */
   let storageFull = false;
   let nativeSequence = 0;
   const nativeHistories = new Map<string, string[]>();

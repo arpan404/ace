@@ -90,7 +90,7 @@ export interface DelegationDependencies {
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
-  /** Whether the disk is too full for new work (the `storage` hold, ADR 0174), read live. */
+  /** Whether the disk is too full for new work (the `storage` hold, ADR 0176), read live. */
   storageFull?(): boolean;
   /**
    * Brings the provider's installation and login facts up to date before admission reads
@@ -891,7 +891,7 @@ export class DelegationService {
   queueFacts(childId: ThreadId): QueuedFacts | undefined {
     const edge = this.journal.get(childId);
     if (!edge || edge.phase !== "created" || !this.launches.has(childId)) return undefined;
-    // While the disk is full, that is what every queued child waits for first (ADR 0174).
+    // While the disk is full, that is what every queued child waits for first (ADR 0176).
     const disk = this.deps.storageFull?.() ? diskWait : undefined;
     // With no limit a child waits only for engine room: it has no slot place to show.
     const limit = this.limit();

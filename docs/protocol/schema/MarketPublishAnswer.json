@@ -73,6 +73,23 @@
     {
       "additionalProperties": false,
       "properties": {
+        "check": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraftCheck.json"
+        },
+        "kind": {
+          "const": "checked",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "check"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "kind": {
           "const": "signals",
           "type": "string"

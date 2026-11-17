@@ -1,4 +1,4 @@
-# 0174: A full disk holds new work and heals on its own
+# 0176: A full disk holds new work and heals on its own
 
 Date: 2026-11-16. Status: accepted.
 

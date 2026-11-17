@@ -22,7 +22,7 @@ export class LiveWriteRetry extends Error {
 
 /**
  * Whether a write failed only for now and the same operation may be retried later. A full disk
- * counts (ADR 0174): SQLite has rolled the write back, and it succeeds once space is freed.
+ * counts (ADR 0176): SQLite has rolled the write back, and it succeeds once space is freed.
  */
 export function isStoreRetry(error: unknown): boolean {
   return isStoreBusy(error) || error instanceof LiveWriteRetry || isDiskFull(error);

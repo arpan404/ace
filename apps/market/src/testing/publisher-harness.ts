@@ -5,7 +5,7 @@ import { syncPublisher } from "../store/copies.ts";
 import { approveHeld, grantKey, manifestFor, put, type Market } from "./harness.ts";
 
 /*
- * Acting as a publisher through the market's HTTP API (ADR 0173): grants with chosen claims,
+ * Acting as a publisher through the market's HTTP API (ADR 0174): grants with chosen claims,
  * profiles, drafts, the publisher's own routes, and synthetic, inert pictures.
  */
 
@@ -91,7 +91,7 @@ export async function makeProfile(market: Market, account: string, handle: strin
 }
 
 /**
- * Makes the publisher an established one: old enough, with three live versions (ADR 0173 §9).
+ * Makes the publisher an established one: old enough, with three live versions (ADR 0174 §9).
  * Its copies are applied in every catalogue first; the live versions are one catalogue's own.
  */
 export async function establish(market: Market, handle: string) {
@@ -166,7 +166,7 @@ export async function liveVersion(
   const published = await draftAndPublish(market, account, upload);
   if (published.status !== 201)
     throw new Error(`publish failed: ${published.status} ${await published.text()}`);
-  // A runnable version is held for a maintainer (ADR 0173 §8 policy); release it before signing.
+  // A runnable version is held for a maintainer (ADR 0174 §8 policy); release it before signing.
   await approveHeld(market, upload.type, upload.name, upload.version ?? "1.0.0");
   await sign(market, upload, { id: publisher.id, name: publisher.handle });
 }

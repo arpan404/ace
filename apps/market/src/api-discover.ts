@@ -7,7 +7,7 @@ import { listDb, signedList, type ListTable } from "./store/lists.ts";
 import { fileReport } from "./store/reports.ts";
 
 /*
- * Discover and the open writes and lists (ADR 0173 §6, §7, §8, §13, §14): `/v1/discover`, the
+ * Discover and the open writes and lists (ADR 0174 §6, §7, §8, §13, §14): `/v1/discover`, the
  * anonymous report, and the signed blocklist, verified and official lists. No sign-in, no
  * cookie; a report keeps no address or account, and the REPORTS binding limits callers in its
  * own memory before this runs.

@@ -12,7 +12,7 @@ import { systemStorageDelay } from "./storage-watch.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 /*
- * A daemon starting on a disk with no free block at all (ADR 0174). A real 64 MiB volume, a
+ * A daemon starting on a disk with no free block at all (ADR 0176). A real 64 MiB volume, a
  * macOS disk image, stands in for the disk: nothing else makes SQLite meet a full disk while it
  * opens its files. Levels are scaled down to fit the volume.
  */
@@ -20,11 +20,12 @@ import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 const MiB = 1024 * 1024;
 const levels = { pauseBelow: 1 * MiB, resumeAt: 2 * MiB, warnBelow: 4 * MiB };
 
+const hdiutil = (...args: string[]) => execFileSync("hdiutil", args, { stdio: "ignore" });
+
 async function volume(onFinished: (close: () => Promise<void>) => void) {
   const dir = await mkdtemp(join(tmpdir(), "ace-full-volume-"));
   const image = join(dir, "volume.dmg");
   const mount = join(dir, "mnt");
-  const hdiutil = (...args: string[]) => execFileSync("hdiutil", args, { stdio: "ignore" });
   hdiutil("create", "-size", "64m", "-fs", "HFS+", "-volname", "acefull", "-layout", "NONE", image);
   hdiutil("attach", "-nobrowse", "-mountpoint", mount, image);
   onFinished(async () => {

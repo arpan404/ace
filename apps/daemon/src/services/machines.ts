@@ -78,7 +78,7 @@ export function startMachines(context: ServiceContext): void {
     limit: () => services.childLimit?.current(),
     schedule,
     report: (error) => {
-      // A full disk is the daemon's condition (ADR 0174), said once by the storage watch.
+      // A full disk is the daemon's condition (ADR 0176), said once by the storage watch.
       if (!context.diskFull?.observe(error))
         log.log("warn", "Machine child not started", logError(error));
     },

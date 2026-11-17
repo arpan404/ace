@@ -151,7 +151,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const diskSpace = options.diskSpace ?? systemDiskSpace;
   // A disk already full: ace's reserve goes before anything else opens, so the log, the stores
-  // and their first writes have room (ADR 0174). The storage watch holds new work from here.
+  // and their first writes have room (ADR 0176). The storage watch holds new work from here.
   const reserve = storageReserve(config.dataDir);
   const free = freeBytesOf(config.dataDir, diskSpace);
   if (free !== null && free < (options.storageWatch?.levels ?? storageLevels).pauseBelow)
@@ -165,7 +165,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   const resources = new Resources();
   resources.own(() => log.close(), "daemon log");
-  // A full disk holds new work and heals on its own once space is back (ADR 0174).
+  // A full disk holds new work and heals on its own once space is back (ADR 0176).
   const storage = new StorageWatch({
     home: config.dataDir,
     diskSpace,

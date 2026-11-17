@@ -18,6 +18,7 @@ import { marketPublishOperations, marketPublishResults } from "./marketplace-pub
 import { MarketScanReport } from "./marketplace-scan.ts";
 
 export * from "./marketplace-base.ts";
+export * from "./marketplace-publish-pick.ts";
 export * from "./marketplace-catalog.ts";
 export * from "./marketplace-discover.ts";
 export * from "./marketplace-publish-ops.ts";
@@ -36,7 +37,7 @@ export * from "./marketplace-signed.ts";
 const words = z.string().max(8192);
 
 /** What turned an installed entry off. A withdrawn entry stays off until the person turns it on. */
-/** `blocked`: its bytes match the signed blocklist (ADR 0173 §8); off until removed. */
+/** `blocked`: its bytes match the signed blocklist (ADR 0174 §8); off until removed. */
 export const MarketInstallState = z.enum(["on", "withdrawn", "blocked", "off"]);
 export const MarketInstalled = z.strictObject({
   source: MarketSourceId,
@@ -179,7 +180,7 @@ export const MarketReview = z.strictObject({
   body: MarketReviewBody,
   /** No install is possible: a Suit that fails ace's checks, Spade not running for a recipe. */
   blocked: z.string().max(500).optional(),
-  /** The device's own scan of these bytes (ADR 0173 §8): every finding, as sentences. */
+  /** The device's own scan of these bytes (ADR 0174 §8): every finding, as sentences. */
   scan: MarketScanReport.optional(),
   /** Its publisher deprecated this version, with this note. */
   deprecated: z.string().max(500).optional(),

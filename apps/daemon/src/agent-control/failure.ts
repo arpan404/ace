@@ -52,7 +52,7 @@ export function engineFull(error: unknown): boolean {
 }
 /**
  * The start can't happen yet: the engine is full or still starting after a restart, or the disk
- * is too full to record it (ADR 0174; the start's transaction rolled back). Each way the launch
+ * is too full to record it (ADR 0176; the start's transaction rolled back). Each way the launch
  * stays queued and is tried again; none is a reason it can never run.
  */
 export function startsLater(error: unknown): boolean {

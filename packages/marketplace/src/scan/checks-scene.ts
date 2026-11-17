@@ -6,7 +6,7 @@ import { type JsNode, lineOf, nodeCap, parseJs, walk } from "./js-ast.ts";
 import { normaliseText } from "./text.ts";
 
 /*
- * The `scene` check (ADR 0173 §8): a Suit's scene JS draws, nothing more. This is the static gate;
+ * The `scene` check (ADR 0174 §8): a Suit's scene JS draws, nothing more. This is the static gate;
  * the scene's sandboxed, opaque-origin iframe and its CSP (ADR 0150) stay as independent runtime
  * enforcement, so a scene this check misreads still can't reach the network or ace's page.
  *

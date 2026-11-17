@@ -15,7 +15,7 @@ import { markUsageDirty } from "./me-limits.ts";
 import { pendingListingOf, type EntryTable } from "./rows.ts";
 
 /*
- * The maintainers' side of D1 (ADR 0173 §9, §10, §13, §16): what waits for them, read over every
+ * The maintainers' side of D1 (ADR 0174 §9, §10, §13, §16): what waits for them, read over every
  * catalogue and the publishers and moderation databases, and their decisions on versions,
  * listing edits, publishers, collections and appeals. Every change to a version is batched with
  * its entry's generation in its catalogue and followed by the entry's refresh.
@@ -343,7 +343,7 @@ export async function decideListing(
 
 /**
  * Suspends, restores or marks deleted a publisher; its entries follow in every catalogue through
- * its copies (ADR 0173 §2, §16).
+ * its copies (ADR 0174 §2, §16).
  */
 export async function setPublisherState(
   dbs: Databases,

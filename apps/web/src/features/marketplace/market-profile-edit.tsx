@@ -7,7 +7,7 @@ import { Avatar } from "./market-marks.tsx";
 import { useMarketPicture, usePublishAction } from "./market-publishing.ts";
 
 /*
- * Making and editing your publisher profile (ADR 0173 §3): a handle and a name to start, then
+ * Making and editing your publisher profile (ADR 0174 §3): a handle and a name to start, then
  * the name, bio, links and picture. Each save is one publish action; what it can't take is said
  * in a sentence under the form.
  */

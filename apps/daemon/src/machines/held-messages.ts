@@ -27,7 +27,7 @@ export const heldLimits: HeldLimits = {
 
 /**
  * Messages from other machines' agents that arrived while this machine held new work (a pause,
- * an update, a full disk; ADR 0041, 0174). Each is kept once under its request key, so a retried
+ * an update, a full disk; ADR 0041, 0176). Each is kept once under its request key, so a retried
  * copy is the same message, and is delivered in arrival order once admission reopens. Durable:
  * a restart while held keeps them.
  */
@@ -53,6 +53,8 @@ export class HeldMessages {
   ): "held" | "full" {
     const text = JSON.stringify(call);
     const bytes = Buffer.byteLength(text);
+    const over = (now: { count: number; bytes: number }, limit: { count: number; bytes: number }) =>
+      now.count + 1 > limit.count || now.bytes + bytes > limit.bytes;
     return this.store.atomic((db) => {
       if (db.prepare("SELECT 1 FROM machine_held_messages WHERE request_key=?").get(key))
         return "held";
@@ -64,10 +66,6 @@ export class HeldMessages {
           .get(...args);
         return { count: Number(row?.n), bytes: Number(row?.bytes) };
       };
-      const over = (
-        now: { count: number; bytes: number },
-        limit: { count: number; bytes: number },
-      ) => now.count + 1 > limit.count || now.bytes + bytes > limit.bytes;
       if (over(used("WHERE device_id=?", deviceId), limits.perDevice)) return "full";
       if (over(used(""), limits.total)) return "full";
       db.prepare(

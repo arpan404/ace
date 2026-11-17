@@ -144,7 +144,7 @@ export class ThreadOrganizer {
       ),
     );
   }
-  /** Space is back (ADR 0174): write the held marks and sweep now rather than on the timer. */
+  /** Space is back (ADR 0176): write the held marks and sweep now rather than on the timer. */
   resume(): void {
     if (this.stopped) return;
     // A sweep in progress may have met the full disk: one more runs after it.

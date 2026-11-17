@@ -2,7 +2,7 @@ import type { MarketTrendMovement } from "@ace/protocol/marketplace";
 import { rankingTiers, tiered, type RankingTier } from "./ranking.ts";
 
 /*
- * Discover's rankings (ADR 0173 §6, §15), pure: Trending this week, top publishers and New and
+ * Discover's rankings (ADR 0174 §6, §15), pure: Trending this week, top publishers and New and
  * notable's order. Download counts are anonymous totals per hour or per day; nothing here knows
  * who fetched. Hours and days are counted from the Unix epoch.
  */

@@ -5,7 +5,7 @@ import { TargetThreads } from "./target-threads.ts";
 
 /*
  * A child another machine delegates here, while this machine holds new work (a pause, or a disk
- * too full for it, ADR 0174), over a real engine and store. The retry timer is driven by hand.
+ * too full for it, ADR 0176), over a real engine and store. The retry timer is driven by hand.
  */
 
 const device = Device.parse({
@@ -179,16 +179,20 @@ it("a waiting child whose start the full disk rolls back is retried on a backoff
   expect(h.contexts).toHaveLength(1);
 });
 
+const partsText = (parts: readonly { type: string; text?: string }[]) =>
+  parts.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
+
 /** What the child was given, in order: input it took, then input queued for its next turn. */
 function inputs(h: Awaited<ReturnType<typeof setup>>["h"], threadId: ThreadId): string[] {
   const snapshot = h.store.snapshotThread(threadId);
-  const text = (parts: readonly { type: string; text?: string }[]) =>
-    parts.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
   const taken = snapshot.itemOrder.flatMap((id) => {
     const item = snapshot.items[id];
-    return item?.type === "message" && item.role === "user" ? [text(item.parts)] : [];
+    return item?.type === "message" && item.role === "user" ? [partsText(item.parts)] : [];
   });
-  return [...taken, ...h.engine.queue(threadId).messages.map((message) => text(message.input))];
+  return [
+    ...taken,
+    ...h.engine.queue(threadId).messages.map((message) => partsText(message.input)),
+  ];
 }
 const follow = (threadId: ThreadId, requestId: string, delivery: "queue" | "steer" = "queue") =>
   ({ op: "message", threadId, requestId, text: `Follow-up ${requestId}`, delivery }) as const;

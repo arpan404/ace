@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -60,3 +60,20 @@ test("a Simulators window row found by search is the row the page opens at", asy
     ),
   );
 });
+
+test.each([
+  ["tailscale", /^Tailscale/, "Reached through"],
+  ["move threads", /^Move threads between machines/, "Working across machines"],
+])(
+  "searching %j opens the Fleet page that now holds it",
+  async (query, link, group) => {
+    await harness({ machines: [{ hostId: "build", name: "Build server" }] }).open(
+      "/settings/general",
+    );
+    await userEvent.type(await screen.findByRole("searchbox", { name: "Search settings" }), query);
+    const results = screen.getByRole("region", { name: "Matching settings" });
+    await userEvent.click(within(results).getByRole("link", { name: link }));
+    expect(await screen.findByRole("region", { name: group }, { timeout: 10_000 })).toBeTruthy();
+  },
+  30_000,
+);

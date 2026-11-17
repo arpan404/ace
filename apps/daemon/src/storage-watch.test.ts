@@ -199,11 +199,13 @@ test("ace's reserve goes when the disk fills, never counts as room, and comes ba
   expect(statSync(reserve).size).toBe(MiB);
 });
 
+const refused = () => Object.assign(new Error("Disc quota exceeded"), { code: "EDQUOT" });
+const eio = () => Object.assign(new Error("i/o error"), { code: "EIO" });
+
 test("under a quota, the reserve given back is not room: new work waits until writes fit beside the reserve", () => {
   // The boundary: a per-user quota, which the volume's free space never shows. The reserve and
   // the probe write against it; a write past it fails with EDQUOT, as the kernel's would.
   let quota = 0;
-  const refused = () => Object.assign(new Error("Disc quota exceeded"), { code: "EDQUOT" });
   const take = (bytes: number) => {
     if (quota < bytes) throw refused();
     quota -= bytes;
@@ -267,7 +269,6 @@ test("under a quota, the reserve given back is not room: new work waits until wr
 });
 
 test("a reserve that fails with an I/O error stops neither the reads nor the hold from lifting", () => {
-  const eio = () => Object.assign(new Error("i/o error"), { code: "EIO" });
   const reads: (() => void)[] = [];
   const lines: string[] = [];
   const gate = new MaintenanceGate(() => 0);

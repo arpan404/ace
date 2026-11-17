@@ -41,7 +41,7 @@ export function acquireLock(dataDir: string): () => void {
   const lock = new DatabaseSync(join(dataDir, "daemon-lock.sqlite"));
   try {
     // The lock is the kernel's lock on this file; its journal is kept in memory, so taking it
-    // creates no file and works on a full disk too (ADR 0174). The table is made once, ever.
+    // creates no file and works on a full disk too (ADR 0176). The table is made once, ever.
     lock.exec(
       "PRAGMA busy_timeout=0; PRAGMA journal_mode=MEMORY; BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS owner (pid INTEGER)",
     );

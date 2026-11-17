@@ -210,7 +210,7 @@ export class WorkspaceRefresh {
     };
     watch();
   }
-  /** Space is back (ADR 0174): write the due marks a full disk held back. */
+  /** Space is back (ADR 0176): write the due marks a full disk held back. */
   resume(): void {
     if (!this.closed) this.held.flush();
   }

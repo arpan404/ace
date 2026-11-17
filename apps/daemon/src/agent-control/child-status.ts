@@ -4,7 +4,7 @@ import type { DelegationRecord, QueueFacts, Thread, ThreadStatus } from "@ace/pr
 export const queuedStatus: ThreadStatus = { state: "waiting", on: "queue" };
 /** What a queued child's step says, for a model reading agents_status or wait. */
 export const queuedStep = "queued: starts when a running agent finishes";
-/** A queued child's step while the machine's disk is too full to start it (ADR 0174). */
+/** A queued child's step while the machine's disk is too full to start it (ADR 0176). */
 export const diskWaitStep = "Waiting for disk space";
 /** What a queued child reports of where it waits: any of its place, and what it waits for. */
 export type QueuedFacts = Partial<QueueFacts>;

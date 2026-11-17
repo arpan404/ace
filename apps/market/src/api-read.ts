@@ -8,7 +8,7 @@ import { countDownload } from "./store/downloads.ts";
 import { categories, listedWithHash, signedVersion, withdrawnList } from "./store/read.ts";
 
 /*
- * The catalog API (ADR 0168 §3, ADR 0173 §6): no sign-in, no cookie, and nothing kept about who
+ * The catalog API (ADR 0168 §3, ADR 0174 §6): no sign-in, no cookie, and nothing kept about who
  * asked. A download raises its version's anonymous totals (all time, per hour, per day) and
  * nothing else; a caller past the DOWNLOADS binding, keyed by address and hash in the binding's
  * own memory, still gets the bytes and isn't counted.

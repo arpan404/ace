@@ -21,7 +21,7 @@ export function startAgentControl(context: ServiceContext): void {
   if (!engine || !services.models) return;
   type Gate = Pick<import("@ace/service").MaintenanceGate, "admit" | "held" | "onChange">;
   let maintenance: Gate | undefined = context.maintenance;
-  // Queued children say they wait for disk space while the storage hold lasts (ADR 0174).
+  // Queued children say they wait for disk space while the storage hold lasts (ADR 0176).
   let storageHeld = false;
   let stopWatching: (() => void) | undefined;
   const follow = (gate: Gate | undefined) => {
