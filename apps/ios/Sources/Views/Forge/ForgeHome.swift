@@ -185,30 +185,63 @@ struct ForgeHome: View {
         return choices
     }
 
-    /// The list switch on glass, filling the row, and the state filter beside it.
+    /// The list switch, then New pull request or New issue and the state filter beside it, on one
+    /// row while every word fits whole. Narrower, the switch says Pulls; narrower still (a phone
+    /// with Issues and Inbox, or large text), the switch takes a row of its own over the actions,
+    /// each row scrolling rather than cutting a word short.
     private var chips: some View {
+        ViewThatFits(in: .horizontal) {
+            chipsRow(kinds)
+            chipsRow(shortKinds)
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
+                chipsScroller { GlassSwitch(selection: $kind, choices: shortKinds) }
+                chipsScroller { HStack(spacing: AceTheme.Spacing.sm) { chipActions } }
+            }
+        }
+        .padding(.bottom, AceTheme.Spacing.xs)
+    }
+
+    /// Each choice by its short name where it has one ("Pulls" for Pull requests).
+    private var shortKinds: [GlassSwitch<ForgeKind>.Choice] {
+        kinds.map { .init(value: $0.value, title: $0.short ?? $0.title, identifier: $0.identifier) }
+    }
+
+    private func chipsRow(_ choices: [GlassSwitch<ForgeKind>.Choice]) -> some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            GlassSwitch(selection: $kind, choices: kinds)
-            if kind == .pulls, session?.client.canOperate == true, chosen != nil, features?.create == true {
-                Button("New pull request") { creating = true }.buttonStyle(.forgeWord)
-                .accessibilityLabel("New pull request")
-                .accessibilityIdentifier("forge.newpr")
-            }
-            if kind == .issues, session?.client.canOperate == true, let target = newIssueTarget {
-                Button("New issue") { creatingIssue = target }.buttonStyle(.forgeWord)
-                    .accessibilityIdentifier("forge.newissue")
-            }
-            if kind == .inbox {
-                ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)
-            } else {
-                ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
-                                 pullList: pulls.list, issueList: issues.list)
-            }
+            GlassSwitch(selection: $kind, choices: choices)
+            chipActions
             // The switch hugs its tabs; the row keeps to the leading edge.
             Spacer(minLength: AceTheme.Spacing.none)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .padding(.bottom, AceTheme.Spacing.xs)
+    }
+
+    /// A row that scrolls sideways only when its words are wider than the page.
+    private func chipsScroller<Row: View>(@ViewBuilder _ row: () -> Row) -> some View {
+        ScrollView(.horizontal) {
+            row().padding(.horizontal, AceTheme.Spacing.lg)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+
+    /// New pull request or New issue, where the person can make one, then the list's filter.
+    @ViewBuilder private var chipActions: some View {
+        if kind == .pulls, session?.client.canOperate == true, chosen != nil, features?.create == true {
+            Button("New pull request") { creating = true }.buttonStyle(.forgeWord)
+                .accessibilityLabel("New pull request")
+                .accessibilityIdentifier("forge.newpr")
+        }
+        if kind == .issues, session?.client.canOperate == true, let target = newIssueTarget {
+            Button("New issue") { creatingIssue = target }.buttonStyle(.forgeWord)
+                .accessibilityIdentifier("forge.newissue")
+        }
+        if kind == .inbox {
+            ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)
+        } else {
+            ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
+                             pullList: pulls.list, issueList: issues.list)
+        }
     }
 
     /// The reasons the inbox last named, for its filter.

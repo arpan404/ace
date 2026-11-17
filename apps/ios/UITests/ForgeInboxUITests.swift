@@ -28,6 +28,45 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Rewrite the install page for the daemon"].exists)
     }
 
+    func testThePullsSwitchKeepsEveryListsNameOnThePage() {
+        let app = launchOnPulls()
+        let segments = ["forge.kind.pulls", "forge.kind.issues", "forge.kind.inbox"].map { app.buttons[$0] }
+        XCTAssertTrue(segments[2].waitForExistence(timeout: 20))
+        let width = app.windows.firstMatch.frame.width
+        for segment in segments {
+            XCTAssertTrue(segment.isHittable)
+            XCTAssertGreaterThanOrEqual(segment.frame.minX, 0)
+            XCTAssertLessThanOrEqual(segment.frame.maxX, width)
+        }
+        // New pull request stays on the page, clear of the switch.
+        let new = app.buttons["forge.newpr"]
+        XCTAssertTrue(new.waitForExistence(timeout: 10))
+        XCTAssertTrue(new.isHittable)
+        XCTAssertFalse(new.frame.intersects(segments[2].frame))
+        screenshot("switch")
+    }
+
+    func testThePullsSwitchAtTheLargestTextStillOffersEveryList() {
+        let app = launchOnPulls(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let inbox = app.buttons["forge.kind.inbox"]
+        XCTAssertTrue(inbox.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["forge.newpr"].waitForExistence(timeout: 10))
+        screenshot("switch-largest-text")
+        if !inbox.isHittable { app.buttons["forge.kind.pulls"].swipeLeft() }
+        inbox.tap()
+        XCTAssertTrue(app.navigationBars["Inbox"].waitForExistence(timeout: 10))
+    }
+
+    private func launchOnPulls(extra: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
+        app.launchWithArguments()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
+        app.openPulls()
+        XCTAssertTrue(app.navigationBars["Pulls"].waitForExistence(timeout: 20))
+        return app
+    }
+
     private func screenshot(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: shot)
