@@ -500,12 +500,14 @@ rest. They never touch scanning, holds, blocks or the review before install.
   ranges), whose measured detection is reported in the scanner's README. The adversarial corpus
   covers the bypasses a review found: commands hidden in instruction files, a script run past an
   interpreter's options, exfiltration flowing across lines, and scene capabilities spelled around a
-  literal match, and a second review's fail-closed bypasses (indirect module reads, truncation and
-  prose intent, multi-call applets, unproven-`this` frame access). On 189 malicious samples the
-  scanner catches 100% (every one blocked or held) and neither blocks nor holds any of 75 benign
-  and look-alike samples. Two invariants are pinned: a scan that didn't
-  read every file is never a pass, and the device and the Worker reach the same verdict on the same
-  bytes.
+  literal match, a second review's fail-closed bypasses (indirect module reads, truncation and
+  prose intent, multi-call applets, unproven-`this` frame access), and a third's (sources the
+  scanner can't prove harmless, executing "safe" leaves like `find -exec` and `sed e`, unreadable
+  instruction snippets, document-wide intent, unknown binaries). On 203 malicious samples the
+  scanner catches 100% (every one blocked or held) and blocks none of 95 benign and look-alike
+  samples; with the policy layer, 23 of those (pure data) list and 72 (runnable) are held for a
+  maintainer. Two invariants are pinned: a scan that didn't read every file is never a pass, and
+  the device and the Worker reach the same verdict on the same bytes.
 - **Trending** ranking, caps, bursts, decay and movement; **the verified boost**: a verified
   entry with clearly fewer downloads never passes an unverified one with many more, and among
   equals the verified one ranks first, in trending, search and top publishers; **verification**

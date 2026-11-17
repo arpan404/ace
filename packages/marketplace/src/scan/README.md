@@ -86,21 +86,28 @@ bypasses); `corpus-r3-*` holds the second review's (indirect module reads, trunc
 intent, multi-call applets, unproven-`this` frame access), the ones a fail-closed scanner must
 catch rather than chase.
 
-| Corpus                               | Samples | Result                                     |
-| ------------------------------------ | ------- | ------------------------------------------ |
-| Malicious, first set                 | 85      | 100% caught, every category                |
-| Malicious, round 2 (r2)              | 55      | 100% caught                                |
-| Malicious, round 3 (r3), fail-closed | 49      | 100% caught                                |
-| **Malicious, all**                   | **189** | **100% caught** (blocked or held)          |
-| Benign and look-alikes               | 75      | **0 blocked, 0 held** (0% false positives) |
+| Corpus                               | Samples | Result                             |
+| ------------------------------------ | ------- | ---------------------------------- |
+| Malicious, first set                 | 85      | 100% caught, every category        |
+| Malicious, round 2 (r2)              | 55      | 100% caught                        |
+| Malicious, round 3 (r3)              | 49      | 100% caught                        |
+| Malicious, round 4 (r4), fail-closed | 14+     | 100% caught                        |
+| **Malicious, all**                   | **203** | **100% caught** (blocked or held)  |
+| Benign and look-alikes               | 95      | **0 blocked** (23 passed, 72 held) |
 
 Detection counts a sample as caught when `disposition` returns something other than `list` for an
-ordinary publisher (`newPublisher: false`), i.e. the scan itself blocked or held it, never relying
-on a new-publisher hold. The thresholds the tests enforce are at least 95% detection and zero
-benign blocks; the benign corpus here holds zero as well, so the fail-closed rules add no friction
-to honest entries. The round-3 malicious set is caught the fail-closed way: an indirect module
-read beside a sink, a truncated instruction file, an unknown wrapper and an unproven `this` are
-all held or blocked without a signature for the exact spelling.
+ordinary publisher (`newPublisher: false`), i.e. the scan blocked or held it, never relying on a
+new-publisher hold. The thresholds the tests enforce are at least 95% detection and zero benign
+blocks. With the **policy layer** (ADR 0173 §8) every version carrying runnable content is held for
+a maintainer, so most benign samples (skills with scripts, plugins with executions, Suits with
+scenes) now **hold** rather than list, and only pure data (prose skills, data-only Suits) passes:
+of the 95 benign samples, **0 are blocked**, 23 pass (pure data) and 72 are held (runnable,
+triaged to the maintainer queue). The point is that no honest entry is refused; runnable ones go
+to a person, which is where the real boundary — the Spade sandbox and the scene's sandboxed iframe
+— takes over. The round-4 malicious set is caught the fail-closed way: a source the scanner can't
+prove harmless beside a sink, an executing "safe" leaf, an unreadable instruction snippet, intent
+split across sentences, and an unknown binary are all held or blocked without a signature for the
+exact spelling.
 
 ### Reproducing
 
