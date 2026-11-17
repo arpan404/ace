@@ -131,3 +131,23 @@ test("only the app sending its report again keeps it alive; other status calls d
   await accessRequest(f.server.httpUrl, "/v1/app-update", { method: "PUT", token, body: ready });
   expect(await next(desk, "appUpdate.changed")).toMatchObject({ update: { report: ready } });
 });
+
+test("the reply to the app's report says which data formats the home holds", async () => {
+  const held = { home: 1, daemon: 63, notify: 5, spade: 9 };
+  const f = await setup({ homeData: () => held });
+  const reply: unknown = await accessRequest(f.server.httpUrl, "/v1/app-update", {
+    method: "PUT",
+    token,
+    body: ready,
+  });
+  expect(reply).toMatchObject({ report: ready, homeData: held });
+});
+
+test("a beta daemon's welcome names the beta line, and any other build's the stable line", async () => {
+  const beta = await setup({ version: "0.0.23-beta.20261103.1" });
+  const betaClient = await beta.connect();
+  expect(await next(betaClient, "welcome")).toMatchObject({ releaseLine: "beta" });
+  const stable = await setup({ version: "0.0.23" });
+  const stableClient = await stable.connect();
+  expect(await next(stableClient, "welcome")).toMatchObject({ releaseLine: "stable" });
+});

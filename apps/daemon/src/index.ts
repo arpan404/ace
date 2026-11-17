@@ -51,6 +51,7 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { runningBuildId, storedTrustBuild } from "./stored-shape.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
+import { readHomeData } from "./home-data.ts";
 import { spawn } from "node:child_process";
 import { fileRecord } from "./machine-update/record.ts";
 import { machineUpdateConfig } from "./machine-update/updater-process.ts";
@@ -459,6 +460,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       maintenance: process.env.ACE_MAINTENANCE === "1",
       maintenanceGate: maintenance,
       version: process.env.ACE_VERSION ?? "development",
+      homeData: () => readHomeData(config.dataDir),
       machineUpdate: machineUpdateConfig({
         dataDir: config.dataDir,
         entry: process.argv[1],
