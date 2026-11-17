@@ -1,5 +1,5 @@
-import { createContext, use, useState, useSyncExternalStore } from "react";
-import { useLayout } from "@/lib/layout.tsx";
+import { createContext, use, useSyncExternalStore } from "react";
+import type { WorkCardMemory } from "./work-card-trees.ts";
 
 /*
  * Whether the thread's Work card is open, and where it fits. The header's details icon and the
@@ -24,6 +24,16 @@ export interface WorkCardStore {
   setOpen(open: boolean): void;
   toggle(): void;
   setSide(side: boolean): void;
+  /**
+   * Follow a tree's remembered choice, live, until the returned stop. A choice the person made
+   * while the store followed no tree is saved to this one instead.
+   */
+  follow(memory: WorkCardMemory): () => void;
+  /**
+   * Whether the card should take focus as it shows: only once after the person opened it. A card
+   * that shows because it was remembered, or opened on another screen, leaves focus where it is.
+   */
+  takeFocus(): boolean;
 }
 
 /** The card's width, from the floating surface both placements share. */
@@ -70,23 +80,20 @@ export function workCardColumnWidth(areaWidth: number, column: number): number {
   return Math.min(column, areaWidth - workCardWidth - workCardGaps);
 }
 
-export interface WorkCardMemory {
-  /** The person left the card open. */
-  open: boolean;
-  /** The person opened or closed the card; kept for the next thread screen. */
-  remember(open: boolean): void;
-}
-
 /**
  * The card a thread screen starts with. Only the person's own open or close is remembered: a
  * card left open docks again whenever the area has room beside the column, on this screen or
- * the next. A docked card squeezed out by a narrow area closes rather than jumping into the
- * header's popover, and comes back when the room does; a remembered card never comes back as
- * the popover, which would cover the transcript on its own.
+ * another of the tree. A docked card squeezed out by a narrow area closes rather than jumping
+ * into the header's popover, and comes back when the room does; a remembered card never comes
+ * back as the popover, which would cover the transcript on its own.
  */
-export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
+export function createWorkCardStore(initial?: WorkCardMemory): WorkCardStore {
   let state: WorkCardState = { open: false, side: false };
-  let wanted = memory?.open ?? false;
+  let memory = initial;
+  let wanted = memory?.open() ?? false;
+  /** The person chose while no tree was followed; the next tree followed takes the choice. */
+  let unsaved = false;
+  let focus = false;
   const listeners = new Set<() => void>();
   let button: HTMLButtonElement | null = null;
   let area: HTMLElement | null = null;
@@ -96,9 +103,17 @@ export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
     for (const listener of listeners) listener();
   };
   const choose = (open: boolean) => {
-    if (open !== wanted) memory?.remember(open);
+    if (!memory) unsaved = true;
+    else if (open !== wanted) memory.remember(open);
     wanted = open;
+    focus = open;
     set({ ...state, open });
+  };
+  // The choice made elsewhere in the tree: shown where the card docks, never as the popover.
+  const sync = (open: boolean) => {
+    wanted = open;
+    focus = false;
+    if (state.side || !open) set({ ...state, open });
   };
   return {
     button: () => button,
@@ -122,26 +137,24 @@ export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
       const open = side ? state.open || wanted : state.open && !state.side;
       set({ open, side });
     },
+    follow(next) {
+      memory = next;
+      if (unsaved) {
+        unsaved = false;
+        next.remember(wanted);
+      } else sync(next.open());
+      const stop = next.subscribe?.(() => sync(next.open()));
+      return () => {
+        stop?.();
+        if (memory === next) memory = undefined;
+      };
+    },
+    takeFocus() {
+      const take = focus && state.open;
+      focus = false;
+      return take;
+    },
   };
-}
-
-const openKey = "ace.thread.workCardOpen";
-
-/**
- * A thread screen's card store that remembers, on this device, whether the card was left open:
- * moving to another thread and back keeps it where the person left it.
- */
-export function useRememberedWorkCardStore(): WorkCardStore {
-  const { storage } = useLayout();
-  const [store] = useState(() =>
-    createWorkCardStore({
-      open: storage?.getItem(openKey) === "1",
-      remember: (open) => {
-        storage?.setItem(openKey, open ? "1" : "0");
-      },
-    }),
-  );
-  return store;
 }
 
 export const WorkCardContext = createContext<WorkCardStore | null>(null);
