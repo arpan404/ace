@@ -422,3 +422,126 @@ async fn measure_the_routes_for_networked_runs() {
     }
     drop(other);
 }
+
+/// Each tool run verbosely through the proxy and bridge, under LPAC + `registryRead` and a plain
+/// token for comparison: its own output, a check that the bridge's port answers from inside the
+/// token, and what the proxy logged — to find why a tool fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "reaches real registries; run on the test VM"]
+async fn diagnose_the_tools_through_the_proxy() {
+    let tools_cap = Sid::capability("spadeTestTools").unwrap_or_else(|_| std::process::abort());
+    let read_cap = Sid::capability("registryRead").unwrap_or_else(|_| std::process::abort());
+    let log_dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+    let log = Arc::new(EgressLog::new(log_dir.path().to_path_buf()));
+    let proxy = Proxy::start(
+        log.clone(),
+        Arc::new(SystemResolver),
+        Arc::new(|| 0),
+        Arc::new(|| uuid::Uuid::new_v4().simple().to_string()),
+    )
+    .await
+    .unwrap_or_else(|_| std::process::abort());
+    let verbose: Vec<(&str, String)> = vec![
+        ("curl", r"%SystemRoot%\System32\curl.exe -v --fail -o NUL --max-time 60 https://registry.npmjs.org/left-pad".to_owned()),
+        ("git", format!(r"set GIT_TRACE=1&& set GIT_CURL_VERBOSE=1&& {TOOLS}\git\cmd\git.exe ls-remote https://github.com/octocat/Hello-World.git HEAD")),
+        ("npm", format!(r"{TOOLS}\node\node.exe {TOOLS}\node\node_modules\npm\bin\npm-cli.js view left-pad version --loglevel verbose")),
+        ("pip", format!(r"{TOOLS}\python\python.exe {TOOLS}\pip.pyz download six --no-deps -v -d %HOME%\dl")),
+        ("cargo", format!(r"set CARGO_HTTP_DEBUG=true&& set CARGO_LOG=cargo::ops::registry=debug&& {TOOLS}\cargo.exe search serde --limit 1 -v")),
+    ];
+    for (label, lpac, caps) in [
+        (
+            "lpac+registryRead",
+            true,
+            vec![read_cap.clone(), tools_cap.clone()],
+        ),
+        ("plain", false, vec![tools_cap.clone()]),
+    ] {
+        let name = format!("spade.diag.{}", uuid::Uuid::new_v4().simple());
+        let container = Container {
+            name: name.clone(),
+            display: "Spade network diagnosis".to_owned(),
+        };
+        let _profile = Profile(container.clone());
+        let sid =
+            profile::ensure(&name, &container.display).unwrap_or_else(|_| std::process::abort());
+        let token = Token {
+            lpac,
+            capabilities: caps,
+        };
+        let ws_dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let ws = ws_dir.path().to_path_buf();
+        for sub in ["tmp", "appdata", "local", "dl", "npm", "cargo", "pipcache"] {
+            std::fs::create_dir_all(ws.join(sub)).unwrap_or_else(|_| std::process::abort());
+        }
+        grant(&ws, &sid, Access::Write);
+        grant(
+            helper().parent().unwrap_or_else(|| std::process::abort()),
+            &sid,
+            Access::Read,
+        );
+        let all = verbose.iter().map(|(t, c)| (*t, c.clone())).chain([(
+            "bridge-port",
+            format!("{} tcp 127.0.0.1:%BRIDGE_PORT%", helper().display()),
+        )]);
+        for (tool, command) in all {
+            let policy = NetworkPolicy {
+                mode: Mode::AllowList,
+                allow: HOSTS.iter().map(|h| (*h).to_owned()).collect(),
+                dropped: Vec::new(),
+            };
+            let bot = format!("{name}-{tool}");
+            let ticket = proxy.open(&bot, tool, policy);
+            let pipe = format!("spade-diag-{}", uuid::Uuid::new_v4().simple());
+            let stop = spade_sandbox::windows::bridge::Stop::new();
+            let (ready, ready_rx) = std::sync::mpsc::sync_channel(1);
+            {
+                let (p, s, st, port) = (pipe.clone(), sid.clone(), stop.clone(), proxy.port());
+                tokio::spawn(async move {
+                    spade_sandbox::windows::bridge::serve(&p, &s, port, &st, ready).await;
+                });
+            }
+            let _ = ready_rx.recv_timeout(std::time::Duration::from_secs(5));
+            let port = free_port();
+            let out = ws.join(format!("{tool}.log"));
+            let line = with_env(
+                &ws,
+                &ticket.url_on(port),
+                &format!(
+                    "set BRIDGE_PORT={port}&& {command} > \"{}\" 2>&1",
+                    out.display()
+                ),
+            );
+            let (t, c, d) = (token.clone(), container.clone(), cmd());
+            let bridge = launch::Bridge { pipe, port };
+            let code = tokio::task::spawn_blocking(move || {
+                launch::run_in(
+                    &t,
+                    &c.name,
+                    &c.display,
+                    limits(),
+                    Some(bridge),
+                    Some(&helper()),
+                    std::ffi::OsStr::new(&d),
+                    &[OsString::from("/c"), OsString::from(line)],
+                )
+                .map_err(|e| e.to_string())
+            })
+            .await
+            .unwrap_or_else(|_| Err("join".to_owned()));
+            stop.stop();
+            let text =
+                std::fs::read_to_string(&out).unwrap_or_else(|e| format!("(no output: {e})"));
+            let tail: Vec<&str> = text.lines().rev().take(25).collect();
+            let proxied: Vec<String> = log
+                .read(&bot, 20)
+                .iter()
+                .map(|entry| format!("{entry:?}"))
+                .collect();
+            println!("=== {label} {tool} -> {code:?}\n--- proxy log: {proxied:?}\n--- last lines:");
+            for l in tail.into_iter().rev() {
+                println!("    {l}");
+            }
+            drop(ticket);
+        }
+    }
+}
