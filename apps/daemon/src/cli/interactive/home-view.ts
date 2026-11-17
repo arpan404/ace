@@ -33,15 +33,15 @@ export function keysLine(keys: readonly string[], width: number): string {
 }
 
 const homeKeys = (requests: number) => [
-    "n new thread",
-    requests ? `r requests ${requests}` : "r requests",
-    "p projects",
-    "s Spade",
-    "m market",
-    ", settings",
-    "d doctor",
-    "? help",
-    "q quit",
+  "n new thread",
+  requests ? `r requests ${requests}` : "r requests",
+  "p projects",
+  "s Spade",
+  "m market",
+  ", settings",
+  "d doctor",
+  "? help",
+  "q quit",
 ];
 
 const rowKeys = ["↵ attach", "← fold", "x stop", "z snooze", "e settle", "/ filter"];
@@ -113,12 +113,18 @@ export function homeView(
   const current = selectedRow(state, view.rows);
   if (state.confirmStop) {
     const title = view.rows.find((row) => row.id === state.confirmStop)?.title ?? "this thread";
-    foot.push(cutEnd(`Stop ${title} and every agent under it? y Stop · any other key keeps it running`, width));
+    foot.push(
+      cutEnd(
+        `Stop ${title} and every agent under it? y Stop · any other key keeps it running`,
+        width,
+      ),
+    );
   } else if (state.filter.editing)
     foot.push(cutEnd(`/ ${state.filter.text}▏  ↵ keep · esc clear`, width));
   else if (state.help) foot.push(...helpLines.map((line) => cutEnd(line, width)));
   else {
-    if (state.filter.text) foot.push(paint.dim(cutEnd(`Filtered by “${state.filter.text}” · esc clears`, width)));
+    if (state.filter.text)
+      foot.push(paint.dim(cutEnd(`Filtered by “${state.filter.text}” · esc clears`, width)));
     foot.push(keysLine(state.open ? rowKeys : homeKeys(view.requests), width));
   }
   const body: string[] = [];
@@ -137,7 +143,9 @@ export function homeView(
     // Keep the selected row (and its open tree) in view.
     const selectedAt = rendered.findIndex((row) => row.id === current?.id);
     const flat = rendered.flatMap((row) => row.lines);
-    const start = rendered.slice(0, Math.max(0, selectedAt)).reduce((sum, row) => sum + row.lines.length, 0);
+    const start = rendered
+      .slice(0, Math.max(0, selectedAt))
+      .reduce((sum, row) => sum + row.lines.length, 0);
     const selectedHeight = rendered[selectedAt]?.lines.length ?? 1;
     const first = Math.max(0, Math.min(start, start + selectedHeight - room));
     body.push(...flat.slice(first, first + room));

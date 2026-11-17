@@ -52,7 +52,9 @@ describe("attach keys", () => {
   });
 
   it("keeps the slash commands, and // sends text that starts with a slash", () => {
-    expect(press("/steer smaller diff\r").effects).toEqual([{ kind: "slash", line: "/steer smaller diff" }]);
+    expect(press("/steer smaller diff\r").effects).toEqual([
+      { kind: "slash", line: "/steer smaller diff" },
+    ]);
     expect(press("//etc/hosts is wrong\r").effects).toEqual([
       { kind: "send", text: "/etc/hosts is wrong", delivery: "queue" },
     ]);
@@ -62,7 +64,11 @@ describe("attach keys", () => {
     const { effects } = press("y", approval);
     expect(effects).toEqual([
       expect.objectContaining({
-        payload: { type: "interaction.resolve", interactionId: "i1", resolution: { kind: "approval", optionId: "once" } },
+        payload: {
+          type: "interaction.resolve",
+          interactionId: "i1",
+          resolution: { kind: "approval", optionId: "once" },
+        },
       }),
     ]);
   });
@@ -110,7 +116,14 @@ describe("attach view", () => {
     const turn = Array.from({ length: 40 }, (_, index) => `line ${index}`);
     const frame = attachView(
       attachStart,
-      { turn, request: undefined, requests: 0, live: undefined, fresh: false, connection: undefined },
+      {
+        turn,
+        request: undefined,
+        requests: 0,
+        live: undefined,
+        fresh: false,
+        connection: undefined,
+      },
       80,
       10,
       paint(false),
@@ -127,7 +140,10 @@ describe("transcript and agent tree", () => {
       status: { state: "working", agents: 1 },
       agents: [
         { id: "root", status: { state: "idle" } },
-        { id: "reviewer", status: { state: "working", activity: "tool", detail: "reading the diff" } },
+        {
+          id: "reviewer",
+          status: { state: "working", activity: "tool", detail: "reading the diff" },
+        },
       ],
     });
     const tree = agentTree(reader, 61_000);
@@ -142,22 +158,73 @@ describe("transcript and agent tree", () => {
   it("wraps the agent's answer in full and sets the person's message to the right", () => {
     const reader = threadReader({
       items: [
-        { id: "u1", agentId: "root", createdAt: 1, complete: true, type: "message", role: "user", parts: [{ type: "text", text: "Fix it" }] },
-        { id: "m1", agentId: "root", createdAt: 2, complete: true, type: "message", role: "assistant", parts: [{ type: "text", text: "The close handler only reconnects after code 1006, so sleep never reconnects." }] },
+        {
+          id: "u1",
+          agentId: "root",
+          createdAt: 1,
+          complete: true,
+          type: "message",
+          role: "user",
+          parts: [{ type: "text", text: "Fix it" }],
+        },
+        {
+          id: "m1",
+          agentId: "root",
+          createdAt: 2,
+          complete: true,
+          type: "message",
+          role: "assistant",
+          parts: [
+            {
+              type: "text",
+              text: "The close handler only reconnects after code 1006, so sleep never reconnects.",
+            },
+          ],
+        },
       ],
     });
-    const person = blockLines({ kind: "user", key: "u", itemId: "u1" }, reader, 0, 40, paint(false));
+    const person = blockLines(
+      { kind: "user", key: "u", itemId: "u1" },
+      reader,
+      0,
+      40,
+      paint(false),
+    );
     expect(person).toEqual([`${" ".repeat(34)}Fix it`]);
-    const answer = blockLines({ kind: "message", key: "m", itemId: "m1" }, reader, 0, 40, paint(false));
+    const answer = blockLines(
+      { kind: "message", key: "m", itemId: "m1" },
+      reader,
+      0,
+      40,
+      paint(false),
+    );
     expect(answer.length).toBeGreaterThan(1);
-    expect(answer.join(" ")).toBe("The close handler only reconnects after code 1006, so sleep never reconnects.");
+    expect(answer.join(" ")).toBe(
+      "The close handler only reconnects after code 1006, so sleep never reconnects.",
+    );
   });
 
   it("strips terminal control sequences from what an agent wrote", () => {
     const reader = threadReader({
-      items: [{ id: "m1", agentId: "root", createdAt: 2, complete: true, type: "message", role: "assistant", parts: [{ type: "text", text: "ok\x1b[2J\x1b]0;title\x07 done" }] }],
+      items: [
+        {
+          id: "m1",
+          agentId: "root",
+          createdAt: 2,
+          complete: true,
+          type: "message",
+          role: "assistant",
+          parts: [{ type: "text", text: "ok\x1b[2J\x1b]0;title\x07 done" }],
+        },
+      ],
     });
-    const lines = blockLines({ kind: "message", key: "m", itemId: "m1" }, reader, 0, 40, paint(false));
+    const lines = blockLines(
+      { kind: "message", key: "m", itemId: "m1" },
+      reader,
+      0,
+      40,
+      paint(false),
+    );
     expect(lines.join("")).not.toContain("\x1b");
   });
 });

@@ -83,7 +83,7 @@ function isWide(code: number): boolean {
   return false;
 }
 
-const zeroWidth = /^[\p{Mn}\p{Me}\p{Cf}​-‏︀-️]+$/u;
+const zeroWidth = /^(?:\p{Mn}|\p{Me}|\p{Cf}|[\u200b-\u200f]|[\ufe00-\ufe0f])+$/u;
 const pictographic = /\p{Extended_Pictographic}/u;
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 

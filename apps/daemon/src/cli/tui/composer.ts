@@ -61,7 +61,8 @@ export function composerKey(composer: Composer, key: Key): ComposerResult {
   const clusters = graphemes(composer.text);
   const char = typed(key);
   if (char !== undefined) return edit(insert(composer, char));
-  if (key.name === "paste") return edit(insert(composer, safeText(key.text ?? "").replace(/\r\n?/g, "\n")));
+  if (key.name === "paste")
+    return edit(insert(composer, safeText(key.text ?? "").replace(/\r\n?/g, "\n")));
   if (key.name === "enter") {
     if (key.alt) return edit(insert(composer, "\n"));
     // A trailing backslash continues the prompt on a new line, as a shell does.
@@ -74,7 +75,9 @@ export function composerKey(composer: Composer, key: Key): ComposerResult {
   if (key.name === "backspace") {
     if (key.alt || isCtrl(key, "h"))
       return edit(remove(composer, wordStart(clusters, composer.cursor), composer.cursor));
-    return composer.cursor ? edit(remove(composer, composer.cursor - 1, composer.cursor)) : edit(composer);
+    return composer.cursor
+      ? edit(remove(composer, composer.cursor - 1, composer.cursor))
+      : edit(composer);
   }
   if (isCtrl(key, "w"))
     return edit(remove(composer, wordStart(clusters, composer.cursor), composer.cursor));

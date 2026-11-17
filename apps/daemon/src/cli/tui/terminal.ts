@@ -11,6 +11,8 @@ export interface TerminalPorts {
   readonly input: NodeJS.ReadStream;
   readonly output: NodeJS.WriteStream;
   readonly process: NodeJS.Process;
+  /** The descriptor `output` writes to, for the synchronous restore on the way out. */
+  readonly fd: number;
 }
 
 export interface Terminal {
@@ -38,7 +40,7 @@ const pasteOff = "\x1b[?2004l";
 
 export function openTerminal(ports: TerminalPorts): Terminal {
   const { input, output } = ports;
-  const fd = typeof output.fd === "number" ? output.fd : 1;
+  const fd = ports.fd;
   let drawn: Drawn = emptyDrawn;
   let last: Frame = { lines: [] };
   let raw = false;
@@ -95,7 +97,9 @@ export function openTerminal(ports: TerminalPorts): Terminal {
   const crash = (error: unknown) => {
     restore();
     write("");
-    ports.process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+    ports.process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     ports.process.exit(1);
   };
   const start = () => {

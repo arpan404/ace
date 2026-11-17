@@ -60,7 +60,10 @@ function filterKey(state: HomeState, key: Key): Step<HomeState> {
   if (key.name === "escape") return stay({ ...state, filter: { text: "", editing: false } });
   if (key.name === "enter") return stay({ ...state, filter: { text, editing: false } });
   if (key.name === "backspace")
-    return stay({ ...state, filter: { text: Array.from(text).slice(0, -1).join(""), editing: true } });
+    return stay({
+      ...state,
+      filter: { text: Array.from(text).slice(0, -1).join(""), editing: true },
+    });
   const char = typed(key) ?? (key.name === "paste" ? key.text?.replace(/\s+/g, " ") : undefined);
   if (char !== undefined) return stay({ ...state, filter: { text: text + char, editing: true } });
   return stay(state);
@@ -88,7 +91,8 @@ export function homeKey(state: HomeState, rows: readonly HomeRow[], key: Key): S
   if (key.name === "pageup") return stay(move(quiet, rows, -10));
   if (key.name === "pagedown") return stay(move(quiet, rows, 10));
   if (key.name === "escape") {
-    if (state.open) return step({ ...quiet, open: undefined }, { kind: "tree", threadId: undefined });
+    if (state.open)
+      return step({ ...quiet, open: undefined }, { kind: "tree", threadId: undefined });
     if (state.filter.text) return stay({ ...quiet, filter: { text: "", editing: false } });
     return stay(quiet);
   }

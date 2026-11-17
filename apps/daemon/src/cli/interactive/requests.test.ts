@@ -26,7 +26,11 @@ function request(id: string, ask: unknown, thread = "t1"): OpenRequest {
 const command = request("i1", {
   kind: "approval",
   title: "bun --bun x vitest run apps/daemon/src/relay.device.process.test.ts",
-  target: { tool: "Bash", access: "execute", command: "bun --bun x vitest run apps/daemon/src/relay.device.process.test.ts" },
+  target: {
+    tool: "Bash",
+    access: "execute",
+    command: "bun --bun x vitest run apps/daemon/src/relay.device.process.test.ts",
+  },
   options: [
     { id: "once", label: "Yes", kind: "allow_once" },
     { id: "always", label: "Always", kind: "allow_always" },
@@ -50,9 +54,17 @@ const question = request(
   },
   "t2",
 );
-const plan = request("i3", { kind: "plan_review", title: "Relay plan", markdown: "1. Read\n2. Fix\n3. Test" }, "t3");
+const plan = request(
+  "i3",
+  { kind: "plan_review", title: "Relay plan", markdown: "1. Read\n2. Fix\n3. Test" },
+  "t3",
+);
 
-function press(requests: readonly OpenRequest[], input: string, from: RequestsState = requestsStart) {
+function press(
+  requests: readonly OpenRequest[],
+  input: string,
+  from: RequestsState = requestsStart,
+) {
   let state = from;
   const effects: Effect[] = [];
   for (const key of decodeKeys(input)) {
@@ -65,20 +77,32 @@ function press(requests: readonly OpenRequest[], input: string, from: RequestsSt
 
 const resolutions = (effects: readonly Effect[]) =>
   effects.flatMap((effect) =>
-    effect.kind === "command" && effect.payload.type === "interaction.resolve" ? [effect.payload] : [],
+    effect.kind === "command" && effect.payload.type === "interaction.resolve"
+      ? [effect.payload]
+      : [],
   );
 
 describe("answering requests from the terminal", () => {
   it("sends one interaction.resolve with the allow-once option when y answers an approval", () => {
     const { effects } = press([command], "y");
     expect(resolutions(effects)).toEqual([
-      { type: "interaction.resolve", interactionId: "i1", resolution: { kind: "approval", optionId: "once" } },
+      {
+        type: "interaction.resolve",
+        interactionId: "i1",
+        resolution: { kind: "approval", optionId: "once" },
+      },
     ]);
   });
 
   it("denies with n and always allows with a", () => {
-    expect(resolutions(press([command], "n").effects)[0]?.resolution).toEqual({ kind: "approval", optionId: "no" });
-    expect(resolutions(press([command], "a").effects)[0]?.resolution).toEqual({ kind: "approval", optionId: "always" });
+    expect(resolutions(press([command], "n").effects)[0]?.resolution).toEqual({
+      kind: "approval",
+      optionId: "no",
+    });
+    expect(resolutions(press([command], "a").effects)[0]?.resolution).toEqual({
+      kind: "approval",
+      optionId: "always",
+    });
   });
 
   it("asks for a deliberate yes on a high-risk command, and refuses with one key", () => {
@@ -95,17 +119,26 @@ describe("answering requests from the terminal", () => {
     expect(resolutions(first.effects)).toEqual([]);
     expect(first.state.answer.mode).toBe("details");
     expect(resolutions(press([risky], "y", first.state).effects)).toHaveLength(1);
-    expect(resolutions(press([risky], "n").effects)[0]?.resolution).toEqual({ kind: "approval", optionId: "no" });
+    expect(resolutions(press([risky], "n").effects)[0]?.resolution).toEqual({
+      kind: "approval",
+      optionId: "no",
+    });
   });
 
   it("answers a question with a choice's number", () => {
     const { effects } = press([question], "2");
-    expect(resolutions(effects)[0]?.resolution).toEqual({ kind: "question", answers: { q1: ["o2"] } });
+    expect(resolutions(effects)[0]?.resolution).toEqual({
+      kind: "question",
+      answers: { q1: ["o2"] },
+    });
   });
 
   it("answers a question with typed words", () => {
     const { effects } = press([question], "3my-handle\r");
-    expect(resolutions(effects)[0]?.resolution).toEqual({ kind: "question", answers: { q1: ["my-handle"] } });
+    expect(resolutions(effects)[0]?.resolution).toEqual({
+      kind: "question",
+      answers: { q1: ["my-handle"] },
+    });
   });
 
   it("approves a plan, or asks for changes with feedback", () => {

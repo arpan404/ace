@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { decodeKeys } from "./keys.ts";
-import { composerKey, composerView, emptyComposer, type Composer, type ComposerResult } from "./composer.ts";
+import {
+  composerKey,
+  composerView,
+  emptyComposer,
+  type Composer,
+  type ComposerResult,
+} from "./composer.ts";
 
 function type(input: string, from: Composer = emptyComposer): ComposerResult[] {
   const results: ComposerResult[] = [];

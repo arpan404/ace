@@ -34,10 +34,7 @@ const looks: Record<AgentGlyph, { glyph: string; tone: RowStatusTone }> = {
 /** At most this many agents show under a row; the rest are counted. */
 const shown = 12;
 
-export function agentTree(
-  reader: ThreadReader,
-  now: number,
-): { lines: TreeLine[]; more: number } {
+export function agentTree(reader: ThreadReader, now: number): { lines: TreeLine[]; more: number } {
   const root = reader.thread?.rootAgentId;
   if (!root) return { lines: [], more: 0 };
   const lines: TreeLine[] = [];
@@ -48,7 +45,8 @@ export function agentTree(
     total++;
     if (lines.length < shown) {
       const look = looks[glyphOf(agent.status)];
-      const active = look.tone === "working" || look.tone === "waiting" || look.tone === "needs-you";
+      const active =
+        look.tone === "working" || look.tone === "waiting" || look.tone === "needs-you";
       lines.push({
         depth,
         glyph: look.glyph,

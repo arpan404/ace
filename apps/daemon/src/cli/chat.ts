@@ -22,6 +22,29 @@ import { chatAction } from "./chat-input.ts";
 import { chatIO, type ChatIO } from "./chat-io.ts";
 import type { ChatRecord } from "./chat-render.ts";
 
+async function attachInteractive(args: Args, config: Config): Promise<void> {
+  const [{ runApp }, { commandTable }] = await Promise.all([
+    import("./interactive/app.ts"),
+    import("./commands/table.ts"),
+  ]);
+  const provider = option(args, "provider");
+  await runApp({
+    args,
+    dataDir: config.dataDir,
+    env: process.env,
+    table: commandTable(),
+    startDaemon: !selectedProfile(config.dataDir, option(args, "remote")),
+    attach: {
+      threadId: option(args, "thread"),
+      fresh: {
+        project: option(args, "project"),
+        provider: provider ? ProviderKind.parse(provider) : undefined,
+        model: option(args, "model"),
+      },
+    },
+  });
+}
+
 export async function chatCommand(
   args: Args,
   config: Config,
@@ -30,6 +53,8 @@ export async function chatCommand(
   validateArgs(args, ["project", "provider", "thread", "model", "idempotency-key", "stream"], 1);
   if (args.flags.stream && args.flags.stream !== "jsonl")
     throw new CliFailure("refused", "Chat streams use jsonl");
+  // A person at a terminal gets attach as the app shows it (ADR 0176 §9); scripts keep JSONL.
+  if (args.interactive && makeIO === chatIO) return attachInteractive(args, config);
   if (!selectedProfile(config.dataDir, option(args, "remote")))
     await ensureDaemon(config.dataDir, args, systemOpenRuntime());
   const session = await connectChat(config.dataDir, args);

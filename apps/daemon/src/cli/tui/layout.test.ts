@@ -21,7 +21,10 @@ describe("terminal text width", () => {
 
 describe("cutting lines to fit", () => {
   it("cuts a command in the middle so its start and end both stay", () => {
-    const cut = cutMiddle("bun --bun x vitest run apps/daemon/src/relay.device.process.test.ts", 40);
+    const cut = cutMiddle(
+      "bun --bun x vitest run apps/daemon/src/relay.device.process.test.ts",
+      40,
+    );
     expect(textWidth(cut)).toBe(40);
     expect(cut.startsWith("bun --bun x")).toBe(true);
     expect(cut.endsWith("process.test.ts")).toBe(true);
@@ -48,7 +51,10 @@ describe("cutting lines to fit", () => {
 
 describe("wrapping", () => {
   it("wraps at spaces and keeps every line within the width", () => {
-    const lines = wrap("The socket's close handler only schedules a reconnect when the code is 1006.", 20);
+    const lines = wrap(
+      "The socket's close handler only schedules a reconnect when the code is 1006.",
+      20,
+    );
     expect(lines.length).toBeGreaterThan(1);
     for (const line of lines) expect(textWidth(line)).toBeLessThanOrEqual(20);
     expect(lines.join(" ")).toBe(

@@ -43,7 +43,9 @@ export function threadRequests(
   return reader.interactionIds().flatMap((id) => {
     const interaction = reader.interaction(id);
     if (interaction?.state !== "pending") return [];
-    return [{ interaction, threadTitle: facts.title, project: facts.project, provider: facts.provider }];
+    return [
+      { interaction, threadTitle: facts.title, project: facts.project, provider: facts.provider },
+    ];
   });
 }
 
@@ -106,15 +108,21 @@ export function requestsView(
   const { list, index, request } = current(state, requests);
   if (!request)
     return {
-      lines: [
-        "Nothing is waiting on you.",
-        keysLine(["esc home"], width),
-      ],
+      lines: ["Nothing is waiting on you.", keysLine(["esc home"], width)],
     };
   const counter = `${index + 1} of ${list.length}`;
-  const place = cutEnd(`${request.project} · ${request.threadTitle}`, Math.max(4, width - textWidth(counter) - 3));
+  const place = cutEnd(
+    `${request.project} · ${request.threadTitle}`,
+    Math.max(4, width - textWidth(counter) - 3),
+  );
   const header = `${padEnd(place, Math.max(0, width - textWidth(counter) - 1))} ${paint.dim(counter)}`;
-  const strip = requestStrip(request, answerFor(state.answer, request), width, paint, Math.max(3, height - 4));
+  const strip = requestStrip(
+    request,
+    answerFor(state.answer, request),
+    width,
+    paint,
+    Math.max(3, height - 4),
+  );
   const nav: string[] = [];
   if (index > 0) nav.push("← back");
   if (index < list.length - 1) nav.push("→ next");

@@ -93,14 +93,22 @@ function approvalKey(state: AnswerState, request: OpenRequest, key: Key): Answer
   const ask = request.interaction.request;
   if (ask.kind !== "approval") return unhandled(state);
   if (key.name === "enter")
-    return handled({ ...state, mode: state.mode === "details" ? "strip" : "details", notice: undefined });
+    return handled({
+      ...state,
+      mode: state.mode === "details" ? "strip" : "details",
+      notice: undefined,
+    });
   const verb = verbs[typed(key) ?? ""];
   if (!verb) return unhandled(state);
   const copy = approvalCopy(ask);
   const decision = copy.decisions.find((candidate) => candidate.verb === verb);
   if (!decision) return handled({ ...state, notice: "This request doesn't offer that answer." });
   // A high-risk or default-to-no request takes a key only to refuse, unless its details are open.
-  if (verb !== "deny" && state.mode !== "details" && !approvalByKey(ask, decision.option, copy.risk))
+  if (
+    verb !== "deny" &&
+    state.mode !== "details" &&
+    !approvalByKey(ask, decision.option, copy.risk)
+  )
     return handled({
       ...state,
       mode: "details",
@@ -108,7 +116,11 @@ function approvalKey(state: AnswerState, request: OpenRequest, key: Key): Answer
     });
   return handled(
     { ...state, notice: undefined },
-    resolve(request, { kind: "approval", optionId: decision.option.id }, `${decision.label}: ${copy.title}`),
+    resolve(
+      request,
+      { kind: "approval", optionId: decision.option.id },
+      `${decision.label}: ${copy.title}`,
+    ),
   );
 }
 
@@ -118,10 +130,19 @@ function questionKey(state: AnswerState, request: OpenRequest, key: Key): Answer
   const question = ask.questions[state.question];
   if (!question) return unhandled(state);
   const answer = (values: readonly string[]): AnswerStep => {
-    const answers = { ...state.answers, [question.id]: [...values] };
+    const answers: Record<string, string[]> = {};
+    for (const [id, given] of Object.entries(state.answers)) answers[id] = [...given];
+    answers[question.id] = [...values];
     const next = state.question + 1;
     if (next < ask.questions.length)
-      return handled({ ...state, answers, question: next, picked: [], mode: "strip", composer: emptyComposer });
+      return handled({
+        ...state,
+        answers,
+        question: next,
+        picked: [],
+        mode: "strip",
+        composer: emptyComposer,
+      });
     return handled(
       { ...state, answers, picked: [], mode: "strip", composer: emptyComposer },
       resolve(request, { kind: "question", answers }, "Answered."),
@@ -130,7 +151,8 @@ function questionKey(state: AnswerState, request: OpenRequest, key: Key): Answer
   if (state.mode === "typing") {
     if (key.name === "escape") return handled({ ...state, mode: "strip", composer: emptyComposer });
     const edit = composerKey(state.composer, key);
-    if (edit.kind === "submit") return edit.text.trim() ? answer([edit.text.trim()]) : handled(state);
+    if (edit.kind === "submit")
+      return edit.text.trim() ? answer([edit.text.trim()]) : handled(state);
     return handled({ ...state, composer: edit.composer });
   }
   const char = typed(key);
@@ -147,11 +169,17 @@ function questionKey(state: AnswerState, request: OpenRequest, key: Key): Answer
       : [...state.picked, option.id];
     return handled({ ...state, picked });
   }
-  if (key.name === "enter" && question.multiSelect && state.picked.length) return answer(state.picked);
+  if (key.name === "enter" && question.multiSelect && state.picked.length)
+    return answer(state.picked);
   return unhandled(state);
 }
 
-function planKey(state: AnswerState, request: OpenRequest, key: Key, pageHeight: number): AnswerStep {
+function planKey(
+  state: AnswerState,
+  request: OpenRequest,
+  key: Key,
+  pageHeight: number,
+): AnswerStep {
   if (request.interaction.request.kind !== "plan_review") return unhandled(state);
   if (state.mode === "typing") {
     if (key.name === "escape") return handled({ ...state, mode: "plan", composer: emptyComposer });
@@ -161,7 +189,11 @@ function planKey(state: AnswerState, request: OpenRequest, key: Key, pageHeight:
         { ...state, mode: "strip", composer: emptyComposer },
         resolve(
           request,
-          { kind: "plan_review", decision: "reject", ...(edit.text.trim() ? { feedback: edit.text.trim() } : {}) },
+          {
+            kind: "plan_review",
+            decision: "reject",
+            ...(edit.text.trim() ? { feedback: edit.text.trim() } : {}),
+          },
           "Asked for changes to the plan.",
         ),
       );
@@ -174,7 +206,8 @@ function planKey(state: AnswerState, request: OpenRequest, key: Key, pageHeight:
   }
   if (state.mode === "plan") {
     if (key.name === "down" || char === "j") return handled({ ...state, scroll: state.scroll + 1 });
-    if (key.name === "up" || char === "k") return handled({ ...state, scroll: Math.max(0, state.scroll - 1) });
+    if (key.name === "up" || char === "k")
+      return handled({ ...state, scroll: Math.max(0, state.scroll - 1) });
     if (char === " " || key.name === "pagedown")
       return handled({ ...state, scroll: state.scroll + Math.max(1, pageHeight - 1) });
     if (key.name === "pageup")
@@ -207,7 +240,10 @@ export function answerKey(
       return planKey(fresh, request, key, pageHeight);
     case "elicitation":
       if (typed(key) === "n")
-        return handled(fresh, resolve(request, { kind: "elicitation", action: "decline" }, "Declined."));
+        return handled(
+          fresh,
+          resolve(request, { kind: "elicitation", action: "decline" }, "Declined."),
+        );
       return unhandled(fresh);
     default:
       return unhandled(fresh);

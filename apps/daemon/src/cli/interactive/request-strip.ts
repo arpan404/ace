@@ -53,12 +53,19 @@ export function requestStrip(
     if (state.mode === "details") {
       if (copy.reason && copy.reason !== detail)
         lines.push(...wrap(safeText(copy.reason), room).map((line) => `  ${line}`));
-      if (copy.risk) lines.push(`  ${paint.tone(copy.risk.level === "high" ? "failed" : "needs-you", cutEnd(safeText(copy.risk.text), room))}`);
+      if (copy.risk)
+        lines.push(
+          `  ${paint.tone(copy.risk.level === "high" ? "failed" : "needs-you", cutEnd(safeText(copy.risk.text), room))}`,
+        );
       for (const fact of copy.facts)
         lines.push(`  ${cutEnd(`${fact.label}: ${safeText(fact.value)}`, room)}`);
       for (const file of copy.files) lines.push(`  ${paint.dim(cutMiddle(file, room))}`);
       if (copy.code)
-        lines.push(...wrap(safeText(copy.code), room).slice(0, 12).map((line) => `  ${paint.dim(line)}`));
+        lines.push(
+          ...wrap(safeText(copy.code), room)
+            .slice(0, 12)
+            .map((line) => `  ${paint.dim(line)}`),
+        );
     }
     const keys = copy.decisions.map((decision) => {
       const letter = decision.verb === "allow_once" ? "y" : decision.verb === "deny" ? "n" : "a";
@@ -70,7 +77,12 @@ export function requestStrip(
   }
   if (ask.kind === "question") {
     const question = ask.questions[state.question] ?? ask.questions[0];
-    const lines = [cutEnd(`${mark("?")} ${who} has a question${ask.questions.length > 1 ? ` (${state.question + 1} of ${ask.questions.length})` : ""}`, width)];
+    const lines = [
+      cutEnd(
+        `${mark("?")} ${who} has a question${ask.questions.length > 1 ? ` (${state.question + 1} of ${ask.questions.length})` : ""}`,
+        width,
+      ),
+    ];
     if (question) {
       lines.push(...wrap(safeText(question.text), room).map((line) => `  ${line}`));
       if (state.mode === "typing") return typingLines(lines, state, width, "Type an answer", paint);
@@ -86,16 +98,29 @@ export function requestStrip(
   }
   if (ask.kind === "plan_review") {
     const title = ask.title ?? ask.summary ?? "A plan to review";
-    const lines = [cutEnd(`${mark("◆")} ${who} has a plan for you to review`, width), `  ${cutEnd(safeText(title), room)}`];
+    const lines = [
+      cutEnd(`${mark("◆")} ${who} has a plan for you to review`, width),
+      `  ${cutEnd(safeText(title), room)}`,
+    ];
     if (state.mode === "typing")
-      return typingLines(lines, state, width, "What should change? (↵ sends, empty asks again)", paint);
+      return typingLines(
+        lines,
+        state,
+        width,
+        "What should change? (↵ sends, empty asks again)",
+        paint,
+      );
     if (state.mode === "plan") {
       const body = wrap(safeText(ask.markdown), room);
       const height = Math.max(3, pageHeight);
       const first = Math.min(state.scroll, Math.max(0, body.length - height));
       lines.push(...body.slice(first, first + height).map((line) => `  ${line}`));
       const shown = `lines ${first + 1}–${Math.min(body.length, first + height)} of ${body.length}`;
-      lines.push(paint.dim(`  ${cutEnd(`${shown} · j k scroll · y Approve · n Ask for changes · esc back`, room)}`));
+      lines.push(
+        paint.dim(
+          `  ${cutEnd(`${shown} · j k scroll · y Approve · n Ask for changes · esc back`, room)}`,
+        ),
+      );
       return { lines: [...lines, ...notice] };
     }
     lines.push(`  ${cutEnd(spaced(["↵ read the plan", "y Approve", "n Ask for changes"]), room)}`);
@@ -105,14 +130,18 @@ export function requestStrip(
     return {
       lines: [
         cutEnd(`${mark("?")} ${safeText(ask.server)} asks for input`, width),
-        ...wrap(safeText(ask.message), room).slice(0, 4).map((line) => `  ${line}`),
+        ...wrap(safeText(ask.message), room)
+          .slice(0, 4)
+          .map((line) => `  ${line}`),
         `  ${cutEnd(spaced(["Answer it in the app", "n Decline"]), room)}`,
       ],
     };
   return {
     lines: [
       cutEnd(`${mark("◆")} ${who} needs your help in the browser`, width),
-      ...wrap(safeText(ask.message), room).slice(0, 3).map((line) => `  ${line}`),
+      ...wrap(safeText(ask.message), room)
+        .slice(0, 3)
+        .map((line) => `  ${line}`),
       paint.dim("  Open it in the app to finish."),
     ],
   };

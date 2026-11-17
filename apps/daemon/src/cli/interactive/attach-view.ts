@@ -39,18 +39,25 @@ export function attachView(
     const strip = requestStrip(view.request, answer, width, paint, Math.max(3, height - 8));
     if (strip.cursor) cursor = { row: foot.length + strip.cursor.row, column: strip.cursor.column };
     foot.push(...strip.lines);
-    if (view.requests > 1) foot.push(paint.dim(`  1 of ${view.requests} · r on the home walks them all`));
+    if (view.requests > 1)
+      foot.push(paint.dim(`  1 of ${view.requests} · r on the home walks them all`));
   }
   if (view.connection) foot.push(paint.dim(cutEnd(view.connection, width)));
   else if (view.live) foot.push(paint.tone(view.live.tone, cutEnd(`◌ ${view.live.text}`, width)));
   if (state.notice) foot.push(paint.dim(cutEnd(state.notice, width)));
   const typing = answer !== undefined && capturing(answer);
   if (!typing) {
-    const placeholder = view.fresh ? "What should the agent do?" : view.request ? "y n a answer · or type a message" : "";
+    const placeholder = view.fresh
+      ? "What should the agent do?"
+      : view.request
+        ? "y n a answer · or type a message"
+        : "";
     const composer = composerView(state.composer, width, placeholder ? paint.dim(placeholder) : "");
     cursor = { row: foot.length + composer.cursor.row, column: composer.cursor.column };
     foot.push(...composer.lines);
-    foot.push(paint.dim(keysLine(["esc home", "/steer", "/stop", "/model", "/resume", "/quit"], width)));
+    foot.push(
+      paint.dim(keysLine(["esc home", "/steer", "/stop", "/model", "/resume", "/quit"], width)),
+    );
   }
   const room = Math.max(0, height - foot.length);
   const turn = view.turn.slice(Math.max(0, view.turn.length - room));

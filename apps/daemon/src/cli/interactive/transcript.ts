@@ -41,7 +41,11 @@ function answerLines(text: string, width: number): string[] {
   return text ? wrap(text, width) : [];
 }
 
-function workHead(block: Extract<Block, { kind: "work" }>, reader: ThreadReader, now: number): string {
+function workHead(
+  block: Extract<Block, { kind: "work" }>,
+  reader: ThreadReader,
+  now: number,
+): string {
   const ids = block.folded ? block.folded.flatMap((inner) => blockItems(inner)) : block.itemIds;
   const summary = summarizeWork(ids.map((id) => reader.item(id)));
   const head = workLogHeadline(summary, block.until ?? now);
@@ -75,16 +79,29 @@ export function blockLines(
       return answerLines(textOf(reader.item(block.itemId)), width);
     case "work": {
       if (block.bare) return [];
-      const head = paint.dim(cutEnd(`${block.ongoing ? "◌" : "▸"} ${workHead(block, reader, now)}`, width));
-      const answers = (block.answerIds ?? []).flatMap((id) => answerLines(textOf(reader.item(id)), width));
+      const head = paint.dim(
+        cutEnd(`${block.ongoing ? "◌" : "▸"} ${workHead(block, reader, now)}`, width),
+      );
+      const answers = (block.answerIds ?? []).flatMap((id) =>
+        answerLines(textOf(reader.item(id)), width),
+      );
       return [head, ...answers];
     }
     case "subagents": {
       const count = block.itemIds.length;
-      return [paint.dim(cutEnd(`▸ ${count} ${count === 1 ? "subagent" : "subagents"} launched`, width))];
+      return [
+        paint.dim(cutEnd(`▸ ${count} ${count === 1 ? "subagent" : "subagents"} launched`, width)),
+      ];
     }
     case "files":
-      return [paint.dim(cutEnd(`Changed ${block.itemIds.length} ${block.itemIds.length === 1 ? "file" : "files"}`, width))];
+      return [
+        paint.dim(
+          cutEnd(
+            `Changed ${block.itemIds.length} ${block.itemIds.length === 1 ? "file" : "files"}`,
+            width,
+          ),
+        ),
+      ];
     case "moment":
       return [paint.dim(cutEnd(momentWords[block.moment], width))];
     case "item": {
@@ -96,11 +113,23 @@ export function blockLines(
     case "event":
       return [paint.dim(cutEnd(textOf(reader.item(block.itemId)), width))];
     case "started":
-      return [paint.dim(cutEnd(`Started a thread: ${textOf(reader.item(block.itemId)) || "see ace thread list"}`, width))];
+      return [
+        paint.dim(
+          cutEnd(
+            `Started a thread: ${textOf(reader.item(block.itemId)) || "see ace thread list"}`,
+            width,
+          ),
+        ),
+      ];
     case "forked":
       return [paint.dim(cutEnd(`Forked from ${block.threadId}`, width))];
     case "end":
-      return [paint.tone(block.ending === "failed" ? "failed" : "idle", block.ending === "failed" ? "Turn failed." : "Stopped.")];
+      return [
+        paint.tone(
+          block.ending === "failed" ? "failed" : "idle",
+          block.ending === "failed" ? "Turn failed." : "Stopped.",
+        ),
+      ];
     case "live":
     case "question":
       return [];
@@ -153,7 +182,8 @@ export function titleLine(
   paint: Paint,
 ): string {
   // Below 60 columns the meta drops, as on the home.
-  const meta = width < 60 ? "" : [parts.project, parts.branch, parts.provider].filter(Boolean).join(" · ");
+  const meta =
+    width < 60 ? "" : [parts.project, parts.branch, parts.provider].filter(Boolean).join(" · ");
   const room = meta ? Math.max(8, width - textWidth(meta) - 2) : width;
   const title = cutEnd(parts.title, room);
   const left = Math.max(0, width - textWidth(title) - 2);

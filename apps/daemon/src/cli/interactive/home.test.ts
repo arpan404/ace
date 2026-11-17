@@ -77,10 +77,7 @@ describe("home rows", () => {
 });
 
 describe("home keys", () => {
-  const rows = rowsOf(
-    entry("a", { state: "working", agents: 1 }),
-    entry("b", { state: "done" }),
-  );
+  const rows = rowsOf(entry("a", { state: "working", agents: 1 }), entry("b", { state: "done" }));
 
   it("moves with j and k and attaches to the selected row on Enter", () => {
     const { effects } = press(rows, "j\r");
@@ -126,7 +123,9 @@ describe("home keys", () => {
   it("opens the agent tree under the row and folds it again", () => {
     const opened = press(rows, "\x1b[C");
     expect(opened.effects).toEqual([{ kind: "tree", threadId: "a" }]);
-    expect(press(rows, "\x1b[D", opened.state).effects).toEqual([{ kind: "tree", threadId: undefined }]);
+    expect(press(rows, "\x1b[D", opened.state).effects).toEqual([
+      { kind: "tree", threadId: undefined },
+    ]);
   });
 
   it("quits on q, and on Ctrl-C with the interrupted exit code", () => {
@@ -172,7 +171,14 @@ describe("home view", () => {
     const tree = {
       lines: [
         { depth: 0, glyph: "✓", tone: "idle" as const, name: "claude", doing: "Done", time: "" },
-        { depth: 1, glyph: "◌", tone: "working" as const, name: "reviewer", doing: "Reading the diff", time: "1m 2s" },
+        {
+          depth: 1,
+          glyph: "◌",
+          tone: "working" as const,
+          name: "reviewer",
+          doing: "Reading the diff",
+          time: "1m 2s",
+        },
       ],
       more: 0,
     };

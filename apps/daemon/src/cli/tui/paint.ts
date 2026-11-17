@@ -25,14 +25,14 @@ const toneCodes: Record<StateTone, string> = {
 };
 
 const plain = (text: string) => text;
+const sgr = (code: string, text: string) => (text ? `\x1b[${code}m${text}\x1b[0m` : text);
 
 export function paint(color: boolean): Paint {
   if (!color) return { color, tone: (_tone, text) => text, dim: plain, bold: plain };
-  const wrap = (code: string, text: string) => (text ? `\x1b[${code}m${text}\x1b[0m` : text);
   return {
     color,
-    tone: (tone, text) => wrap(toneCodes[tone], text),
-    dim: (text) => wrap("2", text),
-    bold: (text) => wrap("1", text),
+    tone: (tone, text) => sgr(toneCodes[tone], text),
+    dim: (text) => sgr("2", text),
+    bold: (text) => sgr("1", text),
   };
 }

@@ -9,6 +9,7 @@ function screen() {
   return {
     rows,
     apply(output: string) {
+      // oxlint-disable-next-line eslint/no-control-regex -- reads the escape sequences under test.
       const pattern = /\x1b\[(\??)(\d*)([A-Za-z])|\r|\n|[^\x1b\r\n]+/g;
       for (const match of output.matchAll(pattern)) {
         const token = match[0];
@@ -24,10 +25,14 @@ function screen() {
           if (final === "B") row = Math.min(rows.length - 1, row + count);
           if (final === "C") column += count;
           if (final === "K") rows[row] = "";
-          if (final === "J") rows.splice(row + 1), (rows[row] = rows[row]?.slice(0, column) ?? "");
+          if (final === "J") {
+            rows.splice(row + 1);
+            rows[row] = rows[row]?.slice(0, column) ?? "";
+          }
         } else {
           const line = rows[row] ?? "";
-          rows[row] = line.slice(0, column).padEnd(column) + token + line.slice(column + token.length);
+          rows[row] =
+            line.slice(0, column).padEnd(column) + token + line.slice(column + token.length);
           column += token.length;
         }
       }
@@ -63,7 +68,10 @@ describe("drawing the inline region", () => {
     const terminal = screen();
     const first = drawFrame(emptyDrawn, { lines: ["a"] });
     terminal.apply(first.output);
-    const second = drawFrame(first.drawn, { lines: ["a", "b", "› hi"], cursor: { row: 2, column: 4 } });
+    const second = drawFrame(first.drawn, {
+      lines: ["a", "b", "› hi"],
+      cursor: { row: 2, column: 4 },
+    });
     terminal.apply(second.output);
     expect(terminal.rows).toEqual(["a", "b", "› hi"]);
     expect(second.drawn.cursorRow).toBe(2);

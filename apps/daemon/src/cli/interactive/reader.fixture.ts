@@ -1,5 +1,12 @@
 import type { ThreadReader } from "@ace/client";
-import { Agent, Interaction, Item, Thread, type AgentStatus, type ThreadStatus } from "@ace/protocol";
+import {
+  Agent,
+  Interaction,
+  Item,
+  Thread,
+  type AgentStatus,
+  type ThreadStatus,
+} from "@ace/protocol";
 
 /** A thread store as the client keeps one, built from parsed entities, for view tests. */
 export function threadReader(input: {
@@ -25,14 +32,18 @@ export function threadReader(input: {
       }),
     ]),
   );
-  const items = new Map((input.items ?? []).map((raw) => {
-    const item = Item.parse(raw);
-    return [item.id as string, item];
-  }));
-  const interactions = new Map((input.interactions ?? []).map((raw) => {
-    const interaction = Interaction.parse(raw);
-    return [interaction.id as string, interaction];
-  }));
+  const items = new Map(
+    (input.items ?? []).map((raw) => {
+      const item = Item.parse(raw);
+      return [item.id as string, item];
+    }),
+  );
+  const interactions = new Map(
+    (input.interactions ?? []).map((raw) => {
+      const interaction = Interaction.parse(raw);
+      return [interaction.id as string, interaction];
+    }),
+  );
   const thread = Thread.parse({
     id: "t1",
     workspaceId: "ace",
@@ -53,7 +64,8 @@ export function threadReader(input: {
     itemsBefore: null,
     agentIds: () => [...agents.keys()],
     runIds: () => [],
-    children: (id) => [...agents.values()].filter((agent) => agent.parentId === id).map((agent) => agent.id),
+    children: (id) =>
+      [...agents.values()].filter((agent) => agent.parentId === id).map((agent) => agent.id),
     interactionIds: () => [...interactions.keys()],
     taskIds: () => [],
     item: (id) => items.get(id),

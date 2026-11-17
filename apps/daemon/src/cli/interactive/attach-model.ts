@@ -1,7 +1,13 @@
 import { composerKey, emptyComposer, type Composer } from "../tui/composer.ts";
 import { isCtrl, type Key } from "../tui/keys.ts";
 import { stay, step, type Step } from "./effects.ts";
-import { answerKey, answerStart, capturing, type AnswerState, type OpenRequest } from "./request-answer.ts";
+import {
+  answerKey,
+  answerStart,
+  capturing,
+  type AnswerState,
+  type OpenRequest,
+} from "./request-answer.ts";
 
 /**
  * Attach's keys (ADR 0176 §9). Pure. Typing goes to the composer (`›`), Enter sends it to the
@@ -14,7 +20,11 @@ export interface AttachState {
   readonly notice: string | undefined;
 }
 
-export const attachStart: AttachState = { composer: emptyComposer, answer: answerStart, notice: undefined };
+export const attachStart: AttachState = {
+  composer: emptyComposer,
+  answer: answerStart,
+  notice: undefined,
+};
 
 export function attachKey(
   state: AttachState,
@@ -33,7 +43,11 @@ export function attachKey(
   }
   if (key.name === "escape") return step({ ...quiet, answer: answerStart }, { kind: "home" });
   const edit = composerKey(state.composer, key);
-  if (edit.kind === "editor") return step({ ...quiet, composer: edit.composer }, { kind: "editor", text: edit.composer.text });
+  if (edit.kind === "editor")
+    return step(
+      { ...quiet, composer: edit.composer },
+      { kind: "editor", text: edit.composer.text },
+    );
   if (edit.kind === "submit") {
     const text = edit.text;
     if (!text.trim()) return stay({ ...quiet, composer: edit.composer });
@@ -43,7 +57,11 @@ export function attachKey(
       return step({ ...quiet, composer: edit.composer }, { kind: "slash", line: trimmed });
     return step(
       { ...quiet, composer: edit.composer },
-      { kind: "send", text: trimmed.startsWith("//") ? text.replace("//", "/") : text, delivery: "queue" },
+      {
+        kind: "send",
+        text: trimmed.startsWith("//") ? text.replace("//", "/") : text,
+        delivery: "queue",
+      },
     );
   }
   return stay({ ...quiet, composer: edit.composer });

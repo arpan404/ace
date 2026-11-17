@@ -63,7 +63,7 @@ const glyphs: Record<RowStatusIconKind | "none", string> = {
 };
 
 export function homeRows(input: HomeRowsInput): HomeRow[] {
-  const byId = new Map(input.entries.map((entry) => [entry.id, entry]));
+  const byId = new Map<string, ThreadListEntry>(input.entries.map((entry) => [entry.id, entry]));
   const order = arrange(input.entries, { project: null }, input.now);
   const home = homeMachine(input.entries);
   const ids = [...order.pinned, ...order.active, ...order.recent];
