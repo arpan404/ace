@@ -9,7 +9,7 @@ import {
 } from "@ace/ui-core";
 
 /**
- * A thread's agent tree under its home row (ADR 0108, ADR 0176 §9): each agent, what it does,
+ * A thread's agent tree under its home row (ADR 0108, ADR 0178 §9): each agent, what it does,
  * its time. Pure over the client's thread store; the root agent leads, its subagents follow
  * in launch order, indented by depth.
  */

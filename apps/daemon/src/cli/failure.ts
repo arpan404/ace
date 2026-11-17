@@ -5,7 +5,7 @@ import { outputMode, useColor } from "./input-mode.ts";
 import { print } from "./io.ts";
 
 /**
- * Sets the exit code and reports a failed command (ADR 0176 §4): with `--json`, one `CliError`
+ * Sets the exit code and reports a failed command (ADR 0178 §4): with `--json`, one `CliError`
  * on stdout, so a caller parses one stream; otherwise its sentence and next step on stderr.
  */
 export async function reportFailure(args: Args, error: unknown, command?: string): Promise<void> {

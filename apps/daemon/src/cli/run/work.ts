@@ -1,7 +1,7 @@
 import type { CommandContext, Handlers } from "./context.ts";
 
 /**
- * Threads, requests and projects (ADR 0176 §7). Each handler loads its module only when it
+ * Threads, requests and projects (ADR 0178 §7). Each handler loads its module only when it
  * runs, so the rest of the CLI never carries this code.
  */
 const reads = () => import("../work/thread-reads.ts");

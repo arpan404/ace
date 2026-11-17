@@ -89,7 +89,7 @@ async function completion(context: CommandContext): Promise<void> {
 
 async function home(context: CommandContext): Promise<void> {
   if (context.args.interactive) {
-    // A broken install still lands the person on the way out (ADR 0176 §13).
+    // A broken install still lands the person on the way out (ADR 0178 §13).
     const loaded = await import("../interactive/home.ts").catch(() => undefined);
     if (loaded) return loaded.interactiveHome(context);
     process.stderr.write("Something in ace is broken. Run ace doctor or ace triage.\n");

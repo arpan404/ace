@@ -1,6 +1,6 @@
 import { prepareHome, withSession, type CommandContext, type Handlers } from "./context.ts";
 
-/** Machines, devices, remote profiles and outside MCP clients (ADR 0176 §7). */
+/** Machines, devices, remote profiles and outside MCP clients (ADR 0178 §7). */
 
 function session<T>(
   context: CommandContext,

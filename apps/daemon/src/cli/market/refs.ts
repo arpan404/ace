@@ -7,7 +7,7 @@ import {
 import { usageFailure } from "../output.ts";
 
 /*
- * How the CLI names market things (ADR 0176 §11): an entry is `TYPE/NAME`, one version of it
+ * How the CLI names market things (ADR 0178 §11): an entry is `TYPE/NAME`, one version of it
  * `TYPE/NAME@VERSION`, and a publisher `@handle`. Pure.
  */
 

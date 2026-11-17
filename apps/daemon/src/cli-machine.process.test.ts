@@ -10,7 +10,7 @@ import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { invoke } from "./cli-test-support.ts";
 
 /*
- * The machine entry points and the rescue path, through the real `ace` (ADR 0176 §13, ADR 0092):
+ * The machine entry points and the rescue path, through the real `ace` (ADR 0178 §13, ADR 0092):
  * what the desktop app and the release runtime read stays the same, bare `ace` off a terminal
  * starts nothing, and help, version, completion, doctor and triage work with the daemon down and
  * with another command's module broken.

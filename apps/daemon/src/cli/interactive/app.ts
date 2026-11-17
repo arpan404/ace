@@ -12,7 +12,7 @@ import { homeStart } from "./home-state.ts";
 import { requestsStart } from "./requests.ts";
 
 /**
- * The interactive shell (ADR 0176 §9): one terminal, one connection, and the home, requests
+ * The interactive shell (ADR 0178 §9): one terminal, one connection, and the home, requests
  * and attach views over the client's stores. Models and views are pure; this wires the
  * terminal's keys, resizes and signals to them, connects, and gives the terminal back.
  */

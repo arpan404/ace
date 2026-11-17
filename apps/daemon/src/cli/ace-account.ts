@@ -17,7 +17,7 @@ const show = (args: Args, status: MachineAccountStatus, human?: string) =>
 
 /**
  * The machine code: the argument, stdin only for `-`, or typed at a terminal without echo.
- * Never read from stdin unasked, so an agent's open pipe is never waited on (ADR 0176 §9).
+ * Never read from stdin unasked, so an agent's open pipe is never waited on (ADR 0178 §9).
  */
 async function readCode(args: Args): Promise<string> {
   const supplied = args.words[0];

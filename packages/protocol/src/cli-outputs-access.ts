@@ -9,7 +9,7 @@ import { ProviderStatus } from "./provider-status.ts";
 import { Device, PairingResponse } from "./remote.ts";
 
 /**
- * `--json` success values for providers, accounts, access and the agent tools (ADR 0176 §7),
+ * `--json` success values for providers, accounts, access and the agent tools (ADR 0178 §7),
  * by the command table's `output` key. Shapes the old commands printed are kept, so scripts
  * that parsed them keep working; fields are only added.
  */

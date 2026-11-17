@@ -13,7 +13,7 @@ import type { MarketAnswer } from "./request.ts";
 
 /*
  * What a market command prints: with `--json` the answer's data unchanged (no `op` envelope,
- * ADR 0176 §3), for a person the sentences in `render/market.ts`, for `--quiet` the ids.
+ * ADR 0178 §3), for a person the sentences in `render/market.ts`, for `--quiet` the ids.
  */
 
 export interface Printed {
@@ -90,7 +90,7 @@ export function printed(answer: MarketAnswer): Printed {
 
 /**
  * A text argument: itself, `-` for stdin, or `@FILE` for a file's contents. Stdin is read only
- * when asked for with `-` (ADR 0176 §9).
+ * when asked for with `-` (ADR 0178 §9).
  */
 export async function readText(value: string | undefined): Promise<string | undefined> {
   if (value === undefined) return undefined;

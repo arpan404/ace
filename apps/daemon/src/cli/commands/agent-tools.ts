@@ -1,7 +1,7 @@
 import { grammarRelease as since, idempotencyKey, limit, outputPath, threadRef } from "./flags.ts";
 import type { ArgSpec, CommandSpec, FlagSpec, NounSpec } from "./spec.ts";
 
-/** Tools agents call from a shell (ADR 0176 §7, Agent tools). */
+/** Tools agents call from a shell (ADR 0178 §7, Agent tools). */
 export const agentToolNouns: readonly NounSpec[] = [
   {
     name: "browser",

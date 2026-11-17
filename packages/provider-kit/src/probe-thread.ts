@@ -185,6 +185,7 @@ export async function probeOffThread(
   options: {
     timeoutMs: number;
     env: NodeJS.ProcessEnv;
+    cwd?: string | undefined;
     maxBytes: number;
     signal?: AbortSignal | undefined;
     schedule: (callback: () => void, milliseconds: number) => () => void;
@@ -210,7 +211,13 @@ export async function probeOffThread(
   }, options.timeoutMs);
   try {
     const exit = await thread.run(
-      { command, args: [...args], env, maxBytes: options.maxBytes },
+      {
+        command,
+        args: [...args],
+        env,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        maxBytes: options.maxBytes,
+      },
       stop.signal,
     );
     if (failure) throw failure;

@@ -15,7 +15,7 @@ import {
 import type { Toolkit } from "./toolkits.ts";
 
 /*
- * `market_read` and `market_publish` (ADR 0176 §12.5): the market for an agent, through the
+ * `market_read` and `market_publish` (ADR 0178 §12.5): the market for an agent, through the
  * daemon's `marketplace.request` as the asking thread. Publishing follows the provider's own
  * permissions (the tool says it reaches the world); the person-only actions come back as the
  * request ace opened in the thread. Spade reads their effects from `_meta` (ADR 0171).

@@ -4,7 +4,7 @@ import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { hostSocket } from "./host-socket-test-support.ts";
 
 /*
- * Through a real daemon (AGENTS.md: agents never answer approvals; ADR 0176 §12.5): a socket that
+ * Through a real daemon (AGENTS.md: agents never answer approvals; ADR 0178 §12.5): a socket that
  * says it is an agent's device, as the CLI does in an agent's shell, can't answer a provider's
  * approval or change a setting; the person's own socket can. A process test because it is the
  * wiring of `answer-gate.ts` into the command path and the settings session.

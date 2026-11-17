@@ -27,7 +27,7 @@ const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
   "spade.enabled",
   "beta.spade",
   "beta.marketplace",
-  // An agent publishing on its own (ADR 0176): a repository can't turn the person's ask off.
+  // An agent publishing on its own (ADR 0178): a repository can't turn the person's ask off.
   "market.askBeforeAgentPublish",
   // Which programs a provider may start (ADR 0138): a repository can't point them elsewhere.
   "providers.codex.toolSource",

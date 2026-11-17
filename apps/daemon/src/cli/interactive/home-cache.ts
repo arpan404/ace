@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { HomeRow } from "./home-rows.ts";
 
 /**
- * The home's last list, kept so the next `ace` draws rows before the daemon answers (ADR 0176
+ * The home's last list, kept so the next `ace` draws rows before the daemon answers (ADR 0178
  * §9, the 150 ms budget). It keeps what a row is (title, project, branch, provider) and never
  * what it was doing: a kept row claims no status and says "Syncing", as the app's unconfirmed
  * rows do, until the live list replaces it. So a stale copy can never show a thread as done

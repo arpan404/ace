@@ -24,13 +24,20 @@ dropNativeFrames();
 const context: TestHomeContext = {
   testHomeRoot: inject("testHomeRoot"),
   testRealHome: inject("testRealHome"),
+  testToolPath: inject("testToolPath"),
   enclosingRepository: inject("enclosingRepository"),
 };
 const repository = context.enclosingRepository ?? undefined;
 const home = mkdtempSync(
   join(context.testHomeRoot, `worker-${process.env.VITEST_POOL_ID ?? "0"}-`),
 );
-const env = testHomeEnvironment(home, context.testRealHome, process.env, repository?.checkouts);
+const env = testHomeEnvironment(
+  home,
+  context.testRealHome,
+  process.env,
+  repository?.checkouts,
+  context.testToolPath,
+);
 for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
 Object.assign(process.env, env);
 

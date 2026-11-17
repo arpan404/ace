@@ -4,7 +4,7 @@ import { emit, type Renderer } from "../io.ts";
 import { CliFailure, exitCodes, type Outcome } from "../output.ts";
 import type { CommandContext } from "../run/context.ts";
 
-/** Whether this run paints state colours on stdout (ADR 0176 §3). */
+/** Whether this run paints state colours on stdout (ADR 0178 §3). */
 export function colourOn(context: Pick<CommandContext, "args" | "env">): boolean {
   return useColor({
     flags: context.args.flags,

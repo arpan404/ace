@@ -5,7 +5,7 @@ import type { Paint } from "../tui/paint.ts";
 import { answerFor, type AnswerState, type OpenRequest } from "./request-answer.ts";
 
 /**
- * One open request drawn as the app's request strip (ADR 0176 §9): who asks and one sentence,
+ * One open request drawn as the app's request strip (ADR 0178 §9): who asks and one sentence,
  * one line of detail (a command cut in the middle), then the answers as keys spaced apart.
  * Pure. `pageHeight` bounds the plan pager.
  */

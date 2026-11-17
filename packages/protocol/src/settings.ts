@@ -135,7 +135,7 @@ export const SettingsValues = z.object({
    */
   "beta.marketplace": z.boolean(),
   /**
-   * Ask me before agents publish (ADR 0176 owner decision 1). Off by default: an agent's publish
+   * Ask me before agents publish (ADR 0178 owner decision 1). Off by default: an agent's publish
    * through `market_publish` or `ace market` from its shell follows the provider's permissions.
    * On, every agent publish becomes a request in the asking thread's strip that only a person's
    * device answers. Global, admin only.
