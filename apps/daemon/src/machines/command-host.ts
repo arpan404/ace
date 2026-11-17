@@ -28,9 +28,9 @@ import {
 } from "./command-process.ts";
 
 export interface CommandHostDeps {
-  store: Store;
-  engine(): Engine | undefined;
-  guests: GuestSessions;
+  store: Pick<Store, "statement" | "getThread">;
+  engine(): { guests: Pick<Engine["guests"], "command"> } | undefined;
+  guests: Pick<GuestSessions, "ticket" | "run">;
   /** A project's checkout and its worktrees; refuses a project this machine doesn't have. */
   roots(project: string | undefined): string[];
   /** The real path of a folder, or undefined when there is none there. */
@@ -79,6 +79,8 @@ function invalid(error: z.ZodError): TargetRefusal {
 export class CommandHost implements CapabilityHost {
   private deps: CommandHostDeps;
   private jobs = new CommandJobs<Job>();
+  private retries = new Set<() => void>();
+  private closing = false;
   constructor(deps: CommandHostDeps) {
     this.deps = deps;
   }
@@ -93,6 +95,10 @@ export class CommandHost implements CapabilityHost {
     const running = this.jobs.live();
     for (const job of running) job.run.stop();
     await Promise.all(running.map((job) => job.run.done));
+    // A transcript not settled by now is ended on the next start, with the session's record.
+    this.closing = true;
+    for (const cancel of this.retries) cancel();
+    this.retries.clear();
   }
   /** A shell command can't be proven read-only, so every command tool acts. */
   readOnly(): boolean {
@@ -211,13 +217,17 @@ export class CommandHost implements CapabilityHost {
     this.jobs.add(started);
     const key = `${commandPrefix}${id}`;
     this.record(session, key, command, spec.cwd, started.run.startedAt);
-    void started.run.done.then((outcome) => {
-      started.outcome = outcome;
-      this.jobs.finished(id, this.deps.clock.now());
-      // A finished job is readable for a while, then let go with its output.
-      this.deps.clock.schedule(keptForMs + 1, () => this.jobs.prune(this.deps.clock.now()));
-      this.finished(session, key, command, spec.cwd, started.run, outcome);
-    });
+    void started.run.done
+      .then((outcome) => {
+        started.outcome = outcome;
+        this.jobs.finished(id, this.deps.clock.now());
+        // A finished job is readable for a while, then let go with its output.
+        this.deps.clock.schedule(keptForMs + 1, () => this.jobs.prune(this.deps.clock.now()));
+        this.finished(session, key, command, spec.cwd, started.run, outcome);
+      })
+      .catch((error: unknown) =>
+        this.deps.log("Command from another machine not settled", { error: String(error) }),
+      );
     return {
       job: { id, timeoutSeconds: Math.ceil(limits.timeoutMs / 1000) },
       content: [
@@ -330,7 +340,14 @@ export class CommandHost implements CapabilityHost {
     run: RunningCommand,
     outcome: CommandOutcome,
   ) {
-    const origin = this.origin(session);
+    // Which machine and thread asked is for the log line only: an unreadable store leaves it
+    // blank, and never keeps the transcript from settling below.
+    let origin = { origin_host: "", origin_thread: "" };
+    try {
+      origin = this.origin(session);
+    } catch {
+      /* Logged without its origin. */
+    }
     this.deps.log("Command from another machine", {
       deviceId: session.deviceId,
       fromMachine: origin.origin_host,
@@ -342,22 +359,53 @@ export class CommandHost implements CapabilityHost {
       durationMs: outcome.durationMs,
       outcome: outcome.timedOut ? "timed_out" : outcome.stopped ? "stopped" : "exited",
     });
+    this.settle(session, key, {
+      command,
+      cwd,
+      status:
+        outcome.stopped || outcome.timedOut
+          ? "cancelled"
+          : outcome.exitCode === 0
+            ? "succeeded"
+            : "failed",
+      exitCode: outcome.exitCode,
+      startedAt: run.startedAt,
+      endedAt: run.startedAt + outcome.durationMs,
+    });
+  }
+  /**
+   * The command's end in the session's transcript. A write that fails while the session is
+   * still there (the store unreadable a moment) is tried again, backing off, so the transcript
+   * never shows the command running after it ended; a deleted session has nothing to settle.
+   */
+  private settle(
+    session: GuestSession,
+    key: string,
+    entry: Parameters<Engine["guests"]["command"]>[2],
+    waitMs = 1000,
+  ): void {
+    if (this.closing) return;
     try {
-      this.deps.engine()?.guests.command(session.threadId, key, {
-        command,
-        cwd,
-        status:
-          outcome.stopped || outcome.timedOut
-            ? "cancelled"
-            : outcome.exitCode === 0
-              ? "succeeded"
-              : "failed",
-        exitCode: outcome.exitCode,
-        startedAt: run.startedAt,
-        endedAt: run.startedAt + outcome.durationMs,
+      this.deps.engine()?.guests.command(session.threadId, key, entry);
+      return;
+    } catch (error) {
+      let gone: boolean;
+      try {
+        const thread = this.deps.store.getThread(session.threadId);
+        gone = thread === undefined || thread.deletedAt !== undefined;
+      } catch {
+        gone = false;
+      }
+      if (gone) return;
+      this.deps.log("Command from another machine not recorded yet", {
+        session: session.threadId,
+        error: String(error),
       });
-    } catch {
-      // The person deleted the session meanwhile; the log above still has it.
     }
+    const cancel = this.deps.clock.schedule(waitMs, () => {
+      this.retries.delete(cancel);
+      this.settle(session, key, entry, Math.min(waitMs * 2, 60_000));
+    });
+    this.retries.add(cancel);
   }
 }
