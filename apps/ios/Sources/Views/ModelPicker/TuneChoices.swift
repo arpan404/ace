@@ -44,6 +44,8 @@ struct TuneChoices: Equatable {
         let speeds = (model.speeds ?? []).map { TuneChoiceRow.Level(id: $0.speed, label: $0.label, isDefault: $0.speed == speedDefault) }
         let pickedEffort = efforts.contains { $0.id == effort } ? effort : nil
         let pickedSpeed = speeds.contains { $0.id == speed } ? speed : nil
+        // The bridge sends `defaultEffort` resolved the way a new thread starts (`resolveEffort`),
+        // so the row and pill show the effort the thread is created with.
         let selected = pickedEffort ?? model.defaultEffort ?? efforts.first?.id ?? ""
         return TuneChoices(effort: row(efforts, selected: selected, reason: "") ?? fixed(efforts, selected: selected),
                            speed: row(speeds, selected: pickedSpeed ?? speedDefault, reason: ""), footer: nil)

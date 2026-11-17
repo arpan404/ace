@@ -37,6 +37,10 @@ export interface NewThreadModelRow {
   /** The account (catalog instance) serving it. */
   account: string;
   efforts: { id: string; label: string }[];
+  /**
+   * The effort a thread starts at when none is picked, as `selectNewThreadAgent` resolves it:
+   * the catalog's default, else Medium, else the lower middle. Undefined with no efforts.
+   */
   defaultEffort: string | undefined;
   /** Speeds it can start at, slowest first; empty when there is nothing faster. */
   speeds: { speed: Speed; label: string }[];
@@ -151,7 +155,7 @@ export function newThreadAgents(input: {
         label: option.label,
         account: option.account,
         efforts: option.efforts.map((id) => ({ id, label: effortLabel(id) })),
-        defaultEffort: option.defaultEffort,
+        defaultEffort: resolveEffort(option.efforts, undefined, option.defaultEffort),
         speeds: option.speeds.map((tier) => ({ speed: tier.speed, label: speedLabel(tier.speed) })),
         defaultSpeed: option.defaultSpeed,
         isDefault: option.isDefault,
