@@ -113,6 +113,7 @@ pub const SUPERVISED: &[&str] = &[
     "sched_setaffinity",
     "sched_setscheduler",
     "sched_setparam",
+    "sched_setattr",
     "setpriority",
     "ioprio_set",
     "kcmp",
@@ -134,7 +135,14 @@ pub fn filter(
     }
     // This fd-targeted call cannot safely be continued after checking a mutable fd table.
     // An older libseccomp that cannot name it must fail the probe, never silently allow it.
-    ctx.add_rule(refuse, ScmpSyscall::from_name("process_madvise")?)?;
+    for name in [
+        "process_madvise",
+        "process_mrelease",
+        "migrate_pages",
+        "move_pages",
+    ] {
+        ctx.add_rule(refuse, ScmpSyscall::from_name(name)?)?;
+    }
     if !landlock_truncates {
         ctx.add_rule(refuse, ScmpSyscall::from_name("truncate")?)?;
     }

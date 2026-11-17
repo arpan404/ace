@@ -11,6 +11,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::os::fd::{AsFd, OwnedFd, RawFd};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use libseccomp::{ScmpNotifReq, ScmpNotifResp, ScmpNotifRespFlags, ScmpSyscall, notify_id_valid};
@@ -23,6 +24,16 @@ use super::net::{self, Call, MAX_ADDRESS, Rules, Verdict};
 pub fn serve(listener: RawFd, rules: Rules) {
     let names = Names::new();
     let sockets = Arc::new(Mutex::new(HashMap::new()));
+    // Leave descriptors for pidfds, proc directories and status files during shutdown, even
+    // when a command repeatedly creates sockets or leaves blocking notifications pending.
+    let files = rustix::process::getrlimit(rustix::process::Resource::Nofile)
+        .current
+        .unwrap_or(u64::MAX);
+    let workers = usize::try_from(files.saturating_sub(32) / 32)
+        .unwrap_or(32)
+        .min(32);
+    let socket_limit = usize::try_from(files / 4).unwrap_or(4096).min(4096);
+    let active = Arc::new(AtomicUsize::new(0));
     loop {
         let request = match ScmpNotifReq::receive(listener) {
             Ok(request) => request,
@@ -32,11 +43,22 @@ pub fn serve(listener: RawFd, rules: Rules) {
             }
             Err(_) => return,
         };
+        if active
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                (n < workers).then_some(n + 1)
+            })
+            .is_err()
+        {
+            respond(listener, request.id, Err(Errno::AGAIN));
+            continue;
+        }
+        let permit = Work(Arc::clone(&active));
         let rules = rules.clone();
         let sockets = Arc::clone(&sockets);
         // A blocking connect to a Unix socket can wait; the next call isn't held behind it.
         // Past the process limit no thread starts and the call is refused.
         let handled = std::thread::Builder::new().spawn(move || {
+            let _permit = permit;
             if let Some(allowed) = self_target(&request) {
                 let response = if allowed {
                     // Only scalar process ids are checked here, never pointers or fd numbers.
@@ -47,12 +69,19 @@ pub fn serve(listener: RawFd, rules: Rules) {
                 let _ = response.respond(listener);
                 return;
             }
-            let answer = handle(listener, &request, names, &rules, &sockets);
+            let answer = handle(listener, &request, names, &rules, &sockets, socket_limit);
             respond(listener, request.id, answer);
         });
         if handled.is_err() {
             respond(listener, request.id, Err(Errno::AGAIN));
         }
+    }
+}
+
+struct Work(Arc<AtomicUsize>);
+impl Drop for Work {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -67,25 +96,33 @@ type Sockets = Mutex<HashMap<(u64, u64), Arc<Socket>>>;
 fn self_target(request: &ScmpNotifReq) -> Option<bool> {
     let a = request.data.args;
     let name = |n| ScmpSyscall::from_name(n).ok() == Some(request.data.syscall);
-    let pid = thread_group(request.pid)? as u32 as u64;
-    let own = |n: u64| n == 0 || n == pid;
+    let pid = u64::try_from(thread_group(request.pid)?).ok()?;
+    let tid = u64::from(request.pid);
+    let own = |n: u64| n == 0 || n == pid || n == tid;
     if [
         "prlimit64",
         "sched_setaffinity",
         "sched_setscheduler",
         "sched_setparam",
-        "pidfd_open",
+        "sched_setattr",
     ]
     .iter()
     .any(|n| name(n))
     {
         Some(own(a[0]))
+    } else if name("pidfd_open") {
+        const PIDFD_NONBLOCK: u64 = rustix::process::PidfdFlags::NONBLOCK.bits() as u64;
+        const PIDFD_THREAD: u64 = 0x80;
+        let target = if a[1] & PIDFD_THREAD != 0 { tid } else { pid };
+        // Zero is not self for pidfd_open. Thread handles require PIDFD_THREAD; the
+        // kernel returns EINVAL on older kernels, rather than us treating it as a process.
+        Some(a[0] == target && a[1] & !(PIDFD_NONBLOCK | PIDFD_THREAD) == 0)
     } else if name("setpriority") {
         Some(a[0] == 0 && own(a[1])) // PRIO_PROCESS only, never a group or user.
     } else if name("ioprio_set") {
         Some(a[0] == 1 && own(a[1])) // IOPRIO_WHO_PROCESS only.
     } else if name("kcmp") {
-        Some(own(a[0]) && own(a[1]))
+        Some(a[0] != 0 && a[1] != 0 && own(a[0]) && own(a[1]))
     } else {
         None
     }
@@ -169,6 +206,7 @@ fn handle(
     names: Names,
     rules: &Rules,
     sockets: &Sockets,
+    socket_limit: usize,
 ) -> Result<(), Errno> {
     let args = request.data.args;
     let call = Some(request.data.syscall);
@@ -179,6 +217,9 @@ fn handle(
     let key = (stat.st_dev as u64, stat.st_ino as u64);
     let socket = {
         let mut table = sockets.lock().map_err(|_| Errno::PERM)?;
+        if table.len() >= socket_limit && !table.contains_key(&key) {
+            return Err(Errno::AGAIN);
+        }
         Arc::clone(table.entry(key).or_insert_with(|| {
             Arc::new(Socket {
                 fd: duplicate,

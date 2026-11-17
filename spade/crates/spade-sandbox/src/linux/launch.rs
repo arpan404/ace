@@ -17,7 +17,7 @@ use landlock::{
     ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, LandlockStatus, NetPort,
     PathBeneath, Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr, RulesetStatus, Scope,
 };
-use rustix::process::{Pid, Resource, Rlimit, Signal, WaitOptions};
+use rustix::process::{Resource, Rlimit};
 
 use super::net::Rules;
 use super::{Network, Plan, RealFs, carve, seccomp, supervise};
@@ -33,8 +33,9 @@ const MORE_TASKS: u64 = 4_096;
 pub fn main(args: &[OsString]) -> ExitCode {
     let namespaced = args.first().is_some_and(|a| a == "--private-pid-init");
     let marker = if namespaced { args.get(1) } else { None };
+    let handle = if namespaced { args.get(2) } else { None };
     let args = if namespaced {
-        args.get(2..).unwrap_or_default()
+        args.get(3..).unwrap_or_default()
     } else {
         args
     };
@@ -53,6 +54,18 @@ pub fn main(args: &[OsString]) -> ExitCode {
     };
     if namespaced && rustix::process::getpid().as_raw_nonzero().get() != 1 {
         return refused("the signal supervisor must be the private PID namespace's init");
+    }
+    if namespaced && let Err(error) = rustix::process::setsid() {
+        return refused(&format!(
+            "the namespace init could not create its session: {error}"
+        ));
+    }
+    if let Some(path) = handle
+        && let Err(error) = super::namespace_handle::send(Path::new(path))
+    {
+        return refused(&format!(
+            "the namespace init could not send its handle: {error}"
+        ));
     }
     // Detect ABI on a disposable thread, so the launcher itself remains unrestricted.
     let abi = std::thread::spawn(|| {
@@ -106,11 +119,12 @@ fn run(
     // its sockets (`pidfd_getfd` needs a descendant where Yama is on).
     rustix::process::set_child_subreaper(Some(rustix::process::getpid()))
         .map_err(|e| format!("the launcher could not adopt the command's processes: {e}"))?;
-    let mut signals = signal_hook::iterator::Signals::new([
+    let signals = signal_hook::iterator::Signals::new([
         signal_hook::consts::SIGINT,
         signal_hook::consts::SIGQUIT,
         signal_hook::consts::SIGTERM,
         signal_hook::consts::SIGHUP,
+        signal_hook::consts::SIGCHLD,
     ])
     .map_err(|e| format!("the launcher could not hold its signals: {e}"))?;
     let (send, started) = mpsc::channel();
@@ -132,22 +146,7 @@ fn run(
         }
     }
     let child = child.ok_or("the command could not start")?;
-    let pid = Pid::from_child(&child);
-    // Ctrl-C and Ctrl-\ reach the command from its terminal; the launcher only outlives them.
-    // A `SIGTERM` or `SIGHUP` sent to the launcher alone is passed on.
-    std::thread::spawn(move || {
-        for signal in signals.forever() {
-            let forwarded = match signal {
-                signal_hook::consts::SIGTERM => Some(Signal::TERM),
-                signal_hook::consts::SIGHUP => Some(Signal::HUP),
-                _ => None,
-            };
-            if let Some(forwarded) = forwarded {
-                let _ = rustix::process::kill_process(pid, forwarded);
-            }
-        }
-    });
-    Ok(reap(pid, ending))
+    super::lifecycle::wait(child, ending, signals)
 }
 
 /// The thread that becomes the sandbox: applies the ruleset and the filter to itself, then
@@ -179,7 +178,14 @@ fn confined(
             Err(error) => return fail(format!("the network filter could not be applied: {error}")),
         }
     }
-    match std::process::Command::new(program).args(args).spawn() {
+    // util-linux calls setsid in this child before exec, without an unsafe pre_exec hook.
+    // A freshly spawned child is not a process-group leader, so setsid does not fork.
+    match std::process::Command::new("/usr/bin/setsid")
+        .arg("--")
+        .arg(program)
+        .args(args)
+        .spawn()
+    {
         Ok(child) => {
             let _ = send.send(Started::Child(child));
         }
@@ -257,36 +263,6 @@ fn limit() -> rustix::io::Result<()> {
         })
         .unwrap_or(32_768);
     lower(Resource::Nproc, running.saturating_add(MORE_TASKS))
-}
-
-/// Waits for `pid`, reaping what the launcher adopted, and ends as it ended.
-fn reap(pid: Pid, mut ending: Option<std::fs::File>) -> ExitCode {
-    loop {
-        match rustix::process::wait(WaitOptions::empty()) {
-            Ok(Some((reaped, status))) if reaped == pid => {
-                if let Some(code) = status.exit_status() {
-                    return ExitCode::from(u8::try_from(code & 0xff).unwrap_or(1));
-                }
-                if let Some(signal) = status.terminating_signal() {
-                    if let Some(file) = ending.as_mut() {
-                        use std::io::Write;
-                        // PID namespace init cannot die from its own default SIGTERM. Tell
-                        // the outer launcher, which restores the real signal after waiting.
-                        if writeln!(file, "{signal}").is_err() {
-                            return ExitCode::from(126);
-                        }
-                        return ExitCode::from(128 + signal as u8);
-                    }
-                    // Ends the launcher the same way, so its own parent sees the signal.
-                    let _ = signal_hook::low_level::emulate_default_handler(signal);
-                    return ExitCode::from(u8::try_from(128 + (signal & 0x7f)).unwrap_or(1));
-                }
-            }
-            Ok(_) => {}
-            Err(rustix::io::Errno::INTR) => {}
-            Err(_) => return ExitCode::from(1),
-        }
-    }
 }
 
 /// Whether this kernel enforces Landlock at all.

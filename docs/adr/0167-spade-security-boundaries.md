@@ -246,8 +246,8 @@ ADR 0171's sandboxed path (no classifier, no reviewer) apply there as on macOS.
 1. **The launcher stays outside as the run's supervisor.** `spade sandbox-exec <plan> <program>
 <args>…` carves the plan's roots (opening each place it grants), lowers its limits, and starts
    one thread that applies Landlock and a seccomp filter to itself alone and then starts the
-   command, which inherits both. The launcher's other threads answer the filter, pass `SIGTERM`
-   and `SIGHUP` on to the command, outlive Ctrl-C (the terminal sends it to the command too),
+   command, which inherits both. The launcher's other threads answer the filter and forward
+   terminal and stop signals to the command's private process group.
    adopt what the command leaves running (`PR_SET_CHILD_SUBREAPER`) and end with the command's
    own exit code or signal. Spade forbids `unsafe`, so the work is done through crates: `landlock`,
    `libseccomp` (bindings to the system's libseccomp 2.5 or later, LGPL, linked dynamically),
@@ -318,19 +318,62 @@ ADR 0171's sandboxed path (no classifier, no reviewer) apply there as on macOS.
   prevent inode reuse from inheriting permission; the descriptor limit bounds this state
   and exhaustion refuses further operations.
 - PID-targeted resource and scheduling calls are notified and continued only for PID 0 or
-  the caller's process ID. `setpriority` and `ioprio_set` permit only process selectors,
+  the caller's process ID or, for task targets, its notifying TID. `setpriority` and
+  `ioprio_set` permit only process selectors,
   never groups or users; `kcmp` checks both PIDs. `setrlimit` has no target PID and already
   acts only on the caller. `process_madvise` is refused entirely: checking an fd and then
   continuing would race the caller's fd table. No pointer or fd-based target is continued.
 - Below Landlock ABI 6, a filtered launch first starts util-linux `/usr/bin/unshare` with a
   private user, PID and mount namespace and a fresh `/proc`. It maps the person's current
-  UID, forks the launcher as namespace init, and kills that init if unshare dies. This happens before confinement. The existing supervisor reaps the namespace's
-  children. PID namespaces make outside processes unaddressable by all signal syscalls,
-  including process-group and queued signals, without a second process-tree tracker or
-  pidfd emulation of thread-directed signals. The filter prevents further namespace changes.
+  UID, forks the launcher as namespace init, and kills that init if unshare dies. This happens
+  before confinement. The supervisor reaps the namespace's children. PID namespaces make
+  outside processes unaddressable by signal calls, including queued signals, with the session
+  separation below for process-group signals. This avoids pidfd emulation of thread signals. The filter prevents further namespace changes.
   ABI 6 and newer use Landlock signal scoping instead, without requiring user namespaces.
 - The real filtered probe exercises the same namespace setup on old kernels. If user
   namespaces, util-linux or its mount setup are unavailable, it fails and falls back to
   Landlock alone: `signals: partial` below ABI 6, and reviews remain. `contains()` requires
   all three coverage fields to be contained and Linux ABI at least 3. A filtered launch
   retries setup on every run and refuses to start the command if it fails.
+
+### Session and process lifecycle hardening
+
+1. **Separate sessions on every ABI.** PID namespaces do not by themselves detach an inherited
+   host process group. Namespace PID 1 must successfully call `setsid` before confinement or
+   command startup. Every command also starts through util-linux `/usr/bin/setsid`, which calls
+   `setsid` in the launcher's freshly spawned child before exec. This avoids an unsafe Rust
+   `pre_exec` hook and applies on ABI 6 and newer as well. Failure starts no command. The launcher
+   forwards `SIGINT`, `SIGQUIT`, `SIGTERM` and `SIGHUP` to the new command group because the
+   command no longer belongs to its terminal's original session. Interrupts are forwarded
+   without escalation so a shell may handle them normally.
+2. **Stop the tree, not unshare's waiting parent.** Below ABI 6, init transfers its own pidfd
+   over a private Unix socket before starting the command. The outer launcher verifies the
+   peer is unshare's child and the pidfd names that peer, unlinks the socket, and acknowledges
+   receipt. Startup fails if this handshake fails. Stop signals go straight to init through
+   that host-side pidfd, independent of util-linux signal-forwarding support. After 500 ms,
+   TERM or HUP escalates to killing namespace init, which kills every descendant.
+3. **Reap before reporting done.** On every ABI, TERM or HUP first reaches the command group;
+   after 250 ms the launcher kills the leader through a pre-opened pidfd and kills owned
+   children. As a subreaper it repeatedly kills and reaps adopted children until `ECHILD`,
+   including descendants that changed session or ignored TERM. Normal command exit drains
+   remaining descendants too. Proc directories are pinned before pidfd acquisition and PPid
+   is checked through the pinned directory, so a reused PID cannot select a host process.
+   `waitid(WNOWAIT)` and a shared forwarding lock keep the leader unreaped until group-signal
+   forwarding is disabled. SIGCHLD reaps other adopted children while the command runs.
+4. **Leave shutdown descriptors available.** Retained socket entries use at most one quarter
+   of the launcher's fd limit, capped at 4,096. Concurrent notification workers are bounded
+   against that limit too, capped at 32. Excess calls return EAGAIN. This keeps pidfd and proc
+   operations available for cleanup, including when a run has a 64-fd limit.
+5. **Audit all PID/TID effects.** `sched_setattr` joins the other supervised scheduling writes.
+   Resource, scheduling, nice and I/O-priority task targets may name zero, the current process,
+   or the notifying thread, never an arbitrary sibling TID. Only process selectors are allowed
+   for priority calls. Both `kcmp` targets must be positive self IDs. `pidfd_open` accepts the
+   caller's positive process ID without PIDFD_THREAD, or the notifying TID with PIDFD_THREAD; NONBLOCK
+   is optional. Zero and unknown flags are refused. Older kernels may return EINVAL for an
+   otherwise permitted thread-handle request. `process_mrelease`, `migrate_pages` and
+   `move_pages` are refused outright, alongside `process_madvise`, `pidfd_getfd`, ptrace and
+   process_vm calls. An unknown critical syscall name fails the filter probe. Read-only
+   sched_getattr/getparam/getscheduler/getaffinity/rr_get_interval, getpriority, ioprio_get,
+   getpgid/getsid and get_robust_list remain allowed. The kernel restricts wait calls to
+   children and setpgid to self/children in the same session; signal calls remain subject to
+   Landlock scoping or the private PID namespace and session.

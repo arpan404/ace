@@ -92,8 +92,8 @@ on other systems).
 **The launcher.** `spade sandbox-exec <plan> <program> <args>…` stays outside the sandbox as the
 run's supervisor. It carves the plan's roots, lowers its limits, sets itself as the subreaper,
 and starts one thread that applies Landlock and the seccomp filter to itself and starts the
-command, which inherits both. It passes `SIGTERM` and `SIGHUP` on, outlives `SIGINT` and
-`SIGQUIT` (the terminal sends those to the command as well), reaps what it adopted and exits as
+command, which inherits both. It starts the command in a new session through `/usr/bin/setsid`, forwards `SIGINT`,
+`SIGQUIT`, `SIGTERM` and `SIGHUP` to its process group, reaps what it adopted and exits as
 the command did: its code, or the same signal. A run that can't be confined answers 126 with
 `spade sandbox-exec: …` on stderr.
 
@@ -109,7 +109,7 @@ through another one kills the process). `EPERM` for:
 | What                     | Calls                                                                                                                                                                                                                                              |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Sockets                  | `socket` of any family but `AF_UNIX`, `AF_INET`, `AF_INET6`; TCP only as `SOCK_STREAM` with protocol 0 or `IPPROTO_TCP`; Unix only stream or seqpacket (`socketpair` too); `MSG_FASTOPEN` on the send calls                                        |
-| Other processes          | `ptrace`, `process_vm_readv`, `process_vm_writev`, `pidfd_getfd`, `process_madvise`                                                                                                                                                                           |
+| Other processes          | `ptrace`, `process_vm_readv`, `process_vm_writev`, `pidfd_getfd`, `process_madvise`, `process_mrelease`, `migrate_pages`, `move_pages`                                                                                                                                                                           |
 | The kernel               | `bpf`, `perf_event_open`, `userfaultfd`, `keyctl`, `add_key`, `request_key`, `io_uring_*`, modules, `kexec_*`, `reboot`, `swapon`, `swapoff`, `acct`, `syslog`, `quotactl`, `iopl`, `ioperm`, `modify_ldt`                                         |
 | File systems, namespaces | `mount`, `umount2`, `move_mount`, `open_tree`, `fsopen`, `fsconfig`, `fsmount`, `fspick`, `mount_setattr`, `pivot_root`, `chroot`, `unshare`, `setns`, `clone` with a `CLONE_NEW*` flag, `open_by_handle_at`, `name_to_handle_at`, `fanotify_init` |
 | The terminal             | `ioctl` `TIOCSTI` and `TIOCLINUX`                                                                                                                                                                                                                  |
@@ -133,9 +133,16 @@ socket with `pidfd_getfd` and makes the call itself:
 The supervisor refuses AF_UNSPEC connects and serializes each check and operation by the
 duplicated socket's inode. Listening requires a successful bind by this supervisor and a
 fresh address check under that lock. Descriptor retention prevents inode reuse from granting
-permission; exhaustion fails closed. PID-targeted resource and scheduling calls permit only
-PID 0 or self, with process selectors only; both `kcmp` targets are checked. `process_madvise`
-is refused entirely because its fd target could change before a continued call.
+permission. Retained sockets are capped at one quarter of the fd limit (at most 4,096),
+and concurrent workers are bounded against that limit (at most 32), preserving descriptors
+for shutdown. Excess calls return EAGAIN. PID-targeted resource and scheduling calls permit only
+zero, the caller's process ID or its notifying TID, with process selectors only. This includes
+`sched_setattr`. Both `kcmp` targets must be positive self IDs. Sibling TIDs are refused.
+`pidfd_open` requires the caller's positive process ID, or the notifying TID with PIDFD_THREAD; NONBLOCK
+is optional, and zero and unknown flags are refused. On older kernels a permitted THREAD
+request may return EINVAL. The fd-targeted `process_madvise` and `process_mrelease`, and the
+PID-targeted NUMA migration calls, are refused entirely. Read-only scheduling and priority
+queries remain allowed; wait and setpgid retain the kernel's child/session restrictions.
 
 Everything else is `EPERM`: other hosts and ports (the proxy's port at another address
 included), other loopback ports, DNS over TCP, Unix sockets outside the workspace or reached
@@ -158,9 +165,20 @@ command starts can't reach the desktop. There is no grant for them yet.
 with `--user --map-current-user --pid --fork --mount-proc --kill-child`, before installing
 restrictions. An unlinked status file lets the outer launcher preserve termination signals
 while distinguishing them from exit codes such as 143. The launcher is the new namespace's
-init. Outside processes cannot be signalled.
+init and must successfully call `setsid` before command startup, separating it from the
+inherited host process group. Init sends its own pidfd over a private, authenticated Unix
+handshake before any confined command starts. The outer launcher forwards signals through
+that pidfd, bypassing unshare's waiting parent. TERM or HUP escalates to killing init after
+500 ms, ending the whole namespace.
 If this setup fails, the filtered probe fails: signals are partial and commands keep reviews.
-ABI 6 and newer use Landlock's signal scoping.
+ABI 6 and newer use Landlock's signal scoping, with the command still in a new session.
+On every ABI, TERM and HUP reach the command group and escalate after 250 ms through a
+pre-opened leader pidfd and owned-child pidfds. The subreaper kills and reaps adopted
+children until ECHILD, including detached sessions, before reporting the run done. A normal
+command exit also cleans up descendants. Interrupts are forwarded without escalation.
+Pinned proc directories and PPid checks protect child discovery against PID reuse; the
+leader stays unreaped until group forwarding is disabled. The unlinked status file preserves
+termination signals while distinguishing an intentional exit code such as 143.
 
 **Fallbacks.** The probe tries the filter, then Landlock alone. ABI 1 and 2 always report
 `files: partial` because they cannot contain truncation and commands keep reviews:

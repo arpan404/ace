@@ -15,6 +15,7 @@ pub fn run(args: &[OsString]) -> Result<ExitCode, String> {
         signal_hook::consts::SIGHUP,
     ])
     .map_err(|e| e.to_string())?;
+    let channel = super::namespace_handle::Channel::new().map_err(|e| e.to_string())?;
     let mut child = Command::new("/usr/bin/unshare")
         .args([
             "--user",
@@ -28,19 +29,38 @@ pub fn run(args: &[OsString]) -> Result<ExitCode, String> {
         .arg(super::LAUNCHER_ARG)
         .arg("--private-pid-init")
         .arg(ending.path())
+        .arg(channel.path())
         .args(args)
         .spawn()
         .map_err(|e| format!("signals need a private PID namespace: {e}"))?;
-    let pid = rustix::process::Pid::from_child(&child);
+    let init = match channel.receive(&mut child) {
+        Ok(init) => init,
+        Err(why) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(why);
+        }
+    };
     std::thread::spawn(move || {
         for signal in signals.forever() {
             let forwarded = match signal {
+                signal_hook::consts::SIGINT => Some(rustix::process::Signal::INT),
+                signal_hook::consts::SIGQUIT => Some(rustix::process::Signal::QUIT),
                 signal_hook::consts::SIGTERM => Some(rustix::process::Signal::TERM),
                 signal_hook::consts::SIGHUP => Some(rustix::process::Signal::HUP),
                 _ => None,
             };
             if let Some(signal) = forwarded {
-                let _ = rustix::process::kill_process(pid, signal);
+                let _ = rustix::process::pidfd_send_signal(&init, signal);
+                if matches!(
+                    signal,
+                    rustix::process::Signal::TERM | rustix::process::Signal::HUP
+                ) {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    // Killing namespace init ends every descendant, including new sessions.
+                    let _ =
+                        rustix::process::pidfd_send_signal(&init, rustix::process::Signal::KILL);
+                }
             }
         }
     });
