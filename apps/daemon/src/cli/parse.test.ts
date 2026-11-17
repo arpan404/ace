@@ -134,7 +134,10 @@ test("a required argument left out is reported as missing, so a terminal can ask
 });
 
 test("a noun without a default of its own answers with its page, not an error", () => {
-  expect(parse("market")).toMatchObject({ kind: "noun", words: ["market"] });
+  expect(parse("market maintainer")).toMatchObject({
+    kind: "noun",
+    words: ["market", "maintainer"],
+  });
   expect(parse("provider account")).toMatchObject({
     kind: "noun",
     words: ["provider", "account"],
