@@ -212,8 +212,8 @@ function publishWording(request: PublishRequest, facts: AgentFacts): Wording {
     case "latest":
       return {
         doing: request.version
-          ? `make ${request.version} the latest of ${ref(request)}`
-          : `let the market choose the latest of ${ref(request)}`,
+          ? `make ${request.version} the latest of ${request.type}/${request.name}`
+          : `let the market choose the latest of ${request.type}/${request.name}`,
         gerund: "Choosing the latest version",
         action: "Change…",
       };
@@ -241,7 +241,7 @@ function publishWording(request: PublishRequest, facts: AgentFacts): Wording {
         doing: `deprecate ${ref(request)}`,
         gerund: "Deprecating",
         action: "Deprecate…",
-        why: request.note,
+        why: request.note ?? undefined,
       };
     case "appeal":
       return {
