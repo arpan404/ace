@@ -1,84 +1,30 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { z } from "zod";
-import { nodeFilesHost } from "./host.ts";
-import { FilesProcess } from "./process.ts";
-import { messageSchema, type EventPayload, type Message } from "./schemas.ts";
+import type { EventPayload } from "./schemas.ts";
 import { restartDelay } from "./supervision.ts";
-import { ManualClock, settle, trackingHost, until, type TrackingHost } from "./test-support.ts";
+import {
+  fakeFilesHarness,
+  fakeMessages,
+  fakeSpawnCount,
+  settle,
+  stopFakeFiles,
+  until,
+  type FakeFilesHarness,
+} from "./test-support.ts";
 
-const fakeScript = fileURLToPath(new URL("../test-support/fake-ace-files.ts", import.meta.url));
+const open: FakeFilesHarness[] = [];
 
-const logged = z.union([
-  z.object({ event: z.literal("spawn"), pid: z.number(), generation: z.number() }),
-  z.object({ event: z.literal("message"), pid: z.number(), message: messageSchema }),
-  z.object({ event: z.literal("body"), pid: z.number(), id: z.number(), bytes: z.number() }),
-]);
-type Logged = z.infer<typeof logged>;
-
-type Harness = {
-  dir: string;
-  files: FilesProcess;
-  clock: ManualClock;
-  host: TrackingHost;
-  logPath: string;
-};
-
-const open: Harness[] = [];
-
-function harness(behaviour: "answer" | "hang" | "exit" | "oversize" = "answer"): Harness {
-  const dir = mkdtempSync(join(tmpdir(), "ace-files-native-"));
-  const logPath = join(dir, "fake.log");
-  writeFileSync(logPath, "");
-  const clock = new ManualClock();
-  const host = trackingHost(
-    nodeFilesHost(
-      { ...process.env, FAKE_FILES_BEHAVIOUR: behaviour, FAKE_FILES_LOG: logPath },
-      () => ({ command: process.execPath, args: [fakeScript] }),
-    ),
-  );
-  const files = new FilesProcess({ binary: "/fake/ace-files", host, clock, log: () => {} });
-  const current = { dir, files, clock, host, logPath };
-  open.push(current);
-  return current;
+function harness(behaviour: Parameters<typeof fakeFilesHarness>[0] = "answer"): FakeFilesHarness {
+  const h = fakeFilesHarness(behaviour);
+  open.push(h);
+  return h;
 }
 
 afterEach(async () => {
-  const closed = open.splice(0);
-  for (const h of closed) {
-    h.files.dispose();
-    for (const child of h.host.children) {
-      try {
-        child.kill();
-      } catch {
-        // Already gone.
-      }
-    }
-  }
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  for (const h of closed) rmSync(h.dir, { recursive: true, force: true });
+  for (const h of open.splice(0)) await stopFakeFiles(h);
 });
 
-function entries(h: Harness): Logged[] {
-  return readFileSync(h.logPath, "utf8")
-    .split("\n")
-    .filter((line) => line.endsWith("}"))
-    .map((line) => logged.parse(JSON.parse(line)));
-}
-
-function spawns(h: Harness): number {
-  return entries(h).filter((entry) => entry.event === "spawn").length;
-}
-
-function messages(h: Harness): Message[] {
-  return entries(h).flatMap((entry) => (entry.event === "message" ? [entry.message] : []));
-}
-
-function requestOps(h: Harness): string[] {
-  return messages(h).flatMap((message) => (message.type === "request" ? [message.op.op] : []));
+function requestOps(h: FakeFilesHarness): string[] {
+  return fakeMessages(h).flatMap((message) => (message.type === "request" ? [message.op.op] : []));
 }
 
 describe("FilesProcess", () => {
@@ -87,7 +33,7 @@ describe("FilesProcess", () => {
     await h.files.start();
     expect(h.files.state()).toBe("up");
     expect(h.files.version).toBe("0.0.0-test");
-    expect(messages(h)).toContainEqual({ type: "hello", protocol: 1 });
+    expect(fakeMessages(h)).toContainEqual({ type: "hello", protocol: 1 });
     const root = await h.files.openRoot("/repo");
     expect(root).toBe(1);
     const { reply } = await h.files.request({ op: "stat", root, path: "src/main.ts" });
@@ -112,15 +58,17 @@ describe("FilesProcess", () => {
   it("restarts after 250 ms, then 500 ms, when the process keeps exiting", async () => {
     const h = harness("exit");
     void h.files.start().catch(() => {});
-    await until(() => spawns(h) === 1);
+    await until(() => fakeSpawnCount(h) === 1);
+    await until(() => h.files.state() === "down");
     await h.clock.advance(249);
-    expect(spawns(h)).toBe(1);
+    expect(fakeSpawnCount(h)).toBe(1);
     await h.clock.advance(1);
-    await until(() => spawns(h) === 2);
+    await until(() => fakeSpawnCount(h) === 2);
+    await until(() => h.files.state() === "down");
     await h.clock.advance(499);
-    expect(spawns(h)).toBe(2);
+    expect(fakeSpawnCount(h)).toBe(2);
     await h.clock.advance(1);
-    await until(() => spawns(h) === 3);
+    await until(() => fakeSpawnCount(h) === 3);
   });
 
   it("backs off from 250 ms doubling to a 10 s cap", () => {
@@ -135,9 +83,9 @@ describe("FilesProcess", () => {
     h.host.children.at(-1)?.kill();
     await until(() => h.files.state() === "down");
     await h.clock.advance(249);
-    expect(spawns(h)).toBe(1);
+    expect(fakeSpawnCount(h)).toBe(1);
     await h.clock.advance(1);
-    await until(() => spawns(h) === 2);
+    await until(() => fakeSpawnCount(h) === 2);
     await until(() => h.files.state() === "up");
   });
 
@@ -164,7 +112,7 @@ describe("FilesProcess", () => {
     expect(settled).toBe(false);
     await h.clock.advance(1);
     await expect(pending).rejects.toMatchObject({ code: "TIMEOUT" });
-    await until(() => messages(h).some((message) => message.type === "cancel"));
+    await until(() => fakeMessages(h).some((message) => message.type === "cancel"));
   });
 
   it("aborting a request sends cancel", async () => {
@@ -174,7 +122,7 @@ describe("FilesProcess", () => {
     const pending = h.files.request({ op: "closeRoot", root: 1 }, { signal: controller.signal });
     controller.abort();
     await expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
-    await until(() => messages(h).some((message) => message.type === "cancel"));
+    await until(() => fakeMessages(h).some((message) => message.type === "cancel"));
   });
 
   it("re-opens roots and watches after a restart, keeping their numbers", async () => {
@@ -188,7 +136,7 @@ describe("FilesProcess", () => {
     h.host.children.at(-1)?.kill();
     await until(() => h.files.state() === "down");
     await h.clock.advance(250);
-    await until(() => spawns(h) === 2 && h.files.state() === "up");
+    await until(() => fakeSpawnCount(h) === 2 && h.files.state() === "up");
     expect(requestOps(h).filter((op) => op === "openRoot")).toHaveLength(2);
     expect(requestOps(h).filter((op) => op === "watch")).toHaveLength(2);
     // The restarted fake only knows the root number it handed out this generation, so this
@@ -202,9 +150,9 @@ describe("FilesProcess", () => {
   it("kills a process that sends an oversize frame and restarts it", async () => {
     const h = harness("oversize");
     void h.files.start().catch(() => {});
-    await until(() => spawns(h) === 1);
+    await until(() => fakeSpawnCount(h) === 1);
     await until(() => h.files.state() === "down");
     await h.clock.advance(250);
-    await until(() => spawns(h) === 2);
+    await until(() => fakeSpawnCount(h) === 2);
   });
 });

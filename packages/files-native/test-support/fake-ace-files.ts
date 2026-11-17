@@ -17,8 +17,8 @@ const logPath = process.env.FAKE_FILES_LOG;
 const behaviour = process.env.FAKE_FILES_BEHAVIOUR ?? "answer";
 const version = process.env.FAKE_FILES_VERSION ?? "0.0.0-test";
 
-function log(entry: unknown): void {
-  if (logPath) appendFileSync(logPath, `${JSON.stringify({ pid: process.pid, ...entry })}\n`);
+function log(record: Record<string, unknown>): void {
+  if (logPath) appendFileSync(logPath, `${JSON.stringify({ pid: process.pid, ...record })}\n`);
 }
 
 const generation =

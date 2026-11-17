@@ -739,6 +739,13 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/files-native": {
+      "name": "@ace/files-native",
+      "dependencies": {
+        "@ace/service": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/forge": {
       "name": "@ace/forge",
       "dependencies": {
@@ -1307,6 +1314,8 @@
     "@ace/fake-daemon": ["@ace/fake-daemon@workspace:packages/fake-daemon"],
 
     "@ace/files": ["@ace/files@workspace:packages/files"],
+
+    "@ace/files-native": ["@ace/files-native@workspace:packages/files-native"],
 
     "@ace/forge": ["@ace/forge@workspace:packages/forge"],
 
