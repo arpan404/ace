@@ -57,7 +57,7 @@ struct AceAccountView: View {
                 }
             }
             browserFailure
-            if model.account != nil, let machines { accountMachines(machines) }
+            if model.account != nil, let listed { accountMachines(listed) }
             legal
         }
     }
@@ -145,17 +145,22 @@ struct AceAccountView: View {
         } catch { browserProblem = error.localizedDescription }
     }
 
-    @ViewBuilder private func accountMachines(_ machines: MachinesModel) -> some View {
+    /// The account's machines; `--spike-account`'s when there is no machines model (the fixture).
+    private var listed: [AceMachine]? {
+        machines?.accountMachines ?? (SpikeConfiguration.account ? SpikeConfiguration.accountMachines(now: Date().timeIntervalSince1970 * 1000) : nil)
+    }
+
+    @ViewBuilder private func accountMachines(_ listed: [AceMachine]) -> some View {
         Section {
-            if machines.accountMachines.isEmpty {
+            if listed.isEmpty {
                 Text("No machines yet. Sign in to ace on a computer, or run ace login there.")
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .accessibilityIdentifier("account.machines.empty")
             }
-            ForEach(machines.accountMachines) { machine in
+            ForEach(listed) { machine in
                 InsetRow(systemImage: Self.symbol(machine.platform), title: machine.name.isEmpty ? "Machine" : machine.name,
-                         subtitle: subtitle(machine, machines: machines)) {
+                         subtitle: subtitle(machine)) {
                     Button("Forget") { forgetting = machine }
                         .buttonStyle(.borderless)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -171,8 +176,8 @@ struct AceAccountView: View {
         .insetRowBackground()
     }
 
-    private func subtitle(_ machine: AceMachine, machines: MachinesModel) -> String {
-        let paired = machines.entry(machine.hostId).map { !$0.isAccountMachine } ?? false
+    private func subtitle(_ machine: AceMachine) -> String {
+        let paired = machines?.entry(machine.hostId).map { !$0.isAccountMachine } ?? false
         var parts = [paired ? "Paired" : "Via account"]
         if machine.lastSeenAt > 0 {
             let seen = Date(timeIntervalSince1970: machine.lastSeenAt / 1000)

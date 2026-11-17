@@ -30,6 +30,14 @@ enum SpikeConfiguration {
     /// `--spike-unpaired`: a fresh install with no computer paired, connecting to no fixture, so
     /// home and Code review offer pairing.
     static var unpaired: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-unpaired") }
+    /// `--spike-account`: Profile shows a signed-in ace account and its machines, with no
+    /// backend, so the signed-in page can be checked and screenshotted.
+    static var account: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-account") }
+    /// The account machines `--spike-account` lists, last seen a few minutes and days before `now`.
+    static func accountMachines(now: Double) -> [AceMachine] {
+        [AceMachine(hostId: "ios-spike-host", name: "arpan-mbp", platform: "darwin", lastSeenAt: now - 4 * 60_000),
+         AceMachine(hostId: "fixture-studio", name: "studio", platform: "linux", lastSeenAt: now - 3 * 86_400_000)]
+    }
     /// `--spike-view-only`: the phone may only view the fixture machine, as a view-only pairing.
     static var viewOnly: Bool { ProcessInfo.processInfo.arguments.contains("--spike-view-only") }
     /// The thread `--spike-open ID` asks to open at launch.

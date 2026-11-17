@@ -86,6 +86,11 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         } catch { self.error = "Couldn't verify your account. Try again." }
     }
 
+    #if ACE_FIXTURE
+    /// `--spike-account`: a signed-in account without a backend.
+    func showFixtureAccount() { account = AceAccountIdentity(id: "fixture", email: "ada@example.com", name: "Ada Lovelace") }
+    #endif
+
     deinit { http.invalidateAndCancel() }
 
     func signIn() {

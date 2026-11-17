@@ -68,6 +68,9 @@ import QuartzCore
         .environment(notificationDelegate.coordinator)
         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
         .task {
+            #if ACE_FIXTURE
+            if SpikeConfiguration.account { account.showFixtureAccount() }
+            #endif
             if SpikeConfiguration.unpaired { await startUnpaired(); return }
             let targets = SpikeConfiguration.targets()
             guard !started, !targets.isEmpty, let directory = try? ProductionApp.storageDirectory() else { return }
