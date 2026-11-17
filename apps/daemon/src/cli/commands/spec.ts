@@ -14,6 +14,12 @@ export type CommandGroup =
   | "spade-market"
   | "agent-tools";
 
+/**
+ * What a value names, so completion can ask the running daemon for the live ones (ADR 0176 §6):
+ * thread ids, project names, open request ids, Spade bot names.
+ */
+export type RefKind = "thread" | "project" | "request" | "bot";
+
 export interface FlagSpec {
   readonly name: string;
   /** One letter, used as `-x`. */
@@ -24,6 +30,8 @@ export interface FlagSpec {
   /** May be given more than once; values collect in `Args.lists`. */
   readonly repeat?: boolean;
   readonly choices?: readonly string[];
+  /** The value names one of these, which completion offers live from the daemon. */
+  readonly ref?: RefKind;
   /** Accepted, never shown: old spellings kept for the deprecation window. */
   readonly hidden?: boolean;
 }
@@ -36,6 +44,8 @@ export interface ArgSpec {
   readonly variadic?: boolean;
   /** `-` reads this argument from stdin. */
   readonly stdin?: boolean;
+  /** The argument names one of these, which completion offers live from the daemon. */
+  readonly ref?: RefKind;
 }
 
 export interface Example {

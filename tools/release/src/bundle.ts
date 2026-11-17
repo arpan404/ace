@@ -62,7 +62,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|builtin-suits|install|device-tools|metadata-host-client|document)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|agent-env|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|builtin-suits|install|device-tools|metadata-host-client|document)\.ts$/,
             },
             async (args) => {
               // Windows paths arrive with backslashes; the rewrites below match `/` paths.
@@ -101,6 +101,11 @@ export async function bundleDaemon(
                 if (source && worker && output && args.path.endsWith(source))
                   contents = contents.replace(JSON.stringify(worker), JSON.stringify(output));
               }
+              if (args.path.endsWith("/adapter-opencode/src/agent-env.ts"))
+                contents = contents.replace(
+                  '"./agent-env-plugin"',
+                  '"./opencode-agent-env-plugin"',
+                );
               if (args.path.endsWith("/adapter-opencode/src/mcp-ready.ts"))
                 contents = contents.replace(
                   '"./mcp-ready-plugin"',
@@ -255,6 +260,10 @@ export async function bundleDaemon(
     [
       "packages/adapter-opencode/src/mcp-ready-plugin/server.ts",
       "opencode-mcp-ready-plugin/server.mjs",
+    ],
+    [
+      "packages/adapter-opencode/src/agent-env-plugin/server.ts",
+      "opencode-agent-env-plugin/server.mjs",
     ],
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
     ["packages/adapter-claude/src/metadata-host.ts", "claude-metadata-host.mjs"],

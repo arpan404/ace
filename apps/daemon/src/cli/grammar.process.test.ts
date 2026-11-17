@@ -63,6 +63,17 @@ test("help, version, completion and doctor's help work with ace down", async () 
   expect(await readdir(root)).not.toContain("daemon-endpoint");
 });
 
+test("tab completion with ace down answers from the table and writes nothing", async () => {
+  const { root, env } = await emptyHome();
+  const verbs = await run(env, ["__complete", "--", "thread", ":s"]);
+  expect(verbs.code, verbs.stderr).toBe(0);
+  expect(verbs.stdout.split("\n")).toEqual(expect.arrayContaining(["show", "start"]));
+  // A thread slot would ask the daemon; with none there it offers nothing, and quietly.
+  const threads = await run(env, ["__complete", "--", "thread", "show", ":"]);
+  expect(threads).toEqual({ code: 0, stdout: "", stderr: "" });
+  expect(await readdir(root)).toEqual([]);
+});
+
 test("a wrong command line exits 64 with the nearest command, as one CliError with --json", async () => {
   const { env } = await emptyHome();
   const typo = await run(env, ["thraed", "list"]);

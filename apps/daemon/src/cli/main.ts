@@ -1,4 +1,6 @@
-import { readConfig, type Config } from "../config.ts";
+import { homedir } from "node:os";
+import { resolveDaemonHome } from "@ace/service/home-path";
+import type { Config } from "../config.ts";
 import type { Args } from "./args.ts";
 import { commandTable } from "./commands/table.ts";
 import type { ArgSpec, CommandSpec } from "./commands/spec.ts";
@@ -87,6 +89,7 @@ export async function main(input: readonly string[]): Promise<void> {
       env: process.env,
       table,
       config: () => readConfigOnce(),
+      dataDir: () => resolveDaemonHome(homedir(), process.env.ACE_HOME),
     };
     const handler = handlers[command.id];
     if (!handler)
@@ -162,8 +165,9 @@ async function fillMissing(parsed: Parsed, args: Args): Promise<string[]> {
   return words;
 }
 
-let config: Config | undefined;
-function readConfigOnce(): Config {
-  config ??= readConfig();
+let config: Promise<Config> | undefined;
+/** The config module loads only when a command reads it: most of ace's schemas come with it. */
+function readConfigOnce(): Promise<Config> {
+  config ??= import("../config.ts").then((module) => module.readConfig());
   return config;
 }
