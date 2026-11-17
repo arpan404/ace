@@ -1,12 +1,13 @@
 import type { MarketEntryType, MarketScanFinding } from "@ace/protocol/marketplace";
 import type { ArchiveFile } from "../archive.ts";
+import { isLicencePath, licenceProblem } from "./licence.ts";
 
 /*
  * The `files` check (ADR 0173 §8): nothing executable or packaged travels in an entry. Native
  * programs are told by their first bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a
  * plugin by its header, a compiled AppleScript by its `FasdUAS` marker, and an archive inside the
  * archive by its own magic (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg). An executable bit on a
- * type that has none is a finding, and a Suit may hold only its own file kinds. Pure.
+ * type that has none is a finding, and a Suit may hold only its own file kinds (plus plain-text licences, see licence.ts). Pure.
  */
 
 function startsWith(bytes: Uint8Array, signature: readonly number[], at = 0): boolean {
@@ -144,20 +145,20 @@ export function filesCheck(
         ),
       );
     }
-    if (
-      type === "suit" &&
-      file.path !== "market.json" &&
-      !SUIT_ALLOWED.test(file.path) &&
-      !SUIT_ORNAMENT.test(file.path)
-    ) {
-      findings.push(
-        findingOf(
-          file.path,
-          `${file.path} isn't a file a Suit may hold (suit.json, suit.css, scene JS, ornaments, market.json, or images, fonts and videos under assets/)`,
-          "block",
-          "suit-stray-file",
-        ),
-      );
+    if (type === "suit" && file.path !== "market.json") {
+      if (file.executable === false && isLicencePath(file.path)) {
+        const problem = licenceProblem(file.path, bytes);
+        if (problem) findings.push(findingOf(file.path, problem.message, "block", problem.rule));
+      } else if (!SUIT_ALLOWED.test(file.path) && !SUIT_ORNAMENT.test(file.path)) {
+        findings.push(
+          findingOf(
+            file.path,
+            `${file.path} isn't a file a Suit may hold (suit.json, suit.css, scene JS, ornaments, market.json, licence texts, or images, fonts and videos under assets/)`,
+            "block",
+            "suit-stray-file",
+          ),
+        );
+      }
     }
   }
   return findings;

