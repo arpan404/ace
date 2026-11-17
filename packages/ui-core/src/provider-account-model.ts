@@ -16,6 +16,9 @@ export interface AccountStatusView {
 
 /** Authentication and live limits in the same words on every account surface. */
 export function accountStatus(account: AccountView, now: number): AccountStatusView {
+  // Startup hasn't heard back from the folder yet: not a problem with the account.
+  if (account.quota.blockers.homeUnavailable === "home_checking")
+    return { tone: "action", text: "Checking account folder", canRun: false };
   if (account.quota.blockers.homeUnavailable)
     return {
       tone: "problem",

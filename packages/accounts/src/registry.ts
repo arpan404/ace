@@ -16,30 +16,21 @@ import {
 } from "@ace/protocol/accounts";
 import { availability, blockedUntil } from "./availability.ts";
 import { initialQuota, ingestQuota, type QuotaFact } from "./quota.ts";
-import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { assertManagedHome, restoreCursorHome } from "./managed-home.ts";
-import { canonicalHome } from "./paths.ts";
+import {
+  canonicalInstance,
+  homeCheckPatienceMs,
+  homeProblem,
+  readHome,
+  realAfter,
+  withinPatience,
+  type HomeCheckOptions,
+} from "./home-checks.ts";
 import { antigravitySignInOf } from "./antigravity-sign-in.ts";
 import { accountProvider } from "./acp-instances.ts";
 const selectionRow = z.object({ backend: z.string(), instance_id: AccountInstanceId });
 const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16384) });
-
-async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
-  const parsed = ProviderInstance.parse(input);
-  instanceEnv(parsed, {});
-  if (parsed.implicit) return parsed;
-  // Managed identities are immutable. validateHome refuses aliases instead of rewriting them.
-  if (parsed.managed) return parsed;
-  const homeDir = await canonicalHome(parsed.homeDir);
-  const env: ProviderInstance["env"] = {};
-  for (const key of Object.keys(parsed.env)) {
-    const name = AccountEnvKey.parse(key);
-    const value = parsed.env[name];
-    if (value !== undefined) env[name] = await canonicalHome(value);
-  }
-  return ProviderInstance.parse({ ...parsed, homeDir, env });
-}
 
 /**
  * ACP accounts on the agent's default home all share the person's own; managed ones, like native
@@ -93,9 +84,13 @@ export class AccountRegistry {
   }
   private db: DatabaseSync;
   private pending = new Set<string>();
-  private validating = false;
+  /** Accounts whose home hasn't answered this run's check yet; settles when it does. */
+  private checks = new Map<string, Promise<void>>();
   private managedDataDir: string | undefined;
+  /** Every saved home has answered. While one hangs, this waits with it. */
   ready: Promise<void> = Promise.resolve();
+  /** Every saved home has answered, or the ones that haven't were left checking. */
+  firstPass: Promise<void> = Promise.resolve();
   private select;
   private all;
   private upsert;
@@ -171,7 +166,25 @@ export class AccountRegistry {
       "INSERT INTO accounts VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET instance=excluded.instance, quota=excluded.quota",
     );
   }
+  /** Whether this account's home hasn't answered its startup check yet. */
+  isChecking(id: string): boolean {
+    return this.checks.has(id);
+  }
+  /** Settles once this account's home has answered (at once if it already has). */
+  checked(id: string): Promise<void> {
+    return this.checks.get(id) ?? Promise.resolve();
+  }
+  /** Accounts of one provider (or ACP agent's) whose homes are still being checked. */
+  checkingIds(provider: string): string[] {
+    return this.readAccounts()
+      .filter(
+        ({ instance }) => this.checks.has(instance.id) && accountProvider(instance) === provider,
+      )
+      .map(({ instance }) => instance.id);
+  }
   async validateHome(instance: ProviderInstance): Promise<void> {
+    // Work never runs in a home that hasn't answered; callers that can wait use `checked`.
+    if (this.checks.has(instance.id)) throw new Error("Account folder hasn't answered yet");
     const problem = this.readAccount(instance.id)?.quota.blockers.homeUnavailable;
     if (problem) throw new Error(problem);
     if (!instance.managed) return;
@@ -183,7 +196,8 @@ export class AccountRegistry {
     const account = this.get(id);
     if (!account || !this.managedDataDir) throw new Error("Account unavailable");
     const problem = account.quota.blockers.homeUnavailable;
-    if (problem === "foreign_home" || problem === "home_conflict") throw new Error(problem);
+    if (problem === "foreign_home" || problem === "home_conflict" || problem === "home_checking")
+      throw new Error(problem);
     const created = await restoreCursorHome(this.managedDataDir, account.instance);
     const current = this.get(id);
     if (!current || current.instance.homeDir !== account.instance.homeDir)
@@ -200,11 +214,30 @@ export class AccountRegistry {
   private decode(value: unknown) {
     const parsed = row.parse(value);
     const quota = AccountQuota.parse(JSON.parse(parsed.quota));
+    // "Checking" is this run's fact, never a stored one.
+    if (quota.blockers.homeUnavailable === "home_checking") {
+      quota.blockers = { ...quota.blockers };
+      delete quota.blockers.homeUnavailable;
+    }
     return { instance: ProviderInstance.parse(JSON.parse(parsed.instance)), quota };
   }
+  /**
+   * An account whose home hasn't answered reads as `home_checking`: listed and named, never
+   * missing, and never available, so nothing picks it or another account in its place unseen.
+   */
+  private reported<T extends { instance: ProviderInstance; quota: AccountQuota }>(account: T): T {
+    if (!this.checks.has(account.instance.id)) return account;
+    return {
+      ...account,
+      quota: {
+        ...account.quota,
+        blockers: { ...account.quota.blockers, homeUnavailable: "home_checking" },
+      },
+    };
+  }
   get(id: string) {
-    if (this.validating) throw new Error("Account homes are still being validated");
-    return this.readAccount(id);
+    const account = this.readAccount(id);
+    return account && this.reported(account);
   }
   private readAccount(id: string) {
     const value = this.select.get(AccountInstanceId.parse(id));
@@ -212,7 +245,7 @@ export class AccountRegistry {
   }
   setCursorSdkAuth(id: string, input: unknown): void {
     const status = CursorSdkAuth.parse(input);
-    const account = this.get(id);
+    const account = this.readAccount(id);
     if (!account || account.instance.provider !== "cursor")
       throw new Error("Unknown Cursor instance");
     this.updateQuota.run(JSON.stringify({ ...account.quota, cursorSdkAuth: status }), id);
@@ -233,8 +266,9 @@ export class AccountRegistry {
     this.selectProvider("cursor", AccountId.parse(id));
   }
   list() {
-    if (this.validating) throw new Error("Account homes are still being validated");
-    return this.readAccounts().filter(({ instance }) => !this.pending.has(instance.id));
+    return this.readAccounts()
+      .filter(({ instance }) => !this.pending.has(instance.id))
+      .map((account) => this.reported(account));
   }
   private readAccounts() {
     const rows = this.all.all();
@@ -311,7 +345,7 @@ export class AccountRegistry {
         )
           throw new Error("Instance homes must be distinct");
       }
-      const current = this.get(instance.id);
+      const current = this.readAccount(instance.id);
       this.upsert.run(
         instance.id,
         JSON.stringify({
@@ -335,60 +369,64 @@ export class AccountRegistry {
       throw error;
     }
   }
-  /** Canonicalize and validate every account home before accepting assignments or writes. */
-  canonicalizeHomes(signal?: AbortSignal): Promise<void> {
-    this.validating = true;
-    this.ready = this.normalizeHomes(signal);
+  /**
+   * Check every saved account's home, one at a time, each committed as it answers. A home that
+   * hasn't answered within the patience stays checking while the next account's check starts, so
+   * one stuck folder holds up only its own account (ADR 0175).
+   */
+  canonicalizeHomes(signal?: AbortSignal, options: HomeCheckOptions = {}): Promise<void> {
+    const check = options.check ?? ((instance, next) => next(instance));
+    const after = options.after ?? realAfter;
+    const patienceMs = options.patienceMs ?? homeCheckPatienceMs;
+    const roots = new Map<string, Set<string>>();
+    const settled: Promise<void>[] = [];
+    let turn: Promise<void> = Promise.resolve();
+    for (const account of this.readAccounts()) {
+      if (this.pending.has(account.instance.id)) continue;
+      const mine = turn.then(() => this.checkHome(account, roots, check, signal));
+      this.checks.set(account.instance.id, mine);
+      settled.push(mine);
+      // Patience runs from when this check starts, not from when it was queued.
+      turn = turn.then(() => withinPatience(mine, patienceMs, after));
+    }
+    this.firstPass = turn;
+    this.ready = Promise.all(settled).then(() => {});
     // Consumers can use readiness later; prevent an unhandled failure meanwhile.
     void this.ready.catch(() => undefined);
+    for (const task of settled) void task.catch(() => undefined);
     return this.ready;
   }
-  private async normalizeHomes(signal?: AbortSignal): Promise<void> {
-    const accounts = this.readAccounts().filter(({ instance }) => !this.pending.has(instance.id));
-    const normalized = [];
-    const roots = new Map<string, Set<string>>();
-    for (const account of accounts) {
-      signal?.throwIfAborted();
-      const quota = { ...account.quota, blockers: { ...account.quota.blockers } };
-      delete quota.blockers.homeUnavailable;
-      try {
-        const instance = await canonicalInstance(account.instance);
-        // Startup revalidates repaired homes rather than trusting last startup's blocker.
-        if (instance.managed) {
-          if (!this.managedDataDir) throw new Error("Managed account needs its data root");
-          await assertManagedHome(this.managedDataDir, instance);
-        } else if (!instance.implicit && instance.provider !== "acp") {
-          const stat = await lstat(instance.homeDir);
-          if (!stat.isDirectory()) throw new Error("home_missing");
-        }
-        if ((instance.provider !== "acp" || instance.managed) && !instance.implicit) {
-          const used = roots.get(instance.provider) ?? new Set<string>();
-          const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
-          for (const path of selectors) if (used.has(path)) throw new Error("home_conflict");
-          for (const path of selectors) used.add(path);
-          roots.set(instance.provider, used);
-        }
-        normalized.push({ instance, quota });
-      } catch (error) {
-        signal?.throwIfAborted();
-        const code = error instanceof Error && "code" in error ? error.code : undefined;
-        quota.blockers.homeUnavailable =
-          error instanceof Error && error.message === "foreign_home"
-            ? "foreign_home"
-            : error instanceof Error && error.message === "home_conflict"
-              ? "home_conflict"
-              : code === "ENOENT" || code === "ENOTDIR"
-                ? "home_missing"
-                : "home_unreadable";
-        normalized.push({ instance: account.instance, quota });
+  private async checkHome(
+    account: { instance: ProviderInstance; quota: AccountQuota },
+    roots: Map<string, Set<string>>,
+    check: NonNullable<HomeCheckOptions["check"]>,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    const blockers = { ...account.quota.blockers };
+    delete blockers.homeUnavailable;
+    let instance = account.instance;
+    try {
+      instance = await check(account.instance, (next) => readHome(next, this.managedDataDir));
+      // A home shared with an account that answered first is the later one's conflict.
+      if ((instance.provider !== "acp" || instance.managed) && !instance.implicit) {
+        const used = roots.get(instance.provider) ?? new Set<string>();
+        const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
+        for (const path of selectors) if (used.has(path)) throw new Error("home_conflict");
+        for (const path of selectors) used.add(path);
+        roots.set(instance.provider, used);
       }
+    } catch (error) {
+      signal?.throwIfAborted();
+      instance = account.instance;
+      blockers.homeUnavailable = homeProblem(error);
     }
     signal?.throwIfAborted();
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      for (const { instance, quota } of normalized) {
-        const current = this.readAccount(instance.id);
-        if (!current) throw new Error("Instance changed during canonicalization");
+      // Removed while its home was being read: nothing left to record.
+      const current = this.readAccount(instance.id);
+      if (current)
         this.upsert.run(
           instance.id,
           JSON.stringify({
@@ -397,19 +435,25 @@ export class AccountRegistry {
             shortLabel: current.instance.shortLabel,
             badgeColor: current.instance.badgeColor,
           }),
-          JSON.stringify({ ...current.quota, blockers: quota.blockers }),
+          JSON.stringify({ ...current.quota, blockers }),
         );
-      }
       this.db.exec("COMMIT");
-      this.validating = false;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
+    this.checks.delete(instance.id);
+    for (const listener of this.quotaListeners) {
+      try {
+        listener(instance.id);
+      } catch {
+        /* Reader owns delivery. */
+      }
+    }
   }
   /** CLI-owned login completed; invalidate only this immutable account generation. */
   loginChanged(id: string): void {
-    const account = this.get(id);
+    const account = this.readAccount(id);
     if (!account) throw new Error("Unknown instance");
     const previous = account.instance.loginRevision ?? "0";
     if (!/^\d{1,15}$/.test(previous)) throw new Error("Invalid login revision");
@@ -431,7 +475,7 @@ export class AccountRegistry {
     observedAt: number,
     signInMethod?: string,
   ): void {
-    const account = this.get(id);
+    const account = this.readAccount(id);
     if (!account || account.instance.provider !== "acp") throw new Error("ACP account required");
     const quota = AccountQuota.parse({ ...account.quota, auth, observedAt });
     this.loginChanged(id);
@@ -459,7 +503,7 @@ export class AccountRegistry {
   }
   /** Why a usage read found nothing to report (fixed words), or undefined once it reads again. */
   recordUsageNotice(id: string, notice: AccountQuota["usageNotice"]): void {
-    const account = this.get(id);
+    const account = this.readAccount(id);
     if (!account) throw new Error("Unknown instance");
     const before = account.quota.usageNotice;
     if (before?.message === notice?.message && before?.reason === notice?.reason) return;
@@ -474,7 +518,7 @@ export class AccountRegistry {
     }
   }
   recordAuth(id: string, method: "browser" | "api_key" | "unknown", signedInAs?: string): void {
-    const account = this.get(id);
+    const account = this.readAccount(id);
     if (!account) throw new Error("Unknown instance");
     const instance = { ...account.instance };
     delete instance.signedInAs;
@@ -492,7 +536,7 @@ export class AccountRegistry {
   }
   /** An executable changed: its saved identity no longer proves the current CLI is signed in. */
   invalidateAuth(id: string, expectedRevision: string): boolean {
-    const account = this.get(id);
+    const account = this.readAccount(id);
     if (!account || (account.instance.loginRevision ?? "0") !== expectedRevision) return false;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -519,7 +563,7 @@ export class AccountRegistry {
   ingest(id: string, fact: QuotaFact) {
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const account = this.get(id);
+      const account = this.readAccount(id);
       if (!account) throw new Error("Unknown instance");
       if (fact.provider !== account.instance.provider) throw new Error("Provider mismatch");
       const result = ingestQuota(account.quota, fact);
@@ -596,7 +640,7 @@ export class AccountRegistry {
       badgeIcon?: ProviderInstance["badgeIcon"] | null | undefined;
     } = {},
   ): void {
-    const account = this.get(id);
+    const account = this.readAccount(id);
     if (!account) throw new Error("Unknown account");
     if (badge.shortLabel !== undefined) AccountBadgeInput.parse(badge.shortLabel);
     this.upsert.run(
@@ -703,6 +747,7 @@ export async function openRegistryIndex(
   path: string,
   signal?: AbortSignal,
   managedDataDir: string = dirname(path),
+  homeChecks: HomeCheckOptions = {},
 ): Promise<AccountRegistry> {
   assertTestHomeIsolation(path);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -716,7 +761,7 @@ export async function openRegistryIndex(
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Registry must be a regular file");
   await chmod(path, 0o600);
   const registry = new AccountRegistry(new DatabaseSync(path), managedDataDir);
-  registry.canonicalizeHomes(signal);
+  registry.canonicalizeHomes(signal, homeChecks);
   return registry;
 }
 

@@ -26,7 +26,8 @@
             "home_missing",
             "home_unreadable",
             "foreign_home",
-            "home_conflict"
+            "home_conflict",
+            "home_checking"
           ],
           "type": "string"
         },

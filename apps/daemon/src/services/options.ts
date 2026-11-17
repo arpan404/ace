@@ -34,7 +34,12 @@ export type DaemonOptions = {
   accounts?: Pick<
     import("../account-management.ts").AccountManagementOptions,
     "env" | "discovery" | "terminal"
-  >;
+  > & {
+    /** How saved account homes are checked at startup; tests stall one at the fs boundary. */
+    homeChecks?: import("@ace/accounts").HomeCheckOptions;
+    /** When a session's wait for a silent home is mentioned, and when it gives up. */
+    homeWait?: { noticeMs?: number; limitMs?: number };
+  };
   providerStatus?: import("../provider-status.ts").ProviderStatusOptions;
   /** Local metadata process boundary, never accepted from socket clients. */
   modelDiscovery?: import("@ace/models").DiscoveryOptions;

@@ -216,6 +216,11 @@ export interface SessionContext {
   };
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
+  /**
+   * The session is waiting for the home folders of these accounts (their names) to answer
+   * startup's check before it starts; called once, when the wait has become noticeable.
+   */
+  onAccountWait?(accounts: readonly string[]): void;
   /** Exclusive with resume. Inclusive provider-native boundary; never a guessed canonical ID. */
   fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
   options?: ExecutionOptions;

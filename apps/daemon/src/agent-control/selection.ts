@@ -76,7 +76,7 @@ export function namedAccountId(
       `Account ${name} does not belong to ${words}; it belongs to ${providerNames[match.account.provider]}`,
     );
   if ("account" in match) return match.account.id;
-  // Accounts whose homes are still being validated aren't listed yet; their id is checked later.
+  // An id the name list missed (it couldn't be read) is checked again at admission.
   if (deps.accounts?.get(name)) return name;
   throw unavailable(`No ${words} account has "${name}" as its id or label`);
 }

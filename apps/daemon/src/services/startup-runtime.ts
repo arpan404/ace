@@ -15,6 +15,11 @@ export interface StartupRuntime {
   /** A service's start began (`true`) or settled (`false`), stuck calls included. */
   onAttempt?(name: string, running: boolean): void;
   schedule(name: string, expire: () => void, milliseconds: number): () => void;
+  /**
+   * Runs a service's own call (its start, a listener) in that service's scope, so work it leaves
+   * running is charged to it if it crashes the daemon.
+   */
+  inService?<T>(name: string, work: () => T): T;
 }
 
 /** 30 s, 1, 2, 5 and 10 minutes: a stuck folder or CLI usually answers again within that. */
