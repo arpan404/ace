@@ -9,6 +9,7 @@ import {
   AccountService,
   createInstance,
   initialQuota,
+  openRegistry,
   openRegistryIndex,
   type AccountRegistry,
   type HomeCheck,
@@ -190,6 +191,35 @@ test("a session gives up with the reason when the home stays silent, and the nex
     answer.resolve();
     await registry.checked("silent");
     expect((await open("silent")).instanceId).toBe("silent");
+  } finally {
+    registry.close();
+  }
+});
+
+test("opening the index for a one-off read returns while a folder stays silent", async () => {
+  const root = await realpath(await temp());
+  const path = join(root, "accounts.sqlite");
+  const seeded = await openRegistry(path, root);
+  for (const id of ["silent", "working"]) {
+    await mkdir(join(root, id));
+    await seeded.register(
+      createInstance({ id, provider: "claude", label: id, homeDir: join(root, id) }),
+    );
+  }
+  seeded.close();
+  const registry = await openRegistry(path, root, {
+    check: (instance, next) =>
+      instance.id === "silent" ? new Promise<never>(() => {}) : next(instance),
+    patienceMs: 10,
+  });
+  try {
+    // Returned with the silent folder still unanswered; the other answers on its own.
+    expect(registry.isChecking("silent")).toBe(true);
+    await registry.checked("working");
+    expect(registry.summaries(1).map(({ id, quota }) => [id, quota.blockers])).toEqual([
+      ["silent", { homeUnavailable: "home_checking" }],
+      ["working", {}],
+    ]);
   } finally {
     registry.close();
   }

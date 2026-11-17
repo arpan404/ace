@@ -115,6 +115,10 @@ test("an account folder that never answers leaves the daemon up, other accounts 
 
   const personal = create("personal");
   await vi.waitFor(() => expect(daemon.store.getThread(personal)?.status.state).toBe("done"));
+  // Commands and skills come up for every account without waiting for the silent folder.
+  await vi.waitFor(() =>
+    expect(daemon.serviceStatus().find(({ name }) => name === "commands")?.state).toBe("ready"),
+  );
 
   const work = create("work");
   await vi.waitFor(() =>

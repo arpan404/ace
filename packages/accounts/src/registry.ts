@@ -765,18 +765,19 @@ export async function openRegistryIndex(
   return registry;
 }
 
+/**
+ * The index with every saved home checked, except any that hasn't answered: those read as
+ * `home_checking` and keep being checked, so a silent folder never holds up the caller (the
+ * `ace accounts` CLI, tools).
+ */
 export async function openRegistry(
   path: string,
   managedDataDir: string = dirname(path),
+  homeChecks: HomeCheckOptions = {},
 ): Promise<AccountRegistry> {
-  const registry = await openRegistryIndex(path, undefined, managedDataDir);
-  try {
-    await registry.ready;
-    return registry;
-  } catch (error) {
-    registry.close();
-    throw error;
-  }
+  const registry = await openRegistryIndex(path, undefined, managedDataDir, homeChecks);
+  await registry.firstPass;
+  return registry;
 }
 
 /** Windows as readers see them: a repeated reading that only moves its read time is no change. */
