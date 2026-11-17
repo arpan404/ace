@@ -6,6 +6,7 @@ import type { Engine } from "../engine/index.ts";
 import type { DelegationJournal } from "../agent-control/journal.ts";
 import { commandContext } from "../commands.ts";
 import { controlAdmissionError, startsLater } from "../agent-control/failure.ts";
+import { isDiskFull } from "../sqlite-failure.ts";
 import { heldFor } from "../agent-control/watch-view.ts";
 import {
   LaunchQueue,
@@ -24,6 +25,11 @@ export interface TargetLaunchDeps {
   /** Retry timers are the shell's; this owner never reaches for a clock. */
   schedule(ms: number, run: () => void): () => void;
   report(error: unknown): void;
+  /**
+   * The maintenance gate's admission (ADR 0041), read live. While closed (a pause, an update, a
+   * full disk) nothing here starts: new children queue, as local ones wait.
+   */
+  admitsWork?(): boolean;
 }
 /** The calling thread on another machine whose run slots a child here counts against. */
 export interface LaunchParent {
@@ -38,6 +44,12 @@ const Row = z.object({
   active: z.number(),
 });
 const RETRY_MS = 1000;
+/** The longest wait between retries while admission is closed or the disk is full. */
+const HELD_RETRY_CAP_MS = 30_000;
+/** 1 s, 2 s, 4 s … 30 s: retries while held, after `attempts` in a row found it still held. */
+export function heldRetryMs(attempts: number): number {
+  return Math.min(HELD_RETRY_CAP_MS, RETRY_MS * 2 ** Math.min(Math.max(attempts - 1, 0), 15));
+}
 const idleStates: ReadonlySet<string> = new Set(["new", "done", "failed"]);
 const idle = (thread: Thread | undefined) =>
   !thread || thread.deletedAt !== undefined || idleStates.has(thread.status.state);
@@ -63,6 +75,11 @@ export class TargetLaunches {
   private closed = false;
   /** The last start hit a full engine: retry as threads go idle, and on a timer. */
   private engineBlocked = false;
+  /**
+   * Drains in a row that found admission closed or the disk full; each waits longer for the
+   * next (`heldRetryMs`). Zero while nothing holds the queue back.
+   */
+  private held = 0;
   /** The engine finished starting; until then nothing is drained. */
   private engineReady = false;
   private awaitingReady = false;
@@ -110,7 +127,9 @@ export class TargetLaunches {
       input.parent.threadId,
     ]);
     const launch = { childId: input.threadId, parentId: parent, text: input.text };
-    const slots = this.slots(parent);
+    // Admission closed: the child queues and starts once it reopens, never refused for it.
+    const admits = this.admits();
+    const slots = admits ? this.slots(parent) : 0;
     const state = store.atomic(() => {
       store
         .statement(
@@ -129,6 +148,7 @@ export class TargetLaunches {
       this.engineBlocked = true;
       if (!this.engineReady) this.whenReady();
     }
+    if (!admits) this.held = Math.max(this.held, 1);
     this.arm();
     return state;
   }
@@ -170,9 +190,15 @@ export class TargetLaunches {
   /** Fills each calling thread's free slots from its waiting children, oldest first. */
   pump(): void {
     if (this.closed || this.pumping || !this.queue.waiting()) return;
+    // A closed admission starts nothing, ready engine or not: back off until it reopens.
+    if (!this.admits()) {
+      this.held++;
+      return this.arm();
+    }
     if (!this.engineReady) return this.whenReady();
     this.pumping = true;
     let blocked = false;
+    let diskFull = false;
     try {
       for (const parent of this.queue.parents())
         blocked =
@@ -191,14 +217,24 @@ export class TargetLaunches {
                 this.settle(child, "failed");
               });
             },
+            (error) => {
+              // A full disk rolled the start back: heard once per attempt, retried on a backoff.
+              if (!isDiskFull(error)) return;
+              diskFull = true;
+              this.deps.report(error);
+            },
           ) === "later" || blocked;
     } catch (error) {
       this.deps.report(error);
     } finally {
       this.pumping = false;
     }
-    this.engineBlocked = blocked;
+    this.engineBlocked = blocked && !diskFull;
+    this.held = diskFull ? this.held + 1 : 0;
     this.arm();
+  }
+  private admits(): boolean {
+    return this.deps.admitsWork?.() !== false;
   }
   /**
    * Slots free when one of these children stops running. Engine room frees when any thread goes
@@ -336,12 +372,17 @@ export class TargetLaunches {
       (error: unknown) => this.deps.report(error),
     );
   }
-  /** Only a start waiting on engine room is retried on a timer; slots announce themselves. */
+  /**
+   * Only a start waiting on engine room, on admission or on the disk is retried on a timer;
+   * slots announce themselves. Admission and the disk back off, since each retry only finds
+   * them still held until the person frees space or resumes (and a reopen pumps at once).
+   */
   private arm() {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
-    if (this.closed || !this.engineBlocked || !this.queue.waiting()) return;
-    this.cancelTimer = this.deps.schedule(RETRY_MS, () => {
+    if (this.closed || (!this.engineBlocked && !this.held) || !this.queue.waiting()) return;
+    const ms = this.held ? heldRetryMs(this.held) : RETRY_MS;
+    this.cancelTimer = this.deps.schedule(ms, () => {
       this.cancelTimer = undefined;
       this.pump();
     });

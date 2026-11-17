@@ -40,7 +40,14 @@ import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts"
 import { TargetRefusal } from "./target-refusal.ts";
 import { TargetLaunches } from "./target-launches.ts";
 import { MessageRejections, messageKey } from "./target-rejections.ts";
-import { queuedStatus, queuedStep, unlaunchedResult } from "../agent-control/child-status.ts";
+import {
+  diskWait,
+  diskWaitStep,
+  queuedChildStatus,
+  queuedStep,
+  unlaunchedResult,
+} from "../agent-control/child-status.ts";
+import { isDiskFull } from "../sqlite-failure.ts";
 import { accountModelName } from "../agent-control/models.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
 import type { NamedAccount } from "../agent-control/account-names.ts";
@@ -75,6 +82,10 @@ export interface TargetThreadDeps {
   limit(): number | undefined;
   schedule(ms: number, run: () => void): () => void;
   report(error: unknown): void;
+  /** Admission here (ADR 0041): while closed, children other machines send wait queued. */
+  admitsWork?(): boolean;
+  /** Whether this machine's disk is too full for new work (the `storage` hold, ADR 0174). */
+  storageFull?(): boolean;
 }
 type Delegate = Extract<MachineCall, { op: "delegate" }>;
 /** `browser` rows are browser threads from before guest sessions (ADR 0105). */
@@ -339,6 +350,40 @@ export class TargetThreads {
           (id) => this.deps.accountEnabled?.(call.provider, id) !== false,
         );
     if (refusal) throw new TargetRefusal("unavailable", refusal);
+    try {
+      return this.prepareAndLaunch(device, origin, call, {
+        key,
+        threadId,
+        workspaceId,
+        model,
+        accountId,
+      });
+    } catch (error) {
+      // Nothing was made: the disk refused even the thread's record. Said plainly, not as SQL.
+      if (isDiskFull(error))
+        throw new TargetRefusal(
+          "unavailable",
+          "This machine's disk is full; new work there waits until space is freed.",
+        );
+      throw error;
+    }
+  }
+  private prepareAndLaunch(
+    device: Device,
+    origin: MachineCallOrigin,
+    call: Delegate,
+    made: {
+      key: string;
+      threadId: ThreadId;
+      workspaceId: string;
+      model: string | undefined;
+      accountId: string | undefined;
+    },
+  ) {
+    const { store } = this.deps;
+    const engine = this.deps.engine();
+    if (!engine) throw new TargetRefusal("unavailable", "This machine is still starting.");
+    const { key, threadId, workspaceId, model, accountId } = made;
     return store.atomic(() => {
       const command = Command.parse({
         id: `machine-prepare:${key}`,
@@ -689,8 +734,9 @@ export class TargetThreads {
         ...base,
         state: "queued",
         elapsedSeconds: elapsedSeconds(thread.createdAt, this.deps.now()),
-        status: queuedStatus,
-        step: queuedStep,
+        // Its parent's machine reads why it waits: a free slot, or here the disk (ADR 0174).
+        status: queuedChildStatus(this.deps.storageFull?.() ? diskWait : undefined),
+        step: this.deps.storageFull?.() ? diskWaitStep : queuedStep,
       };
     // Work admitted since (a run starting clears the outcome) is never shown as the old outcome.
     const idle = ["new", "done", "failed"].includes(thread.status.state);

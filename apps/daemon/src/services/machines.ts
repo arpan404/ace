@@ -53,7 +53,9 @@ function schedule(ms: number, run: () => void) {
  * elsewhere, and agents here using other machines through this daemon's own device tokens.
  */
 export function startMachines(context: ServiceContext): void {
-  const { services, store, config, options, log, resources, now } = context;
+  const { services, store, config, options, log, resources, now, onListen } = context;
+  // Admission, as for local children: the server's gate once it listens (ADR 0041).
+  let maintenance = context.maintenance;
   const engine = () => services.engine;
   const hostId = loadHostId(config.dataDir);
   const fallbackName = computerName();
@@ -75,9 +77,24 @@ export function startMachines(context: ServiceContext): void {
     now,
     limit: () => services.childLimit?.current(),
     schedule,
-    report: (error) => log.log("warn", "Machine child not started", logError(error)),
+    report: (error) => {
+      // A full disk is the daemon's condition (ADR 0174), said once by the storage watch.
+      if (!context.diskFull?.observe(error))
+        log.log("warn", "Machine child not started", logError(error));
+    },
+    admitsWork: () => maintenance?.admit() ?? true,
+    storageFull: () => maintenance?.held("storage") ?? false,
   });
   resources.own(() => threads.close());
+  // Children held while admission was closed start as soon as it reopens.
+  let stopReopen = maintenance?.onReopen(() => threads.launches.pump());
+  onListen.push((server) => {
+    if (server.maintenance === maintenance) return;
+    stopReopen?.();
+    maintenance = server.maintenance;
+    stopReopen = maintenance.onReopen(() => threads.launches.pump());
+  });
+  resources.own(() => stopReopen?.());
   // A raised or cleared limit starts children other machines left waiting here at once.
   const stopFollowing = services.childLimit?.onChange(() => threads.launches.pump());
   if (stopFollowing) resources.own(stopFollowing);
