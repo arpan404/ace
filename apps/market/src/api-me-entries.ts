@@ -257,13 +257,13 @@ async function editListing(
   // that read it as named by nothing can't drop it, and one the cron is deleting is refused.
   for (const sha of listing.previews) {
     const missing = () => refused([{ message: `Upload the picture ${sha.slice(0, 12)}… first.` }]);
-    const key = previewKey(sha);
-    const head = await context.env.OBJECTS.head(key);
+    const picture = previewKey(sha);
+    const head = await context.env.OBJECTS.head(picture);
     if (!head) return missing();
-    const unstored = await reservePictureFor(context, publisher, key, head.size);
+    const unstored = await reservePictureFor(context, publisher, picture, head.size);
     if (unstored) return unstored;
     // The bytes may have gone between the look and the reservation.
-    if (!(await context.env.OBJECTS.head(key))) return missing();
+    if (!(await context.env.OBJECTS.head(picture))) return missing();
   }
   const scan = scanListing(
     listing,
