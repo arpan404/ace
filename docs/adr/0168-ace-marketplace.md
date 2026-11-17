@@ -1,6 +1,8 @@
 # 0168: ace's marketplace
 
-Status: proposed. Date: 2026-11-15. Decided by: the owner (2026-11-15: one general marketplace
+Status: proposed, amended by [ADR 0173](0173-market-publishers-discovery-and-scanning.md)
+(publishers, discovery, publishing from the app, the scan pipeline and account-only writes).
+Date: 2026-11-15. Decided by: the owner (2026-11-15: one general marketplace
 for ace rather than one for Spade, holding Suits, Spade's skills, plugins and bots, and later
 ace's own plugins; then, the same day: the marketplace is hosted, at its own domain
 `market.acehq.dev`). Builds on [ADR 0014](0014-plugins.md) (plugins and git catalogs),
@@ -67,8 +69,9 @@ type lists its entries as "Needs a newer ace" and never installs them.
   accounts and the relay (ADR 0110, 0111, 0155) and gains nothing here, so a marketplace deploy
   or fault never touches sign-in or a live relay connection, and the two keep separate secrets
   and limits.
-- **Listings live in D1** (`ace-market`): publishers, entries, versions, review marks,
-  categories, the featured list, withdrawals and anonymous download totals.
+- **Listings live in D1**: publishers, entries, versions, review marks, categories, the
+  featured list, withdrawals and anonymous download totals. One database per entry type and per
+  shared domain since [ADR 0173](0173-market-publishers-discovery-and-scanning.md) decision 16.
 - **Entry bytes live in R2** (`ace-market-objects`). Each version is one archive of its folder
   (regular files and folders only), stored at `objects/<content hash>`, where the hash is ADR
   0014's content hash (sorted paths, executable bits, framed bytes). An object is written once

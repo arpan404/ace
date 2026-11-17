@@ -71,6 +71,7 @@ export function accountApi(
     keys,
     signingKey: config.grantKey,
     now,
+    issuer: new URL(config.publicUrl).host,
   });
 
   async function route(

@@ -13,15 +13,15 @@ export async function pageRoute(
   route: Route,
   context: Context,
 ): Promise<Response | undefined> {
-  const db = context.env.MARKET;
+  const dbs = context.dbs;
   switch (route.kind) {
     case "page-home": {
-      const [featured, list] = await Promise.all([featuredEntries(db), categories(db)]);
+      const [featured, list] = await Promise.all([featuredEntries(dbs), categories(dbs.lists)]);
       return html(homePage({ featured: featured.map(summary), categories: list }));
     }
     case "page-search": {
       const input = searchInput(url.searchParams);
-      const [found, list] = await Promise.all([searchEntries(db, input), categories(db)]);
+      const [found, list] = await Promise.all([searchEntries(dbs, input), categories(dbs.lists)]);
       return html(
         searchPage({
           ...input,
@@ -31,7 +31,7 @@ export async function pageRoute(
       );
     }
     case "page-entry": {
-      const data = await entryData(db, route.type, route.name);
+      const data = await entryData(dbs, route.type, route.name);
       return data ? html(entryPage(data)) : missingPage404();
     }
     default:

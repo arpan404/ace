@@ -204,7 +204,14 @@ describe("plugins from the market", () => {
     publish({
       type: "suit",
       name: "harbour-dusk",
-      files: [...sampleSuit(), ...folder({ "scene.js": `fetch("file://${marker}")` })],
+      // A draw-only scene that passes ace's scan (one that fetched or recorded would be refused
+      // on the device). The hook and script are what would run if install ran anything.
+      files: [
+        ...sampleSuit(),
+        ...folder({
+          "scene.js": `export function scene(ctx) { ctx.fillStyle = "#123"; ctx.fillRect(0, 0, 8, 8); }`,
+        }),
+      ],
     });
     await harness.ask({ op: "refresh" }, "sources");
     for (const [type, name] of [

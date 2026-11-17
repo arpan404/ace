@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parseIndex, VersionBody, verifyManifest } from "@ace/marketplace";
+import { parseIndex, verifyManifest } from "@ace/marketplace";
+import { VersionBody } from "@ace/protocol/marketplace";
 import { folder, keySetOf, sampleSkill } from "@ace/marketplace/testing";
 import { marketKey, publishSigned, startMarket, type Market } from "./testing/harness.ts";
 
@@ -39,6 +40,9 @@ const versions = async () =>
 const downloads = async (version: string) =>
   (await versions()).find((row) => row.version === version)?.downloads;
 
+/** A request from one caller address. */
+const from = (address: string) => ({ headers: { "cf-connecting-ip": address } });
+
 describe("reading the catalog", () => {
   it("sets no cookie on any read route or page", async () => {
     for (const path of [
@@ -61,12 +65,13 @@ describe("reading the catalog", () => {
   });
 
   it("a download raises only that version's total", async () => {
-    const response = await market.fetch(`/v1/objects/${hashes["1.0.0"]}`);
+    // Each caller counts once a minute per hash (ADR 0173 §6), so each fetch is another caller.
+    const response = await market.fetch(`/v1/objects/${hashes["1.0.0"]}`, from("192.0.2.1"));
     expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     await response.arrayBuffer();
     // The read-route test above fetched it once too; its count lands after the response.
     await expect.poll(() => downloads("1.0.0")).toBe(2);
-    await (await market.fetch(`/v1/objects/${hashes["1.0.0"]}`)).arrayBuffer();
+    await (await market.fetch(`/v1/objects/${hashes["1.0.0"]}`, from("192.0.2.2"))).arrayBuffer();
     await expect.poll(() => downloads("1.0.0")).toBe(3);
     expect(await downloads("1.1.0")).toBe(0);
   });

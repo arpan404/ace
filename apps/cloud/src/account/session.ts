@@ -4,7 +4,8 @@ import type { SessionStore } from "./sessions.ts";
 import { InvalidGrantError } from "./workos.ts";
 import type { AccountProvider } from "./workos.ts";
 
-export type ActiveSession = { account: AceAccount; expiresAt: number };
+/** `signedInAt`: when the person signed in for this session (0 for sessions from before it was kept). */
+export type ActiveSession = { account: AceAccount; expiresAt: number; signedInAt: number };
 
 /** How long one reader may spend a session's refresh token before another may try. */
 const REFRESH_LEASE_MS = 15_000;
@@ -27,7 +28,11 @@ export function sessionReader(deps: {
     const stored = await store.get(hash, now());
     if (!stored) return undefined;
     if (!(await store.lease(hash, now(), REFRESH_LEASE_MS)))
-      return { account: stored.account, expiresAt: stored.expiresAt };
+      return {
+        account: stored.account,
+        expiresAt: stored.expiresAt,
+        signedInAt: stored.signedInAt,
+      };
     let identity;
     try {
       identity = await provider.refresh(await stored.refresh());
@@ -45,7 +50,11 @@ export function sessionReader(deps: {
     }
     if (!(await store.rotate(hash, identity.account, identity.refreshToken, identity.pictureUrl)))
       return undefined;
-    return { account: identity.account, expiresAt: stored.expiresAt };
+    return {
+      account: identity.account,
+      expiresAt: stored.expiresAt,
+      signedInAt: stored.signedInAt,
+    };
   }
 
   return {

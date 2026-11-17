@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hashFiles } from "./hash.ts";
-import {
-  manifestMismatch,
-  verifyManifest,
-  verifyReviewMark,
-  verifyWithdrawn,
-  type VersionManifest,
-} from "./signing.ts";
+import { manifestMismatch, verifyManifest, verifyReviewMark, verifyWithdrawn } from "./signing.ts";
+import type { VersionManifest } from "@ace/protocol/marketplace";
 import {
   folder,
   keySetOf,

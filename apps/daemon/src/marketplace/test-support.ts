@@ -8,7 +8,7 @@ import { gitRuntime, PluginManager, PluginService } from "@ace/plugins";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import { describeEntry, type ArchiveFile } from "@ace/marketplace";
 import { keySetOf, testKey, type SignedVersion } from "@ace/marketplace/testing";
-import type { Signed } from "@ace/marketplace";
+import { type Signed } from "@ace/protocol/marketplace";
 import { SuitLibrary } from "../suits/library.ts";
 import { pluginPort } from "./plugin-port.ts";
 import { MarketplaceService } from "./service.ts";
@@ -38,6 +38,21 @@ const send = (
   response.end(body === undefined ? undefined : JSON.stringify(body));
 };
 
+/** A request the fake market saw, with its body. */
+export interface Seen {
+  method: string;
+  path: string;
+  authorization: string | undefined;
+  contentType: string | undefined;
+  body: Buffer;
+}
+/** Answers a request the fake market's own routes don't: true when it sent an answer. */
+export type MarketRoute = (
+  seen: Seen,
+  response: ServerResponse,
+  answer: (status: number, body?: unknown) => void,
+) => boolean;
+
 export interface Listed {
   version: SignedVersion;
   files: ArchiveFile[];
@@ -53,6 +68,10 @@ export async function fakeMarket() {
   /** Swaps an object's bytes, as a compromised Worker would. */
   const tampered = new Map<string, Uint8Array>();
   const requests: string[] = [];
+  const seen: Seen[] = [];
+  const routes: MarketRoute[] = [];
+  /** Index fields a test sets on an entry, as a Worker could claim them. */
+  const claims = new Map<string, Record<string, unknown>>();
   const latest = (type: string, name: string) =>
     listed.findLast((item) => item.version.type === type && item.version.name === name);
   const feedEntry = (item: Listed) => {
@@ -74,12 +93,25 @@ export async function fakeMarket() {
       byAce: false,
       updated: stamp,
       downloads: 0,
+      ...claims.get(`${item.version.type}/${item.version.name}`),
     };
   };
-  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+  const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     requests.push(url.pathname + url.search);
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk as Buffer);
+    const call: Seen = {
+      method: request.method ?? "GET",
+      path: url.pathname + url.search,
+      authorization: request.headers.authorization,
+      contentType: request.headers["content-type"],
+      body: Buffer.concat(chunks),
+    };
+    seen.push(call);
     if (down) return send(response, 503, { error: "down" });
+    for (const route of routes)
+      if (route(call, response, (status, body) => send(response, status, body))) return;
     const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     if (url.pathname === "/v1/index") {
       const keys = new Set(listed.map((item) => `${item.version.type}/${item.version.name}`));
@@ -136,6 +168,16 @@ export async function fakeMarket() {
   return {
     origin: `http://127.0.0.1:${port}`,
     requests,
+    seen,
+    /** Adds routes tried before the fake's own. */
+    route(handler: MarketRoute) {
+      routes.push(handler);
+    },
+    /** Index fields the Worker claims for an entry, such as `byAce` or `verified`. */
+    claim(type: string, name: string, fields: Record<string, unknown>) {
+      claims.set(`${type}/${name}`, fields);
+      stamp++;
+    },
     publish(version: SignedVersion, files: ArchiveFile[]) {
       listed.push({ version, files });
       stamp++;
@@ -345,6 +387,7 @@ export async function marketplaceHarness(options: {
           return suits.install(...args);
         },
         remove: (suit: string) => suits.remove(suit),
+        folder: (suit: string) => suits.folder(suit),
       }),
       plugins: () => pluginPort(() => plugins),
       spade: spadePort(options.spade.connection),

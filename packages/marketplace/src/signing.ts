@@ -1,13 +1,17 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { z } from "zod";
+import type { z } from "zod";
 import {
-  MarketEntryName,
-  MarketEntryType,
-  MarketHash,
-  MarketPublisher,
-  MarketVersion,
+  MarketBlocklist,
+  MarketKeyId,
+  MarketOfficialList,
+  MarketVerifiedList,
+  ReviewMark,
+  Signed,
+  VersionManifest,
+  WithdrawnList,
+  type MarketKeySet,
+  type Withdrawal,
 } from "@ace/protocol/marketplace";
-import { ContainedPath } from "@ace/protocol";
 import { decodeBase64url, encodeBase64url } from "@ace/account-grant";
 import { contentHash, type HashedFile } from "./hash.ts";
 
@@ -18,15 +22,6 @@ import { contentHash, type HashedFile } from "./hash.ts";
  * signature on one kind never verifies as another.
  */
 
-const KeyId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
-const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
-const Signature = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
-
-/** The market's public keys a build ships: two at a time, so one can rotate. */
-export const MarketKeySet = z.object({
-  keys: z.array(z.object({ id: KeyId, publicKey: PublicKey })).max(2),
-});
-export type MarketKeySet = z.infer<typeof MarketKeySet>;
 export interface MarketSigningKey {
   id: string;
   privateKey: Uint8Array;
@@ -36,77 +31,13 @@ export class SignatureError extends Error {
   override name = "SignatureError";
 }
 
-export const ManifestFile = z.strictObject({
-  path: ContainedPath,
-  bytes: z.number().int().nonnegative(),
-  executable: z.boolean(),
-  sha256: MarketHash,
-});
-
-export const VersionManifest = z.strictObject({
-  format: z.literal("ace-market-manifest"),
-  type: MarketEntryType,
-  name: MarketEntryName,
-  version: MarketVersion,
-  publisher: MarketPublisher,
-  hash: MarketHash,
-  files: z.array(ManifestFile).max(4096),
-  size: z.number().int().nonnegative(),
-  published: z.number().int().nonnegative(),
-  key: KeyId,
-});
-export type VersionManifest = z.infer<typeof VersionManifest>;
-
-export const ReviewMark = z.strictObject({
-  format: z.literal("ace-market-review"),
-  type: MarketEntryType,
-  name: MarketEntryName,
-  hash: MarketHash,
-  reviewed: z.boolean(),
-  /** Published by ace itself ("By ace"). */
-  byAce: z.boolean(),
-  at: z.number().int().nonnegative(),
-  key: KeyId,
-});
-export type ReviewMark = z.infer<typeof ReviewMark>;
-
-const reason = z.string().min(1).max(500);
-const at = z.number().int().nonnegative();
-/**
- * One withdrawal. A publisher withdraws one of their own versions (`version`): it names the
- * entry and version as well as the bytes, and touches nothing else holding the same bytes. Only
- * a maintainer revokes bytes wherever they are (`hash`).
- */
-export const Withdrawal = z.discriminatedUnion("scope", [
-  z.strictObject({
-    scope: z.literal("version"),
-    type: MarketEntryType,
-    name: MarketEntryName,
-    version: MarketVersion,
-    hash: MarketHash,
-    reason,
-    at,
-  }),
-  z.strictObject({ scope: z.literal("hash"), hash: MarketHash, reason, at }),
-]);
-export type Withdrawal = z.infer<typeof Withdrawal>;
-export const WithdrawnList = z.strictObject({
-  format: z.literal("ace-market-withdrawn"),
-  /** When the signer made this list: a device keeps the newest it has verified. */
-  issued: z.number().int().nonnegative(),
-  withdrawn: z.array(Withdrawal).max(10_000),
-  key: KeyId,
-});
-export type WithdrawnList = z.infer<typeof WithdrawnList>;
-
-/** A statement with its signature, as the Worker serves and stores it. */
-export const Signed = z.strictObject({ body: z.unknown(), signature: Signature });
-export type Signed = z.infer<typeof Signed>;
-
 const labels = {
   manifest: "ace-market-manifest-v1",
   review: "ace-market-review-v1",
   withdrawn: "ace-market-withdrawn-v1",
+  blocklist: "ace-market-blocklist-v1",
+  verified: "ace-market-verified-v1",
+  official: "ace-market-official-v1",
 } as const;
 type Kind = keyof typeof labels;
 
@@ -172,11 +103,23 @@ export const verifyReviewMark = (signed: unknown, keys: MarketKeySet) =>
   verify("review", signed, ReviewMark, keys);
 export const verifyWithdrawn = (signed: unknown, keys: MarketKeySet) =>
   verify("withdrawn", signed, WithdrawnList, keys);
+export const signBlocklist = (body: MarketBlocklist, key: MarketSigningKey) =>
+  sign("blocklist", MarketBlocklist.parse(body), key);
+export const verifyBlocklist = (signed: unknown, keys: MarketKeySet) =>
+  verify("blocklist", signed, MarketBlocklist, keys);
+export const signVerifiedList = (body: MarketVerifiedList, key: MarketSigningKey) =>
+  sign("verified", MarketVerifiedList.parse(body), key);
+export const verifyVerifiedList = (signed: unknown, keys: MarketKeySet) =>
+  verify("verified", signed, MarketVerifiedList, keys);
+export const signOfficialList = (body: MarketOfficialList, key: MarketSigningKey) =>
+  sign("official", MarketOfficialList.parse(body), key);
+export const verifyOfficialList = (signed: unknown, keys: MarketKeySet) =>
+  verify("official", signed, MarketOfficialList, keys);
 
 /** The public half of a signing key, as a build ships it. */
 export function marketPublicKey(key: MarketSigningKey): MarketKeySet["keys"][number] {
   return {
-    id: KeyId.parse(key.id),
+    id: MarketKeyId.parse(key.id),
     publicKey: encodeBase64url(ed25519.getPublicKey(key.privateKey)),
   };
 }
@@ -184,7 +127,7 @@ export function marketPublicKey(key: MarketSigningKey): MarketKeySet["keys"][num
 /** A fresh signing key from 32 random bytes the caller supplies. */
 export function marketSigningKey(id: string, seed: Uint8Array): MarketSigningKey {
   if (seed.byteLength !== 32) throw new SignatureError("A signing key is 32 bytes");
-  return { id: KeyId.parse(id), privateKey: seed };
+  return { id: MarketKeyId.parse(id), privateKey: seed };
 }
 
 /**
