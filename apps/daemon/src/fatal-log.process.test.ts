@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
-type Failure = "plain" | "disk-full" | "busy-rejection" | "plain-rejection";
+type Failure = "plain" | "disk-full" | "busy-rejection" | "plain-rejection" | "disk-full-rejection";
 async function crash(failure: Failure, exit: { code: number } = { code: 1 }) {
   const directory = await mkdtemp(join(tmpdir(), "ace-fatal-log-"));
   try {
