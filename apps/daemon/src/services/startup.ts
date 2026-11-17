@@ -179,10 +179,13 @@ export class ServiceStartup {
     this.changeListeners.add(listener);
     return () => void this.changeListeners.delete(listener);
   };
+  private changed(): void {
+    for (const listener of this.changeListeners) listener();
+  }
   private record(name: string, status: ServiceStatus): void {
     this.statuses.set(name, status);
     this.report(name);
-    for (const listener of this.changeListeners) listener();
+    this.changed();
   }
   private degraded(name: string, error: unknown, skipped = false): void {
     const message = `Service ${name}: ${error instanceof Error ? error.message : String(error)}`;
@@ -334,6 +337,7 @@ export class ServiceStartup {
                 readiness: (read) => {
                   this.readiness.set(name, read);
                   this.report(name);
+                  this.changed();
                 },
               }),
             ),
@@ -404,13 +408,17 @@ export class ServiceStartup {
   /**
    * Another attempt is scheduled or still to come: the service has retries left and none of what
    * it requires has run out of its own (a dependent starts again when its dependency does).
+   * Only a service whose start failed is retried: a warmup that failed after a good start leaves
+   * it running, and ace says so until it restarts. What a stuck cleanup still holds is not a
+   * retry; the budget alone says whether another comes.
    */
   private willRetry(name: string): boolean {
     const definition = this.definitions.find((entry) => entry.name === name);
     if (!definition || failurePolicy(definition, this.critical) !== "degrade-and-retry")
       return false;
     if (this.skip.has(name) || this.context.signal.aborted) return false;
-    if (this.retryTimers.has(name) || this.inflight.has(name)) return true;
+    if (this.statuses.get(name)?.state !== "degraded") return false;
+    if (this.retryTimers.has(name)) return true;
     const own = (this.retriesUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0);
     const required = definition.requires.filter(
       (dependency) => this.statuses.get(dependency)?.state === "degraded",
@@ -435,6 +443,8 @@ export class ServiceStartup {
       `retry ${name}`,
       () => {
         this.retryTimers.delete(name);
+        // With the last retry fired, "retrying" turns false before the attempt reports anything.
+        this.changed();
         void this.retry(definition).catch((error: unknown) => {
           // A stop during the retry aborts it; that is not a failure.
           if (!this.context.signal.aborted)
@@ -444,6 +454,7 @@ export class ServiceStartup {
       delay,
     );
     this.retryTimers.set(name, cancel);
+    this.changed();
   }
   /** Starts a degraded service again; once it is ready, the services that require it follow. */
   private async retry(definition: ServiceDefinition): Promise<void> {

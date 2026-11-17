@@ -432,7 +432,14 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   void activation.skillRoots
     .then((recoverSkillRoots) => recoverSkillRoots?.(engine.ready(), reportCleanup, context.signal))
     .catch(reportCleanup);
-  context.readiness?.(engineReadiness(activation, engine.ready()));
+  const readEngine = engineReadiness(activation, engine.ready());
+  context.readiness?.(readEngine);
+  // The reader changes on its own as providers and recovery settle: say so each time.
+  for (const step of [activation.settled, engine.ready()])
+    void step.then(
+      () => context.readiness?.(readEngine),
+      () => context.readiness?.(readEngine),
+    );
   engine.bindHostInteractions(
     (command) => services.asks?.resolve(command) ?? services.browserHelp?.resolve(command),
   );

@@ -439,3 +439,61 @@ test("work a service leaves running, from its start and its listener, is charged
   expect(owners).toEqual(["commands", "commands"]);
   expect(scope.current()).toBeUndefined();
 });
+
+const retryingOf = (subject: ServiceStartup, name: string) =>
+  subject.status().find((entry) => entry.name === name)?.retrying;
+
+test("a readiness change after a good start is published to listeners", async () => {
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [], schedule: fakeClock().schedule });
+  let warm: { name: string; state: "ready" | "degraded"; error?: string } = {
+    name: "commands",
+    state: "ready",
+  };
+  let announce: (() => void) | undefined;
+  await subject.start([
+    service("commands", (context) => {
+      announce = () => context.readiness?.(() => warm);
+      announce();
+    }),
+  ]);
+  let heard = 0;
+  subject.onChange(() => heard++);
+  warm = { name: "commands", state: "degraded", error: "warmup failed" };
+  announce?.();
+  expect(heard).toBeGreaterThan(0);
+  expect(state(subject, "commands")).toBe("degraded");
+});
+
+test("a warmup that failed after a good start is not promised a retry that never comes", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10, 20], schedule: clock.schedule });
+  await subject.start([
+    service("commands", (context) => {
+      context.readiness?.(() => ({ name: "commands", state: "degraded", error: "warmup failed" }));
+    }),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "commands")).toBe("degraded");
+  expect(clock.pending("retry")).toHaveLength(0);
+  expect(retryingOf(subject, "commands")).toBe(false);
+});
+
+test("the last retry's stuck cleanup does not keep promising another, and listeners hear it end", async () => {
+  const clock = fakeClock();
+  const subject = startup({ timeoutMs: 15_000, retryDelaysMs: [10], schedule: clock.schedule });
+  const heard: (boolean | undefined)[] = [];
+  const stuck = Promise.withResolvers<void>();
+  subject.onChange(() => heard.push(retryingOf(subject, "suits")));
+  await subject.start([
+    service("suits", (context) => {
+      // A disposer that never finishes keeps this service's work in flight after it fails.
+      context.resources.own(() => stuck.promise);
+      throw new Error("still broken");
+    }),
+  ]);
+  await subject.listening(server);
+  for (let step = 0; step < 5; step++) await clock.advance(1_000);
+  expect(retryingOf(subject, "suits")).toBe(false);
+  expect(heard.at(-1)).toBe(false);
+  stuck.resolve();
+});

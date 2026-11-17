@@ -2,6 +2,7 @@ import { ClientProvider } from "@ace/client-react";
 import type { ClientApi } from "@ace/client";
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { ScopedMachines, type Machine } from "@/lib/machines.ts";
 import { SafeModeNotice } from "./safe-mode-notice.tsx";
 
 const desktopSentence =
@@ -88,4 +89,21 @@ test("a healthy daemon shows nothing, whatever the desktop remembers", async () 
 test("with no daemon answer yet, the desktop's own sentence stands in", async () => {
   render(<SafeModeNotice scope={desktop({ state: "running", message: desktopSentence })} />);
   expect(await screen.findByText(desktopSentence)).toBeTruthy();
+});
+
+test("another machine that has not answered never shows this desktop's own daemon warning", async () => {
+  const remote: Machine = {
+    id: "studio",
+    name: "Studio",
+    status: "offline",
+    client: undefined,
+    primary: false,
+  };
+  const { container } = render(
+    <ScopedMachines value={{ machines: [remote], machine: remote }}>
+      <SafeModeNotice scope={desktop({ state: "running", message: desktopSentence })} />
+    </ScopedMachines>,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(container.textContent).toBe("");
 });
