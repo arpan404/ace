@@ -10,9 +10,11 @@ import { storedBytesSql } from "./me-limits.ts";
 import { getReport } from "./me-scan.ts";
 
 /*
- * Drafts (ADR 0173 §5): the archive at `drafts/<id>/<hash>`, its scan report at
- * `reports/drafts/<id>/<hash>.json`, and a scan that didn't fit one request in `scan_jobs`. The
- * bytes are keyed by the hash the row names, so the row never points at another revision's.
+ * Drafts (ADR 0173 §5), in the publishers database: the archive at `drafts/<id>/<hash>`, its
+ * scan report at `reports/drafts/<id>/<hash>.json`, and a scan that didn't fit one request in
+ * `scan_jobs`. The bytes are keyed by the hash the row names, so the row never points at another
+ * revision's. Publishing claims the draft first (`claimDraft`, ADR 0173 §16): a claimed draft
+ * isn't replaced, edited or deleted until the publish finishes or is released.
  */
 
 export interface DraftTable {
@@ -31,6 +33,9 @@ export interface DraftTable {
   verdict: string | null;
   created: number;
   updated: number;
+  /** The version (`type/name/version`) a publish claimed this draft for. */
+  publishing: string | null;
+  publishing_at: number | null;
 }
 
 export interface ScanJob {
@@ -104,7 +109,7 @@ export async function writeDraft(
             size = excluded.size, files = excluded.files, title = excluded.title,
             problems = excluded.problems, scan_state = excluded.scan_state,
             verdict = excluded.verdict, updated = excluded.updated
-          WHERE drafts.publisher = excluded.publisher
+          WHERE drafts.publisher = excluded.publisher AND drafts.publishing IS NULL
             AND ${stored} - drafts.size + excluded.size <= ?14`,
       )
       .bind(
@@ -181,19 +186,78 @@ export async function deferJob(db: D1Database, draft: string, now: number): Prom
   await db.prepare("UPDATE scan_jobs SET updated = ?2 WHERE draft = ?1").bind(draft, now).run();
 }
 
+/** Changes a draft's version or changelog; false while a publish has claimed it. */
 export async function patchDraft(
   db: D1Database,
   id: string,
   fields: { version?: string | undefined; changelog?: string | undefined },
   now: number,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const result = await db
     .prepare(
       `UPDATE drafts SET version = COALESCE(?2, version), changelog = COALESCE(?3, changelog),
-        updated = ?4 WHERE id = ?1`,
+        updated = ?4 WHERE id = ?1 AND publishing IS NULL`,
     )
     .bind(id, fields.version ?? null, fields.changelog ?? null, now)
     .run();
+  return result.meta.changes === 1;
+}
+
+/**
+ * Claims the draft for publishing `item` (ADR 0173 §16): only while it still holds `hash` with
+ * its scan done, and not claimed for another version. In the same batch its bytes move onto the
+ * version's charge, so they count once, and the publisher is marked for the quota reconcile.
+ * Claiming again for the same version is fine: that is how a cut-off publish resumes.
+ */
+export async function claimDraft(
+  db: D1Database,
+  draft: { id: string; hash: string; publisher: string },
+  item: string,
+  now: number,
+): Promise<boolean> {
+  const [claimed] = await db.batch([
+    db
+      .prepare(
+        `UPDATE drafts SET publishing = ?4, publishing_at = COALESCE(publishing_at, ?5)
+          WHERE id = ?1 AND hash = ?2 AND publisher = ?3 AND scan_state = 'done'
+            AND (publishing IS NULL OR publishing = ?4)`,
+      )
+      .bind(draft.id, draft.hash, draft.publisher, item, now),
+    db
+      .prepare(
+        `INSERT INTO charges (item, publisher, size, at)
+          SELECT ?3, publisher, size, ?4 FROM drafts WHERE id = ?1 AND hash = ?2 AND publishing = ?3
+          ON CONFLICT (item) DO UPDATE SET publisher = excluded.publisher,
+            size = MAX(charges.size, excluded.size), at = excluded.at`,
+      )
+      .bind(draft.id, draft.hash, item, now),
+    db
+      .prepare("UPDATE publishers SET usage_dirty = COALESCE(usage_dirty, ?2) WHERE id = ?1")
+      .bind(draft.publisher, now),
+  ]);
+  return (claimed?.meta.changes ?? 0) === 1;
+}
+
+/** Gives a claimed draft back: its publish stored nothing. Its version's charge is reconciled. */
+export async function releaseDraft(db: D1Database, id: string, item: string): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE drafts SET publishing = NULL, publishing_at = NULL WHERE id = ?1 AND publishing = ?2",
+    )
+    .bind(id, item)
+    .run();
+}
+
+/** Claims older than `before`: publishes cut off part way, for the cron to finish or release. */
+export async function staleClaims(db: D1Database, before: number, limit: number) {
+  const { results } = await db
+    .prepare(
+      `SELECT * FROM drafts WHERE publishing IS NOT NULL AND publishing_at < ?1
+        ORDER BY publishing_at LIMIT ?2`,
+    )
+    .bind(before, limit)
+    .all<DraftTable>();
+  return results;
 }
 
 /** A published draft gone, only if it still holds the bytes that were published. */
@@ -240,13 +304,16 @@ export async function removeDraftRevisions(
   if (stale.length > 0) await bucket.delete(stale);
 }
 
-/** The draft, its job, its bytes and its report, gone. */
-export async function deleteDraft(db: D1Database, bucket: R2Bucket, id: string): Promise<void> {
-  await db.batch([
-    db.prepare("DELETE FROM scan_jobs WHERE draft = ?1").bind(id),
-    db.prepare("DELETE FROM drafts WHERE id = ?1").bind(id),
+/** The draft, its job, its bytes and its report, gone; false while a publish has claimed it. */
+export async function deleteDraft(db: D1Database, bucket: R2Bucket, id: string): Promise<boolean> {
+  const unclaimed = "EXISTS (SELECT 1 FROM drafts WHERE id = ?1 AND publishing IS NULL)";
+  const [, gone] = await db.batch([
+    db.prepare(`DELETE FROM scan_jobs WHERE draft = ?1 AND ${unclaimed}`).bind(id),
+    db.prepare("DELETE FROM drafts WHERE id = ?1 AND publishing IS NULL").bind(id),
   ]);
+  if ((gone?.meta.changes ?? 0) !== 1) return false;
   await removeDraftRevisions(db, bucket, id);
+  return true;
 }
 
 /** The draft as its publisher sees it, with its scan's report when done. */

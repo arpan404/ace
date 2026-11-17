@@ -15,6 +15,7 @@ import {
   type MarketEntryType,
   type MarketScanReport,
 } from "@ace/protocol/marketplace";
+import { fromCatalogues, type Databases } from "./databases.ts";
 import { verifiedNames } from "./profiles.ts";
 
 /*
@@ -25,10 +26,10 @@ import { verifiedNames } from "./profiles.ts";
 
 /** The verified blocklist, if one is stored and verifies with the market's keys. */
 async function storedBlocklist(
-  db: D1Database,
+  moderation: D1Database,
   publicKeys: string | undefined,
 ): Promise<MarketBlocklist | undefined> {
-  const row = await db
+  const row = await moderation
     .prepare("SELECT signed FROM blocklist WHERE id = 1")
     .first<{ signed: string }>();
   if (!row || !publicKeys) return undefined;
@@ -40,25 +41,36 @@ async function storedBlocklist(
   }
 }
 
-/** What the scanner compares an entry against: the market's entries, verified publishers. */
+/**
+ * What the scanner compares an entry against: the market's entries over every catalogue, the
+ * verified publishers, and the blocklist.
+ */
 export async function scanContext(
-  db: D1Database,
+  dbs: Databases,
   publisher: { handle: string; official: boolean },
   publicKeys: string | undefined,
 ): Promise<ScanContext> {
-  const [{ results }, verified, blocklist] = await Promise.all([
-    db
-      .prepare(
-        `SELECT e.type, e.name, p.name AS publisher,
-          (SELECT COALESCE(SUM(v.counted), 0) FROM versions v
-            WHERE v.type = e.type AND v.name = e.name) AS downloads
-          FROM entries e JOIN publishers p ON p.id = e.publisher LIMIT 50000`,
-      )
-      .all<{ type: string; name: string; publisher: string; downloads: number }>(),
-    verifiedNames(db),
-    storedBlocklist(db, publicKeys),
+  const [entries, verified, blocklist] = await Promise.all([
+    fromCatalogues(dbs, async ({ db }) => {
+      const { results } = await db
+        .prepare(
+          `SELECT e.type, e.name, p.name AS publisher,
+            (SELECT COALESCE(SUM(v.counted), 0) FROM versions v
+              WHERE v.type = e.type AND v.name = e.name) AS downloads
+            FROM entries e JOIN publisher_copies p ON p.id = e.publisher LIMIT 50000`,
+        )
+        .all<{ type: string; name: string; publisher: string; downloads: number }>();
+      return results;
+    }),
+    verifiedNames(dbs.publishers),
+    storedBlocklist(dbs.moderation, publicKeys),
   ]);
-  return { entries: results, verified, publisher, ...(blocklist ? { blocklist } : {}) };
+  return {
+    entries: entries.slice(0, 50000),
+    verified,
+    publisher,
+    ...(blocklist ? { blocklist } : {}),
+  };
 }
 
 export function scanInput(

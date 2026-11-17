@@ -41,12 +41,12 @@ const avatarOf = async (response: Parameters<typeof jsonOf>[0]) =>
 const keys = async (prefix: string) =>
   (await market.objects.list({ prefix })).objects.map((object) => object.key);
 const sweep = (now: number, owner: string = crypto.randomUUID()) =>
-  sweepPictures({ MARKET: market.db, OBJECTS: market.objects }, now, owner);
+  sweepPictures({ dbs: market.dbs, OBJECTS: market.objects }, now, owner);
 
 it("an avatar that doesn't fit the publisher's quota is refused and stores nothing", async () => {
   const crowded = await establishedPublisher(market, "acct_crowded", "crowded");
   // Pictures already charged to the publisher fill its 1 GiB quota but for a few bytes.
-  await market.db
+  await market.dbs.publishers
     .prepare("INSERT INTO pictures (key, publisher, size, at) VALUES ('previews/full', ?1, ?2, 1)")
     .bind(crowded.id, 1024 * 1024 * 1024 - 16)
     .run();
@@ -54,7 +54,7 @@ it("an avatar that doesn't fit the publisher's quota is refused and stores nothi
   const response = await asAccount(market, "acct_crowded", "PUT", "/v1/me/avatar", testPng(64, 64));
   expect(response.status).toBe(429);
   expect(await keys("avatars/")).toEqual(before);
-  const row = await market.db
+  const row = await market.dbs.publishers
     .prepare("SELECT avatar FROM publishers WHERE id = ?1")
     .bind(crowded.id)
     .first<{ avatar: string | null }>();
@@ -84,7 +84,7 @@ it("a replaced avatar's bytes are collected once the grace period has passed, th
   expect(left).toContain(`avatars/${second}`);
   expect((await market.fetch(`/v1/avatars/${second}`)).status).toBe(200);
   // The old one's bytes stopped counting: only the shown avatar is charged.
-  const charged = await market.db
+  const charged = await market.dbs.publishers
     .prepare("SELECT key FROM pictures WHERE publisher = ?1")
     .bind(painter.id)
     .all<{ key: string }>();
@@ -107,7 +107,7 @@ it("a listing picture for a slot past the next free one is refused before any by
   );
   expect(response.status).toBe(400);
   expect(await keys("previews/")).toEqual(before);
-  const charged = await market.db
+  const charged = await market.dbs.publishers
     .prepare("SELECT COUNT(*) AS n FROM pictures WHERE key LIKE 'previews/%' AND publisher = ?1")
     .bind(painter.id)
     .first<{ n: number }>();
@@ -119,7 +119,7 @@ it("a stored avatar counts against a later archive upload's quota", async () => 
   const draft = sampleSkill("tight-skill");
   const size = writeArchiveSize(draft);
   // Fill the quota to all but a little under the archive's size, with a charged picture.
-  await market.db
+  await market.dbs.publishers
     .prepare("INSERT INTO pictures (key, publisher, size, at) VALUES ('avatars/tight', ?1, ?2, 1)")
     .bind(tight.id, 1024 * 1024 * 1024 - Math.floor(size / 2))
     .run();
@@ -133,9 +133,18 @@ it("a stored avatar counts against a later archive upload's quota", async () => 
 });
 
 const reserve = (publisher: string, key: string, now: number) =>
-  reservePicture(market.db, { publisher, key, size: 100, quotaBytes: 1024 * 1024 * 1024, now });
+  reservePicture(market.dbs.publishers, {
+    publisher,
+    key,
+    size: 100,
+    quotaBytes: 1024 * 1024 * 1024,
+    now,
+  });
 const tombstone = (key: string) =>
-  market.db.prepare("SELECT key FROM picture_tombstones WHERE key = ?1").bind(key).first();
+  market.dbs.publishers
+    .prepare("SELECT key FROM picture_tombstones WHERE key = ?1")
+    .bind(key)
+    .first();
 
 it("an orphaned avatar the cron has claimed is kept when an upload charges that key again before the delete", async () => {
   const racer = await establishedPublisher(market, "acct_racer", "racer");
@@ -157,7 +166,7 @@ it("an orphaned avatar the cron has claimed is kept when an upload charges that 
 
   await sweep(past + pictureClaimMs + 60_000);
   expect(await keys("avatars/")).toContain(key);
-  const row = await market.db
+  const row = await market.dbs.publishers
     .prepare("SELECT publisher FROM pictures WHERE key = ?1")
     .bind(key)
     .first<{ publisher: string }>();
@@ -188,7 +197,7 @@ it("an upload that lands while the cron deletes its object is refused until the 
     },
   });
   await sweepPictures(
-    { MARKET: market.db, OBJECTS: objects },
+    { dbs: market.dbs, OBJECTS: objects },
     past + pictureClaimMs + 60_000,
     crypto.randomUUID(),
   );
@@ -220,7 +229,7 @@ async function claimedOrphan(account: string, handle: string, side: number) {
 async function stalledSweep(key: string, now: number, meanwhile: () => Promise<void>) {
   const deleted: string[] = [];
   let stalled = false;
-  const db = new Proxy(market.db, {
+  const db = new Proxy(market.dbs.publishers, {
     get(target, name, receiver) {
       if (name !== "batch") return Reflect.get(target, name, receiver);
       return async (statements: D1PreparedStatement[]) => {
@@ -245,7 +254,11 @@ async function stalledSweep(key: string, now: number, meanwhile: () => Promise<v
       };
     },
   });
-  await sweepPictures({ MARKET: db, OBJECTS: objects }, now, crypto.randomUUID());
+  await sweepPictures(
+    { dbs: { ...market.dbs, publishers: db }, OBJECTS: objects },
+    now,
+    crypto.randomUUID(),
+  );
   expect(stalled).toBe(true);
   return deleted;
 }
@@ -262,7 +275,7 @@ async function watchedSweep(now: number) {
       };
     },
   });
-  await sweepPictures({ MARKET: market.db, OBJECTS: objects }, now, crypto.randomUUID());
+  await sweepPictures({ dbs: market.dbs, OBJECTS: objects }, now, crypto.randomUUID());
   return deleted;
 }
 
@@ -314,7 +327,7 @@ it("an object a sweep died holding is collected by a later sweep once its lease 
     },
   });
   await expect(
-    sweepPictures({ MARKET: market.db, OBJECTS: holder }, due, crypto.randomUUID()),
+    sweepPictures({ dbs: market.dbs, OBJECTS: holder }, due, crypto.randomUUID()),
   ).rejects.toThrow("the run died");
   expect(await keys("avatars/")).toContain(key);
   // Within the lease no other run touches it; past it the next run takes it and deletes it.

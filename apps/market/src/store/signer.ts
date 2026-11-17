@@ -5,10 +5,15 @@ import {
   type PendingWithdrawal,
   type Withdrawal,
 } from "@ace/protocol/marketplace";
+import { eachCatalogue, fromCatalogues, type Databases } from "./databases.ts";
 import { bumpGeneration, refreshEntry } from "./entries.ts";
 import { listOutcome, upsertSigned, type ListStored } from "./lists.ts";
+import { withdrawnBodyOf } from "./rows.ts";
 
-/* The signer's side of D1: what waits for it, and what it signed. */
+/*
+ * The signer's side of D1: what waits for it, over every catalogue, and what it signed. A
+ * version's own changes stay in its type's catalogue, batched with its entry's generation.
+ */
 
 interface PendingRow {
   type: MarketEntryType;
@@ -22,17 +27,23 @@ interface PendingRow {
   approved: number;
 }
 
-export async function pendingVersions(db: D1Database): Promise<PendingVersion[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT v.type, v.name, v.version, v.hash, v.size, v.published, v.approved,
-          p.id AS publisher_id, p.name AS publisher_name
-        FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
-        JOIN publishers p ON p.id = e.publisher
-        WHERE v.state = 'pending' AND v.listed = 0 ORDER BY v.published LIMIT 500`,
-    )
-    .all<PendingRow>();
-  return results.map((row) => {
+const pendingLimit = 500;
+
+export async function pendingVersions(dbs: Databases): Promise<PendingVersion[]> {
+  const rows = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT v.type, v.name, v.version, v.hash, v.size, v.published, v.approved,
+            p.id AS publisher_id, p.name AS publisher_name
+          FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
+          JOIN publisher_copies p ON p.id = e.publisher
+          WHERE v.state = 'pending' AND v.listed = 0 ORDER BY v.published LIMIT ${pendingLimit}`,
+      )
+      .all<PendingRow>();
+    return results;
+  });
+  const oldest = rows.toSorted((a, b) => a.published - b.published).slice(0, pendingLimit);
+  return oldest.map((row) => {
     const pending: PendingVersion = {
       type: row.type,
       name: row.name,
@@ -47,13 +58,17 @@ export async function pendingVersions(db: D1Database): Promise<PendingVersion[]>
   });
 }
 
-export async function pendingWithdrawals(db: D1Database): Promise<PendingWithdrawal[]> {
-  const { results } = await db
-    .prepare(
-      "SELECT type, name, version, hash, reason, at FROM pending_withdrawals ORDER BY at LIMIT 500",
-    )
-    .all<PendingWithdrawal>();
-  return results;
+export async function pendingWithdrawals(dbs: Databases): Promise<PendingWithdrawal[]> {
+  const rows = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT type, name, version, hash, reason, at FROM pending_withdrawals
+          ORDER BY at LIMIT ${pendingLimit}`,
+      )
+      .all<PendingWithdrawal>();
+    return results;
+  });
+  return rows.toSorted((a, b) => a.at - b.at).slice(0, pendingLimit);
 }
 
 /** A stored version with its entry's publisher, signed or not. */
@@ -65,7 +80,7 @@ export async function versionForSigning(
     .prepare(
       `SELECT v.hash, v.size, v.state, p.id AS publisher_id, p.name AS publisher_name
         FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
-        JOIN publishers p ON p.id = e.publisher
+        JOIN publisher_copies p ON p.id = e.publisher
         WHERE v.type = ?1 AND v.name = ?2 AND v.version = ?3`,
     )
     .bind(key.type, key.name, key.version)
@@ -86,19 +101,19 @@ export async function versionForSigning(
     : undefined;
 }
 
-export async function hashIsStored(db: D1Database, hash: string): Promise<boolean> {
-  const row = await db
-    .prepare("SELECT 1 AS found FROM versions WHERE hash = ?1 LIMIT 1")
-    .bind(hash)
-    .first<{ found: number }>();
-  return row !== null;
+/** Whether any catalogue stores a version with these bytes, listed or not. */
+export async function hashIsStored(dbs: Databases, hash: string): Promise<boolean> {
+  const found = await eachCatalogue(dbs, ({ db }) =>
+    db.prepare("SELECT 1 AS found FROM versions WHERE hash = ?1 LIMIT 1").bind(hash).first(),
+  );
+  return found.some((row) => row !== null);
 }
 
 type Key = { type: string; name: string; version: string };
 
 /**
- * Lists a signed version. The first time it goes live its publisher's count of live versions
- * moves (ADR 0173 §9) and its entry's first listing is set, in the same batch. Every statement
+ * Lists a signed version. The first time it goes live its publisher's count of live versions in
+ * this catalogue moves (ADR 0173 §9) and its entry's first listing is set, in the same batch. Every statement
  * re-checks that the version is still pending (or already listed, for a signature sent again),
  * so a hold or block a maintainer made after the route read it stands, and that the version
  * still names the bytes and publisher the manifest was checked against: a version blocked and
@@ -119,7 +134,7 @@ export async function listVersion(
   const results = await db.batch([
     db
       .prepare(
-        `UPDATE publishers SET live_versions = live_versions + 1
+        `UPDATE publisher_copies SET live_versions = live_versions + 1
           WHERE id = (SELECT publisher FROM entries WHERE type = ?1 AND name = ?2) AND ${unlisted}`,
       )
       .bind(key.type, key.name, key.version, ...bound),
@@ -169,15 +184,14 @@ export async function setReview(
 }
 
 /**
- * Stores the signed withdrawn list and marks every version by it, in one batch: the list and the
- * marks change together or not at all. Each statement after the list's applies only while this
- * very list is the stored one, so an older upload racing a newer one changes nothing. Sending
- * the stored list again runs the marking and the entries' refresh again, which is how an upload
- * cut off part way carries on. A new list is stored only while the one it was based on is still
- * stored, so two maintainers' edits never undo each other.
+ * Stores the signed withdrawn list in the lists database, only when it is newer than, and based
+ * on, the stored one, so two maintainers' edits never undo each other; then marks every
+ * catalogue's versions by it (`applyWithdrawn`). Sending the stored list again marks again,
+ * which is how an upload cut off part way carries on; the cron does the same for any catalogue
+ * still behind the stored list.
  */
 export async function setWithdrawn(
-  db: D1Database,
+  dbs: Databases,
   list: {
     issued: number;
     signed: string;
@@ -186,6 +200,25 @@ export async function setWithdrawn(
   },
   now: number,
 ): Promise<ListStored> {
+  await upsertSigned(dbs.lists, "withdrawn", list).run();
+  const outcome = await listOutcome(dbs.lists, "withdrawn", list);
+  if (outcome !== "stored") return outcome;
+  await eachCatalogue(dbs, ({ db }) => applyWithdrawn(db, list, now));
+  return outcome;
+}
+
+/**
+ * Marks one catalogue's versions by a withdrawn list the lists database stored, in one batch:
+ * the list is recorded as this catalogue's applied one (only if it isn't older), and every
+ * statement after applies only while this very list is the applied one, so an older list
+ * applied late changes nothing. Generations move with the marks; the entries are refreshed
+ * after. Applying the same list again does it all again.
+ */
+export async function applyWithdrawn(
+  db: D1Database,
+  list: { issued: number; withdrawn: readonly Withdrawal[] },
+  now: number,
+): Promise<void> {
   const hashes = JSON.stringify([...new Set(list.withdrawn.map((entry) => entry.hash))]);
   const affected = async () =>
     (
@@ -202,38 +235,65 @@ export async function setWithdrawn(
     const reason = withdrawalReason(list.withdrawn, row);
     return reason ? [{ key: `${row.type}/${row.name}@${row.version}`, reason }] : [];
   });
-  const guard = "(SELECT issued = ?1 AND signed = ?2 FROM withdrawn WHERE id = 1)";
+  const guard = "(SELECT issued = ?1 FROM applied_lists WHERE name = 'withdrawn')";
   await db.batch([
-    upsertSigned(db, "withdrawn", list),
+    db
+      .prepare(
+        `INSERT INTO applied_lists (name, issued) VALUES ('withdrawn', ?1)
+          ON CONFLICT (name) DO UPDATE SET issued = excluded.issued
+          WHERE excluded.issued > applied_lists.issued`,
+      )
+      .bind(list.issued),
     db
       .prepare(
         `UPDATE entries SET generation = generation + 1 WHERE ${guard} AND EXISTS (
           SELECT 1 FROM versions v WHERE v.type = entries.type AND v.name = entries.name
-            AND (v.withdrawn IS NOT NULL OR v.hash IN (SELECT value FROM json_each(?3))))`,
+            AND (v.withdrawn IS NOT NULL OR v.hash IN (SELECT value FROM json_each(?2))))`,
       )
-      .bind(list.issued, list.signed, hashes),
+      .bind(list.issued, hashes),
     db
       .prepare(
         `UPDATE versions SET withdrawn = (
-            SELECT json_extract(m.value, '$.reason') FROM json_each(?3) m
+            SELECT json_extract(m.value, '$.reason') FROM json_each(?2) m
             WHERE json_extract(m.value, '$.key') = versions.type || '/' || versions.name || '@' || versions.version)
-          WHERE ${guard} AND (withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?4)))`,
+          WHERE ${guard} AND (withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?3)))`,
       )
-      .bind(list.issued, list.signed, JSON.stringify(marks), hashes),
+      .bind(list.issued, JSON.stringify(marks), hashes),
     db
       .prepare(
         `DELETE FROM pending_withdrawals WHERE ${guard} AND (type || '/' || name || '@' || version)
-          IN (SELECT json_extract(value, '$.key') FROM json_each(?3))`,
+          IN (SELECT json_extract(value, '$.key') FROM json_each(?2))`,
       )
-      .bind(list.issued, list.signed, JSON.stringify(marks)),
+      .bind(list.issued, JSON.stringify(marks)),
   ]);
-  const outcome = await listOutcome(db, "withdrawn", list);
-  if (outcome !== "stored") return outcome;
+  const applied = await appliedWithdrawn(db);
+  if (applied !== list.issued) return;
   const entries = new Map(
     [...before, ...(await affected())].map((row) => [`${row.type}/${row.name}`, row]),
   );
   for (const row of entries.values()) await refreshEntry(db, row.type, row.name, now);
-  return outcome;
+}
+
+/** The `issued` of the withdrawn list a catalogue last marked its versions by. */
+export async function appliedWithdrawn(db: D1Database): Promise<number | undefined> {
+  const row = await db
+    .prepare("SELECT issued FROM applied_lists WHERE name = 'withdrawn'")
+    .first<{ issued: number }>();
+  return row?.issued;
+}
+
+/** The cron's step: marks every catalogue still behind the stored withdrawn list by it. */
+export async function applyWithdrawnDue(dbs: Databases, now: number): Promise<void> {
+  const stored = await dbs.lists
+    .prepare("SELECT issued, signed FROM withdrawn WHERE id = 1")
+    .first<{ issued: number; signed: string }>();
+  if (!stored) return;
+  await eachCatalogue(dbs, async ({ db }) => {
+    const applied = await appliedWithdrawn(db);
+    if (applied !== undefined && applied >= stored.issued) return;
+    const body = withdrawnBodyOf(stored.signed);
+    await applyWithdrawn(db, { issued: stored.issued, withdrawn: body.withdrawn }, now);
+  });
 }
 
 export async function setCategories(db: D1Database, list: readonly MarketCategory[]) {
@@ -258,17 +318,21 @@ export async function setFeatured(db: D1Database, list: readonly { type: string;
   ]);
 }
 
-/** Which of `list` are listed and reviewed now. */
+/** Which of `list` are listed and reviewed now, over every catalogue. */
 export async function reviewedEntries(
-  db: D1Database,
+  dbs: Databases,
   list: readonly { type: string; name: string }[],
 ): Promise<Set<string>> {
-  const { results } = await db
-    .prepare(
-      `SELECT type, name FROM entries WHERE listed = 1 AND reviewed = 1
-        AND (type || '/' || name) IN (SELECT value FROM json_each(?1))`,
-    )
-    .bind(JSON.stringify(list.map((entry) => `${entry.type}/${entry.name}`)))
-    .all<{ type: string; name: string }>();
-  return new Set(results.map((row) => `${row.type}/${row.name}`));
+  const refs = JSON.stringify(list.map((entry) => `${entry.type}/${entry.name}`));
+  const rows = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT type, name FROM entries WHERE listed = 1 AND reviewed = 1
+          AND (type || '/' || name) IN (SELECT value FROM json_each(?1))`,
+      )
+      .bind(refs)
+      .all<{ type: string; name: string }>();
+    return results;
+  });
+  return new Set(rows.map((row) => `${row.type}/${row.name}`));
 }

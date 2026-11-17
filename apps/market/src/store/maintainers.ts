@@ -8,13 +8,17 @@ import type {
 } from "@ace/protocol/marketplace";
 import { versionReportKey } from "../context.ts";
 import { isNewPublisher } from "../rules.ts";
-import { bumpGeneration, refreshEntry, refreshPublisherEntries } from "./entries.ts";
+import { syncPublisher } from "./copies.ts";
+import { fromCatalogues, type Databases } from "./databases.ts";
+import { bumpGeneration, refreshEntry } from "./entries.ts";
+import { markUsageDirty } from "./me-limits.ts";
 import { pendingListingOf, type EntryTable } from "./rows.ts";
 
 /*
- * The maintainers' side of D1 (ADR 0173 §9, §10, §13): what waits for them, and their decisions
- * on versions, listing edits, publishers, collections and appeals. Every change to a version is
- * batched with its entry's generation and followed by the entry's refresh.
+ * The maintainers' side of D1 (ADR 0173 §9, §10, §13, §16): what waits for them, read over every
+ * catalogue and the publishers and moderation databases, and their decisions on versions,
+ * listing edits, publishers, collections and appeals. Every change to a version is batched with
+ * its entry's generation in its catalogue and followed by the entry's refresh.
  */
 
 type Key = { type: string; name: string; version: string };
@@ -29,38 +33,75 @@ async function report(bucket: R2Bucket, key: Key): Promise<MarketScanReport | un
 const withAccount = (proofs: MarketVerificationProof[]): MarketVerificationProof[] =>
   proofs.some((proof) => proof.kind === "account") ? proofs : [{ kind: "account" }, ...proofs];
 
-export async function queue(db: D1Database, bucket: R2Bucket, now: number): Promise<Queue> {
-  const [held, listings, verifications, appeals] = await Promise.all([
-    db
+const queueLimit = 500;
+
+type HeldRow = Key & {
+  hash: string;
+  published: number;
+  publisher_id: string;
+  publisher_name: string;
+  created: number;
+  live_versions: number;
+};
+type AppealRow = {
+  id: string;
+  type: string;
+  name: string;
+  version: string;
+  publisher: string;
+  note: string;
+  replacement: string | null;
+  at: number;
+  state: string;
+  answer: string | null;
+};
+type ListingRow = EntryTable & { publisher_id: string; publisher_name: string };
+
+/** The versions' states and block reasons for these appeals, from their catalogues. */
+async function appealVersions(dbs: Databases, appeals: readonly AppealRow[]) {
+  const keys = JSON.stringify(appeals.map((row) => `${row.type}/${row.name}@${row.version}`));
+  const rows = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
       .prepare(
-        `SELECT v.type, v.name, v.version, v.hash, v.published, p.id AS publisher_id,
-            p.name AS publisher_name, p.created, p.live_versions
-          FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
-          JOIN publishers p ON p.id = e.publisher
-          WHERE v.state = 'held' ORDER BY v.published LIMIT 500`,
+        `SELECT type, name, version, state, block_reason FROM versions
+          WHERE (type || '/' || name || '@' || version) IN (SELECT value FROM json_each(?1))`,
       )
-      .all<
-        Key & {
-          hash: string;
-          published: number;
-          publisher_id: string;
-          publisher_name: string;
-          created: number;
-          live_versions: number;
-        }
-      >(),
-    db
-      .prepare(
-        `SELECT e.*, p.id AS publisher_id, p.name AS publisher_name FROM entries e
-          JOIN publishers p ON p.id = e.publisher
-          WHERE e.pending_listing IS NOT NULL ORDER BY e.type, e.name LIMIT 500`,
-      )
-      .all<EntryTable & { publisher_id: string; publisher_name: string }>(),
-    db
+      .bind(keys)
+      .all<Key & { state: string; block_reason: string | null }>();
+    return results;
+  });
+  return new Map(rows.map((row) => [`${row.type}/${row.name}@${row.version}`, row]));
+}
+
+export async function queue(dbs: Databases, bucket: R2Bucket, now: number): Promise<Queue> {
+  const [heldRows, listingRows, verifications, appealRows, live] = await Promise.all([
+    fromCatalogues(dbs, async ({ db }) => {
+      const { results } = await db
+        .prepare(
+          `SELECT v.type, v.name, v.version, v.hash, v.published, p.id AS publisher_id,
+              p.name AS publisher_name, p.created, p.live_versions
+            FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
+            JOIN publisher_copies p ON p.id = e.publisher
+            WHERE v.state = 'held' ORDER BY v.published LIMIT ${queueLimit}`,
+        )
+        .all<HeldRow>();
+      return results;
+    }),
+    fromCatalogues(dbs, async ({ db }) => {
+      const { results } = await db
+        .prepare(
+          `SELECT e.*, p.id AS publisher_id, p.name AS publisher_name FROM entries e
+            JOIN publisher_copies p ON p.id = e.publisher
+            WHERE e.pending_listing IS NOT NULL ORDER BY e.type, e.name LIMIT ${queueLimit}`,
+        )
+        .all<ListingRow>();
+      return results;
+    }),
+    dbs.publishers
       .prepare(
         `SELECT id, name, proofs, verification_at, created, verification_flag FROM publishers
           WHERE verification = 'applied' OR verification_flag IS NOT NULL
-          ORDER BY COALESCE(verification_at, created) LIMIT 500`,
+          ORDER BY COALESCE(verification_at, created) LIMIT ${queueLimit}`,
       )
       .all<{
         id: string;
@@ -70,29 +111,42 @@ export async function queue(db: D1Database, bucket: R2Bucket, now: number): Prom
         created: number;
         verification_flag: string | null;
       }>(),
-    db
-      .prepare(
-        `SELECT a.*, p.name AS publisher_name, v.state AS version_state, v.block_reason
-          FROM appeals a JOIN publishers p ON p.id = a.publisher
-          LEFT JOIN versions v ON v.type = a.type AND v.name = a.name AND v.version = a.version
-          WHERE a.state = 'open' ORDER BY a.at LIMIT 500`,
-      )
-      .all<{
-        id: string;
-        type: string;
-        name: string;
-        version: string;
-        publisher: string;
-        publisher_name: string;
-        note: string;
-        replacement: string | null;
-        at: number;
-        state: string;
-        answer: string | null;
-        version_state: string | null;
-        block_reason: string | null;
-      }>(),
+    dbs.moderation
+      .prepare(`SELECT * FROM appeals WHERE state = 'open' ORDER BY at LIMIT ${queueLimit}`)
+      .all<AppealRow>(),
+    // A publisher's live versions are the sum over the catalogues (§16).
+    fromCatalogues(dbs, async ({ db }) => {
+      const { results } = await db
+        .prepare("SELECT id, live_versions FROM publisher_copies WHERE live_versions > 0")
+        .all<{ id: string; live_versions: number }>();
+      return results;
+    }),
   ]);
+  const liveOf = new Map<string, number>();
+  for (const row of live) liveOf.set(row.id, (liveOf.get(row.id) ?? 0) + row.live_versions);
+  const held = {
+    results: heldRows
+      .toSorted((a, b) => a.published - b.published)
+      .slice(0, queueLimit)
+      .map((row) => Object.assign(row, { live_versions: liveOf.get(row.publisher_id) ?? 0 })),
+  };
+  const listings = { results: listingRows.slice(0, queueLimit) };
+  const versionsOf = await appealVersions(dbs, appealRows.results);
+  const handles = await dbs.publishers
+    .prepare("SELECT id, name FROM publishers WHERE id IN (SELECT value FROM json_each(?1))")
+    .bind(JSON.stringify([...new Set(appealRows.results.map((row) => row.publisher))]))
+    .all<{ id: string; name: string }>();
+  const handleOf = new Map(handles.results.map((row) => [row.id, row.name]));
+  const appeals = {
+    results: appealRows.results.map((row) => {
+      const version = versionsOf.get(`${row.type}/${row.name}@${row.version}`);
+      return Object.assign(row, {
+        publisher_name: handleOf.get(row.publisher) ?? "",
+        version_state: version?.state ?? null,
+        block_reason: version?.block_reason ?? null,
+      });
+    }),
+  };
   const reports = await Promise.all(held.results.map((row) => report(bucket, row)));
   return {
     held: held.results.map((row, index) => {
@@ -155,37 +209,46 @@ export async function queue(db: D1Database, bucket: R2Bucket, now: number): Prom
   };
 }
 
-export async function scanContext(db: D1Database, now: number): Promise<MarketScanContextBody> {
-  const [entries, publishers] = await Promise.all([
-    db
-      .prepare(
-        `SELECT e.type, e.name, p.name AS publisher,
-            (SELECT COALESCE(SUM(v.downloads), 0) FROM versions v
-              WHERE v.type = e.type AND v.name = e.name) AS downloads
-          FROM entries e JOIN publishers p ON p.id = e.publisher
-          ORDER BY e.type, e.name LIMIT 50000`,
-      )
-      .all<{ type: string; name: string; publisher: string; downloads: number }>(),
-    db
-      .prepare(
-        "SELECT name, display_name, verified, created, live_versions FROM publishers LIMIT 50000",
-      )
+export async function scanContext(dbs: Databases, now: number): Promise<MarketScanContextBody> {
+  const [entries, publishers, live] = await Promise.all([
+    fromCatalogues(dbs, async ({ db }) => {
+      const { results } = await db
+        .prepare(
+          `SELECT e.type, e.name, p.name AS publisher,
+              (SELECT COALESCE(SUM(v.counted), 0) FROM versions v
+                WHERE v.type = e.type AND v.name = e.name) AS downloads
+            FROM entries e JOIN publisher_copies p ON p.id = e.publisher
+            ORDER BY e.type, e.name LIMIT 50000`,
+        )
+        .all<{ type: string; name: string; publisher: string; downloads: number }>();
+      return results;
+    }),
+    dbs.publishers
+      .prepare("SELECT id, name, display_name, verified, created FROM publishers LIMIT 50000")
       .all<{
+        id: string;
         name: string;
         display_name: string;
         verified: number;
         created: number;
-        live_versions: number;
       }>(),
+    fromCatalogues(dbs, async ({ db }) => {
+      const { results } = await db
+        .prepare("SELECT id, live_versions FROM publisher_copies WHERE live_versions > 0")
+        .all<{ id: string; live_versions: number }>();
+      return results;
+    }),
   ]);
+  const liveOf = new Map<string, number>();
+  for (const row of live) liveOf.set(row.id, (liveOf.get(row.id) ?? 0) + row.live_versions);
   return {
-    entries: entries.results,
+    entries: entries.slice(0, 50000),
     verified: publishers.results
       .filter((row) => row.verified === 1)
       .map((row) => ({ handle: row.name, displayName: row.display_name || row.name })),
     newPublishers: publishers.results
       .filter((row) =>
-        isNewPublisher({ created: row.created, liveVersions: row.live_versions }, now),
+        isNewPublisher({ created: row.created, liveVersions: liveOf.get(row.id) ?? 0 }, now),
       )
       .map((row) => row.name),
   };
@@ -278,43 +341,49 @@ export async function decideListing(
   return "done";
 }
 
-/** Suspends, restores or marks deleted a publisher; its entries follow (ADR 0173 §2). */
+/**
+ * Suspends, restores or marks deleted a publisher; its entries follow in every catalogue through
+ * its copies (ADR 0173 §2, §16).
+ */
 export async function setPublisherState(
-  db: D1Database,
+  dbs: Databases,
   handle: string,
   state: MarketPublisherState,
   reason: string | undefined,
   now: number,
 ): Promise<Decided> {
-  const row = await db
+  const row = await dbs.publishers
     .prepare("UPDATE publishers SET state = ?2, state_reason = ?3 WHERE name = ?1 RETURNING id")
     .bind(handle, state, reason ?? null)
     .first<{ id: string }>();
   if (!row) return "missing";
-  await refreshPublisherEntries(db, row.id, now);
+  await syncPublisher(dbs, row.id, now);
   return "done";
 }
 
-/** A publisher's live versions, for `--withdraw-all`. */
-export async function publisherVersions(db: D1Database, handle: string) {
-  const publisher = await db
+/** A publisher's live versions over every catalogue, for `--withdraw-all`. */
+export async function publisherVersions(dbs: Databases, handle: string) {
+  const publisher = await dbs.publishers
     .prepare("SELECT id, name, state FROM publishers WHERE name = ?1")
     .bind(handle)
     .first<{ id: string; name: string; state: MarketPublisherState }>();
   if (!publisher) return undefined;
-  const { results } = await db
-    .prepare(
-      `SELECT v.type, v.name, v.version, v.hash FROM versions v
-        JOIN entries e ON e.type = v.type AND e.name = v.name
-        WHERE e.publisher = ?1 AND v.listed = 1 AND v.withdrawn IS NULL
-        ORDER BY v.type, v.name, v.version LIMIT 10000`,
-    )
-    .bind(publisher.id)
-    .all<Key & { hash: string }>();
+  const live = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT v.type, v.name, v.version, v.hash FROM versions v
+          JOIN entries e ON e.type = v.type AND e.name = v.name
+          WHERE e.publisher = ?1 AND v.listed = 1 AND v.withdrawn IS NULL
+          ORDER BY v.type, v.name, v.version LIMIT 10000`,
+      )
+      .bind(publisher.id)
+      .all<Key & { hash: string }>();
+    return results;
+  });
   return {
     publisher: { id: publisher.id, name: publisher.name },
     state: publisher.state,
-    live: results,
+    live: live.slice(0, 10000),
   };
 }
 
@@ -350,15 +419,18 @@ export async function collections(db: D1Database): Promise<MarketCollection[]> {
 }
 
 /**
- * Answers an open appeal. Approving releases the version for the signer, as `--approve` does
- * (its re-scan still refuses a block); keeping it leaves the version as it is.
+ * Answers an open appeal, in the moderation database. Approving then releases the version in its
+ * catalogue for the signer, as `--approve` does (its re-scan still refuses a block); keeping it
+ * leaves the version as it is. A release cut off after the answer is made again by
+ * `--approve`, which answers as the appeal did.
  */
 export async function answerAppeal(
-  db: D1Database,
+  dbs: Databases,
   id: string,
   answer: { answer: string; decision: "approve" | "keep" },
   now: number,
 ): Promise<Decided> {
+  const db = dbs.moderation;
   const appeal = await db
     .prepare(
       `UPDATE appeals SET state = ?2, answer = ?3, answered = ?4 WHERE id = ?1 AND state = 'open'
@@ -370,6 +442,14 @@ export async function answerAppeal(
     const exists = await db.prepare("SELECT 1 FROM appeals WHERE id = ?1").bind(id).first();
     return exists ? "conflict" : "missing";
   }
-  if (answer.decision === "approve") await decideHold(db, appeal, "approve", now);
+  const catalogue = dbs.catalogue(appeal.type);
+  if (answer.decision === "approve" && catalogue) {
+    await decideHold(catalogue, appeal, "approve", now);
+    const owner = await catalogue
+      .prepare("SELECT publisher FROM entries WHERE type = ?1 AND name = ?2")
+      .bind(appeal.type, appeal.name)
+      .first<{ publisher: string }>();
+    if (owner) await markUsageDirty(dbs.publishers, owner.publisher, now).run();
+  }
   return "done";
 }

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { skeleton } from "@ace/marketplace/profile";
 import { sampleSkill } from "@ace/marketplace/testing";
-import { asSigner, publish, startMarket, type Market } from "./testing/harness.ts";
+import { asSigner, catalogueOf, publish, startMarket, type Market } from "./testing/harness.ts";
 import {
   asAccount,
   createDraft,
@@ -21,7 +21,7 @@ import {
   setPendingListing,
   setVisibility,
 } from "./store/me-entries.ts";
-import { writeDraft } from "./store/drafts.ts";
+import { claimDraft, writeDraft } from "./store/drafts.ts";
 import { reserveUpload } from "./store/me-limits.ts";
 import { addAppeal, offerTransfer } from "./store/me-transfers.ts";
 import { changeHandle, createProfile, setPins } from "./store/profiles.ts";
@@ -53,7 +53,7 @@ const skill = (name: string, version = "1.0.0") => ({
 });
 
 const entryRow = (name: string) =>
-  market.db
+  catalogueOf(market, "spade-skill")
     .prepare(
       `SELECT publisher, visibility, archived, latest_pick, listing, pending_listing, generation
         FROM entries WHERE type = 'spade-skill' AND name = ?1`,
@@ -61,13 +61,13 @@ const entryRow = (name: string) =>
     .bind(name)
     .first();
 const versionRow = (name: string) =>
-  market.db
+  catalogueOf(market, "spade-skill")
     .prepare("SELECT changelog, deprecated FROM versions WHERE type = 'spade-skill' AND name = ?1")
     .bind(name)
     .first();
 const count = async (table: string, name: string) =>
   (
-    await market.db
+    await (table === "appeals" ? market.dbs.moderation : catalogueOf(market, "spade-skill"))
       .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE type = 'spade-skill' AND name = ?1`)
       .bind(name)
       .first<{ n: number }>()
@@ -76,7 +76,7 @@ const count = async (table: string, name: string) =>
 /** A live entry of the maker's that a transfer then moved to the taker. */
 async function movedEntry(name: string) {
   await liveVersion(market, "acct_race_maker", maker, skill(name));
-  await market.db
+  await catalogueOf(market, "spade-skill")
     .prepare("UPDATE entries SET publisher = ?1 WHERE type = 'spade-skill' AND name = ?2")
     .bind(taker.id, name)
     .run();
@@ -96,14 +96,14 @@ const noBucket = { delete: async () => {} } as unknown as R2Bucket;
 
 describe("a former owner's request that lands after a transfer", () => {
   const writes: [string, (key: Awaited<ReturnType<typeof movedEntry>>) => Promise<unknown>][] = [
-    ["visibility", (key) => setVisibility(market.db, key, "unlisted", 1)],
-    ["archive", (key) => setArchived(market.db, key, true, 1)],
-    ["latest", (key) => setLatestPick(market.db, key, "1.0.0", 1)],
-    ["listing", (key) => applyListing(market.db, key, listing, 1)],
+    ["visibility", (key) => setVisibility(catalogueOf(market, "spade-skill"), key, "unlisted", 1)],
+    ["archive", (key) => setArchived(catalogueOf(market, "spade-skill"), key, true, 1)],
+    ["latest", (key) => setLatestPick(catalogueOf(market, "spade-skill"), key, "1.0.0", 1)],
+    ["listing", (key) => applyListing(catalogueOf(market, "spade-skill"), key, listing, 1)],
     [
       "pending listing",
       (key) =>
-        setPendingListing(market.db, key, {
+        setPendingListing(catalogueOf(market, "spade-skill"), key, {
           listing,
           scan: {
             format: "ace-market-scan",
@@ -118,8 +118,16 @@ describe("a former owner's request that lands after a transfer", () => {
           at: 1,
         }),
     ],
-    ["changelog", (key) => setChangelog(market.db, { ...key, version: "1.0.0" }, "Mine.", 1)],
-    ["deprecation", (key) => setDeprecated(market.db, { ...key, version: "1.0.0" }, "Old.", 1)],
+    [
+      "changelog",
+      (key) =>
+        setChangelog(catalogueOf(market, "spade-skill"), { ...key, version: "1.0.0" }, "Mine.", 1),
+    ],
+    [
+      "deprecation",
+      (key) =>
+        setDeprecated(catalogueOf(market, "spade-skill"), { ...key, version: "1.0.0" }, "Old.", 1),
+    ],
   ];
 
   it.each(writes)("changes nothing on the entry: %s", async (label, write) => {
@@ -133,7 +141,7 @@ describe("a former owner's request that lands after a transfer", () => {
 
   it("records no withdrawal", async () => {
     const key = await movedEntry("moved-withdraw");
-    const added = await addWithdrawal(market.db, {
+    const added = await addWithdrawal(catalogueOf(market, "spade-skill"), {
       ...key,
       version: "1.0.0",
       hash: "a".repeat(64),
@@ -146,7 +154,7 @@ describe("a former owner's request that lands after a transfer", () => {
 
   it("files no appeal", async () => {
     const key = await movedEntry("moved-appeal");
-    const added = await addAppeal(market.db, {
+    const added = await addAppeal(market.dbs, catalogueOf(market, "spade-skill"), {
       id: "apl_race",
       ...key,
       version: "1.0.0",
@@ -160,7 +168,7 @@ describe("a former owner's request that lands after a transfer", () => {
 
   it("offers no transfer", async () => {
     const key = await movedEntry("moved-offer");
-    const offer = await offerTransfer(market.db, {
+    const offer = await offerTransfer(market.dbs, catalogueOf(market, "spade-skill"), {
       id: "trf_race",
       entry: { type: "spade-skill", name: key.name },
       from: maker.id,
@@ -171,31 +179,34 @@ describe("a former owner's request that lands after a transfer", () => {
     expect(await count("transfers", key.name)).toBe(0);
   });
 
-  it("pins nothing", async () => {
+  it("shows no pin: a pin written after the entry moved never reaches the profile", async () => {
     const key = await movedEntry("moved-pin");
-    expect(await setPins(market.db, maker.id, [{ type: "spade-skill", name: key.name }])).toBe(
-      false,
+    // The route checked the entry was the maker's; the move landed before the pin was written.
+    expect(
+      await setPins(market.dbs.publishers, maker.id, [{ type: "spade-skill", name: key.name }]),
+    ).toBe(true);
+    const page = await jsonOf<{ profile: { pins: unknown[] }; pinned: unknown[] }>(
+      await market.fetch(`/v1/publishers/${maker.handle}`),
     );
-    const pins = await market.db
-      .prepare("SELECT pins FROM publishers WHERE id = ?1")
-      .bind(maker.id)
-      .first<{ pins: string }>();
-    expect(JSON.parse(pins?.pins ?? "[]")).toEqual([]);
+    expect(page.profile.pins).toEqual([]);
+    expect(page.pinned).toEqual([]);
   });
 
   it("deletes nothing", async () => {
-    await market.db
+    await catalogueOf(market, "spade-skill")
       .prepare(
         `INSERT INTO entries (type, name, publisher, title) VALUES ('spade-skill', 'moved-delete', ?1,
           'moved-delete')`,
       )
       .bind(taker.id)
       .run();
-    const outcome = await deleteNeverListed(market.db, noBucket, {
-      type: "spade-skill",
-      name: "moved-delete",
-      publisher: maker.id,
-    });
+    const outcome = await deleteNeverListed(
+      market.dbs,
+      catalogueOf(market, "spade-skill"),
+      noBucket,
+      { type: "spade-skill", name: "moved-delete", publisher: maker.id },
+      1,
+    );
     expect(outcome).toBe("not-yours");
     expect((await entryRow("moved-delete"))?.publisher).toBe(taker.id);
   });
@@ -207,7 +218,7 @@ describe("deleting an entry that was never listed", () => {
     const published = await draftAndPublish(market, "acct_race_maker", upload);
     expect(published.status).toBe(201);
     const { hash } = await jsonOf<{ hash: string }>(published);
-    const stored = await market.db
+    const stored = await catalogueOf(market, "spade-skill")
       .prepare("SELECT size, published FROM versions WHERE name = 'reused-bytes'")
       .first<{ size: number; published: number }>();
     const deleted = await asAccount(
@@ -218,20 +229,16 @@ describe("deleting an entry that was never listed", () => {
     );
     expect(deleted.status).toBe(200);
     // A publish that found objects/<hash> already there stores its version after the delete.
-    await storePending(
-      market.db,
-      {
-        publisher: maker.id,
-        type: "spade-skill",
-        name: "reused-bytes",
-        version: "1.0.0",
-        hash,
-        size: stored?.size ?? 0,
-        published: stored?.published ?? 0,
-        listing: { title: "reused-bytes", line: "", description: "", categories: [], keywords: [] },
-      },
-      { quotaBytes: 1024 * 1024 * 1024 },
-    );
+    await storePending(catalogueOf(market, "spade-skill"), {
+      publisher: maker.id,
+      type: "spade-skill",
+      name: "reused-bytes",
+      version: "1.0.0",
+      hash,
+      size: stored?.size ?? 0,
+      published: stored?.published ?? 0,
+      listing: { title: "reused-bytes", line: "", description: "", categories: [], keywords: [] },
+    });
     await sign(market, upload, { id: maker.id, name: maker.handle });
     expect((await market.fetch(`/v1/objects/${hash}`)).status).toBe(200);
   });
@@ -241,16 +248,16 @@ describe("two renames from the same handle", () => {
   it("the second one, read before the first landed, fails and leaves no handle unretired", async () => {
     const renamer = await establishedPublisher(market, "acct_race_renamer", "race-renamer");
     const before = { id: renamer.id, name: "race-renamer", skeleton: skeleton("race-renamer") };
-    const first = await changeHandle(market.db, before, {
+    const first = await changeHandle(market.dbs.publishers, before, {
       handle: "race-first",
       skeleton: skeleton("race-first"),
     });
-    const second = await changeHandle(market.db, before, {
+    const second = await changeHandle(market.dbs.publishers, before, {
       handle: "race-second",
       skeleton: skeleton("race-second"),
     });
     expect([first, second]).toEqual(["moved", "stale"]);
-    const row = await market.db
+    const row = await market.dbs.publishers
       .prepare("SELECT name FROM publishers WHERE id = ?1")
       .bind(renamer.id)
       .first<{ name: string }>();
@@ -266,7 +273,7 @@ describe("two renames from the same handle", () => {
 const proofsOfPublisher = async (id: string) =>
   JSON.parse(
     (
-      await market.db
+      await market.dbs.publishers
         .prepare("SELECT proofs FROM publishers WHERE id = ?1")
         .bind(id)
         .first<{ proofs: string }>()
@@ -274,7 +281,7 @@ const proofsOfPublisher = async (id: string) =>
   ) as unknown[];
 const tokenOf = async (id: string, kind: string) =>
   (
-    await market.db
+    await market.dbs.publishers
       .prepare("SELECT token FROM verification_challenges WHERE publisher = ?1 AND kind = ?2")
       .bind(id, kind)
       .first<{ token: string }>()
@@ -292,14 +299,14 @@ describe("verification checks", () => {
     // Each request read the publisher before the other wrote.
     await Promise.all([
       recordCheck(
-        market.db,
+        market.dbs.publishers,
         applicant.id,
         { token: await tokenOf(applicant.id, "domain") },
         { passed: { kind: "domain", domain: "proofs.example", via: "dns" } },
         now,
       ),
       recordCheck(
-        market.db,
+        market.dbs.publishers,
         applicant.id,
         { token: await tokenOf(applicant.id, "github") },
         { passed: { kind: "github", login: "proofs-org", via: "gist" } },
@@ -321,14 +328,14 @@ describe("verification checks", () => {
       { kind: "account" },
       { kind: "domain", domain: "approved.example", via: "dns" },
     ];
-    await market.db.batch([
-      market.db
+    await market.dbs.publishers.batch([
+      market.dbs.publishers
         .prepare(
           `UPDATE publishers SET verified = 1, verification = 'verified', proofs = ?2,
             approved_proofs = ?2, rechecked = 0 WHERE id = ?1`,
         )
         .bind(verified.id, JSON.stringify(approved)),
-      market.db
+      market.dbs.publishers
         .prepare(
           `INSERT INTO verification_challenges (publisher, kind, subject, token, expires, state)
             VALUES (?1, 'domain', 'approved.example', 'approved-token', 0, 'passed')`,
@@ -343,7 +350,7 @@ describe("verification checks", () => {
     expect(status.challenges).toEqual([
       expect.objectContaining({ subject: "new.example", state: "waiting" }),
     ]);
-    const due = (await dueRechecks(market.db, Date.now(), 1000)).filter(
+    const due = (await dueRechecks(market.dbs.publishers, Date.now(), 1000)).filter(
       (row) => row.publisher === verified.id,
     );
     expect(due).toEqual([
@@ -352,7 +359,7 @@ describe("verification checks", () => {
     // The new domain passing is a new application; the proofs the mark was granted on stay.
     const fresh = { kind: "domain", domain: "new.example", via: "dns" } as const;
     await recordCheck(
-      market.db,
+      market.dbs.publishers,
       verified.id,
       { token: await tokenOf(verified.id, "domain") },
       { passed: fresh },
@@ -379,7 +386,7 @@ describe("verification checks", () => {
     );
     expect(profile.profile).toEqual(expect.objectContaining({ verified: true, proofs: approved }));
     expect(
-      (await dueRechecks(market.db, Date.now(), 1000)).filter(
+      (await dueRechecks(market.dbs.publishers, Date.now(), 1000)).filter(
         (row) => row.publisher === verified.id,
       ),
     ).toEqual([{ publisher: verified.id, domain: "approved.example", token: "approved-token" }]);
@@ -388,9 +395,9 @@ describe("verification checks", () => {
 
 /** Rows for `n` drafts of the publisher's, as earlier uploads left them. */
 async function fillDrafts(publisher: string, n: number) {
-  await market.db.batch(
+  await market.dbs.publishers.batch(
     Array.from({ length: n }, (_, index) =>
-      market.db
+      market.dbs.publishers
         .prepare(
           `INSERT INTO drafts (id, publisher, type, name, version, hash, size, files, title,
               scan_state, created, updated)
@@ -402,7 +409,7 @@ async function fillDrafts(publisher: string, n: number) {
 }
 const draftCount = async (publisher: string) =>
   (
-    await market.db
+    await market.dbs.publishers
       .prepare("SELECT COUNT(*) AS n FROM drafts WHERE publisher = ?1")
       .bind(publisher)
       .first<{ n: number }>()
@@ -428,7 +435,12 @@ describe("upload limits under concurrent uploads", () => {
     await fillDrafts(owner.id, 19);
     const written = await Promise.all(
       ["drf_slot_a", "drf_slot_b"].map((id) =>
-        writeDraft(market.db, draftWrite(owner.id, id), { done: true, verdict: "pass" }, caps),
+        writeDraft(
+          market.dbs.publishers,
+          draftWrite(owner.id, id),
+          { done: true, verdict: "pass" },
+          caps,
+        ),
       ),
     );
     expect(written.toSorted()).toEqual([false, true]);
@@ -440,7 +452,12 @@ describe("upload limits under concurrent uploads", () => {
     const small = { quotaBytes: 15, draftLimit: 20 };
     const written = await Promise.all(
       ["drf_bytes_a", "drf_bytes_b"].map((id) =>
-        writeDraft(market.db, draftWrite(owner.id, id), { done: true, verdict: "pass" }, small),
+        writeDraft(
+          market.dbs.publishers,
+          draftWrite(owner.id, id),
+          { done: true, verdict: "pass" },
+          small,
+        ),
       ),
     );
     expect(written.toSorted()).toEqual([false, true]);
@@ -449,14 +466,14 @@ describe("upload limits under concurrent uploads", () => {
   it("two uploads for the last of the day's uploads: one is counted", async () => {
     const owner = await establishedPublisher(market, "acct_race_daily", "race-daily");
     const now = Date.now();
-    await market.db
+    await market.dbs.publishers
       .prepare("INSERT INTO upload_days (publisher, day, count) VALUES (?1, ?2, 29)")
       .bind(owner.id, Math.floor(now / 86_400_000))
       .run();
     const reservation = { publisher: owner.id, newPublisher: false, size: 10, now };
     const refusals = await Promise.all([
-      reserveUpload(market.db, { ...reservation, newDraft: false }),
-      reserveUpload(market.db, { ...reservation, newDraft: false }),
+      reserveUpload(market.dbs.publishers, { ...reservation, newDraft: false }),
+      reserveUpload(market.dbs.publishers, { ...reservation, newDraft: false }),
     ]);
     expect(refusals.filter((refusal) => refusal === undefined)).toHaveLength(1);
     expect(refusals.find((refusal) => refusal !== undefined)).toMatch(/30 times a day/);
@@ -491,7 +508,7 @@ describe("publishing a draft", () => {
     expect(created.status).toBe(201);
     const { id } = await jsonOf<{ id: string }>(created);
     // A replace on its way has written the row; its bytes and report haven't landed yet.
-    await market.db
+    await market.dbs.publishers
       .prepare("UPDATE drafts SET hash = ?2 WHERE id = ?1")
       .bind(id, "f".repeat(64))
       .run();
@@ -505,36 +522,35 @@ describe("publishing a draft", () => {
     expect(await count("versions", "race-swapped")).toBe(0);
   });
 
-  it("stores no version once the draft holds other bytes", async () => {
+  it("can't claim a draft for publishing once it holds other bytes, nor charge its version", async () => {
     const owner = await establishedPublisher(market, "acct_race_guard", "race-guard");
     await writeDraft(
-      market.db,
+      market.dbs.publishers,
       draftWrite(owner.id, "drf_guarded"),
       { done: true, verdict: "pass" },
       caps,
     );
-    const stored = await storePending(
-      market.db,
-      {
-        publisher: owner.id,
-        type: "spade-skill",
-        name: "drf_guarded",
-        version: "1.0.0",
-        hash: "c".repeat(64),
-        size: 10,
-        published: 1,
-        listing: { title: "guarded", line: "", description: "", categories: [], keywords: [] },
-      },
-      { quotaBytes: caps.quotaBytes, draft: "drf_guarded" },
+    const item = "spade-skill/drf_guarded/1.0.0";
+    const claimed = await claimDraft(
+      market.dbs.publishers,
+      { id: "drf_guarded", hash: "c".repeat(64), publisher: owner.id },
+      item,
+      1,
     );
-    expect(stored.written).toBe(false);
-    expect(await count("versions", "drf_guarded")).toBe(0);
-    expect(await count("entries", "drf_guarded")).toBe(0);
+    expect(claimed).toBe(false);
+    const row = await market.dbs.publishers
+      .prepare(
+        `SELECT (SELECT publishing FROM drafts WHERE id = 'drf_guarded') AS publishing,
+          (SELECT COUNT(*) FROM charges WHERE item = ?1) AS charges`,
+      )
+      .bind(item)
+      .first();
+    expect(row).toEqual({ publishing: null, charges: 0 });
   });
 });
 
 const claimHandle = (account: string, handle: string) =>
-  createProfile(market.db, {
+  createProfile(market.dbs.publishers, {
     id: `pub_${account}`,
     account,
     handle,
@@ -559,14 +575,14 @@ describe("claims of one handle", () => {
     // The claims below passed their handle check before this rename retired the handle.
     expect(
       await changeHandle(
-        market.db,
+        market.dbs.publishers,
         { id: giver.id, name: "race-given" },
         { handle: "race-kept", skeleton: skeleton("race-kept") },
       ),
     ).toBe("moved");
     expect(await claimHandle("acct_race_late", "race-given")).toBe(false);
     await expect(
-      claimPublisher(market.db, {
+      claimPublisher(market.dbs.publishers, {
         id: "pub_race_first_publish",
         account: "acct_race_first_publish",
         name: "race-given",
@@ -576,7 +592,7 @@ describe("claims of one handle", () => {
     ).rejects.toThrow(/UNIQUE/);
     expect(
       await changeHandle(
-        market.db,
+        market.dbs.publishers,
         { id: taker.id, name: taker.handle },
         { handle: "race-given", skeleton: skeleton("race-given") },
       ),
@@ -584,7 +600,7 @@ describe("claims of one handle", () => {
     // The account that gave it up takes it back.
     expect(
       await changeHandle(
-        market.db,
+        market.dbs.publishers,
         { id: giver.id, name: "race-kept" },
         { handle: "race-given", skeleton: skeleton("race-given") },
       ),

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { MarketDiscoverBody } from "@ace/protocol/marketplace";
 import { sampleSkill } from "@ace/marketplace/testing";
-import { put, startMarket, type Market } from "./testing/harness.ts";
+import { put, startMarket, type Market, catalogueOf } from "./testing/harness.ts";
 import { download, everyRow, publishLive } from "./testing/discover-harness.ts";
 import { signals } from "./store/me-transfers.ts";
 
@@ -34,16 +34,16 @@ it("counts a download once per caller and hash a minute, into hourly and daily t
   expect(await download(market, hash, "198.51.100.9")).toBe(200);
 
   const totals = async () =>
-    market.db
+    market.dbs.counts
       .prepare(
-        `SELECT (SELECT downloads FROM versions WHERE name = 'counted-twice') AS total,
+        `SELECT (SELECT downloads FROM version_totals WHERE name = 'counted-twice') AS total,
           (SELECT SUM(count) FROM downloads_hourly WHERE name = 'counted-twice') AS hourly,
           (SELECT SUM(count) FROM downloads_daily WHERE name = 'counted-twice'
             AND version = '1.0.0') AS daily`,
       )
       .first<{ total: number; hourly: number; daily: number }>();
   await expect.poll(totals).toEqual({ total: 2, hourly: 2, daily: 2 });
-  const hour = await market.db
+  const hour = await market.dbs.counts
     .prepare("SELECT hour FROM downloads_hourly WHERE name = 'counted-twice'")
     .first<{ hour: number }>();
   expect(hour?.hour).toBe(Math.floor(Date.now() / 3_600_000));
@@ -84,8 +84,8 @@ it("answers Discover: featured with its hero, trending after the cron, New and n
     .poll(
       async () =>
         (
-          await market.db
-            .prepare("SELECT downloads FROM versions WHERE name = 'popular-skill'")
+          await market.dbs.counts
+            .prepare("SELECT downloads FROM version_totals WHERE name = 'popular-skill'")
             .first<{ downloads: number }>()
         )?.downloads,
     )
@@ -178,9 +178,9 @@ it("measures movement against last week's whole ranking, its leader included aft
   for (let ago = 170; ago <= 180; ago++)
     rows.push(["faded-leader", hour - ago, 30], ["steady-second", hour - ago, 20]);
   for (let ago = 1; ago <= 11; ago++) rows.push(["steady-second", hour - ago, 20]);
-  await market.db.batch(
+  await market.dbs.counts.batch(
     rows.map(([name, at, count]) =>
-      market.db
+      market.dbs.counts
         .prepare(
           "INSERT INTO downloads_hourly (type, name, hour, count) VALUES ('spade-skill', ?1, ?2, ?3)",
         )
@@ -210,20 +210,22 @@ const copied = (list: string[]) =>
 async function copyEntry(from: string, name: string, publisher: string) {
   const columns = async (table: string) =>
     (
-      await market.db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all<{
-        name: string;
-      }>()
+      await catalogueOf(market, "spade-skill")
+        .prepare(`SELECT name FROM pragma_table_info('${table}')`)
+        .all<{
+          name: string;
+        }>()
     ).results.map((row) => row.name);
   const entry = await columns("entries");
   const version = await columns("versions");
-  await market.db.batch([
-    market.db
+  await catalogueOf(market, "spade-skill").batch([
+    catalogueOf(market, "spade-skill")
       .prepare(
         `INSERT INTO entries (${entry.join(", ")}) SELECT ${copied(entry).join(", ")}
           FROM entries WHERE type = 'spade-skill' AND name = ?1`,
       )
       .bind(from, name, publisher),
-    market.db
+    catalogueOf(market, "spade-skill")
       .prepare(
         `INSERT INTO versions (${version.join(", ")}) SELECT ${copied(version).join(", ")}
           FROM versions WHERE type = 'spade-skill' AND name = ?1`,
@@ -262,7 +264,7 @@ it("ranks bytes once: versions of one entry with the same bytes, or a copy in an
   });
   expect(copier.hash).not.toBe(first.hash);
   const copierId = (
-    await market.db
+    await market.dbs.publishers
       .prepare("SELECT id FROM publishers WHERE name = 'copy-folk'")
       .first<{ id: string }>()
   )?.id;
@@ -272,9 +274,9 @@ it("ranks bytes once: versions of one entry with the same bytes, or a copy in an
     await download(market, first.hash, `192.0.2.${100 + caller}`);
   const totals = async () =>
     (
-      await market.db
+      await market.dbs.counts
         .prepare(
-          `SELECT v.name, v.version, v.downloads, d.count AS daily FROM versions v
+          `SELECT v.name, v.version, v.downloads, d.count AS daily FROM version_totals v
             LEFT JOIN downloads_daily d ON d.type = v.type AND d.name = v.name
               AND d.version = v.version
             WHERE v.name IN ('same-bytes', 'copied-bytes') ORDER BY v.name, v.version`,
@@ -289,7 +291,7 @@ it("ranks bytes once: versions of one entry with the same bytes, or a copy in an
     { name: "same-bytes", version: "1.1.0", downloads: 6, daily: 6 },
   ]);
   const signalsOf = await signals(
-    market.db,
+    market.dbs,
     { type: "spade-skill", name: "same-bytes" },
     "1.1.0",
     ["1.0.0", "1.1.0"],

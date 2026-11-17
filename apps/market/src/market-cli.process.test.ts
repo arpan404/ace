@@ -156,7 +156,7 @@ it("verify and unverify sign the verified list; the publisher sees why", async (
   );
   expect(off.publishers).toEqual([]);
   expect(
-    await market.db
+    await market.dbs.publishers
       .prepare("SELECT verification, verification_reason FROM publishers WHERE name = 'verify-me'")
       .first(),
   ).toEqual({ verification: "revoked", verification_reason: "The domain lapsed" });
@@ -171,13 +171,15 @@ it("official add and remove sign the official list with the ace publisher's id",
   );
   expect(list.publisher.name).toBe("ace");
   expect(list.accounts).toEqual(["acct_owner_one", "acct_owner_two"]);
-  const acePublisher = await market.db
+  const acePublisher = await market.dbs.publishers
     .prepare("SELECT id FROM publishers WHERE name = 'ace'")
     .first<{ id: string }>();
   expect(acePublisher?.id).toBe(list.publisher.id);
 
   await ace("official", "remove", "acct_owner_one", "--key", keyFile);
-  const rows = await market.db.prepare("SELECT account, publisher FROM official_accounts").all();
+  const rows = await market.dbs.publishers
+    .prepare("SELECT account, publisher FROM official_accounts")
+    .all();
   expect(rows.results).toEqual([{ account: "acct_owner_two", publisher: list.publisher.id }]);
   await expect(ace("official", "remove", "acct_nobody", "--key", keyFile)).rejects.toThrow();
 });

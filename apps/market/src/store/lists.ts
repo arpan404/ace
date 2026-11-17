@@ -1,16 +1,30 @@
 import { canonicalJson } from "@ace/marketplace";
 import type { MarketOfficialList, MarketVerifiedList, Signed } from "@ace/protocol/marketplace";
-import { refreshEntry } from "./entries.ts";
+import { syncDue } from "./copies.ts";
+import type { Databases } from "./databases.ts";
 import { signedOf } from "./rows.ts";
 
 /*
- * The signed lists besides the withdrawn one (ADR 0173 §8, §13, §14): the blocklist, the
- * verified publishers and the official list. Each keeps only its newest `issued`, and stores an
- * edit only while the list it was based on is still the stored one; any other upload changes
- * nothing. The Worker checked each signature before calling.
+ * The signed lists besides the withdrawn one (ADR 0173 §8, §13, §14): the blocklist (in the
+ * moderation database), the verified publishers and the official list (in the publishers
+ * database, beside the rows they mark). Each keeps only its newest `issued`, and stores an edit
+ * only while the list it was based on is still the stored one; any other upload changes nothing.
+ * The Worker checked each signature before calling.
  */
 
 export type ListTable = "blocklist" | "verified" | "official";
+
+/** The database a signed list is kept in (ADR 0173 §16). */
+export function listDb(dbs: Databases, table: SignedTable): D1Database {
+  switch (table) {
+    case "blocklist":
+      return dbs.moderation;
+    case "withdrawn":
+      return dbs.lists;
+    default:
+      return dbs.publishers;
+  }
+}
 
 export async function signedList(
   db: D1Database,
@@ -80,19 +94,20 @@ export async function setBlocklist(
 }
 
 /**
- * Stores the verified list and marks publishers by it in the same batch: those on it verified,
- * with their proofs as both the approved ones and the application's; those who were verified and aren't any more revoked, with the reason a
- * maintainer gave. The entries of every publisher whose mark changes move their generation in
- * the same batch, so a refresh that read the old mark can't write it back. Every entry whose
- * verified mark differs from its publisher's is brought in step after, so sending the same list
- * again finishes an upload cut off part way.
+ * Stores the verified list and marks publishers by it in the same publishers batch: those on it
+ * verified, with their proofs as both the approved ones and the application's; those who were
+ * verified and aren't any more revoked, with the reason a maintainer gave. A changed mark moves
+ * the publisher's revision (a trigger), so its catalogue copies follow: they are applied before
+ * this answers, and the cron finishes any that a cut-off upload left behind. Sending the same
+ * list again applies whatever is still behind.
  */
 export async function setVerified(
-  db: D1Database,
+  dbs: Databases,
   list: { body: MarketVerifiedList; signed: string; basedOn?: number | undefined },
   revoked: readonly { handle: string; reason: string }[],
   now: number,
 ): Promise<ListStored> {
+  const db = dbs.publishers;
   const on = JSON.stringify(list.body.publishers);
   const ids = JSON.stringify(list.body.publishers.map((publisher) => publisher.id));
   const reasons = JSON.stringify(revoked);
@@ -100,12 +115,6 @@ export async function setVerified(
   const g = guard("verified");
   await db.batch([
     upsertSigned(db, "verified", stored),
-    db
-      .prepare(
-        `UPDATE entries SET generation = generation + 1 WHERE ${g} AND publisher IN (
-          SELECT id FROM publishers WHERE (verified = 0) = (id IN (SELECT value FROM json_each(?3))))`,
-      )
-      .bind(list.body.issued, list.signed, ids),
     db
       .prepare(
         `UPDATE publishers SET verified = 1, verification = 'verified',
@@ -131,13 +140,8 @@ export async function setVerified(
   ]);
   const outcome = await listOutcome(db, "verified", stored);
   if (outcome !== "stored") return outcome;
-  const { results } = await db
-    .prepare(
-      `SELECT e.type, e.name FROM entries e JOIN publishers p ON p.id = e.publisher
-        WHERE e.verified != p.verified`,
-    )
-    .all<{ type: string; name: string }>();
-  for (const row of results) await refreshEntry(db, row.type, row.name, now);
+  // Bounded: what is still behind after this, the cron applies.
+  for (let round = 0; round < 10 && (await syncDue(dbs, now, 100)) === 100; round++);
   return outcome;
 }
 

@@ -9,9 +9,10 @@ import { entryManagement, entryState, type EntryTable } from "./rows.ts";
 import { versionsOf } from "./read.ts";
 
 /*
- * Keeping an entry's row in step with its versions. Every visible change takes the next stamp,
- * which is strictly greater than the last and never behind the clock, inside the same
- * transaction as the change, so `since` never misses one.
+ * Keeping an entry's row in step with its versions, inside its type's catalogue (ADR 0173 §16).
+ * Every visible change takes the catalogue's next stamp, which is strictly greater than the last
+ * and never behind the clock, inside the same transaction as the change, so `since` never misses
+ * one. The publisher's standing comes from the catalogue's copy of it (`store/copies.ts`).
  */
 
 /** The statement that takes the next stamp; later statements in the batch read it back. */
@@ -42,7 +43,7 @@ export async function readEntrySnapshot(
   const row = await db
     .prepare(
       `SELECT e.*, p.state AS publisher_state, p.verified AS publisher_verified
-        FROM entries e JOIN publishers p ON p.id = e.publisher
+        FROM entries e JOIN publisher_copies p ON p.id = e.publisher
         WHERE e.type = ?1 AND e.name = ?2`,
     )
     .bind(type, name)

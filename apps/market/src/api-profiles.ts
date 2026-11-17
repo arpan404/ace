@@ -38,24 +38,25 @@ export async function profileRoute(
   route: Route,
   context: Context,
 ): Promise<Response | undefined> {
-  const db = context.env.MARKET;
   switch (route.kind) {
     case "avatar":
       return picture(request, context.env.OBJECTS, avatarKey(route.hash), route.hash);
     case "preview":
       return picture(request, context.env.OBJECTS, previewKey(route.hash), route.hash);
     case "publisher": {
-      const row = await publisherByHandle(db, route.handle);
+      const row = await publisherByHandle(context.dbs.publishers, route.handle);
       if (!row || row.state !== "active") return notFound();
       // Listed entries only: unlisted and archived ones leave the profile (ADR 0173 §5).
-      const entries = await publisherEntries(db, row.id);
+      const entries = await publisherEntries(context.dbs, row.id);
       const byKey = new Map(entries.map((entry) => [`${entry.type}/${entry.name}`, entry]));
-      const pinned = pinsOf(row).flatMap((pin) => {
+      // Pins are kept to the publisher's listed entries here, whatever moved on the way (§16).
+      const pins = pinsOf(row).filter((pin) => byKey.has(`${pin.type}/${pin.name}`));
+      const pinned = pins.flatMap((pin) => {
         const entry = byKey.get(`${pin.type}/${pin.name}`);
         return entry ? [summary(entry)] : [];
       });
       const body: MarketPublisherBody = {
-        profile: profileOf(row),
+        profile: { ...profileOf(row), pins },
         pinned,
         entries: entries.slice(0, 500).map(summary),
         downloads: entries.reduce((sum, entry) => sum + entry.downloads, 0),

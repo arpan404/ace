@@ -4,11 +4,14 @@ import type {
   MarketProfile,
   MarketVerificationProof,
 } from "@ace/protocol/marketplace";
+import { fromCatalogues, type Databases } from "./databases.ts";
 import { storedBytesSql } from "./me-limits.ts";
 
 /*
- * Publishers' profiles in D1 (ADR 0173 §3): handles, skeletons, retired handles, pins, avatars,
- * and the pictures they stored, charged to their quota.
+ * Publishers' profiles in the publishers database (ADR 0173 §3, §16): handles, skeletons,
+ * retired handles, pins, avatars, and the pictures they stored, charged to their quota. Pictures
+ * and their tombstones stay together here; only whether a listing still names a picture is read
+ * from the catalogues.
  */
 
 /** A publisher row as this Worker wrote it (ADR 0125). */
@@ -36,6 +39,8 @@ export interface PublisherTable {
   verification_flag: string | null;
   verification_at: number | null;
   rechecked: number;
+  revision: number;
+  synced: number;
 }
 
 export async function publisherById(
@@ -260,33 +265,59 @@ export async function reservePicture(
   return racing ? "deleting" : "quota";
 }
 
+/** Whether the picture row's publisher still shows it as its own profile's avatar. */
+const avatarNamed = `(substr(pictures.key, 1, 8) = 'avatars/' AND EXISTS (SELECT 1 FROM publishers
+    WHERE id = pictures.publisher AND avatar = substr(pictures.key, 9)))`;
+
 /**
- * Whether the picture row's publisher still shows it: its avatar as its own profile's, a
- * listing picture in any entry's listing or pending listing (a transferred entry keeps its
- * pictures).
+ * Of these listing-picture keys (`previews/<sha256>`), the ones any entry's listing or pending
+ * listing names, in any catalogue (a transferred entry keeps its pictures).
  */
-const pictureNamed = `(CASE WHEN substr(pictures.key, 1, 8) = 'avatars/'
-    THEN EXISTS (SELECT 1 FROM publishers
-      WHERE id = pictures.publisher AND avatar = substr(pictures.key, 9))
-    ELSE EXISTS (SELECT 1 FROM entries
-      WHERE instr(COALESCE(listing, ''), substr(pictures.key, 10)) > 0
-        OR instr(COALESCE(pending_listing, ''), substr(pictures.key, 10)) > 0) END)`;
+async function namedPreviews(dbs: Databases, keys: readonly string[]): Promise<Set<string>> {
+  if (keys.length === 0) return new Set();
+  const named = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT value AS key FROM json_each(?1) WHERE EXISTS (SELECT 1 FROM entries
+          WHERE instr(COALESCE(listing, ''), substr(value, 10)) > 0
+            OR instr(COALESCE(pending_listing, ''), substr(value, 10)) > 0)`,
+      )
+      .bind(JSON.stringify(keys))
+      .all<{ key: string }>();
+    return results.map((row) => row.key);
+  });
+  return new Set(named);
+}
 
 /**
  * Looks at up to `limit` picture rows older than the grace period: one nothing names is
  * dropped (its bytes stop counting), one still named is looked at again a grace period later.
- * One batch, each statement re-checking, so a profile or listing that names a picture on the
- * way keeps it.
+ * The catalogues are asked which listing pictures are named first; then one batch drops or
+ * renews each row only while it is still past its grace period, so an upload that charged the
+ * picture again in between, or a profile naming it on the way, keeps it.
  */
-export async function sweepPictureRows(db: D1Database, now: number, limit: number) {
-  const due = `rowid IN (SELECT rowid FROM pictures WHERE at < ?1 ORDER BY at LIMIT ?2)`;
+export async function sweepPictureRows(dbs: Databases, now: number, limit: number) {
+  const db = dbs.publishers;
+  const before = now - pictureGraceMs;
+  const { results: due } = await db
+    .prepare("SELECT key, publisher FROM pictures WHERE at < ?1 ORDER BY at LIMIT ?2")
+    .bind(before, limit)
+    .all<{ key: string; publisher: string }>();
+  if (due.length === 0) return;
+  const previews = [...new Set(due.map((row) => row.key))].filter((key) =>
+    key.startsWith("previews/"),
+  );
+  const named = [...(await namedPreviews(dbs, previews))];
+  const rows = JSON.stringify(due.map((row) => `${row.publisher}:${row.key}`));
+  const isDue = `at < ?1 AND (publisher || ':' || key) IN (SELECT value FROM json_each(?2))`;
+  const kept = `(${avatarNamed} OR key IN (SELECT value FROM json_each(?3)))`;
   await db.batch([
     db
-      .prepare(`DELETE FROM pictures WHERE ${due} AND NOT ${pictureNamed}`)
-      .bind(now - pictureGraceMs, limit),
+      .prepare(`DELETE FROM pictures WHERE ${isDue} AND NOT ${kept}`)
+      .bind(before, rows, JSON.stringify(named)),
     db
-      .prepare(`UPDATE pictures SET at = ?3 WHERE ${due} AND ${pictureNamed}`)
-      .bind(now - pictureGraceMs, limit, now),
+      .prepare(`UPDATE pictures SET at = ?4 WHERE ${isDue} AND ${kept}`)
+      .bind(before, rows, JSON.stringify(named), now),
   ]);
 }
 
@@ -428,8 +459,9 @@ export async function setSweepCursor(db: D1Database, prefix: string, after: stri
 }
 
 /**
- * Sets the publisher's pins in one statement that re-checks every pinned entry is still theirs
- * and listed; false when one moved or left the index on the way.
+ * Sets the publisher's pins; the route checked first that each is theirs and listed. Pins are
+ * filtered on every read to the publisher's listed entries, so one that moved or left the index
+ * on the way never shows.
  */
 export async function setPins(
   db: D1Database,
@@ -437,23 +469,18 @@ export async function setPins(
   pins: readonly MarketEntryRef[],
 ): Promise<boolean> {
   const result = await db
-    .prepare(
-      `UPDATE publishers SET pins = ?2 WHERE id = ?1
-        AND (SELECT COUNT(*) FROM entries WHERE publisher = ?1 AND listed = 1
-          AND (type || '/' || name) IN (SELECT value FROM json_each(?3))) = ?4`,
-    )
-    .bind(
-      id,
-      JSON.stringify(pins),
-      JSON.stringify(pins.map((pin) => `${pin.type}/${pin.name}`)),
-      pins.length,
-    )
+    .prepare("UPDATE publishers SET pins = ?2 WHERE id = ?1")
+    .bind(id, JSON.stringify(pins))
     .run();
   return result.meta.changes === 1;
 }
 
 /** Takes an entry off a publisher's pins: when it moves to another publisher or is deleted. */
-export const unpinStatement = (db: D1Database, publisher: string, entry: MarketEntryRef) =>
+export const unpinStatement = (
+  db: D1Database,
+  publisher: string,
+  entry: { type: string; name: string },
+) =>
   db
     .prepare(
       `UPDATE publishers SET pins = (
@@ -463,18 +490,22 @@ export const unpinStatement = (db: D1Database, publisher: string, entry: MarketE
     )
     .bind(publisher, entry.type, entry.name);
 
-/** Which of `entries` are the publisher's own and in the index now. */
+/** Which of `entries` are the publisher's own and in the index now, over every catalogue. */
 export async function ownListed(
-  db: D1Database,
+  dbs: Databases,
   publisher: string,
   entries: readonly MarketEntryRef[],
 ): Promise<Set<string>> {
-  const { results } = await db
-    .prepare(
-      `SELECT type, name FROM entries WHERE publisher = ?1 AND listed = 1
-        AND (type || '/' || name) IN (SELECT value FROM json_each(?2))`,
-    )
-    .bind(publisher, JSON.stringify(entries.map((entry) => `${entry.type}/${entry.name}`)))
-    .all<MarketEntryRef>();
-  return new Set(results.map((row) => `${row.type}/${row.name}`));
+  const refs = JSON.stringify(entries.map((entry) => `${entry.type}/${entry.name}`));
+  const rows = await fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(
+        `SELECT type, name FROM entries WHERE publisher = ?1 AND listed = 1
+          AND (type || '/' || name) IN (SELECT value FROM json_each(?2))`,
+      )
+      .bind(publisher, refs)
+      .all<MarketEntryRef>();
+    return results;
+  });
+  return new Set(rows.map((row) => `${row.type}/${row.name}`));
 }

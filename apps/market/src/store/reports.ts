@@ -4,10 +4,12 @@ import type {
   ReportResolution,
 } from "@ace/protocol/marketplace";
 import type { z } from "zod";
+import type { Databases } from "./databases.ts";
 
 /*
- * Anonymous abuse reports (ADR 0173 §7): the entry, the reason and the words, and nothing about
- * who sent them. An entry holds at most 500 open ones.
+ * Anonymous abuse reports (ADR 0173 §7), in the moderation database: the entry, the reason and
+ * the words, and nothing about who sent them. An entry holds at most 500 open ones, counted in
+ * the statement that files one.
  */
 
 export const openReportsPerEntry = 500;
@@ -15,17 +17,24 @@ export const openReportsPerEntry = 500;
 export type Filed = "filed" | "missing" | "full";
 
 export async function fileReport(
-  db: D1Database,
+  dbs: Pick<Databases, "catalogue" | "moderation">,
   report: MarketReportRequest,
   id: string,
   now: number,
 ): Promise<Filed> {
-  const result = await db
+  const catalogue = dbs.catalogue(report.type);
+  const entry = catalogue
+    ? await catalogue
+        .prepare("SELECT 1 AS found FROM entries WHERE type = ?1 AND name = ?2")
+        .bind(report.type, report.name)
+        .first()
+    : null;
+  if (!entry) return "missing";
+  const result = await dbs.moderation
     .prepare(
       `INSERT INTO reports (id, type, name, version, reason, note, at)
         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
-        WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?2 AND name = ?3)
-          AND (SELECT COUNT(*) FROM reports WHERE type = ?2 AND name = ?3 AND state = 'open') < ?8`,
+        WHERE (SELECT COUNT(*) FROM reports WHERE type = ?2 AND name = ?3 AND state = 'open') < ?8`,
     )
     .bind(
       id,
@@ -38,12 +47,7 @@ export async function fileReport(
       openReportsPerEntry,
     )
     .run();
-  if (result.meta.changes === 1) return "filed";
-  const entry = await db
-    .prepare("SELECT 1 AS found FROM entries WHERE type = ?1 AND name = ?2")
-    .bind(report.type, report.name)
-    .first();
-  return entry ? "full" : "missing";
+  return result.meta.changes === 1 ? "filed" : "full";
 }
 
 type Row = MarketReportsBody["reports"][number];

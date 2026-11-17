@@ -7,15 +7,57 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
-  // Publishers, entries, versions, review marks, categories, featured, withdrawals and download
-  // totals. Replace database_id with the id `wrangler d1 create ace-market` prints; see
-  // docs/market/deploy.md.
+  // ADR 0173 §16: one database per entry type (the catalogues share `migrations/catalogue`) and
+  // one per shared domain. The ids here are for development and tests only; see
+  // docs/market/deploy.md for production.
   "d1_databases": [
     {
-      "binding": "MARKET",
-      "database_name": "ace-market",
-      "database_id": "bec04c16-5c86-4ab3-af7f-6e5863734a9c",
-      "migrations_dir": "migrations",
+      "binding": "MARKET_SUITS",
+      "database_name": "ace-market-suits",
+      "database_id": "00000000-0000-4000-8000-000000000001",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_SKILLS",
+      "database_name": "ace-market-skills",
+      "database_id": "00000000-0000-4000-8000-000000000002",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_PLUGINS",
+      "database_name": "ace-market-plugins",
+      "database_id": "00000000-0000-4000-8000-000000000003",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_BOTS",
+      "database_name": "ace-market-bots",
+      "database_id": "00000000-0000-4000-8000-000000000004",
+      "migrations_dir": "migrations/catalogue",
+    },
+    {
+      "binding": "MARKET_PUBLISHERS",
+      "database_name": "ace-market-publishers",
+      "database_id": "00000000-0000-4000-8000-000000000005",
+      "migrations_dir": "migrations/publishers",
+    },
+    {
+      "binding": "MARKET_COUNTS",
+      "database_name": "ace-market-counts",
+      "database_id": "00000000-0000-4000-8000-000000000006",
+      "migrations_dir": "migrations/counts",
+    },
+    {
+      "binding": "MARKET_MODERATION",
+      "database_name": "ace-market-moderation",
+      "database_id": "00000000-0000-4000-8000-000000000007",
+      "migrations_dir": "migrations/moderation",
+    },
+    {
+      "binding": "MARKET_LISTS",
+      "database_name": "ace-market-lists",
+      "database_id": "00000000-0000-4000-8000-000000000008",
+      "migrations_dir": "migrations/lists",
     },
   ],
   // Each version's archive, at objects/<content hash>, written once.
@@ -44,12 +86,55 @@
         // ACE_GRANT_KEYS is unset here, so publishing grants are checked against these.
         "ACE_ACCOUNT_KEYS_URL": "https://cloud.acehq.dev/v1/keys",
       },
+      // Replace each id with the one `wrangler d1 create <name>` prints (docs/market/deploy.md).
       "d1_databases": [
         {
-          "binding": "MARKET",
-          "database_name": "ace-market",
-          "database_id": "bec04c16-5c86-4ab3-af7f-6e5863734a9c",
-          "migrations_dir": "migrations",
+          "binding": "MARKET_SUITS",
+          "database_name": "ace-market-suits",
+          "database_id": "REPLACE-WITH-ace-market-suits-ID",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_SKILLS",
+          "database_name": "ace-market-skills",
+          "database_id": "REPLACE-WITH-ace-market-skills-ID",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_PLUGINS",
+          "database_name": "ace-market-plugins",
+          "database_id": "REPLACE-WITH-ace-market-plugins-ID",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_BOTS",
+          "database_name": "ace-market-bots",
+          "database_id": "REPLACE-WITH-ace-market-bots-ID",
+          "migrations_dir": "migrations/catalogue",
+        },
+        {
+          "binding": "MARKET_PUBLISHERS",
+          "database_name": "ace-market-publishers",
+          "database_id": "REPLACE-WITH-ace-market-publishers-ID",
+          "migrations_dir": "migrations/publishers",
+        },
+        {
+          "binding": "MARKET_COUNTS",
+          "database_name": "ace-market-counts",
+          "database_id": "REPLACE-WITH-ace-market-counts-ID",
+          "migrations_dir": "migrations/counts",
+        },
+        {
+          "binding": "MARKET_MODERATION",
+          "database_name": "ace-market-moderation",
+          "database_id": "REPLACE-WITH-ace-market-moderation-ID",
+          "migrations_dir": "migrations/moderation",
+        },
+        {
+          "binding": "MARKET_LISTS",
+          "database_name": "ace-market-lists",
+          "database_id": "REPLACE-WITH-ace-market-lists-ID",
+          "migrations_dir": "migrations/lists",
         },
       ],
       "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],

@@ -535,16 +535,17 @@ maintainers' queues, the scan's context and a download's hash lookup. Each fan-o
 per catalogue (four today), each bounded as before.
 
 **The index and `since`.** Each catalogue keeps its own stamp, taken in the batch that makes a
-change visible, as before. The stamp an index answer carries is the **minimum** of the
-catalogues' stamps, each read before that catalogue's rows. Every change not yet in an answer has
-a stamp above its catalogue's stamp, so above the minimum: none is missed. A change already sent
-from a busier catalogue may be sent again, which a reader merges by key. So a quiet catalogue
-doesn't hold the minimum back, the cron takes a fresh stamp in every catalogue each run, which
-bounds resends to the last quarter hour. The wire stays an integer, so daemons already released
-keep working. A per-database vector cursor was the alternative: no resends, but a protocol change
-for every client. A single stamp source in another database was rejected: a stamp taken there
-and a row written later in a catalogue can't be one batch, so a reader could pass the stamp
-before the row lands and miss it. ETags remain the hash of the body.
+change visible, as before. An index read reads every catalogue's stamp, then raises any catalogue
+behind the highest to it (one `UPDATE … SET value = MAX(value, ?)`), then reads each
+catalogue's rows. The answer carries the highest stamp. Every change not in the answer was
+committed after its catalogue's stamp was read or raised, so its stamp is above the answer's:
+none is missed, and none is sent twice except one racing the read itself. The raise is a write
+on a read, but only for catalogues behind, so only the first read after a change pays it. The
+wire stays one integer, so daemons already released keep working. A per-database vector cursor
+was the alternative: also exact, but a protocol change for every client. A single stamp source
+in another database was rejected: a stamp taken there and a row written later in a catalogue
+can't be one batch, so a reader could pass the stamp before the row lands and miss it. ETags
+remain the hash of the body.
 
 **Growth and when to shard further.** The cron records each database's size (D1's
 `size_after`) and every table's row count once a day, in `counts.database_sizes` and

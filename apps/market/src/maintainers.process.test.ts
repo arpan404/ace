@@ -15,6 +15,7 @@ import {
   put,
   startMarket,
   type Market,
+  catalogueOf,
 } from "./testing/harness.ts";
 import {
   approve,
@@ -110,7 +111,7 @@ it("a held version waits for a maintainer, not the signer; approving, holding an
   expect(blocked.status).toBe(200);
   expect(await waiting("held-skill")).toEqual([]);
   expect((await queue()).held.map((item) => item.name)).not.toContain("held-skill");
-  const row = await market.db
+  const row = await catalogueOf(market, "spade-skill")
     .prepare("SELECT state, block_reason FROM versions WHERE name = 'held-skill'")
     .first();
   expect(row).toEqual({ state: "blocked", block_reason: "Sends the person's keys away" });
@@ -137,17 +138,17 @@ it("a signature racing a maintainer's hold or block never lists the version", as
     );
     expect(answer.status).toBe(200);
     const live = async () =>
-      market.db
+      catalogueOf(market, "spade-skill")
         .prepare(
           `SELECT v.state, v.listed, p.live_versions FROM versions v
             JOIN entries e ON e.type = v.type AND e.name = v.name
-            JOIN publishers p ON p.id = e.publisher WHERE v.name = ?1`,
+            JOIN publisher_copies p ON p.id = e.publisher WHERE v.name = ?1`,
         )
         .bind(name)
         .first();
     const before = await live();
     const key = { type: "spade-skill", name, version: "1.0.0" };
-    const read = await versionForSigning(market.db, key);
+    const read = await versionForSigning(catalogueOf(market, "spade-skill"), key);
     if (!read) throw new Error("no version");
     const checked = {
       manifest: "{}",
@@ -155,7 +156,9 @@ it("a signature racing a maintainer's hold or block never lists the version", as
       size: read.size,
       publisher: read.publisher.id,
     };
-    expect(await listVersion(market.db, key, checked, Date.now())).toBe(false);
+    expect(await listVersion(catalogueOf(market, "spade-skill"), key, checked, Date.now())).toBe(
+      false,
+    );
     expect(await live()).toEqual(before);
     expect(before).toMatchObject({ listed: 0 });
     // And through the route, a signature for it is refused.
@@ -210,7 +213,7 @@ it("a pending listing edit is shown once approved and dropped once refused", asy
     reviewed: true,
   });
   const edit = (title: string) =>
-    market.db
+    catalogueOf(market, "spade-skill")
       .prepare("UPDATE entries SET pending_listing = ?1 WHERE name = 'edited-skill'")
       .bind(
         JSON.stringify({
@@ -333,7 +336,7 @@ describe("the signed lists", () => {
       account: "acct_v",
       publisher: "trusty-folk",
     });
-    const publisher = await market.db
+    const publisher = await market.dbs.publishers
       .prepare("SELECT id FROM publishers WHERE name = 'trusty-folk'")
       .first<{ id: string }>();
     const id = publisher?.id ?? "";
@@ -363,7 +366,7 @@ describe("the signed lists", () => {
     ).toBe(200);
     expect(await entry()).toBe(false);
     expect(
-      await market.db
+      await market.dbs.publishers
         .prepare("SELECT verified, verification, verification_reason FROM publishers WHERE id = ?1")
         .bind(id)
         .first(),
@@ -391,7 +394,7 @@ describe("the signed lists", () => {
     });
     const id =
       (
-        await market.db
+        await market.dbs.publishers
           .prepare("SELECT id FROM publishers WHERE name = 'repaired-folk'")
           .first<{ id: string }>()
       )?.id ?? "";
@@ -411,10 +414,16 @@ describe("the signed lists", () => {
       revoked: [{ handle: "repaired-folk", reason: "Lapsed" }],
     };
     expect((await put(market, "/v1/signer/verified", upload)).status).toBe(200);
-    // Cut off after the list and the publishers were stored, before the entries were refreshed.
-    await market.db.prepare("UPDATE entries SET verified = 1 WHERE name = 'repaired-skill'").run();
+    // Cut off after the list and the publishers were stored, before the entries were refreshed:
+    // the publisher's copies never finished syncing.
+    await catalogueOf(market, "spade-skill")
+      .prepare("UPDATE entries SET verified = 1 WHERE name = 'repaired-skill'")
+      .run();
+    await market.dbs.publishers
+      .prepare("UPDATE publishers SET synced = 0 WHERE name = 'repaired-folk'")
+      .run();
     expect((await put(market, "/v1/signer/verified", upload)).status).toBe(200);
-    const entry = await market.db
+    const entry = await catalogueOf(market, "spade-skill")
       .prepare("SELECT verified FROM entries WHERE name = 'repaired-skill'")
       .first();
     expect(entry).toEqual({ verified: 0 });
@@ -446,7 +455,7 @@ describe("the signed lists", () => {
       accounts: ["acct_ace_one", "acct_ace_two"],
     });
     expect((await put(market, "/v1/signer/official", { official: list })).status).toBe(200);
-    const rows = await market.db
+    const rows = await market.dbs.publishers
       .prepare("SELECT account, publisher FROM official_accounts ORDER BY account")
       .all();
     expect(rows.results).toEqual([
@@ -465,7 +474,7 @@ describe("the signed lists", () => {
     });
     await put(market, "/v1/signer/official", { official: fewer, basedOn: 10 });
     expect(
-      (await market.db.prepare("SELECT account FROM official_accounts").all()).results,
+      (await market.dbs.publishers.prepare("SELECT account FROM official_accounts").all()).results,
     ).toEqual([{ account: "acct_ace_two" }]);
     const unsigned = officialBy(
       { issued: 30, publisher: { id: "pub_ace0000000000000000000", name: "ace" }, accounts: [] },

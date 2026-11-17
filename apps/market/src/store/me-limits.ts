@@ -6,19 +6,34 @@ export type MarketLimits = z.infer<typeof Schema>;
 export type Caps = ReturnType<typeof publisherLimits>;
 
 /*
- * A publisher's limits (ADR 0173 §9): uploads a day, bytes stored in versions and drafts, and
- * drafts. Publishers are accounts, so counting them tracks no reader. Each limit is checked in
- * the statement that uses it up, never read first and written after, so concurrent uploads
- * can't all take the last slot.
+ * A publisher's limits (ADR 0173 §9), in the publishers database: uploads a day, bytes stored in
+ * versions, drafts and pictures, and drafts. Publishers are accounts, so counting them tracks no
+ * reader. Each limit is checked in the statement that uses it up, never read first and written
+ * after, so concurrent uploads can't all take the last slot. Versions live in their type's
+ * catalogue, so their bytes are counted through the quota ledger (`charges`, ADR 0173 §16): a
+ * charge is written before its version, here, and only the cron's reconcile drops or corrects
+ * one (`store/usage.ts`).
  */
 
-/** The bytes the publisher at parameter `publisher` stores: drafts and versions not blocked. */
+/**
+ * The bytes the publisher at parameter `publisher` stores: drafts (except one claimed for a
+ * publish, whose bytes are on its version's charge), charged versions and pictures.
+ */
 export const storedBytesSql = (publisher: string) =>
-  `((SELECT COALESCE(SUM(size), 0) FROM drafts WHERE publisher = ${publisher}) +
-    (SELECT COALESCE(SUM(v.size), 0) FROM versions v JOIN entries e
-      ON e.type = v.type AND e.name = v.name
-      WHERE e.publisher = ${publisher} AND v.state != 'blocked') +
+  `((SELECT COALESCE(SUM(size), 0) FROM drafts
+      WHERE publisher = ${publisher} AND publishing IS NULL) +
+    (SELECT COALESCE(SUM(size), 0) FROM charges WHERE publisher = ${publisher}) +
     (SELECT COALESCE(SUM(size), 0) FROM pictures WHERE publisher = ${publisher}))`;
+
+/** A version's key in the quota ledger. */
+export const chargeItem = (key: { type: string; name: string; version: string }) =>
+  `${key.type}/${key.name}/${key.version}`;
+
+/** Marks the publisher's charges for the cron's reconcile. */
+export const markUsageDirty = (db: D1Database, publisher: string, now: number) =>
+  db
+    .prepare("UPDATE publishers SET usage_dirty = COALESCE(usage_dirty, ?2) WHERE id = ?1")
+    .bind(publisher, now);
 
 export async function limitsOf(
   db: D1Database,
@@ -69,6 +84,11 @@ export interface UploadReservation {
   newDraft: boolean;
   /** The draft it replaces, whose bytes no longer count. */
   replacing?: string | undefined;
+  /**
+   * A version stored straight from the upload: its bytes are charged to it in the statement
+   * that counts the upload. `nonce` is this request's own, to tell its charge apart.
+   */
+  charge?: { item: string; nonce: string } | undefined;
   now: number;
 }
 
@@ -82,26 +102,29 @@ export async function reserveUpload(
   input: UploadReservation,
 ): Promise<string | undefined> {
   const caps = publisherLimits(input.newPublisher);
-  const fits = `${storedBytesSql("?1")}
-      - COALESCE((SELECT size FROM drafts WHERE id = ?8 AND publisher = ?1), 0) + ?4 <= ?5
-    AND (?6 = 0 OR (SELECT COUNT(*) FROM drafts WHERE publisher = ?1) < ?7)`;
-  const result = await db
-    .prepare(
-      `INSERT INTO upload_days (publisher, day, count) SELECT ?1, ?2, 1 WHERE ?3 > 0 AND ${fits}
-        ON CONFLICT (publisher, day) DO UPDATE SET count = count + 1
-          WHERE upload_days.count < ?3 AND ${fits}`,
-    )
-    .bind(
-      input.publisher,
-      dayOf(input.now),
-      caps.uploadsPerDay,
-      input.size,
-      caps.quotaBytes,
-      input.newDraft ? 1 : 0,
-      caps.draftLimit,
-      input.replacing ?? "",
-    )
-    .run();
+  const values = [
+    input.publisher,
+    dayOf(input.now),
+    caps.uploadsPerDay,
+    input.size,
+    caps.quotaBytes,
+    input.newDraft ? 1 : 0,
+    caps.draftLimit,
+    input.replacing ?? "",
+    input.charge?.item ?? "",
+    input.charge?.nonce ?? "",
+    input.now,
+  ];
+  const result = input.charge
+    ? await chargeVersion(db, values)
+    : await db
+        .prepare(
+          `INSERT INTO upload_days (publisher, day, count) SELECT ?1, ?2, 1 WHERE ?3 > 0 AND ${draftFits}
+            ON CONFLICT (publisher, day) DO UPDATE SET count = count + 1
+              WHERE upload_days.count < ?3 AND ${draftFits}`,
+        )
+        .bind(...values.slice(0, 8))
+        .run();
   if (result.meta.changes === 1) return undefined;
   const limits = await limitsOf(db, input.publisher, input.newPublisher, input.now);
   const replaced = input.replacing
@@ -115,6 +138,48 @@ export async function reserveUpload(
       newDraft: input.newDraft,
     }) ?? quotaRace
   );
+}
+
+/** Fits as a draft (`?8` the draft replaced, `?6` whether it is new). */
+const draftFits = `${storedBytesSql("?1")}
+      - COALESCE((SELECT size FROM drafts WHERE id = ?8 AND publisher = ?1 AND publishing IS NULL), 0)
+      + ?4 <= ?5
+    AND (?6 = 0 OR (SELECT COUNT(*) FROM drafts WHERE publisher = ?1) < ?7)`;
+
+/**
+ * Charges version `?9` and counts the upload in one batch: the charge is written (or raised) only
+ * under today's count and within the quota, counting the charge's own earlier size once; the
+ * count follows only when this request's charge (`?10`) stands. The publisher is marked for the
+ * reconcile, which drops a charge whose version never got stored.
+ */
+async function chargeVersion(db: D1Database, values: readonly (string | number)[]) {
+  const fits = `COALESCE((SELECT count FROM upload_days WHERE publisher = ?1 AND day = ?2), 0) < ?3
+    AND ${storedBytesSql("?1")} - COALESCE((SELECT size FROM charges WHERE item = ?9), 0) + ?4 <= ?5`;
+  const [, counted] = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO charges (item, publisher, size, at, nonce) SELECT ?9, ?1, ?4, ?11, ?10
+          WHERE ${fits}
+          ON CONFLICT (item) DO UPDATE SET publisher = excluded.publisher,
+            size = MAX(charges.size, excluded.size), at = excluded.at, nonce = excluded.nonce
+            WHERE ${fits}`,
+      )
+      .bind(...values),
+    db
+      .prepare(
+        `INSERT INTO upload_days (publisher, day, count)
+          SELECT ?1, ?2, 1 WHERE EXISTS (SELECT 1 FROM charges WHERE item = ?9 AND nonce = ?10)
+          ON CONFLICT (publisher, day) DO UPDATE SET count = count + 1`,
+      )
+      .bind(...values.slice(0, 10)),
+    db
+      .prepare(
+        `UPDATE publishers SET usage_dirty = COALESCE(usage_dirty, ?11) WHERE id = ?1
+          AND EXISTS (SELECT 1 FROM charges WHERE item = ?9 AND nonce = ?10)`,
+      )
+      .bind(...values),
+  ]);
+  return { meta: { changes: counted?.meta.changes ?? 0 } };
 }
 
 /** A limit another upload reached at the same moment. */

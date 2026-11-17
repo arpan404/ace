@@ -12,6 +12,7 @@ import type { Context, IdPrefix } from "./context.ts";
 import type { Env } from "./env.ts";
 import { configuredKeys, defaultKeysUrl, fetchedKeys, type KeySource } from "./grant-keys.ts";
 import { failure, notFound, tooMany } from "./http.ts";
+import { databases } from "./store/databases.ts";
 import { aggregateDownloads } from "./store/downloads.ts";
 import { missingPage404, pageRoute } from "./pages/serve.ts";
 import { matchRoute, routeClass, type Route } from "./routes.ts";
@@ -99,6 +100,7 @@ export default {
     if (await limited(limit, request)) return tooMany();
     const context: Context = {
       env,
+      dbs: databases(env),
       now: Date.now(),
       waitUntil: (promise) => ctx.waitUntil(promise),
       grantKeys: grantKeys(env),
@@ -109,17 +111,25 @@ export default {
     return dispatch(request, url, route, context);
   },
   /**
-   * The cron, every quarter hour, each step bounded (ADR 0173 §1): download totals into the
-   * index's changes, then the publishers' work (scan jobs, drafts, transfers, verification
-   * re-checks) and Discover's (download buckets, trending, top publishers).
+   * The cron, every quarter hour, each step bounded (ADR 0173 §1, §16): download totals into the
+   * catalogues, then the publishers' work (the cross-database protocols' resumption, scan jobs,
+   * drafts, transfers, verification re-checks, pictures, stamps, sizes) and Discover's (download
+   * buckets, trending, top publishers).
    */
   async scheduled(_controller, env, ctx): Promise<void> {
     const now = Date.now();
+    const dbs = databases(env);
     ctx.waitUntil(
       (async () => {
-        await aggregateDownloads(env.MARKET, now);
-        await publisherCron(env, now, (target, init) => fetch(target, init));
-        await discoveryCron(env, now);
+        await aggregateDownloads(dbs, now);
+        await publisherCron(
+          env,
+          dbs,
+          now,
+          (target, init) => fetch(target, init),
+          crypto.randomUUID(),
+        );
+        await discoveryCron(dbs, now);
       })(),
     );
   },

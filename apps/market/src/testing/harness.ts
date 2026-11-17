@@ -18,6 +18,12 @@ import {
 } from "@ace/marketplace";
 import { keySetOf, testKey, testPublisher } from "@ace/marketplace/testing";
 import type { MarketEntryType } from "@ace/protocol/marketplace";
+import {
+  catalogueBindings,
+  databases,
+  domainBindings,
+  type DatabaseBindings,
+} from "../store/databases.ts";
 
 /*
  * The market Worker under real workerd (Miniflare) with local D1 and R2, and helpers that act
@@ -43,16 +49,19 @@ export async function startMarket() {
   });
   const { url } = await harness.listen();
   const worker = harness.getWorker();
-  await worker.applyD1Migrations("MARKET");
+  // Every database, each from its own migration folder (ADR 0173 §16).
+  for (const binding of [...Object.values(catalogueBindings), ...Object.values(domainBindings)])
+    await worker.applyD1Migrations(binding);
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
     worker.fetch(`https://market.acehq.dev${path}`, init);
-  const env = (await worker.getEnv()) as { MARKET: D1Database; OBJECTS: R2Bucket };
+  // The bindings the Worker gets (ADR 0125: the harness's own configuration).
+  const env = (await worker.getEnv()) as DatabaseBindings & { OBJECTS: R2Bucket };
   return {
     fetch,
     /** Where the Worker listens, for tools that reach it over HTTP (the `ace market` CLI). */
     url,
-    /** The market's D1, for tests of the store's own rules. */
-    db: env.MARKET,
+    /** The market's local D1 databases, for tests of the store's own rules. */
+    dbs: databases(env),
     /** The market's R2, for tests that leave bytes as a request cut off part way would. */
     objects: env.OBJECTS,
     /** Runs the Worker's scheduled work, as its cron does. */
@@ -206,4 +215,11 @@ export async function publishSigned(
     if (marked.status !== 200) throw new Error(`review failed: ${marked.status}`);
   }
   return { hash: contentHash(hashFiles(upload.files)) };
+}
+
+/** A catalogue's local database, by entry type (ADR 0173 §16). */
+export function catalogueOf(market: Market, type: string): D1Database {
+  const db = market.dbs.catalogue(type);
+  if (!db) throw new Error(`no catalogue for ${type}`);
+  return db;
 }

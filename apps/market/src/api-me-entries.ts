@@ -36,6 +36,7 @@ import { blockReason, putReport, scanContext } from "./store/me-scan.ts";
 import { addAppeal, offerTransfer, signals } from "./store/me-transfers.ts";
 import { pinsOf, publisherByHandle, publisherById, reservePicture } from "./store/profiles.ts";
 import { addWithdrawal, ownerOf, storedVersion } from "./store/publish.ts";
+import { reconcileUsage } from "./store/usage.ts";
 import { versionsOf } from "./store/read.ts";
 import { entryManagement } from "./store/rows.ts";
 
@@ -80,7 +81,8 @@ export async function meEntryRoute(
   authed: Authed,
 ): Promise<Response | undefined> {
   if (!entryKinds.has(route.kind) || !("type" in route)) return undefined;
-  const db = context.env.MARKET;
+  const db = context.dbs.catalogue(route.type);
+  if (!db) return noEntry();
   const row = await ownEntryRow(db, route);
   if (!row) return noEntry();
   const publisher = authed.publisher;
@@ -89,11 +91,15 @@ export async function meEntryRoute(
   const now = context.now;
   switch (route.kind) {
     case "me-entry": {
-      const own = await publisherById(db, publisher.id);
-      return json(await ownEntry(db, context.env.OBJECTS, row, own ? pinsOf(own) : []));
+      const own = await publisherById(context.dbs.publishers, publisher.id);
+      return json(
+        await ownEntry(db, context.dbs, context.env.OBJECTS, row, own ? pinsOf(own) : []),
+      );
     }
     case "me-entry-delete": {
-      const outcome = await deleteNeverListed(db, context.env.OBJECTS, key);
+      const outcome = await deleteNeverListed(context.dbs, db, context.env.OBJECTS, key, now);
+      // Its bytes stop counting now, not a cron run later.
+      if (outcome === "deleted") await reconcileUsage(context.dbs, publisher.id, now);
       if (outcome === "not-yours") return notYours();
       return outcome === "deleted"
         ? done()
@@ -102,7 +108,7 @@ export async function meEntryRoute(
     case "me-listing": {
       const parsed = MarketListingEdit.safeParse(await readJson(request, 64 * 1024));
       if (!parsed.success) return invalid("That isn't a listing.");
-      return editListing(context, publisher, row.reviewed === 1, key, parsed.data);
+      return editListing(context, db, publisher, row.reviewed === 1, key, parsed.data);
     }
     case "me-preview": {
       const bytes = await readCapped(request, 1024 * 1024);
@@ -122,7 +128,10 @@ export async function meEntryRoute(
       const unstored = await storePicture(context, publisher, previewKey(sha), image);
       if (unstored) return unstored;
       previews[route.index] = sha;
-      return editListing(context, publisher, row.reviewed === 1, key, { ...listing, previews });
+      return editListing(context, db, publisher, row.reviewed === 1, key, {
+        ...listing,
+        previews,
+      });
     }
     case "me-latest": {
       const parsed = MarketLatestSet.safeParse(await readJson(request, 4 * 1024));
@@ -164,12 +173,12 @@ export async function meEntryRoute(
       return json({ status: "pending", versions: live.map((version) => version.version) }, 202);
     }
     case "me-transfer":
-      return transfer(request, context, publisher, key);
+      return transfer(request, context, db, publisher, key);
     case "me-signals": {
       const versions = await versionsOf(db, key.type, key.name);
       return json(
         await signals(
-          db,
+          context.dbs,
           key as { type: EntryRoute["type"]; name: string },
           row.latest ?? undefined,
           versions.filter((version) => version.listed).map((version) => version.version),
@@ -178,7 +187,7 @@ export async function meEntryRoute(
       );
     }
     default:
-      return versionAction(request, route, context, publisher);
+      return versionAction(request, route, context, db, publisher);
   }
 }
 
@@ -195,7 +204,7 @@ export async function storePicture(
   image: { bytes: Uint8Array; type: string },
 ): Promise<Response | undefined> {
   const quotaBytes = publisherLimits(isNewPublisher(publisher, context.now)).quotaBytes;
-  const charged = await reservePicture(context.env.MARKET, {
+  const charged = await reservePicture(context.dbs.publishers, {
     publisher: publisher.id,
     key,
     size: image.bytes.byteLength,
@@ -221,6 +230,7 @@ export async function storePicture(
  */
 async function editListing(
   context: Context,
+  db: D1Database,
   publisher: AuthedPublisher,
   reviewed: boolean,
   key: Owned,
@@ -237,36 +247,35 @@ async function editListing(
   const scan = scanListing(
     listing,
     await scanContext(
-      context.env.MARKET,
+      context.dbs,
       { handle: publisher.name, official: publisher.official },
       context.env.MARKET_PUBLIC_KEYS,
     ),
   );
   if (scan.verdict === "block") return blocked(scan);
   if (reviewed || scan.verdict === "warn") {
-    if (!(await setPendingListing(context.env.MARKET, key, { listing, scan, at: context.now })))
-      return notYours();
+    if (!(await setPendingListing(db, key, { listing, scan, at: context.now }))) return notYours();
     await putReport(context.env.OBJECTS, listingReportKey(key), scan);
     return json({ status: "pending", scan }, 202);
   }
-  if (!(await applyListing(context.env.MARKET, key, listing, context.now))) return notYours();
+  if (!(await applyListing(db, key, listing, context.now))) return notYours();
   return json({ status: "done", scan });
 }
 
 async function transfer(
   request: Request,
   context: Context,
+  db: D1Database,
   publisher: AuthedPublisher,
   key: { type: string; name: string },
 ): Promise<Response> {
-  const db = context.env.MARKET;
   const parsed = MarketTransferOffer.safeParse(await readJson(request, 4 * 1024));
   if (!parsed.success) return invalid("Name the publisher to offer it to.");
-  const to = await publisherByHandle(db, parsed.data.to);
+  const to = await publisherByHandle(context.dbs.publishers, parsed.data.to);
   if (!to || to.state !== "active")
     return failure(404, "not_found", "No active publisher has that handle.");
   if (to.id === publisher.id) return invalid("This entry is already yours.");
-  const offer = await offerTransfer(db, {
+  const offer = await offerTransfer(context.dbs, db, {
     id: context.newId("trf"),
     entry: key as { type: EntryRoute["type"]; name: string },
     from: publisher.id,
@@ -283,10 +292,10 @@ async function versionAction(
   request: Request,
   route: Route,
   context: Context,
+  db: D1Database,
   publisher: AuthedPublisher,
 ): Promise<Response | undefined> {
   if (!("version" in route)) return undefined;
-  const db = context.env.MARKET;
   const key = {
     type: route.type,
     name: route.name,
@@ -302,7 +311,7 @@ async function versionAction(
       const scan = scanListing(
         { changelog: parsed.data.text },
         await scanContext(
-          db,
+          context.dbs,
           { handle: publisher.name, official: publisher.official },
           context.env.MARKET_PUBLIC_KEYS,
         ),
@@ -352,7 +361,7 @@ async function versionAction(
           return refused([{ message: `Upload ${replacement} of this entry before naming it.` }]);
       }
       const id = context.newId("apl");
-      const added = await addAppeal(db, {
+      const added = await addAppeal(context.dbs, db, {
         id,
         ...key,
         note: parsed.data.note,

@@ -8,7 +8,11 @@ import type {
 } from "@ace/protocol/marketplace";
 import { versionReportKey } from "../context.ts";
 import { currentListing, newestFirst, versionStatus, type StoredVersion } from "../rules.ts";
+import { fromCatalogues, type Databases } from "./databases.ts";
+import { liveTotals } from "./downloads.ts";
 import { refreshEntry } from "./entries.ts";
+import { markUsageDirty } from "./me-limits.ts";
+import { unpinStatement } from "./profiles.ts";
 import { getReport } from "./me-scan.ts";
 import {
   entryManagement,
@@ -21,8 +25,9 @@ import {
 
 /*
  * A publisher's own entries (ADR 0173 §4, §5): what their page shows, and the settings they
- * change. Every change to an entry's settings moves its generation in the same batch and brings
- * its row in step, so the index and `since` readers follow.
+ * change. An entry's settings live in its type's catalogue; every change moves its generation in
+ * the same batch and brings its row in step, so the index and `since` readers follow. Reports
+ * and appeals are read from the moderation database.
  */
 
 type Key = { type: string; name: string };
@@ -33,7 +38,7 @@ export async function ownEntryRow(db: D1Database, key: Key): Promise<Joined | un
     (await db
       .prepare(
         `SELECT e.*, p.state AS publisher_state, p.verified AS publisher_verified
-          FROM entries e JOIN publishers p ON p.id = e.publisher
+          FROM entries e JOIN publisher_copies p ON p.id = e.publisher
           WHERE e.type = ?1 AND e.name = ?2`,
       )
       .bind(key.type, key.name)
@@ -46,14 +51,19 @@ const manageOf = (row: Joined) =>
 
 const ref = (key: Key) => `${key.type}/${key.name}`;
 
-async function openReports(db: D1Database, publisher: string): Promise<Map<string, number>> {
-  const { results } = await db
+/** Open reports on each of these entries, from the moderation database. */
+async function openReports(
+  moderation: D1Database,
+  entries: readonly Key[],
+): Promise<Map<string, number>> {
+  if (entries.length === 0) return new Map();
+  const { results } = await moderation
     .prepare(
-      `SELECT r.type, r.name, COUNT(*) AS open FROM reports r JOIN entries e
-        ON e.type = r.type AND e.name = r.name
-        WHERE e.publisher = ?1 AND r.state = 'open' GROUP BY r.type, r.name`,
+      `SELECT type, name, COUNT(*) AS open FROM reports
+        WHERE state = 'open' AND (type || '/' || name) IN (SELECT value FROM json_each(?1))
+        GROUP BY type, name`,
     )
-    .bind(publisher)
+    .bind(JSON.stringify(entries.map(ref)))
     .all<Key & { open: number }>();
   return new Map(results.map((row) => [ref(row), row.open]));
 }
@@ -84,38 +94,49 @@ function summaryOf(
   };
 }
 
-/** Every entry of the publisher, as the rows on their page. */
+/** A version with its download total now, from the counts database. */
+const withLive = (version: StoredVersion, live: ReadonlyMap<string, number>, key: Key) =>
+  Object.assign({}, version, {
+    downloads: live.get(`${ref(key)}@${version.version}`) ?? version.downloads,
+  });
+
+/** Every entry of the publisher, over every catalogue, as the rows on their page. */
 export async function ownEntrySummaries(
-  db: D1Database,
+  dbs: Databases,
   publisher: string,
   pins: readonly MarketEntryRef[],
 ): Promise<MarketOwnEntrySummary[]> {
-  const [entries, versions, reports] = await Promise.all([
-    db
-      .prepare(
-        `SELECT e.*, p.state AS publisher_state, p.verified AS publisher_verified
-          FROM entries e JOIN publishers p ON p.id = e.publisher
-          WHERE e.publisher = ?1 ORDER BY e.type, e.name LIMIT 500`,
-      )
-      .bind(publisher)
-      .all<Joined>(),
-    db
-      .prepare(
-        `SELECT v.* FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
-          WHERE e.publisher = ?1`,
-      )
-      .bind(publisher)
-      .all<VersionTable>(),
-    openReports(db, publisher),
-  ]);
+  const perCatalogue = await fromCatalogues(dbs, async ({ db }) => {
+    const [entries, versions] = await Promise.all([
+      db
+        .prepare(
+          `SELECT e.*, p.state AS publisher_state, p.verified AS publisher_verified
+            FROM entries e JOIN publisher_copies p ON p.id = e.publisher
+            WHERE e.publisher = ?1 ORDER BY e.type, e.name LIMIT 500`,
+        )
+        .bind(publisher)
+        .all<Joined>(),
+      db
+        .prepare(
+          `SELECT v.* FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
+            WHERE e.publisher = ?1`,
+        )
+        .bind(publisher)
+        .all<VersionTable>(),
+    ]);
+    return [{ entries: entries.results, versions: versions.results }];
+  });
+  const entries = perCatalogue.flatMap((part) => part.entries).slice(0, 500);
+  const live = await liveTotals(dbs.counts, entries);
   const byEntry = new Map<string, StoredVersion[]>();
-  for (const row of versions.results) {
+  for (const row of perCatalogue.flatMap((part) => part.versions)) {
     const list = byEntry.get(ref(row)) ?? [];
-    list.push(storedVersion(row));
+    list.push(withLive(storedVersion(row), live, row));
     byEntry.set(ref(row), list);
   }
+  const reports = await openReports(dbs.moderation, entries);
   const pinned = new Set(pins.map(ref));
-  return entries.results.map((row) =>
+  return entries.map((row) =>
     summaryOf(row, byEntry.get(ref(row)) ?? [], pinned, reports.get(ref(row)) ?? 0),
   );
 }
@@ -130,9 +151,10 @@ interface AppealTable {
   answer: string | null;
 }
 
-/** Everything about one of the publisher's entries. */
+/** Everything about one of the publisher's entries: `db` is its type's catalogue. */
 export async function ownEntry(
   db: D1Database,
+  dbs: Pick<Databases, "counts" | "moderation">,
   bucket: R2Bucket,
   row: Joined,
   pins: readonly MarketEntryRef[],
@@ -142,13 +164,16 @@ export async function ownEntry(
       .prepare("SELECT * FROM versions WHERE type = ?1 AND name = ?2")
       .bind(row.type, row.name)
       .all<VersionTable>(),
-    db
+    dbs.moderation
       .prepare("SELECT * FROM appeals WHERE type = ?1 AND name = ?2 ORDER BY at")
       .bind(row.type, row.name)
       .all<AppealTable>(),
-    openReports(db, row.publisher),
+    openReports(dbs.moderation, [row]),
   ]);
-  const versions = versionRows.results.map(storedVersion);
+  const live = await liveTotals(dbs.counts, [row]);
+  const versions = versionRows.results.map((version) =>
+    withLive(storedVersion(version), live, row),
+  );
   const appealOf = new Map(appeals.results.map((appeal) => [appeal.version, appeal]));
   const manage = manageOf(row);
   const own: MarketOwnVersion[] = [];
@@ -288,13 +313,17 @@ export const setDeprecated = (
 
 /**
  * Deletes an entry of the publisher's that never had a listed version, with its versions, offers
- * and appeals; every statement re-checks the owner and that nothing was listed. Submitted bytes
- * at `objects/<hash>` stay, as published bytes do: another publication may name the same hash.
+ * and pending withdrawals, in one catalogue batch where every statement re-checks the owner and
+ * that nothing was listed. Then its appeals go from moderation, its pin from the publisher, and
+ * the publisher's charges are marked for the reconcile. Submitted bytes at `objects/<hash>` stay,
+ * as published bytes do: another publication may name the same hash.
  */
 export async function deleteNeverListed(
+  dbs: Databases,
   db: D1Database,
   bucket: R2Bucket,
   key: Owned,
+  now: number,
 ): Promise<"deleted" | "listed" | "not-yours"> {
   const { results } = await db
     .prepare("SELECT version FROM versions WHERE type = ?1 AND name = ?2")
@@ -308,7 +337,6 @@ export async function deleteNeverListed(
       .bind(key.type, key.name, key.publisher);
   const outcome = await db.batch([
     scoped("pending_withdrawals"),
-    scoped("appeals"),
     scoped("transfers"),
     scoped("removals"),
     scoped("versions"),
@@ -319,22 +347,22 @@ export async function deleteNeverListed(
           AND NOT EXISTS (SELECT 1 FROM versions WHERE type = ?1 AND name = ?2)`,
       )
       .bind(key.type, key.name, key.publisher),
-    db
-      .prepare(
-        `UPDATE publishers SET pins = (
-            SELECT COALESCE(json_group_array(json(value)), '[]') FROM json_each(publishers.pins)
-            WHERE NOT (json_extract(value, '$.type') = ?2 AND json_extract(value, '$.name') = ?3))
-          WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM entries WHERE type = ?2 AND name = ?3)`,
-      )
-      .bind(key.publisher, key.type, key.name),
   ]);
-  if ((outcome[5]?.meta.changes ?? 0) !== 1) {
+  if ((outcome[4]?.meta.changes ?? 0) !== 1) {
     const owner = await db
       .prepare("SELECT publisher FROM entries WHERE type = ?1 AND name = ?2")
       .bind(key.type, key.name)
       .first<{ publisher: string }>();
     return owner && owner.publisher !== key.publisher ? "not-yours" : "listed";
   }
+  await dbs.moderation
+    .prepare("DELETE FROM appeals WHERE type = ?1 AND name = ?2")
+    .bind(key.type, key.name)
+    .run();
+  await dbs.publishers.batch([
+    unpinStatement(dbs.publishers, key.publisher, key),
+    markUsageDirty(dbs.publishers, key.publisher, now),
+  ]);
   if (results.length > 0)
     await bucket.delete(results.map((row) => versionReportKey({ ...key, version: row.version })));
   return "deleted";

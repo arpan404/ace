@@ -23,6 +23,7 @@ import {
   type Market,
   type Upload,
 } from "./harness.ts";
+import { recordedDatabases } from "../store/sizes.ts";
 
 /*
  * Helpers for Discover, the maintainers' routes and the signer's re-scan, through the Worker's
@@ -109,16 +110,18 @@ export const officialBy = (body: Body<MarketOfficialList>, key: MarketSigningKey
 
 /** Every row of every table, as text, to show what the market keeps. */
 export async function everyRow(market: Market): Promise<string> {
-  const { results } = await market.db
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_%' ESCAPE '\\'",
-    )
-    .all<{ name: string }>();
   const dumps: string[] = [];
-  for (const table of results) {
-    if (table.name.startsWith("sqlite_") || table.name.startsWith("d1_")) continue;
-    const rows = await market.db.prepare(`SELECT * FROM "${table.name}"`).all();
-    dumps.push(`${table.name}: ${JSON.stringify(rows.results)}`);
+  for (const { name, db } of recordedDatabases(market.dbs)) {
+    const { results } = await db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_%' ESCAPE '\\'",
+      )
+      .all<{ name: string }>();
+    for (const table of results) {
+      if (table.name.startsWith("sqlite_") || table.name.startsWith("d1_")) continue;
+      const rows = await db.prepare(`SELECT * FROM "${table.name}"`).all();
+      dumps.push(`${name}.${table.name}: ${JSON.stringify(rows.results)}`);
+    }
   }
   return dumps.join("\n");
 }

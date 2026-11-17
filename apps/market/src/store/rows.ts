@@ -1,5 +1,5 @@
 import type { Listing } from "@ace/marketplace";
-import type { MarketListingEdit, MarketScanReport } from "@ace/protocol/marketplace";
+import type { MarketListingEdit, MarketScanReport, WithdrawnList } from "@ace/protocol/marketplace";
 import type {
   EntryManagement,
   EntryRow,
@@ -66,7 +66,8 @@ export interface VersionTable {
   reviewed: number;
   by_ace: number;
   withdrawn: string | null;
-  downloads: number;
+  /** The download total as last folded from the counts database. */
+  counted: number;
   state: string;
   verdict: string | null;
   block_reason: string | null;
@@ -135,7 +136,7 @@ export function storedVersion(row: VersionTable): StoredVersion {
     withdrawn: row.withdrawn ?? undefined,
     reviewed: row.reviewed === 1,
     byAce: row.by_ace === 1,
-    downloads: row.downloads,
+    downloads: row.counted,
     state: row.state as VersionState,
     blockReason: row.block_reason ?? undefined,
     deprecated: row.deprecated ?? undefined,
@@ -145,3 +146,6 @@ export function storedVersion(row: VersionTable): StoredVersion {
 
 /** A signed statement this Worker verified before storing it. */
 export const signedOf = (text: string) => JSON.parse(text) as { body: unknown; signature: string };
+
+/** The withdrawn list as the lists database stores it: verified before it was stored. */
+export const withdrawnBodyOf = (text: string) => signedOf(text).body as WithdrawnList;

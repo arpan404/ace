@@ -1,8 +1,12 @@
 import type { MarketCategory } from "@ace/protocol/marketplace";
 import type { EntryRow, StoredVersion } from "../rules.ts";
+import { fromCatalogues, type Databases } from "./databases.ts";
 import { entryRow, signedOf, storedVersion, type EntryJoined, type VersionTable } from "./rows.ts";
 
-/* What the read routes and pages need from D1. */
+/*
+ * What the read routes and pages need from D1. An entry's own reads take its type's catalogue;
+ * reads over every entry fan out to each catalogue in parallel (ADR 0173 §16).
+ */
 
 // Listings show totals as last folded into the index (`counted`, store/downloads.ts), so what a
 // `since` reader holds and what a full read shows agree.
@@ -10,13 +14,25 @@ const joined = `SELECT e.*, p.id AS publisher_id, p.name AS publisher_name,
   p.state AS publisher_state, p.verified AS publisher_verified,
   (SELECT COALESCE(SUM(v.counted), 0) FROM versions v WHERE v.type = e.type AND v.name = e.name)
     AS downloads
-  FROM entries e JOIN publishers p ON p.id = e.publisher`;
+  FROM entries e JOIN publisher_copies p ON p.id = e.publisher`;
 
 export async function currentStamp(db: D1Database): Promise<number> {
   const row = await db.prepare("SELECT value FROM meta WHERE key = 'stamp'").first<{
     value: number;
   }>();
   return row?.value ?? 0;
+}
+
+/**
+ * Raises the catalogue's stamp to at least `to`, in one statement, and answers it: the catalogue's
+ * next change then takes a stamp above `to` (ADR 0173 §16).
+ */
+export async function raiseStamp(db: D1Database, to: number): Promise<number> {
+  const row = await db
+    .prepare("UPDATE meta SET value = MAX(value, ?1) WHERE key = 'stamp' RETURNING value")
+    .bind(to)
+    .first<{ value: number }>();
+  return row?.value ?? to;
 }
 
 /**
@@ -46,13 +62,19 @@ export async function removedSince(
   return results.map((row) => ({ type: row.type, name: row.name }));
 }
 
-/** One publisher's entries in the index. */
-export async function publisherEntries(db: D1Database, publisher: string): Promise<EntryRow[]> {
-  const { results } = await db
-    .prepare(`${joined} WHERE e.listed = 1 AND e.publisher = ?1 ORDER BY e.type, e.name`)
-    .bind(publisher)
-    .all<EntryJoined>();
-  return results.map(entryRow);
+/** Every catalogue's entries in the index, in type order then by name. */
+export const listedEverywhere = (dbs: Databases) =>
+  fromCatalogues(dbs, ({ db }) => listedEntries(db));
+
+/** One publisher's entries in the index, over every catalogue. */
+export async function publisherEntries(dbs: Databases, publisher: string): Promise<EntryRow[]> {
+  return fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare(`${joined} WHERE e.listed = 1 AND e.publisher = ?1 ORDER BY e.type, e.name`)
+      .bind(publisher)
+      .all<EntryJoined>();
+    return results.map(entryRow);
+  });
 }
 
 /** The entry's table row with its publisher, listed or not. */
@@ -110,22 +132,29 @@ export async function signedVersion(
   };
 }
 
-/** Whether a signed version has these bytes: only those are served to readers. */
-export async function hashIsListed(db: D1Database, hash: string): Promise<boolean> {
-  const row = await db
-    .prepare("SELECT 1 AS found FROM versions WHERE hash = ?1 AND listed = 1 LIMIT 1")
-    .bind(hash)
-    .first<{ found: number }>();
-  return row !== null;
+/** A signed version with these bytes, in whichever catalogue holds it. */
+export interface ListedCopy {
+  type: string;
+  name: string;
+  version: string;
+  published: number;
 }
 
-/** One more download for the signed versions with these bytes. */
-export async function countDownload(db: D1Database, hash: string): Promise<void> {
-  await db
-    .prepare("UPDATE versions SET downloads = downloads + 1 WHERE hash = ?1 AND listed = 1")
-    .bind(hash)
-    .run();
+/**
+ * Every signed version with these bytes, over every catalogue: only those are served to readers,
+ * and a download counts for each of them.
+ */
+export async function listedWithHash(dbs: Databases, hash: string): Promise<ListedCopy[]> {
+  return fromCatalogues(dbs, async ({ db }) => {
+    const { results } = await db
+      .prepare("SELECT type, name, version, published FROM versions WHERE hash = ?1 AND listed = 1")
+      .bind(hash)
+      .all<ListedCopy>();
+    return results;
+  });
 }
+
+/* The maintainers' lists, in the lists database. */
 
 export async function categories(db: D1Database): Promise<MarketCategory[]> {
   const { results } = await db

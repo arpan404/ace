@@ -1,6 +1,24 @@
 export interface Env {
-  /** Listings, publishers, download totals, reports and scan state (ADR 0168 §2, ADR 0173 §1). */
-  MARKET: D1Database;
+  /*
+   * D1, one database per entry type and per shared domain (ADR 0173 §16). Read them through
+   * `store/databases.ts`, never by binding name.
+   */
+  /** The catalogue of `suit` entries. */
+  MARKET_SUITS: D1Database;
+  /** The catalogue of `spade-skill` entries. */
+  MARKET_SKILLS: D1Database;
+  /** The catalogue of `spade-plugin` entries. */
+  MARKET_PLUGINS: D1Database;
+  /** The catalogue of `spade-bot` recipes. */
+  MARKET_BOTS: D1Database;
+  /** Publishers, handles, verification, drafts, limits, the quota ledger and pictures. */
+  MARKET_PUBLISHERS: D1Database;
+  /** Download totals and buckets, trending, top publishers and the daily size record. */
+  MARKET_COUNTS: D1Database;
+  /** Abuse reports, appeals and the blocklist. */
+  MARKET_MODERATION: D1Database;
+  /** The withdrawn list, categories, featured and collections. */
+  MARKET_LISTS: D1Database;
   /** Archives, drafts, pictures and scan reports, by prefix (ADR 0173 §1). */
   OBJECTS: R2Bucket;
   /** Reads per caller address, API and pages. Absent where no limit is configured. */

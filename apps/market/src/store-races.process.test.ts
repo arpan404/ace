@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sampleSkill } from "@ace/marketplace/testing";
 import { draftKey } from "./context.ts";
-import { publish, put, startMarket, type Market } from "./testing/harness.ts";
+import { publish, put, startMarket, type Market, catalogueOf } from "./testing/harness.ts";
 import { approve, publishLive, verifiedBy } from "./testing/discover-harness.ts";
 import {
   asAccount,
@@ -44,7 +44,7 @@ const storedList = async () => {
 
 const publisherId = async (handle: string) =>
   (
-    await market.db
+    await market.dbs.publishers
       .prepare("SELECT id FROM publishers WHERE name = ?1")
       .bind(handle)
       .first<{ id: string }>()
@@ -68,10 +68,10 @@ describe("a signature checked against one submission", () => {
     expect((await publish(market, upload)).status).toBe(201);
     await approve(market, upload);
     const key = { type: "spade-skill", name: upload.name, version: "1.0.0" };
-    const read = await versionForSigning(market.db, key);
+    const read = await versionForSigning(catalogueOf(market, "spade-skill"), key);
     if (!read) throw new Error("no version");
     // Before the signature lands, the version is blocked and its publisher submits other bytes.
-    await market.db
+    await catalogueOf(market, "spade-skill")
       .prepare(
         `UPDATE versions SET hash = ?2, size = size + 1, state = 'pending'
           WHERE type = 'spade-skill' AND name = ?1`,
@@ -80,14 +80,19 @@ describe("a signature checked against one submission", () => {
       .run();
     const signed = { manifest: '{"signed":"A"}', hash: read.hash, size: read.size };
     expect(
-      await listVersion(market.db, key, { ...signed, publisher: read.publisher.id }, Date.now()),
+      await listVersion(
+        catalogueOf(market, "spade-skill"),
+        key,
+        { ...signed, publisher: read.publisher.id },
+        Date.now(),
+      ),
     ).toBe(false);
     expect(
-      await market.db
+      await catalogueOf(market, "spade-skill")
         .prepare(
           `SELECT v.listed, v.state, v.manifest, p.live_versions FROM versions v
             JOIN entries e ON e.type = v.type AND e.name = v.name
-            JOIN publishers p ON p.id = e.publisher WHERE v.name = ?1`,
+            JOIN publisher_copies p ON p.id = e.publisher WHERE v.name = ?1`,
         )
         .bind(upload.name)
         .first(),
@@ -111,8 +116,14 @@ describe("the verified list", () => {
     });
     expect((await put(market, "/v1/signer/verified", { verified: on, basedOn })).status).toBe(200);
     // A refresh reads the entry while its publisher is verified, then is overtaken.
-    await market.db.prepare("UPDATE entries SET verified = 0 WHERE name = 'mark-race'").run();
-    const snapshot = await readEntrySnapshot(market.db, "spade-skill", "mark-race");
+    await catalogueOf(market, "spade-skill")
+      .prepare("UPDATE entries SET verified = 0 WHERE name = 'mark-race'")
+      .run();
+    const snapshot = await readEntrySnapshot(
+      catalogueOf(market, "spade-skill"),
+      "spade-skill",
+      "mark-race",
+    );
     if (!snapshot) throw new Error("no entry");
     const stale = computeEntry("mark-race", snapshot.versions, snapshot.manage);
     expect(stale.verified).toBe(true);
@@ -124,7 +135,7 @@ describe("the verified list", () => {
     ).toBe(200);
     expect(
       await writeEntry(
-        market.db,
+        catalogueOf(market, "spade-skill"),
         "spade-skill",
         "mark-race",
         stale,
@@ -133,7 +144,9 @@ describe("the verified list", () => {
       ),
     ).toBe(false);
     expect(
-      await market.db.prepare("SELECT verified FROM entries WHERE name = 'mark-race'").first(),
+      await catalogueOf(market, "spade-skill")
+        .prepare("SELECT verified FROM entries WHERE name = 'mark-race'")
+        .first(),
     ).toEqual({ verified: 0 });
   });
 
@@ -152,12 +165,21 @@ describe("the verified list", () => {
     });
     const upload = { verified: on, basedOn };
     expect((await put(market, "/v1/signer/verified", upload)).status).toBe(200);
-    // Cut off before the entries were refreshed; sent again, as another tool writes JSON.
-    await market.db.prepare("UPDATE entries SET verified = 0 WHERE name = 'order-race'").run();
+    // Cut off after the publisher was marked but before its entries were refreshed: the copy's
+    // sync never finished. Sent again, as another tool writes JSON.
+    await catalogueOf(market, "spade-skill")
+      .prepare("UPDATE entries SET verified = 0 WHERE name = 'order-race'")
+      .run();
+    await market.dbs.publishers
+      .prepare("UPDATE publishers SET synced = 0 WHERE id = ?1")
+      .bind(id)
+      .run();
     const again = await put(market, "/v1/signer/verified", reordered(upload));
     expect(again.status).toBe(200);
     expect(
-      await market.db.prepare("SELECT verified FROM entries WHERE name = 'order-race'").first(),
+      await catalogueOf(market, "spade-skill")
+        .prepare("SELECT verified FROM entries WHERE name = 'order-race'")
+        .first(),
     ).toEqual({ verified: 1 });
   });
 });
@@ -190,7 +212,9 @@ describe("two replacements of one draft", () => {
     );
     expect(published.status).toBe(201);
     expect(
-      await market.db.prepare("SELECT hash FROM versions WHERE name = 'twice-replaced'").first(),
+      await catalogueOf(market, "spade-skill")
+        .prepare("SELECT hash FROM versions WHERE name = 'twice-replaced'")
+        .first(),
     ).toEqual({ hash: now.hash });
     // Publishing removed every revision of the draft.
     expect((await market.objects.list({ prefix: `drafts/${draft.id}/` })).objects).toEqual([]);

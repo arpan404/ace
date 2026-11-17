@@ -6,15 +6,16 @@ import {
   trendScores,
   type HourCount,
 } from "@ace/marketplace";
-import type { Env } from "./env.ts";
-import { pruneDownloads, rankedOwnerSql } from "./store/downloads.ts";
+import { fromCatalogues, type Databases } from "./store/databases.ts";
+import { pruneDownloads } from "./store/downloads.ts";
 import { officialPublisher } from "./store/lists.ts";
 
 /*
- * Discover's cron steps (ADR 0173 §6), each bounded: old download buckets pruned in batches;
- * trending scored 500 entries a step with a cursor in `meta` into `trending_scores`, then swapped
- * into `trending` when a pass completes, with top publishers ranked at the same time. No step
- * reads more than a batch of entries' last three weeks of hours.
+ * Discover's cron steps (ADR 0173 §6, §16), each bounded: old download buckets pruned in
+ * batches; trending scored 500 entries a step, walking each catalogue in turn with a cursor
+ * (the catalogue and its row) in the counts database's `meta`, into `trending_scores`, then
+ * swapped into `trending` when a pass has walked every catalogue, with top publishers ranked at
+ * the same time. No step reads more than a batch of entries' last three weeks of hours.
  */
 
 export const trendingBatch = 500;
@@ -35,30 +36,39 @@ const setMeta = (db: D1Database, key: string, value: number) =>
     )
     .bind(key, value);
 
-export async function discoveryCron(env: Env, now: number): Promise<void> {
-  const db = env.MARKET;
-  for (let step = 0; step < prunesPerRun; step++) if (!(await pruneDownloads(db, now))) break;
-  for (let step = 0; step < stepsPerRun; step++) if (await trendingStep(db, now)) break;
+export async function discoveryCron(dbs: Databases, now: number): Promise<void> {
+  for (let step = 0; step < prunesPerRun; step++)
+    if (!(await pruneDownloads(dbs.counts, now))) break;
+  for (let step = 0; step < stepsPerRun; step++) if (await trendingStep(dbs, now)) break;
 }
 
 /** One batch of a trending pass; true once the pass completed and was swapped in. */
-export async function trendingStep(db: D1Database, now: number): Promise<boolean> {
+export async function trendingStep(dbs: Databases, now: number): Promise<boolean> {
+  const db = dbs.counts;
   let cursor = await meta(db, "trending_cursor");
   let atHour = await meta(db, "trending_at");
+  let walking = (await meta(db, "trending_catalogue")) ?? 0;
   if (cursor === undefined || cursor < 0 || atHour === undefined) {
     cursor = 0;
+    walking = 0;
     atHour = Math.floor(now / 3_600_000);
     await db.batch([
       db.prepare("DELETE FROM trending_scores"),
       setMeta(db, "trending_cursor", 0),
+      setMeta(db, "trending_catalogue", 0),
       setMeta(db, "trending_at", atHour),
     ]);
   }
-  const official = await officialPublisher(db);
-  const { results: batch } = await db
+  const catalogue = dbs.catalogues[walking];
+  if (!catalogue) {
+    await swapTrending(dbs, now);
+    return true;
+  }
+  const official = await officialPublisher(dbs.publishers);
+  const { results: batch } = await catalogue.db
     .prepare(
       `SELECT e.rowid AS position, e.type, e.name, e.publisher, p.verified FROM entries e
-        JOIN publishers p ON p.id = e.publisher
+        JOIN publisher_copies p ON p.id = e.publisher
         WHERE e.rowid > ?1 AND e.listed = 1 AND e.visibility = 'listed' AND e.archived = 0
           AND p.state = 'active'
         ORDER BY e.rowid LIMIT ${trendingBatch}`,
@@ -104,11 +114,18 @@ export async function trendingStep(db: D1Database, now: number): Promise<boolean
     ]);
   }
   if (batch.length === trendingBatch) return false;
-  await swapTrending(db, now);
+  // This catalogue is walked: the next step starts on the next one.
+  await db.batch([
+    setMeta(db, "trending_cursor", 0),
+    setMeta(db, "trending_catalogue", walking + 1),
+  ]);
+  if (walking + 1 < dbs.catalogues.length) return false;
+  await swapTrending(dbs, now);
   return true;
 }
 
-async function swapTrending(db: D1Database, now: number) {
+async function swapTrending(dbs: Databases, now: number) {
+  const db = dbs.counts;
   const { results } = await db
     .prepare("SELECT type, name, score, week, before FROM trending_scores")
     .all<{ type: string; name: string; score: number; week: number; before: number }>();
@@ -142,39 +159,57 @@ async function swapTrending(db: D1Database, now: number) {
       ),
     db.prepare("DELETE FROM trending_scores"),
     setMeta(db, "trending_cursor", -1),
+    setMeta(db, "trending_catalogue", 0),
     setMeta(db, "trending_ranked", now),
   ]);
-  await rankTopPublishers(db, now);
+  await rankTopPublishers(dbs, now);
 }
 
-/** Active publishers with a listed, reviewed entry, by capped 30-day downloads × tier. */
-export async function rankTopPublishers(db: D1Database, now: number) {
+/**
+ * Active publishers with a listed, reviewed entry, by capped 30-day downloads × tier. A day's
+ * downloads of shared bytes were credited to one entry when they were counted, so copies add
+ * nothing (`store/downloads.ts`).
+ */
+export async function rankTopPublishers(dbs: Databases, now: number) {
   const today = Math.floor(now / 86_400_000);
-  const official = await officialPublisher(db);
-  const [publishers, days] = await Promise.all([
-    db
-      .prepare(
-        `SELECT p.id, p.name, p.verified, e.type, e.name AS entry FROM publishers p
-          JOIN entries e ON e.publisher = p.id AND e.listed = 1
-          WHERE p.state = 'active' AND EXISTS (SELECT 1 FROM entries r
-            WHERE r.publisher = p.id AND r.listed = 1 AND r.reviewed = 1)`,
-      )
-      .all<{ id: string; name: string; verified: number; type: string; entry: string }>(),
-    db
-      // One count per bytes a day, however many versions carry them (they all counted the
-      // same fetches), credited to the entry that listed the bytes first.
-      .prepare(
-        `SELECT o.type, o.name, b.day, SUM(b.count) AS count FROM (
-            SELECT v.hash, d.day, MAX(d.count) AS count FROM downloads_daily d
-              JOIN versions v ON v.type = d.type AND v.name = d.name AND v.version = d.version
-              WHERE d.day > ?1 GROUP BY v.hash, d.day) b
-          JOIN versions o ON o.rowid = ${rankedOwnerSql("b.hash")}
-          JOIN entries e ON e.type = o.type AND e.name = o.name AND e.listed = 1
-          GROUP BY o.type, o.name, b.day`,
-      )
+  const [official, listed, days, publisherRows] = await Promise.all([
+    officialPublisher(dbs.publishers),
+    fromCatalogues(dbs, async ({ db }) => {
+      const { results } = await db
+        .prepare(
+          `SELECT p.id, e.type, e.name AS entry, e.reviewed FROM entries e
+            JOIN publisher_copies p ON p.id = e.publisher
+            WHERE e.listed = 1 AND p.state = 'active'`,
+        )
+        .all<{ id: string; type: string; entry: string; reviewed: number }>();
+      return results;
+    }),
+    dbs.counts
+      .prepare("SELECT type, name, day, count FROM credited_daily WHERE day > ?1")
       .bind(today - 30)
       .all<{ type: string; name: string; day: number; count: number }>(),
+    dbs.publishers
+      .prepare("SELECT id, name, verified FROM publishers WHERE state = 'active'")
+      .all<{ id: string; name: string; verified: number }>(),
   ]);
+  const reviewed = new Set(listed.filter((row) => row.reviewed === 1).map((row) => row.id));
+  const profile = new Map(publisherRows.results.map((row) => [row.id, row]));
+  const publishers = {
+    results: listed.flatMap((row) => {
+      const found = profile.get(row.id);
+      return found && reviewed.has(row.id)
+        ? [
+            {
+              id: row.id,
+              name: found.name,
+              verified: found.verified,
+              type: row.type,
+              entry: row.entry,
+            },
+          ]
+        : [];
+    }),
+  };
   const perEntry = new Map<string, { day: number; count: number }[]>();
   for (const row of days.results) {
     const key = `${row.type}/${row.name}`;
@@ -202,6 +237,7 @@ export async function rankTopPublishers(db: D1Database, now: number) {
     ),
     today,
   );
+  const db = dbs.counts;
   await db.batch([
     db.prepare("DELETE FROM top_publishers"),
     db

@@ -133,7 +133,9 @@ describe("profile fields", () => {
 
   it("a verified publisher's profile edit needs a recent sign-in", async () => {
     await makeProfile(market, "acct_known", "known-person");
-    await market.db.prepare("UPDATE publishers SET verified = 1 WHERE name = 'known-person'").run();
+    await market.dbs.publishers
+      .prepare("UPDATE publishers SET verified = 1 WHERE name = 'known-person'")
+      .run();
     const stale = await asAccount(
       market,
       "acct_known",
@@ -152,7 +154,7 @@ describe("profile fields", () => {
 
   it("a suspended publisher's profile isn't shown", async () => {
     await makeProfile(market, "acct_gone", "gone-person");
-    await market.db
+    await market.dbs.publishers
       .prepare("UPDATE publishers SET state = 'suspended' WHERE name = 'gone-person'")
       .run();
     expect((await market.fetch("/v1/publishers/gone-person")).status).toBe(404);
@@ -202,10 +204,10 @@ describe("verification", () => {
   it("an expired token fails its check without fetching, and a spent one isn't checked again", async () => {
     await makeProfile(market, "acct_late", "late-person");
     await asAccount(market, "acct_late", "POST", "/v1/me/verification", { domain: "example.org" });
-    const publisher = await market.db
+    const publisher = await market.dbs.publishers
       .prepare("SELECT id FROM publishers WHERE name = 'late-person'")
       .first<{ id: string }>();
-    await market.db
+    await market.dbs.publishers
       .prepare("UPDATE verification_challenges SET expires = 1 WHERE publisher = ?1")
       .bind(publisher?.id)
       .run();
@@ -216,7 +218,7 @@ describe("verification", () => {
       state: "failed",
       problem: expect.stringContaining("expired"),
     });
-    await market.db
+    await market.dbs.publishers
       .prepare(
         "UPDATE verification_challenges SET state = 'passed', problem = NULL WHERE publisher = ?1",
       )

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sampleSkill } from "@ace/marketplace/testing";
-import { asSigner, startMarket, type Market } from "./testing/harness.ts";
+import { asSigner, startMarket, type Market, catalogueOf } from "./testing/harness.ts";
 import {
   asAccount,
   draftAndPublish,
@@ -74,7 +74,9 @@ describe("listing", () => {
 
   it("an edit to a reviewed entry waits for a maintainer and shows nothing yet", async () => {
     await live("reviewed-skill");
-    await market.db.prepare("UPDATE entries SET reviewed = 1 WHERE name = 'reviewed-skill'").run();
+    await catalogueOf(market, "spade-skill")
+      .prepare("UPDATE entries SET reviewed = 1 WHERE name = 'reviewed-skill'")
+      .run();
     const response = await me("PUT", `${entryPath("reviewed-skill")}/listing`, listing("Changed"));
     expect(response.status).toBe(202);
     expect((await page("reviewed-skill")).entry.title).not.toBe("Changed");
@@ -177,7 +179,7 @@ describe("versions", () => {
     expect(notHeld.status).toBe(409);
     const held = await draftAndPublish(market, "acct_maker", skill("fine-skill", "1.1.0"));
     expect(held.status).toBe(201);
-    await market.db
+    await catalogueOf(market, "spade-skill")
       .prepare("UPDATE versions SET state = 'held' WHERE name = 'fine-skill' AND version = '1.1.0'")
       .run();
     const path = `${entryPath("fine-skill")}/versions/1.1.0/appeal`;
@@ -287,7 +289,10 @@ describe("transfers", () => {
   it("an expired offer can't be accepted", async () => {
     await live("late-skill");
     const id = await offer("late-skill");
-    await market.db.prepare("UPDATE transfers SET expires = 1 WHERE id = ?1").bind(id).run();
+    await catalogueOf(market, "spade-skill")
+      .prepare("UPDATE transfers SET expires = 1 WHERE id = ?1")
+      .bind(id)
+      .run();
     expect(
       (await me("POST", `/v1/me/transfers/${id}/accept`, undefined, "acct_taker")).status,
     ).toBe(404);
@@ -299,21 +304,23 @@ it("signals total downloads per version per day, with adoption and reports", asy
   await live("counted-skill", "1.0.0");
   await live("counted-skill", "1.1.0");
   const today = Math.floor(Date.now() / 86_400_000);
-  await market.db.batch([
-    market.db
+  await market.dbs.counts.batch([
+    market.dbs.counts
       .prepare(
         "INSERT INTO downloads_daily (type, name, version, day, count) VALUES ('spade-skill', 'counted-skill', '1.0.0', ?1, 4)",
       )
       .bind(today - 1),
-    market.db
+    market.dbs.counts
       .prepare(
         "INSERT INTO downloads_daily (type, name, version, day, count) VALUES ('spade-skill', 'counted-skill', '1.1.0', ?1, 12)",
       )
       .bind(today),
-    market.db.prepare(
-      "INSERT INTO reports (id, type, name, reason, at, state) VALUES ('rpt_0123456789ab', 'spade-skill', 'counted-skill', 'spam', 5, 'dismissed')",
-    ),
   ]);
+  await market.dbs.moderation
+    .prepare(
+      "INSERT INTO reports (id, type, name, reason, at, state) VALUES ('rpt_0123456789ab', 'spade-skill', 'counted-skill', 'spam', 5, 'dismissed')",
+    )
+    .run();
   const body = await jsonOf<{
     days: number[];
     versions: { version: string; downloads: number[] }[];

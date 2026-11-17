@@ -7,6 +7,8 @@ import {
 import type { MarketPublisherState } from "@ace/protocol/marketplace";
 import type { Context } from "./context.ts";
 import { bearer, failure } from "./http.ts";
+import { liveVersionsOf } from "./store/copies.ts";
+import type { Databases } from "./store/databases.ts";
 
 /*
  * Who is writing (ADR 0173 §2). Every write route calls `authenticate` first: a market grant from
@@ -43,14 +45,17 @@ interface PublisherRow {
   name: string;
   state: string;
   created: number;
-  live_versions: number;
   verified: number;
 }
 
-const columns = "p.id, p.name, p.state, p.created, p.live_versions, p.verified";
+const columns = "p.id, p.name, p.state, p.created, p.verified";
 
-/** The publisher an account writes as: the `ace` publisher for an official account, else its own. */
-async function publisherFor(db: D1Database, account: string): Promise<AuthedPublisher | undefined> {
+/**
+ * The publisher an account writes as: the `ace` publisher for an official account, else its own.
+ * Its live versions are summed over the catalogues (ADR 0173 §16).
+ */
+async function publisherFor(dbs: Databases, account: string): Promise<AuthedPublisher | undefined> {
+  const db = dbs.publishers;
   const official = await db
     .prepare(
       `SELECT ${columns} FROM official_accounts o JOIN publishers p ON p.id = o.publisher
@@ -71,7 +76,7 @@ async function publisherFor(db: D1Database, account: string): Promise<AuthedPubl
     // Rows this Worker wrote (ADR 0125): the column only ever holds a publisher state.
     state: row.state as MarketPublisherState,
     created: row.created,
-    liveVersions: row.live_versions,
+    liveVersions: await liveVersionsOf(dbs, row.id),
     verified: row.verified === 1,
     official: official !== null,
   };
@@ -111,7 +116,7 @@ export async function authenticate(
     return failure(403, "email_unverified", "Verify your account's email to publish.");
   if (options.sensitive && !(context.now - claims.authAt <= reauthMs))
     return failure(401, "reauth", "Sign in again to do this.");
-  const publisher = await publisherFor(context.env.MARKET, claims.account);
+  const publisher = await publisherFor(context.dbs, claims.account);
   if (publisher && publisher.state !== "active" && !options.allowInactive)
     return failure(403, "suspended", "This account can't publish right now.");
   return { claims, account: claims.account, publisher };

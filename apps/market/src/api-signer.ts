@@ -16,7 +16,7 @@ import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
 import type { Route, VersionKey } from "./routes.ts";
 import { withdrawnList } from "./store/read.ts";
-import { signedList, signedText, type ListStored } from "./store/lists.ts";
+import { listDb, signedList, signedText, type ListStored } from "./store/lists.ts";
 import {
   hashIsStored,
   listVersion,
@@ -74,17 +74,17 @@ export async function signerRoute(
   if (!route.kind.startsWith("signer-")) return undefined;
   if (!(await signerAllowed(request, context)))
     return failure(401, "unauthorized", "Only the signer may do that.");
-  const db = context.env.MARKET;
+  const dbs = context.dbs;
   switch (route.kind) {
     case "signer-pending": {
       // Only versions waiting for the signer: held and blocked ones wait for a maintainer.
       const [versions, withdrawals, list, blocklist, verified, official] = await Promise.all([
-        pendingVersions(db),
-        pendingWithdrawals(db),
-        withdrawnList(db),
-        signedList(db, "blocklist"),
-        signedList(db, "verified"),
-        signedList(db, "official"),
+        pendingVersions(dbs),
+        pendingWithdrawals(dbs),
+        withdrawnList(dbs.lists),
+        signedList(listDb(dbs, "blocklist"), "blocklist"),
+        signedList(listDb(dbs, "verified"), "verified"),
+        signedList(listDb(dbs, "official"), "official"),
       ]);
       return json({
         versions,
@@ -96,7 +96,7 @@ export async function signerRoute(
       });
     }
     case "signer-object": {
-      if (!(await hashIsStored(db, route.hash))) return notFound();
+      if (!(await hashIsStored(dbs, route.hash))) return notFound();
       const stored = await context.env.OBJECTS.get(objectKey(route.hash));
       return stored
         ? new Response(stored.body, { headers: { "content-type": "application/x-tar" } })
@@ -114,13 +114,13 @@ export async function signerRoute(
       const ids = upload.data.categories.map((category) => category.id);
       if (new Set(ids).size !== ids.length)
         return failure(400, "invalid", "A category is listed twice.");
-      await setCategories(db, upload.data.categories);
+      await setCategories(dbs.lists, upload.data.categories);
       return json({ status: "stored" });
     }
     case "signer-featured": {
       const upload = FeaturedUpload.safeParse(await readJson(request));
       if (!upload.success) return malformed();
-      const reviewed = await reviewedEntries(db, upload.data.entries);
+      const reviewed = await reviewedEntries(dbs, upload.data.entries);
       const others = upload.data.entries.filter(
         (entry) => !reviewed.has(`${entry.type}/${entry.name}`),
       );
@@ -130,7 +130,7 @@ export async function signerRoute(
             message: `${entry.type}/${entry.name} isn't a listed, reviewed entry`,
           })),
         );
-      await setFeatured(db, upload.data.entries);
+      await setFeatured(dbs.lists, upload.data.entries);
       return json({ status: "stored" });
     }
     default:
@@ -149,8 +149,9 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
   } catch (error) {
     return signatureRefused(error);
   }
-  const stored = await versionForSigning(context.env.MARKET, key);
-  if (!stored) return notFound();
+  const db = context.dbs.catalogue(key.type);
+  const stored = db ? await versionForSigning(db, key) : undefined;
+  if (!db || !stored) return notFound();
   // A held or blocked version waits for a maintainer, whatever the signer says.
   if (stored.state !== "pending" && stored.state !== "listed")
     return failure(409, "conflict", `That version is ${stored.state}; a maintainer decides it.`);
@@ -166,7 +167,7 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
     return refused([{ message: "The manifest names another version, publisher or files" }]);
   if (
     !(await listVersion(
-      context.env.MARKET,
+      db,
       key,
       {
         manifest: JSON.stringify(upload.data.manifest),
@@ -196,12 +197,13 @@ async function review(request: Request, key: VersionKey, context: Context) {
   } catch (error) {
     return signatureRefused(error);
   }
-  const stored = await versionForSigning(context.env.MARKET, key);
-  if (!stored) return notFound();
+  const db = context.dbs.catalogue(key.type);
+  const stored = db ? await versionForSigning(db, key) : undefined;
+  if (!db || !stored) return notFound();
   if (mark.type !== key.type || mark.name !== key.name || mark.hash !== stored.hash)
     return refused([{ message: "The review mark names another entry or other files" }]);
   await setReview(
-    context.env.MARKET,
+    db,
     key,
     { signed: JSON.stringify(upload.data.review), reviewed: mark.reviewed, byAce: mark.byAce },
     context.now,
@@ -221,7 +223,7 @@ async function withdrawn(request: Request, context: Context) {
     return signatureRefused(error);
   }
   const stored = await setWithdrawn(
-    context.env.MARKET,
+    context.dbs,
     {
       issued: list.issued,
       signed: signedText(upload.data.withdrawn),

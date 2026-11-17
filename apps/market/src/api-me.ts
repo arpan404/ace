@@ -18,8 +18,8 @@ import { avatarKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
 import { isNewPublisher } from "./rules.ts";
 import type { Route } from "./routes.ts";
+import { syncPublisher } from "./store/copies.ts";
 import { draftBody, draftsOf } from "./store/drafts.ts";
-import { touchEntries } from "./store/entries.ts";
 import { ownEntrySummaries } from "./store/me-entries.ts";
 import { limitsOf } from "./store/me-limits.ts";
 import { acceptTransfer, deleteTransfer, transferById, transfersOf } from "./store/me-transfers.ts";
@@ -99,7 +99,7 @@ export async function meRoute(
 /* ---------------------------------------------------------------- your page */
 
 async function mePage(context: Context, authed: Authed): Promise<Response> {
-  const db = context.env.MARKET;
+  const db = context.dbs.publishers;
   const publisher = authed.publisher;
   if (!publisher) {
     const limits = await limitsOf(db, "", true, context.now);
@@ -119,9 +119,9 @@ async function mePage(context: Context, authed: Authed): Promise<Response> {
   const profile = profileOf(row);
   const [limits, entries, drafts, offers] = await Promise.all([
     limitsOf(db, publisher.id, newPublisher, context.now),
-    ownEntrySummaries(db, publisher.id, profile.pins),
+    ownEntrySummaries(context.dbs, publisher.id, profile.pins),
     draftsOf(db, publisher.id),
-    transfersOf(db, publisher.id, context.now),
+    transfersOf(context.dbs, publisher.id, context.now),
   ]);
   const body: MarketMe = {
     profile,
@@ -158,7 +158,7 @@ async function handleRefusal(db: D1Database, handle: string, official: boolean, 
 }
 
 async function createOwnProfile(request: Request, context: Context, authed: Authed) {
-  const db = context.env.MARKET;
+  const db = context.dbs.publishers;
   if (authed.publisher?.official)
     return failure(
       403,
@@ -200,7 +200,7 @@ async function profileWrites(
   context: Context,
   authed: Authed,
 ): Promise<Response | undefined> {
-  const db = context.env.MARKET;
+  const db = context.dbs.publishers;
   const publisher = authed.publisher;
   switch (route.kind) {
     case "me":
@@ -248,7 +248,8 @@ async function profileWrites(
           "conflict",
           "Your handle changed while this was on its way; try again.",
         );
-      await touchOwn(db, publisher.id, context.now);
+      // The new handle reaches every catalogue's copy, restamping the publisher's entries.
+      await syncPublisher(context.dbs, publisher.id, context.now);
       const after = await publisherById(db, publisher.id);
       return after ? json(profileOf(after)) : noProfile();
     }
@@ -273,7 +274,7 @@ async function profileWrites(
       const pins = parsed.data.entries;
       const keys = pins.map((pin) => `${pin.type}/${pin.name}`);
       if (new Set(keys).size !== keys.length) return invalid("An entry is pinned twice.");
-      const own = await ownListed(db, publisher.id, pins);
+      const own = await ownListed(context.dbs, publisher.id, pins);
       const others = pins.filter((pin) => !own.has(`${pin.type}/${pin.name}`));
       if (others.length > 0)
         return refused(
@@ -290,15 +291,6 @@ async function profileWrites(
   }
 }
 
-/** A new handle reaches the index: every listed entry of the publisher gets a new stamp. */
-async function touchOwn(db: D1Database, publisher: string, now: number) {
-  const { results } = await db
-    .prepare("SELECT type, name FROM entries WHERE publisher = ?1 AND listed = 1")
-    .bind(publisher)
-    .all<{ type: string; name: string }>();
-  await touchEntries(db, results, now);
-}
-
 /* ---------------------------------------------------------------- verification */
 
 async function verification(
@@ -308,7 +300,7 @@ async function verification(
   authed: Authed,
 ): Promise<Response | undefined> {
   if (!route.kind.startsWith("me-verification")) return undefined;
-  const db = context.env.MARKET;
+  const db = context.dbs.publishers;
   if (!authed.publisher) return noProfile();
   const row = await publisherById(db, authed.publisher.id);
   if (!row) return noProfile();
@@ -365,19 +357,20 @@ async function transfers(
   authed: Authed,
 ): Promise<Response | undefined> {
   if (route.kind !== "me-transfer-accept" && route.kind !== "me-transfer-decline") return undefined;
-  const db = context.env.MARKET;
-  const transfer = await transferById(db, route.id);
+  const found = await transferById(context.dbs, route.id);
+  const transfer = found?.row;
   if (
+    !found ||
     !transfer ||
     transfer.to_publisher !== authed.publisher?.id ||
     transfer.expires <= context.now
   )
     return failure(404, "not_found", "No such offer.");
   if (route.kind === "me-transfer-decline") {
-    await deleteTransfer(db, transfer.id);
+    await deleteTransfer(found.db, transfer.id);
     return done();
   }
-  if (!(await acceptTransfer(db, transfer, context.now)))
+  if (!(await acceptTransfer(context.dbs, found.db, transfer, context.now)))
     return failure(409, "conflict", "That offer no longer stands.");
   return done();
 }

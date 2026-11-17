@@ -2,7 +2,15 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { signPending } from "@ace/marketplace/signer";
 import { keySetOf, sampleSkill } from "@ace/marketplace/testing";
 import { MarketQueueBody } from "@ace/protocol/marketplace";
-import { asSigner, marketKey, publish, put, startMarket, type Market } from "./testing/harness.ts";
+import {
+  asSigner,
+  marketKey,
+  publish,
+  put,
+  startMarket,
+  type Market,
+  catalogueOf,
+} from "./testing/harness.ts";
 import { approve, blocklistBy, officialBy, signerIoOf } from "./testing/discover-harness.ts";
 
 /*
@@ -22,7 +30,7 @@ const now = () => ++clock;
 const trusted = keySetOf(marketKey);
 const sign = () => signPending(signerIoOf(market), marketKey, now, trusted);
 const state = async (name: string) =>
-  (await market.db
+  (await catalogueOf(market, "spade-skill")
     .prepare("SELECT state, listed, block_reason FROM versions WHERE name = ?1")
     .bind(name)
     .first<{ state: string; listed: number; block_reason: string | null }>()) ?? undefined;
@@ -32,7 +40,7 @@ const queue = async () =>
   );
 /** A version stored waiting for the signer by an earlier Worker, before its scan held it. */
 const storedEarlier = (name: string) =>
-  market.db
+  catalogueOf(market, "spade-skill")
     .prepare("UPDATE versions SET state = 'pending', approved = 0 WHERE name = ?1")
     .bind(name)
     .run();

@@ -152,9 +152,11 @@ describe("nothing is listed before its scan completes", () => {
   it("a draft whose scan is still reading isn't published, and the signer has nothing to sign", async () => {
     const draft = await jsonOf<{ id: string }>(await createDraft(market, "acct_flow", upload));
     // The scan is part way and can't take another step in this request.
-    await market.db.batch([
-      market.db.prepare("UPDATE drafts SET scan_state = 'scanning' WHERE id = ?1").bind(draft.id),
-      market.db.prepare("DELETE FROM scan_jobs WHERE draft = ?1").bind(draft.id),
+    await market.dbs.publishers.batch([
+      market.dbs.publishers
+        .prepare("UPDATE drafts SET scan_state = 'scanning' WHERE id = ?1")
+        .bind(draft.id),
+      market.dbs.publishers.prepare("DELETE FROM scan_jobs WHERE draft = ?1").bind(draft.id),
     ]);
     const refused = await asAccount(
       market,
@@ -248,11 +250,11 @@ describe("holds and the CLI", () => {
 
 describe("the official publisher", () => {
   beforeAll(async () => {
-    await market.db.batch([
-      market.db.prepare(
+    await market.dbs.publishers.batch([
+      market.dbs.publishers.prepare(
         "INSERT INTO publishers (id, account, name, created, skeleton, display_name) VALUES ('pub_ace', 'org_ace', 'ace', 0, 'ace', 'ace')",
       ),
-      market.db.prepare(
+      market.dbs.publishers.prepare(
         "INSERT INTO official_accounts (account, publisher) VALUES ('acct_staff', 'pub_ace')",
       ),
     ]);

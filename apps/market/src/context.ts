@@ -1,9 +1,12 @@
 import type { Env } from "./env.ts";
 import type { KeySource } from "./grant-keys.ts";
+import type { Databases } from "./store/databases.ts";
 
 /** What a handler gets besides the request: bindings, and what the shell injects. */
 export interface Context {
   env: Env;
+  /** The D1 databases, by entry type or domain (ADR 0173 §16). */
+  dbs: Databases;
   /** The request's time, from the shell's clock. */
   now: number;
   /** Work that finishes after the response, such as a download count. */

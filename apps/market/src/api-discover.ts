@@ -3,7 +3,7 @@ import type { Context } from "./context.ts";
 import { etagOf, failure, json, notFound, readJson } from "./http.ts";
 import type { Route } from "./routes.ts";
 import { discoverBody } from "./store/discover.ts";
-import { signedList, type ListTable } from "./store/lists.ts";
+import { listDb, signedList, type ListTable } from "./store/lists.ts";
 import { fileReport } from "./store/reports.ts";
 
 /*
@@ -25,7 +25,7 @@ async function tagged(request: Request, body: unknown): Promise<Response> {
 }
 
 async function list(request: Request, context: Context, table: ListTable) {
-  const stored = await signedList(context.env.MARKET, table);
+  const stored = await signedList(listDb(context.dbs, table), table);
   return stored ? tagged(request, stored.signed) : notFound();
 }
 
@@ -35,10 +35,9 @@ export async function discoverRoute(
   route: Route,
   context: Context,
 ): Promise<Response | undefined> {
-  const db = context.env.MARKET;
   switch (route.kind) {
     case "discover":
-      return tagged(request, await discoverBody(db, context.now));
+      return tagged(request, await discoverBody(context.dbs, context.now));
     case "blocklist":
     case "verified":
     case "official":
@@ -51,7 +50,7 @@ export async function discoverRoute(
           "invalid",
           "A report names an entry and one of the reasons, with a note of at most 1,000 characters.",
         );
-      const filed = await fileReport(db, report.data, context.newId("rpt"), context.now);
+      const filed = await fileReport(context.dbs, report.data, context.newId("rpt"), context.now);
       if (filed === "missing") return notFound();
       if (filed === "full")
         return failure(

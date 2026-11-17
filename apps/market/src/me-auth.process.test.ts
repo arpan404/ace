@@ -35,7 +35,7 @@ beforeAll(async () => {
   });
   await makeProfile(market, "acct_intruder", "gate-crasher");
   await makeProfile(market, "acct_suspended", "gate-sleeper");
-  await market.db
+  await market.dbs.publishers
     .prepare("UPDATE publishers SET state = 'suspended' WHERE name = 'gate-sleeper'")
     .run();
   const created = await createDraft(market, "acct_owner", {

@@ -1,10 +1,14 @@
 import type { Listing } from "@ace/marketplace";
 import type { MarketPublisher } from "@ace/protocol/marketplace";
 
+import { eachCatalogue, type Databases } from "./databases.ts";
 import { bumpGeneration } from "./entries.ts";
-import { storedBytesSql } from "./me-limits.ts";
 
-/* Publishers, and versions waiting for the signer. */
+/*
+ * Publishers (in the publishers database), and versions waiting for the signer (in their type's
+ * catalogue). The quota is reserved before a version is stored (`store/me-limits.ts`), so the
+ * catalogue's statements check only ownership and version numbers.
+ */
 
 export async function publisherOf(
   db: D1Database,
@@ -15,14 +19,6 @@ export async function publisherOf(
     .bind(account)
     .first<MarketPublisher>();
   return row ? { id: row.id, name: row.name } : undefined;
-}
-
-export async function nameTaken(db: D1Database, name: string): Promise<boolean> {
-  const row = await db
-    .prepare("SELECT 1 AS found FROM publishers WHERE name = ?1")
-    .bind(name)
-    .first<{ found: number }>();
-  return row !== null;
 }
 
 /** The publisher id that owns the entry, if it was ever published. */
@@ -61,16 +57,21 @@ export async function storedVersion(
     : undefined;
 }
 
-/** Whether the publisher has any version stored yet: its first is always held (ADR 0173 §9). */
-export async function hasVersions(db: D1Database, publisher: string): Promise<boolean> {
-  const row = await db
-    .prepare(
-      `SELECT 1 AS found FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
-        WHERE e.publisher = ?1 AND v.state != 'blocked' LIMIT 1`,
-    )
-    .bind(publisher)
-    .first<{ found: number }>();
-  return row !== null;
+/**
+ * Whether the publisher has any version stored yet, in any catalogue: its first is always held
+ * (ADR 0173 §9).
+ */
+export async function hasVersions(dbs: Databases, publisher: string): Promise<boolean> {
+  const found = await eachCatalogue(dbs, ({ db }) =>
+    db
+      .prepare(
+        `SELECT 1 AS found FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
+          WHERE e.publisher = ?1 AND v.state != 'blocked' LIMIT 1`,
+      )
+      .bind(publisher)
+      .first(),
+  );
+  return found.some((row) => row !== null);
 }
 
 export type Claim =
@@ -98,21 +99,13 @@ export async function claimPublisher(
   return existing ? { taken: "account", publisher: existing } : { taken: "name" };
 }
 
-/** What a version may be stored against: the quota, and the draft it is published from. */
-export interface StoreGuard {
-  /** The publisher's quota: a version that isn't blocked is stored only if its bytes fit. */
-  quotaBytes: number;
-  /** The draft published, whose bytes stop counting; stored only while it holds these bytes. */
-  draft?: string | undefined;
-}
-
 /**
  * Stores a checked and scanned version, unlisted, creating its entry for `publisher` if it is
  * new: `pending` for the signer, `held` for a maintainer or `blocked` by the scan (ADR 0173 §9).
- * A blocked version's number may be used again for other bytes; no other's can. The guard is
- * checked in the statements that store: the bytes fit the quota and, from a draft, the draft
- * still holds the hash scanned. Returns the entry's owner and the version's hash as stored,
- * which differ from the input when another request got there first, and whether this wrote it.
+ * A blocked version's number may be used again for other bytes; no other's can. The publisher's
+ * copy must be in the catalogue already (`ensureCopy`), and the quota reserved (a charge, or the
+ * draft's claim). Returns the entry's owner and the version's hash as stored, which differ from
+ * the input when another request got there first, and whether this wrote it.
  */
 export async function storePending(
   db: D1Database,
@@ -131,12 +124,7 @@ export async function storePending(
     scanned?: number | undefined;
     changelog?: string | undefined;
   },
-  guard: StoreGuard,
 ): Promise<{ owner: string | undefined; hash: string | undefined; written: boolean }> {
-  const allowed = `(?15 IS NULL OR EXISTS (SELECT 1 FROM drafts
-      WHERE id = ?15 AND hash = ?4 AND publisher = ?8 AND scan_state = 'done'))
-    AND (?9 = 'blocked' OR ${storedBytesSql("?8")}
-      - COALESCE((SELECT size FROM drafts WHERE id = ?15), 0) + ?5 <= ?14)`;
   const values = [
     input.type,
     input.name,
@@ -151,23 +139,20 @@ export async function storePending(
     input.blockReason ?? null,
     input.scanned ?? null,
     input.changelog ?? "",
-    guard.quotaBytes,
-    guard.draft ?? null,
   ];
   const [, version] = await db.batch([
     db
       .prepare(
         `INSERT INTO entries (type, name, publisher, title)
-          SELECT ?1, ?2, ?8, ?2 WHERE ${allowed} ON CONFLICT DO NOTHING`,
+          VALUES (?1, ?2, ?3, ?2) ON CONFLICT DO NOTHING`,
       )
-      .bind(...values),
+      .bind(input.type, input.name, input.publisher),
     db
       .prepare(
         `INSERT INTO versions (type, name, version, hash, size, published, listing, state,
             verdict, block_reason, scanned, changelog)
           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?9, ?10, ?11, ?12, ?13
           WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?1 AND name = ?2 AND publisher = ?8)
-            AND ${allowed}
           ON CONFLICT (type, name, version) DO UPDATE SET hash = excluded.hash,
             size = excluded.size, published = excluded.published, listing = excluded.listing,
             state = excluded.state, verdict = excluded.verdict,

@@ -1,6 +1,7 @@
 import { GRANT_LIFETIME_MS, signMarketGrant } from "@ace/account-grant";
 import { writeArchive, type ArchiveFile } from "@ace/marketplace";
 import type { MarketEntryType } from "@ace/protocol/marketplace";
+import { syncPublisher } from "../store/copies.ts";
 import { approveHeld, grantKey, manifestFor, put, type Market } from "./harness.ts";
 
 /*
@@ -89,12 +90,22 @@ export async function makeProfile(market: Market, account: string, handle: strin
   return jsonOf<{ id: string; handle: string }>(response);
 }
 
-/** Makes the publisher an established one: old enough, with three live versions (ADR 0173 §9). */
+/**
+ * Makes the publisher an established one: old enough, with three live versions (ADR 0173 §9).
+ * Its copies are applied in every catalogue first; the live versions are one catalogue's own.
+ */
 export async function establish(market: Market, handle: string) {
-  await market.db
-    .prepare("UPDATE publishers SET created = 0, live_versions = 3 WHERE name = ?1")
+  const row = await market.dbs.publishers
+    .prepare("UPDATE publishers SET created = 0 WHERE name = ?1 RETURNING id")
     .bind(handle)
-    .run();
+    .first<{ id: string }>();
+  if (!row) throw new Error(`no publisher ${handle}`);
+  await syncPublisher(market.dbs, row.id, Date.now());
+  for (const [index, { db }] of market.dbs.catalogues.entries())
+    await db
+      .prepare("UPDATE publisher_copies SET created = 0, live_versions = ?2 WHERE id = ?1")
+      .bind(row.id, index === 0 ? 3 : 0)
+      .run();
 }
 
 /** A profile for `account`, established, so its versions wait only for the signer. */

@@ -35,6 +35,7 @@ import {
   type Decided,
 } from "./store/maintainers.ts";
 import { setBlocklist, setOfficial, setVerified, signedText } from "./store/lists.ts";
+import { markUsageDirty } from "./store/me-limits.ts";
 import { listReports, resolveReport } from "./store/reports.ts";
 
 /*
@@ -60,17 +61,20 @@ export async function maintainerRoute(
   if (!route.kind.startsWith("signer-")) return undefined;
   if (!(await signerAllowed(request, context)))
     return failure(401, "unauthorized", "Only the signer may do that.");
-  const db = context.env.MARKET;
+  const dbs = context.dbs;
   const body = () => readJson(request);
+  const catalogue = "type" in route ? dbs.catalogue(route.type) : undefined;
   switch (route.kind) {
     case "signer-queue":
-      return json(await queue(db, context.env.OBJECTS, context.now));
+      return json(await queue(dbs, context.env.OBJECTS, context.now));
     case "signer-scan-context":
-      return json(await scanContext(db, context.now));
+      return json(await scanContext(dbs, context.now));
     case "signer-hold": {
       const decision = HoldDecision.safeParse(await body());
       if (!decision.success) return malformed();
-      const result = await decideHold(db, route, decision.data.decision, context.now);
+      if (!catalogue) return notFound();
+      const result = await decideHold(catalogue, route, decision.data.decision, context.now);
+      if (result === "done") await usageChanged(context, catalogue, route);
       // The signer's own re-scan that held it is the report a maintainer reads in the queue.
       if (result === "done" && decision.data.decision === "hold" && decision.data.scan)
         await context.env.OBJECTS.put(versionReportKey(route), JSON.stringify(decision.data.scan));
@@ -79,7 +83,9 @@ export async function maintainerRoute(
     case "signer-block": {
       const decision = BlockDecision.safeParse(await body());
       if (!decision.success) return malformed();
-      const result = await blockVersion(db, route, decision.data.reason, context.now);
+      if (!catalogue) return notFound();
+      const result = await blockVersion(catalogue, route, decision.data.reason, context.now);
+      if (result === "done") await usageChanged(context, catalogue, route);
       if (result === "done" && decision.data.scan)
         await context.env.OBJECTS.put(versionReportKey(route), JSON.stringify(decision.data.scan));
       return decided(result, "That version is listed; revoke it instead.");
@@ -87,8 +93,9 @@ export async function maintainerRoute(
     case "signer-listing": {
       const decision = ListingDecision.safeParse(await body());
       if (!decision.success) return malformed();
+      if (!catalogue) return notFound();
       return decided(
-        await decideListing(db, route, decision.data.decision === "approve", context.now),
+        await decideListing(catalogue, route, decision.data.decision === "approve", context.now),
         "",
       );
     }
@@ -97,7 +104,7 @@ export async function maintainerRoute(
       if (!decision.success) return malformed();
       return decided(
         await setPublisherState(
-          db,
+          dbs,
           route.handle,
           decision.data.state,
           decision.data.reason,
@@ -107,7 +114,7 @@ export async function maintainerRoute(
       );
     }
     case "signer-publisher-read": {
-      const found = await publisherVersions(db, route.handle);
+      const found = await publisherVersions(dbs, route.handle);
       return found ? json(found) : notFound();
     }
     case "signer-collections": {
@@ -116,7 +123,7 @@ export async function maintainerRoute(
       const ids = upload.data.collections.map((collection) => collection.id);
       if (new Set(ids).size !== ids.length)
         return failure(400, "invalid", "A collection is listed twice.");
-      await setCollections(db, upload.data.collections);
+      await setCollections(dbs.lists, upload.data.collections);
       return json({ status: "stored" });
     }
     case "signer-blocklist":
@@ -126,11 +133,11 @@ export async function maintainerRoute(
     case "signer-official":
       return official(request, context);
     case "signer-reports":
-      return json({ reports: await listReports(db) });
+      return json({ reports: await listReports(dbs.moderation) });
     case "signer-report": {
       const resolution = ReportResolution.safeParse(await body());
       if (!resolution.success) return malformed();
-      return (await resolveReport(db, route.id, resolution.data, context.now))
+      return (await resolveReport(dbs.moderation, route.id, resolution.data, context.now))
         ? done()
         : notFound();
     }
@@ -138,13 +145,26 @@ export async function maintainerRoute(
       const answer = AppealAnswer.safeParse(await body());
       if (!answer.success) return malformed();
       return decided(
-        await answerAppeal(db, route.id, answer.data, context.now),
+        await answerAppeal(dbs, route.id, answer.data, context.now),
         "That appeal is already answered.",
       );
     }
     default:
       return undefined;
   }
+}
+
+/** A hold, release or block changes what counts against the owner's quota: reconcile it. */
+async function usageChanged(
+  context: Context,
+  catalogue: D1Database,
+  key: { type: string; name: string },
+) {
+  const owner = await catalogue
+    .prepare("SELECT publisher FROM entries WHERE type = ?1 AND name = ?2")
+    .bind(key.type, key.name)
+    .first<{ publisher: string }>();
+  if (owner) await markUsageDirty(context.dbs.publishers, owner.publisher, context.now).run();
 }
 
 async function blocklist(request: Request, context: Context) {
@@ -158,7 +178,7 @@ async function blocklist(request: Request, context: Context) {
   } catch (error) {
     return signatureRefused(error);
   }
-  const stored = await setBlocklist(context.env.MARKET, {
+  const stored = await setBlocklist(context.dbs.moderation, {
     issued: list.issued,
     signed: signedText(upload.data.blocklist),
     basedOn: upload.data.basedOn,
@@ -177,8 +197,7 @@ async function verified(request: Request, context: Context) {
   } catch (error) {
     return signatureRefused(error);
   }
-  const db = context.env.MARKET;
-  const { results } = await db
+  const { results } = await context.dbs.publishers
     .prepare(
       `SELECT id, name FROM publishers WHERE id IN (SELECT json_extract(value, '$.id')
         FROM json_each(?1))`,
@@ -194,7 +213,7 @@ async function verified(request: Request, context: Context) {
       })),
     );
   const stored = await setVerified(
-    db,
+    context.dbs,
     { body: list, signed: signedText(upload.data.verified), basedOn: upload.data.basedOn },
     upload.data.revoked,
     context.now,
@@ -216,7 +235,7 @@ async function official(request: Request, context: Context) {
   if (list.publisher.name !== "ace")
     return refused([{ message: "The official list names the ace publisher only" }]);
   const stored = await setOfficial(
-    context.env.MARKET,
+    context.dbs.publishers,
     { body: list, signed: signedText(upload.data.official), basedOn: upload.data.basedOn },
     context.now,
   );
