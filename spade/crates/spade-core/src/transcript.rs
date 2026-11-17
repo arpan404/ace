@@ -273,6 +273,10 @@ impl Transcript {
             Known::SkillsIndexed { .. }
             | Known::PluginsStarted { .. }
             | Known::PluginsChanged {}
+            // A plugin's start the person is asked about isn't part of the turn: the plugin is
+            // simply refused until they allow it, and the turn goes on.
+            | Known::PluginOutsideAsked { .. }
+            | Known::PluginOutsideAnswered { .. }
             | Known::HookRan { .. }
             | Known::Shared { .. }
             | Known::MemoryIndexed { .. }

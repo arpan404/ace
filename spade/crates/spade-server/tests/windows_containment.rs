@@ -10,7 +10,7 @@ mod support;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use spade_sandbox::windows::NETWORK_REVIEW;
+use spade_sandbox::windows::{FOLDERS_REVIEW, NETWORK_REVIEW};
 use spade_server::clock::{CountingIds, SystemClock};
 use spade_server::security::{Security, Setup};
 use spade_server::tools::EngineHandle;
@@ -83,5 +83,46 @@ async fn a_networked_windows_bot_keeps_the_review_path_and_a_no_network_one_is_c
     let (_, view): (u16, Value) = spade.get(&view_path).await?;
     assert_eq!(view["contained"], json!(true), "{view}");
     assert_eq!(view["reason"], Value::Null, "{view}");
+
+    // A plugin's server or hook: the probe it asks before it starts gives the same answer as
+    // `confine`, without side effects. Plugins' network defaults to open, so it can't be sealed
+    // off: the person is asked, with the network line.
+    let owned = data.join("plugins").join("lint");
+    std::fs::create_dir_all(&owned)?;
+    let plugin = Kind::Plugin {
+        root: owned.clone(),
+    };
+    assert_eq!(
+        Confine::review(security.as_ref(), &workspace, &plugin).as_deref(),
+        Some(NETWORK_REVIEW)
+    );
+    assert!(matches!(
+        Confine::confine(security.as_ref(), &workspace, &plugin)?,
+        Confinement::NeedsReview(line) if line == NETWORK_REVIEW
+    ));
+    // With plugin network off, one run from a folder Spade owns can be contained; one run from
+    // elsewhere (ace's own plugin folder, say) can't, and asks with the folders line.
+    let (status, set) = spade
+        .put(
+            &format!("{view_path}/plugin-network"),
+            json!({"mode": "off"}),
+        )
+        .await?;
+    assert_eq!(status, 200, "{set}");
+    assert_eq!(
+        Confine::review(security.as_ref(), &workspace, &plugin),
+        None
+    );
+    let elsewhere = dir.path().join("ace").join("plugins").join("lint");
+    std::fs::create_dir_all(&elsewhere)?;
+    let outside = Kind::Plugin { root: elsewhere };
+    assert_eq!(
+        Confine::review(security.as_ref(), &workspace, &outside).as_deref(),
+        Some(FOLDERS_REVIEW)
+    );
+    assert!(matches!(
+        Confine::confine(security.as_ref(), &workspace, &outside)?,
+        Confinement::NeedsReview(line) if line == FOLDERS_REVIEW
+    ));
     Ok(())
 }

@@ -41,6 +41,12 @@ pub struct Server {
     /// It runs in a sandbox that holds files and network here, so its calls are the OS's to
     /// decide (ADR 0171).
     contained: bool,
+    /// It can't be sealed off here and the person allowed it to run outside the sandbox: it runs
+    /// plainly, never `contained`, and its calls keep their reviews (ADR 0167).
+    outside: bool,
+    /// It can't be sealed off here and waits for the person to allow it outside the sandbox (or
+    /// they declined): not started, and set up again on its next start.
+    waiting: bool,
     /// What its tools declare they do, by tool name, from its execution entry.
     effects: std::collections::BTreeMap<String, spade_core::effect::Effect>,
 }
@@ -49,10 +55,13 @@ pub struct Server {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServerState {
     pub name: String,
-    /// `not_started`, `running`, `stopped` (idle) or `failed`.
+    /// `not_started`, `running`, `stopped` (idle), `failed`, or `waiting_for_you` (it can't be
+    /// sealed off here and waits for the person to allow it outside the sandbox).
     pub state: &'static str,
     pub tools: usize,
     pub problem: Option<String>,
+    /// It runs outside the sandbox, as the person allowed: uncontained.
+    pub outside_sandbox: bool,
 }
 
 impl Server {
@@ -128,12 +137,14 @@ impl Servers {
         server: &LocalServer,
         dir: &Path,
         base_env: Vec<(String, String)>,
-        shell: &crate::workspace::shell::Shell,
+        how: &Starting<'_>,
     ) -> Arc<Server> {
+        let (shell, consents) = (how.shell, how.consents);
         let key = (agent.to_owned(), server.plugin.clone(), server.name.clone());
         let mut map = lock(&self.map);
         if let Some(existing) = map.get(&key)
             && existing.hash == plugin.install.hash
+            && !existing.waiting
         {
             return existing.clone();
         }
@@ -152,33 +163,59 @@ impl Servers {
         if let Some(idle) = *lock(&self.idle) {
             command.idle = idle;
         }
-        // The bot's sandbox, reading the plugin's folder too (ADR 0167). Where it should hold
-        // the server and can't — including a run that needs review — the server doesn't start.
-        let (hold, problem) = match server_plan(shell.confine(
-            dir,
-            &crate::workspace::shell::Kind::Plugin { root: root.into() },
-        )) {
-            ServerPlan::Plain => (None, None),
-            ServerPlan::Refuse(why) => (None, Some(why)),
-            ServerPlan::Wrap(confined) => {
-                let args: Vec<std::ffi::OsString> = command.args.iter().map(Into::into).collect();
-                match (confined.launch)(Path::new(&command.program), &args) {
-                    Ok((program, args)) => {
-                        command.program = program.to_string_lossy().into_owned();
-                        command.args = args
-                            .iter()
-                            .map(|a| a.to_string_lossy().into_owned())
-                            .collect();
-                        if let Some((_, path)) = command.env.iter_mut().find(|(n, _)| n == "PATH")
-                            && !confined.path_first.is_empty()
-                        {
-                            *path = format!("{}:{path}", confined.path_first.join(":"));
-                        }
-                        command.env.extend(confined.env);
-                        (Some(confined.hold), None)
+        // The bot's sandbox, reading the plugin's folder too (ADR 0167). Where the sandbox can't
+        // seal it off (on Windows: network, or a folder Spade doesn't own), it starts only once
+        // the person allows it to run outside the sandbox, and then plainly — never `contained`.
+        // Where it should hold the server and can't, the server doesn't start.
+        let kind = crate::workspace::shell::Kind::Plugin { root: root.into() };
+        let (hold, problem, outside, waiting) = match shell.review(dir, &kind) {
+            Some(reason) => {
+                let start = super::outside::Start {
+                    bot: agent,
+                    plugin,
+                    what: super::outside::What::Server(&server.name),
+                    command: &command.program,
+                    args: &command.args,
+                    env: &command.env,
+                };
+                match consents.decide(&start, &reason) {
+                    super::outside::Allowed::Outside => (None, None, true, false),
+                    super::outside::Allowed::Waiting => {
+                        (None, Some(super::outside::WAITING.to_owned()), false, true)
                     }
-                    Err(why) => (None, Some(why)),
+                    super::outside::Allowed::Declined => {
+                        (None, Some(super::outside::DECLINED.to_owned()), false, true)
+                    }
                 }
+            }
+            None => {
+                let (hold, problem) = match server_plan(shell.confine(dir, &kind)) {
+                    ServerPlan::Plain => (None, None),
+                    ServerPlan::Refuse(why) => (None, Some(why)),
+                    ServerPlan::Wrap(confined) => {
+                        let args: Vec<std::ffi::OsString> =
+                            command.args.iter().map(Into::into).collect();
+                        match (confined.launch)(Path::new(&command.program), &args) {
+                            Ok((program, args)) => {
+                                command.program = program.to_string_lossy().into_owned();
+                                command.args = args
+                                    .iter()
+                                    .map(|a| a.to_string_lossy().into_owned())
+                                    .collect();
+                                if let Some((_, path)) =
+                                    command.env.iter_mut().find(|(n, _)| n == "PATH")
+                                    && !confined.path_first.is_empty()
+                                {
+                                    *path = format!("{}:{path}", confined.path_first.join(":"));
+                                }
+                                command.env.extend(confined.env);
+                                (Some(confined.hold), None)
+                            }
+                            Err(why) => (None, Some(why)),
+                        }
+                    }
+                };
+                (hold, problem, false, false)
             }
         };
         if problem.is_some() {
@@ -186,7 +223,8 @@ impl Servers {
             command.program = String::new();
         }
         let label = format!("{}/{}", server.plugin, server.name);
-        let contained = hold.is_some() && shell.contains(dir);
+        // Allowed outside the sandbox is never `contained`, whatever the machine's sandbox says.
+        let contained = !outside && hold.is_some() && shell.contains(dir);
         let made = Arc::new(Server {
             plugin: server.plugin.clone(),
             name: server.name.clone(),
@@ -196,6 +234,8 @@ impl Servers {
             problem: Mutex::new(problem),
             _hold: hold,
             contained,
+            outside,
+            waiting,
             effects: server
                 .effects
                 .iter()
@@ -212,6 +252,10 @@ impl Servers {
 
     /// Starts and lists `server` if its tools have not been listed yet.
     pub(super) async fn start(server: &Arc<Server>) {
+        // One waiting for the person is never started: it has no command to run.
+        if server.waiting {
+            return;
+        }
         if lock(&server.tools).is_none() && !server.client.gave_up() {
             server.list().await;
         }
@@ -236,9 +280,12 @@ impl Servers {
                 state: "not_started",
                 tools: 0,
                 problem: None,
+                outside_sandbox: false,
             };
         };
-        let state = if server.client.gave_up() {
+        let state = if server.waiting {
+            "waiting_for_you"
+        } else if server.client.gave_up() {
             "failed"
         } else if server.client.process_id().is_some() {
             "running"
@@ -252,6 +299,7 @@ impl Servers {
             state,
             tools: lock(&server.tools).as_ref().map_or(0, Vec::len),
             problem: lock(&server.problem).clone(),
+            outside_sandbox: server.outside,
         }
     }
 }
@@ -278,7 +326,10 @@ impl super::Plugins {
                     &local,
                     &dir,
                     env.clone(),
-                    &self.shell,
+                    &Starting {
+                        shell: &self.shell,
+                        consents: &self.outside,
+                    },
                 ));
             }
         }
@@ -315,6 +366,13 @@ pub fn tool_name(plugin: &str, tool: &str) -> String {
 }
 
 pub use crate::tools::PluginTools;
+
+/// What a server is started through: the bots' shell (and its sandbox), and the person's answers
+/// for servers the sandbox can't seal off.
+pub(super) struct Starting<'a> {
+    pub shell: &'a crate::workspace::shell::Shell,
+    pub consents: &'a super::outside::Outside,
+}
 
 use crate::workspace::shell::{Confined, Confinement};
 

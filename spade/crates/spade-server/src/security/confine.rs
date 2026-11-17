@@ -41,15 +41,6 @@ impl Confine for Security {
             (Some(proxy), Mode::AllowList | Mode::Open) => Some(proxy.open(&bot, &run, network)),
             _ => None,
         };
-        // The person's own folders this run would need, kept before the policy consumes them, so
-        // Windows can decide whether the run is containable (it must change no ACLs on them).
-        #[cfg(windows)]
-        let consented_paths: Vec<PathBuf> = folders.iter().map(|(path, _)| path.clone()).collect();
-        #[cfg(windows)]
-        let plugin_root: Option<PathBuf> = match kind {
-            Kind::Plugin { root } => Some(root.clone()),
-            _ => None,
-        };
         let policy = Policy::build(&Facts {
             home: self.home.clone(),
             spade_data: self.spade_data.clone(),
@@ -67,37 +58,12 @@ impl Confine for Security {
         std::fs::create_dir_all(&policy.temp).map_err(|error| {
             format!("the sandbox's temporary folder could not be made: {error}")
         })?;
-        // Windows reports `contained` only for runs with no network (a Less Privileged
-        // AppContainer: a networked run can't be one, since `WSAStartup` fails under LPAC, and as
-        // a plain AppContainer it keeps ambient app-package read access) that touch no ACLs on the
-        // person's folders (ADR 0167 narrowing). Any other run keeps the review path — Spade asks
-        // first — and one that skipped review is refused, never launched plainly.
+        // Windows reports `contained` only for runs with no network on folders Spade owns; any
+        // other run keeps the review path. Decided by the same probe the plugins ask before they
+        // start (`review`), so the two never disagree.
         #[cfg(windows)]
-        {
-            if ticket.is_some() {
-                return Ok(Confinement::NeedsReview(
-                    spade_sandbox::windows::NETWORK_REVIEW.to_owned(),
-                ));
-            }
-            let workspace = policy.workspace.clone();
-            let scratch = policy.scratch.clone();
-            let plugin_real = plugin_root.as_ref().map(|p| spade_sandbox::policy::real(p));
-            let data = spade_sandbox::policy::real(&self.spade_data);
-            let roots = Self::windows_system_roots();
-            let spec = spade_sandbox::windows::Containability {
-                workspace: &workspace,
-                scratch: &scratch,
-                consented: &consented_paths,
-                toolchains: &toolchain_dirs,
-                plugin_root: plugin_real.as_deref(),
-                spade_data: &data,
-                system_roots: &roots,
-            };
-            if !spade_sandbox::windows::containable(&spec) {
-                return Ok(Confinement::NeedsReview(
-                    spade_sandbox::windows::FOLDERS_REVIEW.to_owned(),
-                ));
-            }
+        if let Some(line) = self.windows_review(&bot, home, kind) {
+            return Ok(Confinement::NeedsReview(line.to_owned()));
         }
         // Windows: each run gets its own AppContainer identity, and its SID is granted on the
         // folders Spade owns (the workspace, temp, scratch, an owned plugin folder), journaled with
@@ -197,6 +163,22 @@ impl Confine for Security {
         self.bot_containment(&bot).0
     }
 
+    fn review(&self, home: &Path, kind: &Kind) -> Option<String> {
+        let bot = self.bot_of(home)?;
+        if !self.runner.status().usable() {
+            return None;
+        }
+        #[cfg(windows)]
+        {
+            self.windows_review(&bot, home, kind).map(str::to_owned)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (bot, kind);
+            None
+        }
+    }
+
     fn outside(&self, home: &Path) -> bool {
         self.bot_of(home)
             .is_some_and(|bot| Security::outside(self, &bot))
@@ -263,12 +245,7 @@ impl Security {
         // home folder sends it to review instead).
         #[cfg(windows)]
         {
-            let networked = matches!(
-                self.effective(bot).network.mode,
-                Mode::AllowList | Mode::Open
-            );
-            let line =
-                spade_sandbox::windows::review_line(networked, self.windows_containable(bot));
+            let line = self.windows_review(bot, &self.workspaces.join(bot), &Kind::Command);
             (line.is_none(), line)
         }
         #[cfg(not(windows))]
@@ -291,20 +268,32 @@ impl Security {
             .collect()
     }
 
-    /// Whether this bot's commands can be contained on Windows: its workspace is inside Spade's data
-    /// directory, it has no consented folders, and every toolchain is inside Spade's data or a known
-    /// system root — all proven by file identity. A run that needs the person's folders keeps the
-    /// review path. Plugin folders and scratch are checked per run in `confine`.
-    pub(crate) fn windows_containable(&self, bot: &str) -> bool {
+    /// Why a run of `kind` for `bot` (home `home`) can't be contained on Windows, as the person
+    /// reads it, or `None` when it can: with network it can't be a Less Privileged AppContainer
+    /// (`WSAStartup` fails under LPAC, and as a plain AppContainer it keeps ambient app-package
+    /// read access), and it must touch no ACLs on folders Spade doesn't own (ADR 0167 narrowing).
+    /// No side effects: `confine` and the plugins' pre-start probe both decide with it.
+    pub(crate) fn windows_review(
+        &self,
+        bot: &str,
+        home: &Path,
+        kind: &Kind,
+    ) -> Option<&'static str> {
         use spade_sandbox::policy::real;
+        let held = self.effective(bot);
+        let network = match kind {
+            Kind::Command | Kind::Terminal { .. } => &held.network,
+            Kind::Plugin { .. } => &held.plugin_network,
+        };
+        let networked =
+            self.proxy.is_some() && matches!(network.mode, Mode::AllowList | Mode::Open);
         let consented: Vec<PathBuf> = self
             .effective_grants(bot)
             .into_iter()
             .filter_map(|grant| match grant.scope {
-                Scope::Folder { path, .. } => Some(PathBuf::from(path)),
+                Scope::Folder { path, .. } => Some(real(Path::new(&path))),
                 _ => None,
             })
-            .map(|path| real(&path))
             .collect();
         let toolchains: Vec<PathBuf> = self
             .bot(bot)
@@ -312,18 +301,28 @@ impl Security {
             .iter()
             .map(|path| real(Path::new(path)))
             .collect();
-        let workspace = real(&self.workspaces.join(bot));
+        let scratch: Vec<PathBuf> = match kind {
+            Kind::Terminal { scratch } => vec![real(scratch)],
+            _ => Vec::new(),
+        };
+        let plugin_root = match kind {
+            Kind::Plugin { root } => Some(real(root)),
+            _ => None,
+        };
+        let workspace = real(home);
         let data = real(&self.spade_data);
         let roots = Self::windows_system_roots();
-        spade_sandbox::windows::containable(&spade_sandbox::windows::Containability {
-            workspace: &workspace,
-            scratch: &[],
-            consented: &consented,
-            toolchains: &toolchains,
-            plugin_root: None,
-            spade_data: &data,
-            system_roots: &roots,
-        })
+        let owned_only =
+            spade_sandbox::windows::containable(&spade_sandbox::windows::Containability {
+                workspace: &workspace,
+                scratch: &scratch,
+                consented: &consented,
+                toolchains: &toolchains,
+                plugin_root: plugin_root.as_deref(),
+                spade_data: &data,
+                system_roots: &roots,
+            });
+        spade_sandbox::windows::review_line(networked, owned_only)
     }
 
     /// Starts the daemon-side egress-bridge acceptor for this run and points the command's proxy

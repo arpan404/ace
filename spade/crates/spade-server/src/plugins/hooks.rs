@@ -43,7 +43,7 @@ impl Plugins {
                 if hook.event == event
                     && tool.is_none_or(|tool| hooks::matches(hook.matcher.as_deref(), tool))
                 {
-                    todo.push((plugin.root.clone(), hook));
+                    todo.push((plugin.clone(), hook));
                 }
             }
         }
@@ -68,7 +68,8 @@ impl Plugins {
         }
         let stdin = input.to_string().into_bytes();
         let mut outcomes = Vec::new();
-        for (root, hook) in todo {
+        for (plugin, hook) in todo {
+            let root = plugin.root.clone();
             // A command names its folder as `${PLUGIN_ROOT}`; `sh` reads it from the variable,
             // which keeps the author's quoting. cmd.exe can't, so there it is written out.
             let script = if cfg!(windows) {
@@ -76,22 +77,60 @@ impl Plugins {
             } else {
                 hook.command.clone()
             };
+            let env = root_vars(&root);
+            let kind = crate::workspace::shell::Kind::Plugin {
+                root: std::path::PathBuf::from(&root),
+            };
+            // A hook the sandbox can't seal off (ADR 0167) runs only once the person allows it
+            // outside the sandbox, and then plainly; until then it is refused, never run plainly.
+            let outside = match self.shell.review(&dir, &kind) {
+                None => false,
+                Some(reason) => {
+                    let mut bound = self.shell.environment(&dir);
+                    bound.extend(env.iter().cloned());
+                    let start = super::outside::Start {
+                        bot: agent,
+                        plugin: &plugin,
+                        what: super::outside::What::Hook(event),
+                        command: &script,
+                        args: &[],
+                        env: &bound,
+                    };
+                    match self.outside.decide(&start, &reason) {
+                        super::outside::Allowed::Outside => true,
+                        refused => {
+                            let why = if refused == super::outside::Allowed::Declined {
+                                super::outside::DECLINED
+                            } else {
+                                super::outside::WAITING
+                            };
+                            outcomes.push(HookOutcome {
+                                plugin: hook.plugin,
+                                command: hook.command,
+                                result: HookResult::Failed {
+                                    why: why.to_owned(),
+                                },
+                            });
+                            continue;
+                        }
+                    }
+                }
+            };
             let ran = self
                 .shell
                 .run_job(Job {
                     dir: &dir,
                     script: &script,
                     timeout: self.hook_limit(),
-                    env: &root_vars(&root),
+                    env: &env,
                     tee: None,
                     cleanup: None,
                     stdin: Some(stdin.clone()),
-                    kind: crate::workspace::shell::Kind::Plugin {
-                        root: std::path::PathBuf::from(&root),
-                    },
-                    outside: false,
-                    // A plugin hook isn't reviewed; if it can't be contained it is refused, never
-                    // run unconfined.
+                    kind,
+                    outside,
+                    // A plugin hook isn't reviewed: one the sandbox should hold but can't is
+                    // refused, never run unconfined. Only the person's allowing it outside the
+                    // sandbox (above) runs it plainly.
                     may_run_uncontained: false,
                 })
                 .await;

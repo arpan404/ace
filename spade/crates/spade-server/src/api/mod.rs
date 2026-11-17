@@ -128,6 +128,10 @@ pub fn router(state: AppState) -> Router {
         .route("/conversations/{id}/helpers", get(helpers))
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
+        .route(
+            "/conversations/{id}/plugin_outside/{ask_id}",
+            post(answer_outside),
+        )
         .route("/conversations/{id}/questions", get(questions::list))
         .route(
             "/conversations/{id}/questions/{call_id}",
@@ -422,6 +426,29 @@ async fn approve(
         Err(AnswerError::NotAwaiting) => problem(
             StatusCode::CONFLICT,
             "that call is not waiting for an answer",
+        ),
+        Err(AnswerError::Store(error)) => {
+            problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
+        }
+    }
+}
+
+/// The person's answer to a request to run a plugin's server or hook outside the sandbox
+/// (ADR 0167): `allowed`, and `always` to keep it for this plugin version.
+async fn answer_outside(
+    State(state): State<AppState>,
+    Path((id, ask_id)): Path<(String, String)>,
+    Json(body): Json<Approval>,
+) -> Response {
+    match state
+        .engine
+        .answer_outside(&id, &ask_id, body.allowed, body.always)
+    {
+        Ok(()) => StatusCode::ACCEPTED.into_response(),
+        Err(AnswerError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(AnswerError::NotAwaiting) => problem(
+            StatusCode::CONFLICT,
+            "that request is not waiting for an answer",
         ),
         Err(AnswerError::Store(error)) => {
             problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())

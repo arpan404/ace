@@ -155,6 +155,13 @@ pub trait Confine: Send + Sync {
         false
     }
 
+    /// Why a run of `kind` with home `home` can't be contained here and would need review, as the
+    /// person reads it, or `None` when it can be (or no sandbox applies). Answered without side
+    /// effects, so a plugin can ask the person before it starts; `confine` decides the same way.
+    fn review(&self, _home: &Path, _kind: &Kind) -> Option<String> {
+        None
+    }
+
     /// Blocking work to do before a run of `kind` with home `home` starts (a checkpoint of the
     /// workspace, ADR 0167 decision 8); `None` when there is none.
     /// Its error means the run must not start.
@@ -290,6 +297,13 @@ impl Shell {
         self.confine
             .as_ref()
             .is_some_and(|confine| confine.contains(home))
+    }
+
+    /// Why a run of `kind` with home `home` would need review here: as [`Confine::review`].
+    pub fn review(&self, home: &Path, kind: &Kind) -> Option<String> {
+        self.confine
+            .as_ref()
+            .and_then(|confine| confine.review(home, kind))
     }
 
     /// Whether the bot with home `home` runs its commands outside the sandbox.
