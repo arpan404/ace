@@ -40,12 +40,6 @@ export function healthLines(health: Health): string[] {
   return lines;
 }
 
-export function stopLines(result: { stopped: boolean }): string[] {
-  return result.stopped
-    ? ["ace stopped."]
-    : ["✕ ace didn't stop cleanly.", "See why with ace logs, then try ace stop again."];
-}
-
 const serviceWords = {
   install: (active: boolean) =>
     active ? "ace runs at login now, and it is running." : "ace runs at login now.",
