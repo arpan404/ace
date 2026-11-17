@@ -13,7 +13,9 @@ import type { ListedCopy } from "./read.ts";
  *
  * The index shows totals as last folded into each catalogue (`versions.counted`): the cron
  * writes the totals there as absolute values with one stamp, restamping only entries whose
- * total moved, then marks them folded. A fold cut off part way is redone with the same values.
+ * total rose, then marks them folded. Both only ever rise (the larger of stored and incoming),
+ * so a fold cut off part way is redone with the same values, and a slower fold that read older
+ * totals than a faster one lowers nothing and restamps nothing.
  */
 
 export const hourlyKeptHours = 15 * 24;
@@ -126,7 +128,7 @@ export async function aggregateDownloads(dbs: Databases, now: number): Promise<v
     const moved = `SELECT 1 FROM versions v, json_each(?1) t
       WHERE v.type = json_extract(t.value, '$.type') AND v.name = json_extract(t.value, '$.name')
         AND v.version = json_extract(t.value, '$.version')
-        AND v.counted != json_extract(t.value, '$.downloads')`;
+        AND v.counted < json_extract(t.value, '$.downloads')`;
     await db.batch([
       takeStamp(db, now),
       db
@@ -137,9 +139,9 @@ export async function aggregateDownloads(dbs: Databases, now: number): Promise<v
         .bind(totals),
       db
         .prepare(
-          `UPDATE versions SET counted = (SELECT json_extract(t.value, '$.downloads')
+          `UPDATE versions SET counted = MAX(counted, (SELECT json_extract(t.value, '$.downloads')
               FROM json_each(?1) t WHERE json_extract(t.value, '$.name') = versions.name
-              AND json_extract(t.value, '$.version') = versions.version)
+              AND json_extract(t.value, '$.version') = versions.version))
             WHERE type = ?2 AND (name || '@' || version) IN (SELECT json_extract(value, '$.name')
               || '@' || json_extract(value, '$.version') FROM json_each(?1))`,
         )
@@ -147,9 +149,9 @@ export async function aggregateDownloads(dbs: Databases, now: number): Promise<v
     ]);
     await dbs.counts
       .prepare(
-        `UPDATE version_totals SET folded = (SELECT json_extract(t.value, '$.downloads')
+        `UPDATE version_totals SET folded = MAX(folded, (SELECT json_extract(t.value, '$.downloads')
             FROM json_each(?1) t WHERE json_extract(t.value, '$.name') = version_totals.name
-            AND json_extract(t.value, '$.version') = version_totals.version)
+            AND json_extract(t.value, '$.version') = version_totals.version))
           WHERE type = ?2 AND (name || '@' || version) IN (SELECT json_extract(value, '$.name')
             || '@' || json_extract(value, '$.version') FROM json_each(?1))`,
       )
