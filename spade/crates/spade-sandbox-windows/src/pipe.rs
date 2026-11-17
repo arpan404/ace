@@ -59,9 +59,11 @@ impl PipeSecurity {
     }
 }
 
-/// A named-pipe server instance at `path` whose DACL is `security` (one bot's container SID). The
-/// unsafe call lives here because the rest of Spade forbids `unsafe`. `first` must be set on the
-/// first instance of a name and clear on the rest.
+/// A byte-mode named-pipe **server** instance at `path` whose DACL is `security` (one bot's
+/// container SID). Overlapped (async), so reads and writes can run at once without the
+/// serialisation a synchronous pipe handle forces; both ends of the bridge use overlapped I/O for
+/// this reason. The unsafe call lives here because the rest of Spade forbids `unsafe`. `first`
+/// must be set on the first instance of a name and clear on the rest.
 pub fn server(
     path: &str,
     security: &PipeSecurity,

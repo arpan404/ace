@@ -157,12 +157,12 @@ impl Confine for Security {
 
 /// Ends a run's egress-bridge acceptor when the run ends (dropped with its ticket).
 #[cfg(windows)]
-pub(crate) struct BridgeHold(tokio::sync::watch::Sender<bool>);
+pub(crate) struct BridgeHold(spade_sandbox::windows::bridge::Stop);
 
 #[cfg(windows)]
 impl Drop for BridgeHold {
     fn drop(&mut self) {
-        let _ = self.0.send(true);
+        self.0.stop();
     }
 }
 
@@ -185,13 +185,12 @@ impl Security {
             return (None, None);
         };
         let pipe = format!("spade-egress-{run}-{}", uuid::Uuid::new_v4().simple());
-        let (stop, stop_rx) = tokio::sync::watch::channel(false);
-        tokio::spawn(spade_sandbox::windows::bridge::serve(
-            pipe.clone(),
-            sid.clone(),
-            proxy.port(),
-            stop_rx,
-        ));
+        let stop = spade_sandbox::windows::bridge::Stop::new();
+        let (name, sid, proxy_port, task_stop) =
+            (pipe.clone(), sid.clone(), proxy.port(), stop.clone());
+        tokio::spawn(async move {
+            spade_sandbox::windows::bridge::serve(&name, &sid, proxy_port, &task_stop).await;
+        });
         env.extend(ticket.env_on(port));
         (
             Some(spade_sandbox::windows::Bridge { pipe, port }),

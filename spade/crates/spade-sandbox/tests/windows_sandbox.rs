@@ -193,9 +193,11 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
 
     // A local "internet" host, and the real proxy allowed to reach it.
     let (srv_port, _srv) = upstream().await;
-    let log_dir = tempfile::tempdir().unwrap();
+    let log_dir =
+        std::env::temp_dir().join(format!("spade-egress-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&log_dir).unwrap();
     let proxy = Proxy::start(
-        Arc::new(EgressLog::new(log_dir.path().to_path_buf())),
+        Arc::new(EgressLog::new(log_dir.clone())),
         Arc::new(SystemResolver),
         Arc::new(|| 0),
         Arc::new(|| uuid::Uuid::new_v4().simple().to_string()),
@@ -204,7 +206,8 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
     .unwrap();
     let policy = NetworkPolicy {
         mode: Mode::AllowList,
-        allow: vec!["127.0.0.1".to_owned()],
+        // A literal local host with its port: the one way a private address is allowed.
+        allow: vec![format!("127.0.0.1:{srv_port}")],
         dropped: Vec::new(),
     };
     let ticket = proxy.open(&container.name, "run1", policy);
@@ -212,13 +215,13 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
     // The in-container bridge's loopback port, and the daemon-side acceptor splicing to the proxy.
     let cmd_port = free_port();
     let pipe = format!("spade-test-{}", uuid::Uuid::new_v4().simple());
-    let (stop, stop_rx) = tokio::sync::watch::channel(false);
-    tokio::spawn(spade_sandbox::windows::bridge::serve(
-        pipe.clone(),
-        sid.clone(),
-        proxy.port(),
-        stop_rx,
-    ));
+    let stop = spade_sandbox::windows::bridge::Stop::new();
+    {
+        let (name, s, pport, st) = (pipe.clone(), sid.clone(), proxy.port(), stop.clone());
+        tokio::spawn(async move {
+            spade_sandbox::windows::bridge::serve(&name, &s, pport, &st).await;
+        });
+    }
 
     let curl = format!(
         r"{}\System32\curl.exe",
@@ -241,12 +244,16 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
         target.clone(),
     );
     let through = tokio::task::spawn_blocking(move || {
+        // --retry-all-errors so curl retries while the in-container bridge process is still
+        // starting its listener (the bridge and curl launch together in the same job).
         let args: Vec<OsString> = [
             "-sS",
             "--fail",
+            "--max-time",
+            "40",
             "--retry",
-            "5",
-            "--retry-connrefused",
+            "15",
+            "--retry-all-errors",
             "--retry-delay",
             "1",
             "-o",
@@ -281,8 +288,63 @@ async fn curl_reaches_an_allowed_host_through_the_proxy_but_nothing_reaches_it_d
     );
     assert_eq!(direct, 2, "a direct connection should be refused");
 
-    let _ = stop.send(true);
+    stop.stop();
     drop(ticket);
+    let _ = std::fs::remove_dir_all(&log_dir);
+}
+
+/// The bridge path on its own, no AppContainer and no proxy: a plain client → in-container bridge
+/// → pipe → acceptor → echo server. Isolates the pipe splice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_bridge_splices_bytes_both_ways() {
+    use std::io::{Read, Write};
+
+    // An echo "upstream": read a line, write it back.
+    let echo = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let echo_port = echo.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in echo.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 16];
+                if let Ok(n) = stream.read(&mut buf) {
+                    let _ = stream.write_all(&buf[..n]);
+                }
+            });
+        }
+    });
+
+    // The acceptor, with the pipe open to Everyone so a plain client can reach it in this test.
+    let sid = Sid::parse("S-1-1-0").unwrap();
+    let pipe = format!("spade-test-{}", uuid::Uuid::new_v4().simple());
+    let stop = spade_sandbox::windows::bridge::Stop::new();
+    {
+        let (name, st) = (pipe.clone(), stop.clone());
+        tokio::spawn(async move {
+            spade_sandbox::windows::bridge::serve(&name, &sid, echo_port, &st).await;
+        });
+    }
+
+    // The in-container bridge, run here as a plain process on a loopback port.
+    let port = free_port();
+    let pipe2 = pipe.clone();
+    std::thread::spawn(move || spade_sandbox::windows::bridge::in_container(&pipe2, port));
+    std::thread::sleep(Duration::from_millis(300));
+
+    let got = tokio::task::spawn_blocking(move || {
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream.write_all(b"hello").unwrap();
+        let mut buf = [0u8; 5];
+        stream.read_exact(&mut buf).unwrap();
+        buf
+    })
+    .await
+    .unwrap();
+    stop.stop();
+    assert_eq!(&got, b"hello", "the bridge should carry bytes both ways");
 }
 
 fn free_port() -> u16 {

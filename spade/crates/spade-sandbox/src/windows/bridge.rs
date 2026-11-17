@@ -18,34 +18,58 @@ pub fn pipe_path(name: &str) -> String {
 }
 
 #[cfg(windows)]
-pub use win::{in_container, serve};
+pub use win::{Stop, in_container, serve};
 
 #[cfg(windows)]
 mod win {
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpStream;
+    use tokio::io::copy_bidirectional;
+    use tokio::net::windows::named_pipe::ClientOptions;
+    use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::watch;
 
     use spade_sandbox_windows::pipe::{self, PipeSecurity};
     use spade_sandbox_windows::sid::Sid;
 
-    /// The daemon's side: accept pipe connections (only the run's container SID may open the pipe)
-    /// and splice each to the TCP proxy on `127.0.0.1:proxy_port`. Returns when `stop` is set.
-    pub async fn serve(
-        pipe_name: String,
-        sid: Sid,
-        proxy_port: u16,
-        mut stop: watch::Receiver<bool>,
-    ) {
-        let Ok(security) = PipeSecurity::for_container(&sid) else {
-            tracing::warn!("the egress bridge could not build its pipe's permissions");
+    /// Stops a running [`serve`] loop. Cloneable; a drop guard elsewhere calls [`Stop::stop`].
+    #[derive(Clone)]
+    pub struct Stop(watch::Sender<bool>);
+
+    impl Default for Stop {
+        fn default() -> Self {
+            Self(watch::Sender::new(false))
+        }
+    }
+
+    impl Stop {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        /// Asks the loop to stop.
+        pub fn stop(&self) {
+            let _ = self.0.send(true);
+        }
+
+        fn watch(&self) -> watch::Receiver<bool> {
+            self.0.subscribe()
+        }
+    }
+
+    /// The daemon's side (async): accept pipe connections — only the run's container SID may open
+    /// the pipe — and splice each to the TCP proxy on `127.0.0.1:proxy_port`. Both the server here
+    /// and the client in [`in_container`] are overlapped, so a connection's two directions run at
+    /// once (a synchronous pipe handle would serialise them and deadlock). Returns when stopped.
+    pub async fn serve(pipe_name: &str, sid: &Sid, proxy_port: u16, stop: &Stop) {
+        let Ok(security) = PipeSecurity::for_container(sid) else {
             return;
         };
-        let path = super::pipe_path(&pipe_name);
+        let path = super::pipe_path(pipe_name);
+        let mut stop_rx = stop.watch();
         let mut first = true;
         loop {
-            let Ok(server) = pipe::server(&path, &security, first) else {
-                return;
+            let server = match pipe::server(&path, &security, first) {
+                Ok(server) => server,
+                Err(_) => return,
             };
             first = false;
             tokio::select! {
@@ -54,70 +78,70 @@ mod win {
                         continue;
                     }
                 }
-                _ = stop.changed() => return,
+                _ = stop_rx.changed() => return,
             }
             tokio::spawn(async move {
                 let mut server = server;
                 if let Ok(mut proxy) = TcpStream::connect(("127.0.0.1", proxy_port)).await {
-                    let _ = tokio::io::copy_bidirectional(&mut server, &mut proxy).await;
-                    let _ = server.shutdown().await;
+                    let _ = copy_bidirectional(&mut server, &mut proxy).await;
                 }
             });
         }
     }
 
     /// The in-container side (`spade sandbox-net-bridge <pipe> <port>`): listen on
-    /// `127.0.0.1:<port>` and forward each connection to the daemon's pipe. Blocking; returns a
-    /// process exit code.
+    /// `127.0.0.1:<port>` and forward each connection to the daemon's pipe. Runs its own small
+    /// runtime; blocking entry point that returns a process exit code.
     pub fn in_container(pipe_name: &str, port: u16) -> u8 {
-        let listener = match std::net::TcpListener::bind(("127.0.0.1", port)) {
-            Ok(listener) => listener,
-            Err(error) => {
-                eprintln!("sandbox-net-bridge: could not listen on 127.0.0.1:{port}: {error}");
-                return 1;
-            }
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return 1;
         };
-        let path = super::pipe_path(pipe_name);
-        for stream in listener.incoming() {
-            let Ok(stream) = stream else { continue };
-            let path = path.clone();
-            std::thread::spawn(move || splice(stream, &path));
-        }
-        0
+        runtime.block_on(async move {
+            let listener = match TcpListener::bind(("127.0.0.1", port)).await {
+                Ok(listener) => listener,
+                Err(error) => {
+                    eprintln!("sandbox-net-bridge: could not listen on 127.0.0.1:{port}: {error}");
+                    return 1;
+                }
+            };
+            let path = super::pipe_path(pipe_name);
+            loop {
+                let Ok((client, _)) = listener.accept().await else {
+                    continue;
+                };
+                let path = path.clone();
+                tokio::spawn(async move {
+                    if let Some(pipe) = open_pipe(&path).await {
+                        let mut client = client;
+                        let mut pipe = pipe;
+                        let _ = copy_bidirectional(&mut client, &mut pipe).await;
+                    }
+                });
+            }
+        })
     }
 
-    /// Opens the daemon's pipe and copies bytes both ways between it and `client`.
-    fn splice(client: std::net::TcpStream, pipe_path: &str) {
-        let pipe = loop {
-            match std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(pipe_path)
-            {
-                Ok(pipe) => break pipe,
-                // The daemon makes the next pipe instance lazily; wait briefly and retry.
-                Err(error) if error.raw_os_error() == Some(231) => {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
+    /// Opens the daemon's pipe (overlapped), retrying briefly: ERROR_PIPE_BUSY (231) means every
+    /// instance is taken, ERROR_FILE_NOT_FOUND (2) means the daemon hasn't made the next instance
+    /// yet. Gives up after a couple of seconds so an absent daemon doesn't hang.
+    async fn open_pipe(path: &str) -> Option<tokio::net::windows::named_pipe::NamedPipeClient> {
+        const PIPE_BUSY: i32 = 231;
+        const FILE_NOT_FOUND: i32 = 2;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            match ClientOptions::new().open(path) {
+                Ok(pipe) => return Some(pipe),
+                Err(error)
+                    if matches!(error.raw_os_error(), Some(PIPE_BUSY | FILE_NOT_FOUND))
+                        && std::time::Instant::now() < deadline =>
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
-                Err(_) => return,
+                Err(_) => return None,
             }
-        };
-        let mut cr = match client.try_clone() {
-            Ok(cr) => cr,
-            Err(_) => return,
-        };
-        let mut cw = client;
-        let mut pr = match pipe.try_clone() {
-            Ok(pr) => pr,
-            Err(_) => return,
-        };
-        let mut pw = pipe;
-        // Command → pipe on one thread; pipe → command here. Each ends when its source does.
-        let up = std::thread::spawn(move || {
-            let _ = std::io::copy(&mut cr, &mut pw);
-        });
-        let _ = std::io::copy(&mut pr, &mut cw);
-        let _ = cw.shutdown(std::net::Shutdown::Write);
-        let _ = up.join();
+        }
     }
 }

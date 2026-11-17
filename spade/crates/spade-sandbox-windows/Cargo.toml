@@ -23,7 +23,7 @@ windows = { version = "0.62.2", features = [
   "Win32_System_SystemInformation",
   "Win32_System_Threading",
 ] }
-tokio = { workspace = true, features = ["net"] }
+tokio = { workspace = true, features = ["net", "rt"] }
 
 # The workspace forbids `unsafe`; this crate is the exception, so its lints are spelled out:
 # every unsafe block carries a `SAFETY` comment.
