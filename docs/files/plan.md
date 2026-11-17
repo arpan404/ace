@@ -272,10 +272,13 @@ Crates: `serde`, `serde_json`, `thiserror`.
 
 Framing on stdio, both directions: `u32` little-endian length of the rest, one `u8` kind, then
 the payload. Kind `1`: a UTF-8 JSON message. Kind `2`: a binary body, `u64` LE request id then the
-bytes; it belongs to the JSON message with the same id that says `"body": true`. Frames over
-16 MiB are an error. Provide `encode(&Message) -> Vec<u8>`, `encode_body(id, &[u8])`, and an
-incremental `Decoder` that takes byte chunks and yields complete frames, never panics on garbage,
-and reports oversize frames as errors.
+bytes; it belongs to the JSON message with the same id that says `"body": true`. A frame may
+declare at most 16 MiB (`MAX_FRAME_LEN`, kind byte and payload), so a body carries at most
+`MAX_BODY_LEN = MAX_FRAME_LEN - 9` bytes, and anything larger is `TOO_LARGE`. Provide
+`encode(&Message) -> Result<Vec<u8>, Error>`, `encode_body(id, &[u8]) -> Result<Vec<u8>, Error>`,
+and an incremental `Decoder` that takes byte chunks and yields complete frames, never panics on
+garbage, and reports oversize frames as errors: the declaration is refused on that call and on
+every later one, while `push` drops what still arrives so a dead decoder holds no memory.
 
 Messages (serde, `tag = "type"`, `rename_all = "camelCase"`, unknown fields ignored):
 
@@ -293,8 +296,24 @@ Messages (serde, `tag = "type"`, `rename_all = "camelCase"`, unknown fields igno
   `search { root, query… }` -> `{ subscription }`, events `matches { file }`, then
   `searchDone { summary }`.
 
-Put one golden vector per message in `native/files/vectors/*.json` (the exact JSON plus the hex of
-its frame); the Rust tests round-trip them and the TypeScript client (wave 2) tests the same files.
+Every nested value is tagged too, so a client reads the shape instead of guessing it. A response's
+`result.type` is one of `done` (`closeRoot`, `unwatch`, `createDir`, `rename`, `remove`), `root`
+(`openRoot`), `subscription` (`watch`, `search`), `page` (`list`), `entry` (`stat`), `read`,
+`version` (`write`, `createFile`) or `index` (`indexQuery`). A `read` result carries
+`"body": true` in place of the bytes: the bytes follow in a kind-2 frame with the response's id. An
+event payload's `type` is `changes`, `rescan`, `warning`, `matches` or `searchDone`. An entry's
+kind is tagged the same way: `{"type":"file"}`, `{"type":"directory"}`, `{"type":"other"}`, and
+`{"type":"symlink","target":{"type":"directory"}}`, with `target` left out when the link leaves the
+root. Optional fields are left out when absent.
+
+A kind-1 payload that does not parse still yields its request id (`Error::Message { id, source }`,
+read back with `Error::id()`), so the daemon answers that request instead of leaking it, and an
+`op` tag this build does not know is `UNSUPPORTED` rather than a broken message.
+
+Put one golden vector per message in `native/files/vectors/*.json`. A JSON vector holds `json` (the
+message, for reading), `text` (the exact payload that follows the five-byte header) and `frame`
+(hex); a body vector holds `{"id", "bytes"}` and its frame. The Rust tests round-trip them and the
+TypeScript client (wave 2) tests the same files.
 Acceptance: `every_vector_round_trips`, `decoder_handles_split_and_joined_frames`,
 `decoder_rejects_oversize_frame`, `unknown_fields_are_ignored`, `unknown_op_is_an_error_value`.
 

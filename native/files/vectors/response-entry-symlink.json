@@ -1,0 +1,19 @@
+{
+  "json": {
+    "id": 20,
+    "result": {
+      "ignored": false,
+      "kind": {
+        "type": "symlink"
+      },
+      "mtimeMs": 1670000000123,
+      "name": "latest",
+      "path": "releases/latest",
+      "size": 12,
+      "type": "entry"
+    },
+    "type": "response"
+  },
+  "text": "{\"type\":\"response\",\"id\":20,\"result\":{\"type\":\"entry\",\"path\":\"releases/latest\",\"name\":\"latest\",\"kind\":{\"type\":\"symlink\"},\"size\":12,\"mtimeMs\":1670000000123,\"ignored\":false}}",
+  "frame": "ab000000017b2274797065223a22726573706f6e7365222c226964223a32302c22726573756c74223a7b2274797065223a22656e747279222c2270617468223a2272656c65617365732f6c6174657374222c226e616d65223a226c6174657374222c226b696e64223a7b2274797065223a2273796d6c696e6b227d2c2273697a65223a31322c226d74696d654d73223a313637303030303030303132332c2269676e6f726564223a66616c73657d7d"
+}
