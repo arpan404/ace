@@ -31,8 +31,9 @@ import UIKit
         var painted = false
         var last: [String: Double] = [:]
         var offset: Double = 0
-        /// The last frame's move on screen.
+        /// The last frame's move on screen, per display frame.
         var step: Double = 0
+        var time: CFTimeInterval = 0
         var frames = 0
         var moved = 0
         var total: Double = 0
@@ -43,7 +44,13 @@ import UIKit
     func register(_ view: UIView, row id: String) { rows[id] = Weak(view: view) }
 
     /// The feed's scroll phase changed.
-    func scrolling(_ phase: String) { self.phase = phase }
+    /// A new gesture ends the run: what the reader does next is theirs.
+    func scrolling(_ phase: String) {
+        let touching = ["t", "n"]
+        let started = touching.contains(phase) && !touching.contains(self.phase)
+        self.phase = phase
+        if started, let run, run.frames > 0 { finish() }
+    }
 
     /// Starts sampling `name` (`open`, `older`): from the first frame rows are on screen, for
     /// `span` seconds. A run already going is finished first.
@@ -58,6 +65,7 @@ import UIKit
     fileprivate func tick() {
         guard var run else { return }
         let now = CACurrentMediaTime()
+        let frame = link?.duration ?? 1.0 / 60
         let seen = visible()
         let offset = Double(scroller?.layer.presentation()?.bounds.minY ?? scroller?.contentOffset.y ?? 0)
         defer {
@@ -70,6 +78,7 @@ import UIKit
             run.until = now + run.span
             run.last = seen
             run.offset = offset
+            run.time = now
             return
         }
         run.frames += 1
@@ -78,9 +87,12 @@ import UIKit
         let onScreen = shifts.isEmpty ? Double.infinity : shifts[shifts.count / 2]
         // Within the content: the move on screen less the scroll's own.
         let inContent = onScreen + (offset - run.offset)
-        // A fling slows by a few points a frame, and a finger moves about as evenly.
+        // A fling slows by a few points a frame, and a finger moves about as evenly. A frame the
+        // app dropped carries two frames' motion, so motion is compared per display frame.
         let smooth = 10.0
-        let jump = !moving ? onScreen : abs(onScreen - run.step) > smooth ? onScreen - run.step : 0
+        let frames = max(1, ((now - run.time) / max(frame, 0.001)).rounded())
+        let step = onScreen.isFinite ? onScreen / frames : 0
+        let jump = !moving ? onScreen : abs(step - run.step) > smooth ? step - run.step : 0
         if abs(jump) >= 0.5 {
             let size = jump.isFinite ? abs(jump) : 999
             run.moved += 1
@@ -97,7 +109,8 @@ import UIKit
         }
         run.last = seen
         run.offset = offset
-        run.step = onScreen.isFinite ? onScreen : 0
+        run.step = step
+        run.time = now
     }
 
     private func finish() {

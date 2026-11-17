@@ -24,9 +24,8 @@ import XCTest
         print("jump open ios-stream: \(run)")
         XCTAssertGreaterThan(run.frames, 30, "frames were sampled: \(run)")
         XCTAssertFalse(run.trace.contains("swap"), "the screen is never replaced: \(run)")
-        let moves = run.trace.split(separator: ",").compactMap { Int($0) }
-        XCTAssertLessThanOrEqual(moves.max() ?? 0, 0, "rows never move down: \(run)")
-        XCTAssertLessThanOrEqual(run.max, 60, "rows move up a line or so at a time: \(run)")
+        XCTAssertLessThanOrEqual(run.onScreen.max() ?? 0, 0, "rows never move down: \(run)")
+        XCTAssertGreaterThanOrEqual(run.onScreen.min() ?? 0, -60, "rows move up a line or so at a time: \(run)")
     }
 
     /// Reading back, an older page lands above the rows on screen without moving them.
@@ -75,5 +74,7 @@ struct JumpRun: CustomStringConvertible {
     let total: Int
     let max: Int
     let trace: String
+    /// Each frame's move on screen, in points, from the trace's `<on screen>/<in content><phase>`.
+    var onScreen: [Int] { trace.split(separator: ",").compactMap { $0.split(separator: "/").count == 2 ? Int($0.split(separator: "/")[0]) : nil } }
     var description: String { "frames=\(frames) moved=\(moved) total=\(total)pt max=\(max)pt trace=[\(trace)]" }
 }
