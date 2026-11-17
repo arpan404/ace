@@ -17,7 +17,7 @@ import {
 import { notYours, type Authed, type AuthedPublisher } from "./auth.ts";
 import { listingReportKey, previewKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
-import { currentListing, isNewPublisher, liveVersions, publisherLimits } from "./rules.ts";
+import { currentListing, limitTier, liveVersions, publisherLimits } from "./rules.ts";
 import type { Route } from "./routes.ts";
 import {
   applyListing,
@@ -216,7 +216,7 @@ async function reservePictureFor(
   key: string,
   size: number,
 ): Promise<Response | undefined> {
-  const quotaBytes = publisherLimits(isNewPublisher(publisher, context.now)).quotaBytes;
+  const quotaBytes = publisherLimits(limitTier(publisher, context.now)).quotaBytes;
   const charged = await reservePicture(context.dbs.publishers, {
     publisher: publisher.id,
     key,

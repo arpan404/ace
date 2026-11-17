@@ -3,6 +3,7 @@ import {
   compareVersions,
   entryState,
   isNewPublisher,
+  limitTier,
   plainManagement,
   publicVersions,
   publisherLimits,
@@ -210,14 +211,26 @@ describe("an entry's management (ADR 0173 §5)", () => {
   });
 
   it("a new publisher's limits are stricter", () => {
-    expect(publisherLimits(true)).toMatchObject({
+    expect(publisherLimits("new")).toMatchObject({
       uploadsPerDay: 10,
       quotaBytes: 256 * 1024 * 1024,
     });
-    expect(publisherLimits(false)).toMatchObject({
+    expect(publisherLimits("established")).toMatchObject({
       uploadsPerDay: 30,
       quotaBytes: 1024 * 1024 * 1024,
       draftLimit: 20,
+    });
+  });
+
+  it("an official publisher has its own, larger limits and is never new", () => {
+    const now = 100 * 86_400_000;
+    expect(limitTier({ created: now, liveVersions: 0, official: true }, now)).toBe("official");
+    expect(limitTier({ created: now, liveVersions: 0, official: false }, now)).toBe("new");
+    expect(limitTier({ created: 0, liveVersions: 3, official: false }, now)).toBe("established");
+    expect(publisherLimits("official")).toEqual({
+      uploadsPerDay: 500,
+      quotaBytes: 10 * 1024 * 1024 * 1024,
+      draftLimit: 200,
     });
   });
 });

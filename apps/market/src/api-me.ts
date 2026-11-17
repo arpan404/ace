@@ -16,7 +16,7 @@ import { authenticate, reauthMs, type Authed, type AuthOptions } from "./auth.ts
 import { meEntryRoute, storePicture } from "./api-me-entries.ts";
 import { avatarKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
-import { isNewPublisher } from "./rules.ts";
+import { isNewPublisher, limitTier } from "./rules.ts";
 import type { Route } from "./routes.ts";
 import { syncPublisher } from "./store/copies.ts";
 import { draftBody, draftsOf } from "./store/drafts.ts";
@@ -102,7 +102,7 @@ async function mePage(context: Context, authed: Authed): Promise<Response> {
   const db = context.dbs.publishers;
   const publisher = authed.publisher;
   if (!publisher) {
-    const limits = await limitsOf(db, "", true, context.now);
+    const limits = await limitsOf(db, "", "new", context.now);
     const body: MarketMe = {
       state: "active",
       newPublisher: true,
@@ -118,7 +118,7 @@ async function mePage(context: Context, authed: Authed): Promise<Response> {
   const newPublisher = isNewPublisher(publisher, context.now);
   const profile = profileOf(row);
   const [limits, entries, drafts, offers] = await Promise.all([
-    limitsOf(db, publisher.id, newPublisher, context.now),
+    limitsOf(db, publisher.id, limitTier(publisher, context.now), context.now),
     ownEntrySummaries(context.dbs, publisher.id, profile.pins),
     draftsOf(db, publisher.id),
     transfersOf(context.dbs, publisher.id, context.now),
