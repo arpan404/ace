@@ -11,6 +11,7 @@ import { RecentSet } from "./retention.ts";
 import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { readCodexToolFacts } from "./tool-facts.ts";
+import { codexShellEnvConfig } from "./shell-env.ts";
 import { codexToolListing } from "./tool-search.ts";
 import { configuredTurnPolicy } from "./default-permissions.ts";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
@@ -519,15 +520,14 @@ export async function openCodexSession(
     > = configured
       ? configuredTurnPolicy(await configured)
       : codexThreadPolicy(permissionMode, ctx.cwd);
+    const shellEnv = codexShellEnvConfig(ctx.agentEnv);
     const params = {
       cwd: ctx.cwd,
       ...threadPolicy,
-      ...(injection
-        ? {
-            developerInstructions: injection.developerInstructions,
-            config: { ...threadPolicy.config, ...injection.config },
-          }
+      ...(injection || Object.keys(shellEnv).length
+        ? { config: { ...threadPolicy.config, ...injection?.config, ...shellEnv } }
         : {}),
+      ...(injection ? { developerInstructions: injection.developerInstructions } : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
     const result = obj(

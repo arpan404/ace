@@ -118,6 +118,8 @@ export async function openPiSession(
   }
   const env = {
     ...ctx.env,
+    // One Pi process per session: its bash tool inherits the agent's variables (ADR 0176 §10).
+    ...ctx.agentEnv,
     ACE_PI_SESSION_FILE: configuration.path,
     ACE_PI_CONTROL_SECRET: undefined,
     ACE_PI_MCP_URL: undefined,

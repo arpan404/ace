@@ -11,6 +11,7 @@ import { PermissionMode, NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
+import { agentSessionEnv } from "./agent-env.ts";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
@@ -65,6 +66,8 @@ interface SessionDependencies {
     threadId: ThreadId,
     signal: AbortSignal,
   ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
+  /** The daemon's data dir, given to the agent's shell as `ACE_HOME`. */
+  agentHome?: string;
 }
 export class Sessions {
   private dependencies: SessionDependencies;
@@ -276,6 +279,7 @@ export class Sessions {
           );
         },
         threadId: actor.id,
+        agentEnv: agentSessionEnv({ threadId: actor.id, home: this.dependencies.agentHome }),
         rootKey,
         cwd: metadata.cwd,
         ...(transition.fork && metadata.nativeSessionId === undefined
