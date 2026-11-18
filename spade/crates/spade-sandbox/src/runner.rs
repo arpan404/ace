@@ -172,6 +172,15 @@ impl Runner {
                     .unwrap_or_else(|| "this machine has no sandbox".to_owned()),
             ));
         }
+        // A read-only settled command is enforced fully or not at all (ADR 0172, amendment 7): it
+        // runs only where every boundary holds — the file ABI that contains truncation, the
+        // syscall filter that denies sockets, process and IPC isolation. A machine with only
+        // partial coverage reviews the command instead of running it half-confined.
+        if read_only && !self.status.contains() {
+            return Err(Unavailable(self.status.reason.clone().unwrap_or_else(
+                || "this machine can't fully confine a read-only command".to_owned(),
+            )));
+        }
         platform::wrap(
             &self.status,
             self.launcher.as_deref(),

@@ -107,6 +107,36 @@ const DEVICES: &[&str] = &[
     "/dev/tty",
 ];
 
+/// The system folders a read-only settled command may read (ADR 0172, amendment 7): the program
+/// trees and shared libraries it needs to start, and nothing else. Not `/etc` (but the loader's
+/// two files in [`READ_ONLY_FILES`]), `/opt`, `/var/lib`, `/sys` or other machine state — a
+/// read-only run has no reason to read them and they can hold the person's data. Derived by
+/// running each settled program under the profile (`tests/read_only.rs`).
+const READ_ONLY_SYSTEM: &[&str] = &[
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+    "/usr/lib",
+    "/usr/lib32",
+    "/usr/lib64",
+    "/lib",
+    "/lib32",
+    "/lib64",
+    "/usr/libexec",
+    "/nix",
+    "/snap",
+];
+
+/// The only non-directory system files a read-only command reads: the dynamic loader's cache and
+/// preload list, which it consults to start any program. Both are root-owned system files, not the
+/// person's data.
+const READ_ONLY_FILES: &[&str] = &["/etc/ld.so.cache", "/etc/ld.so.preload"];
+
+/// The one device a read-only command may open: the null sink, so `2>/dev/null` works. No
+/// `/dev/zero`, `/dev/urandom` or `/dev/tty`.
+const READ_ONLY_DEVICES: &[&str] = &["/dev/null"];
+
 /// One place to open, with what may not be reached inside it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Root {
@@ -149,6 +179,11 @@ pub struct Plan {
     pub processes: Processes,
     /// The workspace: the only place a Unix socket may be connected to or bound.
     pub sockets: PathBuf,
+    /// A read-only settled run (ADR 0172, amendment 7): the launcher denies socket creation
+    /// outright (no network of any kind) and refuses to start below the ABI that contains file
+    /// truncation.
+    #[serde(default)]
+    pub offline: bool,
 }
 
 /// The plan for `policy`. Pure: what is opened, and around what, is decided by the launcher. When
@@ -168,18 +203,30 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes, read_only: 
             });
         }
     };
-    add(&mut SYSTEM.iter().map(PathBuf::from), false, &policy.deny);
+    // A read-only run reads only the narrow program and library trees it needs to start (ADR 0172,
+    // amendment 7), never the broad system folders a normal run may read.
+    if read_only {
+        add(&mut READ_ONLY_SYSTEM.iter().map(PathBuf::from), false, &[]);
+        add(&mut READ_ONLY_FILES.iter().map(PathBuf::from), false, &[]);
+    } else {
+        add(&mut SYSTEM.iter().map(PathBuf::from), false, &policy.deny);
+    }
     // In its own namespace the launcher opens `/proc` after mounting it afresh: the rule is on
     // that mount, which lists only the command's processes.
     match processes {
         Processes::Private => add(&mut std::iter::once(PathBuf::from("/proc")), false, &[]),
         Processes::Hidden => add(&mut PROC_SHARED.iter().map(PathBuf::from), false, &[]),
     }
-    add(&mut policy.read.iter().cloned(), false, &policy.deny);
-    add(&mut policy.write.iter().cloned(), true, &policy.deny);
-    // A plugin's folder sits inside ace's data, which is denied: only credentials stay closed.
-    add(&mut policy.reopen.iter().cloned(), false, &policy.secrets);
-    // The workspace is inside Spade's data folder: only denied places inside it are closed.
+    // A read-only run opens no consented folder, toolchain or scratch — only the workspace, and
+    // that read-only. Its `Facts` already carry none, and this makes it structural.
+    if !read_only {
+        add(&mut policy.read.iter().cloned(), false, &policy.deny);
+        add(&mut policy.write.iter().cloned(), true, &policy.deny);
+        // A plugin's folder sits inside ace's data, which is denied: only credentials stay closed.
+        add(&mut policy.reopen.iter().cloned(), false, &policy.secrets);
+    }
+    // The workspace is inside Spade's data folder: only denied places inside it are closed. Under
+    // `read_only` the `add` closure opens it read-only.
     let inside: Vec<PathBuf> = policy
         .deny
         .iter()
@@ -191,7 +238,9 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes, read_only: 
         true,
         &inside,
     );
-    add(&mut policy.scratch.iter().cloned(), true, &policy.secrets);
+    if !read_only {
+        add(&mut policy.scratch.iter().cloned(), true, &policy.secrets);
+    }
     // Even an overly broad consented root cannot reopen host devices or shared memory.
     for root in &mut roots {
         root.deny.push(PathBuf::from("/dev"));
@@ -205,7 +254,13 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes, read_only: 
             deny: Vec::new(),
         }));
     };
-    add(&mut DEVICES.iter().map(PathBuf::from));
+    // A read-only run gets only the null sink; a normal run the fuller device set.
+    let devices = if read_only {
+        READ_ONLY_DEVICES
+    } else {
+        DEVICES
+    };
+    add(&mut devices.iter().map(PathBuf::from));
     Plan {
         roots,
         // No egress for a read-only run.
@@ -213,6 +268,7 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes, read_only: 
         network,
         processes,
         sockets: policy.workspace.clone(),
+        offline: read_only,
     }
 }
 

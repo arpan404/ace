@@ -243,13 +243,18 @@ writes, builds, installs, interpreters or script languages). The gate records th
 verdict, and the launch checks it, applies it and runs the command in the clean environment.
 
 A settled command runs inside a read-only OS sandbox confined to the bot's folder (ADR 0172,
-amendment 7; ADR 0167's Landlock, Seatbelt or AppContainer): it may read the folder and the system
-paths a program needs to start, and nothing else — a symlink, a recursive walk or a `.git`
-`gitdir:` file that resolves outside the folder is refused by the kernel, not by a path check, so a
-read can't follow a link out and there is no decision-to-launch race to lose. The sandbox is a
-second wall behind the gate's refusals, never a substitute for them. If a read-only sandbox can't be
-built on this machine the command doesn't settle; it goes to the reviewer, so a call settles only
-where it can also be confined.
+amendment 7; ADR 0167's Landlock, Seatbelt or AppContainer). The profile is strict, minimal and
+offline: it may read the folder and a narrow allowlist of the program and library trees a command
+needs to start (`/usr/bin`, `/bin`, `/usr/lib*`, `/lib*`, the loader's cache; the dyld shared cache
+on macOS), and nothing else — not `/etc`, `/opt`, `/var/lib`, `/sys` or `/Library`. It creates no
+socket of any kind, so it reaches no network, binds no port and opens no Unix socket; its one device
+is `/dev/null`. A symlink, a recursive walk or a `.git` `gitdir:` file that resolves outside the
+folder is refused by the kernel, not by a path check, so a read can't follow a link out and there is
+no decision-to-launch race to lose. The sandbox is a second wall behind the gate's refusals, never a
+substitute for them. It is enforced fully or not at all: a command settles only where the whole
+boundary holds (the file ABI that contains truncation, the loaded syscall filter, process and IPC
+isolation), checked both when the gate admits the settle and again at launch; where it doesn't, the
+command goes to the reviewer. Windows has no read-only profile yet and reviews these commands.
 
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
 cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older

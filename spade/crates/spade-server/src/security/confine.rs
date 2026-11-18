@@ -164,15 +164,24 @@ impl Confine for Security {
     }
 
     fn read_only_available(&self) -> bool {
-        self.runner.status().usable()
+        // A read-only settled command runs only where every boundary holds (ADR 0172, amendment
+        // 7), never half-confined. Windows has no read-only profile yet, so it never advertises one.
+        #[cfg(windows)]
+        {
+            false
+        }
+        #[cfg(not(windows))]
+        {
+            self.runner.status().contains()
+        }
     }
 
     fn read_only(&self, home: &Path) -> Result<Confined, String> {
         if self.bot_of(home).is_none() {
             return Err("this conversation has no bot".to_owned());
         }
-        if !self.runner.status().usable() {
-            return Err("this machine has no sandbox".to_owned());
+        if !self.runner.status().contains() {
+            return Err("this machine can't fully confine a read-only command".to_owned());
         }
         // A read-only policy: the workspace and the system paths readable, nothing writable, no
         // network (ADR 0172, amendment 7). No consented folders, no proxy ticket, no scratch.
@@ -189,10 +198,10 @@ impl Confine for Security {
             scratch: Vec::new(),
             proxy_port: None,
         });
-        // The temporary folder must exist so the command's `TMPDIR` resolves.
-        std::fs::create_dir_all(&policy.temp).map_err(|error| {
-            format!("the sandbox's temporary folder could not be made: {error}")
-        })?;
+        // A read-only run writes nowhere, so Spade makes no temporary folder for it. Creating one
+        // before the sandbox applies would follow a symlinked `.spade` out of the folder (finding
+        // 5); instead `TMPDIR` points at a path the sandbox makes unwritable, so a program that
+        // needs scratch space fails closed rather than writing outside.
         // Read-only sandboxing of a settled command is Unix-only for now; Windows reviews it.
         #[cfg(windows)]
         {
@@ -201,10 +210,7 @@ impl Confine for Security {
         }
         #[cfg(not(windows))]
         {
-            let env = vec![(
-                "TMPDIR".to_owned(),
-                policy.temp.to_string_lossy().into_owned(),
-            )];
+            let env = vec![("TMPDIR".to_owned(), "/nonexistent".to_owned())];
             let path_first = Vec::new();
             let runner = self.runner.clone();
             let launch: crate::workspace::shell::Launcher = Box::new(move |program, args| {

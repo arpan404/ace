@@ -557,9 +557,11 @@ case. None of this changes what settles; it changes what the numbers mean.
    `origin/main` worktree by `tools/classify-train/main-baseline.sh` (vendored
    `baseline/baseline.rs`, built against main's crates, using no API this PR added), on the same
    held-out sets. The shipped build exports its deduped public evaluation sets, and the exact ids
-   of the real-session calls it retained after the fit hold-out (`real::identity`, an FNV hash of
-   command and workspace — an opaque number, never command text), so both evaluators measure the
-   identical calls; without the shared ids the baseline kept its own distinct set and counted 2,310
+   of the real-session calls it retained after the fit hold-out (`real::identity`, an unsalted FNV
+   fingerprint of command and workspace — not reversible, but a fingerprint rather than an
+   anonymiser, so the ids are kept private, written to a temp file the baseline reads and never
+   committed, and only the number, never the command text, leaves the process), so both evaluators
+   measure the identical calls; without the shared ids the baseline kept its own distinct set and counted 2,310
    risky real calls where the shipped build counts 2,309. This reconciled the end-to-end row: main
    raises **1 of 55** person-only real calls and settles **0.1%**, not the 9 the mislabelled row
    showed.
@@ -590,30 +592,56 @@ free to follow a symlink or a `.git` `gitdir:` file out of the bot's folder, and
 path check races a swap between the gate's decision and the launch. Changes amendment 5's decision
 2. Containment moves from path checks to the kernel.
 
+The read-only profile is strict, minimal and offline, and it is enforced fully or not used at all.
+A later review of the first cut found it still too loose — partial sandboxes qualified, the system
+read grants were broad, and loopback networking and Unix sockets were left open — so the profile is
+now the narrowest one that still lets each settled program start.
+
 1. **Every settled command runs inside a read-only OS sandbox confined to the bot's folder.** Spade
    already sandboxes work on all three platforms (ADR 0167: Linux Landlock + seccomp, macOS
-   Seatbelt, Windows AppContainer/LPAC). A settled command now launches through a read-only profile
+   Seatbelt, Windows AppContainer/LPAC). A settled command launches through a read-only profile
    built from an empty `Facts` (`spade-server` `security/confine.rs`, `spade-sandbox`
-   `wrap_read_only`): read access to the bot's folder and the system paths a program needs to start,
-   no consented folders, no writes except `/dev/null`-like sinks, and no network. The kernel refuses
-   a read that resolves outside the folder — a symlink, a recursive walk through a symlinked
-   directory, a `gitdir:` file — regardless of what the path looked like when the gate decided, so
-   the resolution race is gone too.
-2. **If the sandbox can't be applied on this machine, nothing settles.** The gate carries whether a
-   read-only sandbox is available (`Classed::sandboxable`, from `Confine::read_only_available()`);
-   when it isn't, a would-be low-risk settle is sent to the reviewer instead
-   (`engine/classify.rs`). Containment is fail-closed: a command settles only where it can also be
-   confined, for both one-shot runs and persistent terminals.
-3. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
+   `wrap_read_only`). The kernel refuses a read that resolves outside the folder — a symlink, a
+   recursive walk through a symlinked directory, a `gitdir:` file — regardless of what the path
+   looked like when the gate decided, so the resolution race is gone too.
+2. **The read grant is a narrow allowlist, not the broad system folders.** A read-only run reads the
+   bot's folder, the program and library trees it needs to start (`/usr/bin`, `/bin`, `/usr/lib*`,
+   `/lib*`, the dynamic loader's `ld.so.cache`; on macOS `/usr/lib`, `/usr/bin`, `/bin`, the dyld
+   shared cache under `/System`), and nothing else. `/etc` (but the loader's files), `/opt`,
+   `/var/lib`, `/sys` and macOS's `/Library` are closed: a read-only run has no reason to read them
+   and they can hold the person's data. The kept list was derived by running every settled program
+   under the profile; none failed to start, so none left the settled set.
+3. **It is offline: no socket at all.** The launcher's seccomp filter denies `socket`/`socketpair`
+   outright for a read-only run (`linux/seccomp.rs`), so it can reach no machine, bind no port and
+   open no Unix socket — not even on loopback or inside the folder. macOS emits no network rule for
+   the profile. Its one device is `/dev/null`; `/dev/tty*`, `/dev/fd/*` and the other sinks a normal
+   run may open are closed.
+4. **Enforced fully or not at all.** A read-only command settles only where the whole boundary
+   holds: the file ABI that contains truncation, the loaded seccomp filter, and process and IPC
+   isolation (`Status::contains`). Admission checks this (`Confine::read_only_available` →
+   `Classed::sandboxable`; a partial sandbox sends the call to the reviewer, `engine/classify.rs`)
+   and the launcher re-checks it and refuses below ABI 3 or without the filter (`linux/launch.rs`),
+   so a settled command can never run half-confined, for one-shot runs or persistent terminals.
+   Windows has no read-only profile yet and never advertises one. Spade makes no temporary folder
+   for a read-only run (which would follow a symlinked `.spade` out of the folder before the sandbox
+   applied); `TMPDIR` points at an unwritable path, so a program needing scratch space fails closed.
+5. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
    behind the gate's own refusals, not a replacement for them; the classifier still never lowers a
    deterministic decision (decision 2 of the original ADR). It closes the gap that a *settled* read
    — one the gate already judged low-risk — could still reach a byte outside the folder.
 
-Tests: `spade-sandbox` `read_only.rs`, against real Linux objects — a settled `cat` of a
-symlink to a file outside the folder reads nothing and errors; `grep -r`/`find` through a symlinked
-directory out of the folder see nothing outside; a credential symlinked in is denied; a write is
-refused; `git rev-parse` with a `.git` file pointing at a repository outside the folder cannot read
-it. `spade-server` `classifier.rs`
+None of this changes which commands settle (the profile only shapes how a settled one runs), so the
+shipped weights and the measures are unchanged.
+
+Tests: `spade-sandbox` `read_only.rs`, against real Linux objects — every settled program starts
+under the narrow allowlist; a read-only run can make no socket (an INET/INET6/loopback-bind/
+workspace-Unix attempt via python3 is all refused); a symlink to a readable file under `/opt`,
+`/etc`, `/var/lib` or `/sys` is denied; only `/dev/null` is open; a settled `cat` of a symlink to a
+file outside the folder reads nothing and errors; `grep -r`/`find` through a symlinked directory out
+of the folder see nothing outside; a credential symlinked in is denied; a write is refused; `git
+rev-parse` with a `.git` file pointing at a repository outside the folder cannot read it. `net.rs`
+an offline run's rules deny every address. `spade-server` `classifier.rs`
 `with_no_read_only_sandbox_a_plain_read_goes_to_the_reviewer` (the fail-closed gate) and
 `classifier_git.rs` (a settled read launches confined). These ran on Linux here; the macOS Seatbelt
-and Windows profiles build the same read-only policy but were not exercised on this machine.
+read-only profile is asserted by its generated text (`seatbelt.rs`: narrow reads, `/dev/null` only,
+no network) but not run, and Windows has no read-only profile.

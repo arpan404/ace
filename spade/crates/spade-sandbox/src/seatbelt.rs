@@ -55,6 +55,12 @@ const ROOT_LINKS: &[&str] = &[
     "/Applications",
 ];
 
+/// The system folders a read-only settled command may read (ADR 0172, amendment 7): the program
+/// trees, the shared libraries and the dyld shared cache it needs to start, and nothing else. Not
+/// `/Library`, `/opt`, `/private/etc` or Xcode — a read-only run has no reason to read them and
+/// they can hold the person's data.
+const READ_ONLY_SYSTEM_READ: &[&str] = &["/System", "/usr/lib", "/usr/bin", "/bin", "/usr/libexec"];
+
 /// Device nodes every command may read and write.
 const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/random", "/dev/urandom"];
 
@@ -77,12 +83,19 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
     // Reads: the system's own folders and what the policy opens, nothing else. The home folders,
     // `/Users/Shared`, other volumes and the person's temporary storage (`/private/var/folders`,
     // `/private/tmp`) are outside every rule. `/` itself is listed (the loader reads it).
+    // A read-only run reads only the narrow program and library trees it needs to start, never the
+    // broad system folders a normal run may read (ADR 0172, amendment 7).
+    let (system_read, system_files): (&[&str], &[&str]) = if read_only {
+        (READ_ONLY_SYSTEM_READ, &[])
+    } else {
+        (SYSTEM_READ, SYSTEM_READ_FILES)
+    };
     rule(
         &mut out,
         "allow file-read*",
         std::iter::once(literal(Path::new("/")))
-            .chain(SYSTEM_READ.iter().map(|p| subpath(Path::new(p))))
-            .chain(SYSTEM_READ_FILES.iter().map(|p| literal(Path::new(p))))
+            .chain(system_read.iter().map(|p| subpath(Path::new(p))))
+            .chain(system_files.iter().map(|p| literal(Path::new(p))))
             .chain(policy.readable().map(|p| subpath(p))),
     );
     // The folders above an opened place (and the root's links to `/private`) can be looked up,
@@ -133,26 +146,40 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
         std::iter::once(subpath(&policy.workspace))
             .chain(policy.scratch.iter().map(|p| subpath(p))),
     );
-    rule(
-        &mut out,
-        "allow file-read* file-write* file-ioctl",
-        DEVICES.iter().map(|d| literal(Path::new(d))).chain([
-            "(regex #\"^/dev/fd/\")".to_owned(),
-            "(regex #\"^/dev/tty\")".to_owned(),
-        ]),
-    );
-    // Network: only Spade's proxy, on loopback. Listening on loopback is allowed (a dev server);
-    // no other connection, Unix sockets and DNS included, is.
-    if let Some(port) = policy.proxy_port {
-        let _ = writeln!(
-            out,
-            "(allow network-outbound (remote ip \"localhost:{port}\"))"
+    if read_only {
+        // A read-only run gets only the null sink, read and write, and no device ioctls: no
+        // `/dev/tty*` or `/dev/fd/*`. Its inherited stdio descriptors (pipes to the daemon) need no
+        // path rule.
+        rule(
+            &mut out,
+            "allow file-read* file-write*",
+            std::iter::once(literal(Path::new("/dev/null"))),
+        );
+    } else {
+        rule(
+            &mut out,
+            "allow file-read* file-write* file-ioctl",
+            DEVICES.iter().map(|d| literal(Path::new(d))).chain([
+                "(regex #\"^/dev/fd/\")".to_owned(),
+                "(regex #\"^/dev/tty\")".to_owned(),
+            ]),
         );
     }
-    out.push_str(
-        "(allow network-bind (local ip \"localhost:*\"))\n\
-         (allow network-inbound (local ip \"localhost:*\"))\n",
-    );
+    // Network: a read-only run is offline and gets no network rule at all. Otherwise only Spade's
+    // proxy on loopback, and listening on loopback (a dev server); no other connection, Unix
+    // sockets and DNS included, is.
+    if !read_only {
+        if let Some(port) = policy.proxy_port {
+            let _ = writeln!(
+                out,
+                "(allow network-outbound (remote ip \"localhost:{port}\"))"
+            );
+        }
+        out.push_str(
+            "(allow network-bind (local ip \"localhost:*\"))\n\
+             (allow network-inbound (local ip \"localhost:*\"))\n",
+        );
+    }
     out
 }
 
@@ -328,5 +355,73 @@ mod tests {
         assert!(text.contains("(allow file-read-metadata"));
         assert!(text.contains("(literal \"/Users/p/code\")"));
         assert!(text.contains("(literal \"/Users\")"));
+    }
+
+    // The read-only profile is tested by its generated text here: a Mac to run Seatbelt on was not
+    // available, so these assert the policy the profile encodes (ADR 0172, amendment 7).
+
+    #[test]
+    fn read_only_reads_only_the_narrow_program_trees_not_the_broad_system_folders() {
+        let text = profile(&policy(), true);
+        for opened in ["/System", "/usr/lib", "/usr/bin", "/bin"] {
+            assert!(
+                text.contains(&format!("(subpath \"{opened}\")")),
+                "{opened}"
+            );
+        }
+        // The broad folders a normal run may read are closed to a read-only run: they can hold the
+        // person's data.
+        for closed in [
+            "/Library",
+            "/opt",
+            "/private/etc",
+            "/Applications/Xcode.app",
+        ] {
+            assert!(
+                !text.contains(&format!("(subpath \"{closed}\")")),
+                "{closed} should not be opened read-only"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_opens_only_the_null_sink_and_no_tty_or_ioctl() {
+        let text = profile(&policy(), true);
+        assert!(text.contains("(allow file-read* file-write*\n  (literal \"/dev/null\"))"));
+        for absent in ["/dev/fd/", "/dev/tty", "/dev/urandom", "file-ioctl"] {
+            assert!(
+                !text.contains(absent),
+                "{absent} should be closed to a read-only run"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_grants_no_network_at_all() {
+        // Even with a proxy port set, a read-only run gets no outbound, bind or inbound rule.
+        let text = profile(
+            &Policy {
+                proxy_port: Some(4100),
+                ..policy()
+            },
+            true,
+        );
+        for absent in ["network-outbound", "network-bind", "network-inbound"] {
+            assert!(
+                !text.contains(absent),
+                "{absent} should be absent read-only"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_writes_nowhere() {
+        let text = profile(&policy(), true);
+        // No write grant on the granted folder or the workspace.
+        assert!(!text.contains("(allow file-write*"));
+        assert!(
+            !text.contains("file-read* file-write*\n  (subpath \"/Users/p/spade/workspace/b1\")")
+        );
+        assert!(text.contains("(allow file-read*\n  (subpath \"/Users/p/spade/workspace/b1\"))"));
     }
 }

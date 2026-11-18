@@ -287,8 +287,8 @@ pub fn report(
     }
     // Pin the identical retained real-session selection for the `main` baseline (ADR 0172,
     // amendment 6): the no-folder set's distinct calls that survive the fit hold-out, written as
-    // opaque ids (`real::identity`), never as command text. The baseline keeps exactly these, so
-    // both evaluators measure the same calls.
+    // unsalted `real::identity` fingerprints (kept private, never the command text). The baseline
+    // keeps exactly these, so both evaluators measure the same calls.
     if let (Some(path), Some(calls)) = (std::env::var_os("CLASSIFY_REAL_KEEP"), real) {
         let mut ids = String::new();
         let mut seen = BTreeSet::new();

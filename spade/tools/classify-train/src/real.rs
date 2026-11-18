@@ -80,9 +80,11 @@ pub fn relative_to(command: &str, workspace: &str) -> String {
     command.replace(workspace, "/workspace")
 }
 
-/// A stable, privacy-preserving id for a distinct real call: FNV-1a over the command and its
-/// workspace. Only this 64-bit number is ever written out to pin the evaluation set shared with
-/// the `main` baseline (ADR 0172, amendment 6); the command text never leaves the process.
+/// A stable id for a distinct real call: an unsalted FNV-1a fingerprint of the command and its
+/// workspace. It is not reversible but, being unsalted, is a fingerprint, not an anonymiser — the
+/// ids are kept private (written to a temp file the baseline reads, never committed), and only this
+/// 64-bit number, never the command text, leaves the process. It exists to pin the evaluation set
+/// shared with the `main` baseline (ADR 0172, amendment 6).
 pub fn identity(command: &str, workspace: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in command
