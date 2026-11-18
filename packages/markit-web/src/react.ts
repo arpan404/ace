@@ -4,5 +4,5 @@
  */
 export { Markit, preloadMarkit, useMarkit } from "@markit/web/react";
 export type { MarkitController, MarkitHookOptions, MarkitProps } from "@markit/web/react";
-export { MarkitRenderer } from "@markit/web";
-export type { HighlightedCode, MarkitOptions, RenderPatch } from "@markit/web";
+export { LineHighlighter, MarkitRenderer } from "@markit/web";
+export type { CodeToken, HighlightedCode, MarkitOptions, RenderPatch } from "@markit/web";

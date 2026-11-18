@@ -1,15 +1,18 @@
-import type { CodeLines } from "@/components/markdown/code-lines.ts";
-import { codeHash } from "@/components/markdown/code-lines.ts";
-import type { CodeToken } from "@/components/markdown/highlight.ts";
-import { highlightJobs } from "@/components/markdown/highlight-jobs.ts";
+import {
+  LineHighlighter as NativeLineHighlighter,
+  markitWorkerPath,
+  type CodeToken,
+} from "@ace/markit-web";
+import type { CodeToken as Token } from "@/components/markdown/highlight.ts";
 
-/** One syntax token: the shapes markit and the fallback tokenizer already produce. */
-export type Token = CodeToken;
+/** One syntax token: the shape markit and the fallback tokenizer already produce. */
+export type { Token };
 
 /**
  * The editor's syntax colours, addressed by line. An edit tells it exactly which lines moved;
- * the view asks only for the lines it draws. The contract markit's incremental highlighter will
- * implement natively; today's whole-file engine sits behind it in this one adapter.
+ * the view asks only for the lines it draws. markit's {@link NativeLineHighlighter} does the
+ * parsing incrementally in its shared worker; this class is the synchronous face the render
+ * draws from, keeping the last tokens until new ones arrive.
  */
 export interface LineHighlighter {
   /** A new document text replaces everything (open, reset, a whole-file replacement). */
@@ -20,50 +23,91 @@ export interface LineHighlighter {
   tokens(start: number, end: number): Token[][];
 }
 
-/** How long typing settles before the whole file is tokenized again. */
-const highlightDelay = 250;
+/** How long a change waits before the visible lines are asked for tokens again. */
+const defaultDelay = 30;
+
+export interface MarkitHighlighterOptions {
+  /** The debounce before a new token request; tests stretch it so old colours are observable. */
+  delay?: number;
+  workerURL?: string;
+  worker?: "shared" | "dedicated" | "inline";
+  wasm?: BufferSource | WebAssembly.Module;
+  grammarWasm?: BufferSource | WebAssembly.Module;
+}
 
 /**
- * {@link LineHighlighter} over the existing whole-file highlighter (markit's worker), off the
- * keystroke path: every change restarts a short timer, the file is tokenized once typing pauses,
- * and the last result stays on screen until the next one arrives. Lines whose text moved under
- * old tokens are checked by the view (`tokensFit`), so only untouched lines keep their colours.
+ * {@link LineHighlighter} over markit's incremental grammar highlighter. Text and edits go to
+ * the shared worker in order; tokens are requested only for the visible range and cached here,
+ * so React never waits on the worker. `advance` finishes extra lines on idle. The native
+ * highlighter is freed with this object.
  */
-export class WholeFileLineHighlighter implements LineHighlighter {
-  readonly #language: string | undefined;
+export class MarkitLineHighlighter implements LineHighlighter {
+  readonly #delay: number;
   readonly #listeners = new Set<() => void>();
-  #text = "";
-  #lines: readonly CodeToken[][] = [];
+  readonly #ready: Promise<void>;
+  #native: NativeLineHighlighter | undefined;
+  #queue: Promise<unknown> = Promise.resolve();
+  #cache: Token[][] = [];
+  #visible = { start: 0, end: 0 };
+  #requested = "";
+  #generation = 0;
+  #stale = true;
+  /** The opening text is coloured at once; only later changes wait for the debounce. */
+  #firstFetch = true;
   #timer: ReturnType<typeof setTimeout> | undefined;
-  #lease: { release(): void } | undefined;
-  #started = false;
+  #idle: number | undefined;
   #disposed = false;
 
-  readonly #delay: number;
-  readonly #source: (() => string) | undefined;
+  constructor(language: string | undefined, options: MarkitHighlighterOptions = {}) {
+    this.#delay = options.delay ?? defaultDelay;
+    this.#ready = this.#open(language, options);
+    this.#ready.catch(() => undefined);
+  }
 
-  constructor(language: string | undefined, delay = highlightDelay, source?: () => string) {
-    this.#language = language;
-    this.#delay = delay;
-    this.#source = source;
+  async #open(language: string | undefined, options: MarkitHighlighterOptions): Promise<void> {
+    if (!language) return;
+    let native: MarkitHighlighterOptions | undefined = options.workerURL ? options : undefined;
+    if (
+      options.worker !== undefined ||
+      options.wasm !== undefined ||
+      options.grammarWasm !== undefined
+    )
+      native = options;
+    if (!native && import.meta.env.MODE === "test") {
+      const { lineHighlighterOptionsForTests } = await import("./test-support.ts");
+      native = lineHighlighterOptionsForTests();
+    }
+    if (!native) native = { workerURL: markitWorkerPath() };
+    if (this.#disposed) return;
+    this.#native = new NativeLineHighlighter(language, native);
   }
 
   setText(text: string): void {
-    if (text === this.#text) return;
-    this.#text = text;
-    // The opening file is coloured at once; only typing waits for the pause.
-    this.#schedule(this.#started ? this.#delay : 0);
-    this.#started = true;
+    this.#enqueue(async (native) => {
+      await native.setText(text);
+      this.#generation++;
+      this.#stale = true;
+      this.#scheduleFetch();
+      this.#scheduleAdvance();
+    });
   }
 
-  /** The engine is whole-file today: an edit only schedules the next pass. */
-  edit(_startLine: number, _removedLines: number, _insertedLines: string[]): void {
-    this.#schedule();
+  edit(startLine: number, removedLines: number, insertedLines: string[]): void {
+    this.#enqueue(async (native) => {
+      await native.edit(startLine, removedLines, insertedLines);
+      this.#generation++;
+      this.#stale = true;
+      this.#scheduleFetch();
+      this.#scheduleAdvance();
+    });
   }
 
   tokens(start: number, end: number): Token[][] {
+    this.#visible = { start, end };
+    const key = `${start}:${end}:${this.#generation}`;
+    if (this.#stale || key !== this.#requested) this.#scheduleFetch();
     const out: Token[][] = [];
-    for (let line = start; line < end; line++) out.push(this.#lines[line] ?? []);
+    for (let line = start; line < end; line++) out.push(this.#cache[line] ?? []);
     return out;
   }
 
@@ -76,42 +120,83 @@ export class WholeFileLineHighlighter implements LineHighlighter {
   dispose(): void {
     this.#disposed = true;
     if (this.#timer !== undefined) clearTimeout(this.#timer);
-    this.#lease?.release();
-    this.#lease = undefined;
+    if (this.#idle !== undefined) {
+      if (typeof cancelIdleCallback === "function") cancelIdleCallback(this.#idle);
+      else clearTimeout(this.#idle);
+    }
     this.#listeners.clear();
+    const native = this.#native;
+    this.#queue.then(() => native?.free()).catch(() => undefined);
   }
 
-  #schedule(delay = this.#delay): void {
+  #enqueue(run: (native: NativeLineHighlighter) => Promise<void>): void {
+    this.#queue = this.#queue
+      .then(async () => {
+        await this.#ready;
+        if (this.#disposed || !this.#native) return;
+        await run(this.#native);
+      })
+      .catch(() => undefined);
+  }
+
+  #scheduleFetch(): void {
     if (this.#disposed) return;
     if (this.#timer !== undefined) clearTimeout(this.#timer);
-    this.#timer = setTimeout(() => this.#highlight(), delay);
+    this.#timer = setTimeout(
+      () => {
+        this.#timer = undefined;
+        void this.#fetch();
+      },
+      this.#firstFetch ? 0 : this.#delay,
+    );
   }
 
-  #highlight(): void {
-    this.#timer = undefined;
-    if (this.#disposed) return;
-    // The caller's getter is read only here, on the debounced highlight, never on a keystroke.
-    const text = this.#source ? this.#source() : this.#text;
-    this.#text = text;
-    const hash = codeHash(text, this.#language);
-    this.#lease?.release();
-    const lease = highlightJobs.acquire(
-      hash,
-      { code: text, lang: this.#language, hash },
-      text.length * 2,
-    );
-    this.#lease = lease;
-    void lease.result.then(
-      (result) => {
-        if (this.#disposed || text !== this.#text) return;
-        if (result) this.#lines = linesOf(result);
-        for (const listener of this.#listeners) listener();
-      },
-      () => undefined,
-    );
+  async #fetch(): Promise<void> {
+    const native = this.#native;
+    const { start, end } = this.#visible;
+    if (!native || this.#disposed) return;
+    const key = `${start}:${end}:${this.#generation}`;
+    this.#requested = key;
+    this.#firstFetch = false;
+    try {
+      await this.#queue;
+      if (this.#disposed || key !== this.#requested) return;
+      const tokens = await native.tokens(start, end);
+      if (this.#disposed || key !== this.#requested) return;
+      this.#stale = false;
+      for (const [index, line] of tokens.entries()) this.#cache[start + index] = line.map(toToken);
+      for (const listener of this.#listeners) listener();
+    } catch {
+      // Colours are a nicety: the plain text stays, and no timer retries a broken engine.
+      this.#stale = false;
+    }
+  }
+
+  #scheduleAdvance(): void {
+    if (this.#disposed || !this.#native || this.#idle !== undefined) return;
+    const run = () => {
+      this.#idle = undefined;
+      const native = this.#native;
+      if (!native || this.#disposed) return;
+      void this.#queue
+        .then(() => native.advance(200))
+        .then((more) => {
+          if (this.#disposed) return;
+          if (more) this.#scheduleAdvance();
+          else {
+            this.#stale = true;
+            this.#scheduleFetch();
+          }
+        })
+        .catch(() => undefined);
+    };
+    this.#idle =
+      typeof requestIdleCallback === "function"
+        ? requestIdleCallback(run, { timeout: 500 })
+        : (setTimeout(run, 60) as unknown as number);
   }
 }
 
-function linesOf(result: CodeLines): readonly CodeToken[][] {
-  return "lines" in result ? result.lines : [];
+function toToken(token: CodeToken): Token {
+  return { kind: "plain", text: token.text, light: token.light, dark: token.dark };
 }
