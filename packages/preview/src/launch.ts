@@ -106,9 +106,12 @@ export function createLaunchManager(options: {
           proc.stdout.on("line", (line: string) => emit(entry.name, line.slice(0, 8192)));
           proc.stderr.on("line", (line: string) => emit(entry.name, line.slice(0, 8192)));
         }
-        void proc.exited.then(() => {
-          if (active.get(entry.name) === handle) active.delete(entry.name);
-        });
+        // exited settles when the process is gone; a failed read leaves the entry to close().
+        void proc.exited
+          .then(() => {
+            if (active.get(entry.name) === handle) active.delete(entry.name);
+          })
+          .catch(() => {});
         return handle;
       } finally {
         try {

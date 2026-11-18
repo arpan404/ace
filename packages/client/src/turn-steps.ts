@@ -164,7 +164,15 @@ export class TurnStepsCache {
     slot.entry = { ...slot.entry, state: "loading" };
     slot.abort = controller;
     this.emit();
-    void this.load(id, threadId, ordinal, slot, controller, [...slot.entry.steps], slot.cursor);
+    void this.load(
+      id,
+      threadId,
+      ordinal,
+      slot,
+      controller,
+      [...slot.entry.steps],
+      slot.cursor,
+    ).catch(ignore);
   }
 
   /**
@@ -209,8 +217,9 @@ export class TurnStepsCache {
       known: endSeq,
     };
     this.slots.set(id, slot);
-    if (!before) void this.recall(id, threadId, ordinal, slot, controller);
-    void this.load(id, threadId, ordinal, slot, controller, [], undefined);
+    // recall and load keep their own read failures; the slot shows what it has.
+    if (!before) void this.recall(id, threadId, ordinal, slot, controller).catch(ignore);
+    void this.load(id, threadId, ordinal, slot, controller, [], undefined).catch(ignore);
   }
 
   /** Show the turn's stored record while the daemon reads it, if the store answers first. */

@@ -115,23 +115,29 @@ test.each([0, 80])(
   },
 );
 
-test("workspace identity capacity applies backpressure while pinned identities remain effective", async () => {
+test("settings still read for a new workspace after more than 64 have been seen, and the recent ones keep their values", async () => {
   const f = await setup();
-  const first = join(f.root, "workspace-0");
+  const last = join(f.root, "workspace-63");
   for (let index = 0; index < 64; index++) {
     const workspace = join(f.root, `workspace-${index}`);
     await mkdir(workspace);
     await f.service.get("threads.settleOnClose", { workspace });
   }
+  await f.service.set("threads.settleOnClose", true, { kind: "workspace", workspace: last });
   const overflow = join(f.root, "workspace-overflow");
   await mkdir(overflow);
-  await expect(
-    f.service.get("threads.settleOnClose", { workspace: overflow }),
-  ).rejects.toMatchObject({ code: "limit" });
-  await f.service.set("threads.settleOnClose", true, { kind: "workspace", workspace: first });
-  expect(await f.service.get("threads.settleOnClose", { workspace: first })).toMatchObject({
+  await f.service.set("threads.settleOnClose", true, { kind: "workspace", workspace: overflow });
+  expect(await f.service.get("threads.settleOnClose", { workspace: overflow })).toMatchObject({
+    value: true,
+    provenance: "workspace",
+  });
+  expect(await f.service.get("threads.settleOnClose", { workspace: last })).toMatchObject({
     value: true,
   });
+  // The least recently used root was dropped; reading it again pins it afresh.
+  expect(
+    await f.service.get("threads.settleOnClose", { workspace: join(f.root, "workspace-0") }),
+  ).toMatchObject({ value: false });
 });
 
 test("a root replaced by a symlink retains its original workspace settings and diagnostic", async () => {

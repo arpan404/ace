@@ -99,7 +99,8 @@ export class ChromeTargets {
       const cancel = this.schedule(() => {
         this.claims.delete(targetId);
         reject(new Error("Browser tab did not start"));
-        void this.close(targetId);
+        // close() already swallows the CDP failure; a tab that never started needs no report.
+        void this.close(targetId).catch(() => {});
       }, 10_000);
       this.claims.set(targetId, {
         resolve: (target) => {
@@ -170,12 +171,12 @@ export class ChromeTargets {
       return;
     }
     if (this.orphans.size >= 64) {
-      void this.close(target.targetId);
+      void this.close(target.targetId).catch(() => {});
       return;
     }
     const cancel = this.schedule(() => {
       this.orphans.delete(target.targetId);
-      void this.close(target.targetId);
+      void this.close(target.targetId).catch(() => {});
     }, 5_000);
     this.orphans.set(target.targetId, { target, cancel });
   }

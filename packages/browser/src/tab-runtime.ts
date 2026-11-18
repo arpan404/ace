@@ -172,7 +172,8 @@ export class TabRuntime {
       style: () => cursor?.style() ?? defaultCursorStyle,
       name: (agentId) => cursor?.name?.(agentId),
     });
-    if (host.recording?.()) void this.cursor.setRecording(true);
+    // A cursor layer is best effort: a tab that cannot mask it still records.
+    if (host.recording?.()) void this.cursor.setRecording(true).catch(() => {});
     this.refs = new SnapshotRefs(
       cdp,
       () => this.page.frames?.(),

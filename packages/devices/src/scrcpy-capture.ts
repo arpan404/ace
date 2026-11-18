@@ -418,16 +418,19 @@ export async function scrcpyCapture(options: {
         ),
       );
     }
-    void connection.exited.then(() =>
-      lost(
-        started,
-        new DeviceError(
-          "command_failed",
-          "scrcpy-server stopped on the device",
-          "Start the device view again.",
+    // `exited` reports the connection's exit and does not reject.
+    void connection.exited
+      .then(() =>
+        lost(
+          started,
+          new DeviceError(
+            "command_failed",
+            "scrcpy-server stopped on the device",
+            "Start the device view again.",
+          ),
         ),
-      ),
-    );
+      )
+      .catch(() => {});
     if (stopped) {
       await disconnect(started);
       return;

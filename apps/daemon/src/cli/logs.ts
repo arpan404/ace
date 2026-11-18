@@ -40,7 +40,8 @@ export async function logsCommand(args: Args, home: string, color: boolean) {
   let interrupted = false;
   const stop = () => {
     interrupted = true;
-    void child.stop({ graceMs: 100 });
+    // The exit awaited below carries the outcome; stopping now is only a head start.
+    void child.stop({ graceMs: 100 }).catch(() => {});
   };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
@@ -66,14 +67,16 @@ export async function logsCommand(args: Args, home: string, color: boolean) {
         .then(() => show(record))
         .catch((error: unknown) => {
           failure = error;
-          void child.stop({ graceMs: 100 });
+          // The exit awaited below carries the outcome; stopping now is only a head start.
+          void child.stop({ graceMs: 100 }).catch(() => {});
         })
         .finally(() => {
           queued -= Buffer.byteLength(line);
         });
     } catch (error) {
       failure = error;
-      void child.stop({ graceMs: 100 });
+      // The exit awaited below carries the outcome; stopping now is only a head start.
+      void child.stop({ graceMs: 100 }).catch(() => {});
     }
   });
   let diagnostic = "";

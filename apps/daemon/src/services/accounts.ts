@@ -42,15 +42,18 @@ export async function startAccounts(context: ServiceContext) {
   };
   const stopReports = registry.subscribeQuota(report);
   resources.own(() => stopReports());
-  void registry.firstPass.then(() => {
-    for (const account of registry.list())
-      if (registry.isChecking(account.instance.id))
-        context.log.log(
-          "warn",
-          "Account folder not answering",
-          logFields([["instance", account.instance.id]]),
-        );
-  });
+  // Each account's failure is reported above; the pass as a whole only has to finish.
+  void registry.firstPass
+    .then(() => {
+      for (const account of registry.list())
+        if (registry.isChecking(account.instance.id))
+          context.log.log(
+            "warn",
+            "Account folder not answering",
+            logFields([["instance", account.instance.id]]),
+          );
+    })
+    .catch(() => {});
   services.accountRegistry = registry;
   services.accounts = new AccountService({
     registry,
@@ -151,7 +154,8 @@ export function createAccountsSession(context: SocketContext): SocketService {
       const task = context.options.accountManagement?.disconnect(context.sessionId).catch(() => {});
       if (task) {
         context.tasks.add(task);
-        void task.finally(() => context.tasks.delete(task));
+        // The disconnect drops its own failure above; this only forgets the task.
+        void task.finally(() => context.tasks.delete(task)).catch(() => {});
       }
     },
     async handle(message, device) {

@@ -99,9 +99,12 @@ export function createExtensionCatalog(
     },
     changed(type: string) {
       if (["config.updated", "plugin.updated", "mcp.status.changed"].includes(type))
-        for (const method of reads.keys()) void refresh(method);
+        for (const method of reads.keys())
+          // A failed read keeps the last metadata, which refresh() handles itself.
+          void refresh(method).catch(() => {});
       else if (["command.updated", "skill.updated", "agent.updated"].includes(type))
-        void refresh(type.replace("updated", "list"));
+        // A failed read keeps the last metadata, which refresh() handles itself.
+        void refresh(type.replace("updated", "list")).catch(() => {});
     },
   };
 }

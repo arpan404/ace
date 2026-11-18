@@ -63,8 +63,12 @@ test("an uncaught rejection from a full disk is logged and the daemon keeps runn
   expect(records[1].data.message).toBe("database or disk is full");
 });
 
-test("any other uncaught rejection is still fatal and logged", async () => {
-  const records = await crash("plain-rejection");
-  expect(records.map((record) => record.message)).toEqual(["buffered before crash", "Fatal error"]);
+test("any other uncaught rejection is logged and the daemon keeps running", async () => {
+  const records = await crash("plain-rejection", { code: 0 });
+  expect(records.map((record) => record.message)).toEqual([
+    "buffered before crash",
+    "Unhandled rejection; continuing",
+    "still running",
+  ]);
   expect(records[1].data.message).toBe("simulated daemon crash");
 });

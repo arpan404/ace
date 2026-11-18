@@ -133,7 +133,8 @@ export class JumpController {
     this.state = { ...this.state, ...patch };
     if (this.state.window !== window) {
       this.state = { ...this.state, turns: this.turnsOf(this.state.window) };
-      if (this.state.window) void this.learnTurns(this.state.window);
+      // learnTurns gives up on its own read failures; the window paints either way.
+      if (this.state.window) void this.learnTurns(this.state.window).catch(() => {});
     }
     for (const listener of this.listeners) listener();
   }

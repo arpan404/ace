@@ -76,7 +76,8 @@ export function apiKeyLoginDriver(options: {
         });
         const owned = child;
         const abort = () => {
-          void owned.stop();
+          // Only a head start: the finally block stops the same process again and reports there.
+          void owned.stop().catch(() => {});
         };
         signal.addEventListener("abort", abort, { once: true });
         try {

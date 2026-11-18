@@ -161,7 +161,8 @@ export async function screenrecordCapture(
     input.stderr.resume();
     output.stderr.resume();
     output.stdin.on("error", () => {
-      void input.stop({ graceMs: 0 });
+      // The decoder's exit ends the capture; a failed stop adds nothing to that report.
+      void input.stop({ graceMs: 0 }).catch(() => {});
     });
     const earlyDecoder = output.exited.then((exit) => {
       if (!stopped && current.intent === "run" && !input.signal.aborted) {
@@ -180,7 +181,8 @@ export async function screenrecordCapture(
       unwatch?.();
       options.signal?.removeEventListener("abort", abort);
       options.failure(error);
-      void Promise.all([input.stop({ graceMs: 0 }), output.stop({ graceMs: 0 })]);
+      // The failure above is the one worth reporting; the stops cannot add to it.
+      void Promise.all([input.stop({ graceMs: 0 }), output.stop({ graceMs: 0 })]).catch(() => {});
     }
     current.done = (async () => {
       try {

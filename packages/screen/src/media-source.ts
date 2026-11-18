@@ -311,7 +311,8 @@ export class ScreenMediaSource {
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    void this.#owners.close();
+    // close() waits for the running update with its failure already swallowed.
+    void this.#owners.close().catch(() => {});
     this.#source.close();
     this.#merge.dispose();
   }

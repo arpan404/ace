@@ -197,7 +197,8 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
       fail(error instanceof Error ? error : new Error("MCP bridge failed")),
     );
     tasks.add(task);
-    void task.then(() => tasks.delete(task));
+    // task reports its own failure through fail(); this only stops tracking it.
+    void task.then(() => tasks.delete(task)).catch(() => {});
   });
   const abort = () => {
     lines.close();

@@ -154,9 +154,12 @@ export async function startScrcpyServer(options: {
     server.stdout.on("data", listen);
     server.stderr.on("data", listen);
     let exited = false;
-    void server.exited.then(() => {
-      exited = true;
-    });
+    // `exited` reports the server's exit and does not reject.
+    void server.exited
+      .then(() => {
+        exited = true;
+      })
+      .catch(() => {});
     const deadline = runtime.now() + (options.startupMs ?? 10_000);
     const remaining = () => Math.max(1, deadline - runtime.now());
     let first: Socket | undefined;

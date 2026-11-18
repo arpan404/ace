@@ -72,7 +72,8 @@ export function enrollNotifications(
         attempt = Math.min(attempt + 1, 5);
       });
     options.tasks.add(task);
-    void task.finally(() => options.tasks.delete(task));
+    // The connect above logs its own failure; this only forgets the task.
+    void task.finally(() => options.tasks.delete(task)).catch(() => {});
   };
   enroll();
 }

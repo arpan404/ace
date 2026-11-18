@@ -20,7 +20,10 @@ export async function launchPluginProcess(
       args: [...(options.args ?? []), ...session.args],
       env: launchEnvironment(options.env, session.env),
     });
-    const exited = process.exited.finally(session.close);
+    const exited = process.exited.finally(() => {
+      // Closing the session is cleanup after exit; a failure there cannot change the exit result.
+      void session.close().catch(() => {});
+    });
     return {
       ...process,
       exited,

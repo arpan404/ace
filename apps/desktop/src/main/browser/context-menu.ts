@@ -64,8 +64,9 @@ export function popupContextMenu(options: {
     if (contents.isDestroyed()) return;
     if (command === "openLinkOutside") {
       if (web(params.linkURL)) void shell.openExternal(params.linkURL).catch(() => {});
-    } else if (command === "copyLink") clipboard.writeText(params.linkURL);
-    else if (command === "copyImageAddress") clipboard.writeText(params.srcURL);
+    } else if (command === "copyLink") void clipboard.writeText(params.linkURL).catch(() => {});
+    else if (command === "copyImageAddress")
+      void clipboard.writeText(params.srcURL).catch(() => {});
     else if (command === "copyImage") contents.copyImageAt(params.x, params.y);
     else if (command === "saveImage") contents.downloadURL(params.srcURL);
     else if (command === "cut") contents.cut();

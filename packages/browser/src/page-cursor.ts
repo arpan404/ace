@@ -206,7 +206,8 @@ export class PageCursor {
     const cancel = this.options.clock.set(this.options.inUseMs, () => {
       if (this.agents.get(id)?.cancel !== cancel) return;
       this.agents.delete(id);
-      void this.send([{ op: "leave", id }]);
+      // Cursor work is best effort: a failed send never fails the work it illustrates.
+      void this.send([{ op: "leave", id }]).catch(() => {});
     });
     this.agents.set(id, { name, at, cancel });
     return id;
@@ -223,7 +224,7 @@ export class PageCursor {
     if (!agent) return;
     const shown = await this.send([{ op: "agent", id, name: agent.name, at, glide: true }]);
     if (shown && !this.hidden && this.options.glideMs > 0) await this.wait(this.options.glideMs);
-    if (click && shown) void this.send([{ op: "click", id }]);
+    if (click && shown) void this.send([{ op: "click", id }]).catch(() => {});
   }
 
   /** A drag: the cursor lands on the start, then glides to the end along a dashed trail. */
@@ -235,7 +236,7 @@ export class PageCursor {
     void this.send([
       { op: "drag", id, from, to },
       { op: "agent", id, name, at: to, glide: true },
-    ]);
+    ]).catch(() => {});
   }
 
   /** Typing: the cursor moves to the field, which glows while text goes in. */
@@ -245,14 +246,14 @@ export class PageCursor {
       x: field.x + Math.min(field.width / 2, 24),
       y: field.y + field.height / 2,
     });
-    void this.send([{ op: "type", id: agentId ?? "", field }]);
+    void this.send([{ op: "type", id: agentId ?? "", field }]).catch(() => {});
   }
 
   scroll(agentId: string | undefined, dx: number, dy: number): void {
     if (!this.options.visible || this.kept || this.closed) return;
     const id = agentId ?? "";
     if (!this.agents.has(id)) return;
-    void this.send([{ op: "scroll", id, dx, dy }]);
+    void this.send([{ op: "scroll", id, dx, dy }]).catch(() => {});
   }
 
   /** The person used the page: cursors fade until they have paused for `quietMs`. */
@@ -262,16 +263,17 @@ export class PageCursor {
     this.stopPerson = this.options.clock.set(this.options.quietMs, () => {
       this.stopPerson = undefined;
       this.person = false;
-      if (this.installed) void this.send([{ op: "person", active: false }]);
+      if (this.installed) void this.send([{ op: "person", active: false }]).catch(() => {});
     });
     if (this.person) return;
     this.person = true;
-    if (this.installed) void this.send([{ op: "person", active: true }]);
+    if (this.installed) void this.send([{ op: "person", active: true }]).catch(() => {});
   }
 
   /** The viewer's accent changed. */
   restyle(): void {
-    if (this.installed) void this.send([{ op: "style", style: this.options.style() }]);
+    if (this.installed)
+      void this.send([{ op: "style", style: this.options.style() }]).catch(() => {});
   }
 
   /**
@@ -288,7 +290,7 @@ export class PageCursor {
     } finally {
       this.captures--;
       if (!this.hiddenForAgents && this.installed)
-        void this.send([{ op: "capture", hidden: false, mask: false }]);
+        void this.send([{ op: "capture", hidden: false, mask: false }]).catch(() => {});
     }
   }
 
@@ -317,7 +319,8 @@ export class PageCursor {
     this.kept = value;
     if (!value) return;
     this.forgetAgents();
-    void this.teardown();
+    // Losing the layer is harmless: the private tab simply stops drawing anything.
+    void this.teardown().catch(() => {});
   }
 
   private forgetAgents(): void {
@@ -334,7 +337,7 @@ export class PageCursor {
   /** A new document in the top frame: its layer is gone; bring it back if anything shows. */
   navigated(): void {
     this.drop();
-    if (this.agents.size || this.recording) void this.send([]);
+    if (this.agents.size || this.recording) void this.send([]).catch(() => {});
   }
 
   /** The renderer came back or the page was replaced: same as a new document. */
@@ -365,7 +368,8 @@ export class PageCursor {
     if (this.closed) return;
     this.forgetAgents();
     this.stopPerson?.();
-    void this.teardown();
+    // The tab is going away, so a layer that cannot be taken down needs no report.
+    void this.teardown().catch(() => {});
     this.closed = true;
   }
 }

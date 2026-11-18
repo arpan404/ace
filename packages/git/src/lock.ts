@@ -12,10 +12,13 @@ function waitTurn(previous: Promise<void>, signal: AbortSignal | undefined): Pro
   return new Promise((resolve, reject) => {
     const abort = () => reject(cancelled());
     signal.addEventListener("abort", abort, { once: true });
-    void previous.then(() => {
-      signal.removeEventListener("abort", abort);
-      resolve();
-    });
+    // A queued turn only ever resolves (it releases the slot); nothing can reject here.
+    void previous
+      .then(() => {
+        signal.removeEventListener("abort", abort);
+        resolve();
+      })
+      .catch(() => {});
   });
 }
 const cancelled = () => new GitError("git_cancelled", "Git read cancelled before it started");
@@ -34,10 +37,13 @@ export async function serial<T>(
   } catch (error) {
     // A caller that stops waiting keeps its place until the operation ahead of it ends, so the
     // queue order behind it is unchanged; it never runs.
-    void previous.then(() => {
-      release();
-      if (pending.get(key) === next) pending.delete(key);
-    });
+    // The earlier turn only ever resolves, so releasing on it cannot fail.
+    void previous
+      .then(() => {
+        release();
+        if (pending.get(key) === next) pending.delete(key);
+      })
+      .catch(() => {});
     throw error;
   }
   try {

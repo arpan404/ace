@@ -74,7 +74,8 @@ export async function extractTar(
       archive.destroy(error instanceof Error ? error : new Error("Archive extraction failed")),
     );
     active.add(task);
-    void task.then(() => active.delete(task));
+    // task reports its own failure through the archive stream; this only stops tracking it.
+    void task.then(() => active.delete(task)).catch(() => {});
   });
   try {
     const decompress =
@@ -187,7 +188,8 @@ export async function extractZip(
           zip.readEntry();
         })().catch(fail);
         active.add(task);
-        void task.then(() => active.delete(task));
+        // task reports its own failure through fail(); this only stops tracking it.
+        void task.then(() => active.delete(task)).catch(() => {});
       });
       if (signal.aborted) abort();
       else zip.readEntry();

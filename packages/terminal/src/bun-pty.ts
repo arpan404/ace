@@ -140,11 +140,14 @@ export function spawnBunPty(
     child.kill("SIGKILL");
     throw new Error("Bun did not attach a terminal to the shell");
   }
-  void child.exited.then((code) => {
-    exitCode = code;
-    if (outputEnded) setImmediate(report);
-    else grace = setTimeout(report, options.outputGraceMs ?? defaultOutputGraceMs);
-  });
+  void child.exited
+    .then((code) => {
+      exitCode = code;
+      if (outputEnded) setImmediate(report);
+      else grace = setTimeout(report, options.outputGraceMs ?? defaultOutputGraceMs);
+    })
+    // Bun reports a failed spawn only as this rejection; the PTY has no other error channel.
+    .catch(() => {});
   return {
     pid: child.pid,
     write: (data) => {

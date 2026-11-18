@@ -205,9 +205,12 @@ export class MediaRelayStreams {
         admit,
       });
       // A result that arrives after the stream was given up is wiped, never read.
-      void handover.then((late) => {
-        if (given.signal.aborted && late.ok) late.block.fill(0);
-      });
+      void handover
+        .then((late) => {
+          if (given.signal.aborted && late.ok) late.block.fill(0);
+        })
+        // Its failure is the caller's below, which turns it into a closed stream.
+        .catch(() => {});
       const result = await within(handover);
       if (!result.ok)
         throw result.reason === "refused" || result.reason === "not a hello"
