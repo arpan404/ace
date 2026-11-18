@@ -460,6 +460,12 @@ pub enum Known {
         reply: String,
         text: String,
     },
+    /// The person pressed Try again on `reply`, the conversation's last reply, which failed. The
+    /// reply stored with this one takes its place: it answers the same turn from the same history,
+    /// with no message posted again, and clients show it in place of the failure.
+    ReplyRetried {
+        reply: String,
+    },
     Renamed {
         title: String,
     },
@@ -618,6 +624,9 @@ pub enum FailureKind {
     RateLimited,
     /// The model or the endpoint failed while answering, or refused the request.
     Model,
+    /// The bot has no model it can use: none was chosen yet, or the chosen one is no longer on
+    /// the person's endpoints. Choosing one fixes it.
+    NoModel,
     /// Retired (ADR 0166): a spending cap ended the reply before its next call, as builds with
     /// caps stored it. Still read: such a reply counts as finished, so its task carries on, and
     /// it reaches no one.
@@ -645,8 +654,8 @@ impl FailureKind {
             ModelError::Unanswered { .. }
             | ModelError::Provider { .. }
             | ModelError::Empty { .. }
-            | ModelError::Shape { .. }
-            | ModelError::UnknownModel(_) => Self::Model,
+            | ModelError::Shape { .. } => Self::Model,
+            ModelError::UnknownModel(_) => Self::NoModel,
             ModelError::Listing { .. } | ModelError::Setup(_) => Self::Other,
         }
     }
@@ -981,5 +990,32 @@ mod tests {
             var: None,
         };
         assert_eq!(FailureKind::of(&missing), FailureKind::Key);
+    }
+
+    #[test]
+    fn a_reply_without_a_usable_model_fails_as_no_model_and_says_what_to_do() {
+        use spade_models::ModelError;
+        let unchosen = ModelError::UnknownModel(String::new());
+        assert_eq!(FailureKind::of(&unchosen), FailureKind::NoModel);
+        assert!(
+            unchosen
+                .to_string()
+                .contains("no model is chosen yet: choose one")
+        );
+        let gone = ModelError::UnknownModel("old/m".into());
+        assert_eq!(FailureKind::of(&gone), FailureKind::NoModel);
+        assert_eq!(
+            gone.to_string(),
+            "old/m is not a model on one of your endpoints"
+        );
+        let stored = Event::Known(Known::ReplyFailed {
+            reply: "r1".into(),
+            text: String::new(),
+            error: unchosen.to_string(),
+            kind: FailureKind::NoModel,
+            endpoint: None,
+        })
+        .to_json();
+        assert_eq!(stored["kind"], "no_model");
     }
 }

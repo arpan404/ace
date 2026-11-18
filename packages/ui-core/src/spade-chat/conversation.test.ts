@@ -709,12 +709,12 @@ const retryOf = (c: ReturnType<typeof conversation>) => {
 };
 
 describe("Try again on a failed reply", () => {
-  test("sends the person's last message again", () => {
+  test("is offered on the last reply when it failed, naming that reply", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Plan my week" });
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored(retryFailed());
-    expect(retryOf(c)).toBe("Plan my week");
+    expect(retryOf(c)).toBe("r1");
   });
 
   test("isn't offered once the conversation moved on", () => {
@@ -733,26 +733,48 @@ describe("Try again on a failed reply", () => {
     capped.stored({ type: "user_message", text: "Plan my week" });
     capped.stored({ type: "reply_started", reply: "r1" });
     capped.stored(retryFailed("cap"));
-    expect(retryOf(capped)).toBe("Plan my week");
+    expect(retryOf(capped)).toBe("r1");
   });
 
-  test("isn't offered for a message with a picture, which sending the words again would lose", () => {
-    const c = conversation();
-    c.stored({ type: "user_message", text: "What is this?", images: [{ sha256: "a".repeat(64) }] });
-    c.stored({ type: "reply_started", reply: "r1" });
-    c.stored(retryFailed());
-    expect(retryOf(c)).toBeUndefined();
+  test("is offered after a message with a picture or from a routine: nothing is sent again", () => {
+    for (const asked of [
+      { type: "user_message", text: "What is this?", images: [{ sha256: "a".repeat(64) }] },
+      {
+        type: "user_message",
+        text: "Morning briefing",
+        from_routine: { id: "t1", name: "Briefing", label: "8:00" },
+      },
+    ]) {
+      const c = conversation();
+      c.stored(asked);
+      c.stored({ type: "reply_started", reply: "r1" });
+      c.stored(retryFailed());
+      expect(retryOf(c)).toBe("r1");
+    }
   });
 
-  test("isn't offered for a message a routine sent", () => {
+  test("the reply tried again takes the failure's place: no failure left, the message once", () => {
     const c = conversation();
-    c.stored({
-      type: "user_message",
-      text: "Morning briefing",
-      from_routine: { id: "t1", name: "Briefing", label: "8:00" },
-    });
+    c.stored({ type: "user_message", text: "Plan my week" });
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored(retryFailed());
-    expect(retryOf(c)).toBeUndefined();
+    c.stored({ type: "reply_retried", reply: "r1" });
+    c.stored({ type: "reply_started", reply: "r2" });
+    c.stored({ type: "reply_finished", reply: "r2", text: "Here is your week." });
+    const bubbles = spadeBubbles(c.view());
+    expect(bubbles.filter((b) => b.kind === "bot" && b.failure)).toEqual([]);
+    expect(bubbles.map((b) => (b.kind === "person" || b.kind === "bot" ? b.text : b.kind))).toEqual(
+      ["Plan my week", "Here is your week."],
+    );
+  });
+
+  test("words a failed reply said stay when it is tried again; only its failure goes", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Plan my week" });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "reply_failed", reply: "r1", text: "Monday:", error: "boom", kind: "model" });
+    c.stored({ type: "reply_retried", reply: "r1" });
+    const bot = spadeBubbles(c.view()).filter((b) => b.kind === "bot");
+    expect(bot.map((b) => [b.text, b.failure])).toEqual([["Monday:", undefined]]);
   });
 });

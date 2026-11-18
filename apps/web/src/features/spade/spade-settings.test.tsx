@@ -34,10 +34,11 @@ test("Settings lists Spade's pages under its own label, and marks only the open 
   );
 });
 
-test("the model for new bots starts on the first usable model and saves the one model picked", async () => {
+test("the model for new bots names the first usable model and saves the one model picked", async () => {
   const { spade } = await spadeApp("/settings/spade", withSpade);
   const picker = await screen.findByRole("button", { name: "Model for new bots" });
-  expect(picker.textContent).toBe("Your first usable model");
+  // The model itself, never "your first usable model".
+  await waitFor(() => expect(picker.textContent).toBe("Saved model · OpenRouter"));
   await userEvent.click(picker);
   await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
   await waitFor(() =>

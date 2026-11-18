@@ -8,9 +8,10 @@ import { CouldNotRead, SpadeNotRunning, useSpadeRunning } from "./spade-settings
 import { useSpadeModels } from "./use-spade-models.ts";
 
 /**
- * Settings › Spade › Models: the models for every bot's other work (helpers, checking done,
- * reviewing steps, summaries, titles), then each of the person's endpoints (its address, key and models), then
- * Add an endpoint, from a preset or by address.
+ * Settings › Spade › Models, in the order setup goes: each of the person's endpoints (its
+ * address, key and models), then Add an endpoint, from a preset or by address, then the models
+ * for every bot's other work (helpers, checking done, reviewing steps, summaries, titles), which
+ * pick from those endpoints.
  */
 export function SpadeModelsSettings() {
   const { line, reading } = useSpadeRunning();
@@ -37,7 +38,6 @@ export function SpadeModelsSettings() {
   const { data } = models;
   return (
     <>
-      <GlobalRoles fastModel={data.fastModel} />
       {data.endpoints.map((endpoint) => (
         <EndpointSection key={endpoint.id} endpoint={endpoint} keychain={data.keychain} />
       ))}
@@ -46,6 +46,7 @@ export function SpadeModelsSettings() {
           <SettingAddRow onClick={() => setAdding(true)}>Add an endpoint</SettingAddRow>
         </SettingCard>
       </div>
+      <GlobalRoles fastModel={data.fastModel} />
       {adding && <AddEndpointDialog presets={data.presets} onClose={() => setAdding(false)} />}
     </>
   );

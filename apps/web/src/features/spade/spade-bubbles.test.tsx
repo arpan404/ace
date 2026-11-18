@@ -159,7 +159,7 @@ test("another bot's run shows its name and face once, above its first message", 
   expect(run.getByText("Frost tonight.")).toBeTruthy();
 });
 
-test("a failed reply says what went wrong in one plain sentence, and Try again sends the message again", async () => {
+test("a failed reply says what failed and what to do, and Try again answers it in place without posting twice", async () => {
   const raw =
     "openrouter/saved/model: Web stream error for model 'saved/model'. Cause: error sending request for url (https://openrouter.ai/api/v1/chat/completions)";
   const { spade } = await spadeApp("/spade/garden", (api) => {
@@ -179,14 +179,17 @@ test("a failed reply says what went wrong in one plain sentence, and Try again s
   });
   const chat = within(await feed("Garden"));
   // Named as the person named the endpoint; the endpoint's own words wait behind Details.
-  expect(await chat.findByText("Couldn't reach OpenRouter.")).toBeTruthy();
+  const sentence = "Couldn't reach OpenRouter. Check it's running and online, then try again.";
+  expect(await chat.findByText(sentence)).toBeTruthy();
   expect(chat.queryByText(raw)).toBeNull();
   await userEvent.click(chat.getByRole("button", { name: "Details" }));
   expect(chat.getByLabelText("Details").textContent).toBe(raw);
   await userEvent.click(chat.getByRole("button", { name: "Try again" }));
   await waitFor(() =>
-    expect(spade.sent("POST", "/v1/conversations/c-garden/messages")).toEqual([
-      { text: "Plan my week" },
-    ]),
+    expect(spade.sent("POST", "/v1/conversations/c-garden/retry")).toEqual([{ reply: "r1" }]),
   );
+  // The failure gives way to the new reply; the message was never sent again.
+  await waitFor(() => expect(chat.queryByText(sentence)).toBeNull());
+  expect(spade.sent("POST", "/v1/conversations/c-garden/messages")).toEqual([]);
+  expect(chat.getAllByText("Plan my week")).toHaveLength(1);
 });

@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { removeEndpoint, removeKey, removeModel, saveModel, setKey } from "./spade-api.ts";
 import { modelsKey } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { SpadeModelChoice } from "./spade-model-picker.tsx";
 import { fault, Refusal } from "./spade-settings-rows.tsx";
 
 /** Controls that come up while the pointer is on their row, and always without a pointer. */
@@ -146,24 +147,25 @@ function RemoveEndpoint(props: { endpoint: SpadeEndpoint }) {
   );
 }
 
-/** Add a model: a row that opens to a model id field, saved so it is offered first. */
+/**
+ * Add a model: a row that opens the models the endpoint lists (the same list the chat's picker
+ * reads), searchable, or an id typed in; the one picked is saved, so it is offered first.
+ */
 function AddModelRow(props: { endpoint: SpadeEndpoint }) {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const field = useId();
-  const [draft, setDraft] = useState<string>();
+  const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string>();
-  if (draft === undefined)
-    return <SettingAddRow onClick={() => setDraft("")}>Add a model</SettingAddRow>;
-  const add = async () => {
-    const id = draft.trim();
-    if (!id) return;
+  if (!adding) return <SettingAddRow onClick={() => setAdding(true)}>Add a model</SettingAddRow>;
+  const add = async (id: string) => {
+    if (!id.trim()) return;
     setSaving(true);
     setRefusal(undefined);
     try {
-      await saveModel(client, props.endpoint.id, { id });
-      setDraft(undefined);
+      await saveModel(client, props.endpoint.id, { id: id.trim() });
+      setAdding(false);
       await cache.invalidateQueries({ queryKey: modelsKey });
     } catch (error) {
       setRefusal(fault(error));
@@ -173,40 +175,25 @@ function AddModelRow(props: { endpoint: SpadeEndpoint }) {
   };
   return (
     <SettingRow
-      title="Model id"
+      title="Model"
       description={refusal && <Refusal>{refusal}</Refusal>}
       htmlFor={field}
       density="compact"
     >
-      <form
-        className="flex items-center gap-1.5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void add();
-        }}
-      >
-        <Input
+      <div className="flex items-center gap-1.5">
+        <SpadeModelChoice
           id={field}
-          placeholder="deepseek-v4.1-flash"
-          spellCheck={false}
-          autoComplete="off"
-          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the field opens because the person asked for it.
-          autoFocus
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setDraft(undefined);
-          }}
-          disabled={saving}
-          className="w-52"
+          label="Model to add"
+          endpoint={props.endpoint}
+          model=""
+          omit={props.endpoint.models.map((model) => model.id)}
+          opened
+          onChange={(id) => void add(id)}
         />
-        <Button size="sm" variant="ghost" onClick={() => setDraft(undefined)}>
+        <Button size="sm" variant="ghost" onClick={() => setAdding(false)} disabled={saving}>
           Cancel
         </Button>
-        <Button size="sm" type="submit" disabled={saving || !draft.trim()}>
-          Add
-        </Button>
-      </form>
+      </div>
     </SettingRow>
   );
 }

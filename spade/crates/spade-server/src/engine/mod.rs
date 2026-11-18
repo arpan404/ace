@@ -46,6 +46,7 @@ mod search;
 mod security;
 mod services;
 mod trim;
+mod try_again;
 mod turn;
 mod turn_log;
 mod types;
@@ -58,7 +59,7 @@ pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
-pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
+pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
 pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
@@ -81,6 +82,7 @@ pub use retry::Retry;
 pub use roster::{LastMessage, State};
 pub use routing::{RolesChange, entry_role};
 pub(crate) use search::Native;
+pub use try_again::RetryError;
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
     CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,

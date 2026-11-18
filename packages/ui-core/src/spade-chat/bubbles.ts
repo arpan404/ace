@@ -130,8 +130,8 @@ export interface SpadeBubbleFailure {
   /** The endpoint's or Spade's own words, for Details and the activity log. */
   error: string;
   /**
-   * The person's last message, to send again with Try again: only on the conversation's last
-   * reply, when the person's text-only message started it and a cap didn't stop it.
+   * The failed reply's id, for Try again (`POST …/retry`), which answers the same turn again in
+   * its place: only on the conversation's last reply.
    */
   retry: string | undefined;
 }
@@ -447,28 +447,14 @@ function pushBot(
 }
 
 /**
- * Try again on the last bubble when the conversation's last reply failed after a message the
- * person typed: that message's words, sent again. A message with pictures, files or a recording
- * isn't offered (they would be lost), nor one a routine, group or bot sent.
+ * Try again on the last bubble when the conversation's last reply failed: Spade answers that turn
+ * again in place, so nothing the person sent (words, pictures, files) is posted twice.
  */
 function offerRetry(bubbles: SpadeBubble[], entries: readonly SpadeEntry[]) {
   const at = bubbles.length - 1;
   const last = bubbles[at];
   if (last?.kind !== "bot" || !last.failure) return;
-  const reply = entries.findLastIndex((entry) => entry.kind === "reply");
-  if (reply !== entries.length - 1) return;
-  const asked = entries.slice(0, reply).findLast((entry) => entry.kind === "user");
-  if (
-    asked?.kind !== "user" ||
-    asked.pending ||
-    asked.fromAgent ||
-    asked.fromRoutine ||
-    asked.fromGroup ||
-    asked.voice ||
-    asked.images.length ||
-    asked.documents?.length ||
-    !asked.text.trim()
-  )
-    return;
-  bubbles[at] = { ...last, failure: { ...last.failure, retry: asked.text } };
+  const reply = entries.at(-1);
+  if (reply?.kind !== "reply" || reply.end?.kind !== "failed") return;
+  bubbles[at] = { ...last, failure: { ...last.failure, retry: reply.reply } };
 }
