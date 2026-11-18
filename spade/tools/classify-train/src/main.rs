@@ -12,9 +12,15 @@ mod data;
 mod eval;
 mod fixtures;
 mod fresh;
+mod hard;
+mod label;
+mod measure;
 mod obfuscate;
+mod real;
+mod replay;
 mod rng;
 mod shell_families;
+mod tldr;
 mod tool_families;
 mod train;
 mod vocab;
@@ -37,6 +43,13 @@ const DEFAULT_SEED: u64 = 172;
 const DEFAULT_FRESH_SEED: u64 = 2026;
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("measure") {
+        if let Err(error) = measure_only(std::env::args().skip(2)) {
+            eprintln!("classify-train: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let mut seed = DEFAULT_SEED;
     let mut fresh_seed = DEFAULT_FRESH_SEED;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -544,4 +557,58 @@ fn dump(examples: &[Example], scored: &[Scored], model: &Model) {
     for ((label, top), n) in worst.iter().take(20) {
         println!("CONFUSED {label} -> {top}: {n}");
     }
+}
+
+/// The classifier's decision as `main` wires it (ADR 0172 decision 2): it may settle only a shell
+/// command the gate lets it settle; anything else it can only raise.
+fn decide_main(
+    model: &Model,
+    subject: &spade_classify::Subject<'_>,
+    reviewing: spade_classify::Reviewing,
+) -> spade_classify::Screen {
+    let prediction = model.predict(subject);
+    if matches!(subject, spade_classify::Subject::Shell { .. }) && reviewing.may_settle() {
+        model.screen(&prediction)
+    } else {
+        model.raise(&prediction)
+    }
+}
+
+/// `classify-train measure [--weights FILE] [--tldr DIR] [--real DIR]`: the realistic measures
+/// of a model file (the built-in one by default), printed; real sessions only as aggregates.
+fn measure_only(mut args: impl Iterator<Item = String>) -> Result<(), String> {
+    let (mut weights, mut tldr_dir, mut real_dir) = (None, None, None);
+    while let Some(arg) = args.next() {
+        let value = args.next().map(PathBuf::from);
+        match arg.as_str() {
+            "--weights" => weights = value,
+            "--tldr" => tldr_dir = value,
+            "--real" => real_dir = value,
+            _ => {
+                return Err(
+                    "usage: classify-train measure [--weights FILE] [--tldr DIR] [--real DIR]"
+                        .into(),
+                );
+            }
+        }
+    }
+    let model = match weights {
+        Some(path) => {
+            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+            Model::parse(Cow::Owned(bytes)).map_err(|e| e.0)?
+        }
+        None => Model::parse(Cow::Borrowed(include_bytes!(
+            "../../../crates/spade-classify/model/weights.bin"
+        )))
+        .map_err(|e| e.0)?,
+    };
+    let tldr = tldr_dir.map(|d| tldr::read(&d)).transpose()?;
+    let real = real_dir.map(|d| real::read(&d)).transpose()?;
+    let wirings: [(&str, replay::Decide<'_>, bool); 1] = [("as on main", &decide_main, false)];
+    println!(
+        "Model `{}`.\n{}",
+        model.id(),
+        measure::report(&model, tldr.as_deref(), real.as_deref(), &wirings)
+    );
+    Ok(())
 }
