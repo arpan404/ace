@@ -51,3 +51,19 @@ import Testing
         #expect(time >= 1.25 && time < 1.27, "shown at the cap, not before or long after: \(time)")
     }
 }
+
+/// Where an opening thread belongs before it may show: at the end it follows, and nowhere at
+/// all while a saved place is still being fetched or put back.
+@Suite struct TranscriptOpeningPlaceTests {
+    @Test func aFeedFollowingTheEndBelongsAtTheEnd() {
+        #expect(TranscriptSettle.opened(following: true, fromEnd: 0.5, restoring: false))
+        #expect(!TranscriptSettle.opened(following: true, fromEnd: 640, restoring: false), "short of the end")
+    }
+
+    @Test func aFeedReopeningASavedPlaceWaitsForIt() {
+        // The live tail sits still at its end while the saved window is still on its way.
+        #expect(!TranscriptSettle.opened(following: false, fromEnd: 0, restoring: true))
+        #expect(!TranscriptSettle.opened(following: false, fromEnd: 3_000, restoring: true))
+        #expect(TranscriptSettle.opened(following: false, fromEnd: 3_000, restoring: false), "the saved row is in place")
+    }
+}

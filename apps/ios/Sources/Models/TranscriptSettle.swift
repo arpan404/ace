@@ -39,6 +39,13 @@ struct TranscriptSettle: Equatable, Sendable {
         return time - started >= Self.limit ? .capped : .waiting
     }
 
+    /// Whether an opening feed is where it opens: at its end when `following` it (`fromEnd` is
+    /// how far the end is below the bottom edge), and not while a saved place is `restoring`:
+    /// still being fetched or put back.
+    static func opened(following: Bool, fromEnd: Double, restoring: Bool) -> Bool {
+        !restoring && (!following || fromEnd <= 1)
+    }
+
     private static func matches(_ a: [Double], _ b: [Double]) -> Bool {
         a.count == b.count && zip(a, b).allSatisfy { abs($0 - $1) < tolerance }
     }

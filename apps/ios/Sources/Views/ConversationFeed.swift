@@ -673,14 +673,16 @@ struct ConversationFeed: View {
     /// A thread opening draws its first frames short of where it opens: lazy rows correct their
     /// heights and the scroll catches up with the end. The rows stay hidden until the content's
     /// height and offset have held for two frames with the feed at the end it follows, a quarter
-    /// second at most (`TranscriptSettle`), then show there in one frame (ADR 0157).
+    /// second at most (`TranscriptSettle`), then show there in one frame (ADR 0157). A saved
+    /// place being reopened counts as not yet placed until its row is back where it was.
     private func revealWhenSettled() {
         let intent = intent
         let started = CACurrentMediaTime()
         var settle = TranscriptSettle(at: started)
         surface.untilSettled(.reveal, { time in
             let metrics = intent.metrics
-            let placed = !pinned || metrics.bottom <= 1
+            let placed = TranscriptSettle.opened(following: pinned, fromEnd: Double(metrics.bottom),
+                                                 restoring: viewport.sessionAnchor != nil || reading.loading)
             return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
         }) { outcome in
             var still = Transaction()
