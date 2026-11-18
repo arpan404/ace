@@ -37,25 +37,30 @@ pub struct Blockers {
     pub hides: usize,
     pub unknown_part: usize,
     pub dropped: usize,
-    /// Plain, but under the threshold.
+    /// No form that ignores configuration that could run a program (ADR 0172, amendment 3).
+    pub no_form: usize,
+    /// Eligible, but under the threshold (or raised).
     pub below: usize,
-    /// Plain, and settled.
+    /// Settled: the model's own decision was low-risk.
     pub settled: usize,
 }
 
 pub fn measure(model: &Model, items: &[Item]) -> (Measures, Blockers) {
     let mut m = Measures::default();
     let mut b = Blockers::default();
-    let low_at = model.header().low;
     for item in items {
         let p = model.predict(&Subject::Shell {
             command: &item.command,
             workspace: item.workspace.as_deref(),
         });
-        count(&mut m, &p, model.screen(&p), item.label);
+        let screen = model.screen(&p);
+        count(&mut m, &p, screen, item.label);
         if LOW_RISK.contains(&item.label) {
             b.low += 1;
-            if p.reaches_outside {
+            // Settled is what the decision itself says; the rest by the first check that stops it.
+            if screen == Screen::LowRisk {
+                b.settled += 1;
+            } else if p.reaches_outside {
                 b.outside += 1;
             } else if p.hides {
                 b.hides += 1;
@@ -63,10 +68,10 @@ pub fn measure(model: &Model, items: &[Item]) -> (Measures, Blockers) {
                 b.unknown_part += 1;
             } else if p.dropped {
                 b.dropped += 1;
-            } else if p.low_risk() < low_at {
-                b.below += 1;
+            } else if !p.hardened {
+                b.no_form += 1;
             } else {
-                b.settled += 1;
+                b.below += 1;
             }
         }
     }
@@ -99,17 +104,18 @@ pub fn count(m: &mut Measures, p: &Prediction, screen: Screen, label: Effect) {
     }
 }
 
-const BLOCKERS: &str = "| set | low-risk calls | outside the folder | hides what it runs | a part never seen as low-risk | past a bound | plain, under the threshold | settled |\n|---|---|---|---|---|---|---|---|";
+const BLOCKERS: &str = "| set | low-risk calls | outside the folder | hides what it runs | a part never seen as low-risk | past a bound | no hard form | eligible, under the threshold | settled |\n|---|---|---|---|---|---|---|---|---|";
 
 fn blockers_row(name: &str, b: &Blockers) -> String {
     let share = |n: usize| format!("{:.1}%", 100.0 * n as f64 / b.low.max(1) as f64);
     format!(
-        "| {name} | {} | {} | {} | {} | {} | {} | {} |",
+        "| {name} | {} | {} | {} | {} | {} | {} | {} | {} |",
         b.low,
         share(b.outside),
         share(b.hides),
         share(b.unknown_part),
         share(b.dropped),
+        share(b.no_form),
         share(b.below),
         share(b.settled)
     )
@@ -352,5 +358,32 @@ pub fn dump(model: &Model, items: &[Item], name: &str) {
                 p.low_risk()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_blocker_tables_settled_share_is_the_low_risk_recall_and_every_call_is_counted_once() {
+        let Some(model) = Model::embedded() else {
+            panic!("the built-in model doesn't read");
+        };
+        let (m, b) = measure(model, &hard_items());
+        assert_eq!(b.settled, m.settled_right);
+        assert_eq!(b.low, m.low);
+        assert_eq!(
+            b.outside + b.hides + b.unknown_part + b.dropped + b.no_form + b.below + b.settled,
+            b.low
+        );
+        // A build has no hard form, and is counted there.
+        let builds = [Item {
+            command: "cargo test".to_owned(),
+            workspace: Some(data::WORKSPACE.to_owned()),
+            label: Effect::WriteLocal,
+        }];
+        let (_, b) = measure(model, &builds);
+        assert_eq!((b.no_form, b.settled), (1, 0));
     }
 }
