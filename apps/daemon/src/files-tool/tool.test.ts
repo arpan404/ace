@@ -78,6 +78,14 @@ class FakeClient implements FilesToolClient {
     throw new Error("the fake lists folders, it does not measure them");
   }
 
+  describeEntry(): never {
+    throw new Error("the fake lists folders, it does not describe entries");
+  }
+
+  checkMutation(): never {
+    throw new Error("the fake lists folders, it does not check mutations");
+  }
+
   read(): never {
     throw new Error("the fake lists folders, it does not read them");
   }

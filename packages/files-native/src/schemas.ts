@@ -109,6 +109,8 @@ export const indexResultSchema = z.object({
  */
 export const descriptionSchema = z.object({
   version: z.string(),
+  ownVersion: z.string().optional(),
+  shallow: z.boolean(),
   size: u64,
   kind: fileKindSchema,
   mode: u64,
@@ -128,6 +130,8 @@ export const opSchema = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("stat"), root: u64, path: z.string() }),
   z.object({ op: z.literal("describe"), root: u64, path: z.string() }),
+  z.object({ op: z.literal("describeEntry"), root: u64, path: z.string() }),
+  z.object({ op: z.literal("checkMutation"), root: u64, path: z.string() }),
   z.object({ op: z.literal("measure"), root: u64, path: z.string() }),
   z.object({
     op: z.literal("read"),
@@ -167,7 +171,7 @@ export const replySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("page"), ...pageSchema.shape }),
   z.object({ type: z.literal("entry"), ...entrySchema.shape }),
   z.object({ type: z.literal("description"), ...descriptionSchema.shape }),
-  z.object({ type: z.literal("measure"), bytes: u64 }),
+  z.object({ type: z.literal("measure"), bytes: u64, shallow: z.boolean() }),
   z.object({ type: z.literal("read"), ...readMetaSchema.shape }),
   z.object({ type: z.literal("version"), version: z.string() }),
   z.object({ type: z.literal("index"), ...indexResultSchema.shape }),

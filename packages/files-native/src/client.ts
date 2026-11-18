@@ -87,10 +87,35 @@ export class FilesClient {
     return reply;
   }
 
-  async measure(root: number, path: string, options: FilesRequestOptions = {}): Promise<number> {
+  /** The entry itself: its own version, never a folder's tree digest. */
+  async describeEntry(
+    root: number,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<DescriptionReply> {
+    const { reply } = await this.#process.request({ op: "describeEntry", root, path }, options);
+    if (reply.type !== "description") throw unexpected("describeEntry", reply);
+    return reply;
+  }
+
+  /** Refuse a mutation path with a link on the way, before any mutation op runs. */
+  async checkMutation(
+    root: number,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<void> {
+    const { reply } = await this.#process.request({ op: "checkMutation", root, path }, options);
+    if (reply.type !== "done") throw unexpected("checkMutation", reply);
+  }
+
+  async measure(
+    root: number,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<{ bytes: number; shallow: boolean }> {
     const { reply } = await this.#process.request({ op: "measure", root, path }, options);
     if (reply.type !== "measure") throw unexpected("measure", reply);
-    return reply.bytes;
+    return { bytes: reply.bytes, shallow: reply.shallow };
   }
 
   async read(

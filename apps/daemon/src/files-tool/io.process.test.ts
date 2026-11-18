@@ -412,6 +412,47 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     }
   });
 
+  it("keeps the daemon's reserved names and links out of client mutations", async () => {
+    await mkdir(join(root, ".git"), { recursive: true });
+    await writeFile(join(root, ".git", "config"), "[core]\n");
+    await symlink("docs", join(root, "alias"));
+
+    for (const operation of [
+      { op: "write", path: ".git/config", expected: null, text: "mine\n" },
+      { op: "read", path: ".git/config" },
+      { op: "stat", path: ".git/config" },
+    ]) {
+      expect(failure(await both(operation))).toMatchObject({ code: "INVALID_PATH" });
+    }
+    expect(await readFile(join(root, ".git", "config"), "utf8")).toBe("[core]\n");
+
+    // A link on the way is refused for a mutation, so a write never lands through one.
+    const through = await both({
+      op: "create",
+      path: "alias/through.md",
+      expected: null,
+      text: "x\n",
+    });
+    expect(failure(through)).toMatchObject({ code: "PATH_ESCAPE" });
+    await expect(readFile(join(root, "docs", "through.md"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    // The daemon's own transfer names are not destinations a client picks.
+    const onto = await both({
+      op: "rename",
+      path: "moved.md",
+      expected: await version("moved.md"),
+      destination: ".ace-upload-trash-mine",
+      destinationExpected: null,
+    });
+    expect(failure(onto)).toMatchObject({ code: "INVALID_PATH" });
+    expect(await readFile(join(root, "moved.md"), "utf8")).toBe("two\n");
+
+    await rm(join(root, "alias"));
+    // The checkout's own git store stays: its ignore rules are part of the fixture.
+  });
+
   it("refuses every operation that follows a link out of the checkout", async () => {
     for (const operation of [
       { op: "stat", path: "escape" },

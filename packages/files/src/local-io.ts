@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { PinnedDirectory, GitIgnore, walkWorkspace, type SafeRoot } from "@ace/workspace";
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { atomicWrite, observed, treeVersion } from "./filesystem.ts";
-import type { Description, EntryKind, FilesIo, SafeRootSource, ReadBytes } from "./io.ts";
+import type { Description, FilesIo, SafeRootSource, ReadBytes } from "./io.ts";
 import { codeOf, FileError, version } from "./types.ts";
 
 /** A staging name for one save; `files-io` names its own copies the same way. */
@@ -17,16 +17,20 @@ function absent(error: unknown): boolean {
   return ["ENOENT", "NOT_FOUND"].includes(codeOf(error));
 }
 
+/** The daemon's reserved names: git's store and its own transfer temporaries are never served. */
+function reserved(path: string): boolean {
+  return path.split("/").some((part) => part === ".git" || part.startsWith(".ace-upload-"));
+}
+
 /**
- * Where a mutation acts. Client paths go through `SafeRoot.target`, which refuses git's store,
- * the daemon's transfer temporaries and any link on the way. The daemon's own trash names are
- * acted on as private names instead: they are its bookkeeping, addressed by nobody but itself.
+ * Where the daemon's own bookkeeping acts. Client paths go through `SafeRoot.target`, which
+ * refuses git's store, the transfer temporaries and any link on the way; the internal entries
+ * name `.ace-upload-*` entries the daemon made itself, and reach them by resolved parent and name.
  */
-function mutationTarget(
+function privateTarget(
   safe: SafeRoot,
   path: string,
 ): Promise<{ path: string; verify(): Promise<void> }> {
-  if (!privateName(path)) return safe.target(path);
   const parts = path.split("/");
   const name = parts.pop() ?? "";
   if (!name) return Promise.reject(new FileError("INVALID_PATH", "Missing filename"));
@@ -39,12 +43,7 @@ function mutationTarget(
   }));
 }
 
-/** Whether the daemon uses this name for its own bookkeeping rather than serving it. */
-function privateName(path: string): boolean {
-  return path.split("/").some((part) => part === ".git" || part.startsWith(".ace-upload-"));
-}
-
-function kindAt<T extends { isFile(): boolean; isDirectory(): boolean }>(info: T): EntryKind {
+function kindAt(info: { isFile(): boolean; isDirectory(): boolean }): Description["kind"] {
   return info.isFile() ? "file" : info.isDirectory() ? "directory" : "other";
 }
 
@@ -63,10 +62,13 @@ export function localFilesIo(
   return {
     async describe(root, path, options = {}): Promise<Description | null> {
       const safe = await safeRoot(root);
+      if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
       if (path === "") {
         const { info } = await safe.metadata("");
         return {
           version: await treeVersion(safe, "", info, options.signal),
+          ownVersion: version(info),
+          shallow: false,
           size: info.size,
           kind: "directory",
           mode: info.mode & 0o777,
@@ -80,17 +82,52 @@ export function localFilesIo(
       if (resolved === undefined) return null;
       const info = await lstat(resolved);
       const link = await lstat(join(safe.root, ...path.split("/"))).catch(() => undefined);
+      const directory = info.isDirectory();
       return {
-        version: info.isDirectory()
-          ? await treeVersion(safe, path, info, options.signal)
-          : version(info),
+        version: directory ? await treeVersion(safe, path, info, options.signal) : version(info),
+        ...(directory ? { ownVersion: version(info) } : {}),
+        shallow: false,
         size: info.size,
         kind: link?.isSymbolicLink() ? "symlink" : kindAt(info),
         mode: info.mode & 0o777,
       };
     },
+    async shallow(root, path) {
+      const safe = await safeRoot(root);
+      if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
+      if (path === "") {
+        const { info } = await safe.metadata("");
+        return {
+          version: version(info),
+          shallow: false,
+          size: info.size,
+          kind: "directory",
+          mode: info.mode & 0o777,
+        };
+      }
+      const resolved = await safe.resolve(path).catch((error: unknown) => {
+        if (absent(error)) return undefined;
+        throw error;
+      });
+      if (resolved === undefined) return null;
+      const info = await lstat(resolved);
+      const link = await lstat(join(safe.root, ...path.split("/"))).catch(() => undefined);
+      return {
+        version: version(info),
+        shallow: false,
+        size: info.size,
+        kind: link?.isSymbolicLink() ? "symlink" : kindAt(info),
+        mode: info.mode & 0o777,
+      };
+    },
+    async checkMutation(root, path) {
+      const safe = await safeRoot(root);
+      if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
+      await safe.target(path);
+    },
     async metadata(root, path) {
       const safe = await safeRoot(root);
+      if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
       try {
         const { info, type } = await safe.metadata(path);
         return { kind: type, size: info.size };
@@ -101,6 +138,7 @@ export function localFilesIo(
     },
     async read(root, path, range): Promise<ReadBytes> {
       const safe = await safeRoot(root);
+      if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
       const { handle, info, resolved } = await safe.file(path);
       try {
         const size = info.size;
@@ -127,6 +165,7 @@ export function localFilesIo(
     },
     async write(root, path, bytes, expected) {
       const safe = await safeRoot(root);
+      if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
       await atomicWrite(safe, path, expected, bytes, stagingId(), exclusive);
       const current = await observed(safe, path);
       if (current === null) throw new FileError("NOT_FOUND", "The saved file vanished");
@@ -147,9 +186,9 @@ export function localFilesIo(
     async move(root, from, to) {
       const safe = await safeRoot(root);
       if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
-      const source = await mutationTarget(safe, from);
+      const source = await safe.target(from);
       if (process.platform === "win32" && (await caseOnlyRename(safe, from, to, source))) return;
-      const destination = await mutationTarget(safe, to);
+      const destination = await safe.target(to);
       await source.verify();
       await destination.verify();
       await exclusive.move(source.path, destination.path);
@@ -158,7 +197,7 @@ export function localFilesIo(
     },
     async remove(root, path) {
       const safe = await safeRoot(root);
-      const target = await mutationTarget(safe, path);
+      const target = await safe.target(path);
       await rm(target.path, { recursive: true, force: true });
       await target.verify();
     },
@@ -185,7 +224,7 @@ export function localFilesIo(
       const safe = await safeRoot(root);
       const target = await safe.target(path);
       const info = await lstat(target.path);
-      if (!info.isDirectory()) return info.isFile() ? info.size : 0;
+      if (!info.isDirectory()) return { bytes: info.isFile() ? info.size : 0, shallow: false };
       const ignore = await GitIgnore.create(safe);
       let bytes = 0;
       for await (const entry of walkWorkspace(safe, ignore, {
@@ -198,7 +237,26 @@ export function localFilesIo(
       })) {
         if (entry.type === "file") bytes += entry.size;
       }
-      return bytes;
+      return { bytes, shallow: false };
+    },
+    internal: {
+      async move(root, from, to) {
+        const safe = await safeRoot(root);
+        if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
+        const source = await privateTarget(safe, from);
+        const destination = await privateTarget(safe, to);
+        await source.verify();
+        await destination.verify();
+        await exclusive.move(source.path, destination.path);
+        await source.verify();
+        await destination.verify();
+      },
+      async remove(root, path) {
+        const safe = await safeRoot(root);
+        const target = await privateTarget(safe, path);
+        await rm(target.path, { recursive: true, force: true });
+        await target.verify();
+      },
     },
   } satisfies FilesIo;
 

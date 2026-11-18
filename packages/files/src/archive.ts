@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createGzip } from "node:zlib";
-import type { FilesIo } from "./io.ts";
+import type { FilesIo, WalkEntry } from "./io.ts";
 import { openDownload } from "./download.ts";
 import { readChunks } from "./readable-chunks.ts";
 import { tarHeaders } from "./tar.ts";
@@ -10,7 +10,7 @@ interface Entry {
   path: string;
   name: string;
   size: number;
-  /** An opaque marker of the entry's bytes and modification time, for the preview's digest. */
+  /** The entry's version when the preview was made; a download refuses anything else. */
   version: string;
   mtime: number;
   directory: boolean;
@@ -26,9 +26,34 @@ export interface Preview {
   rootVersion: string;
 }
 
-/** The change marker a preview keeps per entry, from the walk's own size and modification time. */
-function marker(entry: { size: number; mtime: number }): string {
-  return `${entry.size}:${entry.mtime}`;
+/** How many entries a preview reads versions for at once. */
+const VERSION_CONCURRENCY = 8;
+
+/**
+ * Every walked entry's own version, read a few at a time so a large folder's preview does not wait
+ * for one round trip after another.
+ */
+async function versions(
+  io: FilesIo,
+  root: string,
+  entries: WalkEntry[],
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const found = Array.from({ length: entries.length }, () => "");
+  let next = 0;
+  const work = async () => {
+    while (next < entries.length) {
+      const index = next++;
+      const entry = entries[index];
+      if (!entry) continue;
+      const description = await io.shallow(root, entry.path, { signal });
+      found[index] = description?.version ?? "";
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(VERSION_CONCURRENCY, entries.length) }, () => work()),
+  );
+  return found;
 }
 
 /**
@@ -49,25 +74,31 @@ export async function previewArchive(
 ): Promise<Preview> {
   const before = await io.describe(root, path, signal ? { signal } : {});
   if (before === null) throw new FileError("NOT_FOUND", "Folder not found");
-  const entries: Entry[] = [];
-  let bytes = 0;
+  const walked: WalkEntry[] = [];
   let metadataBytes = 0;
-  const digest = createHash("sha256");
   for await (const entry of io.walk(root, path, signal ? { signal } : {})) {
     if (entry.type !== "file" && entry.type !== "directory") continue;
     if (entry.ignored && !includeIgnored) continue;
-    const name = path ? entry.path.slice(path.length + 1) : entry.path;
+    metadataBytes += Buffer.byteLength(entry.path) + 256;
+    if (walked.length > 100_000 || metadataBytes > 16 * 1024 * 1024)
+      throw new FileError("LIMIT_EXCEEDED", "Archive metadata exceeds preview budget");
+    walked.push(entry);
+  }
+  const stamped = await versions(io, root, walked, signal);
+  if (stamped.some((version) => version === ""))
+    throw new FileError("CONFLICT", "Directory changed during preview");
+  const entries: Entry[] = [];
+  let bytes = 0;
+  const digest = createHash("sha256");
+  for (const [index, entry] of walked.entries()) {
     const item = {
       path: entry.path,
-      name,
+      name: path ? entry.path.slice(path.length + 1) : entry.path,
       size: entry.size,
-      version: marker(entry),
+      version: stamped[index] ?? "",
       mtime: entry.mtime,
       directory: entry.type === "directory",
     };
-    metadataBytes += Buffer.byteLength(item.path) + Buffer.byteLength(item.name) + 256;
-    if (entries.length >= 100_000 || metadataBytes > 16 * 1024 * 1024)
-      throw new FileError("LIMIT_EXCEEDED", "Archive metadata exceeds preview budget");
     entries.push(item);
     bytes += item.directory ? 0 : item.size;
     digest.update(item.path);
@@ -88,8 +119,10 @@ export async function previewArchive(
 }
 
 /**
- * The preview's bytes as a gzipped tar, streamed: each file is read in chunks through the port,
- * never whole, and the folder's version is checked before anything is written.
+ * The preview's bytes as a gzipped tar, streamed: each file is opened with the version the preview
+ * recorded before its header is written, so a file that changed since the preview fails the
+ * archive instead of being published under a stale name. Its bytes are read in chunks through the
+ * port, never whole, and the folder's version is checked before anything is written.
  */
 export function archiveDownload(io: FilesIo, root: string, preview: Preview): Download {
   let current: Download | undefined;
@@ -113,9 +146,17 @@ export function archiveDownload(io: FilesIo, root: string, preview: Preview): Do
         throw new FileError("CONFLICT", "Directory changed since preview");
       for (const entry of preview.entries) {
         if (cancelled) break;
-        for (const header of tarHeaders(entry)) await write(header);
         if (!entry.directory) {
-          current = await openDownload(io, root, entry.path, 0, undefined);
+          // Open first: a changed file or a moved version is refused before its header lands.
+          const opened = await openDownload(io, root, entry.path, 0, entry.version);
+          if (opened.size !== entry.size) {
+            await opened.close();
+            throw new FileError("CONFLICT", "Archive entry changed", opened.validator);
+          }
+          current = opened;
+        }
+        for (const header of tarHeaders(entry)) await write(header);
+        if (current) {
           // The gzip callback releases ownership before this buffer is refilled.
           for await (const bytes of current.chunks) await write(bytes);
           await current.close();

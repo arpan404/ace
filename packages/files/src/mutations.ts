@@ -1,16 +1,31 @@
-import { rm, rename as nodeRename } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { SafeRoot } from "@ace/workspace";
 import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
 import { Catalog, TrashRecord } from "./catalog.ts";
+import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { newId } from "./filesystem.ts";
-import type { FilesIo } from "./io.ts";
+import type { Description, FilesIo } from "./io.ts";
 import { codeOf, FileError, checkVersion, type FilesOptions } from "./types.ts";
 
 type Mutation = Extract<
   FileOperation,
   { op: "write" | "create" | "mkdir" | "rename" | "move" | "delete" | "restore" }
 >;
+
+/** What preparation learned: the guard a queued apply re-checks, and what a delete reserves. */
+interface Prepared {
+  /** The entry's own version at prepare: identity and times, never a folder digest. */
+  guard: string | null;
+  /** The version the client's expectation was checked against, dug through for a folder. */
+  version: string | null;
+  /** True when a walk budget stopped that version, so only the guard can be compared. */
+  shallow: boolean;
+  /** True when the path is a folder, whose tree the version covers. */
+  directory: boolean;
+  /** The bytes a delete would reserve in the trash. */
+  bytes: number;
+}
 
 /**
  * The write operations a client asks for, on the checkout's I/O port.
@@ -20,40 +35,62 @@ type Mutation = Extract<
  * lost a race never lands on another writer's work. Recently-deleted entries are this class's own
  * bookkeeping: a delete moves the entry to a private name in the checkout, and a restore moves it
  * back only while the destination is still absent.
+ *
+ * Preparation happens outside the mutation queue and may walk a folder once. The queued apply
+ * compares only the folder's own version, so a delete of `node_modules` does not walk it again
+ * with every other write waiting: a direct entry change is the one case that re-reads the tree
+ * digest, and a folder too large to digest is guarded by its own version alone.
  */
 export class Mutations {
   private readonly io: FilesIo;
   private readonly safe: SafeRoot;
   private readonly catalog: Catalog;
   private readonly options: FilesOptions;
-  constructor(io: FilesIo, safe: SafeRoot, catalog: Catalog, options: FilesOptions) {
+  private readonly exclusive: ExclusiveRename;
+  constructor(
+    io: FilesIo,
+    safe: SafeRoot,
+    catalog: Catalog,
+    options: FilesOptions,
+    exclusive: ExclusiveRename,
+  ) {
     this.io = io;
     this.safe = safe;
     this.catalog = catalog;
     this.options = options;
+    this.exclusive = exclusive;
   }
   private root(): string {
     return this.safe.root;
   }
-  async prepare(operation: Mutation, signal: AbortSignal) {
-    const current = await this.io.describe(this.root(), operation.path, { signal });
-    checkVersion(current?.version ?? null, operation.expected);
-    const bytes =
-      operation.op === "delete" && current?.kind === "directory"
-        ? await this.io.measure(this.root(), operation.path, { signal })
-        : current?.kind === "file"
-          ? current.size
-          : 0;
-    return { fingerprint: current?.version ?? null, bytes };
+  async prepare(operation: Mutation, signal: AbortSignal): Promise<Prepared> {
+    const description = await this.io.describe(this.root(), operation.path, { signal });
+    checkVersion(description?.version ?? null, operation.expected);
+    const guard = description === null ? null : (description.ownVersion ?? description.version);
+    const directory = description?.kind === "directory";
+    const bytes = directory
+      ? operation.op === "delete"
+        ? (await this.io.measure(this.root(), operation.path, { signal })).bytes
+        : 0
+      : description?.kind === "file"
+        ? description.size
+        : 0;
+    return {
+      guard,
+      version: description?.version ?? null,
+      shallow: description?.shallow ?? false,
+      directory,
+      bytes,
+    };
   }
-  async apply(
-    operation: Mutation,
-    prepared: Awaited<ReturnType<Mutations["prepare"]>>,
-  ): Promise<WorkspaceFileChange> {
+  async apply(operation: Mutation, prepared: Prepared): Promise<WorkspaceFileChange> {
     const root = this.root();
-    const current = await this.io.describe(root, operation.path);
-    if ((current?.version ?? null) !== prepared.fingerprint)
-      throw new FileError("CONFLICT", "File version changed");
+    const current = await this.io.shallow(root, operation.path);
+    const guard = current === null ? null : current.version;
+    if (guard !== prepared.guard) {
+      const latest = await this.revalidated(operation.path, current, prepared);
+      throw new FileError("CONFLICT", "File version changed", latest);
+    }
     const id = newId(this.options.id);
     let trashId: string | undefined;
     let destination: string | undefined;
@@ -102,18 +139,20 @@ export class Mutations {
           total.bytes + bytes > (this.options.maxTrashBytes ?? 20 * 1024 ** 3)
         )
           throw new FileError("QUOTA", "Trash quota exceeded");
+        const location = `.ace-upload-trash-${id}`;
         const record: TrashRecord = {
           kind: "trash",
           id,
           path: operation.path,
           bytes,
           version: operation.expected,
-          location: `.ace-upload-trash-${id}`,
+          location,
           expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
         };
+        await this.io.checkMutation(root, operation.path);
         this.catalog.put(record);
         try {
-          await this.io.move(root, operation.path, `.ace-upload-trash-${id}`);
+          await this.io.internal.move(root, operation.path, location);
         } catch (error) {
           this.catalog.delete(id);
           throw error;
@@ -133,7 +172,8 @@ export class Mutations {
             target?.version ?? null,
           );
         }
-        if (record.location) await this.io.move(root, record.location, operation.path);
+        await this.io.checkMutation(root, operation.path);
+        if (record.location) await this.io.internal.move(root, record.location, operation.path);
         else await this.legacyMove(record.id, operation.path);
         this.catalog.delete(record.id);
         break;
@@ -149,9 +189,28 @@ export class Mutations {
       ...(trashId ? { trashId } : {}),
     };
   }
+  /**
+   * The version to report for an entry that moved between prepare and apply.
+   *
+   * The own version already answered the common case; when it changed on a folder whose tree was
+   * digested, the digest is read once more, so a rename out and back is not a conflict while a
+   * real change is. A folder too large to digest keeps its own version, which is what `prepare`
+   * compared.
+   */
+  private async revalidated(
+    path: string,
+    current: Description | null,
+    prepared: Prepared,
+  ): Promise<string | null> {
+    if (!prepared.directory || prepared.shallow || current?.kind !== "directory")
+      return current?.version ?? null;
+    const again = await this.io.describe(this.root(), path);
+    if ((again?.version ?? null) === prepared.version) return null;
+    return again?.version ?? null;
+  }
   /** Forget a trash entry: delete the bytes it kept, then its row. */
   async expire(record: TrashRecord): Promise<void> {
-    if (record.location) await this.io.remove(this.root(), record.location);
+    if (record.location) await this.io.internal.remove(this.root(), record.location);
     else await this.legacyRemove(record.id);
     this.catalog.delete(record.id);
   }
@@ -159,11 +218,24 @@ export class Mutations {
    * Trash entries written before the checkout kept its own copies live in the daemon's data
    * folder, outside any checkout root, so they move with Node's rename, not a port op. They last
    * one retention window and are never created again.
+   *
+   * The destination is the same confined, link-free target a client mutation gets, and the move
+   * never replaces a name: a destination that appeared after the queue admitted this restore is a
+   * `CONFLICT` carrying its version, and the record is kept for another try.
    */
   private async legacyMove(id: string, path: string): Promise<void> {
+    const destination = await this.safe.target(path);
     try {
-      await nodeRename(join(this.options.dataDir, "trash", id), this.safe.path(path));
+      await this.exclusive.move(join(this.options.dataDir, "trash", id), destination.path);
     } catch (error) {
+      if (error instanceof FileError && error.code === "CONFLICT") {
+        const current = await this.io.describe(this.root(), path).catch(() => null);
+        throw new FileError(
+          "CONFLICT",
+          "Restore destination must be absent",
+          current?.version ?? null,
+        );
+      }
       throw new FileError(codeOf(error), "Trash entry could not be restored");
     }
   }

@@ -64,7 +64,7 @@ export class FilesService {
     this.workspaceIo = options.workspaceIo ?? this.local;
     this.previews = new ArchivePreviews(this.workspaceIo, safe.root, options, this.lifetime);
     this.catalog = new Catalog(join(options.dataDir, "files.sqlite"));
-    this.mutations = new Mutations(this.workspaceIo, safe, this.catalog, options);
+    this.mutations = new Mutations(this.workspaceIo, safe, this.catalog, options, exclusive);
     this.uploads = new Uploads(safe, this.catalog, options, exclusive);
   }
   static async create(options: FilesOptions): Promise<FilesService> {

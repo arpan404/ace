@@ -80,11 +80,21 @@ export type FilesToolClient = {
     path: string,
     options?: { signal?: AbortSignal | undefined },
   ): Promise<DescriptionReply>;
+  describeEntry(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<DescriptionReply>;
+  checkMutation(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<void>;
   measure(
     root: number,
     path: string,
     options?: { signal?: AbortSignal | undefined },
-  ): Promise<number>;
+  ): Promise<{ bytes: number; shallow: boolean }>;
   read(
     root: number,
     path: string,

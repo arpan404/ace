@@ -3,29 +3,51 @@ import { FilesRequestError } from "@ace/files-native";
 import { filesListDefaults } from "@ace/files-native/client";
 import { FilesTool, type FilesToolClient } from "./tool.ts";
 
+/** The daemon's reserved names: git's store and its own transfer temporaries are never served. */
+function reserved(path: string): boolean {
+  return path.split("/").some((part) => part === ".git" || part.startsWith(".ace-upload-"));
+}
+
 /** The daemon's file work for one checkout, answered by ace-files (ADR 0178). */
 export function aceFilesIo(tool: FilesTool): FilesIo {
   /** Every call names the checkout; ace-files opens it once and shares it. */
   const run = <T>(root: string, task: (client: FilesToolClient, root: number) => Promise<T>) =>
     tool.run(root, task);
+  /** The rule a mutation path obeys: no reserved name, and no link on the way or as the leaf. */
+  const mutable = async (root: string, path: string) => {
+    refuse(path);
+    await run(root, (client, number) => client.checkMutation(number, path)).catch((error) => {
+      throw refused(error);
+    });
+  };
   return {
     async describe(root, path, options = {}): Promise<Description | null> {
+      refuse(path);
       try {
-        const description = await run(root, (client, number) =>
-          client.describe(number, path, options),
-        );
-        return {
-          version: description.version,
-          size: description.size,
-          kind: description.kind.type,
-          mode: description.mode,
-        };
+        const found = await run(root, (client, number) => client.describe(number, path, options));
+        return description(found);
       } catch (error) {
         if (missing(error)) return null;
         throw refused(error);
       }
     },
+    async shallow(root, path, options = {}): Promise<Description | null> {
+      refuse(path);
+      try {
+        const found = await run(root, (client, number) =>
+          client.describeEntry(number, path, options),
+        );
+        return description(found);
+      } catch (error) {
+        if (missing(error)) return null;
+        throw refused(error);
+      }
+    },
+    async checkMutation(root, path) {
+      await mutable(root, path);
+    },
     async metadata(root, path) {
+      refuse(path);
       try {
         const entry = await run(root, (client, number) => client.stat(number, path));
         // A link the listing could not resolve is dangling or leaves the checkout; describing it
@@ -39,6 +61,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     async read(root, path, range, options = {}) {
+      refuse(path);
       try {
         const { meta, bytes } = await run(root, (client, number) =>
           client.read(number, path, {
@@ -54,6 +77,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     async write(root, path, bytes, expected) {
+      await mutable(root, path);
       try {
         const reply = await run(root, (client, number) =>
           client.write(number, path, bytes, expected === null ? {} : { expected }),
@@ -64,6 +88,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     async createDir(root, path) {
+      await mutable(root, path);
       try {
         await run(root, (client, number) => client.createDir(number, path));
       } catch (error) {
@@ -71,6 +96,8 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     async move(root, from, to) {
+      await mutable(root, from);
+      await mutable(root, to);
       try {
         await run(root, (client, number) => client.rename(number, from, to, false));
       } catch (error) {
@@ -78,6 +105,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     async remove(root, path) {
+      await mutable(root, path);
       try {
         await run(root, (client, number) => client.remove(number, path));
       } catch (error) {
@@ -85,6 +113,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     async *walk(root, path, options = {}): AsyncGenerator<WalkEntry> {
+      if (reserved(path)) return;
       const pending: string[] = [path];
       let next = 0;
       while (next < pending.length) {
@@ -97,7 +126,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
             ...(options.signal === undefined ? {} : { signal: options.signal }),
           });
           for (const entry of page.entries) {
-            if (privatePath(entry.path)) continue;
+            if (reserved(entry.path)) continue;
             if (entry.kind === "directory") pending.push(entry.path);
             // A link is reported as itself and never walked through, as the daemon's own walk
             // does: an archive of a checkout must not follow a path out of it or into itself.
@@ -114,21 +143,30 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
     async measure(root, path) {
+      await mutable(root, path);
       try {
         return await run(root, (client, number) => client.measure(number, path));
       } catch (error) {
         throw refused(error);
       }
     },
+    internal: {
+      async move(root, from, to) {
+        try {
+          await run(root, (client, number) => client.rename(number, from, to, false));
+        } catch (error) {
+          throw refused(error);
+        }
+      },
+      async remove(root, path) {
+        try {
+          await run(root, (client, number) => client.remove(number, path));
+        } catch (error) {
+          throw refused(error);
+        }
+      },
+    },
   };
-}
-
-/**
- * What the daemon's walk leaves out: git's object store and its own transfer temporaries. The
- * local port gets the same rule from `@ace/workspace`.
- */
-function privatePath(path: string): boolean {
-  return path.split("/").some((part) => part === ".git" || part.startsWith(".ace-upload-"));
 }
 
 /** A path that is not there, which the port reports as `null`. */
@@ -142,4 +180,28 @@ function refused(error: unknown): FileError {
   if (error instanceof FilesRequestError)
     return new FileError(error.code, error.message, error.current);
   return new FileError("IO_ERROR", error instanceof Error ? error.message : String(error));
+}
+
+/** Refuse a reserved name before it can reach ace-files, as the daemon's confinement did. */
+function refuse(path: string): void {
+  if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
+}
+
+/** ace-files' description in the port's own shape. */
+function description(found: {
+  version: string;
+  ownVersion?: string | undefined;
+  shallow: boolean;
+  size: number;
+  kind: { type: Description["kind"] };
+  mode: number;
+}): Description {
+  return {
+    version: found.version,
+    ...(found.ownVersion === undefined ? {} : { ownVersion: found.ownVersion }),
+    shallow: found.shallow,
+    size: found.size,
+    kind: found.kind.type,
+    mode: found.mode,
+  };
 }
