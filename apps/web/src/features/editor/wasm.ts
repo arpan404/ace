@@ -1,6 +1,5 @@
 import { init } from "@ace/editor";
 import * as glue from "@ace/editor/pkg/editor_wasm.js";
-import wasmUrl from "@ace/editor/pkg/editor_wasm_bg.wasm?url";
 
 /*
  * Loads the editor's Wasm once per page. Vite emits the glue and the `.wasm` beside the app's
@@ -27,5 +26,7 @@ async function start(): Promise<void> {
     await initEditorForTests();
     return;
   }
-  await init({ module: glue, wasm: wasmUrl });
+  // The glue's own `new URL('editor_wasm_bg.wasm', import.meta.url)` is what Vite rewrites
+  // and emits beside the bundle, so the loader fetches it without a second URL import.
+  await init({ module: glue });
 }
