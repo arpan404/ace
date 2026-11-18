@@ -16,6 +16,11 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /**
+   * Settles once the PATH provider CLIs are found on is final (`login-path-handoff.ts`):
+   * provider discovery, and so restart recovery, waits for it.
+   */
+  loginPath?: Promise<unknown>;
   /** Free space of the volume holding ACE_HOME, reported with storage failures. */
   diskSpace?: import("../sqlite-failure.ts").DiskSpace;
   /** The storage-full watch's timer and thresholds (ADR 0176); tests drive them. */

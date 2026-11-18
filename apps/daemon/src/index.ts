@@ -75,6 +75,12 @@ export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
 import { MaintenanceGate } from "@ace/service";
 import { keepUserPause } from "./user-pause.ts";
+import {
+  firstLine,
+  loginPathPending,
+  loginPathWaitMs,
+  receiveLoginPath,
+} from "./login-path-handoff.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
 export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
@@ -115,6 +121,16 @@ export async function startDaemon(options: DaemonOptions = {}) {
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
+  // Started by the desktop app on last session's PATH: the login shell's follows on stdin.
+  if (!options.loginPath && process.env[loginPathPending] === "1")
+    options = {
+      ...options,
+      loginPath: receiveLoginPath({
+        env: process.env,
+        read: () => firstLine(process.stdin),
+        timeout: new Promise((settle) => setTimeout(settle, loginPathWaitMs).unref()),
+      }),
+    };
   // Reject test path escapes before optional-service failures can be downgraded to degraded startup.
   if (process.env.ACE_TEST_REAL_HOME) {
     // The home boundary above owns ambient HOME; this check owns other path selectors.

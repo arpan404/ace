@@ -167,6 +167,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     captureSkillRoots: () => builtinSkillRecovery(config.dataDir),
     discover: async () => {
       if (engineOptions.registry) return;
+      // A daemon the app started on last session's PATH reads CLIs only on the login shell's:
+      // a stale PATH could miss a CLI or pick another installation of one.
+      if ((await options.loginPath) === true)
+        log.log("info", "Providers are read on the login shell's PATH, which changed");
       await discoverAdapters(
         stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
         (cli) => daemonClaudeAdapter(context, cli),

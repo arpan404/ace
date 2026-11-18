@@ -31,6 +31,7 @@ async function launch(
   source: string,
   observeStartup?: (origin: string, token: string) => Promise<void>,
   prepare?: (home: string) => Promise<void>,
+  env: NodeJS.ProcessEnv = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
@@ -56,8 +57,9 @@ async function launch(
       ACE_SCREEN_HELPER: undefined,
       // No installed provider CLI is needed and no prompt may be sent.
       PATH: "",
+      ...env,
     },
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
   const exited = once(child, "close");
   const { stdout, stderr } = child;
@@ -250,6 +252,42 @@ it("a provider discovery that never settles leaves the engine starting while the
   expect(daemon.status.services.find((service) => service.name === "engine")?.state).toBe(
     "starting",
   );
+  await daemon.client.close();
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
+});
+
+it("a daemon the app started on a saved PATH reads providers only on the login shell's PATH", async () => {
+  const index = new URL("./index.ts", import.meta.url).href;
+  const daemon = await launch(
+    `
+    import { startDaemon } from ${JSON.stringify(index)};
+    let seen;
+    const discovered = new Promise((settle) => (seen = settle));
+    const daemon = await startDaemon({
+      engine: {
+        adapterDiscovery: () => {
+          seen(process.env.PATH);
+          return new Promise(() => {});
+        },
+      },
+    });
+    process.once("message", async () =>
+      process.send({ discoveredOn: await discovered }, () => process.disconnect()),
+    );
+    process.stdout.write("ace daemon: " + daemon.url + "\\n");
+    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+  `,
+    undefined,
+    undefined,
+    { PATH: "/saved/bin", ACE_LOGIN_PATH_PENDING: "1" },
+  );
+  // Listening and serving already, on the saved PATH; providers wait for the login shell's.
+  expect(daemon.status.ready).toBe(true);
+  const answer = once(daemon.child, "message");
+  daemon.child.stdin?.end("/login/bin:/saved/bin\n");
+  daemon.child.send("discovered?");
+  expect((await answer)[0]).toEqual({ discoveredOn: "/login/bin:/saved/bin" });
   await daemon.client.close();
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
