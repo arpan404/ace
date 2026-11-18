@@ -19,8 +19,8 @@ use crate::error::{Error, Failure};
 use crate::io::{self, Input, Out};
 use crate::ops;
 use crate::ops::read_write::{ReadOp, WriteOp};
-use crate::requests::{Bodies, InFlight};
-use crate::roots::Roots;
+use crate::requests::{Bodies, Cancel, InFlight};
+use crate::roots::{RootEntry, Roots};
 use crate::subscriptions::Subscriptions;
 
 /// How long a `write` or `createFile` waits for the body frame that carries its bytes.
@@ -61,8 +61,9 @@ impl Shared {
         }
     }
 
-    /// Finish a search: the summary when it ran to the end, an error when it was stopped. A search
-    /// the daemon unsubscribed from reports nothing further.
+    /// Finish a search: the summary when it ran to the end, and an `ABORTED` error when it was
+    /// stopped, since the daemon should know the request never finished. A search that ran to the
+    /// end after its subscription was closed sends the summary nowhere.
     pub fn finish_search(&self, id: u64, subscription: u64, outcome: Result<Summary, Error>) {
         let open = matches!(self.subscriptions.remove(subscription), Ok(Some(_)));
         match outcome {
@@ -139,10 +140,12 @@ fn handle(shared: &Shared, greeted: &mut bool, version: &'static str, message: M
     }
 }
 
-/// Hand one request to the task that will answer it.
+/// Hand one request to the task that will answer it. Every request gets its cancel flag before
+/// the op starts, so a `cancel` that arrives first is already set when the work looks.
 fn start(shared: &Shared, id: u64, op: Op) {
+    let cancel = shared.requests.begin(id);
     match op {
-        Op::OpenRoot { path } => open_root(shared, id, path),
+        Op::OpenRoot { path } => open_root(shared, id, cancel, path),
         Op::CloseRoot { root } => close_root(shared, id, root),
         Op::Read {
             root,
@@ -153,6 +156,7 @@ fn start(shared: &Shared, id: u64, op: Op) {
         } => start_read(
             shared,
             id,
+            cancel,
             ReadOp {
                 root,
                 path,
@@ -168,6 +172,7 @@ fn start(shared: &Shared, id: u64, op: Op) {
         } => start_write(
             shared,
             id,
+            cancel,
             WriteOp {
                 root,
                 path,
@@ -177,27 +182,27 @@ fn start(shared: &Shared, id: u64, op: Op) {
         Op::CreateFile { root, path } => start_write(
             shared,
             id,
+            cancel,
             WriteOp {
                 root,
                 path,
                 expected: None,
             },
         ),
-        Op::Watch { root } => ops::watch::start(shared, id, root),
-        Op::Search { root, query } => ops::search::start(shared, id, root, query),
+        Op::Watch { root } => ops::watch::start(shared, id, cancel, root),
+        Op::Search { root, query } => ops::search::start(shared, id, cancel, root, query),
         Op::Unwatch { subscription } => unwatch(shared, id, subscription),
-        op => perform(shared, id, op),
+        op => perform(shared, id, cancel, op),
     }
 }
 
 /// Run one blocking op on a blocking thread and answer it.
-fn perform(shared: &Shared, id: u64, op: Op) {
-    let cancel = shared.requests.begin(id);
+fn perform(shared: &Shared, id: u64, cancel: Cancel, op: Op) {
     let job = shared.clone();
     tokio::spawn(async move {
         let inner = job.clone();
         let work = tokio::task::spawn_blocking(move || {
-            let reply = ops::perform(&inner, &cancel, op)?;
+            let reply = ops::perform(&inner, op)?;
             if cancel.cancelled() {
                 return Err(Error::Aborted);
             }
@@ -209,8 +214,7 @@ fn perform(shared: &Shared, id: u64, op: Op) {
 
 /// `openRoot`: canonicalize, open the handle, build the lister, then start the index in the
 /// background.
-fn open_root(shared: &Shared, id: u64, path: String) {
-    let cancel = shared.requests.begin(id);
+fn open_root(shared: &Shared, id: u64, cancel: Cancel, path: String) {
     let job = shared.clone();
     tokio::spawn(async move {
         let inner = job.clone();
@@ -222,9 +226,25 @@ fn open_root(shared: &Shared, id: u64, path: String) {
             }
             Ok(entry) => {
                 job.respond(id, Ok(Reply::Root { root: entry.id() }));
+                // The index and the watcher both keep the root live: quick open stays right while
+                // files change, and listings are invalidated whether or not a client is watching.
+                start_watching(&entry, &job);
                 entry.start_index();
             }
             Err(error) => job.respond(id, Err(error)),
+        }
+    });
+}
+
+/// Bring a root's watcher up in the background. A root that cannot be watched still lists,
+/// searches and indexes, so this reports the failure and keeps going.
+fn start_watching(entry: &Arc<RootEntry>, shared: &Shared) {
+    let entry = Arc::clone(entry);
+    let subscriptions = Arc::clone(&shared.subscriptions);
+    let out = shared.out.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Err(error) = entry.ensure_watcher(&subscriptions, &out) {
+            eprintln!("ace-files: cannot watch root {}: {error}", entry.id());
         }
     });
 }
@@ -267,8 +287,7 @@ fn unwatch(shared: &Shared, id: u64, subscription: u64) {
 }
 
 /// `read`: metadata first, then the bytes as one body frame with the same id.
-fn start_read(shared: &Shared, id: u64, op: ReadOp) {
-    let cancel = shared.requests.begin(id);
+fn start_read(shared: &Shared, id: u64, cancel: Cancel, op: ReadOp) {
     let job = shared.clone();
     tokio::spawn(async move {
         let inner = job.clone();
@@ -288,8 +307,7 @@ fn start_read(shared: &Shared, id: u64, op: ReadOp) {
 }
 
 /// `write` and `createFile`: take the body frame that follows the request, then save it.
-fn start_write(shared: &Shared, id: u64, op: WriteOp) {
-    let cancel = shared.requests.begin(id);
+fn start_write(shared: &Shared, id: u64, cancel: Cancel, op: WriteOp) {
     // Register before the dispatcher looks at the next frame: the body travels right behind the
     // request on the same pipe.
     let body = shared.bodies.wait(id);
@@ -319,6 +337,10 @@ fn start_write(shared: &Shared, id: u64, op: WriteOp) {
                 return;
             }
         };
+        if cancel.cancelled() {
+            job.respond(id, Err(Error::Aborted));
+            return;
+        }
         let inner = job.clone();
         let work = tokio::task::spawn_blocking(move || ops::read_write::write(&inner, &op, &bytes));
         job.respond(id, joined(work.await));

@@ -58,7 +58,7 @@ impl Subscriptions {
         kind: Kind,
         cancel: Option<Arc<AtomicBool>>,
     ) -> Result<u64, Error> {
-        let id = self.next.fetch_add(1, Ordering::Relaxed).max(1);
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         let mut inner = guard::lock(&self.inner)?;
         inner.insert(id, Sub { root, kind, cancel });
         Ok(id)

@@ -91,14 +91,17 @@ fn cancel_of_a_long_search_answers_aborted() {
 }
 
 #[test]
-fn unwatch_stops_a_search_without_a_result() {
-    let checkout = checkout(&[("a.txt", "cache\n")]);
+fn unwatch_stops_a_long_search() {
+    // The same large file as the cancel test: the search cannot finish before the unsubscribe
+    // reaches it, so the request must come back as stopped.
+    let line = "the quick brown fox jumps over the lazy dog\n";
+    let checkout = checkout(&[("big.txt", &line.repeat(600_000))]);
     let mut client = Client::greeted();
     let root = client.open_root(checkout.path());
 
     let id = client.request(Op::Search {
         root,
-        query: query("cache"),
+        query: query("wombat"),
     });
     let subscription = match client.reply(id) {
         Reply::Subscription { subscription } => subscription,
@@ -106,4 +109,5 @@ fn unwatch_stops_a_search_without_a_result() {
     };
     let unwatched = client.request(Op::Unwatch { subscription });
     assert_eq!(client.reply(unwatched), Reply::Done);
+    assert_eq!(client.error(id).code, "ABORTED");
 }

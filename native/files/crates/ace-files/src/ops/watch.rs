@@ -14,13 +14,15 @@ use files_wire::{EventPayload, Message, Reply};
 
 use crate::convert;
 use crate::dispatch::{Shared, joined};
+use crate::error::Error;
 use crate::io::Out;
+use crate::requests::Cancel;
 use crate::roots::RootEntry;
 use crate::subscriptions::{Kind, Subscriptions};
 
 /// Start a watch: bring the root's watcher up, then hand out the subscription that receives its
 /// batches.
-pub fn start(shared: &Shared, id: u64, root: u64) {
+pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64) {
     let entry = match shared.roots.get(root) {
         Ok(entry) => entry,
         Err(error) => return shared.respond(id, Err(error)),
@@ -34,6 +36,7 @@ pub fn start(shared: &Shared, id: u64, root: u64) {
             tokio::task::spawn_blocking(move || entry.ensure_watcher(&subscriptions, &out))
         };
         let result = match joined(starting.await) {
+            Ok(()) if cancel.cancelled() => Err(Error::Aborted),
             Ok(()) => job
                 .subscriptions
                 .create(root, Kind::Watch, None)
@@ -62,11 +65,17 @@ pub fn deliver(
         Batch::Rescan { dir } => {
             match dir.as_deref() {
                 Some(dir) => entry.lister().invalidate(&[dir]),
-                None => entry.lister().invalidate(&[""]),
+                None => {
+                    entry.lister().invalidate(&[""]);
+                    entry.rescan_index();
+                }
             }
             EventPayload::Rescan { dir }
         }
-        Batch::Warning(message) => EventPayload::Warning { message },
+        Batch::Warning(message) => {
+            eprintln!("ace-files: watcher: {message}");
+            EventPayload::Warning { message }
+        }
     };
     match subscriptions.watches(entry.id()) {
         Ok(watches) => {

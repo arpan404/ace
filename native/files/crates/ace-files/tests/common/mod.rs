@@ -174,6 +174,25 @@ impl Client {
         self.incoming()
     }
 
+    /// A message matching `wanted`: first from what has already arrived, then from the wire.
+    ///
+    /// Everything read on the way stays in `pending`, so a reply and an event that arrive in the
+    /// same chunk can be collected in either order.
+    fn take_matching(&mut self, mut wanted: impl FnMut(&Message) -> bool) -> Message {
+        if let Some(position) = self.pending.iter().position(&mut wanted)
+            && let Some(message) = self.pending.remove(position)
+        {
+            return message;
+        }
+        loop {
+            let message = self.incoming();
+            if wanted(&message) {
+                return message;
+            }
+            self.pending.push_back(message);
+        }
+    }
+
     /// The next body frame.
     pub fn next_body(&mut self) -> (u64, Vec<u8>) {
         if let Some(body) = self.bodies.pop_front() {
@@ -189,55 +208,52 @@ impl Client {
 
     /// The reply to one request.
     pub fn reply(&mut self, id: u64) -> Reply {
-        loop {
-            match self.incoming() {
-                Message::Response { id: got, result } if got == id => return result,
-                Message::Error {
-                    id: got,
-                    code,
-                    message,
-                    current,
-                } if got == id => panic!("request {id} failed: {code}: {message} ({current:?})"),
-                other => self.pending.push_back(other),
-            }
+        match self.take_matching(|message| match message {
+            Message::Response { id: got, .. } | Message::Error { id: got, .. } => *got == id,
+            _ => false,
+        }) {
+            Message::Response { result, .. } => result,
+            Message::Error {
+                code,
+                message,
+                current,
+                ..
+            } => panic!("request {id} failed: {code}: {message} ({current:?})"),
+            other => panic!("expected a reply to {id}, got {other:?}"),
         }
     }
 
     /// The error one request got.
     pub fn error(&mut self, id: u64) -> WireError {
-        loop {
-            match self.incoming() {
-                Message::Error {
-                    id: got,
-                    code,
-                    message,
-                    current,
-                } if got == id => {
-                    return WireError {
-                        id,
-                        code,
-                        message,
-                        current,
-                    };
-                }
-                Message::Response { id: got, .. } if got == id => {
-                    panic!("request {id} succeeded where the test expected an error")
-                }
-                other => self.pending.push_back(other),
+        match self.take_matching(|message| match message {
+            Message::Response { id: got, .. } | Message::Error { id: got, .. } => *got == id,
+            _ => false,
+        }) {
+            Message::Error {
+                code,
+                message,
+                current,
+                ..
+            } => WireError {
+                id,
+                code,
+                message,
+                current,
+            },
+            Message::Response { .. } => {
+                panic!("request {id} succeeded where the test expected an error")
             }
+            other => panic!("expected an answer to {id}, got {other:?}"),
         }
     }
 
     /// The next event of one subscription.
     pub fn event(&mut self, subscription: u64) -> EventPayload {
-        loop {
-            match self.incoming() {
-                Message::Event {
-                    subscription: got,
-                    payload,
-                } if got == subscription => return payload,
-                other => self.pending.push_back(other),
-            }
+        match self.take_matching(|message| {
+            matches!(message, Message::Event { subscription: got, .. } if *got == subscription)
+        }) {
+            Message::Event { payload, .. } => payload,
+            other => panic!("expected an event for {subscription}, got {other:?}"),
         }
     }
 

@@ -5,9 +5,9 @@
 //! `openRoot` does all of its filesystem work before it answers: it canonicalizes the root, opens
 //! the capability handle and builds a lister, so every op that follows finds what it needs. The
 //! path index is different: a walk of a million files must not delay the answer, so it is built on
-//! a background thread and `indexQuery` reports `ready: false` until it lands. The watcher starts
-//! with the first `watch` on the root and lives until the root closes, so every subscription on
-//! one checkout shares one set of operating system watches.
+//! a background thread and `indexQuery` reports `ready: false` until it lands. One watcher starts
+//! with the root and lives until it closes, so every subscription on one checkout shares one set
+//! of operating system watches and the index stays right even when nobody is watching.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -187,6 +187,20 @@ impl RootEntry {
                 ready: true,
             },
         }
+    }
+
+    /// Rebuild the index after the watcher lost track of the tree, so quick open drops paths a
+    /// rescan made stale. A build that is still running already walks the whole checkout, so it
+    /// needs no restart.
+    pub fn rescan_index(self: &Arc<Self>) {
+        let built = matches!(guard::read(&self.index), Ok(slot) if slot.is_some());
+        if !built {
+            return;
+        }
+        if let Ok(mut slot) = guard::write(&self.index) {
+            *slot = None;
+        }
+        self.start_index();
     }
 
     /// Fold a watcher batch into the index: created folders are walked outside the write lock, so

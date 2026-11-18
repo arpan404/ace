@@ -16,10 +16,9 @@ use files_wire::{Op, Reply};
 
 use crate::dispatch::Shared;
 use crate::error::Error;
-use crate::requests::Cancel;
 
 /// Run one request that has no body frame and no subscription.
-pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error> {
+pub fn perform(shared: &Shared, op: Op) -> Result<Reply, Error> {
     match op {
         Op::List {
             root,
@@ -45,11 +44,8 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
         | Op::CreateFile { .. }
         | Op::Watch { .. }
         | Op::Unwatch { .. }
-        | Op::Search { .. } => {
-            let _ = cancel;
-            Err(Error::InvalidArgument(
-                "this request is handled by the dispatcher".to_owned(),
-            ))
-        }
+        | Op::Search { .. } => Err(Error::InvalidArgument(
+            "this request is handled by the dispatcher".to_owned(),
+        )),
     }
 }

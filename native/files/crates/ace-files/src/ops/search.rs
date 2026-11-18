@@ -16,12 +16,11 @@ use crate::subscriptions::Kind;
 
 /// Start a search: answer with the subscription at once, then stream matches from a blocking
 /// thread that walks the checkout on every core.
-pub fn start(shared: &Shared, id: u64, root: u64, query: SearchQuery) {
+pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64, query: SearchQuery) {
     let entry = match shared.roots.get(root) {
         Ok(entry) => entry,
         Err(error) => return shared.respond(id, Err(error)),
     };
-    let cancel = shared.requests.begin(id);
     let subscription = match shared
         .subscriptions
         .create(root, Kind::Search, Some(cancel.flag()))
