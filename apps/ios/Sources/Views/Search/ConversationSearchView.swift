@@ -81,7 +81,7 @@ struct ConversationSearchView: View {
 
     @ViewBuilder private var results: some View {
         if let problem = search.problem {
-            QuietProblemRow(title: problem, action: "Try again", identifier: "conversation.retry") {
+            ProblemRow(problem, retryId: "conversation.retry") {
                 // A failed "Show more" asks for that page again, keeping the pages already read.
                 if search.cursor != nil, !search.hits.isEmpty {
                     Task { await search.more(model: model, text: text, kind: kind, threadId: threadId) }

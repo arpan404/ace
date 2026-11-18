@@ -37,12 +37,12 @@ struct SkillPageView: View {
                     header(page)
                     details(page)
                     if let actionProblem {
-                        QuietProblem(message: actionProblem, id: "skill.action.problem")
+                        ProblemRow(actionProblem, id: "skill.action.problem")
                     }
                     instructions(page)
                     if page.editable, model.canOperate {
                         if let deleteProblem {
-                            QuietProblem(message: deleteProblem, id: "skill.delete.problem")
+                            ProblemRow(deleteProblem, id: "skill.delete.problem")
                         }
                         QuietSection {
                             Button(role: .destructive) { deleting = true } label: {
@@ -60,7 +60,7 @@ struct SkillPageView: View {
                     SkeletonRows(count: 4, label: "Reading the skill")
                 }
                 if let problem {
-                    QuietProblem(message: problem, id: "skill.read.problem") { Task { await read() } }
+                    ProblemRow(problem, id: "skill.read.problem") { Task { await read() } }
                 }
             }
             .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)

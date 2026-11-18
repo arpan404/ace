@@ -22,7 +22,7 @@ struct BrowserPageState: View {
         guard let view = browser.view else { return AnyView(SkeletonPage(label: "Opening the browser")) }
         guard let state = view.state, !state.closed else {
             return AnyView(EmptyState(icon: .compass, title: "No page open") {
-                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.textAction()).frame(maxWidth: AceDesign.Size.loneAction) }
+                if model.canOperate { Button("Open a page", action: openAddress).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         if state.disconnected == true {
@@ -48,7 +48,7 @@ struct BrowserPageState: View {
         }
         if state.blank == true && !state.loading {
             return AnyView(EmptyState(icon: .compass, title: "New tab") {
-                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.textAction()).frame(maxWidth: AceDesign.Size.loneAction) }
+                if model.canOperate { Button("Open a page", action: openAddress).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         // The subscribe's poster stands in for the page until its first live picture.

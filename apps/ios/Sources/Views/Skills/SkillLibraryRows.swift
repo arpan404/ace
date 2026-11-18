@@ -86,8 +86,8 @@ struct PluginsSection: View {
                 }
                 .buttonStyle(.row)
             }
-            if let problem { QuietProblem(message: problem, id: "plugins.problem", retry: retry) }
-            if let catalogProblem { QuietProblem(message: catalogProblem, id: "plugins.catalog.problem", retry: retryCatalog) }
+            if let problem { ProblemRow(problem, id: "plugins.problem", retry: retry) }
+            if let catalogProblem { ProblemRow(catalogProblem, id: "plugins.catalog.problem", retry: retryCatalog) }
         }
     }
 }

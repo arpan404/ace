@@ -1,37 +1,51 @@
 import SwiftUI
 
-/// A read that failed, as the design language draws it on an inner page or a sheet: one sentence
-/// in the failed colour, at most a line of why under it, and its way out as a word. It sits over
-/// the rows the read last found, which stay until the next answer arrives.
-struct QuietProblemRow: View {
+/// The one way a read or a change that failed shows, on any page, list or sheet: the sentence in
+/// the failed colour, at most a line of why under it, then its way out as a button under both,
+/// always in that order. It sits over the rows the read last found, which stay until the next
+/// answer arrives. No box, no icon.
+struct ProblemRow: View {
     let title: String
     var detail: String? = nil
-    /// The action's words ("Try again"); nil when there is nothing to ask again.
-    var action: String? = nil
-    let identifier: String
-    /// Holds the action back while what it starts is already under way.
+    /// What a test names the sentence; several can be on one page, so each call site says which.
+    var id = "service.problem"
+    /// The way out's name for tests; `id` + `.retry` unless the page names it.
+    var retryId: String? = nil
+    /// The way out's words ("Try again", "Reload", "Allow this folder").
+    var retryLabel = "Try again"
+    /// Holds the way out back while what it starts is already under way.
     var disabled = false
-    var run: () -> Void = {}
+    /// The way out; nil when there is nothing to ask again.
+    var retry: (() -> Void)? = nil
+
+    init(_ title: String, detail: String? = nil, id: String = "service.problem", retryId: String? = nil,
+         retryLabel: String = "Try again", disabled: Bool = false, retry: (() -> Void)? = nil) {
+        self.title = title
+        self.detail = detail
+        self.id = id
+        self.retryId = retryId
+        self.retryLabel = retryLabel
+        self.disabled = disabled
+        self.retry = retry
+    }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
-            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                Text(title).aceFont(AceDesign.TextRole.rowTitle)
-                    .foregroundStyle(AceTheme.StatusText.failed)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            Text(title).aceFont(AceDesign.TextRole.rowTitle)
+                .foregroundStyle(AceTheme.StatusText.failed)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(id)
+            if let detail, !detail.isEmpty {
+                Text(detail).aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("service.problem")
-                if let detail, !detail.isEmpty {
-                    Text(detail).aceFont(AceDesign.TextRole.meta)
-                        .foregroundStyle(AceDesign.Ink.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
-            Spacer(minLength: AceDesign.Space.related)
-            if let action {
-                Button(action, action: run)
-                    .buttonStyle(.textAction(.prominent))
+            if let retry {
+                Button(retryLabel, action: retry)
+                    .buttonStyle(.secondaryAction)
                     .disabled(disabled)
-                    .accessibilityIdentifier(identifier)
+                    .padding(.top, AceDesign.Space.tight)
+                    .accessibilityIdentifier(retryId ?? "\(id).retry")
             }
         }
         .padding(.horizontal, AceDesign.Space.margin)
