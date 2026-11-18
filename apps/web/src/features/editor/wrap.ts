@@ -7,22 +7,19 @@
  * every column in it has its own x; the next row resumes at the word. A word longer than the row
  * hard-breaks. One set of ranges serves drawing, selection, hit testing and navigation alike. The
  * line's leading whitespace is never treated as a break and is repeated as the indent of
- * continuation rows, and whitespace after the last word stays on the last row past the row's
- * edge, so the caret can move through it. Plain ASCII over `longLine` wraps by code unit, so a
- * generated file never pays for measuring each character. Nothing here reads the document or the
- * DOM: the view can call it during a render.
+ * continuation rows, and whitespace after the last word stays on the last row past the row's edge,
+ * so the caret can move through it. An ASCII line is read one code unit at a time, so a generated
+ * file never pays for measuring each character; any other line is read one grapheme cluster at a
+ * time, never as a whole array.
+ *
+ * The rows themselves are materialized on request: measuring a line stores only where each row
+ * starts, so a megabyte line costs a few bytes a row rather than a descriptor for every one. A
+ * whitespace run is scanned once, by the same break rule for both kinds of text. Nothing here
+ * reads the document or the DOM: the view can call it during a render.
  */
 
-import {
-  columnAtX,
-  graphemes,
-  isPlain,
-  leastRowCells,
-  longLine,
-  tabSize,
-  visualColumn,
-  type Grapheme,
-} from "./geometry.ts";
+import { columnAtX, isPlain, leastRowCells, tabSize, visualColumn } from "./geometry.ts";
+import { UnitReader, cellOf, type Unit } from "./wrap-units.ts";
 
 /** One visual row of a logical line. */
 export interface WrapRow {
@@ -34,17 +31,54 @@ export interface WrapRow {
   indent: number;
 }
 
-/** A row that takes the whole line: what a line draws when nothing wraps it. */
-export const wholeLineRow: readonly WrapRow[] = [
-  { start: 0, end: Number.POSITIVE_INFINITY, indent: 0 },
-];
-
-/** One row for `text` unchanged, at any width. */
-export function wholeRow(text: string): readonly WrapRow[] {
-  return text.length === 0
-    ? [{ start: 0, end: 0, indent: 0 }]
-    : [{ start: 0, end: text.length, indent: 0 }];
+/**
+ * A line's visual rows. The line is measured once into row starts; a row is built only when a
+ * caller asks for it, and the whole line is never held as one descriptor per row.
+ */
+export interface WrapRows {
+  /** How many rows the line draws. */
+  readonly length: number;
+  /** The row at `index`, or undefined past the line's rows. */
+  at(index: number): WrapRow | undefined;
+  [Symbol.iterator](): Iterator<WrapRow>;
 }
+
+class LineRows implements WrapRows {
+  readonly #starts: Int32Array;
+  readonly #lineEnd: number;
+  readonly #indent: number;
+
+  constructor(starts: Int32Array, lineEnd: number, indent: number) {
+    this.#starts = starts;
+    this.#lineEnd = lineEnd;
+    this.#indent = indent;
+  }
+
+  get length(): number {
+    return this.#starts.length;
+  }
+
+  at(index: number): WrapRow | undefined {
+    const start = this.#starts[index];
+    if (start === undefined) return undefined;
+    const next = this.#starts[index + 1];
+    return {
+      start,
+      end: next ?? this.#lineEnd,
+      indent: index === 0 ? 0 : this.#indent,
+    };
+  }
+
+  *[Symbol.iterator](): Iterator<WrapRow> {
+    for (let index = 0; index < this.#starts.length; index++) {
+      const row = this.at(index);
+      if (row) yield row;
+    }
+  }
+}
+
+/** A row that takes the whole line: what a line draws when nothing wraps it. */
+export const wholeLineRow: WrapRows = new LineRows(Int32Array.of(0), Number.POSITIVE_INFINITY, 0);
 
 /** The column after the line's leading whitespace. */
 export function leadingEnd(text: string): number {
@@ -55,8 +89,14 @@ export function leadingEnd(text: string): number {
 
 /** The leading whitespace's width in cells, which continuation rows repeat as indent. */
 export function leadingIndent(text: string): number {
-  const end = leadingEnd(text);
-  return end === 0 ? 0 : visualColumn(text, end);
+  let cells = 0;
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at];
+    if (char === " ") cells++;
+    else if (char === "\t") cells += tabSize - (cells % tabSize);
+    else break;
+  }
+  return cells;
 }
 
 /**
@@ -64,16 +104,11 @@ export function leadingIndent(text: string): number {
  * `Infinity` leaves the line on one row; a narrower width than a row's least text is raised to
  * it, so a caller cannot ask for rows too narrow to hold a character.
  */
-export function wrapLine(text: string, columns: number): readonly WrapRow[] {
+export function wrapLine(text: string, columns: number): WrapRows {
   if (!Number.isFinite(columns)) return wholeLineRow;
   const width = Math.max(leastRowCells, Math.floor(columns));
-  if (text.length === 0) return wholeRow(text);
-  if (text.length <= width && isPlain(text)) return wholeRow(text);
-  const rows =
-    text.length > longLine && isPlain(text)
-      ? wrapCodeUnits(text, width)
-      : wrapGraphemes(text, width);
-  return rows.length ? rows : wholeRow(text);
+  if (text.length <= width && isPlain(text)) return wholeLineRow;
+  return measure(text, width);
 }
 
 /**
@@ -81,13 +116,13 @@ export function wrapLine(text: string, columns: number): readonly WrapRow[] {
  * row before it (a hard break), which is where the caret sits after End or a click past the edge.
  * Row starts are sorted, so a line of a million columns still costs a binary search.
  */
-export function rowOfColumn(rows: readonly WrapRow[], column: number, before = false): number {
+export function rowOfColumn(rows: WrapRows, column: number, before = false): number {
   let low = 0;
   let high = rows.length - 1;
   let found = 0;
   while (low <= high) {
     const middle = (low + high) >> 1;
-    const row = rows[middle];
+    const row = rows.at(middle);
     if (row !== undefined && row.start <= column) {
       found = middle;
       low = middle + 1;
@@ -95,22 +130,22 @@ export function rowOfColumn(rows: readonly WrapRow[], column: number, before = f
       high = middle - 1;
     }
   }
-  const row = rows[found];
+  const row = rows.at(found);
   if (
     found > 0 &&
     row !== undefined &&
     row.start === column &&
     before &&
-    rows[found - 1]?.end === column
+    rows.at(found - 1)?.end === column
   )
     return found - 1;
   return found;
 }
 
 /** Whether a column sits at the end of its row and begins the next one: a hard break. */
-export function atHardBreak(rows: readonly WrapRow[], row: number, column: number): boolean {
-  const next = rows[row + 1];
-  return next !== undefined && next.start === column && rows[row]?.end === column;
+export function atHardBreak(rows: WrapRows, row: number, column: number): boolean {
+  const next = rows.at(row + 1);
+  return next !== undefined && next.start === column && rows.at(row)?.end === column;
 }
 
 /** The cells from a row's left edge, indent included, to a UTF-16 column on that row. */
@@ -130,127 +165,97 @@ export function rowText(text: string, row: WrapRow): string {
   return text.slice(row.start, Math.min(row.end, text.length));
 }
 
-function wrapGraphemes(text: string, width: number): WrapRow[] {
-  const parts = graphemes(text);
-  const indent = Math.min(leadingIndent(text), Math.max(0, width - leastRowCells));
+/** Wheels one line's row starts into shape. */
+function measure(text: string, width: number): WrapRows {
   const indentEnd = leadingEnd(text);
-  // The last cluster that is not whitespace settles every "is the rest all space?" question in
-  // one pass, so a very long line never rescans its tail once per row.
-  const lastSolid = lastSolidPart(parts);
-  const rows: WrapRow[] = [];
+  const indent = Math.min(leadingIndent(text), Math.max(0, width - leastRowCells));
+  const lastSolid = lastSolidUnit(text);
+  const reader = new UnitReader(text);
+  const starts: number[] = [0];
   let start = 0;
-  let at = 0;
   let first = true;
-  while (at < parts.length) {
+  while (start < text.length) {
     const room = first ? width : Math.max(leastRowCells, width - indent);
-    let cells = 0;
-    let index = at;
-    let fit = start;
-    let fitAt = at;
-    let breakAt = -1;
-    let resumeAt = -1;
-    let inRun = false;
-    while (index < parts.length) {
-      const part = parts[index];
-      if (!part) break;
-      const cell = part.text === "\t" ? tabSize - (cells % tabSize) : part.width;
-      if (cells + cell > room && index > at) break;
-      cells += cell;
-      index++;
-      fit = part.end;
-      fitAt = index;
-      if (isBreak(part.text) && part.start >= indentEnd) {
-        // The run's first space is where the row ends; the whole run stays at that end.
-        if (!inRun) breakAt = part.start;
-        inRun = true;
-        let next = index;
-        while (next < parts.length && isBreak(parts[next]?.text ?? "")) next++;
-        resumeAt = next;
-      } else {
-        inRun = false;
-      }
-    }
-    let end: number;
-    let resume: number;
-    if (index >= parts.length) {
-      end = text.length;
-      resume = parts.length;
-    } else if (lastSolid < index) {
-      // Whitespace after the last word stays on this row, past its edge, for the caret to reach.
-      end = text.length;
-      resume = parts.length;
-    } else if (breakAt > start && resumeAt > at) {
-      // The run stays on the row it broke, past the row's edge: every column in it keeps its x.
-      end = parts[resumeAt]?.start ?? text.length;
-      resume = resumeAt;
-    } else {
-      end = fit > start ? fit : (parts[at]?.end ?? text.length);
-      resume = end === fit ? fitAt : at + 1;
-    }
-    if (end <= start) {
-      end = parts[at]?.end ?? text.length;
-      resume = at + 1;
-    }
-    rows.push({ start, end, indent: first ? 0 : indent });
-    const next = parts[resume];
-    start = next ? next.start : text.length;
-    at = resume;
+    const found = rowBreak(reader, start, room, indentEnd, lastSolid, text.length);
+    if (found.end >= text.length || found.end <= start) break;
+    reader.rewind(found.mark);
+    reader.drop();
+    starts.push(found.end);
+    start = found.end;
     first = false;
   }
-  return rows;
+  if (starts.length === 1) return wholeLineRow;
+  return new LineRows(Int32Array.from(starts), text.length, indent);
 }
 
-function wrapCodeUnits(text: string, width: number): WrapRow[] {
-  const indent = Math.min(leadingIndent(text), Math.max(0, width - leastRowCells));
-  const indentEnd = leadingEnd(text);
-  // One pass for the same two questions the grapheme path asks: where the last real character
-  // is, and where each row's last space may be. A megabyte of text is never rescanned per row.
-  const lastText = lastNonSpace(text);
-  const rows: WrapRow[] = [];
-  let start = 0;
-  while (start < text.length) {
-    const room = rows.length === 0 ? width : Math.max(leastRowCells, width - indent);
-    let end = Math.min(text.length, start + room);
-    if (end < text.length) {
-      if (lastText >= end) {
-        const space = lastSpaceWithin(text, start, end);
-        // The space is kept at this row's end, past its edge, so the caret has a column for it.
-        if (space > start && space >= indentEnd) end = space + 1;
-      } else {
-        end = text.length;
+/**
+ * Where the row starting at `start` ends: the last whitespace run that fits, kept whole at the
+ * row's end, or a hard break before the unit that no longer fits. The returned mark is where the
+ * reader must stand for the next row, which can be earlier than where the scan stopped.
+ */
+function rowBreak(
+  reader: UnitReader,
+  start: number,
+  room: number,
+  indentEnd: number,
+  lastSolid: number,
+  lineEnd: number,
+): { end: number; mark: number } {
+  let cells = 0;
+  let fit = start;
+  let fitMark = reader.mark();
+  let breakAt = -1;
+  let resumeAt = -1;
+  let resumeMark = fitMark;
+  let taken = 0;
+  const stop = (unit: Unit): { end: number; mark: number } => {
+    // Whitespace after the last word stays on this row, past its edge, for the caret to reach.
+    if (lastSolid < unit.start) return { end: lineEnd, mark: reader.mark() };
+    if (breakAt >= 0) return { end: resumeAt, mark: resumeMark };
+    return { end: fit, mark: fitMark };
+  };
+  for (;;) {
+    const unit = reader.peek();
+    if (!unit) return { end: lineEnd, mark: reader.mark() };
+    if (unit.space && unit.start >= indentEnd && unit.start > start) {
+      // The reader reuses its unit object, so the run's own values are read before it moves on.
+      const runStart = unit.start;
+      if (cells + cellOf(unit, cells) > room && taken > 0) return stop(unit);
+      // One pass over the whole run: the row keeps it at its end, and the next row starts after
+      // it, so no unit of it is ever read twice.
+      let runEnd = runStart;
+      while (true) {
+        const part = reader.peek();
+        if (!part || !part.space) break;
+        cells += cellOf(part, cells);
+        runEnd = part.end;
+        reader.take();
+        taken++;
       }
+      const mark = reader.mark();
+      if (runEnd >= lineEnd || lastSolid < runStart) return { end: lineEnd, mark };
+      if (cells > room) return { end: runEnd, mark };
+      breakAt = runStart;
+      resumeAt = runEnd;
+      resumeMark = mark;
+      fit = runEnd;
+      fitMark = mark;
+      continue;
     }
-    if (end <= start) end = Math.min(text.length, start + 2);
-    rows.push({ start, end, indent: rows.length === 0 ? 0 : indent });
-    start = end;
+    if (cells + cellOf(unit, cells) > room && taken > 0) return stop(unit);
+    cells += cellOf(unit, cells);
+    fit = unit.end;
+    reader.take();
+    taken++;
+    fitMark = reader.mark();
   }
-  return rows;
 }
 
-/** The index of the last cluster that is not a break, or -1 when every cluster is one. */
-function lastSolidPart(parts: readonly Grapheme[]): number {
-  for (let index = parts.length - 1; index >= 0; index--) {
-    if (!isBreak(parts[index]?.text ?? "")) return index;
-  }
-  return -1;
-}
-
-/** The index of the last character that is not a space, or -1 when only spaces remain. */
-function lastNonSpace(text: string): number {
-  for (let index = text.length - 1; index >= 0; index--) {
-    if (text.charCodeAt(index) !== 32) return index;
+/** The start of the last code unit that is not a space or a tab, or -1 when all are blanks. */
+function lastSolidUnit(text: string): number {
+  for (let at = text.length - 1; at >= 0; at--) {
+    const code = text.charCodeAt(at);
+    if (code !== 32 && code !== 9) return at;
   }
   return -1;
-}
-
-/** The last space in `[start, end)`, or -1 when that range holds none. */
-function lastSpaceWithin(text: string, start: number, end: number): number {
-  for (let index = end - 1; index > start; index--) {
-    if (text.charCodeAt(index) === 32) return index;
-  }
-  return -1;
-}
-
-function isBreak(cluster: string): boolean {
-  return cluster === " " || cluster === "\t";
 }

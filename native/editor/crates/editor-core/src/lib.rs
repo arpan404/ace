@@ -24,4 +24,4 @@ pub use error::Error;
 pub use find::FindQuery;
 pub use position::{Position, Range};
 pub use selection::Selection;
-pub use transaction::{Applied, Change, LineEdit, Transaction};
+pub use transaction::{Applied, Change, LineEdit, Replacement, Transaction};

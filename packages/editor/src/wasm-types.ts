@@ -5,6 +5,7 @@
 export interface WasmApplied {
   readonly version: number;
   readonly spans: Uint32Array;
+  readonly replacements: Uint32Array;
 }
 
 /** The `EditorDocument` class wasm-bindgen generates, in its flat-array shape. */

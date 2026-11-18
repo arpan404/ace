@@ -8,7 +8,8 @@
 //! - positions are `(line, column)` pairs in a `Uint32Array`;
 //! - selections are `(anchor line, anchor column, head line, head column)` quads;
 //! - a transaction is a range quad array plus one text per range;
-//! - an applied edit is `{ version, spans }` with `(first line, removed, inserted)` triples;
+//! - an applied edit is `{ version, spans, replacements }` with `(first line, removed,
+//!   inserted)` triples and `(start, end, post-end)` position six-tuples;
 //! - gutter marks are `(line, kind)` pairs with `0 = added`, `1 = modified`, `2 = removed`.
 //!
 //! Only the lines a view draws are fetched as strings, one [`EditorDocument::lines`] call per

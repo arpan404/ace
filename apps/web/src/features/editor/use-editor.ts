@@ -4,6 +4,7 @@ import {
   type Applied,
   type LineEdit,
   type Selection,
+  type TextReplacement,
 } from "@ace/editor";
 import { fileLanguage, type LineMark } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -42,6 +43,8 @@ export interface EditorDocumentState {
 /** One applied edit's changed lines, with the document's line count and version after it. */
 export interface EditBatch {
   spans: readonly LineEdit[];
+  /** The ranges the transaction replaced, for carrying a stored position through it. */
+  replacements: readonly TextReplacement[];
   lines: number;
   /** The document's version once the spans were applied. */
   version: number;
@@ -59,6 +62,8 @@ export function useEditorDocument(options: {
    * measured: the one moment a view can read its own rows without racing the new text.
    */
   onBeforeEdit?: (() => void) | undefined;
+  /** Called when an operation that remembered a position changed nothing, as an empty undo. */
+  onNoEdit?: (() => void) | undefined;
   /**
    * Called with one batch of spans for every applied edit, synchronously, before React renders
    * the document that edit produced: a layout that reads text must hear about the edit while
@@ -88,6 +93,7 @@ export function useEditorDocument(options: {
   const onEdit = useRef(options.onEdit);
   const onTextDispose = useRef(options.onTextDispose);
   const onBeforeEdit = useRef(options.onBeforeEdit);
+  const onNoEdit = useRef(options.onNoEdit);
   const onApplied = useRef(options.onApplied);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const commitAfter = options.commitAfter ?? 1_000;
@@ -96,8 +102,15 @@ export function useEditorDocument(options: {
     onEdit.current = options.onEdit;
     onTextDispose.current = options.onTextDispose;
     onBeforeEdit.current = options.onBeforeEdit;
+    onNoEdit.current = options.onNoEdit;
     onApplied.current = options.onApplied;
-  }, [options.onEdit, options.onTextDispose, options.onBeforeEdit, options.onApplied]);
+  }, [
+    options.onEdit,
+    options.onTextDispose,
+    options.onBeforeEdit,
+    options.onNoEdit,
+    options.onApplied,
+  ]);
 
   useEffect(() => {
     let live = true;
@@ -156,20 +169,17 @@ export function useEditorDocument(options: {
   );
 
   const after = useCallback(
-    (applied: Applied, colours = true) => {
+    (batch: EditBatch, colours = true) => {
       if (!doc) return;
       if (colours)
-        for (const span of applied.spans) {
+        for (const span of batch.spans) {
           const inserted = doc.lines(span.firstLine, span.firstLine + span.insertedLines);
           highlighter?.edit(span.firstLine, span.removedLines, inserted);
         }
+      // Before React redraws: a layout that measures the new text must already know the edit,
+      // and the page's own callback only hears about it once that layout has the new rows.
+      onApplied.current?.(batch);
       onEdit.current?.();
-      // Before React redraws: a layout that measures the new text must already know the edit.
-      onApplied.current?.({
-        spans: applied.spans,
-        lines: doc.lenLines(),
-        version: applied.version,
-      });
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
@@ -183,8 +193,17 @@ export function useEditorDocument(options: {
       if (!doc || !editable) return false;
       onBeforeEdit.current?.();
       const applied = run(doc);
-      if (!applied) return false;
-      after(applied);
+      if (!applied) {
+        // Nothing landed: a position remembered for this operation described no change.
+        onNoEdit.current?.();
+        return false;
+      }
+      after({
+        spans: applied.spans,
+        replacements: applied.replacements,
+        lines: doc.lenLines(),
+        version: applied.version,
+      });
       return true;
     },
     [doc, editable, after],
@@ -209,7 +228,12 @@ export function useEditorDocument(options: {
       doc.setSelections(before);
       // One whole-text replacement, never also an edit span for the same change.
       highlighter?.setText(next);
-      after(applied, false);
+      // A reload is not an edit at the reader's position: its one range covers the file, and
+      // mapping through it would put the view at the end. The remembered line stays where it is.
+      after(
+        { spans: applied.spans, replacements: [], lines: doc.lenLines(), version: applied.version },
+        false,
+      );
       commit();
     },
     [doc, highlighter, after, commit],

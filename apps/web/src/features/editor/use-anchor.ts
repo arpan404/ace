@@ -1,4 +1,4 @@
-import type { LineEdit } from "@ace/editor";
+import type { Position, TextReplacement } from "@ace/editor";
 import type { RefObject } from "react";
 import { lineHeight } from "./geometry.ts";
 import { rowOfColumn } from "./wrap.ts";
@@ -26,26 +26,44 @@ export interface ViewAnchor {
   pixels: number;
 }
 
+/** Whether a position comes before another, the document's own order of lines then columns. */
+function before(a: Position, b: Position): boolean {
+  return a.line === b.line ? a.column < b.column : a.line < b.line;
+}
+
+/** Whether a position is at or before another. */
+function notAfter(a: Position, b: Position): boolean {
+  return a.line === b.line ? a.column <= b.column : a.line < b.line;
+}
+
 /**
- * The same text position after an edit. Lines below a span move by its net change, and a
- * position inside a changed region follows the region's first new line, so an edit above the
- * view never pulls different text under the top edge.
+ * The same text position after a transaction. The replaced ranges are in the document before it,
+ * so one pass over them maps both line and column: a position before a range keeps the shift of
+ * the ranges before it, a position inside one becomes the end of its new text (where the document
+ * moves its own selections), and a position after one keeps its distance from the range's end.
+ * An edit above the view therefore never pulls different text under the top edge, and an edit
+ * inside the anchored line moves the column with the text the reader is looking at.
  */
-export function mapAnchor(anchor: ViewAnchor, spans: readonly LineEdit[]): ViewAnchor {
-  const sorted = [...spans].toSorted((a, b) => a.firstLine - b.firstLine);
-  let shift = 0;
-  for (const span of sorted) {
-    const inserted = Math.max(1, span.insertedLines);
-    // Spans are post-edit coordinates: dropping the change of the spans before gives old lines.
-    const from = span.firstLine - shift;
-    if (anchor.line < from) break;
-    if (anchor.line >= from + span.removedLines) {
-      shift += inserted - span.removedLines;
+export function mapAnchor(
+  anchor: ViewAnchor,
+  replacements: readonly TextReplacement[],
+): ViewAnchor {
+  let line = anchor.line;
+  let column = anchor.column;
+  for (const change of replacements) {
+    if (before(anchor, change.start)) break;
+    if (notAfter(anchor, change.end)) {
+      line = change.postEnd.line;
+      column = change.postEnd.column;
       continue;
     }
-    return { ...anchor, line: span.firstLine + Math.min(anchor.line - from, inserted - 1) };
+    line = anchor.line + (change.postEnd.line - change.end.line);
+    column =
+      anchor.line === change.end.line
+        ? anchor.column + (change.postEnd.column - change.end.column)
+        : anchor.column;
   }
-  return { ...anchor, line: Math.max(0, anchor.line + shift) };
+  return { ...anchor, line: Math.max(0, line), column: Math.max(0, column) };
 }
 
 export class ScrollAnchor {
@@ -70,12 +88,18 @@ export class ScrollAnchor {
     const line = layout.lineAt(row);
     const rows = layout.rowsOf(line);
     const at = Math.max(0, Math.min(row - layout.startOf(line), rows.length - 1));
-    this.#pending = { line, column: rows[at]?.start ?? 0, pixels: top - row * lineHeight };
+    this.#pending = { line, column: rows.at(at)?.start ?? 0, pixels: top - row * lineHeight };
   }
 
-  /** Maps the remembered position through an edit's spans. */
-  mapThrough(spans: readonly LineEdit[]): void {
-    if (this.#pending && spans.length) this.#pending = mapAnchor(this.#pending, spans);
+  /** Forgets a position remembered for an operation that changed nothing. */
+  discard(): void {
+    this.#pending = undefined;
+  }
+
+  /** Maps the remembered position through the ranges a transaction replaced. */
+  mapThrough(replacements: readonly TextReplacement[]): void {
+    if (this.#pending && replacements.length)
+      this.#pending = mapAnchor(this.#pending, replacements);
   }
 
   /** Puts the remembered text back at the top edge, from the rows as they stand after the change. */
@@ -86,7 +110,9 @@ export class ScrollAnchor {
     const element = this.#scroller.current;
     if (!element) return;
     const rows = layout.rowsOf(saved.line);
-    const at = rowOfColumn(rows, saved.column, true);
+    // A remembered row starts at its own column: the start-of-row side belongs to the row after
+    // a hard break, never to the row before it, or a slice of the idle re-wrap walks the view up.
+    const at = rowOfColumn(rows, saved.column);
     // oxlint-disable-next-line react/immutability, react-compiler/immutability -- the scroller's own offset is the browser's to hold.
     element.scrollTop = Math.max(0, (layout.startOf(saved.line) + at) * lineHeight + saved.pixels);
     this.#onScroll({ top: element.scrollTop, left: element.scrollLeft });

@@ -103,6 +103,22 @@ impl Transaction {
     }
 }
 
+/// One range a transaction replaced, ready for a view mapping a stored text position.
+///
+/// `start` and `end` are in the document before the transaction, `post_end` where the text that
+/// replaced the range ends in the document after it. A position inside the range maps to
+/// `post_end`, the same place the document moves its own selections, so a stored position can be
+/// carried through an edit or an undo without reading either document.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Replacement {
+    /// Where the replaced text began.
+    pub start: Position,
+    /// Where the replaced text ended.
+    pub end: Position,
+    /// Where the inserted text ends after the transaction.
+    pub post_end: Position,
+}
+
 /// One changed line span, ready for a line highlighter.
 ///
 /// `first_line` is the first line of the span in the document *after* the edit. The old span
@@ -139,6 +155,8 @@ pub struct Applied {
     pub inserted_lines: u32,
     /// The precise spans to hand to a highlighter in order.
     pub spans: Vec<LineEdit>,
+    /// The replaced ranges in document order, for mapping a stored position through the edit.
+    pub replacements: Vec<Replacement>,
     /// The document version after the edit.
     pub version: u64,
 }

@@ -30,7 +30,7 @@ function caretOf(
   const text = lines(position.line);
   const rows = layout.rowsOf(position.line);
   const at = rowOfColumn(rows, position.column, before);
-  const row = rows[at] ?? rows[0];
+  const row = rows.at(at) ?? rows.at(0);
   return {
     left: gutter + (row ? rowOffset(text, row, position.column) : 0) * cell,
     top: (layout.startOf(position.line) + at) * lineHeight,
@@ -72,7 +72,7 @@ function boxes(
         const fromRow = Math.max(0, firstRow - startRow);
         const toRow = Math.min(rows.length, lastRow - startRow);
         for (let at = fromRow; at < toRow; at++) {
-          const row = rows[at];
+          const row = rows.at(at);
           if (!row) continue;
           // A selection that runs past a space kept at a break reaches the row's edge; the next
           // row starts where its own text does.

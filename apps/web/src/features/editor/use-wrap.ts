@@ -28,6 +28,8 @@ export interface WrapEdits {
   before(): void;
   /** The edit's spans, applied before React renders the text it produced. */
   after(batch: EditBatch): void;
+  /** The operation changed nothing: forget the position remembered for it. */
+  discard(): void;
 }
 
 /** Installed by {@link useWrap}, called by the document around every edit it applies. */
@@ -73,11 +75,12 @@ export function useWrap(options: {
     appliedRef.current = {
       before: remember,
       after: (batch) => {
-        anchor.mapThrough(batch.spans);
+        anchor.mapThrough(batch.replacements);
         index.apply([batch]);
         // oxlint-disable-next-line react-compiler/set-state-in-effect -- the index is an external store; a slice of rows changed under React.
         setRevision((value) => value + 1);
       },
+      discard: () => anchor.discard(),
     };
     return () => {
       appliedRef.current = undefined;

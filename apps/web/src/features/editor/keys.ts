@@ -49,7 +49,7 @@ export interface EditorKeyOptions {
   /** Records every caret's side of a hard break after a move. */
   onBefore(affinity: Affinity): void;
   /** Brings a position into view, drawn on the side of a hard break the move asked for. */
-  reveal(position: Position, before?: boolean): void;
+  reveal(position: Position, before: boolean): void;
 }
 
 export function useEditorKeys(options: EditorKeyOptions) {
@@ -70,7 +70,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const rowAt = (position: Position, before = false) => {
     const rows = layout?.rowsOf(position.line) ?? [];
     const at = rows.length ? rowOfColumn(rows, position.column, before) : 0;
-    return { rows, at, row: rows[at] };
+    return { rows, at, row: rows.at(at) };
   };
 
   const offsetOf = (position: Position, before = false): number => {
@@ -104,7 +104,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const target = layout.lineAt(row);
     const rows = layout.rowsOf(target);
     const at = Math.max(0, Math.min(row - layout.startOf(target), rows.length - 1));
-    const visual = rows[at];
+    const visual = rows.at(at);
     if (!visual) return { position: { line: target, column: 0 }, before: false };
     const text = line(target);
     const column =
@@ -133,7 +133,9 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const moved: Selection[] = [];
     const affinity: boolean[] = [];
     selections.forEach((selection, index) => {
-      const keeperHere = index === primary ? keeper : offsetOf(selection.head);
+      // A secondary caret keeps its own goal; its side of a hard break is where its row ends.
+      const keeperHere =
+        index === primary ? keeper : offsetOf(selection.head, isBefore(options.affinity, index));
       const row = rowOf(selection.head, isBefore(options.affinity, index));
       const landed = positionOnRow(row + delta, keeperHere);
       affinity.push(landed.before);
@@ -159,7 +161,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const home = (position: Position, before: boolean): number => {
     const text = line(position.line);
     const { rows, at } = rowAt(position, before);
-    const row = rows[at];
+    const row = rows.at(at);
     if (!row) return smartHome(text, position.column);
     if (at > 0) return position.column > row.start ? row.start : 0;
     return smartHome(text, position.column);
@@ -168,12 +170,12 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const end = (position: Position, before: boolean): number => {
     const text = line(position.line);
     const { rows, at } = rowAt(position, before);
-    const row = rows[at];
+    const row = rows.at(at);
     if (!row) return text.length;
     const rowEnd = Math.min(row.end, text.length);
     // A caret at a row's end steps to the next row's end, then to the line's.
     if (position.column < rowEnd) return rowEnd;
-    const next = rows[at + 1];
+    const next = rows.at(at + 1);
     return next ? Math.min(next.end, text.length) : text.length;
   };
 
@@ -210,7 +212,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       const last = documentEnd(doc.lenLines(), line(lastLine()));
       options.onBefore(noAffinity);
       state.select([{ anchor: { line: 0, column: 0 }, head: last }]);
-      options.reveal(last);
+      options.reveal(last, false);
       return;
     }
     if (mod && key.toLowerCase() === "f") {
@@ -244,14 +246,14 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (!options.readOnly && key === "Tab") {
       event.preventDefault();
       state.edit((target) => (event.shiftKey ? target.outdentLines() : target.indentLines()));
-      options.reveal(head());
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     if (!options.readOnly && event.altKey && event.shiftKey && key === "ArrowDown") {
       event.preventDefault();
       goal.current = undefined;
       state.edit((target) => target.duplicateLines());
-      options.reveal(head());
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     if (
@@ -264,7 +266,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       event.preventDefault();
       goal.current = undefined;
       state.edit((target) => (key === "ArrowUp" ? target.moveLinesUp() : target.moveLinesDown()));
-      options.reveal(head());
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     if (key === "Escape") {
@@ -274,7 +276,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       goal.current = undefined;
       options.onBefore(noAffinity);
       state.select([caret(position.line, position.column)]);
-      options.reveal(position);
+      options.reveal(position, false);
       return;
     }
     if (key === "ArrowUp" || key === "ArrowDown") {

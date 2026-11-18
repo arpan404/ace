@@ -3,7 +3,7 @@
 //! Applying an edit set: the rope changes, the inverse and the line spans for the highlighter.
 
 use crate::document::Document;
-use crate::transaction::{Applied, Edit, EditSet, LineEdit, shift};
+use crate::transaction::{Applied, Edit, EditSet, LineEdit, Replacement, shift};
 
 /// The result of applying one set of changes: what the highlighter needs and the inverse edits.
 pub(crate) struct Outcome {
@@ -21,15 +21,22 @@ impl Document {
         }
 
         let mut old_ranges = Vec::with_capacity(edits.len());
+        let mut replacements = Vec::with_capacity(edits.len());
         let mut post_starts = Vec::with_capacity(edits.len());
         let mut post_ends = Vec::with_capacity(edits.len());
         let mut inverse = Vec::with_capacity(edits.len());
         let mut delta: isize = 0;
         for edit in edits.edits() {
-            old_ranges.push((
-                self.buffer.line_at(edit.start),
-                self.buffer.line_at(edit.end),
-            ));
+            // Both ranges are read before the buffer changes: they describe the text replaced.
+            let start = self.buffer.position(edit.start);
+            let end = self.buffer.position(edit.end);
+            old_ranges.push((start.line, end.line));
+            replacements.push(Replacement {
+                start,
+                end,
+                // Filled in once every edit has run, when the post-edit offsets are stable.
+                post_end: start,
+            });
             let post_start = shift(edit.start, delta);
             post_starts.push(post_start);
             post_ends.push(post_start + edit.text.len());
@@ -49,6 +56,9 @@ impl Document {
         }
 
         self.version += 1;
+        for (replacement, post_end) in replacements.iter_mut().zip(&post_ends) {
+            replacement.post_end = self.buffer.position(*post_end);
+        }
         let spans = self.line_spans(&old_ranges, &post_starts, &post_ends);
         let (old_first, old_last) = match (old_ranges.first(), old_ranges.last()) {
             (Some((start, _)), Some((_, end))) => (*start, *end),
@@ -62,6 +72,7 @@ impl Document {
                 removed_lines,
                 inserted_lines,
                 spans,
+                replacements,
                 version: self.version,
             },
             inverse: EditSet::new(inverse),

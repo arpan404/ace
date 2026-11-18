@@ -217,6 +217,48 @@ test("a line-count change does not walk the whole file", () => {
   expect(index.total()).toBe(10_001);
 });
 
+test("a burst of ten thousand edits faster than idle leaves no queued work behind", () => {
+  const lines = Array.from({ length: 2_000 }, () => "short");
+  const text = source(lines);
+  const index = new WrapIndex(text);
+  index.setColumns(20, { first: 0, last: lines.length });
+  index.pump(1_000_000);
+  expect(index.pending()).toBe(0);
+
+  for (let edit = 0; edit < 10_000; edit++) {
+    lines[7] = `line ${edit}`;
+    index.apply([
+      {
+        spans: [{ firstLine: 7, removedLines: 1, insertedLines: 1 }],
+        lines: lines.length,
+        version: 0,
+      },
+    ]);
+  }
+
+  // Every edit measured its own line as it landed; a ticket for one would only be skipped later.
+  expect(index.pending()).toBe(0);
+});
+
+test("one idle slice skips only the tickets its own limit covers", () => {
+  const lines = Array.from({ length: 5_000 }, () => "short");
+  const text = source(lines);
+  const index = new WrapIndex(text);
+  index.setColumns(20, { first: 0, last: 4 });
+  expect(index.pending()).toBeGreaterThan(4_000);
+
+  // Removing four thousand lines frees their nodes; every ticket those nodes held is stale now.
+  lines.splice(0, 4_000);
+  index.apply([
+    { spans: [{ firstLine: 0, removedLines: 4_000, insertedLines: 1 }], lines: 1_000, version: 0 },
+  ]);
+
+  const before = index.pending();
+  index.pump(10);
+  // Ten tickets were work, stale or not: one slice never walks thousands of them in one go.
+  expect(before - index.pending()).toBeLessThanOrEqual(10);
+});
+
 test("a document that moved past the tree is never measured through it", () => {
   const lines = Array.from({ length: 10 }, (_, at) => "x".repeat(at % 2 ? 40 : 10));
   let version = 0;

@@ -16,7 +16,7 @@
  */
 
 import type { LineEdit } from "@ace/editor";
-import { wholeLineRow, wrapLine, type WrapRow } from "./wrap.ts";
+import { wholeLineRow, wrapLine, type WrapRows } from "./wrap.ts";
 
 /** The text the index wraps: the open document, asked one line at a time. */
 export interface WrapText {
@@ -33,7 +33,7 @@ export interface RowLayout {
   /** The line a visual row belongs to. */
   lineAt(row: number): number;
   /** A line's rows; it touches the document's text and is meant for the lines on screen. */
-  rowsOf(line: number): readonly WrapRow[];
+  rowsOf(line: number): WrapRows;
   /** The document's visual rows. */
   total(): number;
 }
@@ -67,9 +67,9 @@ export class WrapIndex implements RowLayout {
   /** The document version every count in the tree was measured from. */
   #version: number;
   /** Measured rows by node, so a line keeps its rows while the lines around it move. */
-  #rows = new Map<number, readonly WrapRow[]>();
-  /** Nodes still to measure at this width, in the order they were queued. */
-  #pending: number[] = [];
+  #rows = new Map<number, WrapRows>();
+  /** Nodes still to measure at this width, with the identity they held when queued. */
+  #pending: { node: number; stamp: number }[] = [];
   #from = 0;
   #dirtyCount = 0;
 
@@ -202,7 +202,7 @@ export class WrapIndex implements RowLayout {
     return this.#pending.length - this.#from;
   }
 
-  rowsOf(line: number): readonly WrapRow[] {
+  rowsOf(line: number): WrapRows {
     const node = this.#nodeAt(line);
     if (node === 0) return wholeLineRow;
     const known = this.#rows.get(node);
@@ -228,22 +228,45 @@ export class WrapIndex implements RowLayout {
     }
   }
 
-  /** Measures up to `limit` queued lines; answers how many remain. */
+  /**
+   * Measures up to `limit` queued tickets; answers how many remain. A ticket already done or
+   * left behind by a freed node is work too: one slice never walks an unbounded stale queue, so
+   * a burst of edits cannot stall the frame that finally pumps it.
+   */
   pump(limit: number): number {
     let remaining = limit;
     while (this.#from < this.#pending.length && remaining > 0) {
-      const node = this.#pending[this.#from++];
-      if (node === undefined) continue;
-      // A freed node's id is reused with a new generation: work queued for the old one is gone.
-      if (this.#queued[node] !== this.#stamp[node] || this.#dirty[node] !== 1) continue;
-      if (!this.#measure(node)) break;
+      const ticket = this.#pending[this.#from++];
+      if (!ticket) continue;
       remaining--;
+      const { node, stamp } = ticket;
+      // A freed node's id is reused with a new generation: work queued for the old one is gone.
+      if (stamp !== (this.#stamp[node] ?? 0) || this.#queued[node] !== stamp) continue;
+      if (this.#dirty[node] !== 1) {
+        this.#queued[node] = 0;
+        continue;
+      }
+      if (!this.#measure(node)) {
+        // The document moved past the tree: put the ticket back and let the edit settle first.
+        this.#from--;
+        break;
+      }
+      this.#queued[node] = 0;
     }
+    this.#compact();
+    return this.pending();
+  }
+
+  /** Drops the tickets a slice already passed, so a long-lived index never grows one forever. */
+  #compact(): void {
     if (this.#from >= this.#pending.length) {
       this.#pending = [];
       this.#from = 0;
+      return;
     }
-    return this.pending();
+    if (this.#from < 1_024 && this.#from * 2 < this.#pending.length) return;
+    this.#pending = this.#pending.slice(this.#from);
+    this.#from = 0;
   }
 
   get #length(): number {
@@ -262,7 +285,8 @@ export class WrapIndex implements RowLayout {
     for (let line = from; line < to; line++) {
       const node = this.#nodeAt(line);
       if (node === 0) continue;
-      this.#invalidate(node);
+      // Measured now: a ticket for it would only be skipped by the next slice.
+      this.#discard(node);
       this.#measure(node);
     }
   }
@@ -443,7 +467,7 @@ export class WrapIndex implements RowLayout {
    * Measures one node's line at this width, answering its rows. Nothing is measured while the
    * document's version has moved past the tree's: the count would describe the wrong text.
    */
-  #measure(node: number): readonly WrapRow[] | undefined {
+  #measure(node: number): WrapRows | undefined {
     if (this.#text.version() !== this.#version) return undefined;
     const rows = wrapLine(this.#text.line(this.#rankOf(node)), this.#columns);
     this.#count[node] = rows.length;
@@ -451,12 +475,11 @@ export class WrapIndex implements RowLayout {
       this.#dirty[node] = 0;
       this.#dirtyCount--;
     }
-    this.#queued[node] = 0;
     this.#settle(node);
     return rows;
   }
 
-  #remember(node: number, rows: readonly WrapRow[]): void {
+  #remember(node: number, rows: WrapRows): void {
     if (this.#rows.size >= cachedRows) this.#rows.clear();
     this.#rows.set(node, rows);
   }
@@ -464,19 +487,30 @@ export class WrapIndex implements RowLayout {
   /** Drops a node's measured rows and queues it to be measured again at this width. */
   #invalidate(node: number): void {
     if (node === 0) return;
+    this.#discard(node);
+    this.#enqueue(node);
+  }
+
+  /** Drops a node's measured rows and marks them due at this width, without a ticket. */
+  #discard(node: number): void {
     this.#rows.delete(node);
     if (this.#dirty[node] !== 1) {
       this.#dirty[node] = 1;
       this.#dirtyCount++;
     }
-    this.#enqueue(node);
   }
 
-  /** Queues a node unless it is already queued under its current generation. */
+  /**
+   * Queues a node unless a ticket for it exists under its current identity. One ticket is
+   * enough however often the line changes: the node reads its current text when the ticket is
+   * finally pumped, so a burst of edits supersedes work instead of adding to it.
+   */
   #enqueue(node: number): void {
-    if (node === 0 || this.#queued[node] === this.#stamp[node]) return;
-    this.#queued[node] = this.#stamp[node] ?? 0;
-    this.#pending.push(node);
+    if (node === 0) return;
+    const stamp = this.#stamp[node] ?? 0;
+    if (this.#queued[node] === stamp) return;
+    this.#queued[node] = stamp;
+    this.#pending.push({ node, stamp });
   }
 
   #nodeAt(line: number): number {

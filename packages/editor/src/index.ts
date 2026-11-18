@@ -13,4 +13,5 @@ export {
   type Position,
   type Range,
   type Selection,
+  type TextReplacement,
 } from "./types.ts";

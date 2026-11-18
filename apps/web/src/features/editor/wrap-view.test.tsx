@@ -44,6 +44,10 @@ const scrollerHost = () => document.querySelector<HTMLElement>("[data-editor-scr
 /** The primary caret's drawn row, as its top offset in pixels. */
 const caretTop = () => document.querySelector<HTMLElement>("[data-caret]")?.style.top;
 
+/** Every caret's drawn row, as its top offset in pixels. */
+const caretTops = () =>
+  [...document.querySelectorAll<HTMLElement>("[data-caret]")].map((box) => box.style.top);
+
 /** CJK text is two cells a character, so a hard break comes at this many characters. */
 const cjkRow = Math.floor(columns / 2);
 
@@ -108,6 +112,79 @@ test("two carets at hard breaks are each drawn on the row before the break", asy
     (box) => box.style.top,
   );
   expect(tops).toEqual(["0px", `${4 * 22}px`]);
+});
+
+test("a Shift+click leaves a caret it did not move on its own side of a hard break", async () => {
+  const { ref } = await openView({ text: "中".repeat(240), wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  // A fresh selection has no sides: the caret at the first hard break is drawn on the later row.
+  act(() => ref.current?.setSelections([caret(0, cjkRow), caret(0, 2 * cjkRow)]));
+  expect(caretTops()).toEqual(["22px", `${2 * 22}px`]);
+
+  // Shift+click on the fourth row extends the primary caret; the other caret was not touched.
+  fireEvent.pointerDown(scroller, {
+    button: 0,
+    shiftKey: true,
+    clientX: gutterWidth(1) + 3 * cell,
+    clientY: 3 * 22 + 5,
+  });
+
+  expect(caretTops()).toEqual(["22px", `${3 * 22}px`]);
+});
+
+test("secondary carets keep their own side when moving down from a hard break", async () => {
+  const text = `${"中".repeat(240)}\n${"中".repeat(240)}`;
+  const { ref } = await openView({ text, wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0), caret(1, 0)]));
+
+  await userEvent.keyboard("{End}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow), caret(1, cjkRow)]);
+  expect(caretTops()).toEqual(["0px", `${4 * 22}px`]);
+
+  // Down from a row's end keeps the column at the end of the next row for both carets.
+  await userEvent.keyboard("{ArrowDown}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow * 2), caret(1, cjkRow * 2)]);
+});
+
+test("a side of a hard break does not survive the edit that replaced the selections", async () => {
+  const text = `${"中".repeat(240)}\n${"中".repeat(240)}`;
+  const { ref } = await openView({ text, wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0), caret(1, 0)]));
+  await userEvent.keyboard("{End}");
+
+  await userEvent.keyboard("x");
+  await userEvent.keyboard("{Meta>}z{/Meta}");
+  await waitFor(() =>
+    expect(ref.current?.selections()).toEqual([caret(0, cjkRow), caret(1, cjkRow)]),
+  );
+
+  // The restored carets are at hard breaks again, but their old sides belonged to the carets the
+  // edit replaced: they draw on the later row until the next move says otherwise.
+  expect(caretTops()).toEqual(["22px", `${5 * 22}px`]);
+});
+
+test("a go-to-line jump does not run again when a caret's side changes", async () => {
+  const text = Array.from({ length: 200 }, () => "中".repeat(240)).join("\n");
+  const scrollTo = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(() => undefined);
+  try {
+    const { ref } = await openView({ text, wrap: true, line: 100 });
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+    const jump = scrollTo.mock.calls.at(-1)?.[0] as ScrollToOptions | undefined;
+    act(() => ref.current?.setSelections([caret(0, 0)]));
+    act(() => ref.current?.focus());
+    scrollTo.mockClear();
+
+    // End stops at a row's end, a hard break, and stores that caret's new side.
+    await userEvent.keyboard("{End}");
+    await waitFor(() => expect(caretTop()).toBe("0px"));
+
+    const calls = scrollTo.mock.calls.map(([options]) => options as ScrollToOptions);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.top).not.toBe(jump?.top);
+  } finally {
+    scrollTo.mockRestore();
+  }
 });
 
 test("revealing a caret at a hard break scrolls to the side the move asked for", async () => {
@@ -401,6 +478,35 @@ test("a newline above the view keeps the same text at the top, and undoing it pu
   await userEvent.keyboard("{Meta>}z{/Meta}");
   await waitFor(() => expect(scroller.scrollTop).toBe(start * 22 + 11));
   expect(rowText(start)).toBe(`line ${top} `);
+});
+
+test("typing at the start of the top line keeps the wrapped row under the edge", async () => {
+  const text = Array.from({ length: 120 }, (_, at) => `line ${at} `.padEnd(300, "word ")).join(
+    "\n",
+  );
+  const { ref } = await openView({ text, wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  await waitFor(() => expect(document.querySelector('[data-line="1"]')).toBeTruthy());
+
+  // Line 50's second visual row is at the top edge; the caret goes to the line's start.
+  const lines = text.split("\n");
+  const line = lines[50] ?? "";
+  const wrapped = wrapLine(line, columns);
+  const second = wrapped.at(1);
+  if (!second) throw new Error("Line 50 should wrap");
+  const watched = line.slice(second.start, second.end);
+  const top = rowStart(lines, 50) + 1;
+  scroller.scrollTop = top * 22;
+  fireEvent.scroll(scroller);
+  act(() => ref.current?.setSelections([caret(50, 0)]));
+
+  await userEvent.keyboard("x");
+
+  // The inserted character shifts every break on the line by one column; the row the reader was
+  // looking at stays at the top because the anchor moved with the text, not against it.
+  await waitFor(() => expect(rowText(top)).toBe(watched));
+  expect(scroller.scrollTop).toBe(top * 22);
 });
 
 test("toggling wrap in the middle of a line keeps that line at the top", async () => {
