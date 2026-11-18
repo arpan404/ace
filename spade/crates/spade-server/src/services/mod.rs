@@ -30,6 +30,9 @@ pub struct Launch {
     pub command: String,
     /// Relative to the workspace; empty for the workspace itself.
     pub cwd: String,
+    /// What the gate authorized (ADR 0171): a service it let start because the sandbox holds it
+    /// starts only held, and is refused where nothing does.
+    pub decided: crate::workspace::shell::Launch,
 }
 
 struct Running {
@@ -92,6 +95,13 @@ impl Services {
     /// Starts `launch`. Its end (by itself) is reported to the engine; a stop is not.
     pub fn start(self: &Arc<Self>, launch: Launch) -> Result<(), String> {
         let (home, dir) = self.folder(&launch.bot, &launch.cwd)?;
+        // Decided once at the gate, never again here. A service never leaves the sandbox: the
+        // gate's "outside" for one only means its command was classed for the review.
+        let decided = match launch.decided {
+            crate::workspace::shell::Launch::Outside => crate::workspace::shell::Launch::Reviewed,
+            decided => decided,
+        };
+        let plan = decided.plan(self.shell.contains(&home))?;
         let log = Arc::new(Mutex::new(Log::default()));
         let tee: Tee = {
             let (log, bots) = (log.clone(), self.bots.clone());
@@ -133,10 +143,11 @@ impl Services {
                             cleanup: None,
                             stdin: None,
                             kind: crate::workspace::shell::Kind::Command,
-                            outside: false,
-                            // An owned service must be contained; if it can't be, it is refused,
-                            // not started unconfined.
+                            outside: plan.outside,
+                            // An owned service must be contained wherever it can be; one the gate
+                            // let start only held is refused where nothing holds it.
                             may_run_uncontained: false,
+                            contained_only: plan.contained_only(),
                             clean: false,
                             read_only: false,
                         },

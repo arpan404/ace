@@ -738,6 +738,7 @@ async fn a_classification_that_runs_out_of_time_never_lets_a_full_access_command
                 "shell",
                 json!({ "command": "sh hang.sh", "outside_sandbox": true }),
             ),
+            Script::reply("Okay."),
         ]
     })
     .await?;
@@ -747,6 +748,32 @@ async fn a_classification_that_runs_out_of_time_never_lets_a_full_access_command
     assert!(made.success());
     // However the test ends, the hung reads are let go, so the runtime can stop.
     let _release = Release(fifo.clone());
+    full_access(&w).await?;
+    w.spade
+        .engine
+        .set_classify_time(std::time::Duration::from_millis(300));
+    w.spade.say(&w.conversation, "Run it").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    // Without a reading of what it would run, it isn't even asked about: an approval would have
+    // nothing to hold it to. Nothing ran.
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    let said = output(&events, "c1");
+    assert!(
+        said.contains("couldn't read what this command would run"),
+        "{said}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "tool_started" || e["type"] == "command_ran"),
+        "{:?}",
+        types(&events)
+    );
+    Ok(())
+}
+
+/// Puts the world's bot in Full access, as the person.
+async fn full_access(w: &support::sandbox::World) -> Result {
     let stamp = w.stamp(&w.bot, "full_access");
     let (status, body) = w
         .spade
@@ -757,26 +784,50 @@ async fn a_classification_that_runs_out_of_time_never_lets_a_full_access_command
         )
         .await?;
     assert_eq!(status, 200, "{body}");
-    w.spade
-        .engine
-        .set_classify_time(std::time::Duration::from_millis(300));
-    w.spade.say(&w.conversation, "Run it").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_approved_outside_command_doesnt_start_when_what_it_runs_cant_be_read_again() -> Result {
+    let w = world(true, vec![], |at| {
+        vec![
+            // Runs no file of its own: the approval binds no file list.
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({
+                    "command": format!("echo ran > {}", quoted(&at.root.join("outside.txt"))),
+                    "outside_sandbox": true,
+                }),
+            ),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    full_access(&w).await?;
+    w.spade.say(&w.conversation, "Run it outside").await?;
     let events = w
         .spade
         .wait_for(&w.conversation, "approval_requested")
         .await?;
-    let asked = events
-        .iter()
-        .find(|e| e["type"] == "approval_requested")
-        .ok_or("not asked")?;
-    // The person decides whether it leaves the sandbox; nothing ran meanwhile.
-    assert_eq!(asked["ask"], "outside_sandbox", "{asked}");
+    assert_eq!(asked(&events), ["c1"]);
+    // Between the person's answer and the launch, reading it again fails.
+    w.spade.engine.set_classify_time(std::time::Duration::ZERO);
+    let (status, _) = w
+        .spade
+        .post(
+            &format!("/v1/conversations/{}/approvals/c1", w.conversation),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let said = output(&events, "c1");
+    assert!(said.contains("couldn't read again"), "{said}");
+    let root = w.home.parent().map(Path::to_path_buf).unwrap_or_default();
     assert!(
-        !events
-            .iter()
-            .any(|e| e["type"] == "tool_started" || e["type"] == "command_ran"),
-        "{:?}",
-        types(&events)
+        !root.join("outside.txt").exists(),
+        "it ran outside the sandbox"
     );
     Ok(())
 }

@@ -208,9 +208,36 @@ pub(super) async fn handle_calls(
                     let rule = gate::decide(def.risk, always, tainted);
                     // Where the call runs and, for a command with no sandbox, what it runs and
                     // the files the reviewer must read (ADR 0171).
-                    let Some(classed) = classify(engine, id, &name, &key, &arguments, stop).await
+                    let Some(classified) =
+                        classify(engine, id, &name, &key, &arguments, stop).await
                     else {
                         return Handled::Stopped;
+                    };
+                    let classed = match classified {
+                        Classified::Done(classed) => classed,
+                        // Spade couldn't read what it would run outside: it isn't asked about,
+                        // since an approval needs that reading to hold the call to.
+                        Classified::Failed(fallback) if fallback.runs == Runs::AsksOutside => {
+                            match rule_verdict(
+                                engine,
+                                id,
+                                reply,
+                                events,
+                                &pending.call,
+                                &name,
+                                Verdict::Refuse,
+                                UNREAD_OUTSIDE,
+                                None,
+                            ) {
+                                Ok(true) => {}
+                                Ok(false) => return Handled::Stopped,
+                                Err(error) => return Handled::Failed(error.to_string()),
+                            }
+                            let refused = ToolOutput::ok(autonomy::refused(UNREAD_OUTSIDE));
+                            finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+                            continue;
+                        }
+                        Classified::Failed(fallback) => fallback,
                     };
                     // What it does, as the tool declares it once.
                     let declared = engine
@@ -571,7 +598,7 @@ pub(super) async fn handle_calls(
                     else {
                         return Handled::Stopped;
                     };
-                    launch_for(now.runs)
+                    launch_for(now.classed().runs)
                 };
                 engine.mark_launch(&key, launch);
                 // A driving step runs only where the person was told it acts.
@@ -767,6 +794,12 @@ async fn run_tools(
                 let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
                     return Handled::Stopped;
                 };
+                // What it runs couldn't be read again: it isn't known to be what was allowed.
+                let Classified::Done(now) = now else {
+                    let unread = ToolOutput::ok(autonomy::refused(UNREAD_AT_LAUNCH));
+                    finished.push_back((call, name, unread));
+                    continue;
+                };
                 if &super::autonomy::binding(&now.shown) != expected {
                     let changed = ToolOutput::ok(autonomy::refused(SCRIPT_CHANGED));
                     finished.push_back((call, name, changed));
@@ -895,6 +928,31 @@ async fn run_tools(
 /// before it is given up ([`Engine::classify_time`]).
 pub(crate) const CLASSIFY_TIME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// What classifying a call came to.
+enum Classified {
+    Done(autonomy::Classed),
+    /// It ran out of time or failed: where the call may run without widening it (in the
+    /// sandbox, or asking to run outside). Never enough to approve or start a call outside.
+    Failed(autonomy::Classed),
+}
+
+impl Classified {
+    fn classed(self) -> autonomy::Classed {
+        match self {
+            Self::Done(classed) | Self::Failed(classed) => classed,
+        }
+    }
+}
+
+/// Why a call asking to run outside the sandbox isn't asked about: Spade couldn't read what it
+/// would run there.
+const UNREAD_OUTSIDE: &str = "Spade couldn't read what this command would run, so it can't be \
+     run outside the sandbox now.";
+
+/// Why a call allowed outside the sandbox didn't start: what it runs couldn't be read again.
+const UNREAD_AT_LAUNCH: &str = "Spade couldn't read again what this command runs, so it isn't \
+     known to be what was allowed.";
+
 /// What a call reaches (ADR 0144), worked out off the turn's thread: reading a command's files is
 /// blocking work, bounded by the classifier's budget and here by [`CLASSIFY_TIME`]. Stop is
 /// heard meanwhile: `None` when it was pressed.
@@ -905,9 +963,11 @@ async fn classify(
     key: &str,
     arguments: &Value,
     stop: &mut watch::Receiver<bool>,
-) -> Option<autonomy::Classed> {
+) -> Option<Classified> {
     let Some(tool) = engine.tools.get_for(id, name) else {
-        return Some(Class::Sensitive(Sensitive::Unknown).into());
+        return Some(Classified::Done(
+            Class::Sensitive(Sensitive::Unknown).into(),
+        ));
     };
     // A classification that fails never widens where the call runs: one asking to leave the
     // sandbox goes to the person, anything else stays in it (and a launch held to the sandbox is
@@ -917,13 +977,17 @@ async fn classify(
     } else {
         autonomy::Classed::sandboxed()
     };
+    // No time for it at all: failed, as when it runs out.
+    if engine.classify_time().is_zero() {
+        return Some(Classified::Failed(failed));
+    }
     let (key, arguments) = (key.to_owned(), arguments.clone());
     let work = tokio::task::spawn_blocking(move || tool.classed(&key, &arguments));
     tokio::select! {
         done = tokio::time::timeout(engine.classify_time(), work) => Some(match done {
-            Ok(Ok(classed)) => classed,
+            Ok(Ok(classed)) => Classified::Done(classed),
             // Took too long, or panicked.
-            _ => failed,
+            _ => Classified::Failed(failed),
         }),
         _ = stop.wait_for(|stopped| *stopped) => None,
     }

@@ -13,24 +13,42 @@ pub const MARKER: &str = "SPADE_RUN_ENV";
 /// Each carried variable's name starts with this.
 pub const PREFIX: &str = "SPADE_RUN_ENV_";
 
+/// Why a variable can't be carried: a name with `=` would be read back as another name and
+/// value, and one that is empty or not UTF-8 can't be named again exactly.
+fn checked(name: &OsStr) -> Result<&str, String> {
+    let text = name
+        .to_str()
+        .ok_or_else(|| format!("the variable {name:?} has a name that isn't UTF-8"))?;
+    if text.is_empty() || text.contains('=') || text.contains('\0') {
+        return Err(format!(
+            "the variable {text:?} has a name that can't be carried"
+        ));
+    }
+    Ok(text)
+}
+
 /// What Spade's own program is started with to carry `env`: the marker and each variable renamed.
+/// A name that can't be carried exactly is refused, never dropped or changed.
 pub fn sealed<K: AsRef<OsStr>, V: AsRef<OsStr>>(
     env: impl IntoIterator<Item = (K, V)>,
-) -> Vec<(OsString, OsString)> {
+) -> Result<Vec<(OsString, OsString)>, String> {
     let mut out = vec![(OsString::from(MARKER), OsString::from("1"))];
-    out.extend(env.into_iter().map(|(name, value)| {
-        let mut carried = OsString::from(PREFIX);
-        carried.push(name.as_ref());
-        (carried, value.as_ref().to_owned())
-    }));
-    out
+    for (name, value) in env {
+        let name = checked(name.as_ref())?;
+        out.push((
+            OsString::from(format!("{PREFIX}{name}")),
+            value.as_ref().to_owned(),
+        ));
+    }
+    Ok(out)
 }
 
 /// The environment carried in `vars` (this process's own), with the names restored; `None` when
-/// it wasn't carried this way (a caller that passes the environment as it is).
+/// it wasn't carried this way (a caller that passes the environment as it is). A carried name
+/// that can't be restored exactly is an error: the command doesn't start.
 pub fn opened(
     vars: impl IntoIterator<Item = (OsString, OsString)>,
-) -> Option<Vec<(OsString, OsString)>> {
+) -> Result<Option<Vec<(OsString, OsString)>>, String> {
     let mut marked = false;
     let mut out = Vec::new();
     for (name, value) in vars {
@@ -38,14 +56,15 @@ pub fn opened(
             marked = true;
             continue;
         }
-        let Some(name) = name.to_str().and_then(|name| name.strip_prefix(PREFIX)) else {
+        if !name.as_encoded_bytes().starts_with(PREFIX.as_bytes()) {
             continue;
-        };
-        if !name.is_empty() {
-            out.push((OsString::from(name), value));
         }
+        let name = checked(&name)?;
+        let restored = &name[PREFIX.len()..];
+        checked(OsStr::new(restored))?;
+        out.push((OsString::from(restored), value));
     }
-    marked.then_some(out)
+    Ok(marked.then_some(out))
 }
 
 #[cfg(test)]
@@ -60,7 +79,7 @@ mod tests {
             ("LD_PRELOAD", "/tmp/evil.so"),
             ("DYLD_INSERT_LIBRARIES", "/tmp/evil.dylib"),
         ];
-        let carried = sealed(env);
+        let carried = sealed(env).unwrap_or_default();
         // What Spade's own program starts with: no name a loader acts on.
         for (name, _) in &carried {
             let name = name.to_string_lossy();
@@ -73,7 +92,7 @@ mod tests {
         // What the command inside gets: the run's environment, as it was, and nothing else.
         let mut with_others = carried.clone();
         with_others.push(("HOME".into(), "/somewhere".into()));
-        let opened = opened(with_others).unwrap_or_default();
+        let opened = opened(with_others).ok().flatten().unwrap_or_default();
         let expected: Vec<(OsString, OsString)> = env
             .iter()
             .map(|(name, value)| (OsString::from(name), OsString::from(value)))
@@ -82,7 +101,34 @@ mod tests {
         // Without the marker, nothing was carried: the caller's environment stands.
         assert_eq!(
             super::opened([(OsString::from("PATH"), OsString::from("/bin"))]),
-            None
+            Ok(None)
         );
+    }
+
+    #[test]
+    fn a_name_that_cant_be_carried_exactly_is_refused_not_dropped() {
+        // `A=B` would be read back as the variable `A` holding `B=…`.
+        assert!(sealed([("A=B", "x")]).is_err());
+        assert!(sealed([("", "x")]).is_err());
+        // Carried in by hand, a name that can't be restored stops the command.
+        for name in ["SPADE_RUN_ENV_", "SPADE_RUN_ENV_A=B"] {
+            let vars = [
+                (OsString::from(MARKER), OsString::from("1")),
+                (OsString::from(name), OsString::from("x")),
+            ];
+            assert!(opened(vars).is_err(), "{name}");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let mut raw = PREFIX.as_bytes().to_vec();
+            raw.push(0xff);
+            assert!(sealed([(OsString::from_vec(vec![0xff]), OsString::from("x"))]).is_err());
+            let vars = [
+                (OsString::from(MARKER), OsString::from("1")),
+                (OsString::from_vec(raw), OsString::from("x")),
+            ];
+            assert!(opened(vars).is_err());
+        }
     }
 }

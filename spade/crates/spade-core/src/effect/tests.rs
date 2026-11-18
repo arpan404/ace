@@ -1116,3 +1116,29 @@ fn a_tool_the_person_declined_stays_declined_once_its_server_is_sealed() {
         );
     }
 }
+
+#[test]
+fn on_the_auto_review_an_app_tool_that_calls_its_write_local_is_still_reviewed() {
+    // Declared `write_local` with a read-only hint: the rule gate would let a local write run.
+    let local = Call {
+        risk: Risk::Read,
+        rule: Decision::Run,
+        ..contained_app_tool(Some(Effect::WriteLocal))
+    };
+    for place in [Place::Sandbox, Place::Host, Place::Unprotected] {
+        let call = Call { place, ..local };
+        assert_eq!(route(call), reviewed(None), "{place:?}");
+    }
+    // The person's Always allow for it still runs it.
+    let always = Call {
+        always: true,
+        ..local
+    };
+    assert_eq!(route(always), Route::Run);
+    // A sealed plugin server's local write is the sandbox's.
+    let sealed = Call {
+        remote: false,
+        ..local
+    };
+    assert_eq!(route(sealed), Route::Run);
+}

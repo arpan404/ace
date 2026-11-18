@@ -306,6 +306,10 @@ pub fn dispatch(args: &[std::ffi::OsString]) -> Option<std::process::ExitCode> {
     if flag == crate::fds::SEAL_ARG {
         return Some(crate::fds::exec_sealed(&args[1..]));
     }
+    #[cfg(unix)]
+    if flag == crate::fds::RESTORE_ARG {
+        return Some(crate::fds::exec_restored(&args[1..]));
+    }
     None
 }
 

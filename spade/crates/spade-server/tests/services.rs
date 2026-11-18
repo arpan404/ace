@@ -589,3 +589,42 @@ async fn bot_state(spade: &Spade, bot: &Bot) -> Result<String> {
         .unwrap_or_default()
         .to_owned())
 }
+
+#[tokio::test]
+async fn a_service_the_gate_let_start_only_held_is_refused_where_no_sandbox_holds_it() -> Result {
+    // No sandbox here (a plain shell, as on a machine without one).
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, _services) = start(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "echo ran > ran.txt; exec sleep 60" }),
+            ),
+            approve(),
+            Script::reply("Done."),
+        ],
+        &workspaces,
+        Reviewer::Fake,
+    )
+    .await?;
+    // Its classification fails, so the gate decides it as a contained run: it may start only
+    // held by the sandbox.
+    spade.engine.set_classify_time(Duration::ZERO);
+    let bot = told(&spade, &workspaces, "Start the dev server").await?;
+    let events = spade.events(&bot.conversation).await?;
+    let said = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "s1")
+        .and_then(|e| e["content"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(said.contains("no longer holds it"), "{said}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !bot.folder.join("ran.txt").exists(),
+        "the service started with nothing holding it"
+    );
+    Ok(())
+}

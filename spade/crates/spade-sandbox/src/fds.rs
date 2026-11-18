@@ -71,16 +71,39 @@ pub fn exec_sealed(args: &[std::ffi::OsString]) -> std::process::ExitCode {
         eprintln!("spade {SEAL_ARG}: {why}");
         return std::process::ExitCode::from(126);
     }
-    let mut command = std::process::Command::new(program);
-    command.args(rest);
-    // The run's environment, carried past this program, goes to `sandbox-exec` (a system binary
-    // whose loader ignores `DYLD_*`) and so to the command it starts inside the sandbox.
-    if let Some(env) = crate::run_env::opened(std::env::vars_os()) {
-        command.env_clear().envs(env);
-    }
-    let error = command.exec();
+    // The run's environment stays carried through `sandbox-exec`: it is restored only by this
+    // program's second run, inside the sandbox ([`exec_restored`]).
+    let error = std::process::Command::new(program).args(rest).exec();
     eprintln!("spade {SEAL_ARG}: {error}");
     std::process::ExitCode::from(126)
+}
+
+/// The launcher's first argument for its run inside the sandbox (on macOS, started by
+/// `sandbox-exec`): it restores the run's environment and becomes the command.
+pub const RESTORE_ARG: &str = "sandbox-restore";
+
+/// `program args` with the carried environment restored, in place of this process, which the
+/// sandbox already holds. Answers only if the command couldn't be started.
+pub fn exec_restored(args: &[std::ffi::OsString]) -> std::process::ExitCode {
+    use std::os::unix::process::CommandExt;
+    let refused = |why: &str| {
+        eprintln!("spade {RESTORE_ARG}: {why}");
+        std::process::ExitCode::from(126)
+    };
+    let Some((program, rest)) = args.split_first() else {
+        return refused("a program is needed");
+    };
+    let env = match crate::run_env::opened(std::env::vars_os()) {
+        Ok(Some(env)) => env,
+        Ok(None) => return refused("the run's environment wasn't carried"),
+        Err(why) => return refused(&why),
+    };
+    let error = std::process::Command::new(program)
+        .args(rest)
+        .env_clear()
+        .envs(env)
+        .exec();
+    refused(&error.to_string())
 }
 
 #[cfg(test)]

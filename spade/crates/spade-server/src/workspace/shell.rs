@@ -55,6 +55,10 @@ pub struct Job<'a> {
     /// run outside), not because the gate skipped its review expecting containment. When a bot run
     /// turns out to need review and this is `false`, it is refused rather than run plainly.
     pub may_run_uncontained: bool,
+    /// The gate decided this run in the sandbox's light ([`Launch::Contained`]): it launches only
+    /// held by the sandbox, and is refused when nothing holds it here (no sandbox, or one that
+    /// doesn't apply), never run plainly.
+    pub contained_only: bool,
     /// A command Spade's classifier settled: it runs with a clean, fixed environment built by
     /// Spade, never one inherited from the daemon or carried from an earlier terminal command
     /// (ADR 0172, amendment 4). `job.env` (the hardening overrides) still go on top.
@@ -121,6 +125,22 @@ pub struct LaunchPlan {
 /// Why a command cleared to run contained didn't run once the sandbox no longer held it.
 pub const NO_LONGER_CONTAINED: &str = "The command wasn't run: it was cleared to run in Spade's \
      sandbox, but the sandbox no longer holds it. Run it again and Spade will ask first.";
+
+impl LaunchPlan {
+    /// A run no gate decided on (the person's own, Spade's): contained where the sandbox holds
+    /// it, plainly where it doesn't.
+    pub const AS_FOUND: Self = Self {
+        outside: false,
+        sandboxed: false,
+        may_run_uncontained: true,
+    };
+
+    /// Whether the run may launch only held by the sandbox: refused, never run plainly, when
+    /// nothing holds it at launch.
+    pub fn contained_only(self) -> bool {
+        self.sandboxed && !self.may_run_uncontained
+    }
+}
 
 impl Launch {
     /// The launch for this authorization when the sandbox does (`contains_now`) or doesn't hold the
@@ -448,6 +468,7 @@ impl Shell {
             outside: false,
             // Spade's own internal command: always expected to be containable.
             may_run_uncontained: false,
+            contained_only: false,
             clean: false,
             read_only: false,
         })
@@ -473,6 +494,8 @@ impl Shell {
             Some(confine) if job.read_only => Some(confine.read_only(home, job.script)?),
             // Outside the sandbox: no checkpoint, no proxy, the person's machine as it is.
             Some(_) if job.outside => None,
+            // The gate let it run only contained, and this shell has no sandbox at all.
+            None if job.contained_only => return Err(NO_LONGER_CONTAINED.to_owned()),
             Some(confine) => {
                 if let Some(work) = confine.before(home, &job.kind) {
                     match tokio::task::spawn_blocking(work).await {
@@ -484,6 +507,10 @@ impl Shell {
                     }
                 }
                 match confine.confine(home, &job.kind)? {
+                    // Nothing holds it here, though the gate let it run only held.
+                    Confinement::None if job.contained_only => {
+                        return Err(NO_LONGER_CONTAINED.to_owned());
+                    }
                     Confinement::None => None,
                     Confinement::Contained(confined) => Some(*confined),
                     // A bot run that can't be contained. If it was reviewed (or approved to run
@@ -540,9 +567,10 @@ impl Shell {
         if seals_env {
             // Spade's own program starts the command: it gets the environment carried, never as
             // it is (ADR 0171, amendment 4), and the run's mark too, so its processes are found.
-            shell
-                .envs(spade_sandbox::run_env::sealed(run_env))
-                .env(platform::MARK, &mark);
+            // A variable that can't be carried exactly stops the run.
+            let carried = spade_sandbox::run_env::sealed(run_env)
+                .map_err(|why| format!("The command didn't run: {why}."))?;
+            shell.envs(carried).env(platform::MARK, &mark);
         } else {
             shell.envs(run_env);
         }

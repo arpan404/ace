@@ -433,7 +433,6 @@ struct ShellArgs {
 }
 
 /// Whether a `shell` call asks to run outside the sandbox (ADR 0171).
-/// Whether a `shell` call asks to run outside the sandbox this once.
 pub fn asks_outside(arguments: &Value) -> bool {
     arguments.get(OUTSIDE_SANDBOX).and_then(Value::as_bool) == Some(true)
 }
@@ -653,6 +652,7 @@ impl Tool for ShellTool {
                             // Only a call reviewed or approved without relying on the sandbox
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
+                            contained_only: plan.contained_only(),
                             clean: form.is_some(),
                             read_only: form.is_some(),
                         })
@@ -665,7 +665,7 @@ impl Tool for ShellTool {
                         terminals,
                         &args.command,
                         timeout,
-                        outside,
+                        plan,
                         overrides,
                     )
                     .await
@@ -718,7 +718,7 @@ async fn in_terminal(
     terminals: &crate::computer::Terminals,
     command: &str,
     timeout: Duration,
-    outside: bool,
+    plan: crate::workspace::shell::LaunchPlan,
     overrides: &[(String, String)],
 ) -> Result<Ran, String> {
     let bot = place
@@ -753,7 +753,7 @@ async fn in_terminal(
             command,
             timeout,
             expected.as_deref(),
-            outside,
+            plan,
             overrides,
             !overrides.is_empty(),
         )

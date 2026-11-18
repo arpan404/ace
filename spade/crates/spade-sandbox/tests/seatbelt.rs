@@ -314,14 +314,23 @@ fn offline_runner() -> Runner {
     runner
 }
 
-/// Runs `launch` from `workspace`: its exit code and what it printed.
+/// Runs `launch` from `workspace`, its environment carried as Spade carries it when the launch
+/// goes through Spade's own program: its exit code and what it printed.
 fn launched(launch: &spade_sandbox::Launch, workspace: &Path) -> (i32, String) {
+    let env: Vec<(OsString, OsString)> = vec![
+        ("PATH".into(), "/usr/bin:/bin".into()),
+        ("HOME".into(), workspace.as_os_str().to_owned()),
+    ];
+    let env = if launch.seals_env {
+        spade_sandbox::run_env::sealed(env).unwrap_or_else(|e| panic!("{e}"))
+    } else {
+        env
+    };
     let out = Command::new(&launch.program)
         .args(&launch.args)
         .current_dir(workspace)
         .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", workspace)
+        .envs(env)
         .stdin(Stdio::null())
         .output()
         .unwrap_or_else(|error| panic!("{error}"));
@@ -506,4 +515,49 @@ fn an_offline_run_cant_have_trustd_fetch_a_certificates_issuer_for_it() {
         .unwrap_or_else(|e| panic!("{e}"));
     let (_, said) = launched(&offline, &world.workspace);
     assert_eq!(count.load(Ordering::SeqCst), 0, "{said}");
+}
+
+#[test]
+fn an_offline_runs_environment_is_restored_only_inside_the_sandbox() {
+    let world = world();
+    let runner = offline_runner();
+    let policy = policy(&world, None);
+    let launch = runner
+        .wrap_offline(
+            &policy,
+            Path::new("/bin/sh"),
+            &sh("printf '%s|%s' \"$PROBE\" \"$SPADE_RUN_ENV_PROBE\""),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(launch.seals_env);
+    // Spade's program goes first, then `sandbox-exec`, which starts Spade's program again inside.
+    let args: Vec<String> = launch
+        .args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(args[0], spade_sandbox::fds::SEAL_ARG);
+    assert!(args.iter().any(|a| a == spade_sandbox::fds::RESTORE_ARG));
+    let env =
+        spade_sandbox::run_env::sealed([("PROBE", "inside")]).unwrap_or_else(|e| panic!("{e}"));
+    let out = Command::new(&launch.program)
+        .args(&launch.args)
+        .current_dir(&world.workspace)
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap_or_else(|error| panic!("{error}"));
+    // The command gets its variable back, under its own name only.
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "inside|");
+    // Started without the carried environment, the run inside refuses.
+    let bare = Command::new(&launch.program)
+        .args(&launch.args)
+        .current_dir(&world.workspace)
+        .env_clear()
+        .env("PROBE", "plain")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap_or_else(|error| panic!("{error}"));
+    assert!(!bare.status.success());
 }
