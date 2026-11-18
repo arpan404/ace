@@ -38,9 +38,7 @@ struct ProjectsView: View {
         _next = State(initialValue: kept?.next)
         _loaded = State(initialValue: kept != nil)
     }
-    private var shown: [NativeProject] {
-        projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }
-    }
+    private var listing: ProjectListing { ProjectListing.of(projects, next: next, loaded: loaded, reading: loading, query: query) }
 
     var body: some View {
         List {
@@ -51,37 +49,42 @@ struct ProjectsView: View {
             if let problem {
                 Section { ProblemRow("Couldn't read projects.", detail: problem, id: "projects.problem") { Task { await read() } } }
             }
-            if loading, !loaded {
+            switch listing {
+            case .unread:
+                EmptyView()
+            case .reading:
                 Section { SkeletonRows(count: 4, label: "Loading projects").listRowInsets(EdgeInsets()) }
                     .listRowBackground(Color.clear)
-            } else if loaded, projects.isEmpty, problem == nil {
-                Section {
-                    EmptyState(systemImage: "folder", title: "No projects") {
-                        if model.canOperate { Button("Add project") { adding = true }.accessibilityIdentifier("projects.empty.add") }
+            case .empty:
+                if problem == nil {
+                    Section {
+                        EmptyState(systemImage: "folder", title: "No projects") {
+                            if model.canOperate { Button("Add project") { adding = true }.accessibilityIdentifier("projects.empty.add") }
+                        }
+                        .padding(.vertical, AceDesign.Space.group)
                     }
-                    .padding(.vertical, AceDesign.Space.group)
+                    .listRowBackground(Color.clear)
                 }
-                .listRowBackground(Color.clear)
-            } else if !shown.isEmpty {
+            case .rows(let ids, let more):
                 Section {
-                    ForEach(shown) { project in
+                    ForEach(projects.filter { ids.contains($0.id) }) { project in
                         NavigationLink { ProjectDetailView(model: model, project: project) } label: { ProjectRowLabel(project: project) }
                             .accessibilityIdentifier("projects.row.\(project.id)")
                     }
-                    if next != nil, query.isEmpty {
-                        Button("Show more projects") { Task { await read(more: true) } }
-                            .buttonStyle(.rowAction).disabled(loading)
-                            .accessibilityIdentifier("projects.more")
-                    }
+                    if more { moreButton }
                 }
                 .insetRowBackground()
-            } else if !query.isEmpty {
-                Section { EmptyState.search(query) }.listRowBackground(Color.clear)
+            case .noMatch(let more):
+                Section {
+                    EmptyState.search(query)
+                    if more { moreButton.padding(.horizontal, AceDesign.Space.margin) }
+                }
+                .listRowBackground(Color.clear)
             }
             if query.isEmpty {
                 Section {
                     NavigationLink { ProjectFoldersView(model: model) } label: {
-                        InsetRow("Project folders", systemImage: "folder.badge.gearshape", subtitle: "Where ace may open projects")
+                        InsetRow("Project folders", systemImage: nil, subtitle: "Where ace may open projects")
                     }
                     .accessibilityIdentifier("projects.folders")
                 }
@@ -116,6 +119,13 @@ struct ProjectsView: View {
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }
+    /// The next page, offered while searching too: a search only filters the pages read so far.
+    private var moreButton: some View {
+        Button(query.isEmpty ? "Show more projects" : "Search more projects") { Task { await read(more: true) } }
+            .buttonStyle(.rowAction).disabled(loading)
+            .accessibilityIdentifier("projects.more")
+    }
+
     private func read(more: Bool = false) async {
         guard !loading else { return }
         loading = true; problem = nil
@@ -131,6 +141,29 @@ struct ProjectsView: View {
             loaded = true
             projects = (more ? projects : []) + (reply.result.projects ?? []); next = reply.result.next
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+    }
+}
+
+/// What Settings › Projects shows for the pages read so far and the search typed over them. A
+/// search filters only what has been read, so the machine's next page stays on offer while it runs.
+enum ProjectListing: Equatable {
+    /// Nothing read yet and no read under way (offline): nothing to say about the list.
+    case unread
+    case reading
+    case empty
+    /// The matching projects, by id, and whether another page can be read.
+    case rows(ids: [String], more: Bool)
+    /// A search found nothing in the pages read; another page may still hold it.
+    case noMatch(more: Bool)
+
+    static func of(_ projects: [NativeProject], next: String?, loaded: Bool, reading: Bool, query: String) -> ProjectListing {
+        if !loaded { return reading ? .reading : .unread }
+        if projects.isEmpty { return .empty }
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = text.isEmpty ? projects : projects.filter {
+            $0.name.localizedCaseInsensitiveContains(text) || $0.path.localizedCaseInsensitiveContains(text)
+        }
+        return matching.isEmpty ? .noMatch(more: next != nil) : .rows(ids: matching.map(\.id), more: next != nil)
     }
 }
 
