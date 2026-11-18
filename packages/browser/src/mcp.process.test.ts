@@ -125,6 +125,12 @@ it("an act carries the place its caller's gate checked through to the tab's comm
     const result = await f.call("browser_act", { action: "press", key: "Enter", expect: expected });
     expect(textOf(result)).not.toContain("invalid_arguments");
     expect(executed).toEqual([expect.objectContaining({ action: "press", expect: expected })]);
+    // Closing a tab carries it too, to the tab command.
+    executed.length = 0;
+    await f.call("browser_tabs", { action: "close", tabId: "t1", expect: expected });
+    expect(executed).toEqual([
+      expect.objectContaining({ action: "tabs", operation: "close", expect: expected }),
+    ]);
   } finally {
     f.close();
   }

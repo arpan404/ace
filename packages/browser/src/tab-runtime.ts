@@ -342,6 +342,10 @@ export class TabRuntime {
       epoch,
     );
   }
+  /** Whether this tab is the place a caller's gate expected: this tab, at that address. */
+  isAt(expected: BrowserExpectedPlace): boolean {
+    return atPlace(expected, this.id, this.page.url());
+  }
   readCheck(actor: Actor, epoch = this.access.epoch): void {
     this.access.read(actor, epoch);
   }

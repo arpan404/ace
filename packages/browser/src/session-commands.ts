@@ -136,8 +136,13 @@ export async function executeBrowserCommand(
           clock: context.options.navigationClock,
           id,
           read: context.read,
+          // Every repetition's input is held to the place the caller checked, as well as timed:
+          // a first Enter that navigates never lets a later one act on the new page.
           input: (interaction, measurementSignal, beforeInput) =>
-            context.run(tabCommand(interaction), actor, measurementSignal, generation, beforeInput),
+            context.run(tabCommand(interaction), actor, measurementSignal, generation, () => {
+              context.beforeInput?.();
+              beforeInput?.();
+            }),
         },
         signal,
       );
@@ -160,7 +165,11 @@ export async function executeBrowserCommand(
       return traverseHistory(
         cdp,
         command.direction,
-        () => context.check(actor, signal, generation),
+        // Checked after the history is read, right before the move: the actor and the place.
+        () => {
+          context.check(actor, signal, generation);
+          context.beforeInput?.();
+        },
         context.options.navigationClock,
       );
     case "find_text":

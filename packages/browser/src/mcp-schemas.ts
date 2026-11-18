@@ -30,6 +30,7 @@ export const browserTabsShape = {
   url: url.optional(),
   label: z.string().min(1).max(64).optional(),
   keep: z.boolean().optional().describe("true: stays after your turn."),
+  expect,
 };
 type Refine = (input: Record<string, unknown>, context: z.RefinementCtx) => void;
 export const checkTabs: Refine = (input, context) => {

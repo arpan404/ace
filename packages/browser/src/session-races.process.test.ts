@@ -240,3 +240,94 @@ it("an input bound to another tab never runs in this one, at the same address", 
   ).rejects.toMatchObject({ code: "place_changed" });
   expect(page.effects).not.toContain("key");
 });
+
+it("going back checks the place after reading the history, right before the move", async () => {
+  const backend = new FakeHeadless(),
+    open = backend.open.bind(backend);
+  const moves: string[] = [];
+  backend.open = async (request) => {
+    const session = await open(request),
+      send = session.cdp.send;
+    return {
+      ...session,
+      cdp: {
+        ...session.cdp,
+        send: async (method: string, params?: Record<string, unknown>) => {
+          if (method === "Page.getNavigationHistory") {
+            // The page moves on while the history is read.
+            const page = backend.pages.at(-1);
+            if (page) page.url = "https://mail.google.com/mail/u/0";
+            return {
+              currentIndex: 1,
+              entries: [
+                { id: 1, url: "https://docs.example/a", title: "" },
+                { id: 2, url: "https://docs.example/b", title: "" },
+              ],
+            };
+          }
+          if (method === "Page.navigateToHistoryEntry") moves.push(method);
+          return send(method, params);
+        },
+      },
+    };
+  };
+  const f = await backendFixture({ headlessBackend: backend, backendPreference: () => "headless" });
+  await f.open();
+  const page = backend.pages.at(-1);
+  if (!page) throw new Error("no page");
+  page.url = "https://docs.example/b";
+  const tabId = f.service.state("thread").activeTabId ?? "page";
+  await expect(
+    f.service.execute("thread", {
+      action: "history",
+      direction: "back",
+      expect: { tabId, url: "https://docs.example/b" },
+    }),
+  ).rejects.toMatchObject({ code: "place_changed" });
+  expect(moves).toEqual([]);
+});
+
+it("closing or keeping a tab acts only on the tab the caller checked, at its address", async () => {
+  const { backend } = tabBackend();
+  const closed: string[] = [];
+  const open = backend.open.bind(backend);
+  backend.open = async (request) => {
+    const session = await open(request);
+    if (!session.tabs) throw new Error("tabs");
+    const tabs = session.tabs;
+    return {
+      ...session,
+      tabs: {
+        ...tabs,
+        close: async (id: string) => {
+          closed.push(id);
+        },
+      },
+    };
+  };
+  const f = await backendFixture({ headlessBackend: backend, backendPreference: () => "headless" });
+  await f.open();
+  // tab-0 is on the person's mail now, though the caller checked it on docs.example.
+  const page = backend.pages.at(-1);
+  if (!page) throw new Error("no page");
+  page.url = "https://mail.google.com/mail/u/0";
+  for (const operation of ["close", "keep", "select"]) {
+    await expect(
+      f.service.execute("thread", {
+        action: "tabs",
+        operation,
+        tabId: "tab-0",
+        expect: { tabId: "tab-0", url: "https://docs.example/" },
+      }),
+    ).rejects.toMatchObject({ code: "place_changed" });
+  }
+  expect(closed).toEqual([]);
+  // Checked where it is, it closes.
+  await f.service.execute("thread", {
+    action: "tabs",
+    operation: "close",
+    tabId: "tab-0",
+    expect: { tabId: "tab-0", url: "https://mail.google.com/mail/u/0" },
+  });
+  expect(closed).toEqual(["tab-0"]);
+});

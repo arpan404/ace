@@ -101,3 +101,71 @@ it("marker reply delay cannot count a pre-input frame as the response", async ()
   expect(measurement.frames).toBe(6);
   expect(measurement.refreshHz).toBe(240);
 });
+
+it("a measured interaction's later repetitions never act on a page the first one navigated to", async () => {
+  const backend = new FakeHeadless();
+  const open = backend.open.bind(backend);
+  const pressed: string[] = [];
+  backend.open = async (request) => {
+    const session = await open(request);
+    // The first Enter submits a form that lands on the person's mail.
+    session.press = async (key) => {
+      pressed.push(key);
+      const page = backend.pages.at(-1);
+      if (page) page.url = "https://mail.google.com/mail/u/0";
+    };
+    return session;
+  };
+  const f = await backendFixture({
+    headlessBackend: backend,
+    backendPreference: () => "headless",
+    id: () => "clock-test",
+  });
+  await f.open();
+  const page = backend.pages[0];
+  if (!page) throw new Error("Missing controlled browser");
+  const send = page.cdp.send;
+  page.cdp.send = async (method, params) => {
+    if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
+    if (method === "Tracing.end") {
+      page.events.emit("Tracing.dataCollected", {
+        value: [
+          {
+            name: "TimeStamp",
+            ts: 1_000_000,
+            pid: 1,
+            tid: 1,
+            args: { data: { message: "ace-measure-clock-test", frame: "main" } },
+          },
+          {
+            name: "SetLayerTreeId",
+            ts: 1_000_000,
+            pid: 1,
+            args: { data: { frame: "main", layerTreeId: 1 } },
+          },
+          ...[10, 20, 30].map((at) => ({
+            name: "DrawFrame",
+            ts: 1_000_000 + at * 1000,
+            pid: 1,
+            args: { layerTreeId: 1 },
+          })),
+        ],
+      });
+      page.events.emit("Tracing.tracingComplete", { dataLossOccurred: false });
+    }
+    return send(method, params);
+  };
+  page.url = "https://docs.example/form";
+  const tabId = f.service.state("thread").activeTabId ?? "page";
+  await expect(
+    f.service.execute("thread", {
+      action: "measure_interaction",
+      interaction: { action: "press", key: "Enter" },
+      repeat: 3,
+      observeMs: 1,
+      filmstrip: false,
+      expect: { tabId, url: "https://docs.example/form" },
+    }),
+  ).rejects.toMatchObject({ code: "place_changed" });
+  expect(pressed).toEqual(["Enter"]);
+});
