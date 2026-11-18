@@ -7,7 +7,7 @@ import type { Terminal } from "../tui/terminal.ts";
 import type { Place } from "./effects.ts";
 
 /**
- * The things the interactive views hand the terminal over for (ADR 0176 §9): $EDITOR, and
+ * The things the interactive views hand the terminal over for (ADR 0178 §9): $EDITOR, and
  * the existing commands run in place (doctor, triage, Spade, market, settings, projects), so
  * the views use the same data paths and output as the scripted commands.
  */

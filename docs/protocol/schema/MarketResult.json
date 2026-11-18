@@ -444,6 +444,10 @@
           "maxItems": 200,
           "type": "array"
         },
+        "request": {
+          "maxLength": 200,
+          "type": "string"
+        },
         "scan": {
           "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
         }

@@ -2,7 +2,7 @@ import type { Client } from "@ace/client";
 import type { Args } from "../args.ts";
 import { prepareHome, withSession, type CommandContext, type Handlers } from "./context.ts";
 
-/** `ace storage …` and `ace config …` (ADR 0176 §7). */
+/** `ace storage …` and `ace config …` (ADR 0178 §7). */
 
 type StorageRun = (args: Args, client: Client, signal: AbortSignal) => Promise<void>;
 
@@ -14,7 +14,7 @@ function storage(load: () => Promise<StorageRun>) {
 }
 
 async function config(context: CommandContext, verb: "list" | "get" | "set" | "unset") {
-  const { dataDir } = context.config();
+  const { dataDir } = await context.config();
   await prepareHome(dataDir);
   const settings = await import("../config.ts");
   const render = await import("../render/config.ts");

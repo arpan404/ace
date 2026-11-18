@@ -33,6 +33,9 @@ function context(line: string): CommandContext {
     config: () => {
       throw new Error("A maintainer tool never reads the daemon's config");
     },
+    dataDir: () => {
+      throw new Error("A maintainer tool never reads the daemon's home");
+    },
   };
 }
 

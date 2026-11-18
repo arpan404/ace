@@ -37,7 +37,8 @@ export async function forkClaudeSession(input: {
     }
   });
   const abort = () => {
-    void worker.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    void worker.stop({ graceMs: 0 }).catch(() => {});
   };
   input.signal.addEventListener("abort", abort, { once: true });
   // Filesystem operations are bounded even if an account's filesystem stops responding.

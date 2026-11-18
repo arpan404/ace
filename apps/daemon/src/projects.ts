@@ -59,7 +59,7 @@ export interface ProjectsOptions {
   /** Host-injected test fixture only; no client can set transport policy. */
   gitPolicy?: ProjectGitPolicy;
   hasOwnedWork?: (id: ThreadId) => boolean;
-  /** The deletion policy every thread the project's removal deletes goes through (ADR 0177). */
+  /** The deletion policy every thread the project's removal deletes goes through (ADR 0183). */
   deletionPolicy?: DeletionPolicy;
   /** Where chats started with no project keep their folders (ADR 0099); unset disables chats. */
   chatsRoot?: string;

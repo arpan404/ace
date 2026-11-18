@@ -1,6 +1,6 @@
 import { CliFailure, usageFailure } from "../output.ts";
 
-/** The shortest prefix a reference may use (ADR 0176 §1 rule 5). */
+/** The shortest prefix a reference may use (ADR 0178 §1 rule 5). */
 export const shortestPrefix = 6;
 
 export interface RefNoun {

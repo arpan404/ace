@@ -237,7 +237,7 @@ export class DelegationService {
     }
     for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
       this.recoverOne(edge.childId, () => {
-        // An edge whose parent is gone settles without reaching the engine (ADR 0177).
+        // An edge whose parent is gone settles without reaching the engine (ADR 0183).
         if (this.sync.orphaned(edge)) return;
         this.sync.reconcile(edge);
         // A notice a crash or a refused send left unsent goes now.

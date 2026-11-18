@@ -155,10 +155,13 @@ export function createMux(options: MuxOptions) {
         await new Promise<void>((resolve) => {
           if (!alive(stream)) return resolve();
           stream.cancelSend = resolve;
-          void writing.then(() => {
-            stream.cancelSend = undefined;
-            resolve();
-          });
+          // A send that failed closed the channel; this wait still ends.
+          void writing
+            .finally(() => {
+              stream.cancelSend = undefined;
+              resolve();
+            })
+            .catch(() => {});
         });
         offset += length;
         stream.progress?.();
@@ -190,7 +193,7 @@ export function createMux(options: MuxOptions) {
       if (!alive(stream)) return;
       if (stream.payloadBytes || !SocketChunk.safeParse(chunk).success) {
         remove(stream);
-        void send(kinds.reset, id);
+        void send(kinds.reset, id).catch(close);
         return;
       }
       socket.pause();
@@ -207,17 +210,17 @@ export function createMux(options: MuxOptions) {
       });
     });
     socket.on("error", () => {
-      void send(kinds.reset, id);
+      void send(kinds.reset, id).catch(close);
       remove(stream);
     });
     const finish = () => {
       if (!alive(stream)) return;
       remove(stream);
-      if (!stream.incomingEnded || !stream.outgoingEnded) void send(kinds.reset, id);
+      if (!stream.incomingEnded || !stream.outgoingEnded) void send(kinds.reset, id).catch(close);
     };
     const expire = () => {
       if (!alive(stream)) return;
-      void send(kinds.reset, id);
+      void send(kinds.reset, id).catch(close);
       remove(stream);
     };
     socket.on("close", () => {
@@ -263,9 +266,11 @@ export function createMux(options: MuxOptions) {
       socket.once("connect", () => {
         // The peer can receive READY and send DATA before send() settles.
         stream.ready = true;
-        void send(kinds.ready, id).then(() => {
-          if (alive(stream)) ready(stream);
-        });
+        void send(kinds.ready, id)
+          .then(() => {
+            if (alive(stream)) ready(stream);
+          })
+          .catch(close);
       });
       connection.connect();
     } catch {
@@ -281,7 +286,7 @@ export function createMux(options: MuxOptions) {
         lastId = frame.id;
         const port = PreviewPort.parse(frame.value);
         if (streams.size >= options.maxStreams) {
-          void send(kinds.reset, frame.id);
+          void send(kinds.reset, frame.id).catch(close);
           return;
         }
         void accept(frame.id, port).catch(close);
@@ -311,7 +316,7 @@ export function createMux(options: MuxOptions) {
         stream.socket.write(frame.data, (error) => {
           if (error || !alive(stream)) return;
           stream.receiveCredit += frame.value;
-          void send(kinds.credit, stream.id, frame.value);
+          void send(kinds.credit, stream.id, frame.value).catch(close);
         });
       } else if (frame.kind === kinds.end) {
         if (stream.incomingEnded) throw new Error("Duplicate stream end");
@@ -337,7 +342,7 @@ export function createMux(options: MuxOptions) {
       }
       const id = nextId++;
       bind(id, socket);
-      void send(kinds.open, id, PreviewPort.parse(port));
+      void send(kinds.open, id, PreviewPort.parse(port)).catch(close);
     },
     close,
     // Observability reports counts and windows, never retained payloads.

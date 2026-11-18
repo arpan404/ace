@@ -2,7 +2,7 @@ import type { CliSpadeBot } from "@ace/protocol/cli-outputs";
 import type { FeatureSwitch } from "../features.ts";
 import type { SpadeState, SpadeSwitch } from "../spade.ts";
 
-/** Words for Spade, Beta switches and Spade's bots (ADR 0176 §3). Pure: value → lines. */
+/** Words for Spade, Beta switches and Spade's bots (ADR 0178 §3). Pure: value → lines. */
 
 const onOff = (on: boolean) => (on ? "on" : "off");
 const amber = (text: string, color: boolean) => (color ? `\u001b[33m${text}\u001b[39m` : text);

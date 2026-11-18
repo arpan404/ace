@@ -38,6 +38,21 @@ import XCTest
         }
     }
 
+    func testTheModelSheetAlwaysOffersEffortForTheModelTheThreadStartsOn() {
+        let app = launch()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
+        let agent = app.buttons["newThread.agent"]
+        XCTAssertTrue(agent.waitForExistence(timeout: 15))
+        screenshot("sheet-model-pill")
+        agent.tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForExistence(timeout: 10))
+        // Levels to pick, one fixed level or a line saying there are none: never no row at all.
+        let effort = app.descendants(matching: .any)["tune.effort"].firstMatch.waitForExistence(timeout: 15)
+        screenshot("sheet-model-effort")
+        XCTAssertTrue(effort)
+    }
+
     func testStartingSendsExactlyTheWordsInTheFieldAndOpensTheThread() {
         let app = launch()
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))

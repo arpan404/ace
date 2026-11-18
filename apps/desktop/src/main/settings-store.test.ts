@@ -91,6 +91,7 @@ const customised: DesktopSettings = {
   keybindings: { palette: "mod+y", terminal: "alt+mod+t" },
   browserDownloads: "/Users/me/Downloads",
   terminalCommand: false,
+  updateLine: "beta",
   notifications: {
     enabled: false,
     categories: { finished: false, failed: true },

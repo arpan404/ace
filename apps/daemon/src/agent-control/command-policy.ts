@@ -83,7 +83,7 @@ export function delegationCommandPolicy(deps: {
     }
     if (!deps.admits()) return fail("Admission closed");
     const settled = deps.journal.get(p.threadId);
-    // A child whose parent is gone is the person's own thread now (ADR 0177): their explicit
+    // A child whose parent is gone is the person's own thread now (ADR 0183): their explicit
     // work carries it on, unfenced by the tree it left. An agent's never does. Its edge stays settled and nothing
     // reaches the parent. Work still being cancelled from the deletion stays cancelled.
     if (

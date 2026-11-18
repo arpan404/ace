@@ -36,7 +36,13 @@ export function DaemonMenuItems() {
       </MenuItem>
       <MenuItem
         icon={<PlugsIcon aria-hidden />}
-        onClick={() => void navigate({ to: "/settings/remote", hash: "daemon.connection" })}
+        onClick={() =>
+          void navigate({
+            to: "/settings/remote/$machine",
+            params: { machine: "primary" },
+            hash: "daemon.connection",
+          })
+        }
       >
         Connection settings
       </MenuItem>

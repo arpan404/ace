@@ -1,3 +1,4 @@
+import type { ReleaseLine } from "@ace/service/release-line";
 import type { UpdateReleaseNote, UpdateStatus } from "../../shared/contract.ts";
 
 /** A newer release and what changed since this version. */
@@ -5,18 +6,36 @@ export interface UpdateOffer {
   version: string;
   notes: UpdateReleaseNote[];
   olderReleases: number;
+  /** Its release page, when the version alone doesn't name it (a beta's tag, ADR 0177). */
+  releaseUrl?: string;
+}
+
+/** The line's release is older than this version and can't read its data: why, in a sentence. */
+export interface UpdateBlocked {
+  blocked: string;
 }
 
 /** The installer itself (electron-updater in the app); tests substitute a scripted one. */
 export interface UpdateEngine {
   /** Whether this install can replace itself; otherwise a newer version opens its release. */
   readonly canInstall: boolean;
-  /** The newer release the feed offers, or undefined when this one is current. */
-  check(): Promise<UpdateOffer | undefined>;
+  /**
+   * The release the feed offers, undefined when this one is current, or why an older release
+   * on the chosen line is held back.
+   */
+  check(): Promise<UpdateOffer | UpdateBlocked | undefined>;
   /** Downloads the version `check` found and resolves once it can be installed. */
   download(progress: (percent: number) => void): Promise<void>;
   /** Quits the app and starts the downloaded version. */
   install(): void;
+  /**
+   * Runs the downgrade guard again on what the home holds now, for an offer older than this
+   * version (ADR 0177): why it is now refused, or undefined when it still may install.
+   * Undefined at once (no promise) when nothing older is on offer or downloaded.
+   */
+  recheck?(): Promise<UpdateBlocked | undefined> | undefined;
+  /** Drops the offer the guard now refuses, so nothing installs it, on quit included. */
+  discard?(): void;
 }
 
 export interface UpdatePorts {
@@ -25,6 +44,10 @@ export interface UpdatePorts {
   version: string;
   /** False for a build without the release feed: nothing is ever checked. */
   enabled: boolean;
+  /** The line the person updates from now (ADR 0177). */
+  line(): ReleaseLine;
+  /** The line this build belongs to. */
+  buildLine: ReleaseLine;
   releaseUrl(version: string): string;
   /**
    * Closes admission for new work and waits for running agents to finish naturally,
@@ -84,6 +107,9 @@ export class UpdateController {
       waiting: 0,
       notes: [],
       olderReleases: 0,
+      line: ports.line(),
+      buildLine: ports.buildLine,
+      blocked: null,
       error: null,
     };
   }
@@ -110,13 +136,30 @@ export class UpdateController {
     return this.checking;
   }
 
+  /**
+   * The person picked another line (ADR 0177): a person's check on it, so Settings shows what it
+   * offers, or why it holds back. A download or restart under way only takes the new line.
+   */
+  async lineChanged(): Promise<UpdateStatus> {
+    // A check already running asked the old line: let it settle, then ask the new one.
+    if (this.checking) await this.checking;
+    const state = this.status.state;
+    if (state === "disabled" || state === "downloading" || state === "installing")
+      return this.set({ ...this.status, blocked: null });
+    return this.check("person");
+  }
+
   /** Downloads the update on offer. */
   async download(): Promise<UpdateStatus> {
     // A check also changes the engine's selected release. Let it settle before starting
     // the download, so neither its offer nor its error can overwrite download progress.
     if (this.checking) await this.checking;
+    if (this.status.state !== "available" || !this.status.version || !this.status.inPlace)
+      return this.status;
+    const allowed = this.stillAllowed();
+    if (allowed && !(await allowed)) return this.status;
     const offer = this.status;
-    if (offer.state !== "available" || !offer.version || !offer.inPlace) return this.status;
+    if (offer.state !== "available" || !offer.version) return this.status;
     const version = offer.version;
     this.set({ ...offer, state: "downloading", percent: 0, error: null });
     try {
@@ -159,6 +202,9 @@ export class UpdateController {
     if (this.checking) await this.checking;
     if (this.status.state !== "downloaded") return this.status;
     this.installWhenReady = false;
+    const allowed = this.stillAllowed();
+    if (allowed && !(await allowed)) return this.status;
+    if (this.status.state !== "downloaded") return this.status;
     this.set({ ...this.status, state: "installing", waiting: 0, error: null });
     return this.restart("now");
   }
@@ -169,6 +215,9 @@ export class UpdateController {
     if (this.status.state === "downloading") this.installWhenReady = true;
     if (this.status.state !== "downloaded") return this.status;
     this.installWhenReady = false;
+    const allowed = this.stillAllowed();
+    if (allowed && !(await allowed)) return this.status;
+    if (this.status.state !== "downloaded") return this.status;
     const ready = this.status;
     this.set({ ...ready, state: "installing", waiting: 0, error: null });
     let drained = false;
@@ -243,8 +292,46 @@ export class UpdateController {
     return this.install();
   }
 
+  /**
+   * The guard once more before a download or an install (ADR 0177): the home may have gained a
+   * newer format since the check (Spade started for the first time, say). A release it now
+   * refuses is dropped from the engine and from the status, which says why.
+   */
+  private stillAllowed(): Promise<boolean> | undefined {
+    // Nothing to look at again answers at once (undefined), so a download or a restart starts
+    // in step with the person's click.
+    const again = this.ports.engine.recheck?.();
+    return again ? this.heldBack(again) : undefined;
+  }
+
+  private async heldBack(again: Promise<UpdateBlocked | undefined>): Promise<boolean> {
+    let refused: UpdateBlocked | undefined;
+    try {
+      refused = await again;
+    } catch (error) {
+      refused = { blocked: `ace couldn't check this install's data: ${message(error)}` };
+    }
+    if (!refused) return true;
+    this.ports.log("warn", `Update to ${this.status.version ?? "?"} held back: ${refused.blocked}`);
+    this.ports.engine.discard?.();
+    this.installWhenReady = false;
+    this.set({
+      ...this.status,
+      state: "current",
+      version: null,
+      releaseUrl: null,
+      percent: null,
+      waiting: 0,
+      notes: [],
+      olderReleases: 0,
+      blocked: refused.blocked,
+      error: null,
+    });
+    return false;
+  }
+
   private async find(before: UpdateStatus, origin: CheckOrigin): Promise<UpdateStatus> {
-    let offer: UpdateOffer | undefined;
+    let offer: UpdateOffer | UpdateBlocked | undefined;
     try {
       offer = await this.ports.engine.check();
     } catch (error) {
@@ -257,8 +344,9 @@ export class UpdateController {
         error: { during: "check", message: message(error) },
       });
     }
-    if (!offer) {
-      if (before.state === "downloaded") return this.set(before);
+    if (!offer || "blocked" in offer) {
+      const blocked = offer ? offer.blocked : null;
+      if (before.state === "downloaded") return this.set({ ...before, blocked });
       return this.set({
         ...before,
         state: "current",
@@ -267,6 +355,7 @@ export class UpdateController {
         percent: null,
         notes: [],
         olderReleases: 0,
+        blocked,
         error: null,
       });
     }
@@ -274,13 +363,15 @@ export class UpdateController {
       return this.set({
         ...before,
         notes: offer.notes.length > 0 ? offer.notes : before.notes,
+        blocked: null,
         error: null,
       });
     return this.set({
       ...before,
       state: "available",
       version: offer.version,
-      releaseUrl: this.ports.releaseUrl(offer.version),
+      releaseUrl: offer.releaseUrl ?? this.ports.releaseUrl(offer.version),
+      blocked: null,
       inPlace: this.ports.engine.canInstall,
       percent: null,
       notes: offer.notes,
@@ -290,8 +381,8 @@ export class UpdateController {
   }
 
   private set(status: UpdateStatus): UpdateStatus {
-    this.status = status;
-    this.ports.report(status);
-    return status;
+    this.status = { ...status, line: this.ports.line() };
+    this.ports.report(this.status);
+    return this.status;
   }
 }

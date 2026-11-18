@@ -114,7 +114,10 @@ export async function startAutomationWebhooks(
   };
   if (settings) {
     const release = await settings.subscribe({ keys: [...watched], scope: {} }, (event) => {
-      if (event.type === "changed") void read();
+      if (event.type === "changed")
+        void read().catch((error: unknown) =>
+          context.log.log("warn", `Re-reading the webhook settings failed: ${String(error)}`),
+        );
     });
     context.resources.own(release);
     await read();

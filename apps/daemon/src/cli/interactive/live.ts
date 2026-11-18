@@ -7,7 +7,7 @@ import { threadRequests } from "./requests.ts";
 
 /**
  * What the interactive views read from the daemon, through `@ace/client`'s own stores (ADR
- * 0176 §9): the thread list (`threads()`), the threads with open requests, the open row's
+ * 0178 §9): the thread list (`threads()`), the threads with open requests, the open row's
  * agents and the attached thread (`thread(id)`). The client owns reconnects and the outbox;
  * this only holds leases and says when something changed.
  */
@@ -15,6 +15,8 @@ export interface Live {
   rows(now: number): HomeRow[];
   /** The list hasn't arrived (nor a cached copy of it). */
   loading(): boolean;
+  /** The list is the daemon's, current and whole: worth keeping for the next run. */
+  confirmed(): boolean;
   /** Words for a connection that isn't live, or undefined while it is. */
   connection(): string | undefined;
   requests(): OpenRequest[];
@@ -107,6 +109,11 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
         projectName: (id) => projectLabel(id, names.get(id)),
       }),
     loading: () => !list.store.loaded && list.store.ids.length === 0,
+    confirmed: () =>
+      client.state === "ready" &&
+      list.store.loaded === true &&
+      list.store.unconfirmed !== true &&
+      list.store.syncing !== true,
     connection: () => {
       if (client.state === "ready") return list.store.syncing ? "Catching up…" : undefined;
       return "Reconnecting to ace…";

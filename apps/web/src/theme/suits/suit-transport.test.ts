@@ -63,6 +63,10 @@ function daemon() {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** How many `suitWatch` asks the page sent. */
+const watches = (sent: unknown[]) =>
+  sent.filter((message) => (message as { type?: unknown }).type === "suitWatch").length;
+
 test("the list comes on every new socket and on each change, tagged with its socket", async () => {
   const fake = daemon();
   const transport = suitTransport(daemonSuitChannel(fake.client, "http://127.0.0.1:4242/"));
@@ -117,6 +121,7 @@ test("an agent's previews and keeps reach the page as they are pushed", () => {
   suitTransport(daemonSuitChannel(fake.client, undefined)).watchActive((active) =>
     heard.push(active),
   );
+  expect(watches(fake.sent)).toBe(1);
   fake.active({ kind: "preview", suitId: "sample-suit" });
   fake.active({ kind: "keep", suitId: "sample-suit", keepId: "k1" });
   expect(heard).toEqual([
@@ -143,5 +148,30 @@ test("a live check the daemon asks for reaches the page, and its report goes bac
     screenshot: null,
   };
   expect(transport.report(report)).toBe(true);
-  expect(fake.sent).toEqual([{ type: "suitReport", report }]);
+  expect(
+    fake.sent.filter((message) => (message as { type?: unknown }).type !== "suitWatch"),
+  ).toEqual([{ type: "suitReport", report }]);
+});
+
+test("the page asks for the agent's looks once per socket while anyone listens, and not after", () => {
+  const fake = daemon();
+  const transport = suitTransport(daemonSuitChannel(fake.client, undefined));
+  expect(watches(fake.sent)).toBe(0);
+
+  const stopActive = transport.watchActive(() => {});
+  const stopChecks = transport.watchChecks(() => {});
+  // Both listeners share the one watch on this socket.
+  expect(watches(fake.sent)).toBe(1);
+
+  // The daemon's watch ends with its socket: the next one asks again.
+  fake.swap();
+  expect(watches(fake.sent)).toBe(2);
+
+  stopActive();
+  fake.swap();
+  expect(watches(fake.sent)).toBe(3);
+
+  stopChecks();
+  fake.swap();
+  expect(watches(fake.sent)).toBe(3);
 });

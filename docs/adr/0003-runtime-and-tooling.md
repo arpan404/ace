@@ -140,7 +140,7 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     spawn wrappers report `null`, so a probe of a missing command settles.
   - An error thrown inside an `unhandledRejection` listener, a `setImmediate` or a
     `process.nextTick` callback is reported but does not end the process; one thrown from a
-    timer does. The daemon's rejection guard rethrows from a timer.
+    timer does. The daemon's rejection guard logs and continues (ADR 0175, decision 9).
   - `realpath` of a Unix socket fails with `EOPNOTSUPP`.
   - `fs.promises.access` resolves `null`, not `undefined`.
   - A listen error keeps `code: "EADDRINUSE"` but has a different message.

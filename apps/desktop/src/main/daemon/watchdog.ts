@@ -87,14 +87,17 @@ export function watchHealth(options: WatchdogOptions): () => void {
     const probe = options.probe().catch(() => false);
     inFlight = probe;
     sentAt = options.now();
-    void probe.then((ok) => {
-      if (inFlight === probe) inFlight = undefined;
-      if (late !== probe) return;
-      late = undefined;
-      if (!ok || stopped || missed === 0) return;
-      options.log("info", "The daemon answered a late health check", { missed });
-      missed = 0;
-    });
+    // probe answers false for a probe that failed, so only a throw in the log is left.
+    void probe
+      .then((ok) => {
+        if (inFlight === probe) inFlight = undefined;
+        if (late !== probe) return;
+        late = undefined;
+        if (!ok || stopped || missed === 0) return;
+        options.log("info", "The daemon answered a late health check", { missed });
+        missed = 0;
+      })
+      .catch(() => {});
     return probe;
   };
   const check = () => {
@@ -146,7 +149,8 @@ export function watchHealth(options: WatchdogOptions): () => void {
       cancel = undefined;
       outcome("timeout");
     });
-    void probe.then(outcome);
+    // probe answers false for a probe that failed, so only a throw in the log is left.
+    void probe.then(outcome).catch(() => {});
   };
 
   next();

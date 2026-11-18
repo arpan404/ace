@@ -11,6 +11,7 @@ export function startProjects({
   now,
   resources,
   config,
+  log,
 }: ServiceContext): void {
   const projects = new Projects(store, now, {
     chatsRoot: join(config.dataDir, "chats"),
@@ -39,7 +40,13 @@ export function startProjects({
   // A removed project's own browser profile goes with it; one added back keeps its new one.
   resources.own(
     projects.subscribe((change) => {
-      if (change.change === "removed") void services.browserProjects?.removed(change.workspaceId);
+      // The profile's removal is reported here; an added project has nothing to report.
+      if (change.change === "removed")
+        void services.browserProjects
+          ?.removed(change.workspaceId)
+          .catch((error: unknown) =>
+            log.log("warn", `Removing a project's browser profile failed: ${String(error)}`),
+          );
       if (change.change === "added") services.browserProjects?.restored(change.workspaceId);
     }),
   );

@@ -7,7 +7,7 @@ import { CliFailure, usageFailure } from "../output.ts";
 import { readFolder } from "./folder.ts";
 
 /*
- * `ace market check [PATH] [--type T] [--name N]` (ADR 0176 §12.1): the checks the market runs
+ * `ace market check [PATH] [--type T] [--name N]` (ADR 0178 §12.1): the checks the market runs
  * on upload, here, with no account and no daemon. Problems print under the error as
  * `path:line: sentence` and exit 1; `--json` carries them in the error's `problems`.
  */

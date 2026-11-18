@@ -16,7 +16,7 @@ import { providerConfiguration } from "@ace/models/preferences";
 import { z } from "zod";
 import type { ClientMessage, ServerMessage, ProviderKind } from "@ace/protocol";
 import {
-  findExecutable,
+  findInstalledExecutable,
   findOpenCodeExecutable,
   defaultProviderExecutable,
 } from "@ace/provider-kit/discovery";
@@ -47,6 +47,16 @@ export function readModelInstances(
   assertModelTestIsolation(instances);
   return instances;
 }
+/** Where `command` is on PATH, unless it's a version manager's shim for a tool not installed. */
+async function installedPath(
+  command: string,
+  env: NodeJS.ProcessEnv,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const found = await findInstalledExecutable(command, env, { signal });
+  return found && !("absent" in found) ? found.path : undefined;
+}
+
 /** Admit installed CLIs; OpenCode also needs a v2 version before registering its binding. */
 export async function registerDefaultModelInstances(
   catalog: ModelCatalog,
@@ -75,11 +85,11 @@ export async function registerDefaultModelInstances(
           candidate.provider === "opencode"
             ? (await findOpenCodeExecutable(override ?? candidate.executable, { env, signal }))
                 ?.path
-            : await findExecutable(override ?? candidate.executable, env);
+            : await installedPath(override ?? candidate.executable, env, signal);
         const executable = override
           ? ((candidate.provider === "opencode"
               ? (await findOpenCodeExecutable(candidate.executable, { env, signal }))?.path
-              : await findExecutable(candidate.executable, env)) ?? candidate.executable)
+              : await installedPath(candidate.executable, env, signal)) ?? candidate.executable)
           : (path ?? candidate.executable);
         return { provider: candidate.provider, path, executable };
       }),

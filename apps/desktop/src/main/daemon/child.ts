@@ -64,7 +64,8 @@ export function terminate(child: Child, reason: StopReason, ports: StopPorts): v
     });
     child.process.kill("SIGKILL");
   });
-  void child.exited.then(cancel);
+  // `exited` settles when the process is gone; cancelling then is harmless.
+  void child.exited.then(cancel).catch(() => {});
 }
 
 /** Resolves after `delayMs`, or never if cancelled; `cancel` clears the timer. */

@@ -84,7 +84,7 @@ function flagWords(flags: Readonly<Record<string, string | true>>): string[] {
   });
 }
 
-/** The thread named by `words[index]`, or picked on a terminal (ADR 0176 §9). */
+/** The thread named by `words[index]`, or picked on a terminal (ADR 0178 §9). */
 export async function threadArgument(
   context: CommandContext,
   client: Client,

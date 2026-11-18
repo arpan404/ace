@@ -126,6 +126,10 @@ export class FakeDaemon implements Host {
     return MachineIcon.parse(this.services.settings.get("host.icon"));
   }
   readonly version: string;
+  /** The release line its welcome names (ADR 0177). */
+  get releaseLine(): string | undefined {
+    return this.options.releaseLine;
+  }
   /** The OS host.identity reports; tests change it, undefined reads as an older daemon. */
   platform: string | undefined;
   /** The paths `host.identity` reports (ADR 0114); tests set them. */

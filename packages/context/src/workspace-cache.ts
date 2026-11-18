@@ -137,7 +137,9 @@ export class WorkspaceCache {
     if (this.closed || entry.leases > 0 || this.cache.get(root) !== entry) return;
     entry.cancelIdle = this.timers.after(this.idleMs, async () => {
       entry.cancelIdle = undefined;
-      if (this.cache.get(root) === entry && entry.leases === 0) void this.retire(root, entry);
+      // retire() absorbs the entry's own task failure.
+      if (this.cache.get(root) === entry && entry.leases === 0)
+        void this.retire(root, entry).catch(() => {});
     });
   }
   /** Unpublishes an entry now; its in-flight drain settles before `close` returns. */
@@ -170,7 +172,8 @@ export class WorkspaceCache {
       if (total <= this.maxBytes) return;
       if (entry === newest || !entry.ready || entry.leases > 0) continue;
       total -= entry.workspace.index.estimatedBytes;
-      void this.retire(root, entry);
+      // retire() absorbs the entry's own task failure.
+      void this.retire(root, entry).catch(() => {});
     }
   }
   private async load(root: string): Promise<Cached> {
@@ -259,7 +262,8 @@ export class WorkspaceCache {
           // Events can arrive after the loop's last check, while the promise
           // chain is settling. Hand that work to a new drain without waiting
           // for another notification; flush still honors retry backoff.
-          if (entry.rebuild) void flush();
+          // flush() re-arms its own retry when a drain fails.
+          if (entry.rebuild) void flush().catch(() => {});
           else if (pending.size) hint();
         });
       return entry.task;
@@ -289,12 +293,14 @@ export class WorkspaceCache {
           hint();
           return;
         }
-        void flush();
+        // flush() re-arms its own retry when a drain fails.
+        void flush().catch(() => {});
       });
       source.on("error", () => {
         if (this.closed || this.cache.get(root) !== entry || entry.watcher !== source) return;
         entry.rebuild = true;
-        void flush();
+        // flush() re-arms its own retry when a drain fails.
+        void flush().catch(() => {});
       });
     };
     listen(watcher);
@@ -304,7 +310,8 @@ export class WorkspaceCache {
       await entry.task;
       entry.ready = true;
       this.enforceBudget();
-      void flush();
+      // flush() re-arms its own retry when a drain fails.
+      void flush().catch(() => {});
       return entry;
     } catch (error) {
       entry.cancelRetry?.();
@@ -316,7 +323,8 @@ export class WorkspaceCache {
   async close(): Promise<void> {
     this.closed = true;
     await this.tail;
-    for (const [root, entry] of this.cache) void this.retire(root, entry);
+    // retire() absorbs the entry's own task failure.
+    for (const [root, entry] of this.cache) void this.retire(root, entry).catch(() => {});
     await Promise.all(this.retiring);
   }
 }

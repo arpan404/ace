@@ -4,7 +4,8 @@ import { decodeKeys } from "../tui/keys.ts";
 import { textWidth } from "../tui/layout.ts";
 import { paint } from "../tui/paint.ts";
 import type { Effect } from "./effects.ts";
-import { homeKey, homeStart, type HomeState } from "./home-model.ts";
+import { homeKey } from "./home-model.ts";
+import { homeStart, type HomeState } from "./home-state.ts";
 import { homeRows, type HomeRow } from "./home-rows.ts";
 import { homeView } from "./home-view.ts";
 

@@ -11,7 +11,7 @@ The plumbing underneath is careful: idempotency keys, outbox replay, whole-tree 
 report done early, triage that works with ace broken. The surface on top grew command by command
 with no shared grammar, no per-command help, and a human mode that mostly prints JSON.
 
-The redesign that answers this audit is [docs/adr/0176-one-cli-grammar-interactive-home-and-market.md](../adr/0176-one-cli-grammar-interactive-home-and-market.md).
+The redesign that answers this audit is [docs/adr/0178-one-cli-grammar-interactive-home-and-market.md](../adr/0178-one-cli-grammar-interactive-home-and-market.md).
 
 ## 1. How a command runs today
 

@@ -1,7 +1,7 @@
 # How the CLI's commands behave
 
 Notes on behaviour behind the commands: idempotency, waits, chat, remotes, storage and repair. They
-use the spellings from before [ADR 0176](../adr/0176-one-cli-grammar-interactive-home-and-market.md);
+use the spellings from before [ADR 0178](../adr/0178-one-cli-grammar-interactive-home-and-market.md);
 §8 there maps each to its new name, and [the command reference](../daemon/cli.md) is generated from
 the command table.
 
@@ -208,7 +208,18 @@ the tree, `/steer TEXT` redirects work, `/model MODEL` changes the thread's sele
 and `/resume [THREAD]` resumes its held input or session. `/approve [INTERACTION]
 [OPTION]` and `/deny [INTERACTION]` resolve permissions. A single displayed approval
 also accepts `y` or `n`. Questions and elicitation require a suitable ace client.
-Use `//` to send a prompt that begins with `/`.
+Use `//` to send a prompt that begins with `/`. On a terminal, with the composer
+empty, `↑` and `↓` walk the transcript's "Worked for" lines and `↵` unfolds the one
+reached: its steps print below it in the scrollback, or open in place while that
+turn still runs.
+
+The interactive home (bare `ace` on a terminal) draws its first frame from the
+rows the last run kept in `ACE_HOME/cli-home-rows.json` (the first 40, readable
+only by the person, never for a remote), before the daemon answers. A kept row
+keeps only what it is (title, project, branch, provider) and says "Syncing" in
+place of a status until the live list replaces it, so a stale copy never shows a
+thread as done while it works or waits on the person. The live list is kept again
+once the daemon has confirmed it, and on the way out.
 
 Tree status includes descendant work and queue attention. A disconnected observer
 shows uncertainty. `/quit` or EOF detaches and leaves work running; that successful

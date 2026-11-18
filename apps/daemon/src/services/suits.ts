@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { logError } from "@ace/diagnostics";
 import { seedBuiltinSuits } from "@ace/plugins";
-import type { SuitResponse, SuitServerMessage } from "@ace/protocol/suits";
+import type { SuitActive, SuitResponse, SuitServerMessage } from "@ace/protocol/suits";
 import { loadSuitUrlKey } from "../local-files.ts";
 import { SuitLibrary } from "../suits/library.ts";
 import { SuitLiveChecks } from "../suits/live-checks.ts";
@@ -44,15 +44,40 @@ export async function startSuits(context: ServiceContext): Promise<void> {
 }
 
 /**
- * `suitRequest` (read scope, admin to remove), and once welcomed `suitsChanged` pushes and the
- * `suitActive` an agent's preview, keep or revert sends this device (`SuitLooks`), its
- * `suitCheck` asks, and the `suitReport` the device answers with (`SuitLiveChecks`).
+ * `suitRequest` (read scope, admin to remove), and once welcomed `suitsChanged` pushes. A socket
+ * that sends `suitWatch` (read scope) also hears the `suitActive` an agent's preview, keep or
+ * revert sends this device (`SuitLooks`) and its `suitCheck` asks, and its `suitReport` answers
+ * are taken (`SuitLiveChecks`). Nothing of the looks reaches a socket that hasn't asked, so a
+ * client's replies are never preceded by a frame it didn't request.
  */
 export function createSuitsSession(context: SocketContext): SocketService {
   const { options, tasks, authorize, send } = context;
   let stop: (() => void) | undefined;
   let detach: (() => void) | undefined;
   let looks: LookSocket | undefined;
+  const sendActive = (active: SuitActive) => {
+    if (!context.connected()) return;
+    const message: SuitServerMessage = { type: "suitActive", active };
+    send(message);
+  };
+  const watch = () => {
+    const hub = options.suitLooks;
+    // A daemon whose Suits haven't started shows no agent's look yet.
+    if (!hub) return sendActive({ kind: "none" });
+    looks ??= {
+      device: context.device(),
+      hears: (threadId) => authorize("read") && context.canReadThread(threadId),
+      send: sendActive,
+      check: (check) => {
+        if (!context.connected()) return;
+        const message: SuitServerMessage = { type: "suitCheck", check };
+        send(message);
+      },
+    };
+    // Asked again, the socket hears the current look again; it stays attached once.
+    const detachThis = hub.attach(looks);
+    detach ??= detachThis;
+  };
   return {
     welcomed() {
       stop = options.suits?.subscribe((suits) => {
@@ -60,21 +85,6 @@ export function createSuitsSession(context: SocketContext): SocketService {
         const message: SuitServerMessage = { type: "suitsChanged", suits };
         send(message);
       });
-      looks = {
-        device: context.device(),
-        hears: (threadId) => authorize("read") && context.canReadThread(threadId),
-        send: (active) => {
-          if (!context.connected()) return;
-          const message: SuitServerMessage = { type: "suitActive", active };
-          send(message);
-        },
-        check: (check) => {
-          if (!context.connected()) return;
-          const message: SuitServerMessage = { type: "suitCheck", check };
-          send(message);
-        },
-      };
-      detach = options.suitLooks?.attach(looks);
     },
     close() {
       stop?.();
@@ -85,6 +95,14 @@ export function createSuitsSession(context: SocketContext): SocketService {
       looks = undefined;
     },
     handle(message) {
+      if (message.type === "suitWatch") {
+        if (authorize("read")) watch();
+        else
+          context.fail("forbidden", "read scope required", false, {
+            requestId: message.requestId,
+          });
+        return true;
+      }
       if (message.type === "suitReport") {
         // Only a socket that was asked, for the check it was asked; anything else is dropped.
         if (looks && authorize("read")) options.suitChecks?.receive(looks, message.report);
@@ -119,7 +137,8 @@ export function createSuitsSession(context: SocketContext): SocketService {
           reply({ op: "error", code: "failed", message: reason });
         });
       tasks.add(task);
-      void task.finally(() => tasks.delete(task));
+      // The task answers its own failure above; this only forgets it.
+      void task.finally(() => tasks.delete(task)).catch(() => {});
       return true;
     },
   };

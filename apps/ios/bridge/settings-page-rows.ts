@@ -5,6 +5,7 @@ import {
   agentSettingTitles,
   atLimitLine,
   autoSettleChoices,
+  betaSwitches,
   browserDownloadsNote,
   browserEngineChoices,
   browserLossChoices,
@@ -425,6 +426,12 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
     id: "beta",
     title: "Beta",
     sections: [
+      {
+        id: "features",
+        title: "Features",
+        footer: betaSwitches.spade.description,
+        rows: [toggle("beta.spade", betaSwitches.spade.title)],
+      },
       {
         id: "video",
         title: "Video",

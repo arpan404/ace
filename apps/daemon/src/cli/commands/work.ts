@@ -11,7 +11,7 @@ import {
 import type { CommandSpec, NounSpec } from "./spec.ts";
 import { projectCommands, requestCommands } from "./work-requests.ts";
 
-/** Threads, what needs the person, and projects (ADR 0176 §7, Work). */
+/** Threads, what needs the person, and projects (ADR 0178 §7, Work). */
 export const workNouns: readonly NounSpec[] = [
   { name: "thread", summary: "Start, follow, steer and stop agent threads", group: "work" },
   { name: "request", summary: "Approvals, questions and plans waiting for you", group: "work" },
@@ -20,7 +20,7 @@ export const workNouns: readonly NounSpec[] = [
 
 const thread = "THREAD";
 const threadSummary = "A thread id, or at least 6 characters of one";
-const threadArg = { name: thread, summary: threadSummary, required: true } as const;
+const threadArg = { name: thread, ref: "thread", summary: threadSummary, required: true } as const;
 
 /** One thread, then the thread's organising verb (`settle`, `resume`…). */
 function organise(verb: string, summary: string, extra: Partial<CommandSpec> = {}): CommandSpec {
@@ -71,7 +71,7 @@ const threadCommands: readonly CommandSpec[] = [
     summary: "One thread's transcript, requests and state",
     description: "Without THREAD on a terminal, offers a list of threads to pick from.",
     group: "work",
-    args: [{ name: thread, summary: threadSummary }],
+    args: [{ name: thread, ref: "thread", summary: threadSummary }],
     flags: [
       { name: "items", value: "N", summary: "Show the last N items (default 20, at most 200)" },
       { name: "before", value: "CURSOR", summary: "The items before this cursor (from Earlier:)" },
@@ -97,7 +97,12 @@ const threadCommands: readonly CommandSpec[] = [
       providerName,
       modelName,
       { name: "worktree", summary: "Work in a new git worktree" },
-      { name: "parent", value: "THREAD", summary: "Start it as a child of this thread" },
+      {
+        name: "parent",
+        value: "THREAD",
+        ref: "thread",
+        summary: "Start it as a child of this thread",
+      },
       { name: "role", value: "ROLE", summary: "The child's role, shown in its parent's tree" },
       follow,
       idempotencyKey,
@@ -118,12 +123,18 @@ const threadCommands: readonly CommandSpec[] = [
     summary: "Talk with an agent in this terminal",
     group: "work",
     mutates: true,
-    args: [{ name: thread, summary: "A thread to continue; omit to start one" }],
+    args: [{ name: thread, ref: "thread", summary: "A thread to continue; omit to start one" }],
     flags: [
       projectRef,
       providerName,
       modelName,
-      { name: "thread", value: "THREAD", summary: "Same as the THREAD argument", hidden: true },
+      {
+        name: "thread",
+        value: "THREAD",
+        ref: "thread",
+        summary: "Same as the THREAD argument",
+        hidden: true,
+      },
       idempotencyKey,
     ],
     aliases: [{ words: ["chat"] }],
@@ -164,12 +175,18 @@ const threadCommands: readonly CommandSpec[] = [
     summary: "Stop a thread and every agent under it",
     group: "work",
     mutates: true,
-    args: [{ name: thread, summary: "The thread to stop" }],
+    args: [{ name: thread, ref: "thread", summary: "The thread to stop" }],
     flags: [
       { name: "all", summary: "Stop all running work" },
       { ...providerName, summary: "With --all, only this provider's work" },
       { ...projectRef, summary: "With --all, only this project's work" },
-      { name: "thread", value: "THREAD", summary: "Same as the THREAD argument", hidden: true },
+      {
+        name: "thread",
+        value: "THREAD",
+        ref: "thread",
+        summary: "Same as the THREAD argument",
+        hidden: true,
+      },
       idempotencyKey,
     ],
     aliases: [
@@ -191,7 +208,15 @@ const threadCommands: readonly CommandSpec[] = [
     description:
       "Never reports done while any agent in a tree still works or waits on a person. Exits 2 as soon as a person is needed.",
     group: "work",
-    args: [{ name: thread, summary: "Up to 16 thread ids", required: true, variadic: true }],
+    args: [
+      {
+        name: thread,
+        ref: "thread",
+        summary: "Up to 16 thread ids",
+        required: true,
+        variadic: true,
+      },
+    ],
     flags: [
       { name: "any", summary: "Return when the first one finishes" },
       { name: "all", summary: "Return when every one finishes (the default)" },

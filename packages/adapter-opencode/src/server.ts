@@ -1,3 +1,4 @@
+import { agentEnvPluginDirectory, sessionShellEnvironment } from "./agent-env.ts";
 import { aceConfigEnvironment } from "./mcp-ready.ts";
 import { metadataFailure } from "./metadata-failure.ts";
 import { discoveryFailureCode } from "@ace/provider-kit/discovery-failure";
@@ -123,6 +124,16 @@ export class OpenCodeServer {
     return this.installed;
   }
   private installed: { path: string; identity: string | undefined } | undefined;
+  /** What the owned process inherited: the spawn's own environment merged over ace's. */
+  private inherited: NodeJS.ProcessEnv | undefined;
+  /**
+   * The environment one session's shell commands run with, carrying its thread's variables
+   * (agent-env.ts). Undefined for an attached server: ace didn't start it, doesn't know what its
+   * shells inherit and installed no gate in it, so it never replaces their environment.
+   */
+  shellEnvironment(agentEnv: Readonly<Record<string, string>>): Record<string, string> | undefined {
+    return this.inherited && sessionShellEnvironment(this.inherited, agentEnv);
+  }
   /**
    * A spare started before its session gets that session's credential here, before any request
    * can carry it. Clients made at startup share the array, so they redact it too.
@@ -232,14 +243,21 @@ export class OpenCodeServer {
         ];
         this.controller.signal.throwIfAborted();
         const providerEnv = this.options.discovery?.env;
-        const env =
-          this.options.mcpReadyPlugin || this.options.skillDirectories?.length
-            ? aceConfigEnvironment(
-                providerEnv,
-                providerEnv?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? "{}",
-                { plugin: this.options.mcpReadyPlugin, skills: this.options.skillDirectories },
-              )
-            : providerEnv;
+        // The environment gate is always there: no session's command may run before ace has
+        // given that session its thread's variables (agent-env.ts).
+        const env = aceConfigEnvironment(
+          providerEnv,
+          providerEnv?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? "{}",
+          {
+            plugins: [
+              agentEnvPluginDirectory(),
+              ...(this.options.mcpReadyPlugin ? [this.options.mcpReadyPlugin] : []),
+            ],
+            skills: this.options.skillDirectories,
+          },
+        );
+        // The spawn merges its environment over ace's own the same way.
+        this.inherited = { ...process.env, ...env };
         const proc = spawnOwnedServer({
           spawn: this.runtime.spawn,
           command: cli.path,
@@ -250,13 +268,16 @@ export class OpenCodeServer {
         if ((this.runtime.platform ?? process.platform) === "win32") await this.recordLaunch(proc);
         // stdout/stderr are intentionally not observed: startup/config logs may contain secrets.
         const generation = this.controller;
-        void proc.exited.then(() => {
-          if (this.process !== proc) return;
-          generation.abort();
-          if (generation !== this.controller) return;
-          for (const c of this.consumers)
-            c.exited(this.deliberate, "OpenCode owned process exited");
-        });
+        // exited never rejects; every consumer hears the exit through this handler.
+        void proc.exited
+          .then(() => {
+            if (this.process !== proc) return;
+            generation.abort();
+            if (generation !== this.controller) return;
+            for (const c of this.consumers)
+              c.exited(this.deliberate, "OpenCode owned process exited");
+          })
+          .catch(() => {});
         this.base = await ownedServerReady(proc, this.controller.signal);
       }
       if (!version(expected)) throw versionRefusal(expected);
@@ -396,7 +417,8 @@ export class OpenCodeServer {
           if (event.type === "server.connected") {
             established = true;
             connected();
-            if (this.recovering) void this.recover();
+            // recover() retries until the server closes; its failures stay inside recovery.
+            if (this.recovering) void this.recover().catch(() => {});
             continue;
           }
           const targets = this.routes.select(data, watermark, this.consumers);
@@ -407,7 +429,8 @@ export class OpenCodeServer {
             // The first seq may include an inherited fork prefix. Establish baseline first.
             if (previous !== undefined && durable.seq > previous + 1) {
               this.beginRecovery(watermark - 1);
-              void this.recover();
+              // recover() retries until the server closes; its failures stay inside recovery.
+              void this.recover().catch(() => {});
             }
             if (previous === undefined || durable.seq > previous)
               this.sequences.set(durable.aggregateID, durable.seq);

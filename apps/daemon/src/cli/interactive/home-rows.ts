@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadListEntry } from "@ace/protocol";
+import type { ThreadListEntry } from "@ace/protocol";
 import {
   activityOf,
   arrange,
@@ -15,7 +15,7 @@ import {
 } from "@ace/ui-core";
 
 /**
- * The home's rows (ADR 0176 §9): the app's Inbox order (`arrange`) and its status rules
+ * The home's rows (ADR 0178 §9): the app's Inbox order (`arrange`) and its status rules
  * (`threadCard` → `rowAttention` → `rowStatusLook`), the same code the app runs, so the terminal
  * never calls a thread done while any part of its tree works or waits on a person. Pure.
  */
@@ -33,7 +33,8 @@ export interface HomeRow {
   readonly projectId: string;
   readonly title: string;
   readonly branch: string;
-  readonly provider: ProviderKind;
+  /** The provider's name, as the row shows it. */
+  readonly provider: string;
   /** It needs the person: a request is open somewhere in its tree. */
   readonly needsYou: boolean;
   /** Something in its tree is running, so Stop has something to stop. */

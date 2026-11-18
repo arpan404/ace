@@ -144,10 +144,11 @@ export interface SessionContext {
   /** Instance-specific environment; adapters must pass it to every owned provider process. */
   env?: NodeJS.ProcessEnv;
   /**
-   * Daemon-owned, per thread (ADR 0176 §10): `ACE_THREAD_ID`, `ACE_NO_INPUT` and `ACE_HOME` for
+   * Daemon-owned, per thread (ADR 0178 §10): `ACE_THREAD_ID`, `ACE_NO_INPUT` and `ACE_HOME` for
    * the agent's own shell commands. A process that serves only this session takes them in its
    * environment; a shared one passes them per thread where the provider can (Codex's
-   * `shell_environment_policy`). Never part of a pool key, never accepted from wire data.
+   * `shell_environment_policy`, OpenCode's per-session environment). Never part of a pool key,
+   * never accepted from wire data.
    */
   agentEnv?: Readonly<Record<string, string>>;
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */

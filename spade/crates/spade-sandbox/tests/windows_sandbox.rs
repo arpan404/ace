@@ -874,8 +874,13 @@ fn run_helper_as(container: &Container, sid: &Sid, lpac: bool, args: &[&str]) ->
         Access::Read,
     );
     let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    let token = if lpac {
+        launch::Token::lpac()
+    } else {
+        launch::Token::plain()
+    };
     launch::run_in(
-        lpac,
+        &token,
         &container.name,
         &container.display,
         limits(),

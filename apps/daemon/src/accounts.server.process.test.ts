@@ -123,8 +123,9 @@ createInterface({input:process.stdin}).on('line', async line => {
     });
     client = new Client(daemon.url);
     await once(client.socket, "open");
-    const list = async (path: string): Promise<unknown> => {
-      const { stdout } = await promisify(execFile)(process.execPath, [path, "accounts", "list"], {
+    const list = async (path: string, ...flags: string[]): Promise<unknown> => {
+      const args = [path, "accounts", "list", ...flags];
+      const { stdout } = await promisify(execFile)(process.execPath, args, {
         env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined },
       });
       const accounts: unknown = JSON.parse(stdout);
@@ -169,7 +170,8 @@ createInterface({input:process.stdin}).on('line', async line => {
         }),
       ]),
     );
-    expect(await list("apps/daemon/src/cli.ts")).toEqual(accounts);
+    // The ace CLI prints for people unless asked for its machine output.
+    expect(await list("apps/daemon/src/cli.ts", "--json")).toEqual(accounts);
     client.send({ type: "accounts.list", requestId: "list" });
     expect(await client.next()).toEqual({ type: "accounts.list", requestId: "list", accounts });
   } finally {

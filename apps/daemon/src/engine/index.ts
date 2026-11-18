@@ -421,7 +421,10 @@ export class Engine {
   private stopSettled(id: ThreadId): void {
     if (this.closing) return;
     if (!this.readyState) this.pendingSettles.add(id);
-    else if (this.repo.state(id)) void this.settledTrees.stop(id, this.settleFailed);
+    else if (this.repo.state(id))
+      void this.settledTrees
+        .stop(id, this.settleFailed)
+        .catch((error: unknown) => this.report(error));
   }
   /** The liveness sweep's retry for a settled tree that still has a provider running. */
   async retrySettled(id: ThreadId): Promise<void> {

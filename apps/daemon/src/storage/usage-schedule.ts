@@ -151,7 +151,7 @@ export class UsageCoordinator {
     if (!this.started || !this.requested || this.closed || this.flight || this.mutations) return;
     this.cancel = this.runtime.schedule(delay ?? Math.max(1, this.due - this.runtime.now()), () => {
       this.cancel = undefined;
-      void this.automatic();
+      void this.automatic().catch((error: unknown) => this.runtime.failed(error));
     });
   }
   private async automatic(): Promise<void> {

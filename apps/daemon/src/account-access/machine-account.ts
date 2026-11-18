@@ -26,6 +26,8 @@ const unauthorized = (message = "Valid hello required"): DeviceAdmission => ({
   message,
 });
 const loginPollMs = 2_000;
+/** A sign-in that couldn't reach the backend, or was given up as the account closed. */
+const unreachable = () => new AccessError(502, "Couldn't reach your ace account.");
 /**
  * How often the daemon reads its session back from the backend. Each read renews it there
  * (ADR 0100), and the answer carries the new expiry, so a machine left running stays signed in.
@@ -64,6 +66,10 @@ export function machineAccount(options: {
   let login: { url: string; expiresAt: number; stop(): void } | undefined;
   let stopRenewing: () => void = noop;
   let closed = false;
+  // Closing gives up every request still out to the backend: shutdown never waits on it.
+  const closing = new AbortController();
+  /** A request's signal: its own time limit, ended early when the account closes. */
+  const request = () => AbortSignal.any([closing.signal, AbortSignal.timeout(10_000)]);
   let writes: Promise<unknown> = Promise.resolve();
   let codeChecks: Promise<unknown> = Promise.resolve();
   const listeners = new Set<() => void>();
@@ -71,7 +77,7 @@ export function machineAccount(options: {
     now: options.now,
     fetchKeys: () => {
       if (!session) return Promise.reject(new Error("Signed out"));
-      return backend.keys(session.origin, AbortSignal.timeout(10_000));
+      return backend.keys(session.origin, request());
     },
   });
   const active = () => (session && session.expiresAt > options.now() ? session : undefined);
@@ -114,12 +120,12 @@ export function machineAccount(options: {
   ): Promise<string> {
     const current = active();
     if (!current) throw new Error("Sign in to ace on this machine to use ace's relay.");
-    const timeout = AbortSignal.timeout(10_000);
+    const limit = request();
     try {
       const grant = await client(current.origin).grant(
         current.token,
         { kind: "machine", subject: hostId, ...(purpose ? { purpose } : {}) },
-        signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal ? AbortSignal.any([signal, limit]) : limit,
       );
       return grant.token;
     } catch (error) {
@@ -142,8 +148,9 @@ export function machineAccount(options: {
     if (!current) return;
     let checked;
     try {
-      checked = await client(current.origin).session(current.token, AbortSignal.timeout(10_000));
+      checked = await client(current.origin).session(current.token, request());
     } catch (error) {
+      if (closed) return;
       if (error instanceof AceAccountError && error.status === 401 && session === current)
         await serial(async () => {
           if (session !== current || current.expiresAt <= options.now()) return;
@@ -156,7 +163,8 @@ export function machineAccount(options: {
     }
     if (checked.account.id !== current.account.id) return;
     await serial(async () => {
-      if (session !== current) return;
+      // An answer that arrives as the account closes is dropped; the next start renews again.
+      if (closed || session !== current) return;
       const wasActive = current.expiresAt > options.now();
       const next = { ...current, account: checked.account, expiresAt: checked.expiresAt };
       await writeSession(options.dataDir, next);
@@ -278,7 +286,7 @@ export function machineAccount(options: {
     ): Promise<MachineAccountStatus> {
       let checked;
       try {
-        checked = await client(origin).session(token, AbortSignal.timeout(10_000));
+        checked = await client(origin).session(token, request());
       } catch (error) {
         throw new AccessError(
           error instanceof AceAccountError && error.status === 401 ? 401 : 502,
@@ -286,6 +294,8 @@ export function machineAccount(options: {
         );
       }
       await adopt({ origin, token, ...checked, source: "handover" }, () => {
+        // Closed while the backend vouched for it: the session isn't taken up or written.
+        if (closed) throw unreachable();
         if (condition && (condition.session !== sessionId || login)) throw accountChanged();
         stopLogin();
       });
@@ -296,14 +306,19 @@ export function machineAccount(options: {
       if (!origin)
         throw new AccessError(400, "No ace account address. Set ACE_ACCOUNT_URL or pass --origin.");
       stopLogin();
+      // Closing the account gives the sign-in up too, from its first request on.
       const controller = new AbortController();
+      const signal = AbortSignal.any([controller.signal, closing.signal]);
       const account = client(origin);
+      if (closed) throw unreachable();
       let started;
       try {
-        started = await account.login(controller.signal);
+        started = await account.login(signal);
       } catch {
-        throw new AccessError(502, "Couldn't reach your ace account.");
+        throw unreachable();
       }
+      // Closed while asking: nothing is installed, polled or written for it.
+      if (closed) throw unreachable();
       let cancelPoll: () => void = noop;
       const current = {
         url: started.loginUrl,
@@ -315,23 +330,24 @@ export function machineAccount(options: {
       };
       login = current;
       const poll = () => {
+        if (closed || login !== current) return;
         cancelPoll = options.delay(() => {
-          if (login !== current) return;
+          if (closed || login !== current) return;
           if (options.now() >= current.expiresAt) {
             stopLogin();
             return;
           }
           account
-            .poll(started, controller.signal)
+            .poll(started, signal)
             .then(async (result) => {
-              if (login !== current) return;
+              if (closed || login !== current) return;
               if (result.status === "pending") return poll();
               login = undefined;
               const { token, account: who, expiresAt } = result.session;
               await adopt({ origin, token, account: who, expiresAt, source: "login" });
             })
             .catch((error: unknown) => {
-              if (login !== current) return;
+              if (closed || login !== current) return;
               // An expired or cancelled sign-in ends; a network blip keeps polling.
               if (error instanceof AceAccountError && [401, 404, 410].includes(error.status))
                 stopLogin();
@@ -356,7 +372,7 @@ export function machineAccount(options: {
       const ending = ended.session;
       if (ending?.source === "login")
         await client(ending.origin)
-          .logout(ending.token, AbortSignal.timeout(10_000))
+          .logout(ending.token, request())
           .catch(() => {});
       return this.status();
     },
@@ -444,6 +460,7 @@ export function machineAccount(options: {
     },
     async close(): Promise<void> {
       closed = true;
+      closing.abort();
       stopRenewing();
       stopLogin();
       listeners.clear();

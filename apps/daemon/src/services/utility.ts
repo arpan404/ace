@@ -143,6 +143,7 @@ export function startUtility(context: ServiceContext): void {
       // Worktree creation never waits for the model: rename in the background and
       // keep the title-slug fallback when generation is unavailable or the branch
       // is no longer untouched.
+      // The rename reports its own failure below, so nothing else needs it.
       void (async () => {
         try {
           const execute = promisify(execFile);
@@ -163,7 +164,7 @@ export function startUtility(context: ServiceContext): void {
             ]),
           );
         }
-      })();
+      })().catch(() => {});
     },
   });
   resources.own(() => utility.titles.close());

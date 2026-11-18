@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HomeData } from "./release-data.ts";
 
 /**
  * The desktop app's update status as it reports it to its own daemon (host token, loopback
@@ -74,5 +75,23 @@ export type AppUpdateInstruction = z.infer<typeof AppUpdateInstruction>;
 /** The daemon's reply to `PUT /v1/app-update`: what it holds, and anything it asks of the app. */
 export const AppUpdateReply = AppUpdate.extend({
   instruction: AppUpdateInstruction.nullable().optional(),
+  /**
+   * The data formats the daemon's home holds now (ADR 0177), so the app offers an older
+   * release only when that release can read them. Absent from older daemons; a value this
+   * build can't read counts as absent rather than failing the reply.
+   */
+  // A union, not `.catch()`: the protocol docs generator and browser workers leave `.catch()` out.
+  homeData: z
+    .union([
+      HomeData,
+      z
+        .unknown()
+        .transform(() => undefined)
+        .meta({
+          "x-ace-json-input": HomeData,
+          "x-ace-constraint": "A value this build can't read is ignored, as if absent.",
+        }),
+    ])
+    .optional(),
 });
 export type AppUpdateReply = z.infer<typeof AppUpdateReply>;

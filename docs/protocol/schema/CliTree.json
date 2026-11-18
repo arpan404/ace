@@ -9,6 +9,9 @@
       "cancelled": {
         "type": "boolean"
       },
+      "parentId": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
       "pending": {
         "type": "boolean"
       },
@@ -106,6 +109,10 @@
       },
       "threadId": {
         "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "title": {
+        "maxLength": 256,
+        "type": "string"
       }
     },
     "required": [

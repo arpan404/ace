@@ -200,6 +200,7 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       download: () => call("updates.download"),
       install: () => call("updates.install"),
       busy: () => call("updates.busy"),
+      setLine: (line: RequestOf<"updates.setLine">) => call("updates.setLine", line),
       onStatus: (listener: (value: EventOf<"updates.status">) => void) =>
         subscribe("updates.status", listener),
       onChecked: (listener: (value: EventOf<"updates.checked">) => void) =>

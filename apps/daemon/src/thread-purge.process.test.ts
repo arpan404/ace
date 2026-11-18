@@ -9,7 +9,7 @@ import { migrateEngine } from "./engine/migrations.ts";
 import { purgeThread, resumePurges, threadGone, type PurgePace } from "./thread-gone.ts";
 
 /*
- * Purging a large thread (ADR 0177) is a run of short writes the daemon can serve between, never
+ * Purging a large thread (ADR 0183) is a run of short writes the daemon can serve between, never
  * one long write that holds the store; one cut short is finished after a restart, and the thread
  * reads as gone throughout.
  */

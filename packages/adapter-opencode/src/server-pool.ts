@@ -232,14 +232,16 @@ export class ServerPool {
     const current = this.spares.get(configuration);
     if (this.closed || !this.live.get(configuration)) return;
     if (current && sameEnvironment(current.env, env)) return;
-    if (current) this.retireSpare(configuration);
+    // The retired spare stays counted until its process exits.
+    if (current) void this.retireSpare(configuration).catch(() => {});
     if (this.spares.size + this.retiring.size >= spareLimit) return;
     const server = new OpenCodeServer(options);
     const spare: Spare = { server, env };
     this.spares.set(configuration, spare);
     // A spare that cannot start is dropped; the next session starts its own server as before.
     void server.ready().catch(() => {
-      if (this.spares.get(configuration) === spare) this.retireSpare(configuration);
+      if (this.spares.get(configuration) === spare)
+        void this.retireSpare(configuration).catch(() => {});
     });
   }
   /**
@@ -261,7 +263,8 @@ export class ServerPool {
         installed.identity
     ) {
       // Counted until it exits; this session need not wait for that.
-      if (this.spares.get(configuration) === spare) void this.retireSpare(configuration);
+      if (this.spares.get(configuration) === spare)
+        void this.retireSpare(configuration).catch(() => {});
       return undefined;
     }
     return spare;
@@ -290,7 +293,8 @@ export class ServerPool {
   private retire(server: OpenCodeServer): Promise<void> {
     const stopped = server.close().catch(() => {});
     this.retiring.add(stopped);
-    void stopped.then(() => this.retiring.delete(stopped));
+    // stopped absorbs the stop failure; this only ends its retirement count.
+    void stopped.then(() => this.retiring.delete(stopped)).catch(() => {});
     return stopped;
   }
 }

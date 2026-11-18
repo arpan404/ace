@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliOpenRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "interaction": {
+      "$ref": "https://ace.local/protocol/v1/Interaction.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "threadTitle": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "threadTitle",
+    "workspaceId",
+    "provider",
+    "interaction"
+  ],
+  "type": "object"
+}

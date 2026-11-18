@@ -199,7 +199,8 @@ export class ProviderInstalls {
   private async run(job: Job): Promise<void> {
     const cancelDeadline = this.runtime.schedule(() => {
       job.abort.abort();
-      void job.process?.stop({ graceMs: 0 });
+      // Only a head start: the job's finally stops the same process again and reports there.
+      void job.process?.stop({ graceMs: 0 }).catch(() => {});
     }, 900_000);
     try {
       const plan = await this.planner.plan(
@@ -315,7 +316,8 @@ export class ProviderInstalls {
     for (const job of this.jobs.values())
       if (!terminal(job.progress.state)) {
         job.abort.abort();
-        void job.process?.stop({ graceMs: 0 });
+        // Only a head start: the job's own finally stops the same process and reports there.
+        void job.process?.stop({ graceMs: 0 }).catch(() => {});
       }
     await Promise.allSettled(this.plans);
     await Promise.all([...this.jobs.values()].map((job) => job.done));

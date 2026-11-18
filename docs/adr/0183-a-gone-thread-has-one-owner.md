@@ -1,4 +1,4 @@
-# 0177: A gone thread has one owner
+# 0183: A gone thread has one owner
 
 Date: 2026-11-17. Status: accepted.
 

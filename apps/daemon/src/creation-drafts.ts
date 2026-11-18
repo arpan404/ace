@@ -206,7 +206,8 @@ export class CreationDrafts {
     this.store.atomic((db) =>
       db.prepare("DELETE FROM worktree_creation_drafts WHERE id=?").run(id),
     );
-    void this.recovery.discard(command);
+    // Cleanup of a forgotten start never throws, so there is nothing to report here.
+    void this.recovery.discard(command).catch(() => {});
   }
   private publish(command: Command, device: DeviceId, progress: Progress, sends: Set<Send>) {
     this.store.atomic((db) =>

@@ -45,7 +45,8 @@ export class NodeSearch {
         else resolve(matches ?? []);
       };
       const cancel = () => {
-        void this.worker.terminate();
+        // The search is already answered as cancelled; a terminate failure adds nothing.
+        void this.worker.terminate().catch(() => {});
         finish(new WorkspaceError("ABORTED", "Search cancelled"));
       };
       const failed = (error: Error) =>
@@ -67,7 +68,8 @@ export class NodeSearch {
       };
       // A byte cap alone does not bound backtracking regex CPU time.
       const deadline = this.runtime.clock.after(() => {
-        void this.worker.terminate();
+        // The search is already answered as failed; a terminate failure adds nothing.
+        void this.worker.terminate().catch(() => {});
         finish(new WorkspaceError("SEARCH_FAILED", "Fallback regex exceeded its execution budget"));
       }, 5000);
       signal?.addEventListener("abort", cancel, { once: true });

@@ -230,7 +230,9 @@ export async function externalMcp(context: ServiceContext) {
       { ...reachSettings.current(), tailscale: true },
     );
     if (!base) return false;
-    void onTailscaleHook(request, response);
+    void onTailscaleHook(request, response).catch((error: unknown) =>
+      context.log.log("warn", `Serving a Tailscale webhook failed: ${String(error)}`),
+    );
     return true;
   };
   return {
@@ -267,7 +269,9 @@ export async function externalMcp(context: ServiceContext) {
       tailnet = base;
       // The tailnet peer, for per-caller limits. Always set here, so a client's copy never counts.
       request.headers[peerHeader] = request.socket.remoteAddress ?? "";
-      void onTailscale(request, response);
+      void onTailscale(request, response).catch((error: unknown) =>
+        context.log.log("warn", `Serving a Tailscale MCP request failed: ${String(error)}`),
+      );
       return true;
     },
     /**
@@ -375,7 +379,10 @@ async function outsideReachSettings(context: ServiceContext) {
   await read();
   const stop = await settings
     ?.subscribe({ keys: [...reachKeys], scope: {} }, (event) => {
-      if (event.type === "changed") void read();
+      if (event.type === "changed")
+        void read().catch((error: unknown) =>
+          context.log.log("warn", `Re-reading the outside reach settings failed: ${String(error)}`),
+        );
     })
     .catch(() => undefined);
   return {

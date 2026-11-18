@@ -16,7 +16,7 @@ import {
 import { requestStrip, type StripView } from "./request-strip.ts";
 
 /**
- * Requests (`r` on the home, ADR 0176 §9): every open approval, question and plan review
+ * Requests (`r` on the home, ADR 0178 §9): every open approval, question and plan review
  * across threads, one at a time ("1 of 3"). Pure: the shell gathers the open requests from the
  * client's thread stores (`openRequests`) and carries out the effects.
  */

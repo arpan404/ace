@@ -29,6 +29,7 @@ export default async function setup(project: TestProject) {
       context.testRealHome,
       process.env,
       context.enclosingRepository?.checkouts,
+      context.testToolPath,
     );
     // Windows ships no OpenSSL, but Git for Windows (which ace needs anyway) carries one.
     if (process.platform === "win32") await (await import("./git-openssl.ts")).addGitOpenssl(env);

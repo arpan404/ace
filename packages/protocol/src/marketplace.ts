@@ -336,7 +336,7 @@ export const MarketErrorCode = z.enum([
   "busy",
   "failed",
   /**
-   * An agent asked for an action that is the person's (ADR 0176 §12.5): ace opened a request in
+   * An agent asked for an action that is the person's (ADR 0178 §12.5): ace opened a request in
    * the asking thread's strip, named by `request`, that only a person's device answers.
    */
   "person_only",
@@ -393,7 +393,7 @@ export const MarketClientMessage = z.strictObject({
   requestId: z.string().min(1).max(80),
   operation: MarketOperation,
   /**
-   * The thread of the agent asking (`ACE_THREAD_ID` in its shell, ADR 0176 §10): the daemon
+   * The thread of the agent asking (`ACE_THREAD_ID` in its shell, ADR 0178 §10): the daemon
    * turns a person-only action into a request in that thread instead of running it.
    */
   thread: ThreadId.optional(),

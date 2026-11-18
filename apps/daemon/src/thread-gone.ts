@@ -4,7 +4,7 @@ import type { Store } from "./store.ts";
 import { purgeTranscriptBatch, transcriptPurgePlan } from "./storage/transcript.ts";
 
 /*
- * The one owner of "this thread is gone" (ADR 0177). A thread goes in two steps: it is retired
+ * The one owner of "this thread is gone" (ADR 0183). A thread goes in two steps: it is retired
  * (its deletion policy runs and its tombstone is written, together), then its data may be purged
  * (its transcript and engine state removed, in bounded batches; the `threads` row stays). Every path that deletes a
  * thread goes through `retireThread`, and every purge through `purgeThread`. What still refers to

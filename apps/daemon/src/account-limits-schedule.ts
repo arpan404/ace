@@ -71,7 +71,8 @@ export class LimitsSchedule {
       cancel = this.options.after(waitMs, done);
       signal?.addEventListener("abort", done, { once: true });
       if (signal?.aborted) done();
-      void reading.then(done);
+      // A reading swallows its own failure in refresh(), so only the wait's end matters here.
+      void reading.then(done).catch(() => {});
     });
   }
   /**

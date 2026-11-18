@@ -15,8 +15,11 @@ import { schemaVersionBefore } from "./migrations.ts";
  */
 const olderBuild = "DROP TABLE IF EXISTS stored_event_shape; ";
 
-/** What the Spade computer step, the newest in the schema, added: the take-over table. */
-export const undoSpadeComputers = olderBuild + "DROP TABLE spade_computer_drivers; ";
+/** What the raw revision step, the newest in the schema, added: item heads' `raw_seq`. */
+export const undoRawRevisions = olderBuild + "ALTER TABLE item_heads DROP COLUMN raw_seq; ";
+
+/** What the Spade computer step, the one before it, added: the take-over table. */
+export const undoSpadeComputers = undoRawRevisions + "DROP TABLE spade_computer_drivers; ";
 
 /**
  * What the outside MCP client steps (ADR 0122) added, after the steps since: the grant,

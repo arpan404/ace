@@ -3,7 +3,7 @@ import type { CommandGroup, CommandSpec, FlagSpec } from "../commands/spec.ts";
 import type { CommandTable } from "../commands/table.ts";
 import { exitCodeMeanings } from "./topics.ts";
 
-/** `ace help` pages, from the command table (ADR 0176 §5). Pure: table in, text out. */
+/** `ace help` pages, from the command table (ADR 0178 §5). Pure: table in, text out. */
 
 export const groupTitles: Record<CommandGroup, string> = {
   basics: "Start",

@@ -1,5 +1,5 @@
 /**
- * Key presses from the bytes a terminal sends in raw mode (ADR 0176 §9). Pure: the shell hands
+ * Key presses from the bytes a terminal sends in raw mode (ADR 0178 §9). Pure: the shell hands
  * in each chunk it reads and gets back the keys in it. Bracketed paste arrives as one `paste`
  * key, so pasted newlines never submit a prompt.
  */

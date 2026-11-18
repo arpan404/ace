@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliMarketSearch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+      },
+      "type": "array"
+    },
+    "readAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "entries",
+    "total"
+  ],
+  "type": "object"
+}

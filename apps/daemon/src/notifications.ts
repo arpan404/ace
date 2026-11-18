@@ -288,7 +288,7 @@ export function createDaemonNotifications(
     cancelTimer = delay(() => {
       cancelTimer = undefined;
       timerAt = Number.POSITIVE_INFINITY;
-      void run();
+      void run().catch(report);
     }, wait);
   };
   let running: Promise<void> | undefined;
@@ -426,7 +426,7 @@ export function createDaemonNotifications(
     cancelled();
     if (active) return;
     active = true;
-    if (current) void run();
+    if (current) void run().catch(report);
   };
   let stopped: Promise<void> | undefined;
   const stop = () => {

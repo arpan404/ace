@@ -53,7 +53,7 @@ export async function startStorage(context: ServiceContext): Promise<void> {
         : reviewer !== "storage:scheduler" || scheduled,
   );
   context.services.storage = storage;
-  // A thread purge a restart cut short finishes in the background, a batch at a time (ADR 0177).
+  // A thread purge a restart cut short finishes in the background, a batch at a time (ADR 0183).
   let purging = true;
   context.resources.onShutdown(() => {
     purging = false;

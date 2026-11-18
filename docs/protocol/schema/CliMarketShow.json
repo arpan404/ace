@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliMarketShow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "properties": {
+        "entry": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryDetail.json"
+        },
+        "kind": {
+          "const": "entry",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "entry"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "publisher",
+          "type": "string"
+        },
+        "page": {
+          "$ref": "https://ace.local/protocol/v1/MarketPublisherPage.json"
+        }
+      },
+      "required": [
+        "kind",
+        "page"
+      ],
+      "type": "object"
+    }
+  ]
+}

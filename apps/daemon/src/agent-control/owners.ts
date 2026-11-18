@@ -51,11 +51,15 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
       arm: (delay, callback) =>
         clock
           ? clock.setTimer(() => {
-              void callback();
+              void Promise.resolve(callback()).catch((error: unknown) =>
+                log.log("error", "Agent automation failed", logError(error)),
+              );
             }, delay)
           : (() => {
               const timer = setTimeout(() => {
-                void callback();
+                void Promise.resolve(callback()).catch((error: unknown) =>
+                  log.log("error", "Agent automation failed", logError(error)),
+                );
               }, delay);
               timer.unref();
               return () => clearTimeout(timer);

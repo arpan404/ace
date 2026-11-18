@@ -145,9 +145,12 @@ export class SimulatorPostures {
         .catch(() => false);
       this.foldable.set(udid, known);
       // A failed check is asked again next time: the device may not have finished booting.
-      void known.then((yes) => {
-        if (!yes && this.foldable.get(udid) === known) this.foldable.delete(udid);
-      });
+      // `known` resolves false instead of rejecting; clearing the entry cannot fail.
+      void known
+        .then((yes) => {
+          if (!yes && this.foldable.get(udid) === known) this.foldable.delete(udid);
+        })
+        .catch(() => {});
     }
     return known;
   }

@@ -66,8 +66,14 @@ test("themes and Suits are one set of looks, each Suit saying what it has", asyn
     "Neon pink over a violet dusk. Dark only",
   );
   expect(picked()).toEqual(["ace"]);
-  // The page says Look, not the format's name.
-  expect(document.querySelector("main")?.textContent).not.toMatch(/Suit/);
+  // The page says Look, not the format's name; only the Marketplace link names Suits.
+  const main = screen.getByRole("main");
+  expect(
+    within(main)
+      .getAllByText(/Suit/)
+      .map((node) => node.textContent),
+  ).toEqual(["More Suits"]);
+  expect(within(main).getByRole("button", { name: "More Suits" })).toBeTruthy();
 });
 
 test("picking a Suit card applies it on this device, the theme cards show unpicked, and the next load replays it", async () => {

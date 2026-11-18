@@ -2,7 +2,7 @@ import type { Interaction, InteractionResolution, Question } from "@ace/protocol
 import { CliFailure, usageFailure } from "../output.ts";
 
 /**
- * How `ace request allow|deny|answer` reply to a request (ADR 0176 §7): pure, from the
+ * How `ace request allow|deny|answer` reply to a request (ADR 0178 §7): pure, from the
  * request and what the person typed, to the resolution the daemon records.
  */
 export interface AllowInput {

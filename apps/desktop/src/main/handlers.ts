@@ -284,6 +284,7 @@ export function createHandlers(options: {
     "updates.download": () => options.updates.download(),
     "updates.install": () => options.updates.install(),
     "updates.busy": async () => (await options.updates.busy()) ?? null,
+    "updates.setLine": (line) => options.updates.setLine(line),
     "sandbox.current": () => options.sandbox.current(),
     "sandbox.setup": () => options.sandbox.setup(),
     "sandbox.hide": () => options.sandbox.hide(),

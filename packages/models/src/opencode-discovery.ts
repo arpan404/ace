@@ -78,7 +78,8 @@ export async function discoverOpenCodeCatalog(
     maxOutputBytes: 4 * 1024 * 1024,
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   let failure: unknown;
@@ -182,7 +183,8 @@ async function installedVersion(
     if (output.length < 65536) output += line + "\n";
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   try {

@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/HomeData.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "daemon": {
+      "anyOf": [
+        {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "home": {
+      "anyOf": [
+        {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "notify": {
+      "anyOf": [
+        {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "spade": {
+      "anyOf": [
+        {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "unreadable": {
+      "items": {
+        "maxLength": 64,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    }
+  },
+  "required": [
+    "home",
+    "daemon",
+    "notify",
+    "spade"
+  ],
+  "type": "object"
+}

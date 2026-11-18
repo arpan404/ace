@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliSpadeSwitch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "beta": {
+      "const": true,
+      "type": "boolean"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "live": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "enabled",
+    "live"
+  ],
+  "type": "object"
+}

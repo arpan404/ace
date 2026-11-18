@@ -52,7 +52,11 @@ async function adoptPreviousBinary(folder: string): Promise<void> {
     await rm(staging, { force: true });
     await copyFile(old, staging);
     const file = await open(staging, "r");
-    await file.chmod(0o755).finally(() => file.close());
+    try {
+      await file.chmod(0o755);
+    } finally {
+      await file.close();
+    }
     await flush(staging);
     await retrySharing(() => rename(staging, name));
   }
@@ -112,7 +116,11 @@ export async function stageSpadeBinary(
   await mkdir(staging, { mode: 0o700 });
   await copyFile(source, join(staging, name));
   const file = await open(join(staging, name), "r");
-  await file.chmod(0o755).finally(() => file.close());
+  try {
+    await file.chmod(0o755);
+  } finally {
+    await file.close();
+  }
   await flush(join(staging, name));
   await syncDirectory(staging);
   await retrySharing(() => rename(staging, folder));

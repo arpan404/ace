@@ -44,6 +44,8 @@ type Link = {
   startedAt: number;
   /** The picture encoded on the host; the server then runs control only. */
   frames: HostFrames | undefined;
+  /** This run has published a keyframe of the host picture: its deltas can now be decoded. */
+  keyed: boolean;
   /** The host-encoded picture's way through ace-media, while the daemon has one. */
   paths: DeviceVideoPaths | undefined;
 };
@@ -313,7 +315,13 @@ export async function scrcpyCapture(options: {
             if (!current) return;
             if (paths) return paths.daemon(unit);
             current.streaming = true;
-            if (!stopped && link === current) publishVideo(unit);
+            if (stopped || link !== current) return;
+            // The encoder starts before the server, so its first keyframe can come before this
+            // run is the live one and be dropped: hold deltas no viewer could decode, and ask
+            // the encoder for another keyframe.
+            if (!unit.keyframe && !current.keyed) return keyframe();
+            current.keyed = true;
+            publishVideo(unit);
           },
           failed: (error) => {
             if (current) lost(current, error);
@@ -375,6 +383,7 @@ export async function scrcpyCapture(options: {
         after: runtime.after,
       }),
       streaming: false,
+      keyed: false,
       units: new ScrcpyVideoUnits(
         (unit) => {
           started.streaming = true;
@@ -409,16 +418,19 @@ export async function scrcpyCapture(options: {
         ),
       );
     }
-    void connection.exited.then(() =>
-      lost(
-        started,
-        new DeviceError(
-          "command_failed",
-          "scrcpy-server stopped on the device",
-          "Start the device view again.",
+    // `exited` reports the connection's exit and does not reject.
+    void connection.exited
+      .then(() =>
+        lost(
+          started,
+          new DeviceError(
+            "command_failed",
+            "scrcpy-server stopped on the device",
+            "Start the device view again.",
+          ),
         ),
-      ),
-    );
+      )
+      .catch(() => {});
     if (stopped) {
       await disconnect(started);
       return;

@@ -2,7 +2,7 @@ import type { SettingsKey } from "@ace/protocol";
 
 /**
  * What each global setting is, in the words of the app's Settings, for `ace config list` and
- * `ace config get` (ADR 0176 §7). Every settings key has a line here or a reason it can't be
+ * `ace config get` (ADR 0178 §7). Every settings key has a line here or a reason it can't be
  * set from the CLI; a test fails when a key is added to `SettingsValues` without one.
  */
 export const settingSummaries: Readonly<Partial<Record<SettingsKey, string>>> = {
@@ -100,7 +100,7 @@ export const unsettable: Readonly<Partial<Record<SettingsKey, string>>> = {
   "threads.keepSettledFor": "is no longer read: settled threads stay in their project",
 };
 
-/** The first CLI's short names, kept as aliases for good (ADR 0176 §8). */
+/** The first CLI's short names, kept as aliases for good (ADR 0178 §8). */
 export const keyAliases: Readonly<Record<string, SettingsKey>> = {
   "retention-days": "storage.retentionDays",
   "log-cap": "logs.maxBytes",

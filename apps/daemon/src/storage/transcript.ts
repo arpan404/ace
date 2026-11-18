@@ -30,7 +30,7 @@ const payloadTables = new Set([
 ]);
 /**
  * The engine's state for the thread and its own rows: session, selection and queue. Without its state
- * they only lead a reader to a thread it can no longer load (ADR 0177), so a purge removes them.
+ * they only lead a reader to a thread it can no longer load (ADR 0183), so a purge removes them.
  */
 const engineRows = [
   "thread_state",
@@ -176,7 +176,7 @@ function threadRows(table: string, alias: string): string {
 }
 
 /**
- * Everything a purge removes, in order, read once per purge (ADR 0177):
+ * Everything a purge removes, in order, read once per purge (ADR 0183):
  * 1. Rows owned by one of the thread's rows through a cascading key and carrying no thread id of
  *    their own (stream and blob chunks, item text, revisions), so deleting an owner later
  *    cascades into nothing.
@@ -264,7 +264,7 @@ export interface PurgeProgress {
  * `from` that still has any. `changed` is every row the write changed, cascades included; 0 once
  * nothing is left. Owned rows go first, so an owner's delete never cascades past its batch, and
  * steps already emptied are not read again. Each call is one short write, so a large thread is
- * purged a batch at a time (ADR 0170, 0177).
+ * purged a batch at a time (ADR 0170, 0183).
  */
 export function purgeTranscriptBatch(
   db: DatabaseSync,

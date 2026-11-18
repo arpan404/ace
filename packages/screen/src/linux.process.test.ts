@@ -210,6 +210,8 @@ it("revoked capture permission discards the shared helper before a replacement s
   const directory = await mkdtemp(join(tmpdir(), "screen-v2-revoke-"));
   const manager = new ScreenManager({
     ...command,
+    // A Linux helper is checked on a Linux host, whatever machine runs the test.
+    platform: "linux",
     env: { REVOKE_SCREEN: "1" },
     nextId: ids(),
     recordingDirectory: directory,
@@ -227,7 +229,11 @@ it("revoked capture permission discards the shared helper before a replacement s
         { kind: "key.press", key: "Enter", modifiers: [] },
         "agent",
       ),
-    ).rejects.toThrow("permission denied");
+    ).rejects.toMatchObject({
+      code: "permission_denied",
+      // The fake reports no requirements, so the host names none and points at the checklist.
+      message: "Linux desktop access denied. Check computer use requirements on the host machine.",
+    });
     expect(manager.states()).toEqual([]);
     const replacement = await manager.start(target);
     expect((await manager.capabilities())?.pid).not.toEqual(before?.pid);

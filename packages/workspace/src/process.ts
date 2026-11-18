@@ -30,15 +30,19 @@ export async function command(
       });
       for (const pipe of pipes) pipe.releaseReader();
     } catch (error) {
-      void Promise.allSettled(pipes.map((pipe) => pipe.dispose())).then(() => reject(error));
+      // allSettled never rejects; the caller hears the spawn error either way.
+      void Promise.allSettled(pipes.map((pipe) => pipe.dispose()))
+        .then(() => reject(error))
+        .catch(() => {});
       return;
     }
     const { stdin, stdout, stderr: errors } = child;
     if (!stdin || !stdout || !errors) {
       child.kill("SIGKILL");
-      void Promise.allSettled(pipes.map((pipe) => pipe.dispose())).then(() =>
-        reject(new Error("Search process requires piped streams")),
-      );
+      // allSettled never rejects; the caller hears the missing streams either way.
+      void Promise.allSettled(pipes.map((pipe) => pipe.dispose()))
+        .then(() => reject(new Error("Search process requires piped streams")))
+        .catch(() => {});
       return;
     }
     const chunks: Buffer[] = [];
@@ -108,8 +112,8 @@ export async function command(
         }
       }
     });
-    child.on("close", async (code) => {
-      // An async listener: a pipe whose close throws (EBADF) must still settle the search.
+    const closed = async (code: number | null) => {
+      // A pipe whose close throws (EBADF) must still settle the search.
       await Promise.all(writers);
       const disposed = await Promise.allSettled(pipes.map((pipe) => pipe.dispose()));
       for (const result of disposed) if (result.status === "rejected") problem ??= result.reason;
@@ -126,6 +130,10 @@ export async function command(
       } catch (error) {
         reject(error);
       }
+    };
+    child.on("close", (code) => {
+      // closed() settles the search itself; a rejection here settles it the same way.
+      void closed(code).catch(reject);
     });
     const writers = (options.inputs ?? []).map((input, index) => {
       const pipe = pipes[index];

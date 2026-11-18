@@ -1,6 +1,6 @@
 import type { Automation, AutomationResponse, AutomationRun } from "@ace/protocol";
 
-/** Words for `ace automation` (ADR 0176 §3). Pure: the daemon's answer → lines. */
+/** Words for `ace automation` (ADR 0178 §3). Pure: the daemon's answer → lines. */
 
 type Schedule = NonNullable<AutomationResponse["schedules"]>[number];
 

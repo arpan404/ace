@@ -1,7 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
-import { complete, completionScript, currentShell, installPlan, shells } from "../completion.ts";
+import {
+  candidateLines,
+  completionScript,
+  currentShell,
+  installPlan,
+  shells,
+} from "../completion.ts";
 import { commandJson, commandTree, helpFor } from "../help/index.ts";
 import { overview } from "../help/pages.ts";
 import { emit, print } from "../io.ts";
@@ -83,7 +89,7 @@ async function completion(context: CommandContext): Promise<void> {
 
 async function home(context: CommandContext): Promise<void> {
   if (context.args.interactive) {
-    // A broken install still lands the person on the way out (ADR 0176 §13).
+    // A broken install still lands the person on the way out (ADR 0178 §13).
     const loaded = await import("../interactive/home.ts").catch(() => undefined);
     if (loaded) return loaded.interactiveHome(context);
     process.stderr.write("Something in ace is broken. Run ace doctor or ace triage.\n");
@@ -102,11 +108,18 @@ export const basicHandlers: Handlers = {
   },
   completion,
   complete: async (context) => {
-    process.stdout.write(
-      complete(context.table, context.args.words)
-        .map((word) => `${word}\n`)
-        .join(""),
+    const [{ completeLive, liveBudgetMs }, { daemonRefs }] = await Promise.all([
+      import("../completion-live.ts"),
+      import("../completion-daemon.ts"),
+    ]);
+    const candidates = await completeLive(
+      context.table,
+      context.args.words,
+      daemonRefs(() => context.dataDir()),
+      liveBudgetMs,
     );
+    // The shell waits for this process to end: a daemon read past its budget must not hold it.
+    process.stdout.write(candidateLines(candidates), () => process.exit(0));
   },
   status: async (context) => (await import("../work/status.ts")).statusCommand(context),
 };

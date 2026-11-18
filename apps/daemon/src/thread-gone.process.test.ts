@@ -11,7 +11,7 @@ import { purgeThread, retireThread } from "./thread-gone.ts";
 import type { Store } from "./store.ts";
 
 /*
- * The invariant of ADR 0177: however a thread goes (the person deletes it, its project is
+ * The invariant of ADR 0183: however a thread goes (the person deletes it, its project is
  * removed, storage cleanup retires it) and once its data is purged, a restart brings every
  * service up and nothing open still refers to it.
  */

@@ -115,7 +115,6 @@ export const droppedWorkerZodMethods = {
     "maxLength",
     "length",
     "nonempty",
-    "trim",
     "includes",
     "startsWith",
     "endsWith",

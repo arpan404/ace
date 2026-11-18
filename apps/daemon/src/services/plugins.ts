@@ -97,7 +97,8 @@ export function createPluginsSession(context: SocketContext): SocketService {
             }
           })();
           tasks.add(task);
-          void task.finally(() => tasks.delete(task));
+          // The task answers its own failure above; this only forgets it.
+          void task.finally(() => tasks.delete(task)).catch(() => {});
           return true;
         }
       }

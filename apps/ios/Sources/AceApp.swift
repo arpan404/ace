@@ -58,6 +58,12 @@ import QuartzCore
         EmptyState(icon: nil, title: "Storage unavailable", line: "ace couldn't open its storage on this phone.", failed: true)
             .frame(maxHeight: .infinity)
     }
+    /// `--spike-account`: the fixture's fake account backend, for Profile's signed-in half.
+    private func signInToSpikeAccount() async {
+        #if ACE_FIXTURE
+        if let origin = SpikeConfiguration.accountOrigin { await account.signInToSpike(origin: origin, token: SpikeConfiguration.accountToken) }
+        #endif
+    }
     /// Debug `--spike` only: the loopback fixture with a fixed fake device credential.
     private var spike: some View {
         Group {
@@ -68,6 +74,7 @@ import QuartzCore
         .environment(notificationDelegate.coordinator)
         .onChange(of: scenePhase) { _, phase in notificationDelegate.coordinator.scene(active: phase == .active) }
         .task {
+            await signInToSpikeAccount()
             if SpikeConfiguration.unpaired { await startUnpaired(); return }
             let targets = SpikeConfiguration.targets()
             guard !started, !targets.isEmpty, let directory = try? ProductionApp.storageDirectory() else { return }

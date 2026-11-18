@@ -128,9 +128,12 @@ export class ForgeMediaService {
       for (const [position, entry] of batched.entries()) {
         const result = batch.then((all) => all[position] ?? unavailable("failed"));
         this.flying.set(entry.slot, result);
-        void result.finally(() => {
-          if (this.flying.get(entry.slot) === result) this.flying.delete(entry.slot);
-        });
+        // Only the map entry is forgotten here; whoever waits on the result still sees a failure.
+        void result
+          .finally(() => {
+            if (this.flying.get(entry.slot) === result) this.flying.delete(entry.slot);
+          })
+          .catch(() => {});
         if (position < wanted.length)
           results[entry.index] = result.then((answer) => this.granted(scope, answer));
       }
@@ -175,9 +178,12 @@ export class ForgeMediaService {
       );
       const pending = running;
       this.verifying.set(repository, pending);
-      void pending.finally(() => {
-        if (this.verifying.get(repository) === pending) this.verifying.delete(repository);
-      });
+      // The verification above turns its own failure into a false answer, so only the map is cleared.
+      void pending
+        .finally(() => {
+          if (this.verifying.get(repository) === pending) this.verifying.delete(repository);
+        })
+        .catch(() => {});
     }
     return running;
   }

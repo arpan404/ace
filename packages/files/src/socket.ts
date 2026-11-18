@@ -173,7 +173,8 @@ export function attachFilesChannel(
         throw new FileError("QUOTA", "Credit window exceeded");
       state.credits += message.credits;
       armIdle(message.channel, state);
-      void pump(message.channel, state);
+      // pump() carries its own failure to the client.
+      void pump(message.channel, state).catch(() => {});
       return;
     }
     if (
@@ -218,7 +219,8 @@ export function attachFilesChannel(
         size: download.size,
         validator: download.validator,
       });
-      void pump(id, state);
+      // pump() carries its own failure to the client.
+      void pump(id, state).catch(() => {});
       return;
     }
     if (operation.op === "upload.begin" || operation.op === "upload.resume") {

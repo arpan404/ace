@@ -87,7 +87,8 @@ export async function recordDevice(
           session.completed = recording;
           changed();
         }
-        void release();
+        // release() already handles its own failure (`released.catch` above).
+        void release().catch(() => {});
       },
     );
     session.recordingOpening = opening;

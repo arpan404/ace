@@ -163,6 +163,7 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
       let cancel: (() => void) | undefined;
       const forced = new Promise<void>((resolve) => {
         cancel = cleanup.schedule(() => {
+          // The body reports its own failure and always resolves; nothing is left to catch.
           void (async () => {
             try {
               await kill();
@@ -174,7 +175,7 @@ export async function launchChrome(options: ChromeInstanceOptions): Promise<Chro
             } finally {
               resolve();
             }
-          })();
+          })().catch(() => {});
         }, cleanup.timeoutMs);
       });
       void connection.send("Browser.close").catch(() => {});

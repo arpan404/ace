@@ -98,7 +98,8 @@ export class BrowserForget {
         .prepare("INSERT OR REPLACE INTO browser_forget_pending VALUES (?, ?)")
         .run(threadId, workspaceId),
     );
-    void this.forget({ thread_id: threadId, workspace_id: workspaceId });
+    // forget() reports its own failure through onError.
+    void this.forget({ thread_id: threadId, workspace_id: workspaceId }).catch(() => {});
   }
 
   private forget(row: z.infer<typeof Row>): Promise<void> {

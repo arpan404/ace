@@ -392,7 +392,7 @@ export async function openCodexSession(
   function onNotification({ method, params }: Notification): void {
     catalog.changed(method, params);
     if (method === "turn/completed" && obj(params)["threadId"] === nativeSessionId)
-      void reconcileLoaded(`discovery:${str(obj(obj(params)["turn"])["id"])}`);
+      void reconcileLoaded(`discovery:${str(obj(obj(params)["turn"])["id"])}`).catch(diagnostic);
     if (method === "thread/queue/changed")
       void refreshQueue(str(obj(params)["threadId"])).catch(diagnostic);
   }

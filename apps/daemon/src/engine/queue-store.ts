@@ -192,6 +192,14 @@ export class QueueStore {
       ).get(id)?.n,
     );
   }
+  /** Sends still to go, child results ace delivers included: the person's queue and ace's. */
+  waitingSends(id: ThreadId): number {
+    return Number(
+      this.sql(
+        "SELECT COUNT(*) AS n FROM intents WHERE thread_id=? AND ((kind IN ('thread.send','thread.create') AND status IN ('pending','queued')) OR (kind IN ('thread.send','thread.create','thread.resume','queue.resume','thread.limit') AND uncertain=1))",
+      ).get(id)?.n,
+    );
+  }
   private uncertainRecovery(id: ThreadId): boolean {
     return Boolean(
       this.sql(

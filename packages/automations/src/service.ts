@@ -510,7 +510,8 @@ export class AutomationService {
   private track(operation: Promise<void>): void {
     const settled = operation.catch((error: unknown) => this.report(error));
     this.pending.add(settled);
-    void settled.finally(() => this.pending.delete(settled));
+    // settled reports its own failure; this only stops tracking it.
+    void settled.catch(() => {}).finally(() => this.pending.delete(settled));
   }
   private arm(): void {
     this.cancelTimer?.();

@@ -1,7 +1,7 @@
 import type { CommandContext, Handlers } from "./context.ts";
 
 /**
- * Threads, requests and projects (ADR 0176 §7). Each handler loads its module only when it
+ * Threads, requests and projects (ADR 0178 §7). Each handler loads its module only when it
  * runs, so the rest of the CLI never carries this code.
  */
 const reads = () => import("../work/thread-reads.ts");
@@ -14,7 +14,7 @@ async function open(context: CommandContext): Promise<void> {
   const byPath = context.parsed.typed[0] === "open" || !target || /[/\\.~]/.test(target[0] ?? "");
   if (byPath) {
     const args = { ...context.args, words: ["open", ...context.args.words] };
-    return (await import("../open.ts")).openCommand(args, context.config());
+    return (await import("../open.ts")).openCommand(args, await context.config());
   }
   // A project by name or id: find its id, then open it as the app does.
   const { withSession } = await import("./context.ts");
@@ -23,7 +23,7 @@ async function open(context: CommandContext): Promise<void> {
     id = (await (await import("../work/daemon.ts")).resolveProject(client, signal, target)).id;
   });
   const args = { ...context.args, words: ["project", "open", id] };
-  return (await import("../open.ts")).openCommand(args, context.config());
+  return (await import("../open.ts")).openCommand(args, await context.config());
 }
 
 async function attach(context: CommandContext): Promise<void> {
@@ -34,7 +34,7 @@ async function attach(context: CommandContext): Promise<void> {
     words: ["chat"],
     flags: { ...flags, ...(typeof id === "string" ? { thread: id } : {}) },
   };
-  return (await import("../chat.ts")).chatCommand(args, context.config());
+  return (await import("../chat.ts")).chatCommand(args, await context.config());
 }
 
 export const workHandlers: Handlers = {

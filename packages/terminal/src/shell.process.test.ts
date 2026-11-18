@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { accessSync, constants } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import { fixture, collect } from "./test-support.ts";
 
@@ -53,17 +54,26 @@ test("the user's SHELL is launched with login and interactive arguments", async 
   }
 });
 
-test("without SHELL the first installed fallback shell executes commands", async () => {
+function executable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test("without SHELL the account's login shell, else the first installed fallback, executes commands", async () => {
   const context = await fixture({}, (cleanup) => cleanups.push(cleanup));
   const original = process.env.SHELL;
   try {
-    let expected = "/bin/bash";
-    try {
-      accessSync("/bin/zsh", constants.X_OK);
-      expected = "/bin/zsh";
-    } catch {
-      /* Linux often has only bash. */
-    }
+    // The account's shell from the user database: /bin/zsh on a Mac, often /usr/bin/bash on
+    // Linux. Only an account without a usable one falls back to the first installed shell.
+    const account = userInfo().shell;
+    const expected =
+      account && !/\/(?:nologin|false)$/.test(account) && executable(account)
+        ? account
+        : ["/bin/zsh", "/bin/bash", "/bin/sh"].find(executable);
     delete process.env.SHELL;
     const terminal = context.manager.openTerminal({
       cwd: context.home,
