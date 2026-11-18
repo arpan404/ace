@@ -22,6 +22,8 @@ export function useEditorMetrics(options: {
   onOverflow?: ((overflow: boolean) => void) | undefined;
 }): { cell: number; contentWidth: number } {
   const { scroller, host, doc, lines, first, gutter, onOverflow } = options;
+  /** The text column's right breathing room, so a line's last glyph is never clipped. */
+  const rightPadding = 24;
   const [cell, setCell] = useState(fallbackCharWidth);
   const [content, setContent] = useState<{ doc: unknown; width: number }>({
     doc: undefined,
@@ -72,7 +74,7 @@ export function useEditorMetrics(options: {
         : measureElement(rendered ?? element) || lineWidth(text, cell);
       widest = Math.max(widest, width);
     });
-    const width = gutter + widest;
+    const width = gutter + widest + rightPadding;
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- the widest rendered span is a DOM measurement.
     setContent((previous) => {
       const base = previous.doc === doc ? previous.width : 0;

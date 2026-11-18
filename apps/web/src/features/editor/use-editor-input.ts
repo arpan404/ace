@@ -70,7 +70,10 @@ export function useEditorInput(
       event.preventDefault();
       return;
     }
-    if (suppressed.current) return;
+    if (suppressed.current) {
+      event.preventDefault();
+      return;
+    }
     const block = () => {
       event.preventDefault();
       handled.current = true;
