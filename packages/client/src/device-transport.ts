@@ -1,6 +1,5 @@
 /// <reference lib="dom" />
 import { z } from "zod";
-import type { AceClient } from "@ace/protocol/ace-client";
 import {
   ClientMessage,
   MachineCodeRefusal,
@@ -17,8 +16,6 @@ export type DeviceConnectionTarget =
   | { kind: "relay"; url: string; pinnedFingerprint: string };
 export interface AuthenticatedChannelOptions {
   target: DeviceConnectionTarget;
-  /** This app's `ace-client` name (ADR 0189), for a relay target's upgrade. */
-  aceClient?: AceClient | undefined;
   expectedHostId?: string;
   deviceId: string;
   credential(): Promise<Credential>;
@@ -156,7 +153,6 @@ export function authenticatedChannel(
           const opened = await connectPortableRelay({
             relayUrl: options.target.url,
             pinnedFingerprint: options.target.pinnedFingerprint,
-            aceClient: options.aceClient,
             socket: options.socket,
             grant: relayGrant(credential),
             keys: options.keys,

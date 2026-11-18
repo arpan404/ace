@@ -6,6 +6,7 @@ import {
   hostedRelayUrl,
   sameAccountOrigin,
   signInReturnTo,
+  webClient,
   windowAccountSession,
 } from "./account-config.ts";
 
@@ -94,4 +95,10 @@ test("a machine chosen on ace's former address is on the same backend; another b
   expect(sameAccountOrigin("https://cloud.acehq.dev", "https://relay.acehq.dev")).toBe(true);
   expect(sameAccountOrigin("https://cloud.acehq.dev", "https://cloud.acehq.dev")).toBe(true);
   expect(sameAccountOrigin("https://cloud.acehq.dev", "https://accounts.example")).toBe(false);
+});
+
+test("the web app names its stamped version to ace cloud, and nothing when the build has none", () => {
+  expect(webClient(env({ VITE_ACE_VERSION: "0.0.24-beta.1" }))).toBe("web/0.0.24-beta.1");
+  expect(webClient(env({ VITE_ACE_VERSION: "development" }))).toBe("web/development");
+  expect(webClient(env({ VITE_ACE_VERSION: "" }))).toBeUndefined();
 });
