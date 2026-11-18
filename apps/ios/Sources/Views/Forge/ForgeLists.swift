@@ -73,6 +73,9 @@ struct ForgeIssuesList: View {
     /// The page open beside the list, whose row reads as selected.
     @Environment(\.openForgeRow) private var openRow
     let model: ForgeListModel<ForgeIssueList>
+    /// The machine's connection, and how to ask it to connect again.
+    var connection = "ready"
+    var reconnect: (() -> Void)? = nil
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
@@ -81,7 +84,8 @@ struct ForgeIssuesList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No issues match",
                        icon: .record, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], connection: connection, noun: "Issues",
+                       reconnect: reconnect, refresh: refresh, more: more) {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
@@ -109,8 +113,24 @@ enum ForgeListState: Equatable {
     /// waiting on a skeleton that never resolves. Rows already read stay shown either way.
     static func of(loaded: Bool, failure: String?, empty: Bool, connection: String) -> ForgeListState {
         if !loaded, let failure { return .failed(failure) }
-        if !loaded { return ["reconnecting", "offline", "fatal"].contains(connection) ? .unreachable : .reading }
+        if !loaded { return unreachable(connection) ? .unreachable : .reading }
         return empty ? .empty : .rows
+    }
+
+    /// The machine is out and reads nothing until it's back.
+    static func unreachable(_ connection: String) -> Bool { ["reconnecting", "offline", "fatal"].contains(connection) }
+}
+
+/// The machine can't be reached, said once for every review list and the page before them:
+/// what loads once it's back, and Retry.
+struct ForgeUnreachable: View {
+    let noun: String
+    let retry: (() -> Void)?
+    var body: some View {
+        EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "\(noun) load once it's connected.") {
+            if let retry { Button("Retry", action: retry).accessibilityIdentifier("forge.list.retry") }
+        }
+        .accessibilityIdentifier("forge.list.unreachable")
     }
 }
 
@@ -152,12 +172,9 @@ struct ForgeListFrame<Rows: View>: View {
                 .padding(.top, AceDesign.Space.pageState)
                 .forgeRowChrome()
             case .unreachable:
-                EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "\(noun) load once it's connected.") {
-                    if let reconnect { Button("Retry", action: reconnect).accessibilityIdentifier("forge.list.retry") }
-                }
-                .padding(.top, AceDesign.Space.pageState)
-                .forgeRowChrome()
-                .accessibilityIdentifier("forge.list.unreachable")
+                ForgeUnreachable(noun: noun, retry: reconnect)
+                    .padding(.top, AceDesign.Space.pageState)
+                    .forgeRowChrome()
             case .reading:
                 SkeletonRows(count: 6).forgeRowChrome()
             case .empty:

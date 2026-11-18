@@ -149,7 +149,7 @@ struct ForgeHome: View {
                 ForgePullsList(client: session.client, model: pulls,
                                open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
             case .issues:
-                ForgeIssuesList(model: issues,
+                ForgeIssuesList(model: issues, connection: session.client.connection, reconnect: { session.client.retry() },
                                 open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
             case .inbox:
                 ForgeNotificationsList(client: session.client, machineId: session.hostId, project: chosen, filter: notificationsFilter, query: query, open: actions.open)
@@ -159,6 +159,9 @@ struct ForgeHome: View {
             ForgeEmpty { NoComputerPaired(pair: pair) }
         } else if let projectsFailed {
             ForgeEmpty { EmptyState(icon: nil, title: "Couldn't load projects", line: projectsFailed, failed: true) { Button("Try again") { Task { await loadProjects() } } } }
+        } else if let session, ForgeListState.unreachable(session.client.connection) {
+            // Projects read nothing while the machine is out: say so rather than wait on a skeleton.
+            ForgeEmpty { ForgeUnreachable(noun: "Pull requests") { session.client.retry() } }
         } else if session != nil, projects.isEmpty, session?.client.connection == "ready" {
             ForgeEmpty { EmptyState(icon: .gitPullRequest, title: "No projects yet", line: "Add a project with a Git remote to see its pull requests and issues.") { EmptyView() } }
         } else {
@@ -245,12 +248,14 @@ struct ForgeHome: View {
     /// New pull request or New issue, where the person can make one, then the list's filter.
     @ViewBuilder private var chipActions: some View {
         if kind == .pulls, session?.client.canOperate == true, chosen != nil, features?.create == true {
-            Button("New pull request") { creating = true }.buttonStyle(.forgeWord)
+            Button("New pull request") { creating = true }
+                .buttonStyle(.secondaryAction).controlSize(.small)
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")
         }
         if kind == .issues, session?.client.canOperate == true, let target = newIssueTarget {
-            Button("New issue") { creatingIssue = target }.buttonStyle(.forgeWord)
+            Button("New issue") { creatingIssue = target }
+                .buttonStyle(.secondaryAction).controlSize(.small)
                 .accessibilityIdentifier("forge.newissue")
         }
         if kind == .inbox {
