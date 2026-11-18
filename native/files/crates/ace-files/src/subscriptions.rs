@@ -52,16 +52,24 @@ pub struct Subscriptions {
 
 impl Subscriptions {
     /// Register a subscription and hand back the id the daemon will see in every event.
+    ///
+    /// `closed` is the root's own flag, read under this registry's lock: `closeRoot` sets it before
+    /// it calls [`Subscriptions::drop_root`], so either the subscription lands and the drop removes
+    /// it, or the drop already ran and the subscription is refused.
     pub fn create(
         &self,
         root: u64,
         kind: Kind,
         cancel: Option<Arc<AtomicBool>>,
-    ) -> Result<u64, Error> {
-        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        closed: &AtomicBool,
+    ) -> Result<Option<u64>, Error> {
         let mut inner = guard::lock(&self.inner)?;
+        if closed.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         inner.insert(id, Sub { root, kind, cancel });
-        Ok(id)
+        Ok(Some(id))
     }
 
     /// Close a subscription, stopping the search behind it. `None` when it was already gone.

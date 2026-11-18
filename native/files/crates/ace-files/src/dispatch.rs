@@ -249,20 +249,27 @@ fn start_watching(entry: &Arc<RootEntry>, shared: &Shared) {
     });
 }
 
-/// `closeRoot`: drop the root, end its subscriptions and stop its index build. Closing a root
-/// twice is not an error, since a daemon restart may retry it.
+/// `closeRoot`: claim the root, end its subscriptions and stop its index build, then release it.
+///
+/// The watcher's sink holds the last reference to the entry, so the entry is only really released
+/// once the watcher is dropped: closing a root takes the watcher out of its slot and drops it on a
+/// blocking thread, which joins the watcher's worker off the runtime. Closing a root twice is not
+/// an error, since a daemon restart may retry it.
 fn close_root(shared: &Shared, id: u64, root: u64) {
     let job = shared.clone();
     tokio::spawn(async move {
         let taken = job.roots.take(root);
         let result = match taken {
             Ok(Some(entry)) => {
-                entry.stop_index();
+                entry.close();
                 match job.subscriptions.drop_root(root) {
                     Ok(()) => {
-                        // Dropping the entry stops the watcher, which joins its thread: keep that
-                        // off the runtime workers.
-                        match tokio::task::spawn_blocking(move || drop(entry)).await {
+                        let released = tokio::task::spawn_blocking(move || {
+                            drop(entry.take_watcher());
+                            drop(entry);
+                        })
+                        .await;
+                        match released {
                             Ok(()) => Ok(Reply::Done),
                             Err(error) => Err(worker_stopped(error)),
                         }

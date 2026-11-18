@@ -9,13 +9,13 @@
 
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use files_wire::{Decoder, EventPayload, Frame, Message, Op, PROTOCOL, Reply, encode};
+use files_wire::{ChangeKind, Decoder, EventPayload, Frame, Message, Op, PROTOCOL, Reply, encode};
 
 /// How long a test waits for a frame before calling the binary hung.
 pub const TIMEOUT: Duration = Duration::from_secs(20);
@@ -27,6 +27,7 @@ pub struct Client {
     frames: Receiver<Frame>,
     pending: VecDeque<Message>,
     bodies: VecDeque<(u64, Vec<u8>)>,
+    stderr: Option<Receiver<String>>,
     last_id: u64,
 }
 
@@ -46,14 +47,44 @@ pub struct WireError {
 impl Client {
     /// Spawn the binary with its stdio piped and a thread decoding its stdout.
     pub fn start() -> Client {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ace-files"))
+        Client::launch(&[], false)
+    }
+
+    /// Spawn the binary with the live-root counter on, keeping its stderr for the test.
+    pub fn with_live_roots() -> Client {
+        Client::launch(&[("ACE_FILES_LIVE_ROOTS", "1")], true)
+    }
+
+    /// Spawn the binary with extra environment and, when asked, a stderr the test can read.
+    pub fn launch(env: &[(&str, &str)], capture_stderr: bool) -> Client {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_ace-files"));
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("the ace-files binary starts");
+            .stderr(if capture_stderr {
+                Stdio::piped()
+            } else {
+                Stdio::inherit()
+            });
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let mut child = command.spawn().expect("the ace-files binary starts");
         let stdin = child.stdin.take().expect("a stdin pipe");
         let stdout = child.stdout.take().expect("a stdout pipe");
+        let stderr = child.stderr.take().map(|stderr| {
+            let (sender, lines) = mpsc::channel();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stderr).lines() {
+                    let Ok(line) = line else { return };
+                    eprintln!("{line}");
+                    if sender.send(line).is_err() {
+                        return;
+                    }
+                }
+            });
+            lines
+        });
         let (sender, frames) = mpsc::channel();
         std::thread::spawn(move || {
             let mut stdout = stdout;
@@ -85,6 +116,7 @@ impl Client {
             frames,
             pending: VecDeque::new(),
             bodies: VecDeque::new(),
+            stderr,
             last_id: 0,
         }
     }
@@ -249,6 +281,62 @@ impl Client {
         }
     }
 
+    /// Check that no event arrives for `subscription` within `window`.
+    ///
+    /// Used after `closeRoot`, where a watcher that outlived its root would still report batches.
+    pub fn expect_no_event(&mut self, subscription: u64, window: Duration) {
+        let deadline = Instant::now() + window;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return;
+            }
+            match self.frames.recv_timeout(remaining) {
+                Err(_) => return,
+                Ok(Frame::Body { id, bytes }) => self.bodies.push_back((id, bytes)),
+                Ok(Frame::Message(message)) => {
+                    if let Message::Event {
+                        subscription: got, ..
+                    } = &message
+                        && *got == subscription
+                    {
+                        panic!("subscription {subscription} reported {message:?} after closeRoot");
+                    }
+                    self.pending.push_back(message);
+                }
+            }
+        }
+    }
+
+    /// Wait for the binary to report `wanted` live roots, as `ACE_FILES_LIVE_ROOTS` makes it.
+    ///
+    /// A root the process forgot to release (a watcher that still points at it, say) never reaches
+    /// zero, so this fails with the last count it saw.
+    pub fn await_live_roots(&mut self, wanted: usize) {
+        let stderr = self
+            .stderr
+            .as_mut()
+            .expect("this client was launched with the live-root counter");
+        let deadline = Instant::now() + TIMEOUT;
+        let mut last = None;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let line = stderr.recv_timeout(remaining).unwrap_or_else(|_| {
+                panic!("no live-root count reached {wanted}; last was {last:?}")
+            });
+            let Some(count) = line
+                .strip_prefix("ace-files: live-roots ")
+                .and_then(|count| count.parse::<usize>().ok())
+            else {
+                continue;
+            };
+            last = Some(count);
+            if count == wanted {
+                return;
+            }
+        }
+    }
+
     /// Close the daemon's end of stdin.
     pub fn close_stdin(&mut self) {
         self.stdin.take();
@@ -318,4 +406,40 @@ pub fn write_file(base: &Path, path: &str, contents: &str) {
         fs::create_dir_all(parent).expect("the parent folder");
     }
     fs::write(&full, contents).expect("the file");
+}
+
+/// How long a watcher may take to report one small change.
+pub const WATCH_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Subscribe to a root's changes and hand back the subscription.
+pub fn watch(client: &mut Client, root: u64) -> u64 {
+    let id = client.request(Op::Watch { root });
+    match client.reply(id) {
+        Reply::Subscription { subscription } => subscription,
+        other => panic!("watch answered {other:?}"),
+    }
+}
+
+/// Wait until a watch reports `path` as created.
+pub fn await_created(client: &mut Client, subscription: u64, path: &str) {
+    let deadline = Instant::now() + WATCH_DEADLINE;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "no change batch named {path} within {WATCH_DEADLINE:?}"
+        );
+        match client.event(subscription) {
+            EventPayload::Changes { changes } => {
+                if changes
+                    .iter()
+                    .any(|change| change.path == path && change.kind == ChangeKind::Created)
+                {
+                    return;
+                }
+            }
+            // A degraded watcher (the polling fallback) still reports batches; keep waiting.
+            EventPayload::Warning { .. } | EventPayload::Rescan { .. } => {}
+            other => panic!("unexpected watch event {other:?}"),
+        }
+    }
 }

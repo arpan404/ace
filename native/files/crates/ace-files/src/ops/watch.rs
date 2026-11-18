@@ -37,9 +37,8 @@ pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64) {
         };
         let result = match joined(starting.await) {
             Ok(()) if cancel.cancelled() => Err(Error::Aborted),
-            Ok(()) => job
-                .subscriptions
-                .create(root, Kind::Watch, None)
+            Ok(()) => entry
+                .subscribe(&job.subscriptions, Kind::Watch, None)
                 .map(|subscription| Reply::Subscription { subscription }),
             Err(error) => Err(error),
         };

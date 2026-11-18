@@ -21,13 +21,11 @@ pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64, query: SearchQ
         Ok(entry) => entry,
         Err(error) => return shared.respond(id, Err(error)),
     };
-    let subscription = match shared
-        .subscriptions
-        .create(root, Kind::Search, Some(cancel.flag()))
-    {
-        Ok(subscription) => subscription,
-        Err(error) => return shared.respond(id, Err(error)),
-    };
+    let subscription =
+        match entry.subscribe(&shared.subscriptions, Kind::Search, Some(cancel.flag())) {
+            Ok(subscription) => subscription,
+            Err(error) => return shared.respond(id, Err(error)),
+        };
     shared.out.send(Message::Response {
         id,
         result: Reply::Subscription { subscription },

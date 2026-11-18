@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -26,7 +26,7 @@ use crate::error::Error;
 use crate::guard;
 use crate::io::Out;
 use crate::ops::watch;
-use crate::subscriptions::Subscriptions;
+use crate::subscriptions::{Kind, Subscriptions};
 
 /// Quiet period that closes a watch batch, as the plan fixes it.
 const DEBOUNCE: Duration = Duration::from_millis(75);
@@ -49,6 +49,11 @@ fn empty_index() -> IndexResult {
     }
 }
 
+/// How many root entries the process holds. Test-only: with `ACE_FILES_LIVE_ROOTS` set, the
+/// binary prints the count on stderr whenever a root is dropped, so a test can prove `closeRoot`
+/// released its root rather than leaking the watcher that points back at it.
+static LIVE_ROOTS: AtomicUsize = AtomicUsize::new(0);
+
 /// Every root the daemon has open, by the number `openRoot` handed out.
 #[derive(Default)]
 pub struct Roots {
@@ -62,12 +67,14 @@ impl Roots {
         let root = Root::open(path)?;
         let lister = Arc::new(Lister::new(root.clone()));
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        LIVE_ROOTS.fetch_add(1, Ordering::Relaxed);
         let entry = Arc::new(RootEntry {
             id,
             root,
             lister,
             index: RwLock::new(None),
             build: Arc::new(AtomicBool::new(false)),
+            closed: AtomicBool::new(false),
             watcher: Mutex::new(None),
         });
         guard::lock(&self.inner)?.insert(id, Arc::clone(&entry));
@@ -95,7 +102,19 @@ pub struct RootEntry {
     lister: Arc<Lister>,
     index: RwLock<Option<PathIndex>>,
     build: Arc<AtomicBool>,
+    /// Set by `closeRoot` before anything is torn down. A watcher start or a subscription that
+    /// races the close sees it and refuses, so a closed root leaves no thread or subscription.
+    closed: AtomicBool,
     watcher: Mutex<Option<Watcher>>,
+}
+
+impl Drop for RootEntry {
+    fn drop(&mut self) {
+        let live = LIVE_ROOTS.fetch_sub(1, Ordering::Relaxed) - 1;
+        if std::env::var_os("ACE_FILES_LIVE_ROOTS").is_some() {
+            eprintln!("ace-files: live-roots {live}");
+        }
+    }
 }
 
 impl RootEntry {
@@ -112,6 +131,44 @@ impl RootEntry {
     /// The lister that answers `list` and `stat`, and that watch batches invalidate.
     pub fn lister(&self) -> &Arc<Lister> {
         &self.lister
+    }
+
+    /// Whether `closeRoot` already claimed this root.
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
+
+    /// Claim the root for closing: a watcher start or a new subscription that has not looked yet
+    /// sees the flag and backs out, and a build that is still walking stops at its next file.
+    pub fn close(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+        self.stop_index();
+    }
+
+    /// Take the watcher out of its slot, so dropping it joins its worker thread somewhere the
+    /// caller chooses: `closeRoot` does that on a blocking thread, never on a runtime worker.
+    pub fn take_watcher(&self) -> Option<Watcher> {
+        guard::lock(&self.watcher)
+            .ok()
+            .and_then(|mut slot| slot.take())
+    }
+
+    /// Register a watch or search subscription on this root unless `closeRoot` closed it first.
+    /// The flag and the registry are checked under one lock, so a close that races a subscription
+    /// leaves neither a live subscription nor a watcher behind.
+    pub fn subscribe(
+        &self,
+        subscriptions: &Subscriptions,
+        kind: Kind,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<u64, Error> {
+        match subscriptions.create(self.id, kind, cancel, &self.closed)? {
+            Some(id) => Ok(id),
+            None => Err(Error::InvalidArgument(format!(
+                "root {} was closed",
+                self.id
+            ))),
+        }
     }
 
     /// Build the quick-open index in the background, right after the root opens.
@@ -150,6 +207,12 @@ impl RootEntry {
         out: &Out,
     ) -> Result<(), Error> {
         let mut slot = guard::lock(&self.watcher)?;
+        if self.is_closed() {
+            return Err(Error::InvalidArgument(format!(
+                "root {} was closed",
+                self.id
+            )));
+        }
         if slot.is_some() {
             return Ok(());
         }
