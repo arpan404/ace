@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used)]
 #![cfg(windows)]
 
-//! Windows-only watching: a kernel burst becomes one rescan and the watch recovers.
+//! Windows-only watching: a kernel burst becomes rescans and the watch recovers.
 //!
 //! This is the behaviour `notify` cannot give the crate: it discards the status that says the
 //! kernel lost events. The `ReadDirectoryChangesW` backend turns that status into a rescan and
@@ -17,11 +17,11 @@ mod support;
 use support::{Session, changes, options};
 
 #[test]
-fn a_flood_of_fifty_thousand_files_is_one_rescan_and_watching_continues() {
+fn a_flood_of_fifty_thousand_files_is_rescans_and_watching_continues() {
     // ReadDirectoryChangesW's 64 KiB buffer cannot hold this burst, so the kernel overflows
     // (the status this backend turns into a rescan) or the coalescer sees more than max_batch
-    // changes (also a rescan). Either way the tree hears one rescan, never a wall of changes,
-    // and the watch must still report what happens next.
+    // changes (also a rescan). A burst this long also gets checkpoint rescans while it runs,
+    // but never a wall of changes, and the watch must still report what happens next.
     let session = Session::start(
         files_watch::WatchOptions {
             debounce: Duration::from_millis(3_000),
@@ -63,9 +63,18 @@ fn a_flood_of_fifty_thousand_files_is_one_rescan_and_watching_continues() {
     );
 
     let batches = session.seen();
-    let rescans: Vec<&Batch> = batches
+    let rescans: Vec<Option<&str>> = batches
         .iter()
-        .filter(|batch| matches!(batch, Batch::Rescan { .. }))
+        .filter_map(|batch| match batch {
+            Batch::Rescan { dir } => Some(dir.as_deref()),
+            _ => None,
+        })
         .collect();
-    assert_eq!(rescans.len(), 1, "one rescan per flood, saw {rescans:?}");
+    assert!(!rescans.is_empty(), "the flood is reported as a rescan");
+    assert!(
+        rescans
+            .iter()
+            .all(|dir| dir.is_none() || *dir == Some("flood")),
+        "every rescan names the flood folder or the root, saw {rescans:?}"
+    );
 }

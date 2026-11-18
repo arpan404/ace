@@ -248,7 +248,19 @@ impl Worker {
             if self.overflow.swap(false, Ordering::AcqRel) {
                 coalescer.overflow(None, Instant::now());
             }
-            let received = match coalescer.wait(Instant::now()) {
+            let now = Instant::now();
+            let wait = coalescer.wait(now);
+            // A queued event is always ready, so receiving first would let a burst that never
+            // stops hold `recv_timeout(0)` open forever and the window would never close. The
+            // deadline is checked before the queue is touched.
+            if wait == Some(Duration::ZERO) {
+                let look = |path: &str| translate::look(&self.root, path);
+                if let Some(batch) = coalescer.settle(now, &look) {
+                    self.deliver(batch);
+                }
+                continue;
+            }
+            let received = match wait {
                 Some(remaining) => self.commands.recv_timeout(remaining),
                 None => self
                     .commands

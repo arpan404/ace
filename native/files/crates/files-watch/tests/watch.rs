@@ -8,13 +8,15 @@
 //! watcher was alive. One watcher runs per test, because several FSEvents streams in one
 //! process interfere.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use files_watch::{Batch, Change, ChangeKind, WatchOptions};
 
 mod support;
 
-use support::{Session, changes, options};
+use support::{Session, WAIT, changes, options};
 
 /// Waits a quiet period and returns everything the sink saw.
 fn after_quiet(session: &Session) -> Vec<Batch> {
@@ -256,9 +258,13 @@ fn a_symlink_is_one_file_change_and_its_tree_is_never_walked() {
 
 #[test]
 fn a_burst_of_twenty_thousand_files_is_one_rescan() {
+    // A checkpoint comes after five max_wait periods; this window is far longer than the
+    // burst, so the test sees the burst's final rescan and not a mid-burst checkpoint (the
+    // checkpoint path has its own test).
     let session = Session::start(
         WatchOptions {
             debounce: Duration::from_millis(3_000),
+            max_wait: Duration::from_secs(30),
             ..options()
         },
         |root| {
@@ -288,4 +294,67 @@ fn a_folder_moved_away_and_recreated_is_watched() {
     std::fs::create_dir(session.path("a")).unwrap();
     std::fs::write(session.path("a/x"), b"x").unwrap();
     session.wait_for("a/x", ChangeKind::Created);
+}
+
+/// How many rescans the sink has seen.
+fn rescans(batches: &[Batch]) -> usize {
+    batches
+        .iter()
+        .filter(|batch| matches!(batch, Batch::Rescan { .. }))
+        .count()
+}
+
+#[test]
+fn a_burst_that_never_goes_quiet_still_reports_rescans() {
+    // The writer never pauses, so the watcher's queue is never empty at a deadline. The burst
+    // still has to reach the caller: a checkpoint rescan while it continues, and the final one
+    // when it stops.
+    let session = Session::start(
+        WatchOptions {
+            debounce: Duration::from_millis(50),
+            max_wait: Duration::from_millis(100),
+            exclude: Vec::new(),
+            max_batch: 10,
+        },
+        |root| std::fs::create_dir(root.join("endless")).unwrap(),
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    let folder = session.path("endless");
+    let writer = {
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            let mut index = 0u64;
+            while !stop.load(Ordering::Acquire) {
+                std::fs::write(folder.join(format!("file{index}")), b"x").unwrap();
+                index += 1;
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        })
+    };
+
+    let first = session.wait_for_rescan();
+    assert!(
+        first.is_none() || first.as_deref() == Some("endless"),
+        "the checkpoint names the burst folder, got {first:?}"
+    );
+    assert!(
+        !stop.load(Ordering::Acquire),
+        "a checkpoint rescan arrives while the burst is still writing"
+    );
+
+    stop.store(true, Ordering::Release);
+    writer.join().unwrap();
+
+    let deadline = Instant::now() + WAIT;
+    while rescans(&session.seen()) < 2 {
+        assert!(
+            Instant::now() < deadline,
+            "the end of the burst gets its own rescan; saw {:?}",
+            session.seen()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    std::fs::write(session.path("endless/after.txt"), b"x").unwrap();
+    session.wait_for("endless/after.txt", ChangeKind::Created);
 }
