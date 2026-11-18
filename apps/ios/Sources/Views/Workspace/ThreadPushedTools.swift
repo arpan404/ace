@@ -29,7 +29,7 @@ struct ThreadPushedTools: ViewModifier {
             }
             .navigationDestination(isPresented: showing(.agents)) {
                 AgentTreePage(model: model, thread: thread, openAgent: openAgent, openThread: openThread,
-                              openChat: { pushed = nil })
+                              openChat: { pushed = nil }, openBrowser: { pushed = .browser })
                     .navigationTitle("Agents")
                     .navigationBarTitleDisplayMode(.inline)
             }

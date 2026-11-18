@@ -7,7 +7,9 @@ struct RequestCard: View {
     let model: ClientModel
     let maxHeight: CGFloat
     @Binding var questionDraft: QuestionDraftState
-    let openBrowser: () -> Void
+    /// Shows the thread's browser; nil where this card can't reach it, so browser help says
+    /// where the tab is instead of offering a button that does nothing.
+    let openBrowser: (() -> Void)?
     var body: some View {
         let submission = model.approvalSubmissions[request.id]
         switch request.kind {

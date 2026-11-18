@@ -72,7 +72,8 @@ private struct PanelSummary: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: SubagentRoute.self) { route in
                     SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
-                                 openThread: openThread)
+                                 openThread: openThread,
+                                 openBrowser: { model.panel(thread.id, ["op": "open", "kind": PanelTool.browser.rawValue]) })
                 }
         }
     }
