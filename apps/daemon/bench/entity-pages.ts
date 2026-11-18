@@ -35,7 +35,7 @@ const getThread = (id: ThreadId): Thread | undefined => {
   }
   return thread;
 };
-const trust = { trusted: true };
+const trust = { trusted: true, rejected: new Set<string>() };
 const status = new StatusStore(db, statement, trust);
 status.initialize(getThread);
 const head = Number(db.prepare("SELECT MAX(seq) AS head FROM events").get()?.head ?? 0);

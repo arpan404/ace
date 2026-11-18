@@ -27,9 +27,10 @@ function setup() {
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
   const path = join(home, "events.sqlite");
   let store: Store | undefined;
-  const open = (entityShape: string) => {
+  /** A release build is named by its entity shape unless the test names it apart. */
+  const open = (entityShape: string, build = entityShape) => {
     store?.close();
-    store = new Store(path, console.error, { entityShape });
+    store = new Store(path, console.error, { entityShape, storedTrustBuild: build });
     return store;
   };
   cleanup.push(() => store?.close());
@@ -123,7 +124,7 @@ it("a stored entity that no longer decodes keeps every other old row decoded", (
     db.prepare("UPDATE view_entities SET value = '{\"id\":\"broken\"}' WHERE id = 'broken'").run(),
   );
 
-  // Twice: the shape is never recorded while a row can't be put in it.
+  // Twice: the second open reads the recorded rejection instead of every row.
   for (let attempt = 0; attempt < 2; attempt++) {
     const after = open("newer build");
     const page = after.readEntityPage(thread.id, "interactions", Number.MAX_SAFE_INTEGER, 200);
@@ -134,6 +135,78 @@ it("a stored entity that no longer decodes keeps every other old row decoded", (
       after.readEntityPage(thread.id, "backgroundTasks", Number.MAX_SAFE_INTEGER, 200),
     ).toThrow();
   }
+});
+
+/** A thread with an old-layout question and a background task whose row no longer decodes. */
+function withBrokenTask(store: Store) {
+  const thread = begin(store);
+  const task = BackgroundTask.parse({
+    id: "broken",
+    agentId: "root",
+    kind: "shell",
+    title: "build",
+    status: "running",
+    stoppable: true,
+    startedAt: 1,
+  });
+  store.appendEvents(thread.id, [{ type: "background_task.started", task }]);
+  dropSecret(store, thread.id, "old");
+  store.atomic((db) =>
+    db.prepare("UPDATE view_entities SET value = '{\"id\":\"broken\"}' WHERE id = 'broken'").run(),
+  );
+  return thread;
+}
+const storedQuestion = (store: Store) =>
+  store.atomic((db) =>
+    String(db.prepare("SELECT value FROM view_entities WHERE id = 'old'").get()?.value),
+  );
+
+it("one row that no longer decodes doesn't make every later open check every row again", () => {
+  const { open } = setup();
+  const thread = withBrokenTask(open("older build"));
+  open("newer build");
+  // Left in the old layout behind the recorded shape: only a pass over every row rewrites it.
+  const store = open("newer build");
+  dropSecret(store, thread.id, "old");
+  const left = storedQuestion(store);
+
+  const again = open("newer build");
+  expect(storedQuestion(again)).toBe(left);
+  // The broken row is kept as it was and still fails its reads instead of being trusted.
+  expect(
+    again.atomic((db) => db.prepare("SELECT value FROM view_entities WHERE id = 'broken'").get()),
+  ).toEqual({ value: '{"id":"broken"}' });
+  expect(() =>
+    again.readEntityPage(thread.id, "backgroundTasks", Number.MAX_SAFE_INTEGER, 200),
+  ).toThrow();
+});
+
+it("with a row that no longer decodes, rows another build rewrote in between are decoded again", () => {
+  const { open } = setup();
+  const thread = withBrokenTask(open("older build"));
+  open("build A");
+  const sealedByA = open("build A").atomic((db) => ({
+    shape: db.prepare("SELECT shape FROM stored_entity_shape").get()?.shape,
+    seal: db.prepare("SELECT shape, generation FROM stored_entity_rejected_seal").get(),
+  }));
+  // An older build with other schemas: it rewrites rows in its own shape and, while the broken
+  // row fails it too, records nothing, leaving A's record and seal as they were. Only its
+  // recorded start tells A it ran.
+  const other = open("build B");
+  dropSecret(other, thread.id, "old");
+  other.atomic((db) => {
+    db.prepare("UPDATE stored_entity_shape SET shape = ?").run(String(sealedByA.shape));
+    db.prepare("UPDATE stored_entity_rejected_seal SET shape = ?, generation = ?").run(
+      String(sealedByA.seal?.shape),
+      Number(sealedByA.seal?.generation),
+    );
+  });
+
+  const back = open("build A");
+  const page = back.readEntityPage(thread.id, "interactions", Number.MAX_SAFE_INTEGER, 200);
+  if (page.collection !== "interactions") throw new Error("expected interactions");
+  expect(page.entries[0]?.request).toMatchObject(withSecret);
+  expect(back.getInteraction("old")?.request).toMatchObject(withSecret);
 });
 
 it("every entity row this build writes is already in its schema's shape", () => {

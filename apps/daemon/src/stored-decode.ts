@@ -202,14 +202,17 @@ export type StoredEntity<C extends StoredEntityCollection> = z.output<
   (typeof storedEntitySchemas)[C]
 >;
 /**
- * Whether every `view_entities` row is in this build's shape (`entity-shape.ts`). Entity rows are
- * rewritten in place, so trust is all or nothing: set once at open, after any row an older
- * build left was rewritten in this build's shape. Until then every row is decoded.
+ * Whether `view_entities` rows are in this build's shape (`entity-shape.ts`). Entity rows are
+ * rewritten in place, so trust is set once at open, after any row an older build left was
+ * rewritten in this build's shape; until then every row is decoded. `rejected` holds the stored
+ * JSON of rows that pass found no longer decode: a read of that exact value is always decoded,
+ * so it fails as it would untrusted, while every other row is read as stored.
  */
 export interface EntityTrust {
   trusted: boolean;
+  rejected: Set<string>;
 }
-export const untrustedEntities = (): EntityTrust => ({ trusted: false });
+export const untrustedEntities = (): EntityTrust => ({ trusted: false, rejected: new Set() });
 /** A stored entity value decoded with its collection's schema, filling the schema's defaults. */
 export function decodeStoredEntity<C extends StoredEntityCollection>(
   collection: C,
@@ -225,7 +228,9 @@ export function storedEntity<C extends StoredEntityCollection>(
 ): StoredEntity<C> {
   const value: unknown = JSON.parse(json);
   // Trusted: this build's writer produced this JSON from a value folded from validated events.
-  return trust.trusted ? (value as StoredEntity<C>) : decodeStoredEntity(collection, value);
+  return trust.trusted && (trust.rejected.size === 0 || !trust.rejected.has(json))
+    ? (value as StoredEntity<C>)
+    : decodeStoredEntity(collection, value);
 }
 
 /** A take-over row in `spade_computer_drivers`; only this build's driver store writes them. */

@@ -91,15 +91,16 @@ export class StatusStore {
    */
   trustEntities(shape: string): void {
     this.db.exec("BEGIN IMMEDIATE");
-    let trusted: boolean;
+    let rejected: Set<string>;
     try {
-      trusted = canonicalEntities(this.db, shape);
+      rejected = canonicalEntities(this.db, shape);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
-    this.trust.trusted = trusted;
+    this.trust.rejected = rejected;
+    this.trust.trusted = true;
   }
   initialize(getThread: (id: ThreadId) => Thread | undefined): void {
     this.db.exec("CREATE INDEX IF NOT EXISTS view_entity_ids ON view_entities(collection, id)");

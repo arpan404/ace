@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { sealEntityRejections } from "./entity-shape.ts";
 import type { StoredTrust } from "./stored-decode.ts";
 import { openStoredTrust, readStoredTrust, type OpenedTrust } from "./stored-shape.ts";
 import {
@@ -42,7 +43,10 @@ export function openStoreTrust(
 ): OpenedTrust | undefined {
   if (!options.storedTrustReader) {
     openStoredTrustRows(db);
-    return openStoredTrust(db, shape, options.storedTrustBuild, trust);
+    const opened = openStoredTrust(db, shape, options.storedTrustBuild, trust);
+    // After this build's start is recorded, so the seal names the generation it leaves.
+    sealEntityRejections(db);
+    return opened;
   }
   readStoredTrust(db, shape, options.storedTrustBuild, trust);
   return undefined;
