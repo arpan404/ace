@@ -460,3 +460,52 @@ async fn in_full_access_spades_classifier_raises_a_network_declared_send_to_the_
     assert_eq!(sends.lock().map(|c| c.len()).unwrap_or(0), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_stamp_spade_took_is_refused_again_after_a_restart() -> Result {
+    let w = world(false, vec![], |_| vec![]).await?;
+    let autonomy = format!("{}/autonomy", security(&w.bot));
+    let stamp = w.stamp(&w.bot, "full_access");
+    let body = json!({ "autonomy": "full_access" });
+    let (status, _) = w
+        .spade
+        .put_with(&autonomy, body.clone(), &[(HEADER, &stamp)])
+        .await?;
+    assert_eq!(status, 200);
+    // The person turns it off again.
+    let (status, _) = w
+        .spade
+        .put(&autonomy, json!({ "autonomy": "auto_review" }))
+        .await?;
+    assert_eq!(status, 200);
+    // Spade restarts within the stamp's minute: someone who captured it tries it again.
+    let restarted = w.restarted_security().await?;
+    let replayed = restarted.set_autonomy(
+        &w.bot,
+        Some(spade_core::autonomy::Mode::FullAccess),
+        Some(&stamp),
+    );
+    assert!(
+        matches!(
+            replayed,
+            Err(spade_server::security::SecurityError::PersonOnly(_))
+        ),
+        "{replayed:?}"
+    );
+    assert_eq!(
+        restarted.autonomy(&w.bot),
+        spade_core::autonomy::Mode::AutoReview
+    );
+    // A fresh stamp from the person still works there.
+    let fresh = w.stamp(&w.bot, "full_access");
+    assert!(
+        restarted
+            .set_autonomy(
+                &w.bot,
+                Some(spade_core::autonomy::Mode::FullAccess),
+                Some(&fresh)
+            )
+            .is_ok()
+    );
+    Ok(())
+}

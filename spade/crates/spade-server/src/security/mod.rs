@@ -305,7 +305,11 @@ impl Security {
                 || (with(mode) == Mode::FullAccess && with(current.autonomy) != Mode::FullAccess);
             if raises {
                 let value = mode.map_or("null", Mode::name);
-                if !self.attestor.person(stamp, bot, value, self.clock.now_ms()) {
+                let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
+                if !self
+                    .attestor
+                    .person(stamp, bot, value, self.clock.now_ms(), &claim)
+                {
                     return Err(SecurityError::PersonOnly(attest::PERSON_ONLY));
                 }
                 current.full_access_confirmed = true;
@@ -321,10 +325,11 @@ impl Security {
         mode: Mode,
         stamp: Option<&str>,
     ) -> Result<MachineSecurity, SecurityError> {
+        let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
         if mode == Mode::FullAccess
             && !self
                 .attestor
-                .person(stamp, "machine", mode.name(), self.clock.now_ms())
+                .person(stamp, "machine", mode.name(), self.clock.now_ms(), &claim)
         {
             return Err(SecurityError::PersonOnly(attest::PERSON_ONLY));
         }

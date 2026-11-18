@@ -33,9 +33,11 @@ as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as
 `effect::full_access` asks for a driving step in a sensitive place, on a device, unplaced or
 unheld, a command outside the sandbox the shell classifier reads as a payment, a send or an
 access change, a request to leave the sandbox, and a tool that declares nothing outside the
-sandbox (once, as on the auto-review); a tool the person declined stays declined. An app's tool
-that writes goes to the reviewer under untrusted content or while Spade's classifier is off
-(`Call::remote`, `Call::classifier`). Everything else runs with no reviewer and no request.
+sandbox or able to reach the network (once, as on the auto-review); a tool the person declined
+stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
+reviewer under untrusted content or while Spade's classifier is off (`Call::remote`,
+`Call::classifier`); only a plugin server sealed offline with no environment of its own is exempt
+(`Tool::sealed`). A stamp's nonce is claimed in Spade's store, so it stays used across restarts. Everything else runs with no reviewer and no request.
 Spade's classifier may still raise a call it let run outside the sandbox (`engine.raise_only`);
 the ADR 0135 review is skipped. The sandbox is unchanged.
 

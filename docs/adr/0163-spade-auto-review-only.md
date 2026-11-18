@@ -136,14 +136,18 @@ so a bot whose person wants it to work without a reviewer can do that without th
      driven through the screen), on a simulator or device or an app that shows one (amendment 3
      of ADR 0171's device rule: every step there is the person's), in a place Spade can't name,
      or one ace can't hold the step to; a command asking to leave the sandbox this once; and a
-     tool that declares nothing, outside the sandbox, on its first call (ADR 0171: the person's
+     tool that declares nothing, outside the sandbox or able to reach the network, on its first
+     call (ADR 0171: the person's
      answer is kept for the bot; a "yes" lets later calls run as a declared write does below,
      never past the classifier, and untrusted content in view brings it back to the person).
    - **Stays refused:** an undeclared tool the person declined for the bot.
    - **Goes to the reviewer:** a connector's or plugin's tool that writes (anything not
-     read-only, outside the sandbox: it runs on a server, often with the person's sign-in, where
-     no sandbox holds it) while untrusted content is in view, or while Spade's classifier is off
-     or can't be loaded.
+     read-only) and can reach the network, sandboxed or not, while untrusted content is in view,
+     or while Spade's classifier is off or can't be loaded. Containing a server's files doesn't
+     contain what it does over the network with a token from its configuration: only a plugin
+     server held in the sandbox with its network off and no environment of its own (where tokens
+     go) is exempt, and its tools run as the sandbox decides. The same holds for a tool that
+     declares nothing: it asks on its first call unless its server is sealed that way.
    - **Runs, with no reviewer and no request:** everything else: reads, local writes, file writes
      with or without a checkpoint, commands in the sandbox, commands outside it when the bot's
      `commands` is `outside` (or the machine has no sandbox), `network` and `publish` effects of
@@ -168,7 +172,9 @@ so a bot whose person wants it to work without a reviewer can do that without th
    and turning the machine's default on need the person's stamp: `x-ace-person:
 v1.<ms>.<nonce>.<HMAC-SHA256>`, keyed with `<ACE_HOME>/spade-person.key` (written by ace's
    daemon, read by Spade from `SPADE_ACE_HOME`, never the bearer token), over the bot (or
-   `machine`), the value, the time (within a minute) and a nonce Spade takes once. Without it
+   `machine`), the value, the time (within a minute) and a nonce Spade takes once: claimed in
+   its store (`settings`, `person_stamp:<nonce>`) before the change is made, so a restart doesn't
+   forget it, and pruned once older than two minutes. Without it
    Spade answers `403`; `full_access_confirmed` is set only by a stamped raise. Going back to the
    auto-review never needs one. The daemon's `spade.http` proxy stamps a raise only from a caller
    with the person's standing: the app and paired devices as they are, the host token only with
@@ -197,11 +203,13 @@ still refused; a step on a simulator, in Mail, in a password manager or on a ban
 asks; a step Spade can't place or hold still asks; the sandbox is never widened), `security::
 settings` (auto-review stays the default for new bots and bots stored before; per bot over the
 machine; never freer than the bot above), `security::attest` (a stamp counts only for its bot,
-value and time, once, with the shared key), `spade-server/tests/full_access.rs` through the API
+value and time, once, with the shared key, and stays used after a restart), `spade-server/tests/full_access.rs` through the API
 (a raise with Spade's token alone is refused, a person's stamp is taken, lowering always works, a
 Full access bot holding Spade's token can't raise another bot; an undeclared sending app tool asks
 first and a `network`-declared one is reviewed with the classifier off or under untrusted
-content), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a host-token raise
+content; a stamp taken before a restart is refused after it), `spade-server/tests/
+full_access_plugins.rs` (a contained plugin server with a token and its network on keeps the
+app-tool rules; one sealed offline with no token runs), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a host-token raise
 without a fresh sign-in and an agent's raise are refused, a paired device's is stamped, lowering
 is never held), and the web's `spade-full-access.test.tsx`.
 
