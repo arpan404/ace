@@ -29,6 +29,7 @@ import {
   pushed,
   releaseChecks,
   releaseExists,
+  releasePublished,
   signingIdentity,
   worktreeClean,
 } from "./release-tools.ts";
@@ -125,7 +126,7 @@ async function build(version: string): Promise<void> {
   const dirty = !worktreeClean();
   if (dirty && !flag("--allow-dirty"))
     throw new Error("Commit your changes first: a release is built from a commit.");
-  if (githubReady() && releaseExists(version))
+  if (githubReady() && releasePublished(releaseTag(version)))
     throw new Error(`${releaseTag(version)} is already released; pick a newer version.`);
   const signed = process.platform === "darwin" && !unsigned;
   if (signed) {

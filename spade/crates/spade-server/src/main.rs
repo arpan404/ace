@@ -448,6 +448,7 @@ async fn run() -> Result<(), Failure> {
                     .filter(|v| !v.is_empty())
                     .unwrap_or_else(|| spade_connect::CLOUD_URL.to_owned()),
                 credential: Arc::new(spade_server::tools::CloudAccount::new(ace.clone())),
+                ace_client: Some(spade_server::home::ace_client()),
             }),
         },
     })

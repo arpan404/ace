@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { aceClientName } from "@ace/client/ace-client";
+import { ACE_CLIENT_DEVELOPMENT, type AceClient } from "@ace/protocol/ace-client";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { resolveDaemonHome } from "@ace/service/home-path";
@@ -94,6 +96,11 @@ export interface Config {
   accountOrigin?: string;
   /** ACE_HOSTED_RELAY_URL: ace's hosted relay, which needs a machine grant to register. */
   hostedRelayUrl?: string;
+  /**
+   * How this daemon names itself to ace cloud and the market (`ace-client`, ADR 0189), from
+   * ACE_VERSION; a daemon run without one is a development build.
+   */
+  aceClient?: AceClient;
   host: "127.0.0.1";
   port: number;
   listen: "local" | "lan" | "tailscale";
@@ -155,6 +162,11 @@ export function accountSettings(
   };
 }
 
+function namedDaemon(version: string | undefined): { aceClient?: AceClient } {
+  const aceClient = aceClientName("daemon", version ?? ACE_CLIENT_DEVELOPMENT);
+  return aceClient ? { aceClient } : {};
+}
+
 export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir()): Config {
   const settings = Environment.parse(env);
   assertTestEnvironmentIsolation(env);
@@ -188,6 +200,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
     ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),
     ...(settings.ACE_MARKET_URL ? { marketUrl: settings.ACE_MARKET_URL } : {}),
     ...accountSettings(settings.ACE_ACCOUNT_URL, settings.ACE_HOSTED_RELAY_URL),
+    ...namedDaemon(env.ACE_VERSION),
     host: "127.0.0.1",
     port,
     listen: settings.ACE_LISTEN,

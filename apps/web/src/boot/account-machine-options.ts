@@ -4,7 +4,13 @@ import { browserDeviceSocket } from "@ace/client/devices";
 import { adoptedOutbox } from "@ace/client-worker/adopted-outbox";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { accountOrigin, hostedRelayUrl, windowAccountSession } from "./account-config.ts";
+import {
+  accountFetch,
+  accountOrigin,
+  hostedRelayUrl,
+  webClient,
+  windowAccountSession,
+} from "./account-config.ts";
 import { createBrowserClient } from "./client.ts";
 import { grantCache } from "./grant-cache.ts";
 import { browserInstallId } from "./install-id.ts";
@@ -140,10 +146,7 @@ export function accountMachineOptions(options: {
   if (!origin || !relayUrl) return undefined;
   const account = aceAccountClient({
     origin,
-    fetch: async (input, init) => {
-      await authorizeDaemonUrl(`${origin}/`);
-      return fetch(input, init);
-    },
+    fetch: accountFetch(origin),
   });
   // The account knows this install by its install id, the id every machine knows it by too.
   const deviceId = browserInstallId(options.storage);
@@ -156,6 +159,7 @@ export function accountMachineOptions(options: {
   );
   return {
     relayUrl,
+    aceClient: webClient(),
     deviceId,
     async grant(machine) {
       const session = windowAccountSession(options.session, origin);

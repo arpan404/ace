@@ -122,5 +122,63 @@
       "triggers": { "crons": ["17 * * * *"] },
       "observability": { "enabled": false },
     },
+    // Staging at staging.cloud.acehq.dev: `--env staging`, deployed before production on every
+    // release (docs/release/workers.md). Its own script, so its own Durable Objects; its own D1
+    // database and rate-limit namespaces, so nothing it does reaches production's state.
+    "staging": {
+      "name": "ace-cloud-staging",
+      "routes": [{ "pattern": "staging.cloud.acehq.dev", "custom_domain": true }],
+      "vars": {
+        "ACE_ACCOUNT_PUBLIC_URL": "https://staging.cloud.acehq.dev",
+        "ACE_ACCOUNT_PUBLIC_ORIGINS": "https://staging.cloud.acehq.dev",
+        "ACE_ACCOUNT_ALLOWED_ORIGINS": "app://ace",
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "RELAY", "class_name": "RelayObject" },
+          { "name": "SIGN_INS", "class_name": "SignInObject" },
+        ],
+      },
+      "d1_databases": [
+        {
+          "binding": "ACCOUNTS",
+          "database_name": "ace-accounts-staging",
+          // OWNER: replace with the id `wrangler d1 create ace-accounts-staging` prints. The
+          // deploy script refuses to deploy staging while this placeholder is here.
+          "database_id": "REPLACE-WITH-ace-accounts-staging-ID",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "ratelimits": [
+        { "name": "UPGRADES", "namespace_id": "1101", "simple": { "limit": 300, "period": 60 } },
+        {
+          "name": "ACCOUNT_REQUESTS",
+          "namespace_id": "1102",
+          "simple": { "limit": 120, "period": 60 },
+        },
+        {
+          "name": "HTTP_REQUESTS",
+          "namespace_id": "1103",
+          "simple": { "limit": 300, "period": 60 },
+        },
+        {
+          "name": "HTTP_HOST_REQUESTS",
+          "namespace_id": "1104",
+          "simple": { "limit": 600, "period": 60 },
+        },
+        {
+          "name": "BROKER_ADDRESS_REQUESTS",
+          "namespace_id": "1105",
+          "simple": { "limit": 240, "period": 60 },
+        },
+        {
+          "name": "BROKER_ACCOUNT_REQUESTS",
+          "namespace_id": "1106",
+          "simple": { "limit": 120, "period": 60 },
+        },
+      ],
+      "triggers": { "crons": ["17 * * * *"] },
+      "observability": { "enabled": false },
+    },
   },
 }

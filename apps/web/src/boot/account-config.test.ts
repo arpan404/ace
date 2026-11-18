@@ -1,11 +1,14 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { aceAccountClient } from "@ace/client/ace-account";
 import type { KeyValueStorage } from "@ace/ui-core";
 import {
+  accountFetch,
   accountOrigin,
   accountSessionKey,
   hostedRelayUrl,
   sameAccountOrigin,
   signInReturnTo,
+  webClient,
   windowAccountSession,
 } from "./account-config.ts";
 
@@ -94,4 +97,39 @@ test("a machine chosen on ace's former address is on the same backend; another b
   expect(sameAccountOrigin("https://cloud.acehq.dev", "https://relay.acehq.dev")).toBe(true);
   expect(sameAccountOrigin("https://cloud.acehq.dev", "https://cloud.acehq.dev")).toBe(true);
   expect(sameAccountOrigin("https://cloud.acehq.dev", "https://accounts.example")).toBe(false);
+});
+
+test("the web app names its stamped version to ace cloud, and nothing when the build has none", () => {
+  expect(webClient(env({ VITE_ACE_VERSION: "0.0.24-beta.1" }))).toBe("web/0.0.24-beta.1");
+  expect(webClient(env({ VITE_ACE_VERSION: "development" }))).toBe("web/development");
+  expect(webClient(env({ VITE_ACE_VERSION: "" }))).toBeUndefined();
+});
+
+test("a browser's account calls name the app in the URL and send no header an older cloud's preflight refuses", async () => {
+  const seen: { url: URL; headers: string[] }[] = [];
+  // The network boundary: what the browser would send.
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    seen.push({ url: new URL(String(input)), headers: [...new Headers(init?.headers).keys()] });
+    return new Response(null, { status: 401 });
+  });
+  try {
+    const origin = "https://cloud.acehq.dev";
+    const account = aceAccountClient({
+      origin,
+      fetch: accountFetch(origin, env({ VITE_ACE_VERSION: "0.0.24-beta.1" })),
+    });
+    const signal = AbortSignal.timeout(5_000);
+    await expect(account.session("token", signal)).rejects.toThrow();
+    await expect(
+      account.grant("token", { kind: "device", subject: "phone" }, signal),
+    ).rejects.toThrow();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  expect(seen).toHaveLength(2);
+  for (const { url, headers } of seen) {
+    expect(url.searchParams.get("ace-client")).toBe("web/0.0.24-beta.1");
+    // Exactly what the account API's preflight has always allowed.
+    expect(headers.every((name) => ["authorization", "content-type"].includes(name))).toBe(true);
+  }
 });
