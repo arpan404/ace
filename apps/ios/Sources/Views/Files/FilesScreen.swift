@@ -23,6 +23,10 @@ struct FilesScreen: View {
     /// Puts `@path` into the message being written and goes back to it; nil where nothing is sent.
     let mention: ((ComposerMention) -> Void)?
     @Environment(\.scenePhase) private var scenePhase
+    /// Whether this Files screen is on screen (not covered by a pushed file or the background).
+    @State private var isPresented = false
+    /// Whether the bridge is counting this screen as showing the tree.
+    @State private var shown = false
     @State private var query = ""
     @State private var results: FileSearch?
     @State private var searchFailure: String?
@@ -55,7 +59,7 @@ struct FilesScreen: View {
         .background(AceTheme.Colours.background)
         .searchable(text: $query, prompt: "Search files")
         .autocorrectionDisabled().textInputAutocapitalization(.never)
-        .refreshable { model.refreshFilesTree(scope) }
+        .refreshable { await refreshTree() }
         .modifier(PageTitle(title: "Files", subtitle: subtitle))
         .navigationBarTitleDisplayMode(.inline)
         .screenBar {
@@ -65,11 +69,25 @@ struct FilesScreen: View {
         .onAppear {
             actions.changed = { prompt, change in changed(prompt, change) }
             model.watchFileMemory(scope)
-            model.showFilesTree(scope)
+            isPresented = true
+            // Opening this screen lists its tree; coming back from a pushed file keeps the rows.
+            if !shown {
+                shown = true
+                model.showFilesTree(scope)
+            }
         }
-        .onDisappear { model.hideFilesTree(scope) }
+        .onDisappear { isPresented = false }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { model.showFilesTree(scope) } else { model.hideFilesTree(scope) }
+            if phase == .background {
+                // Only the background stops the tree: a pushed file leaves it warm for the return.
+                if shown {
+                    shown = false
+                    model.hideFilesTree(scope)
+                }
+            } else if phase == .active, isPresented, !shown {
+                shown = true
+                model.showFilesTree(scope)
+            }
         }
         .sheet(item: Binding(get: { downloading.map { DownloadPick(folder: $0) } }, set: { downloading = $0?.folder })) { pick in
             if case .thread(let id) = scope { FolderDownloadSheet(model: model, threadId: id, folders: folders, folder: pick.folder) }
@@ -89,8 +107,12 @@ struct FilesScreen: View {
         .modifier(FileActionPrompts(actions: actions))
     }
 
-    /// The live tree the bridge lists for this scope; nil until its first rows arrive.
-    private var tree: FileTree? { model.files.trees[scope.memoryKey] }
+    /// The live tree the bridge lists for this scope; nil until its first rows arrive. Reading
+    /// `treesRevision` notices a new scope; each scope's own model keeps other patches away.
+    private var tree: FileTree? {
+        _ = model.files.treesRevision
+        return model.files.existingTree(scope.memoryKey)?.tree
+    }
 
     // MARK: Tree
 
@@ -124,6 +146,7 @@ struct FilesScreen: View {
                     .listRowBackground(AceTheme.Colours.background)
                     .listRowSeparator(.hidden)
                     .accessibilityIdentifier("files.error.\(row.folder ?? "")")
+                    .accessibilityHint("Double-tap to try again")
                 default:
                     Button { tap(row) } label: { FileTreeRowView(row: row) }
                         .buttonStyle(.plain)
@@ -210,6 +233,14 @@ struct FilesScreen: View {
         } catch {
             if !Task.isCancelled { searchFailure = error.localizedDescription }
         }
+    }
+
+    /// Pull to refresh lists what the tree shows and waits for the patch that draws it.
+    private func refreshTree() async {
+        let tree = model.files.tree(scope.memoryKey)
+        let revision = tree.revision
+        model.refreshFilesTree(scope)
+        await tree.nextPatch(after: revision)
     }
 
     // MARK: Transfers

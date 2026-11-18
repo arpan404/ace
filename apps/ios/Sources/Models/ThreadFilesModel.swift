@@ -225,6 +225,41 @@ enum FilesPatch: Decodable, Sendable {
     }
 }
 
+/// One scope's live tree, observable on its own so a patch for one Files screen doesn't redraw
+/// every other Files view.
+@MainActor @Observable final class FilesTreeModel {
+    var tree: FileTree?
+    /// Counts the patches applied to this scope.
+    private(set) var revision = 0
+    @ObservationIgnored private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    func apply(_ next: FileTree) {
+        tree = next
+        revision += 1
+        let waiting = waiters
+        waiters.removeAll()
+        for (_, waiter) in waiting { waiter.resume() }
+    }
+
+    /// Settles after the next patch for this scope, or ten seconds, so pull to refresh always ends.
+    func nextPatch(after revision: Int) async {
+        if self.revision > revision { return }
+        let id = UUID()
+        let timeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            self?.resumeWaiter(id)
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiters[id] = continuation
+        }
+        timeout.cancel()
+    }
+
+    private func resumeWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume()
+    }
+}
+
 /// How many times the computer said files changed (screens read again when it moves), and the
 /// saves, uploads, remembered files and live trees the bridge reports.
 @MainActor @Observable final class ThreadFilesModel {
@@ -232,17 +267,36 @@ enum FilesPatch: Decodable, Sendable {
     var downloads: [String: FileDownload] = [:]
     var uploads: [String: FileUpload] = [:]
     var memory: [String: FileMemory] = [:]
-    var trees: [String: FileTree] = [:]
+    @ObservationIgnored private var scopeTrees: [String: FilesTreeModel] = [:]
+    /// Bumped only when a scope's tree first appears, so each view re-reads its own model once.
+    private(set) var treesRevision = 0
     func apply(_ patch: FilesPatch) {
         switch patch {
         case .changed(let seq): revision = seq
         case .download(let download): downloads[download.id] = download
         case .upload(let upload): uploads[upload.id] = upload
         case .memory(let memory): self.memory[memory.key] = memory
-        case .tree(let tree): trees[tree.key] = tree
+        case .tree(let tree): self.tree(tree.key).apply(tree)
         }
     }
-    func reset() { revision = 0; downloads = [:]; uploads = [:]; memory = [:]; trees = [:] }
+    /// The tree for `key`, made on first use.
+    @discardableResult func tree(_ key: String) -> FilesTreeModel {
+        if let known = scopeTrees[key] { return known }
+        let made = FilesTreeModel()
+        scopeTrees[key] = made
+        treesRevision += 1
+        return made
+    }
+    /// The tree for `key` if this phone has seen it; reading it in a view observes that scope only.
+    func existingTree(_ key: String) -> FilesTreeModel? { scopeTrees[key] }
+    func reset() {
+        revision = 0
+        downloads = [:]
+        uploads = [:]
+        memory = [:]
+        scopeTrees.removeAll()
+        treesRevision += 1
+    }
 }
 
 extension FilesScope {
