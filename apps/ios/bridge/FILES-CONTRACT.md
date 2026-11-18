@@ -221,9 +221,10 @@ listed and the folders the person opened; Swift draws the rows it sends (`FileTr
 
 - `show` when the screen appears or comes back from the foreground. The first show for a scope
   lists the root and every visible folder from its first page, and opens the folders holding an
-  uncommitted change, as the web's tree opens them. A show after a short hide lists only the
-  visible folders that went stale (a page that never arrived, or a folder a change named while
-  hidden), each at the size it already shows.
+  uncommitted change, as the web's tree opens them. A show within five seconds of a hide lists
+  only the visible folders that went stale (a page that never arrived, or a folder a change named
+  while hidden), each at the size it already shows; after a longer hide every visible folder
+  lists again.
 - `hide` when the app goes to the background. It decrements this scope's visibility count; a
   second Files screen showing the same scope keeps the tree alive. At zero the runs stop and
   `files.watch` sends `[]` at once. The pages of the three most recently hidden trees are kept;

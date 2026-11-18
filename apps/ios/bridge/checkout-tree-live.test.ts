@@ -512,6 +512,21 @@ test("showing a tree again with nothing stale lists nothing", async () => {
   expect(tree.folders()).toEqual([]);
 });
 
+test("a long hide lists the visible folders again", async () => {
+  const { tree, timers, trees } = opened();
+  tree.setPages((path) => (path === "" ? page([folder("src")]) : page([entry("src/a.ts")])));
+  trees.handle({ type: "files.tree.show", scope });
+  await settle();
+  trees.handle({ type: "files.tree.opened", scope, path: "src/" });
+  await settle();
+  tree.calls.length = 0;
+  trees.handle({ type: "files.tree.hide", scope });
+  timers.fire();
+  trees.handle({ type: "files.tree.show", scope });
+  await settle();
+  expect(tree.folders()).toEqual(["", "src"]);
+});
+
 test("a folder under a folded parent is not listed, watched or re-listed", async () => {
   const { fake, tree, timers, trees } = opened();
   tree.setPages((path) => {

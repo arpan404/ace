@@ -47,6 +47,8 @@ const statusDelay = 300;
 const pageSize = 500;
 /** The most folder listings the phone has on their way at once. */
 export const treeRequestLimit = 4;
+/** How long a hidden tree's pages stay fresh enough to resume without listing everything. */
+const shortHideDelay = 5_000;
 /** The pages kept after a tree's last screen closes, most recently hidden last. */
 const hiddenTreesKept = 3;
 
@@ -123,6 +125,8 @@ interface TreeState {
   statusSequence: number;
   watch: (() => void) | undefined;
   statusRefresh: (() => void) | undefined;
+  /** Stops the short-hide timer; when it has run, the next show lists every visible folder. */
+  resumeFull: (() => void) | undefined;
 }
 
 const scopeKey = (scope: FilesScope) => memoryKey(scope);
@@ -193,6 +197,8 @@ export class CheckoutTrees {
   #show(tree: TreeState): void {
     tree.visibility += 1;
     if (tree.visibility !== 1) return;
+    tree.resumeFull?.();
+    tree.resumeFull = undefined;
     this.#forgetHidden(tree);
     this.#resume(tree);
   }
@@ -204,6 +210,11 @@ export class CheckoutTrees {
     this.#stop(tree);
     this.#sendWatch(tree, [], true);
     this.#rememberHidden(tree);
+    // A long hide may have missed agent writes: the next show lists the visible folders.
+    tree.resumeFull = this.#timers.set(shortHideDelay, () => {
+      tree.resumeFull = undefined;
+      tree.refreshAll = true;
+    });
   }
 
   #open(tree: TreeState, folder: string): void {
@@ -317,6 +328,7 @@ export class CheckoutTrees {
       statusSequence: 0,
       watch: undefined,
       statusRefresh: undefined,
+      resumeFull: undefined,
     };
     this.#trees.set(key, tree);
     return tree;
@@ -453,6 +465,8 @@ export class CheckoutTrees {
     tree.watch = undefined;
     tree.statusRefresh?.();
     tree.statusRefresh = undefined;
+    tree.resumeFull?.();
+    tree.resumeFull = undefined;
     tree.status?.abort();
     tree.status = undefined;
     tree.statusSequence++;
@@ -644,6 +658,8 @@ export class CheckoutTrees {
     tree.changes = [];
     tree.stale.clear();
     tree.refreshAll = true;
+    tree.resumeFull?.();
+    tree.resumeFull = undefined;
   }
 
   /** The rows the screen draws, built when the pump pulls the patch. */
