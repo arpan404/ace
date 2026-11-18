@@ -218,10 +218,10 @@ test("a message in a group posts to the group", async () => {
   );
 });
 
-test("New group drafts in place: Spade starts picked, members of both machines join, and the picked lead is named", async () => {
+test("New club drafts in place: Spade starts picked, members of both machines join, and the picked lead is named", async () => {
   const { spade } = await spadeApp("/spade", team, { machines: [studio] });
-  await openNew("New group");
-  const draft = within(await screen.findByRole("form", { name: "New group" }));
+  await openNew("New club");
+  const draft = within(await screen.findByRole("form", { name: "New club" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(draft.getByRole("checkbox", { name: "Spade" }).getAttribute("aria-checked")).toBe("true");
   await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Trips");
@@ -229,7 +229,7 @@ test("New group drafts in place: Spade starts picked, members of both machines j
   await userEvent.click(await draft.findByRole("checkbox", { name: "Writer on Studio Mac" }));
   await userEvent.click(draft.getByRole("combobox", { name: "Lead" }));
   await userEvent.click(await screen.findByRole("option", { name: "Research" }));
-  await userEvent.click(draft.getByRole("button", { name: "Make group" }));
+  await userEvent.click(draft.getByRole("button", { name: "Make club" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/groups")).toEqual([
       {
@@ -242,15 +242,15 @@ test("New group drafts in place: Spade starts picked, members of both machines j
   await screen.findByRole("feed", { name: "Conversation in Trips" });
 });
 
-test("Make group says why it can't be made yet, beside it and to assistive tech", async () => {
+test("Make club says why it can't be made yet, beside it and to assistive tech", async () => {
   await spadeApp("/spade", team, { machines: [studio] });
-  await openNew("New group");
-  const draft = within(await screen.findByRole("form", { name: "New group" }));
-  const make = draft.getByRole<HTMLButtonElement>("button", { name: "Make group" });
+  await openNew("New club");
+  const draft = within(await screen.findByRole("form", { name: "New club" }));
+  const make = draft.getByRole<HTMLButtonElement>("button", { name: "Make club" });
   const why = () =>
     document.getElementById(make.getAttribute("aria-describedby") ?? "")?.textContent;
   expect(make.disabled).toBe(true);
-  expect(why()).toBe("Name the group.");
+  expect(why()).toBe("Name the club.");
   await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Trips");
   expect(make.disabled).toBe(true);
   expect(why()).toBe("Pick at least one more bot.");
@@ -265,17 +265,17 @@ test("Make group says why it can't be made yet, beside it and to assistive tech"
   );
 });
 
-test("New group shows no faces until it has two members, and ticking one moves nothing under the pointer", async () => {
+test("New club shows no faces until it has two members, and ticking one moves nothing under the pointer", async () => {
   await spadeApp("/spade", team, { machines: [studio] });
-  await openNew("New group");
-  const form = await screen.findByRole("form", { name: "New group" });
+  await openNew("New club");
+  const form = await screen.findByRole("form", { name: "New club" });
   const draft = within(form);
   const faces = () => form.querySelectorAll("[data-group-faces]").length;
   const rows = () => draft.getAllByRole("checkbox").map((box) => box.getAttribute("aria-label"));
   // Spade starts picked, but one bot isn't a group yet: no faces.
   expect(faces()).toBe(0);
   const before = rows();
-  // Who answers is there from the start, so a second member inserts nothing above Make group.
+  // Who answers is there from the start, so a second member inserts nothing above Make club.
   const lead = draft.getByRole("combobox", { name: "Lead" });
   await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
   expect(faces()).toBe(1);
@@ -315,15 +315,15 @@ test("making Spade lead in the profile, of a group it isn't in, adds Spade to th
 
 test("a draft led by a bot of another machine is made there, with this machine's bots named", async () => {
   const { others } = await spadeApp("/spade", team, { machines: [studio] });
-  await openNew("New group");
-  const draft = within(await screen.findByRole("form", { name: "New group" }));
+  await openNew("New club");
+  const draft = within(await screen.findByRole("form", { name: "New club" }));
   await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Trips");
   await userEvent.click(draft.getByRole("checkbox", { name: "Spade" }));
   await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
   await userEvent.click(await draft.findByRole("checkbox", { name: "Writer on Studio Mac" }));
   await userEvent.click(draft.getByRole("combobox", { name: "Lead" }));
   await userEvent.click(await screen.findByRole("option", { name: "Writer on Studio Mac" }));
-  await userEvent.click(draft.getByRole("button", { name: "Make group" }));
+  await userEvent.click(draft.getByRole("button", { name: "Make club" }));
   await waitFor(() =>
     expect(others.get("studio")?.sent("POST", "/v1/groups")).toEqual([
       {
@@ -363,13 +363,13 @@ test("the group's profile renames it in place: Enter saves, Escape puts it back"
   await openTrips();
   const profile = await openGroupProfile("Trips");
   await userEvent.click(profile.getByRole("button", { name: "Rename Trips" }));
-  await userEvent.clear(profile.getByRole("textbox", { name: "Group name" }));
-  await userEvent.type(profile.getByRole("textbox", { name: "Group name" }), "Away{Escape}");
+  await userEvent.clear(profile.getByRole("textbox", { name: "Club name" }));
+  await userEvent.type(profile.getByRole("textbox", { name: "Club name" }), "Away{Escape}");
   await profile.findByRole("button", { name: "Rename Trips" });
   expect(spade.sent("PATCH", "/v1/groups/trips")).toEqual([]);
   await userEvent.click(profile.getByRole("button", { name: "Rename Trips" }));
-  await userEvent.clear(profile.getByRole("textbox", { name: "Group name" }));
-  await userEvent.type(profile.getByRole("textbox", { name: "Group name" }), "Lisbon{Enter}");
+  await userEvent.clear(profile.getByRole("textbox", { name: "Club name" }));
+  await userEvent.type(profile.getByRole("textbox", { name: "Club name" }), "Lisbon{Enter}");
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/groups/trips")).toEqual([{ name: "Lisbon" }]),
   );

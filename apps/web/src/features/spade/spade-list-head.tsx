@@ -217,7 +217,7 @@ function AddMenu(props: { hosts: readonly SpadeHost[]; onNewBot(): void; onNewGr
             <IconButton
               icon={PlusIcon}
               label="New"
-              tip="New bot, group or import"
+              tip="New bot, club or import"
               size="panel"
               className={roundButton}
             />
@@ -228,7 +228,7 @@ function AddMenu(props: { hosts: readonly SpadeHost[]; onNewBot(): void; onNewGr
             New bot
           </MenuItem>
           <MenuItem icon={<Icon icon={UsersThreeIcon} size={16} />} onClick={props.onNewGroup}>
-            New group
+            New club
           </MenuItem>
           <MenuSeparator />
           <MenuItem

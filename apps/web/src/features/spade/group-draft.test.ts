@@ -44,9 +44,9 @@ test("a draft led from another machine names this machine's members against the 
 });
 
 test("a draft needs a name and two to eight members", () => {
-  expect(draftProblem(" ", [spadeHere, research])).toBe("Name the group.");
+  expect(draftProblem(" ", [spadeHere, research])).toBe("Name the club.");
   expect(draftProblem("Trips", [spadeHere])).toBe("Pick at least one more bot.");
   const nine = Array.from({ length: 9 }, (_, index) => choice("mac", `bot${index}`));
-  expect(draftProblem("Trips", nine)).toBe("A group holds up to 8 bots.");
+  expect(draftProblem("Trips", nine)).toBe("A club holds up to 8 bots.");
   expect(draftProblem("Trips", [spadeHere, research])).toBeUndefined();
 });

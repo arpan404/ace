@@ -242,8 +242,7 @@ export async function writeStack(
     return {
       type: "forge.write",
       ok: false,
-      message:
-        "The acknowledgement was lost. Refresh the stack to reconcile the operation before recovery.",
+      message: "Couldn't confirm the change. Refresh the stack before trying again.",
       uncertain: true,
     };
   }

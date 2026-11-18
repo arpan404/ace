@@ -227,7 +227,7 @@ function GroupMenu(props: { group: RosterGroup; children: ReactNode }) {
                 setConfirming({
                   title: `Delete ${group.name}?`,
                   body: `This deletes ${group.name} and its conversation. Its bots stay.`,
-                  confirm: "Delete group",
+                  confirm: "Delete club",
                   run: () =>
                     void run(
                       () => deleteGroup(client, group.id),

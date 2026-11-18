@@ -174,7 +174,7 @@ A bot's character face is eight fields; clients draw it (the model and geometry 
 - **Initials avatars migrate in the store**, once: schema 6 rewrites every `generated` (or
   unreadable) avatar as the face its agent's id seeds, oldest agent first, each preferring pairs
   the earlier ones don't wear. Pictures and Spade's mark are untouched. Reading an avatar that is
-  still not a face (one a group member on another machine sent, say) shows the face its id seeds.
+  still not a face (one a club member on another machine sent, say) shows the face its id seeds.
 - Templates ship their own faces; exported bot files carry the face and import repairs it.
 - The iPhone draws faces later from the same tables and geometry (Spade's tab is hidden there).
 
@@ -215,8 +215,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool
   output. `text` is the list's preview: plain text on one line, at most 200 characters, with
   markdown gone (emphasis, headings, quotes, fences, list marks, strike-through) and links and
-  images as their words (`[the plan](…)` → `the plan`). `seq` is its event. A group's message and
-  a reply that answers only group messages are the group's ([teams.md](teams.md)), never this.
+  images as their words (`[the plan](…)` → `the plan`). `seq` is its event. A club's message and
+  a reply that answers only club messages are the club's ([teams.md](teams.md)), never this.
 - `seen_seq`: the conversation's seen cursor (see Seen), or `null` when never marked.
 - `unseen`: the bot finished and the person hasn't seen it: `state` is `idle` and the bot's own
   `last_message` is past `seen_seq`. Never true while any of its work runs or waits on the person.
@@ -224,15 +224,15 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 ### Pins
 
 `PUT /v1/agents/{id}/pin` and `PUT /v1/groups/{id}/pin` with `{"pinned": bool}` pin a bot or a
-group (Spade, the main bot, too) to the top of the person's list, or unpin it. Answer
-`{"agent"}` or `{"group"}`; `404` for none. Agents and groups carry `pinned_at`: the ms it was
+club (Spade, the main bot, too) to the top of the person's list, or unpin it. Answer
+`{"agent"}` or `{"group"}`; `404` for none. Agents and clubs carry `pinned_at`: the ms it was
 pinned, or `null`. Pinning a pinned conversation keeps its `pinned_at`, so a list shows the strip
 oldest pin first. Pins live in `agents.pinned_ms` and `groups.pinned_ms`, so every device that
 reads this Spade shows the same strip, and they survive restarts.
 
 ### Seen
 
-`PUT /v1/conversations/{id}/seen` with `{"seq"?}` (or no body) marks a bot's or a group's
+`PUT /v1/conversations/{id}/seen` with `{"seq"?}` (or no body) marks a bot's or a club's
 conversation seen up to that event, the conversation's last when absent, never past it. The
 cursor only moves forward: an older `seq` leaves it where it is. Answer `{"seen_seq"}`; `404` for
 no such conversation. Each mark is sent on the conversation's live stream as

@@ -130,7 +130,7 @@ export function parseSpadeGroupValue(raw: unknown): SpadeGroup | undefined {
   const last = group.last_message;
   return {
     id: group.id,
-    name: group.name || "Group",
+    name: group.name || "Club",
     lead: memberOf(group.lead),
     members,
     conversation: group.conversation,

@@ -143,7 +143,7 @@ function GroupName(props: { name: string; onRename(name: string): Promise<boolea
     <input
       // oxlint-disable-next-line jsx-a11y/no-autofocus -- the person just asked to rename it
       autoFocus
-      aria-label="Group name"
+      aria-label="Club name"
       value={draft}
       maxLength={60}
       onChange={(event) => setDraft(event.target.value)}
@@ -312,12 +312,12 @@ function DeleteGroup(props: { group: RosterGroup }) {
           setConfirming({
             title: `Delete ${group.name}?`,
             body: `This deletes ${group.name} and its conversation. Its bots stay.`,
-            confirm: "Delete group",
+            confirm: "Delete club",
             run: () => void remove(),
           })
         }
       >
-        Delete group…
+        Delete club…
       </Button>
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </div>
@@ -337,7 +337,7 @@ function LibraryTab(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
     queryFn: ({ signal }) => readGroupFiles(client, group.id, { signal }),
   });
   if (files.isError)
-    return <Problem text="Couldn't read the group's files." onRetry={() => void files.refetch()} />;
+    return <Problem text="Couldn't read the club's files." onRetry={() => void files.refetch()} />;
   if (!files.data)
     return (
       <Section label="Files">
@@ -348,7 +348,7 @@ function LibraryTab(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
   if (files.data.length === 0)
     return (
       <p className="px-3 text-ui text-muted-foreground">
-        Files the members make in this group show here.
+        Files the members make in this club show here.
       </p>
     );
   return (
