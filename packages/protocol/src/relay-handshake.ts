@@ -71,6 +71,8 @@ export const HelloEarly = z
       .optional(),
     /** The account device grant, as the relay upgrade already offered it. */
     grant: z.string().min(1).max(2048).optional(),
+    /** With a grant: its standing grant (ADR 0189), as in a hello. */
+    standing: z.string().min(1).max(2048).optional(),
     trims: Names16,
     framing: Names8,
     compression: Names8,
@@ -82,6 +84,9 @@ export const HelloEarly = z
   })
   .refine((hello) => (hello.ticket === undefined) !== (hello.grant === undefined), {
     message: "Exactly one of ticket and grant is required",
+  })
+  .refine((hello) => hello.standing === undefined || hello.grant !== undefined, {
+    message: "A standing grant goes with a grant",
   })
   .refine(
     (hello) =>

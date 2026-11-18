@@ -1,12 +1,20 @@
 import type { AceAccount } from "@ace/protocol/ace-account";
 import { digest } from "./crypto.ts";
 import { SESSION_LIFETIME_MS } from "./login.ts";
-import type { SessionStore } from "./sessions.ts";
+import type { SessionStanding, SessionStore } from "./sessions.ts";
 import { InvalidGrantError } from "./workos.ts";
 import type { AccountProvider } from "./workos.ts";
 
-/** `signedInAt`: when the person signed in for this session (0 for sessions from before it was kept). */
-export type ActiveSession = { account: AceAccount; expiresAt: number; signedInAt: number };
+/**
+ * `signedInAt`: when the person signed in for this session (0 for sessions from before it was
+ * kept). `standing`: whether it may still speak for the person (ADR 0189).
+ */
+export type ActiveSession = {
+  account: AceAccount;
+  expiresAt: number;
+  signedInAt: number;
+  standing: SessionStanding;
+};
 
 /** How long one reader may spend a session's refresh token before another may try. */
 const REFRESH_LEASE_MS = 15_000;
@@ -34,6 +42,7 @@ export function sessionReader(deps: {
         account: stored.account,
         expiresAt: stored.expiresAt,
         signedInAt: stored.signedInAt,
+        standing: stored.standing,
       };
     let identity;
     try {
@@ -63,22 +72,28 @@ export function sessionReader(deps: {
       account: identity.account,
       expiresAt,
       signedInAt: stored.signedInAt,
+      standing: stored.standing,
     };
+  }
+
+  async function readHash(hash: string): Promise<ActiveSession | undefined> {
+    const pending = inflight.get(hash);
+    if (pending) return pending;
+    const run = refresh(hash);
+    inflight.set(hash, run);
+    try {
+      return await run;
+    } finally {
+      inflight.delete(hash);
+    }
   }
 
   return {
     async read(token: string): Promise<ActiveSession | undefined> {
-      const hash = await digest(token);
-      const pending = inflight.get(hash);
-      if (pending) return pending;
-      const run = refresh(hash);
-      inflight.set(hash, run);
-      try {
-        return await run;
-      } finally {
-        inflight.delete(hash);
-      }
+      return readHash(await digest(token));
     },
+    /** `read` by the token's digest, for a machine credential reading its session. */
+    readHash,
     async revoke(token: string) {
       await store.remove(await digest(token));
     },

@@ -52,6 +52,12 @@ export const MachineAccountStatus = z.object({
    * that can't check.
    */
   sessionId: z.string().min(1).max(64).nullable().optional(),
+  /**
+   * The daemon still holds a session from before machine credentials (ADR 0189) and couldn't
+   * exchange it yet: it keeps working, but as a machine. Signing in again in the app, or with
+   * `ace login`, replaces it. Absent once the daemon holds a machine credential.
+   */
+  signInAgain: z.literal(true).optional(),
   /** A sign-in started on this machine that has not finished yet. */
   login: z.object({ url: z.url(), expiresAt: z.number().int().positive() }).optional(),
   machineCode: z.object({

@@ -12,7 +12,14 @@ const Row = z.object({
   refresh: z.string(),
   expires: z.number(),
   signed_in: z.number().default(0),
+  standing: z.enum(["person", "legacy", "exposed"]).catch("exposed"),
 });
+/**
+ * Whether a session may speak for the person (ADR 0189, migration 0004): `person` for a sign-in
+ * only the client that made it holds; `legacy` for one from before standing was kept; `exposed`
+ * for one a machine kept on its disk.
+ */
+export type SessionStanding = z.infer<typeof Row>["standing"];
 const stored = (account: AceAccount, pictureUrl: string | undefined) =>
   JSON.stringify(pictureUrl ? { ...account, pictureUrl } : account);
 
@@ -27,9 +34,10 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
       signedIn: number,
       pictureUrl?: string,
     ) {
+      // A sign-in's session is the person's: only the client that signed in holds it.
       await db
         .prepare(
-          "INSERT INTO sessions (token, account, refresh, expires, signed_in) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) VALUES (?, ?, ?, ?, ?, 'person')",
         )
         .bind(
           hash,
@@ -43,7 +51,7 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
     async get(hash: string, now: number) {
       const raw = await db
         .prepare(
-          "SELECT account, refresh, expires, signed_in FROM sessions WHERE token = ? AND expires > ?",
+          "SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ?",
         )
         .bind(hash, now)
         .first();
@@ -55,8 +63,55 @@ export function sessionStore(db: D1Database, sealer: Sealer) {
         pictureUrl,
         expiresAt: row.expires,
         signedInAt: row.signed_in,
+        standing: row.standing,
         refresh: () => sealer.open(row.refresh, hash),
       };
+    },
+    /** The session was kept on a machine's disk: it never speaks for the person again. */
+    async expose(hash: string) {
+      await db
+        .prepare(
+          "UPDATE sessions SET standing = 'exposed' WHERE token = ? AND standing != 'exposed'",
+        )
+        .bind(hash)
+        .run();
+    },
+    /**
+     * Moves a session to `next`, a digest no token has, so its token stops working: whoever
+     * copied it holds nothing. Its WorkOS refresh token is sealed again to the new digest. False
+     * when the session is gone or another reader holds its refresh lease.
+     */
+    async retire(hash: string, next: string, now: number): Promise<boolean> {
+      const raw = await db
+        .prepare(
+          "SELECT account, refresh, expires, signed_in, standing FROM sessions WHERE token = ? AND expires > ? AND refreshing_until <= ?",
+        )
+        .bind(hash, now, now)
+        .first();
+      if (!raw) return false;
+      const row = Row.parse(raw);
+      const refresh = await sealer.open(row.refresh, hash);
+      const [, removed] = await db.batch([
+        db
+          .prepare(
+            "INSERT INTO sessions (token, account, refresh, expires, signed_in, standing) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .bind(
+            next,
+            JSON.stringify(row.account),
+            await sealer.seal(refresh, next),
+            row.expires,
+            row.signed_in,
+            row.standing,
+          ),
+        db
+          .prepare("DELETE FROM sessions WHERE token = ? AND refreshing_until <= ?")
+          .bind(hash, now),
+      ]);
+      if (removed && removed.meta.changes > 0) return true;
+      // A refresh started in between: the session stays where it was.
+      await db.prepare("DELETE FROM sessions WHERE token = ?").bind(next).run();
+      return false;
     },
     /** Claims the right to spend the refresh token for `ms`; false while another holds it. */
     async lease(hash: string, now: number, ms: number): Promise<boolean> {

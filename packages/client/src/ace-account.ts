@@ -1,4 +1,5 @@
 import {
+  AceAccountGrant,
   AceAccountOrigin,
   AceAccountSession,
   AceGrantRequest,
@@ -7,6 +8,7 @@ import {
   AceLoginRequest,
   AceLoginStatus,
   AceMachine,
+  AceMachineCredentialRequest,
   AceMachineList,
 } from "@ace/protocol/ace-account";
 import { httpJson } from "./http-json.ts";
@@ -92,6 +94,25 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
     async grant(token: string, request: AceGrantRequest, signal: AbortSignal) {
       return AceGrantResponse.parse(
         await call("grants", "POST", token, signal, AceGrantRequest.parse(request)),
+      );
+    },
+    /**
+     * Exchange an ace session for a credential of this machine's own (ADR 0189), bound to
+     * `hostId`. The daemon keeps the credential and never the session.
+     */
+    async machineCredential(
+      token: string,
+      request: AceMachineCredentialRequest,
+      signal: AbortSignal,
+    ): Promise<AceAccountGrant> {
+      return AceAccountGrant.parse(
+        await call(
+          "machine-credentials",
+          "POST",
+          token,
+          signal,
+          AceMachineCredentialRequest.parse(request),
+        ),
       );
     },
     /**
