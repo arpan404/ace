@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 afterAll(() => worker.close());
 
-async function daemon(media: boolean) {
+async function daemon(media: boolean, aceClient?: string) {
   const hostKeys = keyPair();
   const offers: { ticket: string; joinUrl: string }[] = [];
   let next = deferred<string>();
@@ -30,6 +30,7 @@ async function daemon(media: boolean) {
     hostKeys,
     account: { grant: async () => mint("machine", "user_a", hostId(hostKeys.publicKey)) },
     onClientChannel: (channel) => channel.close(),
+    ...(aceClient ? { aceClient } : {}),
     ...(media
       ? {
           media: {
@@ -75,7 +76,8 @@ function open(url: string, protocols: string[]) {
 const device = () => [GRANT_SUBPROTOCOL_PREFIX + mint("device", "user_a", "phone")];
 
 it("a media client meets the stream its daemon joins, before and after hibernation", async () => {
-  const host = await daemon(true);
+  // Named, as the daemon is: ace-media's own upgrade carries the name on the join address.
+  const host = await daemon(true, "daemon/0.0.24-beta.1");
   for (const round of [0, 1]) {
     if (round === 1) await worker.hibernate(host.connection.hostId);
     const offered = host.nextOffer();
@@ -86,6 +88,7 @@ it("a media client meets the stream its daemon joins, before and after hibernati
     await client.opened;
     const joinUrl = await offered;
     expect(new URL(joinUrl).pathname).toBe("/join");
+    expect(new URL(joinUrl).searchParams.get("ace-client")).toBe("daemon/0.0.24-beta.1");
     // The daemon's media process dials the join address; the relay then pairs the two.
     const joined = open(joinUrl, []);
     await joined.opened;

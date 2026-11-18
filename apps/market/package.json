@@ -16,6 +16,7 @@
     "@ace/account-grant": "workspace:*",
     "@ace/marketplace": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/service": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {
