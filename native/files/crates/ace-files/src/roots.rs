@@ -11,7 +11,9 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+#[cfg(feature = "test-hooks")]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -42,9 +44,11 @@ const MAX_BATCH: usize = 5_000;
 /// The longest a change waits while writes keep arriving, so a busy file can't delay the rest.
 const MAX_WAIT: Duration = Duration::from_secs(1);
 
-/// How many root entries the process holds. Test-only: with `ACE_FILES_LIVE_ROOTS` set, the
-/// binary prints the count on stderr whenever a root is dropped, so a test can prove `closeRoot`
-/// released its root rather than leaking the watcher that points back at it.
+/// How many root entries the process holds. Test-only: with the `test-hooks` feature, setting
+/// `ACE_FILES_LIVE_ROOTS` makes the binary print the count on stderr whenever a root is dropped, so
+/// a test can prove `closeRoot` released its root rather than leaking the watcher that points back
+/// at it.
+#[cfg(feature = "test-hooks")]
 static LIVE_ROOTS: AtomicUsize = AtomicUsize::new(0);
 
 /// Every root the daemon has open, by the number `openRoot` handed out.
@@ -71,6 +75,7 @@ impl Roots {
         let root = Root::open(path)?;
         let lister = Arc::new(Lister::new(root.clone()));
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        #[cfg(feature = "test-hooks")]
         LIVE_ROOTS.fetch_add(1, Ordering::Relaxed);
         let entry = Arc::new(RootEntry {
             id,
@@ -121,8 +126,9 @@ pub struct RootEntry {
 
 impl Drop for RootEntry {
     fn drop(&mut self) {
-        let live = LIVE_ROOTS.fetch_sub(1, Ordering::Relaxed) - 1;
-        if std::env::var_os("ACE_FILES_LIVE_ROOTS").is_some() {
+        #[cfg(feature = "test-hooks")]
+        {
+            let live = LIVE_ROOTS.fetch_sub(1, Ordering::Relaxed) - 1;
             eprintln!("ace-files: live-roots {live}");
         }
     }

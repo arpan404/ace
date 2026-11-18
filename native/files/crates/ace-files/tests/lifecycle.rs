@@ -2,6 +2,8 @@
 
 //! Closing a root: its watcher, its subscriptions and the memory behind them go with it.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// The live-root count it waits on is only reported with the `test-hooks` feature.
+#![cfg(feature = "test-hooks")]
 
 mod common;
 

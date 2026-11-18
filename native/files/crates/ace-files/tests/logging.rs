@@ -2,6 +2,8 @@
 
 //! stderr: machine failures earn a line, routine answers do not.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// The machine failure it needs is a panicking build, which only the `test-hooks` feature provides.
+#![cfg(feature = "test-hooks")]
 
 mod common;
 

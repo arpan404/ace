@@ -58,6 +58,7 @@ pub async fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64, query: S
 
 /// Test-only: a search for exactly this pattern panics on its worker thread, so a test can prove
 /// that a stopped worker becomes `searchFailed` rather than a request that never finishes.
+#[cfg(feature = "test-hooks")]
 fn panics_on_purpose(query: &files_search::Query) -> bool {
     std::env::var("ACE_FILES_PANIC_SEARCH").is_ok_and(|pattern| pattern == query.pattern)
 }
@@ -89,6 +90,7 @@ fn run(
     shared: &Shared,
     subscription: u64,
 ) -> Result<Summary, Error> {
+    #[cfg(feature = "test-hooks")]
     if panics_on_purpose(query) {
         panic!("test hook: the search worker panics");
     }

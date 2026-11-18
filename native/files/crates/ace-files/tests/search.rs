@@ -134,6 +134,7 @@ fn unwatch_stops_a_long_search() {
 }
 
 #[test]
+#[cfg(feature = "test-hooks")]
 fn a_panicking_search_worker_fails_the_subscription() {
     let checkout = checkout(&[("a.txt", "cache\n")]);
     let mut client = Client::launch(&[("ACE_FILES_PANIC_SEARCH", "boom")], false);
