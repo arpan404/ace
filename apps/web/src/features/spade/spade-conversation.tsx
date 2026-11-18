@@ -83,7 +83,6 @@ export function Conversation(props: {
   const skills = useSkillProposals(bot.id, view);
   const navigate = useNavigate();
   const openProfile = useOpenProfile(bot);
-  const computer = useBotComputer(bot, conversation.side);
   const endpoints = useSpadeModels(true).data?.endpoints;
   const client = useSpadeClient();
   const digests = useSpadeDigests(bot.id);
@@ -146,6 +145,8 @@ export function Conversation(props: {
   // A task it carries on by itself: its line stays between replies, and Stop with it.
   const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
   const open = spadeWorks(view, task, bot.progress?.continuing === true);
+  // It drives its computer only while it is at work.
+  const computer = useBotComputer(bot, conversation.side, open);
   // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
   if (stopping && !open) setStopping(false);
   const stop = () => {
