@@ -9,10 +9,11 @@ configure({ asyncUtilTimeout: 10000 });
 
 const thread = "thread-cold-start";
 
-async function openFiles() {
+async function openFiles(prepare?: (app: ReturnType<typeof harness>) => void) {
   const app = harness();
   const folders = folderFixture(app.client, thread);
   app.play(coldStartReplay()).runThrough("turn-2");
+  prepare?.(app);
   await app.open(`/t/${thread}`);
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await userEvent.keyboard("{Control>}{Shift>}d{/Shift}{/Control}");
@@ -97,4 +98,46 @@ test("ignored entries are listed, dimmed, and still open", async () => {
   const row = await within(tree).findByRole("treeitem", { name: "old.js" });
   expect(row.getAttribute("data-ignored")).toBe("true");
   expect(row.className).toContain("text-muted-foreground");
+});
+
+test("an agent's write re-lists nothing by itself: the watcher names the folder", async () => {
+  const { folders } = await openFiles();
+  const before = folders.requests.length;
+  folders.changedFile("apps/web/agent.ts");
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(folders.requests.length).toBe(before);
+});
+
+test("this window's move re-lists only the two folders whose rows changed", async () => {
+  const { folders, tree } = await openFiles((app) => {
+    app.daemon.checkouts.seed(thread, "docs/readme.md", "x\n");
+  });
+  await userEvent.click(await within(tree).findByRole("treeitem", { name: "docs" }));
+  for (const folder of ["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]) {
+    const row = await waitFor(() => {
+      const found = tree.querySelector<HTMLElement>(`[data-path="${folder}"]`);
+      if (!found) throw new Error(`${folder} is not listed yet`);
+      return found;
+    });
+    if (row.getAttribute("aria-expanded") !== "true") await userEvent.click(row);
+  }
+  await within(tree).findByRole("treeitem", { name: "outbox.ts" });
+  expect(folders.count("apps/web/src/relay")).toBe(1);
+  expect(folders.count("docs")).toBe(1);
+
+  const row = await within(tree).findByRole("treeitem", { name: "outbox.ts" });
+  row.focus();
+  await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
+  const dialog = await screen.findByRole("dialog", { name: "Move" });
+  const destination = within(dialog).getByRole("textbox", { name: "Destination path" });
+  await userEvent.clear(destination);
+  await userEvent.type(destination, "docs/outbox.ts");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  await waitFor(() => expect(folders.count("apps/web/src/relay")).toBe(2));
+  await waitFor(() => expect(folders.count("docs")).toBe(2));
+  expect(folders.count("apps")).toBe(1);
+  expect(folders.count("apps/web/src")).toBe(1);
+  expect(folders.count("")).toBe(1);
 });

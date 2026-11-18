@@ -87,7 +87,7 @@ export function useFileActions(threadId: string, onUploaded: (path: string) => v
         controller.signal,
       );
       setUpload(undefined);
-      checkoutChanged();
+      checkoutChanged(threadId, [path]);
       void queries.invalidateQueries({ queryKey: ["checkout"] });
       onUploaded(path);
       return true;

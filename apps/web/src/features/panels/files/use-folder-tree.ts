@@ -14,7 +14,7 @@ import {
 import { ThreadId, type FolderPage } from "@ace/protocol";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { checkoutError } from "./checkout-source.ts";
-import { useCheckoutRefresh } from "./checkout-refresh.ts";
+import { refreshEvents, useCheckoutRefresh } from "./checkout-refresh.ts";
 import { fileManagement } from "./file-management-source.ts";
 
 /** How long a change in the open set waits before `files.watch` names it. */
@@ -60,9 +60,9 @@ export function useFolderTree(options: {
 }): FolderTree {
   const client = useClient();
   const online = useConnectionState() === "ready";
-  const refresh = useCheckoutRefresh();
-  const [folders, dispatch] = useReducer(reduce, undefined, () => ({}) as FolderStates);
   const { threadId, active } = options;
+  const refresh = useCheckoutRefresh(threadId);
+  const [folders, dispatch] = useReducer(reduce, undefined, () => ({}) as FolderStates);
 
   const openKey = useMemo(
     () => [...options.expanded].map(folderKey).toSorted().join("\0"),
@@ -127,20 +127,31 @@ export function useFolderTree(options: {
     [client, online, stop, threadId],
   );
 
-  // List a folder when it opens (and the root on mount, and everything open after a reconnect
-  // or a change made to the checkout): never a folder that is closed.
-  const seen = useRef({ open: new Set<string>(), online: false, refresh: 0 });
+  // List a folder when it opens (and the root on mount, and everything open after a reconnect):
+  // never a folder that is closed.
+  const seen = useRef({ open: new Set<string>(), online: false });
   useEffect(() => {
     const before = seen.current;
-    seen.current = { open: new Set(open), online, refresh };
+    seen.current = { open: new Set(open), online };
     if (!online) {
       for (const folder of before.open) stop(folder);
       return;
     }
-    const fresh = !before.online || before.refresh !== refresh;
+    const fresh = !before.online;
     for (const folder of open) if (fresh || !before.open.has(folder)) start(folder, "first");
     for (const folder of before.open) if (!open.has(folder)) stop(folder);
-  }, [open, online, refresh, start, stop]);
+  }, [open, online, start, stop]);
+
+  // This window's own mutations name the folders whose rows changed; list those that are open.
+  // Agent writes arrive as files.folders_changed instead, handled below.
+  const lastRefresh = useRef(refresh);
+  useEffect(() => {
+    const events = refreshEvents(threadId, lastRefresh.current);
+    lastRefresh.current = refresh;
+    if (!events.length) return;
+    for (const folder of new Set(events.flatMap((event) => event.folders)))
+      if (open.has(folder)) start(folder, "first");
+  }, [open, refresh, start, threadId]);
 
   const openRef = useRef(open);
   useEffect(() => {

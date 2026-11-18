@@ -104,6 +104,7 @@ export function FileTree(props: {
         name: row.node.name,
         depth: row.depth,
         expanded: row.expanded,
+        busy: false,
         ignored: false,
       })),
     [found],
