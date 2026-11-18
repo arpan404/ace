@@ -81,3 +81,22 @@ const longWords: Record<StartupActivity, string> = {
 export function activityWords(activity: StartupActivity, long: boolean): string {
   return long ? longWords[activity] : words[activity];
 }
+
+/**
+ * What the desktop's daemon is doing while it starts or restarts, in the startup screen's words,
+ * for the shell once the window is open on what it kept: "Starting ace's background service"
+ * rather than "Reconnecting", which would say a running daemon was lost. Undefined in any other
+ * state (running, stopped, failed), where the connection's own words apply.
+ */
+export function daemonStartWords(status: {
+  state: string;
+  stage?: string | undefined;
+  message?: string | undefined;
+  safeMode?: boolean | undefined;
+}): string | undefined {
+  if (status.state !== "starting" && status.state !== "restarting") return undefined;
+  // A restart the person asked for carries no message; one after a crash says why.
+  if (status.state === "restarting" && status.message !== undefined)
+    return words[status.safeMode ? "safe-mode" : "restarting"];
+  return words[isDaemonStage(status.stage) ? status.stage : "starting"];
+}
