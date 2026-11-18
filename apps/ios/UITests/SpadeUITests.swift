@@ -106,12 +106,15 @@ import XCTest
         XCTAssertTrue(nights.waitForExistence(timeout: 5))
         nights.tap()
         nights.typeText("30")
+        // A number pad has no return key: Done puts it away, so Send shows.
+        app.buttons["spade.question.numberDone"].tap()
         app.buttons["spade.question.send"].tap()
         // The bridge checks the card before Spade sees it, and says why under the question.
         XCTAssertTrue(app.staticTexts["At most 14."].waitForExistence(timeout: 10))
         screenshot("spade-8-question-refused")
         nights.tap()
         nights.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2) + "3")
+        app.buttons["spade.question.numberDone"].tap()
         app.buttons["spade.question.send"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["You: 3 nights"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.descendants(matching: .any)["You: Porto"].exists)

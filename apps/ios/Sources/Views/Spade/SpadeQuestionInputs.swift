@@ -6,6 +6,8 @@ import SwiftUI
 struct SpadeQuestionInputs: View {
     let question: SpadeQuestionCard.Question
     @Binding var draft: SpadeQuestionCard.Draft
+    /// A number pad has no return key: Done above it puts the keyboard away so Send shows.
+    @FocusState private var typingNumber: Bool
 
     var body: some View {
         switch question.kind {
@@ -94,7 +96,17 @@ struct SpadeQuestionInputs: View {
         HStack(spacing: AceDesign.Space.related) {
             field("Number", text: fieldBinding, lines: 1...1)
                 .keyboardType(.decimalPad)
+                .focused($typingNumber)
                 .accessibilityIdentifier("spade.question.number")
+                .toolbar {
+                    if typingNumber {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") { typingNumber = false }
+                                .accessibilityIdentifier("spade.question.numberDone")
+                        }
+                    }
+                }
             if let unit = question.unit {
                 Text(unit).aceFont(AceDesign.TextRole.message).foregroundStyle(AceDesign.Ink.muted)
             }
