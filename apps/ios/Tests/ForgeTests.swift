@@ -226,4 +226,28 @@ import Foundation
         #expect(ForgeListState.of(loaded: true, failure: nil, empty: false, connection: "offline") == .rows)
         #expect(ForgeListState.of(loaded: true, failure: nil, empty: true, connection: "offline") == .empty)
     }
+
+    @Test func aMergeDraftKeptWhenTheHeadMovedOpensAgainForThatPullRequestAndMethodOnly() {
+        let repo = ForgeRepository(forge: "github", host: "github.com", owner: "acme", name: "ace")
+        let other = ForgeRepository(forge: "github", host: "github.com", owner: "acme", name: "web")
+        let prefill = ForgePullPage.MergeCommit(title: "Cap the replay window (#233)", message: "* first")
+        let newPrefill = ForgePullPage.MergeCommit(title: "Cap the replay window (#233)", message: "* first\n* second")
+        let edited = ForgePullPage.MergeCommit(title: "Cap replays at 200 events", message: "Keeps cold starts fast.")
+        var drafts = ForgeMergeDrafts()
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: prefill) == prefill)
+
+        drafts.keep(edited, number: 233, repository: repo, method: "squash", prefill: prefill)
+        // Reopened at the new head: the person's words, not GitHub's new prefill.
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == edited)
+        // Another method, pull request or repository starts from GitHub's own.
+        #expect(drafts.opening(number: 233, repository: repo, method: "merge", prefill: newPrefill) == newPrefill)
+        #expect(drafts.opening(number: 234, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+        #expect(drafts.opening(number: 233, repository: other, method: "squash", prefill: newPrefill) == newPrefill)
+
+        // Discarding (or merging) drops it; so does keeping words that are GitHub's own again.
+        drafts.keep(nil, number: 233, repository: repo, method: "squash", prefill: newPrefill)
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+        drafts.keep(prefill, number: 233, repository: repo, method: "squash", prefill: prefill)
+        #expect(drafts.opening(number: 233, repository: repo, method: "squash", prefill: newPrefill) == newPrefill)
+    }
 }

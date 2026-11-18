@@ -1,15 +1,18 @@
 import SwiftUI
 
 /// The commit a merge or squash writes, to edit before it goes: GitHub's prefill for this
-/// account, its title and message. What is confirmed here is what GitHub writes, at the head the
-/// page showed.
+/// account, its title and message, or the draft kept from the last time. What is confirmed here
+/// is what GitHub writes, at the head the page showed. If the head moves while it's open, the
+/// edits are kept when it closes (`keep`), and Merge reopens on them at the new head.
 struct ForgeMergeCommitSheet: View {
     @State var target: ForgeWriteTarget
+    /// GitHub's own title and message: only a change from them is a draft.
+    let prefill: ForgePullPage.MergeCommit?
     let title: String
     var current = true
     @State private var discarding = false
-    /// The title and message the sheet opened with: only a change from them is a draft to keep.
-    @State private var opened: [String]?
+    /// Keeps the commit for the next opening, or forgets the draft when nil.
+    let keep: (ForgePullPage.MergeCommit?) -> Void
     let confirm: (ForgeWriteTarget) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -20,10 +23,7 @@ struct ForgeMergeCommitSheet: View {
         Binding(get: { target.commit?.message ?? "" }, set: { target.commit?.message = $0 })
     }
 
-    private var edited: Bool {
-        guard let opened else { return false }
-        return [commitTitle.wrappedValue, commitMessage.wrappedValue] != opened
-    }
+    private var edited: Bool { target.commit != prefill }
 
     var body: some View {
         NavigationStack {
@@ -42,7 +42,7 @@ struct ForgeMergeCommitSheet: View {
             }
             .background(AceTheme.Colours.background)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-                Button { if current { confirm(target) } } label: {
+                Button { if current { keep(nil); confirm(target) } } label: {
                     Text(target.action.label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
                 .buttonStyle(.textAction(.prominent))
@@ -53,12 +53,14 @@ struct ForgeMergeCommitSheet: View {
             }
             .navigationTitle("Commit")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if edited { discarding = true } else { dismiss() } } } }
+            // Once the head moved the draft can't be sent here, so closing keeps it rather than
+            // asking to discard it.
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if edited && current { discarding = true } else { dismiss() } } } }
         }
-        .interactiveDismissDisabled(edited)
-        .onAppear { if opened == nil { opened = [commitTitle.wrappedValue, commitMessage.wrappedValue] } }
+        .interactiveDismissDisabled(edited && current)
+        .onDisappear { if edited && !current { keep(target.commit) } }
         .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
-            Button("Discard", role: .destructive) { dismiss() }
+            Button("Discard", role: .destructive) { keep(nil); dismiss() }
             Button("Keep editing", role: .cancel) {}
         }
         .presentationDetents([.medium, .large])

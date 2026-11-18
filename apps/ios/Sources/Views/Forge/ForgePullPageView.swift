@@ -21,6 +21,8 @@ struct ForgePullPageView: View {
     @State private var confirming: ForgeWriteTarget?
     /// A merge or squash shows its commit to edit before it goes.
     @State private var editingCommit: ForgeWriteTarget?
+    /// Commits edited when the head moved under them, for Merge to reopen on.
+    @State private var mergeDrafts = ForgeMergeDrafts()
     /// Review writes from this page (reviewers), made once the page knows its repository.
     @State private var desk: ForgeReviewDesk?
     @State private var composing: ForgeCompose?
@@ -78,7 +80,11 @@ struct ForgePullPageView: View {
         .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
         .sheet(isPresented: Binding(get: { editingCommit != nil }, set: { if !$0 { editingCommit = nil } })) {
             if let target = editingCommit, let page {
-                ForgeMergeCommitSheet(target: target, title: "#\(page.number) \(page.title)", current: target.matches(page, method: method)) { edited in
+                ForgeMergeCommitSheet(target: target, prefill: page.commit, title: "#\(page.number) \(page.title)",
+                                      current: target.matches(page, method: method)) { kept in
+                    guard let prefill = page.commit else { return }
+                    mergeDrafts.keep(kept, number: target.number, repository: target.repository, method: target.method, prefill: prefill)
+                } confirm: { edited in
                     editingCommit = nil
                     Task { await write(edited) }
                 }
@@ -243,7 +249,7 @@ struct ForgePullPageView: View {
     private func ask(_ action: ForgePullPage.Action, _ page: ForgePullPage) {
         var target = ForgeWriteTarget(action: action, project: route.project, page: page, method: method)
         if action.kind != "disable-auto-merge", let commit = page.commit {
-            target.commit = commit
+            target.commit = mergeDrafts.opening(number: page.number, repository: page.repository, method: method, prefill: commit)
             editingCommit = target
         } else {
             confirming = target
