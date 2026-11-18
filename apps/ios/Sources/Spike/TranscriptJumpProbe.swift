@@ -22,6 +22,9 @@ import UIKit
     private var moving: Bool { phase != "i" }
     /// Runs finished, by name, so each page's run is kept apart.
     private var counts: [String: Int] = [:]
+    /// The feed is hidden or frozen: the reader sees none of what moves under it, so those frames
+    /// aren't sampled. The first frame shown again is compared with the last one shown before.
+    private var covered = false
 
     private struct Run {
         let name: String
@@ -52,19 +55,29 @@ import UIKit
         if started, let run, run.frames > 0 { finish() }
     }
 
-    /// Starts sampling `name` (`open`, `older`): from the first frame rows are on screen, for
-    /// `span` seconds. A run already going is finished first.
-    func begin(_ name: String, span: CFTimeInterval = 2.5) {
+    /// Starts sampling `name` (`open`, `older`): from the first frame rows are shown, for
+    /// `span` seconds. A run already going is finished first. `hidden` when the feed starts
+    /// hidden, until `covered(false)`.
+    func begin(_ name: String, hidden: Bool = false, span: CFTimeInterval = 2.5) {
         finish()
+        if hidden { covered = true }
         run = Run(name: name, span: span, until: CACurrentMediaTime() + 20)
         let link = CADisplayLink(target: JumpTicker(), selector: #selector(JumpTicker.tick))
         link.add(to: .main, forMode: .common)
         self.link = link
     }
 
+    /// The feed was hidden or frozen (`true`), or shown again.
+    func covered(_ value: Bool) { covered = value }
+
     fileprivate func tick() {
         guard var run else { return }
         let now = CACurrentMediaTime()
+        if covered {
+            run.time = now
+            self.run = run
+            return
+        }
         let frame = link?.duration ?? 1.0 / 60
         let seen = visible()
         let offset = Double(scroller?.layer.presentation()?.bounds.minY ?? scroller?.contentOffset.y ?? 0)
@@ -195,9 +208,24 @@ extension View {
 
 /// Probe hooks the feed calls; nothing outside probed fixture builds.
 enum TranscriptJumpHooks {
-    @MainActor static func begin(_ name: String) {
+    @MainActor static func begin(_ name: String, hidden: Bool = false) {
         #if ACE_FIXTURE
-        if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name) }
+        if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name, hidden: hidden) }
+        #endif
+    }
+    /// The feed is frozen over (`true`) or shown again.
+    @MainActor static func covered(_ value: Bool) {
+        #if ACE_FIXTURE
+        if PerfProbe.enabled { TranscriptJumpProbe.shared.covered(value) }
+        #endif
+    }
+    /// A thread's opening was shown `seconds` after its rows were ready; `capped` when it was
+    /// still moving at the limit. Recorded as `jump.reveal.ms` and `jump.reveal.capped`.
+    @MainActor static func revealed(after seconds: Double, capped: Bool) {
+        #if ACE_FIXTURE
+        guard PerfProbe.enabled else { return }
+        TranscriptJumpProbe.shared.covered(false)
+        PerfProbe.record(["jump.reveal.ms": String(Int((seconds * 1_000).rounded())), "jump.reveal.capped": capped ? "1" : "0"])
         #endif
     }
     @MainActor static func scrolling(_ phase: ScrollPhase) {

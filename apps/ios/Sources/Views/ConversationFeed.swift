@@ -30,6 +30,8 @@ private final class TranscriptScrollIntent {
     }
     /// The feed's own animated scroll is still moving.
     var animating = false
+    /// An older page was asked for and hasn't joined yet: its rows are held still as they land.
+    var olderPage = false
     func begin() { active = true; consumed = false }
 }
 
@@ -85,6 +87,10 @@ struct ConversationFeed: View {
     @State private var growth = TranscriptGrowthAnchor()
     /// A row has been drawn since the feed appeared: the opening's hold counts from here.
     @State private var rowsPainted = false
+    /// The feed is shown: a thread opening stays hidden until its end has settled (ADR 0157).
+    @State private var revealed = false
+    /// The scroll view under the rows, for the reveal and an older page's hold (`TranscriptSurface`).
+    @State private var surface = TranscriptSurface()
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
     /// The viewport controller owns the follow mode; the feed never keeps its
@@ -106,6 +112,7 @@ struct ConversationFeed: View {
     /// The reader moved the feed or changed what it holds: size changes keep the top again.
     private func readerMovedFeed() {
         if growth.keepsEnd { growth.readerMoved() }
+        if surface.holding { endPageHold() }
     }
     private var pinned: Bool { following && (reading.thread == nil || reading.joined) }
     /// History rows are stale disk cache when the bridge said `.cached`, or
@@ -209,6 +216,9 @@ struct ConversationFeed: View {
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
             .coordinateSpace(name: Self.contentSpace)
+            .background { TranscriptSurfaceReader(surface: surface).accessibilityHidden(true) }
+            // Hidden while a thread opens, then shown where it settled (`revealWhenSettled`).
+            .opacity(ready && !revealed ? 0 : 1)
             // Outside the rows' space and inside the reader below, so neither sees it.
             .modifier(KeyboardRideOffset(ride: keyboard, base: CGFloat(keyboardFollow.base), riding: keyboardFollow.riding))
             // Where the content's top is on screen: the one number a scroll changes.
@@ -399,7 +409,10 @@ struct ConversationFeed: View {
                 growth.openSettled()
             }
             .onChange(of: reading.loading) { _, loading in
-                if loading, reading.operation == "older" { TranscriptJumpHooks.begin("older") }
+                if loading, reading.operation == "older" {
+                    intent.olderPage = true
+                    TranscriptJumpHooks.begin("older")
+                }
                 if !loading { pageIfNeeded(proxy) }
             }
             .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
@@ -434,6 +447,7 @@ struct ConversationFeed: View {
     private func observeLifecycle<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         content
             .task { appeared(proxy: proxy) }
+            .task(id: ready) { if ready, !revealed { revealWhenSettled() } }
             .onDisappear { disappeared() }
             // Away from the end, or reading a window apart from it: following a joined window is at
             // the end, so Scroll to end isn't offered there.
@@ -593,8 +607,8 @@ struct ConversationFeed: View {
         if pinned && !intent.active { toEnd(proxy) }
     }
     private func appeared(proxy: ScrollViewProxy) {
-        TranscriptJumpHooks.begin("open")
-        model.readingWillMove = { captureTop() }
+        TranscriptJumpHooks.begin("open", hidden: !revealed)
+        model.readingWillMove = { captureTop(); holdOlderPage() }
         model.readingMoved = { reading.moved() }
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
         restoreSessionIfReady()
@@ -626,6 +640,8 @@ struct ConversationFeed: View {
     }
     private func disappeared() {
         settle.cancel()
+        surface.stop()
+        surface.thaw()
         saveSession()
         reading.cancel(model: model)
         model.readingWillMove = nil
@@ -653,6 +669,56 @@ struct ConversationFeed: View {
         // starting in the same frame as the keyboard.
         settle.cancel()
         withAnimation(motion) { toEnd(proxy) }
+    }
+    /// A thread opening draws its first frames short of where it opens: lazy rows correct their
+    /// heights and the scroll catches up with the end. The rows stay hidden until the content's
+    /// height and offset have held for two frames with the feed at the end it follows, a quarter
+    /// second at most (`TranscriptSettle`), then show there in one frame (ADR 0157).
+    private func revealWhenSettled() {
+        let intent = intent
+        let started = CACurrentMediaTime()
+        var settle = TranscriptSettle(at: started)
+        surface.untilSettled({ time in
+            let metrics = intent.metrics
+            let placed = !pinned || metrics.bottom <= 1
+            return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
+        }) { outcome in
+            var still = Transaction()
+            still.disablesAnimations = true
+            withTransaction(still) { revealed = true }
+            TranscriptJumpHooks.revealed(after: CACurrentMediaTime() - started, capped: outcome == .capped)
+        }
+    }
+    /// An older page is about to join above the reader's line. What is drawn is frozen over the
+    /// feed while its rows land and measure; each frame the row on top is put back at its height
+    /// on screen from its own measured frame, then the feed thaws (`TranscriptSurface`).
+    private func holdOlderPage() {
+        guard intent.olderPage, !surface.holding, let top = currentTopRow(),
+              let held = anchor.keeper.frames.inContent(top.rowID) else { return }
+        intent.olderPage = false
+        let onScreen = Double(held.minY) - surface.offset
+        guard surface.freeze() else { return }
+        TranscriptJumpHooks.covered(true)
+        let anchor = anchor, intent = intent, surface = surface
+        var settle = TranscriptSettle(at: CACurrentMediaTime())
+        surface.untilSettled({ time in
+            guard let frame = anchor.keeper.frames.inContent(top.rowID) else {
+                return settle.frame([], placed: false, at: time)
+            }
+            let drift = Double(frame.minY) - surface.offset - onScreen
+            let placed = abs(drift) < TranscriptSettle.tolerance
+            if !placed { surface.shift(by: drift) }
+            return settle.frame([Double(frame.minY), Double(intent.metrics.height)], placed: placed, at: time)
+        }) { _ in
+            surface.thaw()
+            TranscriptJumpHooks.covered(false)
+        }
+    }
+    /// The reader took the feed mid-hold: it's theirs as it is.
+    private func endPageHold() {
+        surface.stop()
+        surface.thaw()
+        TranscriptJumpHooks.covered(false)
     }
     private func toEnd(_ proxy: ScrollViewProxy) {
         // Before the rows land there is no end to reach: a settle started on the placeholder
