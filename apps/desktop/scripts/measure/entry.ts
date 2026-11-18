@@ -9,6 +9,7 @@
 import "../../src/main/index.ts";
 import { app } from "electron";
 import { measureOpen } from "./open.ts";
+import { measureWake } from "./wake.ts";
 import { runScenario, ScenarioConfig } from "./scenario.ts";
 
 // `origin`: the main process's start in wall-clock ms, so the driver can place its own times
@@ -57,9 +58,11 @@ app.once("browser-window-created", (_event, window) => {
       // ACE_MEASURE_LINGER_MS: stay open that long once measured, as a person would, so the
       // window keeps what it showed (its read snapshots are written at most once a second) and
       // the next launch opens on it.
-      .then(
-        () =>
-          new Promise((done) => setTimeout(done, Number(process.env.ACE_MEASURE_LINGER_MS ?? 0))),
+      .then(() =>
+        // ACE_MEASURE_WAKE: then how long a wake from sleep takes to be live again (`wake.ts`).
+        process.env.ACE_MEASURE_WAKE
+          ? measureWake(window, marks)
+          : new Promise((done) => setTimeout(done, Number(process.env.ACE_MEASURE_LINGER_MS ?? 0))),
       )
       .finally(() => {
         process.stdout.write(`ACE_MEASURE ${JSON.stringify({ marks })}\n`);

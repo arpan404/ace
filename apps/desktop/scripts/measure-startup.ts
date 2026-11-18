@@ -24,6 +24,9 @@ import type { ScenarioConfig } from "./measure/scenario.ts";
  *   case: the app quit and opened again).
  * - `first`: the daemon runs, the Electron profile is new (a temporary one): nothing cached.
  * - `cold`: the daemon starts together with the app, as after a reboot.
+ * - `wake`: once live, the daemon is frozen (SIGSTOP) for `--asleep-ms` (20000) and runs again,
+ *   as around a sleep (`--asleep-how stop`: it stops and starts again instead), and the app gets
+ *   Electron's `resume` (`measure/wake.ts`): how long until it is live.
  *
  * Options: --runs <n> (5) --modes reopen,first,cold --home <dir> --user-data <dir> --port <n>
  * (4343) --daemon-entry <cli.ts or a release ace.mjs> --daemon-delay <ms> (0) --daemon-slow
@@ -46,6 +49,8 @@ const { values: args } = parseArgs({
     "hide-ms": { type: "string" },
     "skip-renderer": { type: "boolean", default: false },
     linger: { type: "string", default: "3000" },
+    "asleep-ms": { type: "string", default: "20000" },
+    "asleep-how": { type: "string", default: "freeze" },
     json: { type: "string" },
   },
 });
@@ -106,7 +111,12 @@ async function stopDaemon(child: ChildProcess): Promise<void> {
 
 type Marks = Record<string, number>;
 
-async function launch(mainFile: string, userData: string): Promise<Marks> {
+async function launch(
+  mainFile: string,
+  userData: string,
+  /** Wake mode: called once the app is live; the app waits for SIGUSR2 to wake. */
+  live?: (app: ChildProcess) => Promise<void>,
+): Promise<Marks> {
   const config: ScenarioConfig = {
     scenario: "open",
     hiddenMs: 0,
@@ -136,6 +146,7 @@ async function launch(mainFile: string, userData: string): Promise<Marks> {
         ACE_MEASURE_INACTIVE: "1",
         // Each run leaves what a person's session would: the next launch opens on it.
         ACE_MEASURE_LINGER_MS: args.linger,
+        ...(live ? { ACE_MEASURE_WAKE: "1" } : {}),
         ...(args["hide-ms"] ? { ACE_MEASURE_HIDE_MS: args["hide-ms"] } : {}),
       },
     },
@@ -144,8 +155,16 @@ async function launch(mainFile: string, userData: string): Promise<Marks> {
   let marks: Marks | undefined;
   for await (const line of createInterface({ input: child.stdout })) {
     if (!line.startsWith("ACE_MEASURE ")) continue;
-    const message = JSON.parse(line.slice("ACE_MEASURE ".length)) as { marks?: Marks };
+    const message = JSON.parse(line.slice("ACE_MEASURE ".length)) as {
+      marks?: Marks;
+      live?: boolean;
+    };
     if (message.marks) marks = message.marks;
+    if (message.live && live)
+      void live(child).then(
+        () => child.kill("SIGUSR2"),
+        () => child.kill("SIGTERM"),
+      );
   }
   await exited;
   if (!marks) throw new Error("The app reported no marks");
@@ -170,6 +189,7 @@ const shown = [
   "hidden",
   "daemonUpAt",
   "liveAfterUp",
+  "wakeToLive",
 ] as const;
 const results: Record<string, Marks[]> = {};
 const record = (name: string, marks: Marks) => {
@@ -225,6 +245,34 @@ try {
       log(`  daemon up ${(upAt - started.startedAt).toFixed(0)} ms after its spawn`);
       await stopDaemon(daemon);
       daemon = undefined;
+    }
+  }
+  if (modes.has("wake")) {
+    daemon = startDaemon().child;
+    await untilRunning();
+    for (let index = 0; index < runs; index++) {
+      const marks = await launch(mainFile, args["user-data"], async () => {
+        const asleepMs = Number(args["asleep-ms"]);
+        if (args["asleep-how"] === "stop") {
+          // The daemon goes away and comes back (a service restart around the sleep): the
+          // page's refused retries back off meanwhile.
+          if (daemon) await stopDaemon(daemon);
+          daemon = undefined;
+          await new Promise((resolve) => setTimeout(resolve, asleepMs));
+          daemon = startDaemon().child;
+        } else {
+          // Frozen, as everything is while the Mac sleeps; then it runs again.
+          const frozen = daemon;
+          frozen?.kill("SIGSTOP");
+          await new Promise((resolve) => setTimeout(resolve, asleepMs));
+          frozen?.kill("SIGCONT");
+        }
+        await untilRunning();
+      });
+      log(
+        `wake: live ${marks.wakeToLive?.toFixed(0) ?? "-"} ms after waking (off at wake: ${marks.offAtWake ?? "-"})`,
+      );
+      (results.wake ??= []).push(marks);
     }
   }
 } finally {

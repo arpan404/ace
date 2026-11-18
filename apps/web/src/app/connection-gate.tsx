@@ -3,6 +3,7 @@ import { bindTerminalEndDelivery } from "@/features/panels/index.ts";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { watchDesktopTarget } from "@/boot/desktop.ts";
+import { watchWakes } from "@/boot/wake-signals.ts";
 import { ConnectionScreen } from "@/features/connect/index.ts";
 import { StartupPending } from "@/features/startup/index.ts";
 import { deviceId } from "@/boot/device-id.ts";
@@ -429,9 +430,13 @@ export function ConnectionGate(props: {
     const offline = () => current?.networkOnline(false);
     addEventListener("online", online);
     addEventListener("offline", offline);
+    // Back from sleep, the lock screen, a hidden window or a network change: check the socket
+    // now and skip a waiting backoff, so the window is live again moments after it wakes.
+    const stopWakes = watchWakes(() => current?.wake?.());
     return () => {
       replaced = true;
       for (const stop of stops) stop();
+      stopWakes();
       removeEventListener("online", online);
       removeEventListener("offline", offline);
       if (current) void current.close();

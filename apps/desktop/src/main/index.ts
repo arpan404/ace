@@ -771,11 +771,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
     // Plugged in again: checks leave their battery back-off.
     powerMonitor.on("on-ac", () => updates.opened());
     powerMonitor.on("resume", () => {
+      // The gap the main thread just saw was sleep, not a freeze (health checks stay uncounted).
+      beat.resumed();
       background.wake();
       // Timers stall while the Mac sleeps; a wake is an opening too.
       updates.opened();
+      // The page checks its socket now instead of waiting on a heartbeat or a backoff.
       emit(contents(), "system.resumed", undefined);
     });
+    // Back from the lock screen (which may have slept the network): the page checks its socket.
+    powerMonitor.on("unlock-screen", () => emit(contents(), "system.resumed", undefined));
 
     applySettings(settings.get());
     // Launched at login with background mode on: daemon and tray only, no window.
