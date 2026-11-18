@@ -133,18 +133,13 @@ struct AceAccountView: View {
     private var legal: some View {
         Section {
             ForEach(Self.legalPages, id: \.id) { page in
-                if let url = URL(string: page.url) {
-                    Link(page.title, destination: url).accessibilityIdentifier("account.legal.\(page.id)")
-                }
+                Link(page.title, destination: page.url).accessibilityIdentifier("account.legal.\(page.id)")
             }
         }
         .insetRowBackground()
     }
 
-    private static let legalPages = [
-        (id: "terms", title: "Terms of service", url: "https://acehq.dev/terms-of-service"),
-        (id: "privacy", title: "Privacy policy", url: "https://acehq.dev/privacy-policy"),
-    ]
+    private static let legalPages = AceLegal.policies
 
     @ViewBuilder private var browserFailure: some View {
         if let problem = browserProblem {

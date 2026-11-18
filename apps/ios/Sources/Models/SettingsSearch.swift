@@ -16,6 +16,8 @@ struct SettingsIndexReply: Decodable, Sendable { let entries: [SettingsIndexEntr
 struct SettingsResult: Identifiable, Equatable {
     enum Target: Equatable {
         case phone(SettingsRoute)
+        /// A page on ace's site, opened in the system browser.
+        case web(URL)
         /// A machine's settings page, opened with `row` in view.
         case machine(machine: String, page: String, pageTitle: String, row: String)
     }
@@ -106,6 +108,9 @@ enum SettingsSearch {
             page(.cache, "cache", "Cached chats", ["offline", "storage", "clear"]),
             page(.licences, "licences", "Licences", ["about", "open source"]),
         ]
+        items += AceLegal.all.map { legal in
+            SettingsResult(id: "phone/\(legal.id)", title: legal.title, place: "About", keywords: legal.keywords, target: .web(legal.url))
+        }
         return items
     }
 }
