@@ -2,7 +2,8 @@ import { startSupportFiles } from "./support-files.ts";
 import { fileExportSource } from "../file-export-source.ts";
 import { filesScope } from "../files-scope.ts";
 import { listFolderPage } from "../files-tool/list-folder.ts";
-import type { FilesFoldersChanged, ThreadId } from "@ace/protocol";
+import type { FoldersChanged } from "../files-tool/folder-watch.ts";
+import type { ThreadId } from "@ace/protocol";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { repeatableWarmup } from "./warmup.ts";
 import { backgroundFailure } from "./background.ts";
@@ -169,7 +170,7 @@ export function createFilesSession(context: SocketContext): SocketService {
   const watcher = {
     id: context.sessionId,
     canSend: () => context.connected() && context.authorize("read"),
-    send: (message: FilesFoldersChanged) => {
+    send: (message: FoldersChanged) => {
       if (!context.connected() || !context.authorize("read")) return;
       if (!context.canReadThread(message.threadId)) return;
       context.send(message);

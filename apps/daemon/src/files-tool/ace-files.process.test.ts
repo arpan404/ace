@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { systemFilesClock } from "@ace/files-native";
-import { FilesFoldersChanged, ThreadId } from "@ace/protocol";
-import { FolderWatch } from "./folder-watch.ts";
+import { ThreadId } from "@ace/protocol";
+import { FolderWatch, type FoldersChanged } from "./folder-watch.ts";
 import { findFilesBinary, FilesTool } from "./tool.ts";
 
 const binary = findFilesBinary();
@@ -68,7 +68,7 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
   });
 
   it("reports a created file's open folder to a watching client", async () => {
-    const inbox: FilesFoldersChanged[] = [];
+    const inbox: FoldersChanged[] = [];
     const watch = new FolderWatch(
       { watch: (path, onBatch) => tool.watch(path, onBatch) },
       { clock: systemFilesClock },

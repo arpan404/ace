@@ -1,11 +1,14 @@
 import type { EventPayload } from "@ace/files-native";
-import type { FilesFoldersChanged, ThreadId } from "@ace/protocol";
+import type { FilesServerMessage, ThreadId } from "@ace/protocol";
 import { WatchFanout, type WatchClock } from "./watch-fanout.ts";
+
+/** The push a watching client receives: folders of one thread whose contents changed. */
+export type FoldersChanged = Extract<FilesServerMessage, { type: "files.folders_changed" }>;
 
 /** A socket that asked to watch folders, and how to tell it about them later. */
 export type FolderWatchClient = {
   id: string;
-  send(message: FilesFoldersChanged): void;
+  send(message: FoldersChanged): void;
   /** Whether this client may still hear about the thread: access revoked or socket closing. */
   canSend(): boolean;
 };
@@ -194,7 +197,7 @@ export class FolderWatch {
     if (release) await release().catch(() => {});
   }
 
-  #push(clientId: string, message: FilesFoldersChanged): void {
+  #push(clientId: string, message: FoldersChanged): void {
     const client = this.#clients.get(clientId);
     if (!client || !client.canSend()) return;
     try {

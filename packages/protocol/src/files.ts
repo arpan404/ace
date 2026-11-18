@@ -8,35 +8,19 @@ export const FileVersion = z.string().min(1).max(256);
 const expected = FileVersion.nullable();
 /** The most one `read` returns: big enough for most source files, small enough to share a link. */
 export const FILE_READ_PART = 256 * 1024;
-/** What a listed entry is; a symlink names what it points at when that stays inside the root. */
-export const FolderEntry = z.object({
-  name: z.string().max(1024),
-  path,
-  kind: z.enum(["file", "directory", "symlink", "other"]),
-  target: z.enum(["file", "directory", "other"]).optional(),
-  size: offset,
-  mtimeMs: z.number().int(),
-  ignored: z.boolean(),
-});
-export type FolderEntry = z.infer<typeof FolderEntry>;
-/** One page of a folder, with the cursor for the next page or null on the last. */
-export const FolderPage = z.object({
-  entries: z.array(FolderEntry).max(5000),
-  nextCursor: z.string().max(1024).nullable(),
-  total: offset,
-});
-export type FolderPage = z.infer<typeof FolderPage>;
 export const FileOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("list"), path, limit: z.number().int().min(1).max(1000).default(1000) }),
   /**
-   * One folder of a checkout, paged and from ace-files. `INVALID_CURSOR` means the folder
-   * changed since the cursor was handed out: list it again from the start.
+   * One folder's entries, a page at a time, for a tree that lists a folder only when it is
+   * opened. `path` is the folder ("": the checkout's root) and `cursor` is the previous page's
+   * `nextCursor`. A cursor for a folder that changed since it was read is `INVALID_CURSOR`: list
+   * the folder again from the start. `limit` 1..=5000, 500 by default.
    */
   z.object({
     op: z.literal("list.folder"),
     path,
     limit: z.number().int().min(1).max(5000).default(500),
-    cursor: z.string().max(1024).optional(),
+    cursor: z.string().max(512).optional(),
   }),
   z.object({ op: z.literal("stat"), path }),
   /**
@@ -158,6 +142,32 @@ export const FileReadResult = z.object({
     .optional(),
 });
 export type FileReadResult = z.infer<typeof FileReadResult>;
+/**
+ * One entry of a folder listing. `kind` is what the entry is on disk; a `symlink` also names the
+ * kind it points to in `target`, left out when the link leaves the checkout. `ignored` marks an
+ * entry that the checkout's gitignore rules exclude; clients show it dimmed rather than hide it.
+ */
+export const FolderEntry = z.object({
+  name: z.string().min(1).max(1024),
+  /** Relative to the checkout's root, `/` separated, never ending in `/`. */
+  path,
+  kind: z.enum(["file", "directory", "symlink", "other"]),
+  target: z.enum(["file", "directory", "other"]).optional(),
+  size: offset,
+  mtimeMs: z.number().int(),
+  ignored: z.boolean(),
+});
+export type FolderEntry = z.infer<typeof FolderEntry>;
+/**
+ * One page of a folder. `nextCursor` is null on the folder's last page, and its value is the
+ * next request's `cursor`. `total` counts every entry in the folder.
+ */
+export const FolderPage = z.object({
+  entries: z.array(FolderEntry).max(5000),
+  nextCursor: z.string().max(512).nullable(),
+  total: offset,
+});
+export type FolderPage = z.infer<typeof FolderPage>;
 export const FilesClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.abort"), sourceRequestId: id }),
   z.object({
@@ -188,6 +198,16 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
     scope: z.literal("support").optional(),
     operation: FileOperation,
   }),
+  /**
+   * The folders a client's tree has open in a thread. Each call replaces that client's set for
+   * the thread, and `[]` stops watching it. The daemon answers with `files.folders_changed`,
+   * naming only folders in this set, so the client re-lists just those. At most 512 folders.
+   */
+  z.object({
+    type: z.literal("files.watch"),
+    threadId: ThreadId,
+    folders: z.array(path).max(512),
+  }),
   z.object({
     type: z.literal("files.credit"),
     channel: z.number().int().min(1).max(0xffffffff),
@@ -196,17 +216,6 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.cancel"), channel: z.number().int().min(1).max(0xffffffff) }),
 ]);
 export type FilesClientMessage = z.infer<typeof FilesClientMessage>;
-/**
- * A client's watched folders of one checkout, for lights-out tree updates. Each message replaces
- * that client's previous set for the thread; `[]` stops watching. The daemon needs no reply: a
- * later message, or closing the socket, is the client's own cleanup.
- */
-export const FilesWatch = z.object({
-  type: z.literal("files.watch"),
-  threadId: ThreadId,
-  folders: z.array(path).max(512),
-});
-export type FilesWatch = z.infer<typeof FilesWatch>;
 export const WorkspaceFileChange = z.object({
   id,
   op: z.string(),
@@ -263,20 +272,19 @@ export const FilesServerMessage = z.discriminatedUnion("type", [
     size: offset,
   }),
   z.object({ type: z.literal("files.changed"), change: WorkspaceFileChange }),
+  /**
+   * Folders of a watched thread that changed, coalesced to at most one message per 100 ms per
+   * client. `rescan` says the watcher fell behind and every watched folder should be listed
+   * again; otherwise `folders` names the watched folders a change was found in.
+   */
+  z.object({
+    type: z.literal("files.folders_changed"),
+    threadId: ThreadId,
+    folders: z.array(path).max(512),
+    rescan: z.boolean(),
+  }),
 ]);
 export type FilesServerMessage = z.infer<typeof FilesServerMessage>;
-/**
- * Folders of one checkout whose contents changed, for a watching client. `folders` are the ones
- * in that client's set (root-relative, `""` is the root); `rescan` means re-list every folder it
- * watches, because the daemon overran its batch or the watcher lost track.
- */
-export const FilesFoldersChanged = z.object({
-  type: z.literal("files.folders_changed"),
-  threadId: ThreadId,
-  folders: z.array(path).max(512),
-  rescan: z.boolean(),
-});
-export type FilesFoldersChanged = z.infer<typeof FilesFoldersChanged>;
 
 export const WorkspaceFilesChanged = z.object({
   type: z.literal("workspace.files_changed"),

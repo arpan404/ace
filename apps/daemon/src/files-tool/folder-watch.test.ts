@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import type { EventPayload } from "@ace/files-native";
-import { FilesFoldersChanged, ThreadId } from "@ace/protocol";
-import { FolderWatch, type FolderWatchClient } from "./folder-watch.ts";
+import { ThreadId } from "@ace/protocol";
+import { FolderWatch, type FolderWatchClient, type FoldersChanged } from "./folder-watch.ts";
 import { TestClock } from "./test-clock.ts";
 
 const main = ThreadId.parse("main");
@@ -24,7 +24,7 @@ class FakeWatch {
   }
 }
 
-function client(id: string, inbox: FilesFoldersChanged[], canSend = true): FolderWatchClient {
+function client(id: string, inbox: FoldersChanged[], canSend = true): FolderWatchClient {
   return {
     id,
     canSend: () => canSend,
@@ -55,8 +55,8 @@ function setup() {
 
 it("shares one watch of a checkout between every client", async () => {
   const { clock, port, watch } = setup();
-  const phone: FilesFoldersChanged[] = [];
-  const browser: FilesFoldersChanged[] = [];
+  const phone: FoldersChanged[] = [];
+  const browser: FoldersChanged[] = [];
   await watch.watch(client("phone", phone), main, "/w", ["src"]);
   await watch.watch(client("browser", browser), main, "/w", ["docs"]);
   expect(port.calls).toHaveLength(1);
@@ -81,7 +81,7 @@ it("stops the shared watch with its last client", async () => {
 
 it("replaces a client's folders instead of adding to them", async () => {
   const { clock, port, watch } = setup();
-  const inbox: FilesFoldersChanged[] = [];
+  const inbox: FoldersChanged[] = [];
   const phone = client("phone", inbox);
   await watch.watch(phone, main, "/w", ["src"]);
   await watch.watch(phone, main, "/w", ["docs"]);
@@ -95,7 +95,7 @@ it("replaces a client's folders instead of adding to them", async () => {
 
 it("an empty folder list stops watching the thread", async () => {
   const { clock, port, watch } = setup();
-  const inbox: FilesFoldersChanged[] = [];
+  const inbox: FoldersChanged[] = [];
   const phone = client("phone", inbox);
   await watch.watch(phone, main, "/w", ["src"]);
   await watch.watch(phone, main, "/w", []);
@@ -107,7 +107,7 @@ it("an empty folder list stops watching the thread", async () => {
 
 it("a socket that may no longer read hears nothing", async () => {
   const { clock, port, watch } = setup();
-  const inbox: FilesFoldersChanged[] = [];
+  const inbox: FoldersChanged[] = [];
   await watch.watch(client("phone", inbox, false), main, "/w", ["src"]);
   port.calls[0]?.onBatch(changes("src/a.ts"));
   clock.advance(1_000);
@@ -116,8 +116,8 @@ it("a socket that may no longer read hears nothing", async () => {
 
 it("a rescan reaches every client watching the checkout", async () => {
   const { clock, port, watch } = setup();
-  const phone: FilesFoldersChanged[] = [];
-  const browser: FilesFoldersChanged[] = [];
+  const phone: FoldersChanged[] = [];
+  const browser: FoldersChanged[] = [];
   await watch.watch(client("phone", phone), main, "/w", ["src"]);
   await watch.watch(client("browser", browser), main, "/w", ["docs"]);
   port.calls[0]?.onBatch({ type: "rescan" });
@@ -129,7 +129,7 @@ it("a rescan reaches every client watching the checkout", async () => {
 it("a watch that cannot start leaves no client behind", async () => {
   const clock = new TestClock();
   const watch = new FolderWatch(new FakeWatch(new Error("FILES_RESTARTING")), { clock });
-  const inbox: FilesFoldersChanged[] = [];
+  const inbox: FoldersChanged[] = [];
   await expect(watch.watch(client("phone", inbox), main, "/w", ["src"])).rejects.toThrow(
     "FILES_RESTARTING",
   );
@@ -139,7 +139,7 @@ it("a watch that cannot start leaves no client behind", async () => {
 
 it("a new folder names itself and the folder that holds it", async () => {
   const { clock, port, watch } = setup();
-  const inbox: FilesFoldersChanged[] = [];
+  const inbox: FoldersChanged[] = [];
   await watch.watch(client("phone", inbox), main, "/w", ["", "src"]);
   port.calls[0]?.onBatch(folders("src"));
   clock.advance(100);

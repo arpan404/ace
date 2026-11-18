@@ -112,12 +112,7 @@ import {
   PermissionCapabilitiesResult,
 } from "./permission-client.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
-import {
-  FilesClientMessage,
-  FilesFoldersChanged,
-  FilesServerMessage,
-  FilesWatch,
-} from "./files.ts";
+import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import {
   CommandsList,
   CommandsResolve,
@@ -300,7 +295,6 @@ export const ClientMessage = z.discriminatedUnion("type", [
   UsageSeries,
   UsageSessionTotals,
   ...FilesClientMessage.options,
-  FilesWatch,
   CommandsList,
   CommandsResolve,
   PromptFilesRequest,
@@ -421,7 +415,6 @@ export const ServerMessage = z.discriminatedUnion("type", [
   UsageLimitsChanged,
   UsageSessionTotalsMessage,
   ...FilesServerMessage.options,
-  FilesFoldersChanged,
   CommandsListResult,
   CommandsResolveResult,
   PromptFilesResponse,
