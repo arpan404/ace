@@ -54,11 +54,10 @@ struct AppearanceView: View {
                 }
                 .pickerRow()
                 if let accentProblem {
-                    ProblemRow(accentProblem, id: "appearance.accent.problem",
-                               disabled: inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true) { accentRetry += 1 }
+                    ProblemRow(accentProblem, id: "appearance.accent.problem", disabled: !machineReady) { accentRetry += 1 }
                 }
             } header: { InsetHeader("Accent") } footer: {
-                if inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true {
+                if !machineReady {
                     Text("A custom colour needs a connected machine.")
                 }
             }
@@ -115,6 +114,8 @@ struct AppearanceView: View {
         .navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
     }
 
+    /// A custom accent is fitted on a machine, so it needs one connected.
+    private var machineReady: Bool { inbox?.sessions.contains(where: { $0.client.connection == "ready" }) == true }
     private var chosenTheme: String { palette?.theme ?? "ace" }
     private var chosenAccent: String { palette?.accent ?? "theme" }
     /// Colour changes fade across the whole window.
