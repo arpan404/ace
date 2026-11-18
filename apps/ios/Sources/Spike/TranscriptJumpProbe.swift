@@ -46,6 +46,11 @@ import UIKit
 
     func register(_ view: UIView, row id: String) { rows[id] = Weak(view: view) }
 
+    /// The row's marker went away; another marker may have taken its id since.
+    func unregister(_ view: UIView, row id: String) {
+        if rows[id]?.view === view || rows[id]?.view == nil { rows[id] = nil }
+    }
+
     /// The feed's scroll phase changed.
     /// A new gesture ends the run: what the reader does next is theirs.
     func scrolling(_ phase: String) {
@@ -151,7 +156,8 @@ import UIKit
     private func visible() -> [String: Double] {
         var seen: [String: Double] = [:]
         for (id, mark) in rows {
-            guard let view = mark.view, let window = view.window else { continue }
+            guard let view = mark.view else { rows[id] = nil; continue }
+            guard let window = view.window else { continue }
             if scroller == nil { scroller = Self.scrollView(above: view) }
             let layer = view.layer.presentation() ?? view.layer
             let top = Double(layer.convert(CGPoint.zero, to: nil).y)
@@ -181,14 +187,27 @@ private final class JumpTicker: NSObject {
 /// A view as large as the row it marks, which the probe reads.
 private struct JumpMarkView: UIViewRepresentable {
     let id: String
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> Mark {
+        let view = Mark()
+        view.row = id
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = false
         TranscriptJumpProbe.shared.register(view, row: id)
         return view
     }
-    func updateUIView(_ view: UIView, context: Context) { TranscriptJumpProbe.shared.register(view, row: id) }
+    func updateUIView(_ view: Mark, context: Context) {
+        if view.row != id { TranscriptJumpProbe.shared.unregister(view, row: view.row) }
+        view.row = id
+        TranscriptJumpProbe.shared.register(view, row: id)
+    }
+    /// A row scrolled away for good: the probe stops looking for it.
+    static func dismantleUIView(_ view: Mark, coordinator: ()) {
+        TranscriptJumpProbe.shared.unregister(view, row: view.row)
+    }
+
+    final class Mark: UIView {
+        var row = ""
+    }
 }
 
 extension View {
