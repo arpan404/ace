@@ -139,6 +139,10 @@ struct InboxSearchList: View {
     /// The machines the scope searches are paired but none answers: the search couldn't be asked.
     private var offline: Bool { scope.offline(inbox.sessions.map { (hostId: $0.hostId, connection: $0.client.connection) }) }
 
+    /// Pull requests show only for an unfiltered search with a machine to ask; the empty state
+    /// reads the same rule, so a hidden answer never stands in for "Search is offline".
+    private var showsPulls: Bool { everyKind && !offline && (!pulls.found.isEmpty || pulls.problem != nil) }
+
     @ViewBuilder private var results: some View {
         if everyKind { actionSection }
         if offline, everyKind, !everything.commands.isEmpty {
@@ -173,7 +177,7 @@ struct InboxSearchList: View {
                 }
             } header: { SearchHeader("Projects") }
         }
-        if everyKind, !pulls.found.isEmpty || pulls.problem != nil {
+        if showsPulls {
             Section {
                 ForEach(pulls.found) { found in
                     Button { remember(); actions.pull(found.route) } label: { ForgePullRowView(row: found.row) }
@@ -194,7 +198,7 @@ struct InboxSearchList: View {
                 .accessibilityLabel("Searching")
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
         } else if !messages.loading && foundThreads.isEmpty && !(everyKind && (!everything.commands.isEmpty || !everything.projects.isEmpty))
-                    && pulls.found.isEmpty && !(everyKind && pulls.problem != nil) && messages.merged(inbox).isEmpty {
+                    && !showsPulls && messages.merged(inbox).isEmpty {
             // The scoped machines are unreachable: nothing was asked, so "No results" would be wrong.
             Group {
                 if offline {
