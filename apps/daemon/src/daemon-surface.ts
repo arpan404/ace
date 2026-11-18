@@ -41,6 +41,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "files",
     "supportFiles",
     "threadFiles",
+    "filesNative",
     "handler",
     "plugins",
     "suits",

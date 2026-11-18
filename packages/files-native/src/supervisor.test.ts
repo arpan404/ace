@@ -185,7 +185,9 @@ describe("FilesProcess", () => {
     // answers only if the supervisor translated the caller's root 1 to it.
     const { reply } = await h.files.request({ op: "stat", root, path: "src/main.ts" });
     expect(reply.type).toBe("entry");
-    await until(() => batches.length === 2);
+    // Changes that landed while ace-files was down were never reported, so the re-subscribed
+    // watch is told to re-list everything.
+    await until(() => batches.some((payload) => payload.type === "rescan"));
     await watch.dispose();
   });
 
