@@ -420,6 +420,7 @@ export class DaemonSupervisor {
       restarts: this.status.restarts + 1,
       message: decision.safeMode ? safeModeRestartMessage : reason,
       retry: { attempt: this.crashes, of: this.options.maxRestarts },
+      ...(decision.safeMode ? { safeMode: true } : {}),
     });
     this.cancelTimer = this.ports.timers.set(delay, () => {
       this.cancelTimer = undefined;

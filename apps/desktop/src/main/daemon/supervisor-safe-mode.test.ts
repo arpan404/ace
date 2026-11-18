@@ -17,13 +17,17 @@ describe("a daemon that keeps stopping as it starts", () => {
     expect(supervisor.current()).toMatchObject({
       state: "restarting",
       message: safeModeRestartMessage,
+      safeMode: true,
     });
     await m.advance(10_000);
     expect(m.children.at(-1)?.launch).toEqual({ safeMode: true });
+    // The safe start's own steps still say it is the safe one.
+    expect(supervisor.current()).toMatchObject({ safeMode: true, stage: "launching" });
 
     m.state.answering = true;
     await m.advance(300);
     expect(supervisor.current()).toMatchObject({ state: "running", message: safeModeMessage });
+    expect(supervisor.current().safeMode).toBeUndefined();
   });
 
   it("starts normally again once a safe run has stayed up, and after a repair", async () => {

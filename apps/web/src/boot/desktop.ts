@@ -74,6 +74,10 @@ export interface DesktopDaemonStatus {
   cause?: "port-in-use" | "lock-held" | undefined;
   /** Set while the desktop restarts its crashed daemon on its own. */
   retry?: { attempt: number; of: number } | undefined;
+  /** The step a start is on (`DaemonStage` in apps/desktop); absent once it runs. */
+  stage?: string | undefined;
+  /** A crash restart is starting the daemon in safe mode. */
+  safeMode?: boolean | undefined;
 }
 
 /** One check of `ace doctor --json`: what the "Run diagnostics" button shows. */
@@ -268,6 +272,8 @@ function parseStatus(value: unknown): DesktopDaemonStatus | undefined {
       typeof retry?.attempt === "number" && typeof retry.of === "number"
         ? { attempt: retry.attempt, of: retry.of }
         : undefined,
+    stage: typeof status.stage === "string" ? status.stage.slice(0, 32) : undefined,
+    safeMode: status.safeMode === true ? true : undefined,
   };
 }
 

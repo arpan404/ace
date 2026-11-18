@@ -83,6 +83,8 @@ export const DaemonStatus = z.object({
   retry: z.object({ attempt: z.number().int().min(1), of: z.number().int().min(1) }).optional(),
   /** Where a start has got to, while the daemon is not yet running (the startup screen says it). */
   stage: DaemonStage.optional(),
+  /** Set while a crash restart starts the daemon without what kept it from starting (ADR 0175). */
+  safeMode: z.boolean().optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatus>;
 
