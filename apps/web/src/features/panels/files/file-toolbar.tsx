@@ -8,7 +8,6 @@ import {
   MagnifyingGlassIcon,
   PushPinIcon,
   SidebarSimpleIcon,
-  TextAlignLeftIcon,
 } from "@ace/icons";
 import { isMarkdownPath, pathParts } from "@ace/ui-core";
 import { Fragment, type ReactNode } from "react";
@@ -109,10 +108,9 @@ export function FileToolbar(props: {
   preview: boolean;
   /** The file is markdown shown as its source. */
   source: boolean;
-  wrap: boolean;
   finding: boolean;
   treeOpen: boolean;
-  /** The file can be read (shown as text); find and wrap need it. */
+  /** The file can be read (shown as text); find needs it. */
   readable: boolean;
   online: boolean;
   actions: ReturnType<typeof useFileActions>;
@@ -121,7 +119,6 @@ export function FileToolbar(props: {
   onFolder(folder: string): void;
   onKeep(): void;
   onSource(source: boolean): void;
-  onWrap(): void;
   onFind(): void;
   onTree(): void;
   extra?: ReactNode;
@@ -165,14 +162,6 @@ export function FileToolbar(props: {
             disabled={!props.readable}
             className={tool}
             onClick={props.onFind}
-          />
-          <IconButton
-            icon={TextAlignLeftIcon}
-            label={props.wrap ? "Don't wrap lines" : "Wrap lines"}
-            pressed={props.wrap}
-            disabled={!props.readable}
-            className={tool}
-            onClick={props.onWrap}
           />
           <IconButton
             icon={actions.pathCopied ? CheckIcon : CopyIcon}

@@ -37,12 +37,11 @@ export function fileTabData(tab: WorkspaceTab): FileTabData {
 
 const Prefs = z.object({
   treeWidth: z.catch(z.number(), 240),
-  wrap: z.catch(z.boolean(), false),
 });
 export type FilePrefs = z.infer<typeof Prefs>;
 
 const prefsKey = "ace.files.prefs";
-const defaultPrefs: FilePrefs = { treeWidth: 240, wrap: false };
+const defaultPrefs: FilePrefs = { treeWidth: 240 };
 
 /** Narrower than this the source is too cramped beside the tree, which then steps aside. */
 export const leastViewer = 420;

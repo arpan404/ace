@@ -36,8 +36,8 @@ import { useChangeMarks } from "./use-change-marks.ts";
 import { useEditedPaths, useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
-const TextEditor = lazy(() =>
-  import("./text-editor.tsx").then((module) => ({ default: module.TextEditor })),
+const FileEditor = lazy(() =>
+  import("./file-editor.tsx").then((module) => ({ default: module.FileEditor })),
 );
 const FileOperations = lazy(() =>
   import("./file-operations.tsx").then((module) => ({ default: module.FileOperations })),
@@ -230,7 +230,6 @@ export function FileTab(props: TabViewProps) {
           path={path}
           preview={data.preview === true}
           source={data.source === true}
-          wrap={prefs.wrap}
           finding={find !== undefined}
           treeOpen={treeShown}
           readable={readable}
@@ -243,7 +242,6 @@ export function FileTab(props: TabViewProps) {
           }}
           onKeep={() => update({ preview: false })}
           onSource={(source) => update({ source })}
-          onWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
           onFind={toggleFind}
           onTree={() => update({ tree: !treeShown })}
         />
@@ -265,7 +263,8 @@ export function FileTab(props: TabViewProps) {
           <div ref={viewer} className="relative h-full overflow-auto" tabIndex={-1}>
             {path && data.draft ? (
               <Suspense fallback={null}>
-                <TextEditor
+                <FileEditor
+                  key={path}
                   threadId={threadId}
                   path={path}
                   draft={data.draft}
@@ -282,7 +281,6 @@ export function FileTab(props: TabViewProps) {
                 path={path}
                 content={content.data}
                 error={content.error}
-                wrap={prefs.wrap}
                 source={data.source === true}
                 find={find?.query ? { query: find.query, hit: hits[hitIndex] } : undefined}
                 line={data.line}
@@ -296,7 +294,7 @@ export function FileTab(props: TabViewProps) {
               <NoFile onSearch={() => quickOpen.set(() => threadId)} />
             )}
           </div>
-          {/* Lines run on past the right edge: a fade says so (wrap lines to see them whole). */}
+          {/* Lines run on past the right edge: a fade says so; the editor scrolls sideways. */}
           {edges.end && (
             <span
               aria-hidden
