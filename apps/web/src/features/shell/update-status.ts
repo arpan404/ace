@@ -18,6 +18,9 @@ export function updateAction(status: UpdateStatus): UpdateAction {
   }
 }
 
+/** What the window says from the person's Restart until it closes. */
+export const updateClosingWords = "ace is closing to update and will reopen in a few seconds";
+
 const agents = (count: number) => (count === 1 ? "1 agent finishes" : `${count} agents finish`);
 
 /** The button's name and tooltip: where the update stands and what a click does. */
@@ -47,6 +50,7 @@ export function updateLabel(status: UpdateStatus): string {
         ? "Agents are still working. Click to restart once they finish."
         : `Update ${version} downloaded. Click to restart and install.`;
     case "installing":
+      if (status.restarting) return updateClosingWords;
       return status.waiting > 0
         ? `Updating when ${agents(status.waiting)}`
         : "Restarting to update…";
@@ -92,6 +96,7 @@ export function updateSummary(status: UpdateStatus): string {
         ? "Agents are still working. Restart once they finish."
         : `ace ${version} is downloaded and installs when ace restarts.`;
     case "installing":
+      if (status.restarting) return `${updateClosingWords}.`;
       return status.waiting > 0
         ? `Updating when ${agents(status.waiting)}.`
         : "Restarting to update…";

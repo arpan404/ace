@@ -284,14 +284,20 @@ function main(target: DaemonTarget, crashDumps: string): void {
    * Every quit waits here until the daemon this app started has exited: the browser backend
    * tells the daemon first, then that daemon stops (SIGTERM, then SIGKILL after its grace).
    */
+  const quitLog = logger("quit");
   const quitGate = new QuitGate({
     shutDown: async () => {
       globalShortcut.unregisterAll();
       // Before the daemon stops or the app goes: no client should keep showing this app's update,
       // and the browser backend tells the daemon it is going. Both at once, then the daemon.
       await shutDownBeforeQuit({
-        beforeDaemon: [() => updateReport.withdraw(), () => background.stop()],
+        beforeDaemon: [
+          { name: "update report withdrawn", run: () => updateReport.withdraw() },
+          { name: "browser backend stopped", run: () => background.stop() },
+        ],
         daemon: () => runtime.stop(),
+        now: Date.now,
+        log: (message, data) => quitLog("info", message, data),
       });
     },
     quit: () => {
@@ -299,7 +305,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       app.quit();
     },
     timers,
-    log: logger("quit"),
+    log: quitLog,
   });
   // The daemon's lookup and spawn start now, beside serving the page and creating the window,
   // not after them: they need nothing from Electron's ready. Only this app's single instance

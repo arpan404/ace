@@ -4,7 +4,14 @@
  * leaves once. It never comes back for that page: a connection lost later is the shell's to say.
  */
 
-/** How long a start may take before the screen says "Starting ace…". */
+import {
+  activityWords,
+  isDaemonStage,
+  type DaemonStage,
+  type StartupActivity,
+} from "./startup-activity.ts";
+
+/** How long a start may take before the screen says what it is doing. */
 export const startupSlowMs = 600;
 /** How long before a start that hasn't finished offers a way out (logs, restart, by hand). */
 export const startupStalledMs = 20_000;
@@ -38,6 +45,15 @@ export interface StartupState {
   stalled: boolean;
   /** Why the daemon failed, as the desktop reported it (shown through friendly copy). */
   error?: string | undefined;
+  /** The desktop daemon's last state, and the step its start is on (cleared once it runs). */
+  daemon?: string | undefined;
+  stage?: DaemonStage | undefined;
+  /** The desktop is restarting a daemon that stopped on its own, in safe mode or not. */
+  restart?: "crash" | "safe-mode" | undefined;
+  /** What the client's connection last said before the app was shown. */
+  connection?: "connecting" | "starting" | "reconnecting" | undefined;
+  /** The activity that has gone on long enough to say so (see `startupActivity`). */
+  long?: StartupActivity | undefined;
 }
 
 export const initialStartup: StartupState = { phase: "starting", slow: false, stalled: false };
@@ -56,8 +72,14 @@ export type StartupDaemonState =
 export type StartupEvent =
   | { type: "slow" }
   | { type: "stalled" }
-  /** The desktop's daemon reported a state. */
-  | { type: "daemon"; state: string; message?: string | undefined }
+  /** The desktop's daemon reported a state, with the step a start is on. */
+  | {
+      type: "daemon";
+      state: string;
+      message?: string | undefined;
+      stage?: string | undefined;
+      safeMode?: boolean | undefined;
+    }
   /** The client's connection before the app is shown. */
   | { type: "connection"; state: "connecting" | "starting" | "reconnecting" | "ready" }
   /** Every view mounted at boot has its first data (or the cap ran out). */
@@ -66,6 +88,8 @@ export type StartupEvent =
   | { type: "handoff" }
   /** The person asked to try again from the failed state. */
   | { type: "retry" }
+  /** One activity has gone on for `startupStepLongMs`. */
+  | { type: "long"; activity: StartupActivity }
   /** The fade finished. */
   | { type: "left" };
 
@@ -88,11 +112,34 @@ export function startupStep(state: StartupState, event: StartupEvent): StartupSt
       return state.phase === "failed"
         ? { phase: "starting", slow: true, stalled: false, error: undefined }
         : state;
+    case "long":
+      return startupActivity(state) === event.activity && state.long !== event.activity
+        ? { ...state, long: event.activity }
+        : state;
     case "daemon":
-      return daemonStep(state, event.state, event.message);
+      return daemonStep(daemonFacts(state, event), event.state, event.message);
     case "connection":
       return connectionStep(state, event.state);
   }
+}
+
+/** What the desktop said about its daemon, kept for the words whatever the phase does. */
+function daemonFacts(
+  state: StartupState,
+  event: Extract<StartupEvent, { type: "daemon" }>,
+): StartupState {
+  const starting = event.state === "starting" || event.state === "restarting";
+  const stage = starting && isDaemonStage(event.stage) ? event.stage : undefined;
+  // A restart the person asked for carries no message; one after a crash says why.
+  const restart =
+    event.state === "restarting" && event.message !== undefined
+      ? event.safeMode
+        ? ("safe-mode" as const)
+        : ("crash" as const)
+      : undefined;
+  return state.daemon === event.state && state.stage === stage && state.restart === restart
+    ? state
+    : { ...state, daemon: event.state, stage, restart };
 }
 
 function daemonStep(state: StartupState, daemon: string, message: string | undefined) {
@@ -114,10 +161,33 @@ function connectionStep(
 ): StartupState {
   // A failed daemon stays failed until it reports starting again or the person retries.
   if (state.phase === "failed") return state;
-  if (connection === "ready") return { ...state, phase: "loading" };
+  if (connection === "ready") return { ...state, phase: "loading", connection: undefined };
   if (state.phase === "loading") return state;
-  if (connection === "reconnecting") return { ...state, phase: "reconnecting" };
-  return state.phase === "starting" ? state : { ...state, phase: "starting" };
+  const heard = state.connection === connection ? state : { ...state, connection };
+  if (connection === "reconnecting") return { ...heard, phase: "reconnecting" };
+  return heard.phase === "starting" ? heard : { ...heard, phase: "starting" };
+}
+
+/**
+ * What the start is doing now: the desktop's own account first (a crash restart, then its
+ * step), then what the connection knows, which is all a browser has.
+ */
+export function startupActivity(state: StartupState): StartupActivity | undefined {
+  switch (state.phase) {
+    case "failed":
+    case "leaving":
+    case "gone":
+      return undefined;
+    case "loading":
+      return "opening";
+  }
+  if (state.restart) return state.restart === "safe-mode" ? "safe-mode" : "restarting";
+  if (state.stage) return state.stage;
+  if (state.phase === "reconnecting") return "reconnecting";
+  if (state.connection === "starting") return "daemon-starting";
+  // The desktop's daemon runs: what is left is this page reaching it.
+  if (state.daemon === "running" || state.connection === "connecting") return "connecting";
+  return "starting";
 }
 
 export type StartupAction = "retry" | "logs" | "restart" | "connect" | "reload" | "quit";
@@ -163,11 +233,9 @@ export function startupView(
         ...(abilities.desktop ? (["quit"] as const) : []),
       ],
     };
-  const message = !state.slow
-    ? undefined
-    : state.phase === "reconnecting"
-      ? "Reconnecting…"
-      : "Starting ace…";
+  const activity = startupActivity(state);
+  const message =
+    !state.slow || !activity ? undefined : activityWords(activity, state.long === activity);
   const actions: StartupAction[] = !state.stalled
     ? []
     : abilities.desktop
