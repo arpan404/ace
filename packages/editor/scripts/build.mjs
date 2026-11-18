@@ -82,10 +82,10 @@ function outOfDate() {
     }
   };
   for (const name of readdirSync(join(workspace, "crates"))) {
-    const crate = join(workspace, "crates", name);
-    visit(join(crate, "src"));
+    const crateDir = join(workspace, "crates", name);
+    visit(join(crateDir, "src"));
     for (const manifest of ["Cargo.toml", "build.rs"]) {
-      const file = join(crate, manifest);
+      const file = join(crateDir, manifest);
       if (existsSync(file) && statSync(file).mtimeMs > built) seen.add(file);
     }
   }
