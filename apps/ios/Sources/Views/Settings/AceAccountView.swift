@@ -114,7 +114,7 @@ struct AceAccountView: View {
                     .accessibilityIdentifier("account.signIn")
             }
         } footer: {
-            Text("By signing in you agree to the [Terms of service](https://acehq.dev/terms-of-service/) and [Privacy policy](https://acehq.dev/privacy-policy/).")
+            Text(Self.agreement)
                 .font(AceDesign.Typeface.meta)
                 .foregroundStyle(AceDesign.Ink.muted)
                 .accessibilityIdentifier("account.signIn.terms")
@@ -148,6 +148,18 @@ struct AceAccountView: View {
     }
 
     private static let legalPages = AceLegal.policies
+
+    /// The sign-in footnote, its two pages linked from `AceLegal`.
+    private static let agreement: AttributedString = {
+        var text = AttributedString("By signing in you agree to the ")
+        for (index, page) in [AceLegal.terms, AceLegal.privacy].enumerated() {
+            var link = AttributedString(page.title)
+            link.link = page.url
+            text += link
+            text += AttributedString(index == 0 ? " and " : ".")
+        }
+        return text
+    }()
 
     @ViewBuilder private var browserFailure: some View {
         if let problem = browserProblem {
