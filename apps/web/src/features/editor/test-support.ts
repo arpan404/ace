@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { init } from "@ace/editor";
 import * as glue from "@ace/editor/pkg/editor_wasm.js";
+import { markitGrammarWasmFile, markitWasmFile } from "@ace/markit-web/assets";
 
 /*
  * Loads the built editor Wasm for jsdom tests, the way `packages/editor`'s own tests do: the
@@ -24,4 +25,13 @@ function packageFile(name: string): string {
 export function initEditorForTests(): Promise<void> {
   loading ??= init({ module: glue, wasm: readFileSync(packageFile("editor_wasm_bg.wasm")) });
   return loading;
+}
+
+/** markit's incremental highlighter runs inline in jsdom, with both of its Wasm modules. */
+export function lineHighlighterOptionsForTests() {
+  return {
+    worker: "inline" as const,
+    wasm: readFileSync(markitWasmFile()),
+    grammarWasm: readFileSync(markitGrammarWasmFile()),
+  };
 }

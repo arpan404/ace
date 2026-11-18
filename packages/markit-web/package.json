@@ -16,7 +16,7 @@
     "sync-assets": "node scripts/sync-assets.mjs"
   },
   "dependencies": {
-    "@markit/web": "https://github.com/arpan404/markit/releases/download/v0.2.0/markit-web-0.2.0.tgz",
+    "@markit/web": "https://github.com/arpan404/markit/releases/download/v0.2.1/markit-web-0.2.1.tgz",
     "zod": "^4.6.5"
   },
   "peerDependencies": {

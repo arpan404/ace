@@ -1,7 +1,7 @@
 import { EditorDocument, lineMarks, type Applied, type Selection } from "@ace/editor";
 import { fileLanguage, type LineMark } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { WholeFileLineHighlighter } from "./highlighter.ts";
+import { MarkitLineHighlighter } from "./highlighter.ts";
 import { ensureEditorReady } from "./wasm.ts";
 
 /*
@@ -14,7 +14,7 @@ import { ensureEditorReady } from "./wasm.ts";
 export interface EditorDocumentState {
   /** Undefined until the Wasm has loaded and the document exists. */
   doc: EditorDocument | undefined;
-  highlighter: WholeFileLineHighlighter | undefined;
+  highlighter: MarkitLineHighlighter | undefined;
   /** True when the editor's Wasm could not load: the view offers a retry. */
   failed: boolean;
   /** Bumped on every applied edit, so a render walks the new text. */
@@ -53,7 +53,7 @@ export function useEditorDocument(options: {
   const editable = options.editable ?? true;
   const [initial] = useState(options.text);
   const [doc, setDoc] = useState<EditorDocument>();
-  const [highlighter, setHighlighter] = useState<WholeFileLineHighlighter>();
+  const [highlighter, setHighlighter] = useState<MarkitLineHighlighter>();
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [version, setVersion] = useState(0);
@@ -73,16 +73,17 @@ export function useEditorDocument(options: {
   useEffect(() => {
     let live = true;
     let created: EditorDocument | undefined;
-    let colours: WholeFileLineHighlighter | undefined;
+    let colours: MarkitLineHighlighter | undefined;
     ensureEditorReady().then(
       () => {
         if (!live) return;
         created = new EditorDocument(initial);
-        colours = new WholeFileLineHighlighter(
-          fileLanguage(path),
-          options.highlightDelay,
-          () => created?.text() ?? "",
-        );
+        const language = fileLanguage(path);
+        const delay = options.highlightDelay;
+        colours =
+          delay === undefined
+            ? new MarkitLineHighlighter(language)
+            : new MarkitLineHighlighter(language, { delay });
         setDoc(created);
         setHighlighter(colours);
         setSelections(created.selections());
@@ -126,12 +127,13 @@ export function useEditorDocument(options: {
   );
 
   const after = useCallback(
-    (applied: Applied) => {
+    (applied: Applied, colours = true) => {
       if (!doc) return;
-      for (const span of applied.spans) {
-        const inserted = doc.lines(span.firstLine, span.firstLine + span.insertedLines);
-        highlighter?.edit(span.firstLine, span.removedLines, inserted);
-      }
+      if (colours)
+        for (const span of applied.spans) {
+          const inserted = doc.lines(span.firstLine, span.firstLine + span.insertedLines);
+          highlighter?.edit(span.firstLine, span.removedLines, inserted);
+        }
       onEdit.current?.();
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
@@ -168,8 +170,9 @@ export function useEditorDocument(options: {
       ]);
       // A read of the file from disk must not move the reader's place.
       doc.setSelections(before);
+      // One whole-text replacement, never also an edit span for the same change.
       highlighter?.setText(next);
-      after(applied);
+      after(applied, false);
       commit();
     },
     [doc, highlighter, after, commit],
