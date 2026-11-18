@@ -215,6 +215,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       packaged: app.isPackaged,
     },
     env: process.env,
+    savedPathFile: join(app.getPath("userData"), "login-path.json"),
     log: logger("supervisor"),
     sinceLaunch: () => performance.now(),
     freezes: beat,
@@ -300,6 +301,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
     log: logger("quit"),
   });
+  // The daemon's lookup and spawn start now, beside serving the page and creating the window,
+  // not after them: they need nothing from Electron's ready. Only this app's single instance
+  // gets here, the QuitGate above already stops what this starts, and the supervisor picks a
+  // safe start itself. Nothing the updater does, later, can keep it from running.
+  void runtime
+    .start()
+    .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
   const daemonRunning = new Promise<void>((settle) => {
     if (runtime.current().state === "running") return settle();
     const stop = runtime.onStatus((status) => {
@@ -780,10 +788,6 @@ function main(target: DaemonTarget, crashDumps: string): void {
     }
     // The background link follows the daemon from here on: it attaches whenever one is ready.
     background.start();
-    // The daemon starts first: nothing the updater does can keep it from running.
-    void runtime
-      .start()
-      .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
     try {
       updates.start();
     } catch (error) {
