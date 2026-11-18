@@ -215,10 +215,6 @@ pub fn report(
             "tldr-pages, held-out pages".to_owned(),
             tldr_items(examples, |e| tldr_test_page(&e.page)),
         ));
-        sets.push((
-            "tldr-pages, every page".to_owned(),
-            tldr_items(examples, |_| true),
-        ));
     }
     if let Some(calls) = real {
         sets.push((

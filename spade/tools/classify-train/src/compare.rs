@@ -8,9 +8,10 @@ use std::fmt::Write as _;
 use spade_classify::{Header, Model, class_of, encode};
 use spade_core::effect::Effect;
 
-use crate::data::{Example, Split};
+use crate::data::Example;
 use crate::eval::{self, HEADER, Scored, measure, row};
 use crate::mlp;
+use crate::report::{Role, UNTOUCHED, role};
 
 /// The comparison section of the report. `linear` is the measured linear model and its scores.
 pub fn report(
@@ -23,7 +24,7 @@ pub fn report(
     let training: Vec<(&[(u32, f32)], usize)> = examples
         .iter()
         .zip(vectors)
-        .filter(|(e, _)| e.split == Split::Train)
+        .filter(|(e, _)| role(e) == Role::Fit)
         .filter_map(|(e, v)| class_of(e.label).map(|c| (v.vector.as_slice(), c)))
         .collect();
     let net = mlp::train(&training, 8, seed);
@@ -40,7 +41,7 @@ pub fn report(
         })
         .collect();
     let named = pick(examples, &scored, |e| {
-        e.split == Split::Val && e.label != Effect::Unknown
+        role(e) == Role::Calibration && e.label != Effect::Unknown
     });
     let mut header = *linear.0.header();
     header.temperature = eval::temperature(&named);
@@ -55,7 +56,7 @@ pub fn report(
     let _ = writeln!(
         r,
         "\n## The linear model against a small MLP\n\nThe same features, data, class weights, \
-         calibration, thresholds and code checks; one hidden layer of {} ReLU units (int8, it \
+         calibration, thresholds and code checks, on the untouched sets; one hidden layer of {} ReLU units (int8, it \
          would be {} KiB of weights against the linear model's {} KiB, and about {:.1}× the \
          work per call). The MLP's validation picks temperature {:.2}, low-risk threshold \
          {:.3}, person threshold {:.2}.\n\n{HEADER}",
@@ -67,26 +68,7 @@ pub fn report(
         header.low,
         header.person,
     );
-    let sets: [(&str, Keep); 6] = [
-        ("validation", |e| {
-            e.split == Split::Val && e.source != "tldr"
-        }),
-        ("test, clean", |e| {
-            e.split == Split::Test && !e.adversarial && !e.seen_form && e.source != "tldr"
-        }),
-        ("test, adversarial", |e| {
-            e.split == Split::Test && e.adversarial
-        }),
-        ("test, tldr-pages held-out pages", |e| {
-            e.split == Split::Test && e.source == "tldr"
-        }),
-        ("fresh, clean", |e| {
-            e.split == Split::Fresh && !e.adversarial
-        }),
-        ("fresh, adversarial", |e| {
-            e.split == Split::Fresh && e.adversarial
-        }),
-    ];
+    let sets = UNTOUCHED;
     for (name, keep) in sets {
         let items = pick(examples, linear.1, keep);
         let _ = writeln!(
@@ -106,9 +88,6 @@ pub fn report(
     }
     Ok(r)
 }
-
-/// Picks the examples of one set.
-type Keep = fn(&Example) -> bool;
 
 fn pick<'a>(
     examples: &[Example],

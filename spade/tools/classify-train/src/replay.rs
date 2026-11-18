@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
-use spade_classify::{Model, Reviewing, Screen, Subject};
+use spade_classify::{ConfigTools, Model, Reviewing, Screen, Subject};
 use spade_core::autonomy::shell::{self, Lexical, Unseen, normalized};
 use spade_core::autonomy::{self, Class};
 use spade_core::effect::{self, Effect, Granted, Place as Where, Route};
@@ -62,8 +62,43 @@ impl Outcomes {
     }
 }
 
-/// How the classifier is asked: the decision function of the build being measured.
-pub type Decide<'a> = &'a dyn Fn(&Model, &Subject<'_>, Reviewing) -> Screen;
+/// How the classifier is asked: the decision function of the build being measured, with what
+/// the gate found of the folder's configuration.
+pub type Decide<'a> = &'a dyn Fn(&Model, &Subject<'_>, Reviewing, ConfigTools) -> Screen;
+
+/// The disk around a replayed folder and the environment Spade would run its command with
+/// (`HOME` the bot's folder), for `spade_classify::inspect`, read-only.
+struct Disk {
+    home: String,
+}
+
+impl spade_classify::Files for Disk {
+    fn read(&self, path: &Path) -> spade_classify::FileRead {
+        use spade_classify::FileRead;
+        match std::fs::metadata(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => FileRead::Missing,
+            Err(_) => FileRead::Unreadable,
+            Ok(meta) if meta.is_dir() => FileRead::Missing,
+            Ok(meta) if meta.len() > 256 * 1024 => FileRead::Unreadable,
+            Ok(_) => std::fs::read_to_string(path).map_or(FileRead::Unreadable, FileRead::Text),
+        }
+    }
+    fn list(&self, dir: &Path) -> Option<Vec<String>> {
+        Some(
+            std::fs::read_dir(dir)
+                .ok()?
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect(),
+        )
+    }
+    fn var(&self, name: &str) -> Option<String> {
+        (name == "HOME").then(|| self.home.clone())
+    }
+    fn vars(&self) -> Vec<String> {
+        vec!["HOME".to_owned()]
+    }
+}
 
 /// What ace marks read-only among its tools (its MCP catalogue's `riskClass`); every other ace
 /// tool is a write, and a driving one (`browser_*`, `screen_*`) is `drive`.
@@ -337,7 +372,18 @@ fn shell_call(
             p.top().0
         );
     }
-    match decide(model, &subject, reviewing) {
+    let config_clean = if call.workspace.is_empty() {
+        ConfigTools::default()
+    } else {
+        spade_classify::inspect(
+            &Disk {
+                home: call.workspace.clone(),
+            },
+            Path::new(&call.workspace),
+            Path::new(&call.workspace),
+        )
+    };
+    match decide(model, &subject, reviewing, config_clean) {
         Screen::LowRisk => {
             o.classifier_run += 1;
             if !truth.low() {
@@ -349,9 +395,13 @@ fn shell_call(
                 o.false_low_unsure += usize::from(truth == Label::Unsure);
             }
         }
-        Screen::Person(_) => {
+        Screen::Person(effect) => {
             o.classifier_person += 1;
             o.raised_right += usize::from(person);
+            if !person && with_workspace && std::env::var_os("CLASSIFY_DUMP").is_some() {
+                let short: String = command.chars().take(160).collect();
+                eprintln!("REPLAY WRONG-RAISE {effect:?} {truth:?} {short:?}");
+            }
         }
         Screen::Abstain => {
             o.reviewer += 1;
@@ -365,6 +415,8 @@ fn shell_call(
                     "a part never seen as low-risk"
                 } else if p.dropped {
                     "past a bound"
+                } else if !p.config.within(config_clean) {
+                    "configuration around the folder could run a program"
                 } else if reviewing.tainted && p.network {
                     "may reach the network, untrusted content in view"
                 } else if reviewing.tainted && truth != Label::Sure(Effect::Read) {
@@ -489,7 +541,7 @@ mod tests {
             shell("t", "grep -rn TODO src"),
             shell("t", "cargo test"),
         ];
-        let this = replay(&calls, model, &|m, s, r| m.decide(s, r).1, true);
+        let this = replay(&calls, model, &|m, s, r, c| m.decide(s, r, c).1, true);
         // The first command runs before anything untrusted is in view; the read after it settles;
         // the test run after it waits for the reviewer.
         assert_eq!(this.classifier_run, 2);
@@ -497,7 +549,7 @@ mod tests {
         let main = replay(
             &calls,
             model,
-            &|m, s, r| {
+            &|m, s, r, _| {
                 let p = m.predict(s);
                 if r.may_settle() {
                     m.screen(&p)

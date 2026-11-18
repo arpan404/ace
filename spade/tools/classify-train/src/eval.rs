@@ -30,6 +30,7 @@ impl Scored {
             known: true,
             dropped: false,
             network: false,
+            config: spade_classify::ConfigTools::default(),
         }
     }
 }

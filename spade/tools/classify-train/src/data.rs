@@ -55,9 +55,6 @@ pub struct Example {
     pub trick: Option<&'static str>,
     /// Part of the adversarial set (obfuscated, or a misleading tool).
     pub adversarial: bool,
-    /// A training form filled with held-out values: how the model does on the commands it
-    /// knows, used for no choice.
-    pub seen_form: bool,
 }
 
 impl Example {
@@ -162,7 +159,6 @@ fn shell(seed: u64, out: &mut Vec<Example>) {
                 split,
                 trick,
                 adversarial,
-                seen_form: false,
             });
         };
         for i in 0..SHELL_PER_FAMILY / 4 {
@@ -176,7 +172,6 @@ fn shell(seed: u64, out: &mut Vec<Example>) {
                 split: Split::Test,
                 trick: None,
                 adversarial: false,
-                seen_form: true,
             });
         }
         for i in 0..SHELL_PER_FAMILY {
@@ -366,7 +361,6 @@ fn tools(seed: u64, out: &mut Vec<Example>) {
                 split,
                 trick,
                 adversarial,
-                seen_form: false,
             });
         };
         if family.adversarial {
@@ -421,7 +415,6 @@ pub fn fresh(fresh_seed: u64) -> Vec<Example> {
                         split: Split::Fresh,
                         trick: Some(name),
                         adversarial: true,
-                        seen_form: false,
                     });
                 }
             }
@@ -433,7 +426,6 @@ pub fn fresh(fresh_seed: u64) -> Vec<Example> {
                 split: Split::Fresh,
                 trick: None,
                 adversarial: false,
-                seen_form: false,
             });
         }
     }
@@ -450,7 +442,6 @@ pub fn fresh(fresh_seed: u64) -> Vec<Example> {
                 split: Split::Fresh,
                 trick,
                 adversarial,
-                seen_form: false,
             };
             if family.adversarial {
                 out.push(example(input, Some("misleading_name"), true));
@@ -547,7 +538,6 @@ fn fixture_examples(seed: u64, root: &Path) -> Vec<Example> {
                 split,
                 trick: None,
                 adversarial: false,
-                seen_form: false,
             }
         })
         .collect()
@@ -576,7 +566,6 @@ pub fn tldr(examples: &[tldr::Example]) -> Vec<Example> {
             },
             trick: None,
             adversarial: false,
-            seen_form: false,
         })
         .collect()
 }

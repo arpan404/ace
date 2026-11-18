@@ -103,6 +103,8 @@ pub const AGENT_FAMILIES: &[Family] = &[
             "cat -A {file} | head -{num}",
             "rg --files {dir} | wc -l",
             "grep -E '^(fn|pub fn) ' {file} | head -{num}",
+            "rg --no-config -n '{word}' {dir}",
+            "rg --no-config -l '{word}' {dir} | head -{num}",
         ],
     ),
     family(
@@ -127,6 +129,14 @@ pub const AGENT_FAMILIES: &[Family] = &[
             "echo \"exit=$?\"",
             "nproc && free -g | head -2",
             "git config --get remote.origin.url",
+            "sleep {num}",
+            "sleep 0.5",
+            "sleep {num}; tail -{num} {file}",
+            "sleep 2 && cat {file}",
+            "which wtype ydotool 2>/dev/null",
+            "which xdotool || echo missing",
+            "command -v wl-copy grim",
+            "sleep 1; ls {dir}",
         ],
     ),
     family(
