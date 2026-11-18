@@ -73,6 +73,6 @@ export function useGroupConversation(group: { id: string; conversation: string }
 /** Why a group can't take `message` as it is, or `undefined` when it can: groups take words. */
 export function groupRefusal(message: SpadeMessage): string | undefined {
   if (message.images.length || message.documents?.length || message.voice)
-    return "A group takes words only, not images, files or recordings.";
+    return "A club takes words only, not images, files or recordings.";
   return undefined;
 }

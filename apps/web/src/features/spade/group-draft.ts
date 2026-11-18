@@ -145,10 +145,10 @@ export function groupProblem(
   spade: MemberChoice | undefined,
 ) {
   const count = memberCount(picked, lead, spade);
-  if (!name.trim()) return "Name the group.";
-  if (lead === spadeLeads && !spade) return "Pick a bot of the group's machine to lead.";
+  if (!name.trim()) return "Name the club.";
+  if (lead === spadeLeads && !spade) return "Pick a bot of the club's machine to lead.";
   if (count < spadeGroupMembersMin) return "Pick at least one more bot.";
-  if (count > spadeGroupMembersMax) return `A group holds up to ${spadeGroupMembersMax} bots.`;
+  if (count > spadeGroupMembersMax) return `A club holds up to ${spadeGroupMembersMax} bots.`;
   return undefined;
 }
 
@@ -244,10 +244,10 @@ export function draftLead(
 
 /** Why the draft can't be made yet, in words; undefined when it can. */
 export function draftProblem(name: string, picked: readonly MemberChoice[]): string | undefined {
-  if (!name.trim()) return "Name the group.";
+  if (!name.trim()) return "Name the club.";
   if (picked.length < spadeGroupMembersMin) return "Pick at least one more bot.";
   if (picked.length > spadeGroupMembersMax)
-    return `A group holds up to ${spadeGroupMembersMax} bots.`;
+    return `A club holds up to ${spadeGroupMembersMax} bots.`;
   return undefined;
 }
 

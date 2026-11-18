@@ -125,10 +125,15 @@ backups aside). It would leave stable without the person's data.
 
 **The badge.**
 
-- A beta build has a Dock icon with a "BETA" band, rendered by `scripts/icons.ts` at build time.
-- The sidebar's foot shows the word **Beta**, as text beside the update button (no chip, no tint).
+- A beta build's Dock icon is the stable master with its bottom-right corner peeled back like a
+  sticker, showing orange underneath, rendered by `scripts/icons.ts` at build time. It has no
+  lettering.
+- The profile disc at the sidebar's foot wears the same peel, and the build's name ("ace 0.0.24
+  beta 1", or "ace beta" when the version is unknown) joins its tooltip and accessible name.
 - The daemon's hello reports its line, so the web app connected to a beta daemon shows the same
-  word. iOS follows later.
+  peel. iOS follows later.
+- History: the icon first had a "BETA" band across the tile's foot and the sidebar showed the word
+  **Beta**; the owner replaced both with the peel on 2026-11-18.
 
 **Publishing.** `bun run release:beta build` stages the build under
 `dist/releases/<tag>` (`dist/releases/ace-0.0.24-beta-1`). `bun run release:beta publish` checks the staged hashes and that

@@ -75,7 +75,7 @@ bun run release:beta publish <tag> --notes-file notes.md
 `origin/main`. A beta previews the next version: the patch after `apps/desktop/package.json`
 (0.0.23 → 0.0.24), or a later `--version`. `N` is one more than the highest beta of that
 version on GitHub, across days. It builds the app as `X.Y.Z-beta.<N>` (`0.0.24-beta.1`), titled
-`ace 0.0.24 beta 1`, without touching `package.json`, with a BETA band on the Dock icon. `publish` uploads a draft prerelease, then
+`ace 0.0.24 beta 1`, without touching `package.json`, with a peeled corner on the Dock icon. `publish` uploads a draft prerelease, then
 publishes it.
 
 ## What people see

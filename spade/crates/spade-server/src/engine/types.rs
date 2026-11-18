@@ -210,7 +210,7 @@ pub enum SendError {
     NotFound,
     #[error("Spade is switched off on this machine; it runs on another one")]
     Disabled,
-    #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
+    #[error("this is a club's transcript; post with /v1/groups/{{id}}/messages")]
     Group,
     #[error("this is a helper's conversation; it takes no messages")]
     Helper,

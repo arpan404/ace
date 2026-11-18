@@ -531,7 +531,7 @@ simple to prove, after corners kept turning up (a second `gawk -e` program with 
    `spade/docs/autonomy.md` is the kept set.
 2. **Writes being gone removes the write-destination symlink.** No settled command writes, so
    there is no destination to resolve and no launch-time re-check for a swapped write target. This
-   does *not* resolve reads through a symlink: a settled `cat README.md` where `README.md` links to
+   does _not_ resolve reads through a symlink: a settled `cat README.md` where `README.md` links to
    a secret outside the folder, a `grep -r`/`rg`/`find` through a symlinked directory, or `git`
    following a `.git` `gitdir:` file still read outside, and a lexical path check races a swap
    between decision and launch. Amendment 7 contains those reads in the kernel, not in a path check.
@@ -592,8 +592,7 @@ leftover overlap panics the run); `main-baseline.sh` reproduces the baseline tab
 
 Decided by: the owner, after the sixth review found that dropping writes (amendment 5) left reads
 free to follow a symlink or a `.git` `gitdir:` file out of the bot's folder, and that a lexical
-path check races a swap between the gate's decision and the launch. Changes amendment 5's decision
-2. Containment moves from path checks to the kernel.
+path check races a swap between the gate's decision and the launch. Changes amendment 5's decision 2. Containment moves from path checks to the kernel.
 
 The read-only profile is strict, minimal and offline, and it is enforced fully or not used at all.
 A later review of the first cut found it still too loose — partial sandboxes qualified, the system
@@ -652,7 +651,7 @@ now the narrowest one that still lets each settled program start.
    builds the policy.
 6. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
    behind the gate's own refusals, not a replacement for them; the classifier still never lowers a
-   deterministic decision (decision 2 of the original ADR). It closes the gap that a *settled* read
+   deterministic decision (decision 2 of the original ADR). It closes the gap that a _settled_ read
    — one the gate already judged low-risk — could still reach a byte outside the folder.
 
 None of this changes which commands the model settles (the profile only shapes how a settled one

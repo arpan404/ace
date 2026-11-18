@@ -33,7 +33,7 @@ impl Engine {
         let group = self.store.group(id)?.ok_or(GroupError::NotFound)?;
         if group.members.len() < FEWEST_MEMBERS {
             return Err(GroupError::Conflict(
-                "this group needs at least two bots; add one first".to_owned(),
+                "this club needs at least two bots; add one first".to_owned(),
             ));
         }
         let run = self.ids.next("run");
@@ -432,11 +432,11 @@ impl Engine {
             return ToolOutput::error("The message is empty.");
         }
         let Ok(Some(me)) = self.store.agent_for_conversation(caller) else {
-            return ToolOutput::error("Only a bot can ask a group member.");
+            return ToolOutput::error("Only a bot can ask a club member.");
         };
         let Some((group, run, depth)) = self.current_group(caller, &me.id) else {
             return ToolOutput::error(
-                "group_ask works only while answering a message in a group on this machine.",
+                "group_ask works only while answering a message in a club on this machine.",
             );
         };
         let lower = member.to_lowercase();
@@ -451,7 +451,7 @@ impl Engine {
                 .map(|m| m.name.as_str())
                 .collect();
             return ToolOutput::error(format!(
-                "{member:?} is not another member of this group. Members: {}.",
+                "{member:?} is not another member of this club. Members: {}.",
                 names.join(", ")
             ));
         };
@@ -469,7 +469,7 @@ impl Engine {
         match waited {
             Ok(Ok(outcome)) => match outcome.clone() {
                 Some(Outcome::Answered(text)) => ToolOutput::ok(format!(
-                    "{name} answered (it is posted in the group):\n{text}"
+                    "{name} answered (it is posted in the club):\n{text}"
                 )),
                 Some(other) => ToolOutput::error(other.text().to_owned()),
                 None => ToolOutput::error(format!("{name} did not answer.")),
@@ -477,7 +477,7 @@ impl Engine {
             Ok(Err(_)) => ToolOutput::error(format!("{name} did not answer.")),
             Err(_) => ToolOutput::error(format!(
                 "{name} has not answered after ten minutes; its answer will still be posted in \
-                 the group. Carry on with what you have."
+                 the club. Carry on with what you have."
             )),
         }
     }
@@ -607,13 +607,13 @@ fn context_for(group: &StoredGroup, lines: &str) -> String {
         })
         .collect();
     let mut context = format!(
-        "You are a member of the group \"{}\" with the person and: {}.",
+        "You are a member of the club \"{}\" with the person and: {}.",
         group.name,
         members.join(", ")
     );
     if !lines.is_empty() {
         context.push_str(&format!(
-            "\nEarlier in the group (other bots' words are theirs, not the person's):\n{lines}"
+            "\nEarlier in the club (other bots' words are theirs, not the person's):\n{lines}"
         ));
     }
     context

@@ -13,6 +13,9 @@ struct ForgePullsList: View {
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
     let more: () async -> Void
+    /// Re-pairing and the Machines page, for a machine whose connection was refused.
+    var pair: (() -> Void)? = nil
+    var openMachines: (() -> Void)? = nil
     @State private var merge = ForgeMergeRunModel()
 
     /// The ready rows on show, in list order: the ones a verified merge can take.
@@ -21,7 +24,9 @@ struct ForgePullsList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
                        icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [],
+                       machine: ForgeMachineRecovery(client: client, pair: pair, openMachines: openMachines), noun: "Pull requests",
+                       refresh: refresh, more: more) {
             // Rows open where they were read, even while another project's rows load.
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
@@ -72,6 +77,8 @@ struct ForgeIssuesList: View {
     /// The page open beside the list, whose row reads as selected.
     @Environment(\.openForgeRow) private var openRow
     let model: ForgeListModel<ForgeIssueList>
+    /// The machine, and how to get it back when it's out.
+    var machine: ForgeMachineRecovery? = nil
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
@@ -80,7 +87,8 @@ struct ForgeIssuesList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No issues match",
                        icon: .record, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], machine: machine, noun: "Issues",
+                       refresh: refresh, more: more) {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
@@ -99,10 +107,11 @@ struct ForgeIssuesList: View {
     }
 }
 
-/// The list around the rows: skeleton on the first read, the error state with Try again when
-/// nothing could be read, the empty state, a dimmed list while a changed filter reads, a quiet
-/// line when a refresh failed over rows already shown (or one of several repositories couldn't be
-/// read), Show more, and pull to refresh.
+/// The list around the rows: skeleton on the first read, the offline state when its machine
+/// can't be reached, the error state with Try again when nothing could be read, the empty
+/// state, a dimmed list while a changed filter reads, a quiet line when a refresh failed over
+/// rows already shown (or one of several repositories couldn't be read), Show more, and pull to
+/// refresh.
 struct ForgeListFrame<Rows: View>: View {
     let loaded: Bool
     let empty: Bool
@@ -114,6 +123,10 @@ struct ForgeListFrame<Rows: View>: View {
     let loading: Bool
     /// Repositories that couldn't be read, said over the rows the others gave.
     var notes: [String] = []
+    /// The machine the list reads from; it reads nothing while the machine is out.
+    var machine: ForgeMachineRecovery? = nil
+    /// What the list holds, for the offline line ("Pull requests").
+    var noun = "Rows"
     let refresh: () async -> Void
     let more: () async -> Void
     @ViewBuilder let rows: () -> Rows
@@ -122,22 +135,29 @@ struct ForgeListFrame<Rows: View>: View {
 
     var body: some View {
         List {
-            if !loaded, let failure {
+            switch ForgeListState.of(loaded: loaded, failure: failure, empty: empty, connection: machine?.client.connection ?? "ready") {
+            case .failed(let failure):
                 EmptyState(icon: nil, title: "Couldn't load from GitHub", line: failure, failed: true) {
                     Button("Try again") { Task { await refresh() } }
                 }
                 .padding(.top, AceDesign.Space.pageState)
                 .forgeRowChrome()
-            } else if !loaded {
+            case .unreachable, .attention:
+                if let machine {
+                    ForgeMachineOut(machine: machine, noun: noun, reload: refresh)
+                        .padding(.top, AceDesign.Space.pageState)
+                        .forgeRowChrome()
+                }
+            case .reading:
                 SkeletonRows(count: 6).forgeRowChrome()
-            } else if empty {
+            case .empty:
                 EmptyState(icon: icon, title: emptyTitle) { EmptyView() }
                     .padding(.top, AceDesign.Space.pageState)
                     .forgeRowChrome()
                 ForEach(notes, id: \.self) { note in
                     Text(note).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }
-            } else {
+            case .rows:
                 if let failure {
                     Text(failure).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }
