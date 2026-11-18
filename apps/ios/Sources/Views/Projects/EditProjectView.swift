@@ -38,46 +38,56 @@ struct EditProjectView: View {
         _notes = State(initialValue: project.notes.map { NoteDraft(saved: $0.id, text: $0.text) })
     }
 
-    var body: some View {
-        QuietPage {
-            QuietGroup {
+    private var list: some View {
+        List {
+            if let problem {
+                Section { ProblemRow(problem, id: "project.edit.problem") }
+            }
+            if waiting {
+                Section {
+                    HStack(spacing: AceDesign.Space.related) {
+                        WorkingMark()
+                        Text("Waiting for your computer to save it…").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                    }
+                }
+                .listRowBackground(Color.clear)
+            }
+            Section {
                 TextField("Name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("project.edit.name")
-            } footer: { Text(project.path).font(AceDesign.Typeface.code) }
+            } header: { InsetHeader("Name") } footer: { Text(verbatim: project.path).aceMonospace(AceDesign.TextRole.code) }
+            .insetRowBackground()
 
             iconSection
             if let options {
                 ProjectDefaultsSections(options: options, defaults: $defaults)
+            } else if let optionsProblem {
+                Section {
+                    ProblemRow("Couldn't read this project's options.", detail: optionsProblem, id: "project.edit.options") { Task { await readOptions() } }
+                }
             } else {
-                QuietGroup {
-                    if let optionsProblem {
-                        ServiceProblem(message: optionsProblem)
-                        Button("Retry") { Task { await readOptions() } }
-                    } else {
-                        // The rows' own shape while the machine answers, so nothing jumps when they fill in.
-                        ForEach(["Model", "Access", "Worktree", "Base branch"], id: \.self) { title in
-                            LabeledContent(title) { Text("Inherit") }.redacted(reason: .placeholder)
-                        }
-                        .accessibilityHidden(true)
+                Section {
+                    // The rows' own shape while the machine answers, so nothing jumps when they fill in.
+                    ForEach(["Model", "Access", "Worktree", "Base branch"], id: \.self) { title in
+                        LabeledContent(title) { Text("Inherit") }.redacted(reason: .placeholder)
                     }
+                    .accessibilityHidden(true)
                 } header: { InsetHeader("New threads") }
-
+                .insetRowBackground()
             }
             notesSection
-            QuietGroup {
-                Button("Remove project…", role: .destructive) { removing = true }.accessibilityIdentifier("project.edit.remove")
+            Section {
+                Button("Remove project…", role: .destructive) { removing = true }
+                    .buttonStyle(.rowAction)
+                    .accessibilityIdentifier("project.edit.remove")
             }
-
-            if waiting {
-                QuietGroup {
-                    Text("Saved on this phone. Waiting for your computer to apply it…")
-                        .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
-                }
-
-            }
-            if let problem { QuietGroup { ServiceProblem(message: problem) } }
+            .insetRowBackground()
         }
+    }
 
+    var body: some View {
+        list
+        .insetGroupedList()
         .smoothChange(waiting)
         .smoothChange(icon.mode)
         .smoothChange(options == nil)
@@ -107,7 +117,7 @@ struct EditProjectView: View {
     // MARK: Icon
 
     @ViewBuilder private var iconSection: some View {
-        QuietGroup {
+        Section {
             HStack(spacing: AceDesign.Space.row) {
                 ProjectIconPreview(initials: initials, glyph: options?.choices.glyphs.first { $0.id == icon.glyph }?.icon, icon: icon)
                 Picker("Icon", selection: Binding(get: { icon.mode }, set: { icon.mode = $0; iconTouched = true; imageProblem = nil })) {
@@ -147,13 +157,17 @@ struct EditProjectView: View {
             }
             if icon.mode == .image {
                 PhotosPicker(selection: $photo, matching: .images) { Text(icon.image == nil ? "Choose image…" : "Replace image…") }
+                    .buttonStyle(.rowAction)
                     .accessibilityIdentifier("project.edit.image")
-                if let imageProblem { ServiceProblem(message: imageProblem) }
+                if let imageProblem {
+                    Text(imageProblem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
+                        .accessibilityIdentifier("project.edit.image.problem")
+                }
             }
         } header: { InsetHeader("Icon") } footer: {
-            Text(icon.mode == .auto ? "Shows the project's own favicon when it has one, else its initials." : "Rows show the mark in quiet ink; the colour shows on the larger mark.")
+            Text(icon.mode == .auto ? "The project's favicon when it has one, else its initials." : "Rows show the mark in grey; the colour shows on the larger mark.")
         }
-
+        .insetRowBackground()
     }
 
     private func pick(_ item: PhotosPickerItem) async {
@@ -171,20 +185,22 @@ struct EditProjectView: View {
     // MARK: Notes
 
     @ViewBuilder private var notesSection: some View {
-        QuietGroup {
+        Section {
             ForEach($notes) { $note in
                 HStack(alignment: .firstTextBaseline) {
                     TextField("Note", text: $note.text, axis: .vertical).lineLimit(1...6)
                     Button { notes.removeAll { $0.id == note.id } } label: { Image(systemName: "minus.circle") }
-                        .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.muted)
+                        .buttonStyle(.borderless).foregroundStyle(AceDesign.Ink.destructive)
+                        .rowButtonTarget()
                         .accessibilityLabel("Remove note")
                 }
             }
-            Button("Add note") { notes.append(NoteDraft(saved: nil, text: "")) }
+            Button { notes.append(NoteDraft(saved: nil, text: "")) } label: { AddRow("Add note") }
+                .buttonStyle(.plain)
                 .disabled(notes.count >= 50)
                 .accessibilityIdentifier("project.edit.addNote")
-        } header: { InsetHeader("Notes") } footer: { Text("Facts every agent in the project reads. Editing one makes it yours; clearing one removes it.") }
-
+        } header: { InsetHeader("Notes") } footer: { Text("Every agent in this project reads these. Clear a note to remove it.") }
+        .insetRowBackground()
     }
 
     // MARK: Saving
@@ -225,7 +241,7 @@ private struct ProjectDefaultsSections: View {
     @Binding var defaults: [String: ServiceValue]
 
     var body: some View {
-        QuietGroup {
+        Section {
             Picker("Model", selection: modelBinding) {
                 Text("Inherit").tag("")
                 ForEach(options.models) { Text($0.label).tag($0.key) }
@@ -250,17 +266,17 @@ private struct ProjectDefaultsSections: View {
                 .accessibilityIdentifier("project.edit.base")
             }
         } header: { InsetHeader("New threads") } footer: {
-            if options.modelsFailed { Text("Couldn't list this machine's models. The saved one is kept.") }
+            if options.modelsFailed { Text("Couldn't list this computer's models. The saved one is kept.") }
         }
-
-        QuietGroup {
+        .insetRowBackground()
+        Section {
             TextField("Check command", text: string("checkCommand"), prompt: Text("The project's check script"))
                 .font(AceDesign.Typeface.code)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .accessibilityIdentifier("project.edit.check")
-        } header: { InsetHeader("Pull requests") } footer: { Text("Verify runs this against pull requests. Empty uses the project's own check script.") }
-
-        QuietGroup {
+        } header: { InsetHeader("Pull requests") } footer: { Text("Verify runs this against pull requests. Leave it empty to use the project's check script.") }
+        .insetRowBackground()
+        Section {
             Picker("Profile", selection: string("browserProfileScope")) {
                 ForEach(options.choices.browserProfiles) { Text($0.label).tag($0.tag) }
             }
@@ -268,7 +284,7 @@ private struct ProjectDefaultsSections: View {
         } header: { InsetHeader("Browser") } footer: {
             Text("\(options.choices.browserProfiles.first { $0.tag == text("browserProfileScope") }?.note ?? "") Applies to browsers opened after you save.")
         }
-
+        .insetRowBackground()
     }
 
     private func text(_ key: String) -> String { if case .string(let value) = defaults[key] { value } else { "" } }

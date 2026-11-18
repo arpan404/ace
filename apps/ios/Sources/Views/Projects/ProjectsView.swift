@@ -38,44 +38,60 @@ struct ProjectsView: View {
         _next = State(initialValue: kept?.next)
         _loaded = State(initialValue: kept != nil)
     }
-    var body: some View {
-        QuietPage {
-            if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry).listRowBackground(Color.clear) }
-            QuietGroup {
-                ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }) { project in
-                    NavigationLink { ProjectDetailView(model: model, project: project) } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                                QuietRowText(title: project.name)
-                                Text(project.path).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
-                            }
-                            RowCaret()
-                        }
-                    }.accessibilityIdentifier("projects.row.\(project.id)")
-                }
-                if next != nil { Button("Show more projects") { Task { await read(more: true) } }.disabled(loading) }
-                if problem != nil {
-                    ServiceProblem(message: problem)
-                    Button("Retry") { Task { await read() } }
-                }
-            }
+    private var shown: [NativeProject] {
+        projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }
+    }
 
-            Group {
-                if loading, !loaded { SkeletonRows(count: 4, label: "Loading projects").listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
-                if loaded && !loading && projects.isEmpty && problem == nil { EmptyState(systemImage: "folder", title: "No projects") }
+    var body: some View {
+        List {
+            if model.connection != "ready" {
+                Section { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
+                    .listRowBackground(Color.clear)
             }
-            .listRowBackground(Color.clear)
+            if let problem {
+                Section { ProblemRow("Couldn't read projects.", detail: problem, id: "projects.problem") { Task { await read() } } }
+            }
+            if loading, !loaded {
+                Section { SkeletonRows(count: 4, label: "Loading projects").listRowInsets(EdgeInsets()) }
+                    .listRowBackground(Color.clear)
+            } else if loaded, projects.isEmpty, problem == nil {
+                Section {
+                    EmptyState(systemImage: "folder", title: "No projects") {
+                        if model.canOperate { Button("Add project") { adding = true }.accessibilityIdentifier("projects.empty.add") }
+                    }
+                    .padding(.vertical, AceDesign.Space.group)
+                }
+                .listRowBackground(Color.clear)
+            } else if !shown.isEmpty {
+                Section {
+                    ForEach(shown) { project in
+                        NavigationLink { ProjectDetailView(model: model, project: project) } label: { ProjectRowLabel(project: project) }
+                            .accessibilityIdentifier("projects.row.\(project.id)")
+                    }
+                    if next != nil, query.isEmpty {
+                        Button("Show more projects") { Task { await read(more: true) } }
+                            .buttonStyle(.rowAction).disabled(loading)
+                            .accessibilityIdentifier("projects.more")
+                    }
+                }
+                .insetRowBackground()
+            } else if !query.isEmpty {
+                Section { EmptyState.search(query) }.listRowBackground(Color.clear)
+            }
             if query.isEmpty {
-                QuietGroup {
+                Section {
                     NavigationLink { ProjectFoldersView(model: model) } label: {
-                        HStack { QuietRowText(title: "Project folders", detail: "Where ace may open projects"); RowCaret() }
+                        InsetRow("Project folders", systemImage: "folder.badge.gearshape", subtitle: "Where ace may open projects")
                     }
                     .accessibilityIdentifier("projects.folders")
                 }
-
+                .insetRowBackground()
             }
         }
-
+        .insetGroupedList()
+        .searchBarEdge()
+        .smoothChange(projects.map(\.id))
+        .smoothChange(problem)
         .searchable(text: $query, prompt: "Search projects")
         .nativeTitle("Projects")
         .toolbar {
@@ -110,10 +126,25 @@ struct ProjectsView: View {
             let request: [String: Any] = ["type": "projects.request", "operation": operation]
             let reply = try await model.read(request, as: ProjectListReply.self)
             guard reply.result.kind == "projects" else {
-                throw ServiceFailure(message: reply.result.code == "forbidden" ? "This pairing doesn't include Projects access. Pair again with Projects enabled on your computer." : "Couldn't read projects: \(reply.result.code ?? "unavailable"). Retry when your machine is ready.")
+                throw ServiceFailure(message: reply.result.code == "forbidden" ? "This phone's pairing doesn't include Projects. Pair again with Projects turned on." : "Your computer answered \(reply.result.code ?? "unavailable").")
             }
             loaded = true
             projects = (more ? projects : []) + (reply.result.projects ?? []); next = reply.result.next
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+    }
+}
+
+/// A project's row: its name, then its folder in mono, cut in the middle so both ends show.
+private struct ProjectRowLabel: View {
+    let project: NativeProject
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            Text(project.name).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                .lineLimit(2)
+            Text(verbatim: project.path).aceMonospace(AceDesign.TextRole.code).foregroundStyle(AceDesign.Ink.muted)
+                .lineLimit(1).truncationMode(.middle)
+        }
+        .padding(.vertical, AceDesign.Space.tight)
+        .accessibilityElement(children: .combine)
     }
 }
