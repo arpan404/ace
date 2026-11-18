@@ -234,15 +234,14 @@ impl Worker {
             self.options.max_wait,
             self.options.max_batch,
         );
-        let born = Instant::now();
-        let mut seen = 0u64;
-        let mut settled = 0u64;
         loop {
             if self.stop.load(Ordering::Acquire) {
                 break;
             }
-            if self.overflow.swap(false, Ordering::AcqRel) {
-                coalescer.overflow(None, Instant::now());
+            if self.overflow.swap(false, Ordering::AcqRel)
+                && let Some(batch) = coalescer.overflow(None, Instant::now())
+            {
+                self.deliver(batch);
             }
             let received = match coalescer.wait(Instant::now()) {
                 Some(remaining) => self.commands.recv_timeout(remaining),
@@ -254,10 +253,6 @@ impl Worker {
             match received {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Command::Event(Ok(event))) => {
-                    seen += 1;
-                    if seen % 5_000 == 0 {
-                        println!("[{:?}] worker saw {seen} events", born.elapsed());
-                    }
                     let now = Instant::now();
                     let mut translation = {
                         let look = |path: &str| translate::look(&self.root, path);
@@ -284,10 +279,6 @@ impl Worker {
                 }
                 Err(RecvTimeoutError::Timeout) => {
                     let look = |path: &str| translate::look(&self.root, path);
-                    settled += 1;
-                    if settled % 10 == 0 {
-                        println!("[{:?}] worker settled {settled} times", born.elapsed());
-                    }
                     if let Some(batch) = coalescer.settle(Instant::now(), &look) {
                         self.deliver(batch);
                     }
@@ -341,14 +332,6 @@ impl Worker {
     }
 
     fn deliver(&mut self, batch: Batch) {
-        println!(
-            "[{:?}] deliver {:?}",
-            Instant::now(),
-            match &batch {
-                Batch::Changes(c) => format!("Changes({})", c.len()),
-                other => format!("{other:?}"),
-            }
-        );
         if let Batch::Rescan { dir } = &batch
             && let Err(error) = self
                 .backend
