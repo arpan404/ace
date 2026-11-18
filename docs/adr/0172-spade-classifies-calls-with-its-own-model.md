@@ -247,8 +247,8 @@ Measured on `main`'s model and wiring, with the same labeller:
    same gap made it raise file edits done through `python - <<'EOF'` to the person: 56 of the 57
    real calls it raised weren't person-only.
 5. **Not the 0.95 floor.** On the calibration data (the validation split and tldr's validation
-   pages, unnamed calls counted unsafe) alone the threshold would be 0.895, so the floor stays and
-   binds with a margin of 0.055.
+   pages, unnamed calls counted unsafe) alone the threshold would be far lower, since few risky
+   calls have a hard form at all (`REPORT.md` gives it), so the floor stays and binds.
 6. **Not mainly the model's capacity.** A small MLP (one hidden layer of 16 ReLU units, the same
    data, calibration and checks) settles up to 2 points more of the low-risk calls in the untouched
    sets at no false low-risk, at about 1.8× the work and 2 MB of weights, and with 12 units it once
@@ -259,7 +259,7 @@ Measured on `main`'s model and wiring, with the same labeller:
 
 1. **Reads under untrusted content.** A plain command (decision 2's conditions, except taint) may
    be settled while untrusted content is in view only as a read: P(read or write_local) over the
-   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.801: above
+   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.848: above
    every calibration call that isn't a read and could be settled there, by 0.02, never below 0.8),
    and nothing in it that can reach another machine (`Prediction::network`: a program that can,
    or a URL, host or address argument). A read in the bot's folder that reaches nothing neither
@@ -291,19 +291,19 @@ Measured on `main`'s model and wiring, with the same labeller:
 
 ### Measures, before and after
 
-Every "after" number is for the exact shipped weights (`spade-classify/c886542e`), calibrated and
-measured as amendments 2 and 3 set out, on sets their fit never touched, with the gate's checks as
-it runs them: a command settles only in its hard form (amendment 3). `main` is
+Every "after" number is for the exact shipped weights (`spade-classify/a68256a4`), calibrated and
+measured as amendments 2 to 4 set out, on sets their fit never touched, with the gate's checks as
+it runs them: a command settles only in its hard form (amendments 3 and 4). `main` is
 `spade-classify/99f56e23` as wired on `main`, measured with the same labeller on the same sets.
 
 | Set                                                           | Low-risk recall   | False low-risk                        | Person precision  | Person recall     |
 | ------------------------------------------------------------- | ----------------- | ------------------------------------- | ----------------- | ----------------- |
-| Fresh, clean                                                  | 0.118 → 0.104     | 0 of 1,920 → **0 of 1,920**           | 0.983 → 0.976     | 0.942 → 0.919     |
-| Fresh, adversarial                                            | 0.032 → 0.033     | 0 of 5,139 → **0 of 5,139**           | 0.973 → 0.963     | 0.842 → **0.852** |
-| Held-out tricks and tools (main: its own 4,849; after: 5,871) | 0.070 → 0.002     | 0 of 3,312 → **0 of 3,751**           | 1.000 → 1.000     | 0.895 → **0.955** |
-| Hand-labelled hard set                                        | 0.449 → 0.339     | 0 of 95 → **0 of 95**                 | 0.979 → **1.000** | 0.920 → **0.960** |
-| tldr-pages, held-out pages                                    | 0.053 → 0.037     | 3 → **0** of 7,000 (risky or unnamed) | 0.201 → **0.283** | 0.189 → **0.500** |
-| Real sessions, distinct commands, model alone                 | 0.024 → **0.037** | 1 → **0** of 2,310 (risky or unnamed) | 0.136 → **0.857** | 0.070 → **0.094** |
+| Fresh, clean                                                  | 0.118 → 0.097     | 0 of 1,920 → **0 of 1,920**           | 0.983 → 0.977     | 0.942 → **0.951** |
+| Fresh, adversarial                                            | 0.032 → 0.032     | 0 of 5,139 → **0 of 5,139**           | 0.973 → 0.970     | 0.842 → **0.880** |
+| Held-out tricks and tools (main: its own 4,849; after: 5,871) | 0.070 → 0.002     | 0 of 3,312 → **0 of 3,751**           | 1.000 → 1.000     | 0.895 → **0.953** |
+| Hand-labelled hard set                                        | 0.449 → 0.347     | 0 of 95 → **0 of 95**                 | 0.979 → **1.000** | 0.920 → **0.960** |
+| tldr-pages, held-out pages                                    | 0.053 → 0.031     | 3 → **0** of 7,000 (risky or unnamed) | 0.201 → **0.280** | 0.189 → **0.494** |
+| Real sessions, distinct commands, model alone                 | 0.024 → **0.043** | 1 → **0** of 2,310 (risky or unnamed) | 0.136 → **0.833** | 0.070 → 0.039     |
 | Hand-labelled connector calls (raise only)                    | –                 | –                                     | 0.900 → 0.889     | 0.857 → 0.762     |
 
 Low-risk recall on the template and tldr sets is lower than `main`'s: `main` settled builds,
@@ -316,18 +316,17 @@ End to end, real sessions (shares of 6,708 calls):
 | Replay                                                 | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer  | Decided without the reviewer | False low-risk |
 | ------------------------------------------------------ | --------------------- | --------------------------------------------------- | --------- | ---------------------------- | -------------- |
 | As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 57)                                      | 78.1%     | 21.9%                        | 0              |
-| As recorded, this build                                | **2.1%**              | 0.2% (9 of 11)                                      | **76.8%** | **23.2%**                    | **0**          |
+| As recorded, this build                                | **2.4%**              | 0.1% (4 of 4)                                       | **76.6%** | **23.4%**                    | **0**          |
 | Placed in the folder each thread worked in, `main`     | 0.1%                  | 0.8% (1 of 57)                                      | 79.1%     | 20.9%                        | 0              |
-| Placed in the folder each thread worked in, this build | **23.7%**             | 0.2% (10 of 12)                                     | **56.1%** | **43.9%**                    | **0**          |
+| Placed in the folder each thread worked in, this build | **24.4%**             | 0.1% (5 of 5)                                       | **55.5%** | **44.5%**                    | **0**          |
 
 A false low-risk here is a settled call the labeller doesn't name as low-risk, or, with untrusted
 content in view, one it doesn't name as a read. Run by the rules (12.0%), asked by the rules (7.8%,
 6.8% placed) and refused (1.1%) are the same in every row. Of the 55 person-only real calls the
-rules sent to review, the classifier raises 9 or 10 (before: 1); the other calls it raised are ones
-the labeller can't name.
+rules sent to review, the classifier raises 4 or 5 (before: 1), and every call it raises is one.
 
 One classification on this Linux machine (`cargo bench -p spade-classify`, features, inference and
-the hard-form check): p50 2.8 µs → 5.2 µs, p99 65 µs → 125 µs, worst 643 µs → 160 µs. The
+the hard-form check): p50 2.8 µs → 5.4 µs, p99 65 µs → 134 µs, worst 643 µs → 203 µs. The
 configuration inspection is a few small file reads on the gate's blocking thread. The file is
 1,310,824 bytes.
 
@@ -340,7 +339,7 @@ configuration inspection is a few small file reads on the gate's blocking thread
 - Most real work happened outside the folder each thread was started in, and the classifier never
   settles that. A third of what the rules send to review has a rule finding, mostly here-documents
   and text the shell parser can't read; only the rules can open that up.
-- Person recall on real calls is 9 or 10 of 55; raising on the connector set is a little below
+- Person recall on real calls is 4 or 5 of 55; raising on the connector set is a little below
   `main`'s.
 - The labeller can't name 67% of tldr-pages' held-out pages and 29% of real commands; every
   measure counts those as risky.
@@ -480,3 +479,25 @@ before it launches, and check the marker never appears. Both fail with the overr
 `ambient.rs` `config_is_read_by_gits_own_quoting_and_what_it_cant_read_counts` covers the quoted
 `#` include. `harden.rs` and `decide.rs` cover which commands have a form and that a settled
 decision carries it.
+
+## Amendment 4 (2026-11-18): no variables, and an audited list of programs
+
+Decided by: the owner, after the third review. Changes amendment 3's decision 2.
+
+1. **A command that sets any variable never settles**: a leading `VAR=x`, `env VAR=x`, a bare
+   assignment, `export`, `declare`, `typeset`, `readonly`, `local`, `set`, `read`, `printf -v`, or
+   text built at run time (`$(…)`, backticks, `${…}`). Spade's shell parser keeps the fact on what
+   it reads (`Simple::assigns`, carried into the strings a command runs), so this is decided on
+   parsed syntax, not on words.
+2. **The programs a settled command may run are an audited list**, each kept only where its own
+   manual page shows that the overrides and refusals cover every configuration file, variable and
+   option that could make it run something it doesn't name. The table, with the section each row
+   rests on, is in `spade/docs/autonomy.md` ("Programs a settled command may run"). `cloc` is gone,
+   with every program the audit couldn't support; `less` and `more` now run in their secure modes,
+   and git's trace output and the files git reads by a path from configuration are overridden too.
+3. **The report's blocker table** derives "settled" from the decision itself and adds a column for
+   commands with no hard form.
+
+Tests: `spade_core::autonomy::shell` `a_variable_a_command_sets_is_kept_on_what_it_reads`;
+`harden.rs` `what_no_override_covers_has_no_form` (assignments, the removed programs, the refused
+options); `classify-train` `the_blocker_tables_settled_share_is_the_low_risk_recall_and_every_call_is_counted_once`.
