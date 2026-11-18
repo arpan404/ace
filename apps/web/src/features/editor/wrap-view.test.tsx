@@ -32,6 +32,12 @@ const rowTexts = () =>
 /** The content box inside the scroller; its height is the list's whole height. */
 const scrollerHost = () => document.querySelector<HTMLElement>("[data-editor-scroller] > div");
 
+/** The primary caret's drawn row, as its top offset in pixels. */
+const caretTop = () => document.querySelector<HTMLElement>("[data-caret]")?.style.top;
+
+/** CJK text is two cells a character, so a hard break comes at this many characters. */
+const cjkRow = Math.floor(columns / 2);
+
 async function openView(props: Partial<CodeEditorProps> & { text: string }) {
   const ref = createRef<EditorHandle>();
   render(
@@ -129,6 +135,48 @@ test("End and Home stop at the visual row's edge before the line's", async () =>
   expect(ref.current?.selections()).toEqual([caret(0, 0)]);
 });
 
+test("End stops at a hard break's row end and the caret is drawn there", async () => {
+  const { ref } = await openView({ text: "中".repeat(240), wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+
+  await userEvent.keyboard("{End}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow)]);
+  expect(caretTop()).toBe("0px");
+
+  await userEvent.keyboard("{End}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow * 2)]);
+  expect(caretTop()).toBe("22px");
+});
+
+test("Down from a row's end moves one row and never skips the row it begins", async () => {
+  const { ref } = await openView({ text: "中".repeat(240), wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+
+  await userEvent.keyboard("{End}");
+  await userEvent.keyboard("{ArrowDown}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow * 2)]);
+  expect(caretTop()).toBe("22px");
+
+  await userEvent.keyboard("{ArrowDown}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow * 3)]);
+  expect(caretTop()).toBe("44px");
+});
+
+test("a click past a row's end stays on that row, drawn at its end", async () => {
+  const { ref } = await openView({ text: "中".repeat(240), wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+
+  fireEvent.pointerDown(scroller, {
+    button: 0,
+    clientX: gutterWidth(1) + 200 * cell,
+    clientY: 5,
+  });
+
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow)]);
+  expect(caretTop()).toBe("0px");
+});
+
 test("the gutter numbers a line on its first row only", async () => {
   await openView({ text: `${"x".repeat(300)}\n${"y".repeat(300)}`, wrap: true });
 
@@ -140,7 +188,7 @@ test("the gutter numbers a line on its first row only", async () => {
   expect(document.querySelectorAll("[data-line]")).toHaveLength(2);
 });
 
-test("turning wrap off and on keeps the caret's logical position", async () => {
+test("turning wrap off and on keeps the caret's logical position and redraws it", async () => {
   const ref = createRef<EditorHandle>();
   function Wrapped() {
     const [wrap, setWrap] = useState(false);
@@ -162,19 +210,23 @@ test("turning wrap off and on keeps the caret's logical position", async () => {
   expect(rowTexts()).toHaveLength(1);
 
   act(() => ref.current?.focus());
-  act(() => ref.current?.setSelections([caret(0, 50)]));
+  // Column 200 is on the line's second visual row once it wraps.
+  act(() => ref.current?.setSelections([caret(0, 200)]));
+  expect(caretTop()).toBe("0px");
   const box = screen.getByRole("textbox");
   fireEvent.keyDown(box, { key: "z", code: "KeyZ", altKey: true });
 
   await waitFor(() => expect(rowTexts()).toHaveLength(3));
-  expect(ref.current?.selections()).toEqual([caret(0, 50)]);
+  expect(caretTop()).toBe("22px");
+  expect(ref.current?.selections()).toEqual([caret(0, 200)]);
 
   fireEvent.keyDown(box, { key: "z", code: "KeyZ", altKey: true });
   await waitFor(() => expect(rowTexts()).toHaveLength(1));
-  expect(ref.current?.selections()).toEqual([caret(0, 50)]);
+  expect(caretTop()).toBe("0px");
+  expect(ref.current?.selections()).toEqual([caret(0, 200)]);
 });
 
-test("Alt+Z asks for wrap to toggle", async () => {
+test("Alt+Z asks for wrap to toggle by its physical key on macOS", async () => {
   let toggles = 0;
   const { box } = await openView({
     text: "one two",
@@ -184,9 +236,25 @@ test("Alt+Z asks for wrap to toggle", async () => {
     },
   });
 
-  const notPrevented = fireEvent.keyDown(box, { key: "z", code: "KeyZ", altKey: true });
+  // Option+Z reports Ω as the character on macOS; the key is what the shortcut matches.
+  const notPrevented = fireEvent.keyDown(box, { key: "Ω", code: "KeyZ", altKey: true });
   expect(toggles).toBe(1);
   expect(notPrevented).toBe(false);
+});
+
+test("Alt+Z elsewhere is the letter, whatever its code", async () => {
+  Object.defineProperty(navigator, "platform", { value: "Win32", configurable: true });
+  let toggles = 0;
+  const { box } = await openView({
+    text: "one two",
+    wrap: false,
+    onToggleWrap: () => {
+      toggles++;
+    },
+  });
+
+  fireEvent.keyDown(box, { key: "z", code: "Unidentified", altKey: true });
+  expect(toggles).toBe(1);
 });
 
 test("a find match on a continuation row is marked on that row", async () => {
@@ -217,6 +285,80 @@ test("a narrower editor re-wraps the lines on screen", async () => {
 
   await waitFor(() => expect(rowTexts().length).toBeGreaterThan(3));
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+});
+
+test("a selection that ends at a row's start leaves a sliver on the caret's row only", async () => {
+  const text = `${"x".repeat(120)}  ${"y".repeat(50)}`;
+  const { ref } = await openView({ text, wrap: true });
+  act(() =>
+    ref.current?.setSelections([
+      { anchor: { line: 0, column: 0 }, head: { line: 0, column: 122 } },
+    ]),
+  );
+
+  const boxes = [...document.querySelectorAll<HTMLElement>("[data-selection]")];
+  // Row 0 reaches its own edge (the dropped spaces are not drawn); row 1 is the caret's row.
+  expect(boxes.map((box) => box.style.width)).toEqual([`${120 * cell}px`, "2px"]);
+  expect(boxes.map((box) => box.style.top)).toEqual(["0px", "22px"]);
+});
+
+test("the idle slices of a re-wrap keep the top line at the top", async () => {
+  const width = window.innerWidth;
+  const text = Array.from({ length: 5_000 }, () => `${"z".repeat(199)}e`).join("\n");
+  await openView({ text, wrap: true, readOnly: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  await waitFor(() => expect(scrollerHost()?.style.height).toBe(`${10_000 * 22}px`), {
+    timeout: 10_000,
+  });
+
+  // Line 4,000 is at row 8,000; at 512px the same lines wrap to four rows each.
+  scroller.scrollTop = 8_000 * 22;
+  fireEvent.scroll(scroller);
+  try {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 512 });
+    fireEvent(window, new Event("resize"));
+    await waitFor(
+      () => {
+        expect(scrollerHost()?.style.height).toBe(`${20_000 * 22}px`);
+        expect(scroller.scrollTop).toBe(16_000 * 22);
+      },
+      { timeout: 10_000 },
+    );
+  } finally {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  }
+});
+
+test("Alt+Z keeps the line at the top when the file re-wraps around it", async () => {
+  const ref = createRef<EditorHandle>();
+  function Wrapped() {
+    const [wrap, setWrap] = useState(false);
+    return (
+      <CodeEditor
+        ref={ref}
+        text={Array.from({ length: 20_001 }, () => `${"z".repeat(199)}e`).join("\n")}
+        path="notes.txt"
+        label="Editor"
+        highlightDelay={60_000}
+        wrap={wrap}
+        onToggleWrap={() => setWrap((value) => !value)}
+      />
+    );
+  }
+  render(<Wrapped />);
+  const box = await screen.findByRole("textbox");
+  await waitFor(() => expect(ref.current).toBeTruthy());
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  scroller.scrollTop = 20_000 * 22;
+  fireEvent.scroll(scroller);
+  act(() => ref.current?.focus());
+
+  fireEvent.keyDown(box, { key: "z", code: "KeyZ", altKey: true });
+
+  await waitFor(() => expect(scroller.scrollTop).toBe(40_000 * 22), { timeout: 12_000 });
+  expect(document.querySelector('[data-row="40000"]')?.getAttribute("data-line")).toBe("20000");
 });
 
 test("a width change re-wraps the whole file in the background, not only the lines on screen", async () => {

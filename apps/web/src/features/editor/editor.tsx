@@ -1,16 +1,8 @@
 // oxlint-disable react/no-array-index-key -- a row's key is its line and position; there is no other identity.
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
-import type { Position, Selection } from "@ace/editor";
+import type { Selection } from "@ace/editor";
 import { pathParts } from "@ace/ui-core";
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -26,18 +18,16 @@ import { useEditorDocument } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
 import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
-import { useReveal } from "./use-reveal.ts";
-import { useFindInFile } from "./use-find-in-file.ts";
-import { useFindResults } from "./use-find.ts";
+import { useAnnouncement, useReveal, useRevealJump } from "./use-reveal.ts";
+import { useEditorFind } from "./use-editor-find.ts";
+import { editorWindow } from "./row-window.ts";
+import { ScrollAnchor } from "./use-anchor.ts";
+import { useVisibleLines } from "./use-visible-lines.ts";
 import { useWrap } from "./use-wrap.ts";
 import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
-const overscan = 8;
-/** Documents up to this many visual rows mount every row, as the Files viewer always has. */
-const mountAll = 400;
 const paddingRight = 24;
-const noLines = [""];
 
 /**
  * The Files tab's text editor: virtualized visual rows with a sticky line-number gutter,
@@ -68,8 +58,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
+  /** The primary caret stays at the end of the row before a hard break, as VS Code keeps it. */
+  const [before, setBefore] = useState(false);
   const [paint, setPaint] = useState(0);
-  const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>();
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
 
@@ -83,6 +74,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     Math.floor((viewport.width - gutter - paddingRight) / cell),
   );
   const visible = useRef({ first: 0, last: 200 });
+  const anchor = useMemo(() => new ScrollAnchor(scroller, setScroll), [scroller, setScroll]);
   const layout = useWrap({
     doc,
     wrap,
@@ -90,54 +82,19 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     version: state.version,
     takeChanges: state.takeChanges,
     visible,
+    anchor,
   });
 
-  // Where the scroll position sits from the counts as they stand, before the visible lines are
-  // measured: an unmeasured line counts as one row, so this is the window to measure.
-  const guessed = layout?.total() ?? 0;
-  const guessFirst =
-    guessed <= mountAll ? 0 : Math.max(0, Math.floor(scroll.top / lineHeight) - overscan);
-  const guessLast =
-    guessed <= mountAll
-      ? guessed
-      : Math.min(guessed, Math.ceil((scroll.top + height) / lineHeight) + overscan);
-  // The lines about to be drawn are measured before the list takes its height from the counts,
-  // so a row count cannot change after the list has read its total.
-  if (layout && guessed > 0)
-    layout.prefer({
-      first: (layout.lineAt(guessFirst) ?? 0) - overscan,
-      last: (layout.lineAt(Math.max(guessFirst, guessLast - 1)) ?? 0) + 1 + overscan,
-    });
-
-  const rows = layout?.total() ?? 0;
-  const all = rows <= mountAll;
-  const firstRow = all ? 0 : Math.max(0, Math.floor(scroll.top / lineHeight) - overscan);
-  const lastRow = all
-    ? rows
-    : Math.min(rows, Math.ceil((scroll.top + height) / lineHeight) + overscan);
-  const first = all ? 0 : (layout?.lineAt(firstRow) ?? 0);
-  const last = all
-    ? lineCount
-    : Math.min(lineCount, (layout?.lineAt(Math.max(firstRow, lastRow - 1)) ?? 0) + 1);
+  const view = editorWindow({ layout, lineCount, scrollTop: scroll.top, height });
+  const { rows, firstRow, lastRow } = view;
+  const first = view.firstLine;
+  const last = view.lastLine;
   // The wrap index prefers the lines on screen when a width change re-wraps the file.
   useLayoutEffect(() => {
     if (doc) visible.current = { first, last };
   });
 
-  const [lines, setLines] = useState<string[]>(noLines);
-  const linesKey = `${state.version}:${first}:${last}`;
-  useEffect(() => {
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- the document is an external store; its lines change under React.
-    setLines(doc ? doc.lines(first, last) : noLines);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
-  }, [linesKey, doc]);
-  const lineAt = useCallback(
-    (line: number): string => {
-      if (line >= first && line < first + lines.length) return lines[line - first] ?? "";
-      return doc?.line(line) ?? "";
-    },
-    [doc, first, lines],
-  );
+  const { lines, lineAt } = useVisibleLines({ doc, version: state.version, first, last });
 
   const { contentWidth } = useEditorWidth({
     scroller,
@@ -176,11 +133,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     version: state.version,
   });
 
-  const announce = (position: Position) =>
-    setAnnouncement((previous) => ({
-      text: `Line ${position.line + 1}, column ${position.column + 1}`,
-      seq: (previous?.seq ?? 0) + 1,
-    }));
+  const { announcement, announce } = useAnnouncement();
 
   const { caretBox, reveal } = useReveal({
     doc: state.doc,
@@ -189,27 +142,12 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     gutter,
     cell,
     wrap,
+    before,
     viewport,
     onScroll: setScroll,
   });
 
-  useEffect(() => {
-    if (!props.line || props.line <= 0) return;
-    const position = { line: props.line - 1, column: 0 };
-    reveal(position);
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- a go-to-line is an explicit jump, announced once.
-    announce(position);
-  }, [props.line, reveal]);
-
-  const hitLine = props.find?.hit?.line;
-  const hitColumn = props.find?.hit?.column;
-  useEffect(() => {
-    if (hitLine === undefined || hitColumn === undefined) return;
-    const position = { line: hitLine, column: hitColumn };
-    reveal(position);
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- a find hit is an explicit jump, announced once.
-    announce(position);
-  }, [hitLine, hitColumn, reveal]);
+  useRevealJump({ line: props.line, hit: props.find?.hit, reveal, announce });
 
   useEffect(() => {
     if (props.text === seenText.current) return;
@@ -217,31 +155,25 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     if (state.doc && state.doc.text() !== props.text) state.replaceText(props.text);
   }, [props.text, state]);
 
-  const finder = useFindInFile({
+  const {
+    finder,
+    matches,
+    query: activeQuery,
+    current: currentIndex,
+  } = useEditorFind({
     doc,
     version: state.version,
-    select: (range) => state.select([{ anchor: range.start, head: range.end }]),
+    find: props.find,
+    select: (range) => {
+      setBefore(false);
+      state.select([{ anchor: range.start, head: range.end }]);
+    },
     reveal: (position) => {
       reveal(position);
       announce(position);
     },
     focusEditor: () => field.current?.focus({ preventScroll: true }),
   });
-  const external = useFindResults(doc, state.version, {
-    active: !finder.open && !!props.find?.query,
-    query: finder.open ? "" : (props.find?.query ?? ""),
-    caseSensitive: false,
-  });
-  const matches = finder.open ? finder.matches : external.matches;
-  const activeQuery = finder.open ? finder.query : (props.find?.query ?? "");
-  const externalIndex = useMemo(() => {
-    const hit = props.find?.hit;
-    if (!hit) return -1;
-    return matches.findIndex(
-      (range) => range.start.line === hit.line && range.start.column === hit.column,
-    );
-  }, [matches, props.find?.hit]);
-  const currentIndex = finder.open ? finder.index : externalIndex;
 
   const navigationKeys = useEditorKeys({
     state,
@@ -249,6 +181,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     path: props.path,
     rows: Math.max(1, Math.floor(height / lineHeight)),
     layout,
+    before,
+    onBefore: setBefore,
     onFind: finder.openFind,
     ...(props.onSave ? { onSave: props.onSave } : {}),
     ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
@@ -288,6 +222,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     element: host,
     focus: () => field.current?.focus({ preventScroll: true }),
     reveal,
+    onBefore: setBefore,
   });
 
   useImperativeHandle(ref, () => ({
@@ -295,7 +230,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     text: () => state.doc?.text() ?? props.text,
     version: () => state.doc?.version() ?? 0,
     selections: () => state.doc?.selections() ?? [],
-    setSelections: (selections: readonly Selection[]) => state.select(selections),
+    setSelections: (selections: readonly Selection[]) => {
+      setBefore(false);
+      state.select(selections);
+    },
   }));
 
   const caret = caretBox({ line: caretLine, column: caretColumn });
@@ -393,6 +331,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               lastLine={last - 1}
               gutter={gutter}
               cell={cell}
+              before={before}
+              primary={state.primary}
               composing={
                 input.composingText === undefined ? undefined : { text: input.composingText }
               }

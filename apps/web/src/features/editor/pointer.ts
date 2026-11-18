@@ -5,7 +5,7 @@ import { wordAt } from "./cursor.ts";
 import { lineHeight, tabSize } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
 import type { RowLayout } from "./wrap-index.ts";
-import { columnOnRow } from "./wrap.ts";
+import { atHardBreak, columnOnRow } from "./wrap.ts";
 
 /*
  * Mouse and trackpad selection over the rendered rows: a click places one caret, a drag
@@ -22,11 +22,16 @@ export function usePointerSelection(options: {
   element: { current: HTMLDivElement | null };
   focus(): void;
   reveal(position: Position): void;
+  /** Records whether the click landed at a row's end where the next row begins. */
+  onBefore(before: boolean): void;
 }) {
   const { state, cell, gutter, layout } = options;
   const drag = useRef<{ anchor: Position; box: boolean; moved: boolean } | undefined>(undefined);
 
-  const positionAt = (clientX: number, clientY: number): Position | undefined => {
+  const positionAt = (
+    clientX: number,
+    clientY: number,
+  ): { position: Position; before: boolean } | undefined => {
     const element = options.element.current;
     const doc = state.doc;
     if (!element || !doc || !layout) return undefined;
@@ -41,16 +46,20 @@ export function usePointerSelection(options: {
     const current = rows[at];
     if (!current) return undefined;
     const x = clientX - rect.left - gutter;
-    return { line, column: columnOnRow(doc.line(line), current, x, cell) };
+    const column = columnOnRow(doc.line(line), current, x, cell);
+    // A click past a row's edge stays on that row, drawn at its end.
+    return { position: { line, column }, before: atHardBreak(rows, at, column) };
   };
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
-    const position = positionAt(event.clientX, event.clientY);
+    const target = positionAt(event.clientX, event.clientY);
     const doc = state.doc;
-    if (!position || !doc) return;
+    if (!target || !doc) return;
+    const position = target.position;
     event.preventDefault();
     options.focus();
+    options.onBefore(target.before);
     const selections = doc.selections();
     const current = selections[doc.primarySelection()];
     if (event.shiftKey && current) {
@@ -73,17 +82,18 @@ export function usePointerSelection(options: {
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const target = drag.current;
     if (!target || event.buttons === 0) return;
-    const position = positionAt(event.clientX, event.clientY);
+    const landed = positionAt(event.clientX, event.clientY);
     const doc = state.doc;
-    if (!position || !doc) return;
+    if (!landed || !doc) return;
     target.moved = true;
+    options.onBefore(landed.before);
     if (target.box) {
-      doc.selectColumn(target.anchor, position, tabSize);
+      doc.selectColumn(target.anchor, landed.position, tabSize);
       state.select(doc.selections());
     } else {
-      state.select([{ anchor: target.anchor, head: position }]);
+      state.select([{ anchor: target.anchor, head: landed.position }]);
     }
-    options.reveal(position);
+    options.reveal(landed.position);
   };
 
   const onPointerUp = () => {
@@ -98,10 +108,12 @@ export function usePointerSelection(options: {
   };
 
   const onDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
-    const position = positionAt(event.clientX, event.clientY);
+    const landed = positionAt(event.clientX, event.clientY);
     const doc = state.doc;
-    if (!position || !doc) return;
+    if (!landed || !doc) return;
+    const position = landed.position;
     event.preventDefault();
+    options.onBefore(false);
     const range = wordAt(doc.line(position.line), position.column);
     state.select([
       {
@@ -113,10 +125,12 @@ export function usePointerSelection(options: {
 
   const onTripleClick = (event: MouseEvent<HTMLDivElement>) => {
     if (event.detail !== 3) return;
-    const position = positionAt(event.clientX, event.clientY);
+    const landed = positionAt(event.clientX, event.clientY);
     const doc = state.doc;
-    if (!position || !doc) return;
+    if (!landed || !doc) return;
+    const position = landed.position;
     event.preventDefault();
+    options.onBefore(false);
     const hasNext = position.line < doc.lenLines() - 1;
     state.select([
       {

@@ -1,8 +1,11 @@
 /*
- * The visual rows of the whole open document: how many rows each line takes, where a line starts
- * in the rows, and which line a row belongs to. A Fenwick tree over the per-line counts keeps a
- * prefix sum that changes with an edit in logarithmic time, so a keystroke re-measures the lines
- * it touched and never the file; only a width change re-measures everything, a slice at a time.
+ * The visual rows of the whole open document: a row count for every line in an implicit treap,
+ * so a line's start row, the line a row belongs to, and an edit that inserts or removes lines
+ * all cost logarithmic time instead of a walk over the file.
+ *
+ * A width change re-measures the lines on screen at once and spreads the rest over slices, a
+ * line's text change re-measures only the lines its span covers, and the counts keep their old
+ * values as estimates until then, so the scroll height never collapses in between.
  */
 
 import type { LineEdit } from "@ace/editor";
@@ -26,35 +29,56 @@ export interface RowLayout {
   total(): number;
 }
 
+/** The spans of one applied edit, and the document's line count after it. */
+export interface LineBatch {
+  spans: readonly LineEdit[];
+  lines: number;
+}
+
 /** Rows kept from earlier renders; a long scroll forgets the far end rather than growing. */
 const cachedRows = 4_000;
 
 /** Spans this long wait for the background pass instead of measuring inside a layout effect. */
 const measuredNow = 200;
 
+/** A deterministic priority for a new node: well spread, and never `Math.random`. */
+function priority(seed: number): number {
+  let value = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b);
+  value ^= value >>> 13;
+  value = Math.imul(value, 0xc2b2ae35);
+  value ^= value >>> 16;
+  return value >>> 0;
+}
+
 export class WrapIndex implements RowLayout {
   readonly #text: WrapText;
   #columns = Number.POSITIVE_INFINITY;
-  #counts: Uint32Array;
-  /** 1 = the count is an estimate to re-measure at this width. */
-  #dirty: Uint8Array;
-  /** A Fenwick tree over the counts, one-based. */
-  #tree: Int32Array;
-  #total: number;
   #rows = new Map<number, readonly WrapRow[]>();
   #pending: number[] = [];
   #from = 0;
-  #queued: Uint8Array;
+  #dirtyCount = 0;
+
+  // The implicit treap, 1-based: node 0 is the empty tree. Its in-order walk is the document.
+  #left = new Int32Array(64);
+  #right = new Int32Array(64);
+  /** Nodes in this subtree, this one included. */
+  #size = new Int32Array(64);
+  /** This line's rows. */
+  #count = new Int32Array(64);
+  /** Rows in this subtree, this one included. */
+  #sum = new Int32Array(64);
+  /** 1 = the count is an estimate to re-measure at this width. */
+  #dirty = new Uint8Array(64);
+  #queued = new Uint8Array(64);
+  #priority = new Uint32Array(64);
+  #root = 0;
+  #used = 0;
+  #seed = 0;
+  #free: number[] = [];
 
   constructor(text: WrapText) {
     this.#text = text;
-    const lines = Math.max(0, text.lenLines());
-    this.#counts = new Uint32Array(lines).fill(1);
-    this.#dirty = new Uint8Array(lines).fill(1);
-    this.#queued = new Uint8Array(lines);
-    this.#tree = new Int32Array(lines + 1);
-    this.#total = lines;
-    this.#buildTree();
+    this.#root = this.#build(Math.max(0, text.lenLines()));
   }
 
   /** The cells a line wraps at; `Infinity` leaves every line on one row. */
@@ -64,28 +88,29 @@ export class WrapIndex implements RowLayout {
 
   /**
    * Sets the wrap width. A new width re-measures `visible` at once, then queues the rest; the
-   * same width changes nothing. Answers whether anything was queued.
+   * same width changes nothing.
    */
   setColumns(columns: number, visible?: { first: number; last: number }): boolean {
     const next = Number.isFinite(columns) && columns > 0 ? Math.floor(columns) : Infinity;
     if (next === this.#columns) return false;
     this.#columns = next;
     this.#rows.clear();
-    if (next === Infinity) {
-      // Every line is one row: no text is read at all.
-      this.#counts.fill(1);
-      this.#dirty.fill(0);
-      this.#tree = new Int32Array(this.#counts.length + 1);
-      this.#buildTree();
-      this.#pending = [];
-      this.#from = 0;
-      this.#queued.fill(0);
-      return true;
-    }
-    this.#dirty.fill(1);
     this.#pending = [];
     this.#from = 0;
-    this.#queued.fill(0);
+    if (next === Infinity) {
+      // Every line is one row: no text is read at all.
+      this.#walk((node) => {
+        this.#count[node] = 1;
+        this.#dirty[node] = 0;
+        this.#sum[node] = this.#sizeOf(node);
+      });
+      this.#dirtyCount = 0;
+      return true;
+    }
+    this.#walk((node) => {
+      this.#dirty[node] = 1;
+    });
+    this.#dirtyCount = this.#length;
     if (visible) this.prefer(visible);
     this.#queueDirty();
     return true;
@@ -94,37 +119,55 @@ export class WrapIndex implements RowLayout {
   /** Measures the lines on screen before the rest, after a width change. */
   prefer(range: { first: number; last: number }): void {
     const from = Math.max(0, range.first);
-    const to = Math.min(this.#counts.length, range.last);
-    for (let line = from; line < to; line++) if (this.#dirty[line]) this.#measure(line);
+    const to = Math.min(this.#length, range.last);
+    for (let line = from; line < to; line++) if (this.#isDirty(line)) this.#measure(line);
   }
 
-  /** One row count per line is what `total` sums; a row past the end clamps to the last line. */
   startOf(line: number): number {
-    const capped = Math.max(0, Math.min(line, this.#counts.length));
-    return this.#sum(capped);
+    let node = this.#root;
+    let index = Math.max(0, Math.min(line, this.#length));
+    let total = 0;
+    while (node && index > 0) {
+      const left = this.#leftOf(node);
+      const leftSize = this.#sizeOf(left);
+      if (index <= leftSize) {
+        node = left;
+        continue;
+      }
+      total += this.#sumOf(left);
+      if (index === leftSize + 1) return total + this.#countOf(node);
+      total += this.#countOf(node);
+      index -= leftSize + 1;
+      node = this.#rightOf(node);
+    }
+    return total;
   }
 
   lineAt(row: number): number {
-    const count = this.#counts.length;
-    if (count === 0) return 0;
-    const target = Math.max(0, Math.min(row, this.#total - 1));
-    let line = 0;
-    let seen = 0;
-    let bit = 1;
-    while (bit * 2 <= count) bit *= 2;
-    for (; bit > 0; bit = Math.floor(bit / 2)) {
-      const next = line + bit;
-      const span = this.#tree[next] ?? 0;
-      if (next <= count && seen + span <= target) {
-        line = next;
-        seen += span;
+    const length = this.#length;
+    if (length === 0) return 0;
+    let remaining = Math.max(0, Math.min(row, this.#sumOf(this.#root) - 1));
+    let node = this.#root;
+    let index = 0;
+    while (node) {
+      const left = this.#leftOf(node);
+      const leftSize = this.#sizeOf(left);
+      const leftSum = this.#sumOf(left);
+      if (remaining < leftSum) {
+        node = left;
+        continue;
       }
+      remaining -= leftSum;
+      if (remaining < this.#countOf(node)) return index + leftSize;
+      remaining -= this.#countOf(node);
+      index += leftSize + 1;
+      node = this.#rightOf(node);
     }
-    return Math.min(line, count - 1);
+    return Math.min(index, length - 1);
   }
 
   total(): number {
-    return this.#total;
+    return this.#sumOf(this.#root);
   }
 
   /** The lines still to measure at this width; the view pumps these while it has idle time. */
@@ -142,39 +185,26 @@ export class WrapIndex implements RowLayout {
   }
 
   /**
-   * An edit, in post-edit coordinates: the lines each span inserted are measured now (a handful
-   * at most); lines that moved keep their counts. A span as long as the file (a whole-file
-   * replacement) only marks its lines for the background pass, so a layout effect never walks
-   * fifty thousand lines.
+   * Edits, one batch per applied edit, each in its own coordinate system. A batch whose spans
+   * add or remove lines restructures the tree; every batch re-measures the lines it inserted,
+   * or queues a span as long as the file for the background pass.
    */
-  apply(spans: readonly LineEdit[], lineCount: number): void {
-    if (lineCount !== this.#counts.length) this.#remap(spans, lineCount);
-    for (const span of spans) {
-      const from = Math.max(0, span.firstLine);
-      const to = Math.min(this.#counts.length, span.firstLine + Math.max(1, span.insertedLines));
-      if (to - from > measuredNow) {
-        for (let line = from; line < to; line++) {
-          this.#rows.delete(line);
-          this.#dirty[line] = 1;
-        }
-        if (this.#columns !== Infinity) this.#queueDirty();
-        continue;
+  apply(batches: readonly LineBatch[]): void {
+    for (const batch of batches) {
+      if (batch.spans.some((span) => span.removedLines !== span.insertedLines)) {
+        this.#restructure(batch.spans);
       }
-      for (let line = from; line < to; line++) {
-        this.#rows.delete(line);
-        this.#measure(line);
-      }
+      for (const span of batch.spans) this.#measureSpan(span);
     }
   }
 
-  /** Measures up to `limit` queued lines, visible ones first; answers how many remain. */
+  /** Measures up to `limit` queued lines; answers how many remain. */
   pump(limit: number): number {
     let remaining = limit;
     while (this.#from < this.#pending.length && remaining > 0) {
       const line = this.#pending[this.#from++];
-      if (line === undefined || line >= this.#counts.length) continue;
-      this.#queued[line] = 0;
-      if (!this.#dirty[line]) continue;
+      if (line === undefined) continue;
+      if (!this.#isDirty(line)) continue;
       this.#measure(line);
       remaining--;
     }
@@ -185,87 +215,294 @@ export class WrapIndex implements RowLayout {
     return this.pending();
   }
 
+  get #length(): number {
+    return this.#sizeOf(this.#root);
+  }
+
+  #measureSpan(span: LineEdit): void {
+    const from = Math.max(0, span.firstLine);
+    const to = Math.min(this.#length, span.firstLine + Math.max(1, span.insertedLines));
+    if (this.#columns === Infinity) {
+      // One row whatever the text says: no line needs reading.
+      for (let line = from; line < to; line++) {
+        this.#rows.delete(line);
+        this.#setCount(line, 1);
+      }
+      return;
+    }
+    if (to - from > measuredNow) {
+      for (let line = from; line < to; line++) {
+        this.#rows.delete(line);
+        this.#markDirty(line);
+      }
+      this.#queueDirty();
+      return;
+    }
+    for (let line = from; line < to; line++) {
+      this.#rows.delete(line);
+      this.#measure(line);
+    }
+  }
+
+  /**
+   * Applies the line-count change of one batch. Spans are post-edit coordinates, so each one's
+   * old position drops the net change of the spans before it; walking them last to first keeps
+   * the untouched lines before each span where they are.
+   */
+  #restructure(spans: readonly LineEdit[]): void {
+    const sorted = [...spans].toSorted((a, b) => a.firstLine - b.firstLine);
+    const changes: { at: number; removed: number; inserted: number }[] = [];
+    let shift = 0;
+    for (const span of sorted) {
+      const inserted = Math.max(1, span.insertedLines);
+      changes.push({ at: span.firstLine - shift, removed: span.removedLines, inserted });
+      shift += inserted - span.removedLines;
+    }
+    for (let index = changes.length - 1; index >= 0; index--) {
+      const change = changes[index];
+      if (!change) continue;
+      if (change.removed > 0) this.#erase(change.at, change.removed);
+      if (change.inserted > 0) this.#insert(change.at, change.inserted);
+    }
+    this.#rows.clear();
+    this.#pending = [];
+    this.#from = 0;
+    if (this.#columns === Infinity || this.#dirtyCount === 0) return;
+    this.#walk((node) => {
+      this.#queued[node] = 0;
+    });
+    this.#queueDirty();
+  }
+
+  #insert(at: number, count: number): void {
+    const [before, after] = this.#split(this.#root, at);
+    this.#root = this.#merge(this.#merge(before, this.#build(count)), after);
+  }
+
+  #erase(at: number, count: number): void {
+    const [before, rest] = this.#split(this.#root, at);
+    const [gone, after] = this.#split(rest, count);
+    this.#root = this.#merge(before, after);
+    this.#freeTree(gone);
+  }
+
+  /** A treap of `count` fresh one-row lines, for an insertion or the document it opens with. */
+  #build(count: number): number {
+    let root = 0;
+    for (let index = 0; index < count; index++) root = this.#merge(root, this.#allocate());
+    return root;
+  }
+
+  #allocate(): number {
+    let node = this.#free.pop();
+    if (node === undefined) {
+      if (this.#used + 2 >= this.#left.length) this.#grow();
+      node = ++this.#used;
+    }
+    this.#left[node] = 0;
+    this.#right[node] = 0;
+    this.#size[node] = 1;
+    this.#count[node] = 1;
+    this.#sum[node] = 1;
+    this.#dirty[node] = 1;
+    this.#queued[node] = 0;
+    this.#priority[node] = priority(++this.#seed);
+    this.#dirtyCount++;
+    return node;
+  }
+
+  /** Doubles the node arrays; a treap over a large file runs out of ids in bursts. */
+  #grow(): void {
+    const size = this.#left.length * 2;
+    const growInts = (array: Int32Array) => {
+      const next = new Int32Array(size);
+      next.set(array);
+      return next;
+    };
+    this.#left = growInts(this.#left);
+    this.#right = growInts(this.#right);
+    this.#size = growInts(this.#size);
+    this.#count = growInts(this.#count);
+    this.#sum = growInts(this.#sum);
+    const dirty = new Uint8Array(size);
+    dirty.set(this.#dirty);
+    this.#dirty = dirty;
+    const queued = new Uint8Array(size);
+    queued.set(this.#queued);
+    this.#queued = queued;
+    const priorities = new Uint32Array(size);
+    priorities.set(this.#priority);
+    this.#priority = priorities;
+  }
+
+  #split(node: number, count: number): [number, number] {
+    if (node === 0) return [0, 0];
+    const left = this.#leftOf(node);
+    const leftSize = this.#sizeOf(left);
+    if (count <= leftSize) {
+      const [before, after] = this.#split(left, count);
+      this.#left[node] = after;
+      this.#pull(node);
+      return [before, node];
+    }
+    const [before, after] = this.#split(this.#rightOf(node), count - leftSize - 1);
+    this.#right[node] = before;
+    this.#pull(node);
+    return [node, after];
+  }
+
+  #merge(a: number, b: number): number {
+    if (a === 0) return b;
+    if (b === 0) return a;
+    if (this.#priorityOf(a) > this.#priorityOf(b)) {
+      this.#right[a] = this.#merge(this.#rightOf(a), b);
+      this.#pull(a);
+      return a;
+    }
+    this.#left[b] = this.#merge(a, this.#leftOf(b));
+    this.#pull(b);
+    return b;
+  }
+
+  /** Forgets a removed subtree and offers its nodes back for reuse. */
+  #freeTree(root: number): void {
+    if (root === 0) return;
+    const stack = [root];
+    while (stack.length) {
+      const node = stack.pop();
+      if (node === undefined) continue;
+      const left = this.#leftOf(node);
+      const right = this.#rightOf(node);
+      if (left) stack.push(left);
+      if (right) stack.push(right);
+      if (this.#dirty[node] === 1) this.#dirtyCount--;
+      this.#dirty[node] = 0;
+      this.#queued[node] = 0;
+      this.#free.push(node);
+    }
+  }
+
+  #pull(node: number): void {
+    const left = this.#leftOf(node);
+    const right = this.#rightOf(node);
+    this.#size[node] = 1 + this.#sizeOf(left) + this.#sizeOf(right);
+    this.#sum[node] = this.#countOf(node) + this.#sumOf(left) + this.#sumOf(right);
+  }
+
+  #isDirty(line: number): boolean {
+    const node = this.#nodeAt(line);
+    return node !== 0 && this.#dirty[node] === 1;
+  }
+
   #measure(line: number): readonly WrapRow[] {
-    const text = this.#text.line(line);
-    const rows = wrapLine(text, this.#columns);
+    const rows = wrapLine(this.#text.line(line), this.#columns);
     this.#setCount(line, rows.length);
-    this.#dirty[line] = 0;
     return rows;
   }
 
-  #queueDirty(): void {
-    for (let line = 0; line < this.#counts.length; line++) {
-      if (!this.#dirty[line] || this.#queued[line]) continue;
-      this.#queued[line] = 1;
-      this.#pending.push(line);
-    }
-  }
-
+  /** Sets a line's row count, clears its estimate flag, and settles the sums above it. */
   #setCount(line: number, count: number): void {
-    const previous = this.#counts[line] ?? 0;
-    if (previous === count) return;
-    this.#counts[line] = count;
-    this.#total += count - previous;
-    for (let at = line + 1; at < this.#tree.length; at += at & -at) {
-      this.#tree[at] = (this.#tree[at] ?? 0) + count - previous;
+    const path: number[] = [];
+    let node = this.#root;
+    let index = line;
+    while (node) {
+      path.push(node);
+      const left = this.#leftOf(node);
+      const leftSize = this.#sizeOf(left);
+      if (index < leftSize) {
+        node = left;
+        continue;
+      }
+      if (index === leftSize) break;
+      index -= leftSize + 1;
+      node = this.#rightOf(node);
+    }
+    if (node === 0) return;
+    if (this.#dirty[node] === 1) {
+      this.#dirty[node] = 0;
+      this.#dirtyCount--;
+    }
+    this.#queued[node] = 0;
+    this.#count[node] = count;
+    for (let at = path.length - 1; at >= 0; at--) {
+      const current = path[at];
+      if (current !== undefined) this.#pull(current);
     }
   }
 
-  #sum(line: number): number {
-    let total = 0;
-    for (let at = line; at > 0; at -= at & -at) total += this.#tree[at] ?? 0;
-    return total;
+  #markDirty(line: number): void {
+    const node = this.#nodeAt(line);
+    if (node === 0 || this.#dirty[node] === 1) return;
+    this.#dirty[node] = 1;
+    this.#dirtyCount++;
   }
 
-  #buildTree(): void {
-    this.#tree.fill(0);
-    this.#total = 0;
-    const count = this.#counts.length;
-    for (let line = 0; line < count; line++) {
-      const value = this.#counts[line] ?? 1;
-      this.#total += value;
-      this.#tree[line + 1] = (this.#tree[line + 1] ?? 0) + value;
-      const parent = line + 1 + ((line + 1) & -(line + 1));
-      if (parent <= count)
-        this.#tree[parent] = (this.#tree[parent] ?? 0) + (this.#tree[line + 1] ?? 0);
+  #nodeAt(line: number): number {
+    let node = this.#root;
+    let index = line;
+    while (node) {
+      const left = this.#leftOf(node);
+      const leftSize = this.#sizeOf(left);
+      if (index < leftSize) {
+        node = left;
+        continue;
+      }
+      if (index === leftSize) return node;
+      index -= leftSize + 1;
+      node = this.#rightOf(node);
+    }
+    return 0;
+  }
+
+  /** Queues every dirty line in document order; a line already queued is left where it is. */
+  #queueDirty(): void {
+    if (this.#dirtyCount === 0) return;
+    let line = 0;
+    this.#walk((node) => {
+      if (this.#dirty[node] === 1 && this.#queued[node] !== 1) {
+        this.#queued[node] = 1;
+        this.#pending.push(line);
+      }
+      line++;
+    });
+  }
+
+  #walk(visit: (node: number) => void): void {
+    const stack: number[] = [];
+    let node = this.#root;
+    while (node || stack.length) {
+      while (node) {
+        stack.push(node);
+        node = this.#leftOf(node);
+      }
+      const top = stack.pop();
+      if (top === undefined) break;
+      visit(top);
+      node = this.#rightOf(top);
     }
   }
 
-  /** Line-count changes shift the counts of surviving lines; new lines start at one row. */
-  #remap(spans: readonly LineEdit[], lineCount: number): void {
-    const previousCounts = this.#counts;
-    const previousDirty = this.#dirty;
-    const counts = new Uint32Array(lineCount).fill(1);
-    const dirty = new Uint8Array(lineCount).fill(1);
-    let oldAt = 0;
-    let newAt = 0;
-    for (const span of spans) {
-      const keep = Math.min(
-        Math.max(0, span.firstLine - newAt),
-        previousCounts.length - oldAt,
-        lineCount - newAt,
-      );
-      if (keep <= 0) continue;
-      counts.set(previousCounts.subarray(oldAt, oldAt + keep), newAt);
-      dirty.set(previousDirty.subarray(oldAt, oldAt + keep), newAt);
-      oldAt += keep;
-      newAt += keep;
-      oldAt += span.removedLines;
-      newAt = span.firstLine + Math.max(1, span.insertedLines);
-    }
-    const rest = Math.max(0, Math.min(previousCounts.length - oldAt, lineCount - newAt));
-    if (rest > 0) {
-      counts.set(previousCounts.subarray(oldAt, oldAt + rest), newAt);
-      dirty.set(previousDirty.subarray(oldAt, oldAt + rest), newAt);
-    }
-    this.#counts = counts;
-    this.#dirty = dirty;
-    this.#tree = new Int32Array(lineCount + 1);
-    this.#queued = new Uint8Array(lineCount);
-    this.#pending = [];
-    this.#from = 0;
-    this.#rows.clear();
-    this.#buildTree();
-    if (this.#columns !== Infinity) this.#queueDirty();
+  #leftOf(node: number): number {
+    return node === 0 ? 0 : (this.#left[node] ?? 0);
+  }
+
+  #rightOf(node: number): number {
+    return node === 0 ? 0 : (this.#right[node] ?? 0);
+  }
+
+  #sizeOf(node: number): number {
+    return node === 0 ? 0 : (this.#size[node] ?? 0);
+  }
+
+  #countOf(node: number): number {
+    return node === 0 ? 0 : (this.#count[node] ?? 0);
+  }
+
+  #sumOf(node: number): number {
+    return node === 0 ? 0 : (this.#sum[node] ?? 0);
+  }
+
+  #priorityOf(node: number): number {
+    return node === 0 ? 0 : (this.#priority[node] ?? 0);
   }
 }
