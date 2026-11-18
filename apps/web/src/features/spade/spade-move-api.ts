@@ -43,12 +43,31 @@ export function newMoveId(uuid: string): string {
   return `mv_${uuid.toLowerCase().replaceAll(/[^0-9a-f]/g, "")}`;
 }
 
+/** What the person accepts on the machine a bot goes to (ADR 0187). */
+export interface MoveAcceptance {
+  bot: string;
+  from: string;
+  to: string;
+  digest: string;
+  replaces: "bot" | "main";
+}
+
 /**
- * The person accepts, on the machine the bot goes to, the bot arriving by move `id`. ace's
- * daemon there stamps it as theirs; a machine of the fleet alone can't push a bot in.
+ * The person accepts, on the machine the bot goes to, the move `id` exactly as `accept` names
+ * it. ace's daemon there stamps it as theirs, over all of it; a machine of the fleet alone can't
+ * push a bot in.
  */
-export async function acceptMove(target: SpadeTarget, id: string, bot: string): Promise<void> {
-  await spadeHttp(target, "PUT", `/v1/moves/${segment(id)}/accept`, { body: { bot } });
+export async function acceptMove(
+  target: SpadeTarget,
+  id: string,
+  accept: MoveAcceptance,
+): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/moves/${segment(id)}/accept`, { body: accept });
+}
+
+/** The bot's move as Spade answers it now, if there is one. */
+export async function readMove(target: SpadeTarget, bot: string): Promise<SpadeMove | undefined> {
+  return moveOf(await spadeHttp(target, "GET", `/v1/agents/${segment(bot)}/move`));
 }
 
 /** Starts moving a bot to the machine with host id `to`, as the move `id` accepted there. */

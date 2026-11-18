@@ -8,6 +8,7 @@ import { z } from "zod";
 
 export type SpadeMoveState =
   | "packing"
+  | "awaiting"
   | "sending"
   | "committing"
   | "finishing"
@@ -26,12 +27,33 @@ export interface SpadeMove {
   problem: string | undefined;
   /** Cancel still stops it: the commit hasn't been sent. */
   canCancel: boolean;
+  /**
+   * What the person accepts on the machine it goes to, once it is packed: the machine it comes
+   * from, the manifest by its hash, and whether it replaces Spade there.
+   */
+  accept: { from: string; digest: string; replaces: "bot" | "main" } | undefined;
 }
 
 const moveShape = z.object({
   id: z.string().min(1),
   to: z.object({ host: z.string().min(1), name: z.string().catch("") }),
-  state: z.enum(["packing", "sending", "committing", "finishing", "done", "failed", "cancelled"]),
+  state: z.enum([
+    "packing",
+    "awaiting",
+    "sending",
+    "committing",
+    "finishing",
+    "done",
+    "failed",
+    "cancelled",
+  ]),
+  from: z.string().nullish().catch(undefined),
+  digest: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullish()
+    .catch(undefined),
+  replaces: z.enum(["bot", "main"]).catch("bot").default("bot"),
   sent: z.number().int().nonnegative().catch(0).default(0),
   total: z.number().int().nonnegative().catch(0).default(0),
   waiting: z.boolean().catch(false).default(false),
@@ -52,6 +74,10 @@ export function parseSpadeMove(raw: unknown): SpadeMove | undefined {
     waiting: move.waiting,
     problem: move.problem ?? undefined,
     canCancel: move.can_cancel,
+    accept:
+      move.from && move.digest
+        ? { from: move.from, digest: move.digest, replaces: move.replaces }
+        : undefined,
   };
 }
 
@@ -112,6 +138,8 @@ export function spadeMoveLine(move: SpadeMove, name: string): string {
   switch (move.state) {
     case "packing":
       return `Getting ${name} ready to move to ${to}.`;
+    case "awaiting":
+      return `Waiting for your say on ${to}.`;
     case "sending":
       if (move.waiting) return `Waiting for ${to} to come online.`;
       return move.total > 0

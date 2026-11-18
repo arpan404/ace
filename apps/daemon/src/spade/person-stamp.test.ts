@@ -64,20 +64,27 @@ test("the stamp is the one Spade checks, keyed with the shared key", () => {
   );
 });
 
-test("accepting a bot moving here is the person's, stamped for that move and that bot only", () => {
+test("accepting a bot moving here is the person's, stamped over the whole move as Spade checks it", () => {
   const accept = "/v1/moves/mv_0190ab/accept";
+  const digest = "a".repeat(64);
+  const body = { bot: "a_1", from: "host-laptop", to: "host-studio", digest, replaces: "bot" };
   expect(personOnlyRoute("PUT", accept)).toBe("move:mv_0190ab");
-  expect(personOnlyWrite("PUT", accept, json({ bot: "a_1" }))).toEqual({
+  expect(personOnlyWrite("PUT", accept, json(body))).toEqual({
     target: "move:mv_0190ab",
-    value: "accept:a_1",
+    value: `accept:a_1:host-laptop:host-studio:${digest}:bot`,
   });
-  // Forwarded only stamped: an odd move or bot id gets no stamp, and Spade refuses it.
-  for (const [path, body] of [
-    [accept, json({ bot: "../a" })],
-    [accept, json({})],
-    ["/v1/moves/../accept", json({ bot: "a_1" })],
-    ["/v1/moves/MV_1/accept", json({ bot: "a_1" })],
-  ] as const)
-    expect(personOnlyWrite("PUT", path, body), path).toBeUndefined();
-  expect(personOnlyRoute("PUT", "/v1/moves/../accept")).toBe("move:..");
+  expect(personOnlyWrite("PUT", accept, json({ ...body, replaces: "main" }))?.value).toMatch(
+    /:main$/,
+  );
+  // Forwarded only stamped: any part Spade wouldn't take gets no stamp, and Spade refuses it.
+  for (const odd of [
+    { ...body, bot: "../a" },
+    { ...body, from: "Host Laptop" },
+    { ...body, to: undefined },
+    { ...body, digest: "abc" },
+    { ...body, replaces: "everything" },
+  ])
+    expect(personOnlyWrite("PUT", accept, json(odd)), JSON.stringify(odd)).toBeUndefined();
+  for (const path of ["/v1/moves/../accept", "/v1/moves/MV_1/accept"])
+    expect(personOnlyWrite("PUT", path, json(body)), path).toBeUndefined();
 });

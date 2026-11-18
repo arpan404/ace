@@ -175,6 +175,24 @@ pub async fn machine(
     name: &str,
     scripts: Vec<Script>,
 ) -> Result<Spade> {
+    machine_with(
+        fleet,
+        host,
+        name,
+        scripts,
+        spade_server::engine::Limits::default(),
+    )
+    .await
+}
+
+/// [`machine`] with its own engine limits.
+pub async fn machine_with(
+    fleet: &Arc<Fleet>,
+    host: &str,
+    name: &str,
+    scripts: Vec<Script>,
+    limits: spade_server::engine::Limits,
+) -> Result<Spade> {
     let home = tempfile::tempdir()?.keep();
     std::fs::write(home.join("daemon-token"), format!("{DAEMON_TOKEN}\n"))?;
     let key = home.join(spade_server::security::attest::KEY_FILE);
@@ -193,6 +211,7 @@ pub async fn machine(
             ace_home: Some(home.clone()),
             ids: Some(Arc::new(MachineIds(tag, AtomicU64::new(0)))),
             connectors: true,
+            limits,
             ..Options::default()
         },
     )
@@ -237,24 +256,57 @@ pub fn stamp(target: &str, value: &str) -> String {
     spade_server::security::attest::sign(&PERSON_KEY, target, value, now_ms(), &nonce)
 }
 
-/// `PUT /v1/moves/{move}/accept {bot}` on `spade`, with the person's stamp unless `stamped`
-/// is false.
-pub async fn accept(spade: &Spade, id: &str, bot: &str, stamped: bool) -> Result<u16> {
+/// What the person accepts: `PUT /v1/moves/{move}/accept` with `accept` (`{bot, from, to,
+/// digest, replaces}`) on `spade`, stamped over all of it unless `stamped` is false.
+pub async fn accept(spade: &Spade, id: &str, accept: &Value, stamped: bool) -> Result<u16> {
+    let field = |name: &str| accept[name].as_str().unwrap_or_default().to_owned();
+    let value = format!(
+        "accept:{}:{}:{}:{}:{}",
+        field("bot"),
+        field("from"),
+        field("to"),
+        field("digest"),
+        field("replaces")
+    );
     let mut request = spade
         .http
         .put(format!("{}/v1/moves/{id}/accept", spade.base))
         .bearer_auth(TOKEN)
-        .json(&serde_json::json!({ "bot": bot }));
+        .json(accept);
     if stamped {
         request = request.header(
             spade_server::security::attest::HEADER,
-            stamp(&format!("move:{id}"), &format!("accept:{bot}")),
+            stamp(&format!("move:{id}"), &value),
         );
     }
     Ok(request.send().await?.status().as_u16())
 }
 
-/// Accepts the move on `to`, then starts it on `from`: the app's one click. Answers the start.
+/// The move from `spade` once it says what the person accepts (its manifest's hash).
+pub async fn packed(spade: &Spade, bot: &str) -> Result<Value> {
+    for _ in 0..600 {
+        let (_, body) = spade.get(&format!("/v1/agents/{bot}/move")).await?;
+        if body["move"]["digest"].is_string() || body["move"]["state"] == "failed" {
+            return Ok(body["move"].clone());
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    Err("the move never said what to accept".into())
+}
+
+/// What the person accepts for `started` (as `packed` read it), to the machine `to`.
+pub fn accepting(bot: &str, started: &Value, to: &str) -> Value {
+    serde_json::json!({
+        "bot": bot,
+        "from": started["from"],
+        "to": to,
+        "digest": started["digest"],
+        "replaces": started["replaces"],
+    })
+}
+
+/// The app's one click: starts the move on `from`, then, once it is packed, the person accepts
+/// it on `to`. Answers the start.
 pub async fn move_bot(
     from: &Spade,
     to: &Spade,
@@ -262,12 +314,24 @@ pub async fn move_bot(
     id: &str,
     host: &str,
 ) -> Result<(u16, Value)> {
-    assert_eq!(accept(to, id, bot, true).await?, 200, "accepted there");
-    from.post(
-        &format!("/v1/agents/{bot}/move"),
-        serde_json::json!({ "to": host, "move": id }),
-    )
-    .await
+    let (status, started) = from
+        .post(
+            &format!("/v1/agents/{bot}/move"),
+            serde_json::json!({ "to": host, "move": id }),
+        )
+        .await?;
+    if status != 202 {
+        return Ok((status, started));
+    }
+    let packed = packed(from, bot).await?;
+    if packed["state"] != "failed" {
+        assert_eq!(
+            accept(to, id, &accepting(bot, &packed, host), true).await?,
+            200,
+            "accepted there"
+        );
+    }
+    Ok((status, started))
 }
 
 /// Waits until the move from `spade` ends; answers its last view (`null` once it is done or

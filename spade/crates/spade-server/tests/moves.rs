@@ -477,3 +477,67 @@ async fn the_old_elections_switch_off_heals_once_a_host_choice_arrives_but_the_p
     assert_eq!(held["host"]["host"], "host-laptop");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_large_bot_arriving_never_holds_up_the_other_bots_requests() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    let (status, made) = laptop
+        .post(
+            "/v1/agents",
+            json!({ "name": "Archive", "model": "fake/m" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let bot = made["agent"]["id"].as_str().unwrap_or_default().to_owned();
+    let conversation = made["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    // A long history: tens of megabytes of events.
+    let store = spade_store::Store::open(&laptop.database())?;
+    let line = "a line of a long history ".repeat(24);
+    for chunk in 0..30 {
+        let events: Vec<spade_core::Event> = (0..2_000)
+            .map(|i| spade_core::Event::user_message(format!("{chunk}.{i} {line}")))
+            .collect();
+        store.append_all(&conversation, &events, 1)?;
+    }
+    // A bot of the studio's own, whose requests go on meanwhile.
+    let (_, local) = studio
+        .post("/v1/agents", json!({ "name": "Local", "model": "fake/m" }))
+        .await?;
+    let local = local["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (status, _) = move_bot(&laptop, &studio, &bot, "mv_1", "host-studio").await?;
+    assert_eq!(status, 202);
+    // Meanwhile the studio keeps answering its own bot's requests, each within a bound.
+    let mut slowest = Duration::ZERO;
+    let mut asked = 0;
+    loop {
+        let started = std::time::Instant::now();
+        let (status, _) = studio
+            .get(&format!("/v1/conversations/{local}/events"))
+            .await?;
+        assert_eq!(status, 200);
+        slowest = slowest.max(started.elapsed());
+        asked += 1;
+        let (_, view) = laptop.get(&format!("/v1/agents/{bot}/move")).await?;
+        if view["move"].is_null() || view["move"]["state"] == "failed" {
+            assert!(view["move"].is_null(), "{view}");
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(asked > 3, "the move was over before it could be watched");
+    // Batched, the slowest wait is tens of milliseconds; one transaction for the whole
+    // history holds every other request for most of a second.
+    assert!(
+        slowest < Duration::from_millis(400),
+        "a request waited {slowest:?}"
+    );
+    let arrived = events(&studio, &conversation).await?;
+    assert_eq!(arrived.len(), 60_001, "every event, and its arrival");
+    Ok(())
+}

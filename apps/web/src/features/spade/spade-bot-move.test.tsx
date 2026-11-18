@@ -26,9 +26,18 @@ test("Move to… is accepted on the machine picked, then started here, and reads
       { to: "studio", move: expect.stringMatching(/^mv_[0-9a-f]{32}$/) },
     ]),
   );
-  // The person's acceptance went to the studio first, for that move and that bot.
+  // Once packed, the person's acceptance went to the studio: that move, that bot, from here,
+  // to there, the manifest by its hash, replacing no Spade.
   const [started] = spade.sent("POST", "/v1/agents/research/move");
-  expect(others.get("studio")?.acceptedMoves.get(String(started?.move))).toBe("research");
+  await waitFor(() =>
+    expect(others.get("studio")?.acceptances.get(String(started?.move))).toEqual({
+      bot: "research",
+      from: "this-mac",
+      to: "studio",
+      digest: "a".repeat(64),
+      replaces: "bot",
+    }),
+  );
   const moving = "Copying Research to Studio Mac, 3 of 12.";
   // In the profile, as its status line, and in the list as the bot's row line.
   await waitFor(() =>
@@ -132,6 +141,10 @@ test("Spade read through another machine offers to move here", async () => {
       { to: "this-mac", move: expect.stringMatching(/^mv_[0-9a-f]{32}$/) },
     ]),
   );
-  // Accepted here, on this machine, where Spade is coming.
-  expect(spade.acceptedMoves.size).toBe(1);
+  // Accepted here, on this machine, where Spade is coming, as replacing its quiet Spade.
+  await waitFor(() =>
+    expect([...spade.acceptances.values()]).toEqual([
+      expect.objectContaining({ bot: "main", from: "studio", to: "this-mac", replaces: "main" }),
+    ]),
+  );
 });

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::body::Body;
 use super::{AppState, problem};
-use crate::engine::{HostRecord, MoveError};
+use crate::engine::{AcceptFor, HostRecord, MoveError};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -62,23 +62,19 @@ struct To {
     id: String,
 }
 
-#[derive(Deserialize)]
-struct Accept {
-    bot: String,
-}
-
-/// The person accepts, here, a bot arriving by this move: only with their stamp, which ace's
-/// daemon adds for a caller with their standing (ADR 0163 amendment 2, ADR 0187).
+/// The person accepts, here, this move as it names it (the bot, the machines, the manifest's
+/// hash, what it replaces): only with their stamp over all of it, which ace's daemon adds for a
+/// caller with their standing (ADR 0163 amendment 2, ADR 0187).
 async fn accept(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: axum::http::HeaderMap,
-    Body(body): Body<Accept>,
+    Body(body): Body<AcceptFor>,
 ) -> Response {
     let stamp = headers
         .get(crate::security::attest::HEADER)
         .and_then(|value| value.to_str().ok());
-    match state.engine.accept_move(&id, &body.bot, stamp) {
+    match state.engine.accept_move(&id, &body, stamp) {
         Ok(()) => Json(json!({ "accepted": true })).into_response(),
         Err(error) => move_problem(&error),
     }

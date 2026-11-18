@@ -150,10 +150,11 @@ async function move(context: CommandContext): Promise<void> {
     const { SpadeMachinesResult } = await import("@ace/protocol");
     const machine = findMachine(SpadeMachinesResult.parse(listed).machines, to);
     const id = newMoveId(crypto.randomUUID());
-    await withSession(context, targetArgs, async (target) =>
-      acceptThere(await spadeCaller(target.client, target.signal), id, bot.id),
-    );
-    const moved = await moveBot(call, bot, machine, id, limit, wait);
+    const accept = (acceptance: Parameters<typeof acceptThere>[2]) =>
+      withSession(context, targetArgs, async (target) =>
+        acceptThere(await spadeCaller(target.client, target.signal), id, acceptance),
+      );
+    const moved = await moveBot(call, bot, machine, id, limit, wait, accept);
     await emit(context.args, moved, {
       human: (value) => [
         value.state === "done"

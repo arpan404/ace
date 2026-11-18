@@ -8,6 +8,7 @@
 //! carries it on.
 
 mod arrive;
+mod budget;
 mod consent;
 mod files;
 mod host;
@@ -47,6 +48,8 @@ const CANCELLED: &str = "cancelled";
 // given up.
 const ACCEPTED: &str = "accepted";
 const RECEIVING: &str = "receiving";
+/// Its rows are being copied in, in batches; a restart takes them out again.
+const ACTIVATING: &str = "activating";
 const PLACING: &str = "placing";
 const COMMITTED: &str = "committed";
 const ABORTED: &str = "aborted";
@@ -63,6 +66,8 @@ const ARRIVED: &str = "arrived";
 const ACCEPT_FOR_MS: i64 = 60 * 60_000;
 /// How long a moved-away bot's archive is kept.
 const KEEP_ARCHIVE_MS: i64 = 30 * 24 * 60 * 60_000;
+/// Archives one sweep removes at most.
+const SWEEP_BATCH: usize = 5;
 
 #[derive(Default)]
 pub(crate) struct Shared {
@@ -73,6 +78,8 @@ pub(crate) struct Shared {
     driving: Mutex<std::collections::HashSet<String>>,
     /// Moves the person cancelled, for their driver to see.
     cancelled: Mutex<std::collections::HashSet<String>>,
+    /// The archive sweep runs.
+    sweeping: std::sync::atomic::AtomicBool,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -93,6 +100,37 @@ pub enum MoveError {
     PersonOnly(&'static str),
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// What the person accepts on the machine a bot moves to: the move, the bot, the two machines,
+/// the manifest by its hash, and whether it replaces Spade, the main bot. Their stamp covers all
+/// of it, so no part can be changed after they said yes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct AcceptFor {
+    pub bot: String,
+    pub from: String,
+    pub to: String,
+    pub digest: String,
+    /// `bot`, or `main` when it replaces this machine's quiet Spade.
+    pub replaces: String,
+}
+
+impl AcceptFor {
+    /// What the stamp signs as its value.
+    fn stamped(&self) -> String {
+        format!(
+            "accept:{}:{}:{}:{}:{}",
+            self.bot, self.from, self.to, self.digest, self.replaces
+        )
+    }
+
+    fn plain(&self) -> bool {
+        paths::plain_id(&self.bot)
+            && paths::plain_id(&self.from)
+            && paths::plain_id(&self.to)
+            && files::is_sha256(&self.digest)
+            && matches!(self.replaces.as_str(), "bot" | "main")
+    }
 }
 
 /// What a refused acceptance tells the caller.
@@ -171,23 +209,42 @@ impl Engine {
         (entry.direction == OUT).then_some((entry.agent_name, entry.peer_name))
     }
 
-    /// The person accepts, on this machine, the bot `bot` arriving by the move `id` (with their
-    /// stamp from ace's daemon). A machine of the fleet alone can't push a bot here: `begin`
-    /// needs this.
-    pub fn accept_move(&self, id: &str, bot: &str, stamp: Option<&str>) -> Result<(), MoveError> {
-        if !paths::plain_id(id) || !paths::plain_id(bot) {
+    /// The person accepts, on this machine, the move `id` exactly as `accept` names it (with
+    /// their stamp from ace's daemon over all of it). A machine of the fleet alone can't push a
+    /// bot here: `begin` takes only the manifest, from the machine, the person accepted. Spade
+    /// in use here is never replaced.
+    pub fn accept_move(
+        &self,
+        id: &str,
+        accept: &AcceptFor,
+        stamp: Option<&str>,
+    ) -> Result<(), MoveError> {
+        if !paths::plain_id(id) || !accept.plain() {
             return Err(MoveError::Invalid(
-                "a move and a bot are named by plain ids".to_owned(),
+                "a move names plain ids, its manifest's hash and what it replaces".to_owned(),
             ));
         }
         let says = self.security().is_some_and(|security| {
-            security.person_says(stamp, &format!("move:{id}"), &format!("accept:{bot}"))
+            security.person_says(stamp, &format!("move:{id}"), &accept.stamped())
         });
         if !says {
             return Err(MoveError::PersonOnly(ACCEPT_PERSON_ONLY));
         }
+        if self.here().as_deref() != Some(accept.to.as_str()) {
+            return Err(MoveError::Refused(
+                "that move goes to another machine".to_owned(),
+            ));
+        }
+        if accept.replaces == "main" && self.main_enabled()? {
+            return Err(MoveError::Refused(
+                "Spade is in use on this machine; it can't be replaced".to_owned(),
+            ));
+        }
         if let Some(entry) = self.store.stored_move(id)? {
-            return if entry.direction == IN && entry.agent_id == bot {
+            let same = entry.direction == IN
+                && entry.agent_id == accept.bot
+                && detail(&entry)["digest"] == json!(accept.digest);
+            return if same {
                 Ok(())
             } else {
                 Err(MoveError::Refused("that move is another one".to_owned()))
@@ -198,7 +255,7 @@ impl Engine {
             .store
             .open_moves(IN)?
             .into_iter()
-            .filter(|e| e.agent_id == bot)
+            .filter(|e| e.agent_id == accept.bot)
         {
             if matches!(older.state.as_str(), ACCEPTED | RECEIVING) {
                 self.drop_staging(&older, "the person accepted a newer move of the same bot");
@@ -208,13 +265,20 @@ impl Engine {
         let accepted = StoredMove {
             id: id.to_owned(),
             direction: IN.to_owned(),
-            agent_id: bot.to_owned(),
+            agent_id: accept.bot.clone(),
             agent_name: String::new(),
-            peer: String::new(),
+            peer: accept.from.clone(),
             peer_name: String::new(),
-            main: false,
+            main: accept.replaces == "main",
             state: ACCEPTED.to_owned(),
-            detail: json!({ "until": now + ACCEPT_FOR_MS }).to_string(),
+            detail: json!({
+                "until": now + ACCEPT_FOR_MS,
+                "from": accept.from,
+                "to": accept.to,
+                "digest": accept.digest,
+                "replaces": accept.replaces,
+            })
+            .to_string(),
             created_ms: now,
             updated_ms: now,
         };
@@ -448,25 +512,59 @@ impl Engine {
             Err(error) => tracing::error!(%error, "could not read the open moves"),
         }
         self.resume_arrivals();
-        self.forget_old_archives();
+        self.start_sweeping();
     }
 
-    /// Removes the archives and leftovers of moves that ended more than `KEEP_ARCHIVE_MS` ago.
-    fn forget_old_archives(&self) {
+    /// Starts the archive sweep once: every `Limits::archive_sweep`, never at start, it removes
+    /// a few archives past their time, off the async threads.
+    fn start_sweeping(self: &Arc<Self>) {
+        if self
+            .moves
+            .sweeping
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return;
+        }
+        let every = self.limits.archive_sweep;
+        let engine = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(every).await;
+                let Some(engine) = engine.upgrade() else {
+                    return;
+                };
+                let _ =
+                    tokio::task::spawn_blocking(move || engine.sweep_archives(SWEEP_BATCH)).await;
+            }
+        });
+    }
+
+    /// Removes the archives and leftovers of at most `most` moves that ended more than
+    /// `KEEP_ARCHIVE_MS` ago, oldest first; answers how many it removed.
+    pub(crate) fn sweep_archives(&self, most: usize) -> usize {
         let Ok(old) = self
             .store
-            .ended_moves_before(self.now_ms() - KEEP_ARCHIVE_MS)
+            .moves_to_sweep(self.now_ms() - KEEP_ARCHIVE_MS, most)
         else {
-            return;
+            return 0;
         };
         let data = self.data_dir();
+        let mut swept = 0;
         for entry in old {
-            for root in ["moved", "moves"] {
-                if let Err(error) = paths::remove_child(&data.join(root), &entry.id) {
-                    tracing::warn!(%error, "an old move's folder could not be removed");
+            let removed = ["moved", "moves"].iter().all(|root| {
+                match paths::remove_child(&data.join(root), &entry.id) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::warn!(%error, "an old move's folder could not be removed");
+                        false
+                    }
                 }
+            });
+            if removed && self.store.set_move_swept(&entry.id).is_ok() {
+                swept += 1;
             }
         }
+        swept
     }
 }
 
@@ -499,7 +597,14 @@ fn move_json(entry: &StoredMove) -> Value {
     json!({
         "id": entry.id,
         "to": { "host": entry.peer, "name": entry.peer_name },
-        "state": if entry.state == RESERVED { PACKING } else { entry.state.as_str() },
+        "state": match entry.state.as_str() {
+            RESERVED => PACKING,
+            SENDING if kept["awaiting"] == json!(true) => "awaiting",
+            state => state,
+        },
+        "from": kept["from"],
+        "digest": kept["digest"],
+        "replaces": if entry.main { "main" } else { "bot" },
         "sent": kept["sent"].as_u64().unwrap_or(0),
         "total": kept["total"].as_u64().unwrap_or(0),
         "waiting": kept["waiting"].as_bool().unwrap_or(false),

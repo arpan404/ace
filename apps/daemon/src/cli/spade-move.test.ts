@@ -29,10 +29,28 @@ function spade(reads: unknown[]) {
 }
 
 const sending = { id: "mv_1", to: { host: "host-studio", name: "Studio Mac" }, state: "sending" };
+const packed = { ...sending, state: "awaiting", from: "host-laptop", digest: "b".repeat(64) };
+const never = async () => {
+  throw new Error("nothing to accept");
+};
 
-test("a move is followed until the bot has left, then reads as done", async () => {
-  const { sent, call } = spade([sending, sending, null]);
-  const moved = await moveBot(call, bot, studio, "mv_1", 60_000, async () => {});
+test("a move is accepted on the other machine once packed, then followed until the bot has left", async () => {
+  const { sent, call } = spade([packed, sending, null]);
+  const accepted: unknown[] = [];
+  const moved = await moveBot(
+    call,
+    bot,
+    studio,
+    "mv_1",
+    60_000,
+    async () => {},
+    async (a) => {
+      accepted.push(a);
+    },
+  );
+  expect(accepted).toEqual([
+    { bot: "a_1", from: "host-laptop", to: "host-studio", digest: "b".repeat(64), replaces: "bot" },
+  ]);
   expect(moved).toEqual({
     bot: { id: "a_1", name: "Research" },
     to: { host: "host-studio", name: "Studio Mac" },
@@ -44,7 +62,7 @@ test("a move is followed until the bot has left, then reads as done", async () =
 
 test("a failed move ends the command with Spade's reason and says the bot stayed", async () => {
   const { call } = spade([{ ...sending, state: "failed", problem: "Studio Mac is offline" }]);
-  await expect(moveBot(call, bot, studio, "mv_1", 60_000, async () => {})).rejects.toThrow(
+  await expect(moveBot(call, bot, studio, "mv_1", 60_000, async () => {}, never)).rejects.toThrow(
     "Couldn't move Research to Studio Mac: Studio Mac is offline. It's still here.",
   );
 });

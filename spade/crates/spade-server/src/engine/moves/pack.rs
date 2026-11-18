@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use spade_store::{MOVE_TABLES, Row, RowSums, StoredMove};
 
-use super::files::{self, MOST_BYTES};
+use super::budget;
+use super::files;
 use super::paths;
 use super::{Engine, FORMAT, VERSION, detail, strings};
 
@@ -21,9 +22,6 @@ use super::{Engine, FORMAT, VERSION, detail, strings};
 pub(super) const PART_BYTES: usize = 384 * 1024;
 /// Raw bytes of a file per part; base64 makes them a third larger.
 const FILE_PIECE: usize = 256 * 1024;
-/// Events read at a time.
-const EVENT_PAGE: usize = 500;
-
 /// Writes parts `000000.json`, `000001.json`, … into one folder.
 struct Parts {
     dir: PathBuf,
@@ -31,14 +29,23 @@ struct Parts {
     table: String,
     rows: Vec<Row>,
     bytes: usize,
+    /// Bytes of every part written, for the manifest and the move's limit.
+    total: u64,
 }
 
 impl Parts {
     fn write(&mut self, part: &Value) -> Result<(), String> {
         let path = self.dir.join(format!("{:06}.json", self.next));
-        std::fs::write(&path, part.to_string()).map_err(|e| e.to_string())?;
+        let text = part.to_string();
+        self.total += text.len() as u64;
         self.next += 1;
-        Ok(())
+        budget::within(budget::Declared {
+            parts: self.next,
+            bytes: self.total,
+            files: 0,
+            file_bytes: 0,
+        })?;
+        std::fs::write(&path, text).map_err(|e| e.to_string())
     }
 
     fn flush(&mut self) -> Result<(), String> {
@@ -52,6 +59,9 @@ impl Parts {
 
     fn row(&mut self, table: &str, row: Row) -> Result<(), String> {
         let text = Value::Object(row.clone()).to_string();
+        if text.len() > budget::MOST_ROW_BYTES {
+            return Err(format!("a row of {table} is larger than a move carries"));
+        }
         if text.len() > PART_BYTES - 1024 {
             // One row larger than a part goes as pieces of its text, joined there.
             self.flush()?;
@@ -78,8 +88,9 @@ impl Parts {
         Ok(())
     }
 
-    /// A file in pieces; answers its size and SHA-256 for the inventory.
-    fn file(&mut self, head: Value, full: &Path) -> Result<(u64, String), String> {
+    /// A file in pieces, at most `size` bytes (its size when the preflight read it); answers its
+    /// size and SHA-256 for the inventory.
+    fn file(&mut self, head: Value, full: &Path, size: u64) -> Result<(u64, String), String> {
         let mut file = std::fs::File::open(full).map_err(|e| e.to_string())?;
         let mut digest = Sha256::new();
         let mut buffer = vec![0u8; FILE_PIECE];
@@ -96,6 +107,9 @@ impl Parts {
                 }
             }
             let piece = &buffer[..filled];
+            if offset + filled as u64 > size {
+                return Err(format!("{} grew while it was being packed", full.display()));
+            }
             digest.update(piece);
             let last = filled < FILE_PIECE;
             let mut part = head.clone();
@@ -153,59 +167,58 @@ impl Engine {
             .store
             .move_selection(&agents)
             .map_err(|e| e.to_string())?;
+        // Every file's size first: a move larger than it may be is refused before one is read.
+        let workspaces = self.data_dir().join("workspace");
+        let mut walks = Vec::new();
+        for agent in &agents {
+            let root = paths::child(&workspaces, agent)?;
+            walks.push((
+                agent.clone(),
+                files::walk(&root).map_err(|e| e.to_string())?,
+            ));
+        }
+        let sizes: Vec<u64> = walks
+            .iter()
+            .flat_map(|(_, walked)| walked.files.iter())
+            .map(|found| std::fs::metadata(&found.full).map_or(0, |m| m.len()))
+            .collect();
+        budget::preflight(sizes.iter().copied(), budget::MOST_FILE_BYTES)?;
         let mut parts = Parts {
             dir: tmp.clone(),
             next: 0,
             table: String::new(),
             rows: Vec::new(),
             bytes: 0,
+            total: 0,
         };
         let mut sums = BTreeMap::new();
         let mut images = Vec::new();
         let mut models = Vec::new();
+        // Read a page at a time: Spade's connection is held for one page, never a table.
         for table in MOVE_TABLES {
             let mut sum = RowSums::default();
-            if table.paged() {
-                for conversation in &selection.conversations {
-                    let mut after = i64::MIN;
-                    loop {
-                        let page = self
-                            .store
-                            .move_events(conversation, after, EVENT_PAGE)
-                            .map_err(|e| e.to_string())?;
-                        let Some(last) = page.last() else { break };
-                        after = last["seq"].as_i64().unwrap_or(i64::MAX);
-                        let full = page.len() == EVENT_PAGE;
-                        for row in page {
-                            if let Some(body) = row["body"].as_str() {
-                                files::image_refs(body, &mut images);
-                            }
-                            sum.add(&row);
-                            parts.row(table.name, row)?;
-                        }
-                        if !full {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                for row in self
+            let mut cursor = None;
+            loop {
+                let (page, next) = self
                     .store
-                    .move_rows(table, &selection)
-                    .map_err(|e| e.to_string())?
-                {
+                    .move_page(table, &selection, &cursor)
+                    .map_err(|e| e.to_string())?;
+                for row in page {
+                    if table.paged()
+                        && let Some(body) = row["body"].as_str()
+                    {
+                        files::image_refs(body, &mut images);
+                    }
                     if table.name == "agents" {
                         files::image_refs(row["avatar"].as_str().unwrap_or(""), &mut images);
                         endpoints_of(row["model"].as_str().unwrap_or(""), &mut models);
                     }
                     if table.name == "settings"
+                        && row["key"]
+                            .as_str()
+                            .is_some_and(|k| k.starts_with("model_roles:"))
                         && let Some(roles) = row["value"]
                             .as_str()
-                            .filter(|_| {
-                                row["key"]
-                                    .as_str()
-                                    .is_some_and(|k| k.starts_with("model_roles:"))
-                            })
                             .and_then(|text| serde_json::from_str::<Value>(text).ok())
                     {
                         for model in roles.to_string().split('"') {
@@ -216,6 +229,10 @@ impl Engine {
                     }
                     sum.add(&row);
                     parts.row(table.name, row)?;
+                }
+                match next {
+                    Some(next) => cursor = Some(next),
+                    None => break,
                 }
             }
             let sum = sum.finish();
@@ -231,36 +248,29 @@ impl Engine {
         for sha in &images {
             let path = self.images.dir().join(sha);
             if path.is_file() {
+                let most = std::fs::metadata(&path).map_or(0, |m| m.len());
                 let (size, hash) =
-                    parts.file(json!({ "kind": "image", "sha256_name": sha }), &path)?;
+                    parts.file(json!({ "kind": "image", "sha256_name": sha }), &path, most)?;
                 inventory
                     .push(json!({ "kind": "image", "name": sha, "size": size, "sha256": hash }));
             }
         }
-        let (mut bytes, mut left) = (0u64, Vec::new());
-        let workspaces = self.data_dir().join("workspace");
-        for agent in &agents {
-            let root = paths::child(&workspaces, agent)?;
-            let walked = files::walk(&root).map_err(|e| e.to_string())?;
+        let mut left = Vec::new();
+        let mut size_of = sizes.into_iter();
+        for (agent, walked) in walks {
             left.extend(walked.left);
             for found in walked.files {
+                let most = size_of.next().unwrap_or(0);
                 let head = json!({ "kind": "file", "agent": agent, "path": found.path });
-                let (size, hash) = parts.file(head, &found.full)?;
+                let (size, hash) = parts.file(head, &found.full, most)?;
                 inventory.push(json!({
                     "kind": "file", "agent": agent, "path": found.path, "size": size, "sha256": hash,
                 }));
-                bytes += size;
-                if bytes > MOST_BYTES {
-                    return Err(format!(
-                        "{}'s folder holds more than {} GB, more than a move carries.",
-                        entry.agent_name,
-                        MOST_BYTES / (1024 * 1024 * 1024)
-                    ));
-                }
             }
         }
         let inventory_sha = hex(&Sha256::digest(Value::Array(inventory.clone()).to_string()));
         let count = inventory.len();
+        let bytes: u64 = inventory.iter().filter_map(|e| e["size"].as_u64()).sum();
         let mut chunk = Vec::new();
         let mut chunk_bytes = 0;
         for entry in inventory {
@@ -310,10 +320,13 @@ impl Engine {
             "tables": sums,
             "inventory": { "count": count, "bytes": bytes, "sha256": inventory_sha },
             "parts": parts.next,
+            "bytes": parts.total,
             "endpoints": needs,
             "extras": extras,
             "left": left,
         });
+        // The same limits the other machine holds it to, before anything is sent.
+        budget::declared(&manifest)?;
         std::fs::write(tmp.join("manifest.json"), manifest.to_string())
             .map_err(|e| e.to_string())?;
         paths::remove_child(&folder, "out")?;

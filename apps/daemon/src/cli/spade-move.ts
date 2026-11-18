@@ -35,20 +35,30 @@ export function newMoveId(uuid: string): string {
   return `mv_${uuid.toLowerCase().replaceAll(/[^0-9a-f]/g, "")}`;
 }
 
+/** What the person accepts on the machine a bot goes to (ADR 0187). */
+export interface Acceptance {
+  bot: string;
+  from: string;
+  to: string;
+  digest: string;
+  replaces: "bot" | "main";
+}
+
 /**
- * The person's say on the machine the bot goes to (ADR 0187): accepted there, through that
- * machine's daemon, which stamps it as theirs. Without it that machine refuses the move.
+ * The person's say on the machine the bot goes to: accepted there, through that machine's
+ * daemon, which stamps it as theirs over all of it. Without it that machine refuses the move.
  */
-export async function acceptThere(call: SpadeCall, id: string, bot: string): Promise<void> {
-  await call("PUT", `/v1/moves/${encodeURIComponent(id)}/accept`, { bot });
+export async function acceptThere(call: SpadeCall, id: string, accept: Acceptance): Promise<void> {
+  await call("PUT", `/v1/moves/${encodeURIComponent(id)}/accept`, accept);
 }
 
 /** How long between reads of the move. */
 const pollMs = 1000;
 
 /**
- * Starts the move and waits for its end: `done` once the bot left this machine, else how it
- * ended. Throws when it failed, in Spade's words; `wait` is injected so tests needn't sleep.
+ * Starts the move, has `accept` take the person's say on the machine it goes to once it is
+ * packed, and waits for its end: `done` once the bot left this machine, else how it ended.
+ * Throws when it failed, in Spade's words; `wait` is injected so tests needn't sleep.
  */
 export async function moveBot(
   call: SpadeCall,
@@ -57,6 +67,7 @@ export async function moveBot(
   id: string,
   limitMs: number,
   wait: (ms: number) => Promise<void>,
+  accept: (acceptance: Acceptance) => Promise<void>,
 ): Promise<CliSpadeMove> {
   const { parseSpadeMove, spadeMoveLine } = await import("@ace/ui-core/spade-chat");
   await call("POST", `/v1/agents/${encodeURIComponent(bot.id)}/move`, {
@@ -64,6 +75,7 @@ export async function moveBot(
     move: id,
   });
   const to = { host: machine.hostId, name: machine.name };
+  let accepted = false;
   for (let waited = 0; waited <= limitMs; waited += pollMs) {
     const body: unknown = JSON.parse(
       await call("GET", `/v1/agents/${encodeURIComponent(bot.id)}/move`),
@@ -78,6 +90,11 @@ export async function moveBot(
       });
     if (move.state === "cancelled")
       return { bot: { id: bot.id, name: bot.name }, to, state: "cancelled" };
+    if (move.accept && !accepted) {
+      await accept({ bot: bot.id, to: machine.hostId, ...move.accept });
+      accepted = true;
+      continue;
+    }
     await wait(pollMs);
   }
   throw new CliFailure("timeout", `${bot.name} is still moving to ${machine.name}.`, undefined, {

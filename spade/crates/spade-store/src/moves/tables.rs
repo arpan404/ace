@@ -70,6 +70,9 @@ pub struct MoveTable {
     pub(super) filter: &'static str,
     pub columns: &'static [Column],
     pub owner: Owner,
+    /// What a row is found by when the table is read or emptied in pages: `rowid`, or the
+    /// primary key of a table without one.
+    pub(super) key: &'static str,
 }
 
 impl MoveTable {
@@ -115,6 +118,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("updated_ms"),
         ],
         owner: Owner::Derived,
+        key: "rowid",
     },
     MoveTable {
         name: "agents",
@@ -132,6 +136,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             opt_int("pinned_ms"),
         ],
         owner: Owner::Agent,
+        key: "rowid",
     },
     MoveTable {
         name: EVENTS,
@@ -143,6 +148,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             text("body"),
         ],
         owner: Owner::Derived,
+        key: "conversation_id, seq",
     },
     MoveTable {
         name: "spend",
@@ -155,12 +161,14 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             text("role"),
         ],
         owner: Owner::Derived,
+        key: "rowid",
     },
     MoveTable {
         name: "seen",
         filter: IN_CONVERSATIONS,
         columns: &[text("conversation_id"), int("seq"), int("at_ms")],
         owner: Owner::Derived,
+        key: "conversation_id",
     },
     MoveTable {
         name: "helpers",
@@ -178,6 +186,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("created_ms"),
         ],
         owner: Owner::Derived,
+        key: "rowid",
     },
     MoveTable {
         name: "notes",
@@ -194,6 +203,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("suggested"),
         ],
         owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
     },
     MoveTable {
         name: "knowledge",
@@ -215,6 +225,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("uses"),
         ],
         owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
     },
     MoveTable {
         name: "knowledge_links",
@@ -222,6 +233,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
                  (SELECT value FROM json_each(:agents)))",
         columns: &[text("from_id"), text("to_id"), text("relation")],
         owner: Owner::Derived,
+        key: "from_id, to_id",
     },
     MoveTable {
         name: "episodes",
@@ -241,6 +253,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("closed_ms"),
         ],
         owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
     },
     MoveTable {
         name: "digests",
@@ -257,6 +270,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             opt_text("polished"),
         ],
         owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
     },
     // A webhook's secret never travels: the other machine makes a new one.
     MoveTable {
@@ -278,6 +292,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("untrusted"),
         ],
         owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
     },
     MoveTable {
         name: "routine_runs",
@@ -294,12 +309,14 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             opt_text("detail"),
         ],
         owner: Owner::Derived,
+        key: "rowid",
     },
     MoveTable {
         name: "skill_uses",
         filter: IN_AGENTS,
         columns: &[text("agent_id"), text("name"), int("loads"), int("helpful")],
         owner: Owner::AgentColumn("agent_id"),
+        key: "rowid",
     },
     MoveTable {
         name: "groups",
@@ -314,6 +331,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             opt_int("pinned_ms"),
         ],
         owner: Owner::Lead,
+        key: "rowid",
     },
     MoveTable {
         name: "group_members",
@@ -327,6 +345,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             opt_text("avatar"),
         ],
         owner: Owner::Derived,
+        key: "group_id, machine, agent_id",
     },
     MoveTable {
         name: "inbox",
@@ -341,6 +360,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
             int("created_ms"),
         ],
         owner: Owner::AgentColumn("agent_id"),
+        key: "from_host, key",
     },
     MoveTable {
         name: "settings",
@@ -348,6 +368,7 @@ pub const MOVE_TABLES: &[MoveTable] = &[
                    WHERE settings.key = p.value || a.value)",
         columns: &[text("key"), text("value")],
         owner: Owner::Setting,
+        key: "rowid",
     },
 ];
 

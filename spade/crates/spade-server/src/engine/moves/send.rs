@@ -22,6 +22,8 @@ const CALL: Duration = Duration::from_secs(60);
 /// Waits between tries while the other machine is away: doubling, at most the second.
 const FIRST_WAIT: Duration = Duration::from_millis(500);
 const LONGEST_WAIT: Duration = Duration::from_secs(30);
+/// How long a move waits for the person's say on the other machine.
+const AWAIT_SAY_MS: i64 = 30 * 60_000;
 
 /// What a step leaves the move to.
 enum Next {
@@ -102,7 +104,13 @@ impl Engine {
         match packed {
             Ok(Ok(manifest)) => {
                 let total = manifest["parts"].as_u64().unwrap_or(0);
-                self.update(entry, SENDING, |kept| kept["total"] = json!(total));
+                // What the person accepts on the other machine: this manifest, by its hash.
+                let digest = super::receive::manifest_sha(&manifest);
+                self.update(entry, SENDING, |kept| {
+                    kept["total"] = json!(total);
+                    kept["digest"] = json!(digest);
+                    kept["awaiting"] = json!(true);
+                });
                 if self.cancelled(&entry.id) {
                     Next::Cancel
                 } else {
@@ -167,9 +175,27 @@ impl Engine {
             Ok(answer) => answer,
             Err(next) => return next,
         };
+        // Not accepted there yet: the person's say is on its way, from the app or the CLI.
+        if status == 403 && body["awaiting"] == json!(true) {
+            let since = detail(entry)["awaiting_since"].as_i64();
+            let now = self.now_ms();
+            if since.is_some_and(|since| now - since > AWAIT_SAY_MS) {
+                return Next::Fail(format!(
+                    "your say on {} never came; accept the move there",
+                    entry.peer_name
+                ));
+            }
+            self.update(entry, SENDING, |kept| {
+                kept["awaiting"] = json!(true);
+                kept["awaiting_since"] = json!(since.unwrap_or(now));
+            });
+            tokio::time::sleep(FIRST_WAIT).await;
+            return Next::Again;
+        }
         if status != 200 {
             return Next::Fail(error_of(&body));
         }
+        self.update(entry, SENDING, |kept| kept["awaiting"] = json!(false));
         let held = body["host"].clone();
         let have: Vec<u64> = body["have"]
             .as_array()

@@ -1,7 +1,8 @@
 //! The person's consent never crosses machines (ADR 0187). A bot's security settings arrive
 //! with every grant gone (folders, toolchains, pushes, comments, tools, apps and sites it may
-//! drive) and Full access back to the auto-review, unconfirmed; what only narrows it (its
-//! network and where its commands run) stays. Each thing dropped is named for the person.
+//! drive) and set to the auto-review, explicitly and unconfirmed: never left to follow this
+//! machine's default, which may be Full access. What only narrows it (its network and where its
+//! commands run) stays. Each thing dropped is named for the person.
 
 use spade_core::grant::{Grant, Scope};
 
@@ -23,13 +24,15 @@ fn grant_words(grant: &Grant) -> String {
 /// The settings as they arrive, and what of the person's consent stayed behind. Settings that
 /// don't read are dropped whole.
 pub(super) fn reset(text: &str) -> (String, Vec<String>) {
-    let Ok(mut settings) = serde_json::from_str::<BotSecurity>(text) else {
-        return (
-            "{}".to_owned(),
-            vec!["its security settings, which this machine couldn't read".to_owned()],
-        );
+    let (mut settings, unread) = match serde_json::from_str::<BotSecurity>(text) {
+        Ok(settings) => (settings, None),
+        Err(_) => (
+            BotSecurity::default(),
+            Some("its security settings, which this machine couldn't read".to_owned()),
+        ),
     };
     let mut dropped: Vec<String> = settings.grants.iter().map(grant_words).collect();
+    dropped.extend(unread);
     dropped.extend(
         settings
             .toolchains
@@ -41,7 +44,7 @@ pub(super) fn reset(text: &str) -> (String, Vec<String>) {
     }
     settings.grants.clear();
     settings.toolchains.clear();
-    settings.autonomy = None;
+    settings.autonomy = Some(spade_core::autonomy::Mode::AutoReview);
     settings.full_access_confirmed = false;
     (
         serde_json::to_string(&settings).unwrap_or_else(|_| "{}".to_owned()),
@@ -76,7 +79,10 @@ mod tests {
         let kept: Value = serde_json::from_str(&kept).unwrap_or_default();
         assert_eq!(kept["grants"], json!([]));
         assert_eq!(kept["toolchains"], json!([]));
-        assert!(kept.get("autonomy").is_none_or(Value::is_null));
+        assert_eq!(
+            kept["autonomy"], "auto_review",
+            "explicit, never the machine's default"
+        );
         assert!(kept.get("full_access_confirmed").is_none_or(|v| v == false));
         assert_eq!(kept["network"]["mode"], "off", "a limit it had stays");
         assert_eq!(dropped.len(), 8, "{dropped:?}");
@@ -85,9 +91,14 @@ mod tests {
     }
 
     #[test]
-    fn settings_that_dont_read_arrive_as_none() {
-        let (kept, dropped) = reset("{\"grants\": 7}");
-        assert_eq!(kept, "{}");
-        assert_eq!(dropped.len(), 1);
+    fn settings_that_dont_read_or_none_at_all_arrive_on_the_auto_review() {
+        for text in ["{\"grants\": 7}", "{}"] {
+            let (kept, _) = reset(text);
+            let kept: Value = serde_json::from_str(&kept).unwrap_or_default();
+            assert_eq!(kept["autonomy"], "auto_review", "{text}");
+            assert_eq!(kept["grants"], json!([]));
+        }
+        assert_eq!(reset("{\"grants\": 7}").1.len(), 1);
+        assert!(reset("{}").1.is_empty());
     }
 }

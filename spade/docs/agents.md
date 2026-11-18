@@ -54,24 +54,29 @@ record the old election's `main_enabled` still decides; the first record heard d
 A bot moves to another of the person's machines with everything it knows, and only with the
 person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves` for the rows.
 
-1. **The person accepts it there.** `PUT /moves/{move}/accept {bot}` on the machine it goes to
-   answers `200` only with the person's stamp (`x-ace-person`, ADR 0163 amendment 2, over
-   `move:<move>` and `accept:<bot>`; the daemon adds it for a caller with their standing),
-   else `403`. Ids are plain (`[a-z0-9][a-z0-9_-]{0,79}`), else `400`. It stays good for an hour.
-2. **Then it starts here.** `POST /agents/{id}/move {to, move}` (`to` a host id from the daemon's
-   linked machines, online; `move` the accepted id) answers `202 {move}`. The move is reserved
-   first: the `moves` table holds a bot to one open move each way (`one_open_move`), so a second
-   start answers `409` before anything is awaited. Refused too (`409`): a worker (it moves with
-   its maker), the main bot where it isn't hosted, and one that (or a worker of which) is working,
-   waiting on the person, sleeping or running a service. The bot and its workers are frozen for
-   that move: messages answer `409` ("Research is moving to Studio …"), routines don't fire, its
-   `status` reads "Moving to Studio".
+1. **It starts here.** `POST /agents/{id}/move {to, move}` (`to` a host id from the daemon's
+   linked machines, online; `move` a plain id the app or CLI makes) answers `202 {move}`. The move
+   is reserved first: the `moves` table holds a bot to one open move each way (`one_open_move`),
+   so a second start answers `409` before anything is awaited. Refused too (`409`): a worker (it
+   moves with its maker), the main bot where it isn't hosted, and one that (or a worker of which)
+   is working, waiting on the person, sleeping or running a service. The bot and its workers are
+   frozen for that move: messages answer `409` ("Research is moving to Studio …"), routines don't
+   fire, its `status` reads "Moving to Studio". Once packed, the move's view carries `from`,
+   `digest` (the manifest's SHA-256) and `replaces` (`bot` or `main`), and reads `awaiting`.
+2. **The person accepts it there.** `PUT /moves/{move}/accept {bot, from, to, digest, replaces}`
+   on the machine it goes to answers `200` only with the person's stamp over all of it
+   (`x-ace-person`, ADR 0163 amendment 2, over `move:<move>` and
+   `accept:<bot>:<from>:<to>:<digest>:<replaces>`; the daemon adds it for a caller with their
+   standing), else `403`; `409` when `to` isn't this machine or it would replace a Spade in use
+   here; `400` for anything not plain. It stays good for an hour. The source waits for it (`begin`
+   answers `403 {awaiting: true}` until then), for half an hour at most.
 3. **Packing** (`moves/<id>/out/`): numbered parts of at most 384 KiB: rows table by table
-   (`MOVE_TABLES`, each with its typed columns; a rowid table's own `id` and a routine's webhook
-   `secret` are never read out), a row bigger than a part as `piece`s of its text, every image its
+   (`MOVE_TABLES`, each with its typed columns, read `MOVE_BATCH` rows at a time; a rowid table's
+   own `id` and a routine's webhook `secret` are never read out), a row bigger than a part as `piece`s of its text, every image its
    avatar or events name, each workspace file in 256 KiB pieces, then the inventory (every file
    and image with its size and SHA-256). Links stay behind. Then `manifest.json`: format
-   `spade-move` 2, the schema version, the agents, per table its row count and hash (SHA-256 over
+   `spade-move` 2, the schema version, the agents, the parts and their bytes, per table its row
+   count and hash (SHA-256 over
    the sorted SHA-256s of each row's JSON), the inventory's count and hash, the endpoints its
    models use, the apps and plugins it used, by name.
 4. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
@@ -79,22 +84,31 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
 host}`; `part {index, part}`; then `commit {host?}`. `begin` binds the move to the sending
    machine and the manifest's hash: any step from another machine answers `403`, another manifest
    `409`. Unreachable means wait and try again (`waiting: true`); Cancel works until the commit.
-5. **The target** stages parts in `moves/<id>/in/` and on `commit`: joins the files against the
-   inventory (none missing, twice or unexpected, each flushed); then in one transaction deletes
-   an older copy under the same ids, writes every row (typed; each must be the moving bots' own:
-   its id, its agent, its club, or one of `PER_BOT_SETTINGS` for one of them), checks that each
-   table holds exactly the rows written, with the manifest's count and hash, and arrives:
-   routines pause and webhooks get new secrets; its security settings lose every grant, its
-   toolchains and Full access; its clubs point here; each moved conversation gets an `arrived`
-   event, before which no answer counts here (`since_arrival`); Spade's host record is kept; and
-   the move reads `placing` with all it needs to finish. Any failed check answers `422` and keeps
-   nothing. It then places the workspace and images, flushes them, reads `committed` and answers
-   `{committed, arrival}`; a placing that fails answers `503` and stays `placing`, and a retried
-   commit or a restart only places. The bot's apps start at none.
+5. **The target** checks `begin` against what the person accepted (the manifest's hash, the
+   machine it comes from, what it replaces) and the limits (`budget.rs`: parts, bytes, files, row
+   size, and its free disk), stages parts in `moves/<id>/in/`, counting each against what was
+   declared (past it: `413`, staging removed), and on `commit`: joins the files against the
+   inventory (none missing, twice, unexpected or larger than its entry, each flushed); writes the
+   rows into `in/stage.sqlite`, its own database (typed; each the moving bots' own: its id, its
+   agent, its club, or one of `PER_BOT_SETTINGS` for one of them), where every table must hold
+   exactly the bots' rows with the manifest's counts and hashes and nothing may point at a
+   conversation, entry or routine that didn't come along; then copies them into Spade's database
+   `MOVE_BATCH` rows per transaction with the bots hidden (`arriving`), sums them again in pages,
+   and in one small transaction makes them this machine's and arrives: routines pause and webhooks
+   get new secrets; every bot's security settings lose every grant, its toolchains and Full access
+   and read `auto_review` (also a bot that brought none); its clubs point here; each moved
+   conversation gets an `arrived` event, before which no answer counts here (`since_arrival`);
+   Spade's host record is kept (never over a Spade in use here); and the move reads `placing` with
+   all it needs to finish. A failed check answers `422` and takes out what was copied; a restart
+   while `activating` takes it out too, for the next commit. It then places the workspace and
+   images, flushes them, reads `committed` and answers `{committed, arrival}`; a placing that
+   fails answers `503` and stays `placing`, and a retried commit or a restart only places. The
+   bot's apps start at none.
 6. **Finishing** on the source: the main bot goes quiet as the record now names the target; any
    other bot is archived (`moved/<id>/parts` and `workspace/`, no secrets), `moved:<id>`
-   remembers where it went, clubs here list it on the target, and its rows go. Archives go 30
-   days after the move ended.
+   remembers where it went, clubs here list it on the target, and its rows go, a batch at a time.
+   Archives go 30 days after the move ended: a sweep every `Limits::archive_sweep` (an hour)
+   removes at most five each time, never at start.
 
 The target keeps `arrived:<id>` (`{from, at, routines_paused, webhooks, consent, endpoints, apps,
 plugins, left}`) until `DELETE /agents/{id}/arrival`. `GET /agents/{id}/move` answers `{move,

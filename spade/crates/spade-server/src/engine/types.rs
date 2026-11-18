@@ -44,6 +44,9 @@ pub struct Limits {
     /// Most of a running turn's events kept in memory, by stored size in bytes. A turn past it
     /// reads its events from the database instead, so its memory stays bounded (ADR 0158).
     pub turn_log_bytes: usize,
+    /// How often moved-away bots' archives past their time are removed, a few at a time
+    /// (ADR 0187).
+    pub archive_sweep: Duration,
     /// One orchestrator's worker bots that work at once (`SPADE_WORKERS_AT_ONCE`, ADR 0161);
     /// the rest wait queued.
     pub workers_at_once: usize,
@@ -68,6 +71,7 @@ impl Default for Limits {
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
             turn_log_bytes: 64 << 20,
+            archive_sweep: Duration::from_secs(60 * 60),
             workers_at_once: 32,
             knowledge_bytes: spade_core::knowledge::DEFAULT_BYTES,
         }

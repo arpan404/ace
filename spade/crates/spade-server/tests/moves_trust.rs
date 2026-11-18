@@ -79,12 +79,26 @@ fn data(spade: &Spade) -> Result<Vec<String>> {
     Ok(names)
 }
 
+/// What the person accepts for a move of `bot` from the laptop to the studio.
+fn said(bot: &str, digest: String) -> Value {
+    json!({ "bot": bot, "from": "host-laptop", "to": "host-studio", "digest": digest, "replaces": "bot" })
+}
+
+/// A manifest's hash, as the person accepts it.
+fn sha(manifest: &Value) -> String {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(manifest.to_string())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// A manifest that reads right for `bot`, with nothing in it.
 fn manifest(id: &str, bot: &str) -> Value {
     json!({
         "format": "spade-move", "version": 2, "schema": Store::schema_version(),
         "move": id, "from": "host-laptop", "bot": { "id": bot, "name": "Research", "main": false },
-        "agents": [bot], "tables": {}, "parts": 1,
+        "agents": [bot], "tables": {}, "parts": 1, "bytes": 10,
         "inventory": { "count": 0, "bytes": 0, "sha256": "0".repeat(64) },
     })
 }
@@ -111,7 +125,7 @@ async fn a_move_id_that_names_a_path_never_touches_spades_data() -> Result {
     ];
     for id in bad {
         // Refused: by Spade (400), or by the router before Spade sees it (404).
-        let status = accept(&studio, id, "a_l1", true).await?;
+        let status = accept(&studio, id, &said("a_l1", "0".repeat(64)), true).await?;
         assert!(matches!(status, 400 | 404), "accept {id:?}: {status}");
         for step in ["begin", "part", "commit", "abort", "status"] {
             let request =
@@ -120,10 +134,14 @@ async fn a_move_id_that_names_a_path_never_touches_spades_data() -> Result {
             assert_eq!(status, 400, "{step} {id:?}");
         }
     }
-    // A bot id that names a path is refused as well.
+    // A bot id or a machine that names a path is refused as well.
     for bot in ["..", "../a", "A_1"] {
-        assert_eq!(accept(&studio, "mv_ok", bot, true).await?, 400, "{bot:?}");
+        let status = accept(&studio, "mv_ok", &said(bot, "0".repeat(64)), true).await?;
+        assert_eq!(status, 400, "{bot:?}");
     }
+    let mut odd = said("a_l1", "0".repeat(64));
+    odd["from"] = json!("../laptop");
+    assert_eq!(accept(&studio, "mv_ok", &odd, true).await?, 400);
     assert_eq!(data(&studio)?, before, "Spade's data folder is as it was");
     assert!(studio.database().exists());
     let (status, _) = studio.get("/v1/agents").await?;
@@ -144,43 +162,49 @@ async fn a_machine_of_the_fleet_alone_cant_push_a_bot_in() -> Result {
     )
     .await?;
     assert_eq!(status, 403, "{body}");
-    // Accepted without the person's stamp, or with one for another move or bot.
-    assert_eq!(accept(&studio, "mv_2", "a_l1", false).await?, 403);
+    let digest = sha(&manifest("mv_2", "a_l1"));
+    // Accepted without the person's stamp, or with one over something else.
+    assert_eq!(
+        accept(&studio, "mv_2", &said("a_l1", digest.clone()), false).await?,
+        403
+    );
     let other = studio
         .http
         .put(format!("{}/v1/moves/mv_2/accept", studio.base))
         .bearer_auth(TOKEN)
         .header(
             spade_server::security::attest::HEADER,
-            stamp("move:mv_2", "accept:a_l9"),
+            stamp("move:mv_2", "accept:a_l1"),
         )
-        .json(&json!({ "bot": "a_l1" }))
+        .json(&said("a_l1", digest.clone()))
         .send()
         .await?;
-    assert_eq!(other.status().as_u16(), 403, "a stamp for another bot");
+    assert_eq!(
+        other.status().as_u16(),
+        403,
+        "a stamp over less than the whole move"
+    );
+    // For another machine.
+    let mut elsewhere = said("a_l1", digest.clone());
+    elsewhere["to"] = json!("host-laptop");
+    assert_eq!(accept(&studio, "mv_2", &elsewhere, true).await?, 409);
     // A stamp counts once.
-    let once = stamp("move:mv_3", "accept:a_l1");
+    let once = stamp(
+        "move:mv_3",
+        &format!("accept:a_l1:host-laptop:host-studio:{digest}:bot"),
+    );
     for expected in [200, 403] {
         let answer = studio
             .http
             .put(format!("{}/v1/moves/mv_3/accept", studio.base))
             .bearer_auth(TOKEN)
             .header(spade_server::security::attest::HEADER, &once)
-            .json(&json!({ "bot": "a_l1" }))
+            .json(&said("a_l1", digest.clone()))
             .send()
             .await?;
         assert_eq!(answer.status().as_u16(), expected);
     }
-    // Accepted for one bot, a manifest for another is refused.
-    let (status, body) = deliver(
-        &studio.base,
-        "host-laptop",
-        "Laptop",
-        &begin("mv_3", "a_l7"),
-    )
-    .await?;
-    assert_eq!(status, 403, "{body}");
-    // A real move the person never accepted there fails here, and the bot stays.
+    // A real move the person never accepted there waits for their say, and the bot stays.
     let (bot, _) = research(&laptop).await?;
     let (status, _) = laptop
         .post(
@@ -189,24 +213,147 @@ async fn a_machine_of_the_fleet_alone_cant_push_a_bot_in() -> Result {
         )
         .await?;
     assert_eq!(status, 202);
-    let ended = move_ends(&laptop, &bot).await?;
-    assert_eq!(ended["state"], "failed", "{ended}");
-    assert!(
-        ended["problem"]
-            .as_str()
-            .is_some_and(|p| p.contains("accept")),
-        "{ended}"
-    );
+    let mut waiting = Value::Null;
+    for _ in 0..200 {
+        waiting = laptop.get(&format!("/v1/agents/{bot}/move")).await?.1;
+        if waiting["move"]["state"] == "awaiting" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(waiting["move"]["state"], "awaiting", "{waiting}");
     assert!(listed(&laptop, &bot).await?.is_some());
     assert!(listed(&studio, &bot).await?.is_none());
     Ok(())
 }
 
 #[tokio::test]
+async fn a_first_begin_from_another_machine_or_of_another_manifest_is_refused() -> Result {
+    let (fleet, laptop, studio) = pair().await?;
+    let (bot, _) = research(&laptop).await?;
+    // The laptop can't reach the studio yet, so another machine speaks first.
+    fleet.unreachable.store(true, Ordering::SeqCst);
+    let (status, _) = laptop
+        .post(
+            &format!("/v1/agents/{bot}/move"),
+            json!({ "to": "host-studio", "move": "mv_1" }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let started = support::fleet::packed(&laptop, &bot).await?;
+    let accepted = support::fleet::accepting(&bot, &started, "host-studio");
+    assert_eq!(accept(&studio, "mv_1", &accepted, true).await?, 200);
+    // A fabricated history, sent as if from the laptop and as another machine.
+    let mut fake = manifest("mv_1", &bot);
+    fake["parts"] = json!(1);
+    for (sender, from) in [
+        ("host-evil", "host-evil"),
+        ("host-evil", "host-laptop"),
+        ("host-laptop", "host-laptop"),
+    ] {
+        fake["from"] = json!(from);
+        let begin = json!({ "op": "move", "step": "begin", "move": "mv_1", "manifest": fake });
+        let (status, body) = deliver(&studio.base, sender, "Evil", &begin).await?;
+        assert_eq!(status, 403, "{sender} {from}: {body}");
+    }
+    // The move the person accepted still goes through, from the laptop.
+    fleet.unreachable.store(false, Ordering::SeqCst);
+    assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
+    assert!(listed(&studio, &bot).await?.is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn spade_in_use_on_the_machine_it_moves_to_is_never_replaced() -> Result {
+    let (_fleet, laptop, studio) = pair().await?;
+    // Each machine thinks it hosts Spade.
+    laptop
+        .put(
+            "/v1/main/host",
+            json!({ "host": "host-laptop", "version": 1, "at": 1, "by": "seed" }),
+        )
+        .await?;
+    studio
+        .put(
+            "/v1/main/host",
+            json!({ "host": "host-studio", "version": 1, "at": 1, "by": "seed" }),
+        )
+        .await?;
+    let (_, all) = studio.get("/v1/agents").await?;
+    let studio_spade = all["agents"][0]["id"].clone();
+    let (_, all) = laptop.get("/v1/agents").await?;
+    let spade = all["agents"][0]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (status, _) = laptop
+        .post(
+            &format!("/v1/agents/{spade}/move"),
+            json!({ "to": "host-studio", "move": "mv_1" }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let started = support::fleet::packed(&laptop, &spade).await?;
+    assert_eq!(started["replaces"], "main");
+    let accepted = support::fleet::accepting(&spade, &started, "host-studio");
+    assert_eq!(
+        accept(&studio, "mv_1", &accepted, true).await?,
+        409,
+        "Spade is in use there"
+    );
+    // Said to be a plain bot, the manifest doesn't match what was accepted.
+    let mut as_bot = accepted.clone();
+    as_bot["replaces"] = json!("bot");
+    assert_eq!(accept(&studio, "mv_1", &as_bot, true).await?, 200);
+    let ended = move_ends(&laptop, &spade).await?;
+    assert_eq!(ended["state"], "failed", "{ended}");
+    let (_, all) = studio.get("/v1/agents").await?;
+    assert_eq!(
+        all["agents"][0]["id"], studio_spade,
+        "the studio's own Spade is still there"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_bot_arrives_on_the_auto_review_though_the_machine_it_moves_to_runs_full_access() -> Result
+{
+    let (_fleet, laptop, studio) = pair().await?;
+    let answer = studio
+        .http
+        .put(format!("{}/v1/security/autonomy", studio.base))
+        .bearer_auth(TOKEN)
+        .header(
+            spade_server::security::attest::HEADER,
+            stamp("machine", "full_access"),
+        )
+        .json(&json!({ "autonomy": "full_access" }))
+        .send()
+        .await?;
+    assert!(answer.status().is_success(), "{}", answer.status());
+    let (bot, _) = research(&laptop).await?;
+    let (status, _) = move_bot(&laptop, &studio, &bot, "mv_1", "host-studio").await?;
+    assert_eq!(status, 202);
+    assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
+    let arrived = listed(&studio, &bot).await?.ok_or("not there")?;
+    assert_eq!(arrived["autonomy"], "auto_review", "{arrived}");
+    // A bot made here follows the machine: the arrival didn't change the machine.
+    let (_, made) = studio
+        .post("/v1/agents", json!({ "name": "Local", "model": "fake/m" }))
+        .await?;
+    assert_eq!(made["agent"]["autonomy"], "full_access", "{made}");
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_begun_move_hears_only_from_its_machine_and_keeps_its_manifest() -> Result {
     let (_fleet, _laptop, studio) = pair().await?;
-    assert_eq!(accept(&studio, "mv_1", "a_l1", true).await?, 200);
-    let begin = json!({ "op": "move", "step": "begin", "move": "mv_1", "manifest": manifest("mv_1", "a_l1") });
+    let sent = manifest("mv_1", "a_l1");
+    assert_eq!(
+        accept(&studio, "mv_1", &said("a_l1", sha(&sent)), true).await?,
+        200
+    );
+    let begin = json!({ "op": "move", "step": "begin", "move": "mv_1", "manifest": sent });
     let (status, body) = deliver(&studio.base, "host-laptop", "Laptop", &begin).await?;
     assert_eq!(status, 200, "{body}");
     for step in ["part", "commit", "abort", "status", "begin"] {
@@ -232,10 +379,11 @@ async fn a_file_the_inventory_doesnt_name_is_refused_and_nothing_is_kept() -> Re
     assert_eq!(status, 202);
     let ended = move_ends(&laptop, &bot).await?;
     assert_eq!(ended["state"], "failed", "{ended}");
+    // Refused by the inventory, or sooner, as more than the move declared.
     assert!(
         ended["problem"]
             .as_str()
-            .is_some_and(|p| p.contains("inventory")),
+            .is_some_and(|p| p.contains("inventory") || p.contains("declared")),
         "{ended}"
     );
     assert!(listed(&studio, &bot).await?.is_none());
@@ -256,22 +404,27 @@ async fn a_file_the_inventory_doesnt_name_is_refused_and_nothing_is_kept() -> Re
 async fn two_starts_of_the_same_bot_at_once_move_it_once() -> Result {
     let (_fleet, laptop, studio) = pair().await?;
     let (bot, _) = research(&laptop).await?;
-    assert_eq!(accept(&studio, "mv_1", &bot, true).await?, 200);
     let path = format!("/v1/agents/{bot}/move");
     let (one, two) = tokio::join!(
         laptop.post(&path, json!({ "to": "host-studio", "move": "mv_1" })),
         laptop.post(&path, json!({ "to": "host-studio", "move": "mv_2" })),
     );
-    let mut statuses = [one?.0, two?.0];
+    let (one, two) = (one?, two?);
+    let mut statuses = [one.0, two.0];
     statuses.sort_unstable();
     assert_eq!(statuses, [202, 409]);
-    let _ = move_ends(&laptop, &bot).await?;
+    let winner = if one.0 == 202 { "mv_1" } else { "mv_2" };
+    let started = support::fleet::packed(&laptop, &bot).await?;
+    assert_eq!(started["id"], winner);
+    let accepted = support::fleet::accepting(&bot, &started, "host-studio");
+    assert_eq!(accept(&studio, winner, &accepted, true).await?, 200);
+    assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
     let (_, all) = studio.get("/v1/agents").await?;
     let copies = all["agents"]
         .as_array()
         .map(|a| a.iter().filter(|a| a["id"] == json!(bot)).count())
         .unwrap_or(0);
-    assert!(copies <= 1);
+    assert_eq!(copies, 1);
     Ok(())
 }
 
@@ -355,7 +508,7 @@ async fn the_persons_consent_and_secrets_stay_on_the_machine_they_were_given_on(
         .unwrap_or_default();
     assert_eq!(kept["grants"], json!([]), "{kept}");
     assert_eq!(kept["toolchains"], json!([]));
-    assert!(kept.get("autonomy").is_none_or(Value::is_null), "{kept}");
+    assert_eq!(kept["autonomy"], "auto_review", "{kept}");
     let arrived = listed(&studio, &bot).await?.ok_or("not there")?["arrived"].clone();
     let consent = arrived["consent"].to_string();
     for named in ["/tmp", "o/r", "/opt/rust", "Full access"] {
@@ -414,23 +567,125 @@ fn walk(root: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
 }
 
 #[tokio::test]
-async fn a_moved_away_bots_archive_goes_after_thirty_days() -> Result {
-    let (fleet, laptop, studio) = pair().await?;
+async fn a_moved_away_bots_archive_goes_after_thirty_days_without_a_restart() -> Result {
+    let fleet = Arc::new(Fleet::default());
+    let limits = spade_server::engine::Limits {
+        archive_sweep: Duration::from_millis(50),
+        ..spade_server::engine::Limits::default()
+    };
+    let laptop = support::fleet::machine_with(
+        &fleet,
+        "host-laptop",
+        "Laptop",
+        vec![Script::reply("unused")],
+        limits,
+    )
+    .await?;
+    let studio = machine(
+        &fleet,
+        "host-studio",
+        "Studio",
+        vec![Script::reply("unused")],
+    )
+    .await?;
     let (bot, _) = research(&laptop).await?;
     let (status, _) = move_bot(&laptop, &studio, &bot, "mv_1", "host-studio").await?;
     assert_eq!(status, 202);
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
     let archive = laptop.dir.path().join("moved").join("mv_1");
-    assert!(archive.exists(), "kept for now");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(archive.exists(), "kept while it is young, sweep or not");
     // Ended a month ago, as far as this machine's records go.
     let store = Store::open(&laptop.database())?;
     let ended = store.stored_move("mv_1")?.ok_or("no move")?;
     let month_ago = ended.updated_ms - 31 * 24 * 60 * 60_000;
     store.set_move("mv_1", &ended.state, &ended.detail, month_ago)?;
-    let laptop = laptop
-        .restart(Vec::new(), vec![Script::reply("unused")])
-        .await?;
-    support::fleet::link(&fleet, "host-laptop", &laptop);
-    assert!(!archive.exists(), "gone after thirty days");
+    for _ in 0..200 {
+        if !archive.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(
+        !archive.exists(),
+        "gone after thirty days, the server still running"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_move_past_its_limits_or_past_what_it_declared_is_refused_and_its_staging_removed()
+-> Result {
+    let (_fleet, _laptop, studio) = pair().await?;
+    let mut begun = 0;
+    let mut begin = |change: &dyn Fn(&mut Value)| {
+        begun += 1;
+        let id = format!("mv_{begun}");
+        let mut sent = manifest(&id, "a_l1");
+        change(&mut sent);
+        (id, sent)
+    };
+    // More than a move may be, declared up front: refused before anything is staged.
+    for change in [
+        &(|m: &mut Value| m["parts"] = json!(100_001)) as &dyn Fn(&mut Value),
+        &|m: &mut Value| m["bytes"] = json!(13u64 << 30),
+        &|m: &mut Value| m["inventory"]["count"] = json!(250_001),
+        &|m: &mut Value| m["inventory"]["bytes"] = json!(9u64 << 30),
+        &|m: &mut Value| m["bytes"] = Value::Null,
+    ] {
+        let (id, sent) = begin(change);
+        assert_eq!(
+            accept(&studio, &id, &said("a_l1", sha(&sent)), true).await?,
+            200
+        );
+        let request = json!({ "op": "move", "step": "begin", "move": id, "manifest": sent });
+        let (status, body) = deliver(&studio.base, "host-laptop", "Laptop", &request).await?;
+        assert_eq!(status, 413, "{body}");
+        // An acceptance nobody used stays for the person to withdraw; nothing was staged.
+        assert!(
+            !studio
+                .dir
+                .path()
+                .join("moves")
+                .join(&id)
+                .join("in")
+                .exists(),
+            "{id}"
+        );
+    }
+    // Within limits, but sending more than it declared: given up, its staging removed.
+    for part in [
+        json!({ "kind": "rows", "table": "settings", "rows": [{ "key": "x".repeat(64), "value": "y" }] }),
+        json!({ "kind": "inventory", "entries": [{ "kind": "image", "name": "0".repeat(64), "size": 1, "sha256": "0".repeat(64) }] }),
+    ] {
+        let (id, sent) = begin(&|m: &mut Value| {
+            m["parts"] = json!(3);
+            m["bytes"] = json!(40);
+        });
+        assert_eq!(
+            accept(&studio, &id, &said("a_l1", sha(&sent)), true).await?,
+            200
+        );
+        let request = json!({ "op": "move", "step": "begin", "move": id, "manifest": sent });
+        assert_eq!(
+            deliver(&studio.base, "host-laptop", "Laptop", &request)
+                .await?
+                .0,
+            200
+        );
+        let staging = studio.dir.path().join("moves").join(&id);
+        assert!(staging.exists());
+        let request = json!({ "op": "move", "step": "part", "move": id, "index": 0, "part": part });
+        let (status, body) = deliver(&studio.base, "host-laptop", "Laptop", &request).await?;
+        assert_eq!(status, 413, "{body}");
+        assert!(!staging.exists(), "its staging is removed");
+        let again = json!({ "op": "move", "step": "part", "move": id, "index": 1, "part": { "kind": "rows", "table": "settings", "rows": [] } });
+        assert_eq!(
+            deliver(&studio.base, "host-laptop", "Laptop", &again)
+                .await?
+                .0,
+            409
+        );
+    }
     Ok(())
 }

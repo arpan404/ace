@@ -17,6 +17,7 @@ pub(crate) const SCHEMA: &str = "
         main INTEGER NOT NULL,
         state TEXT NOT NULL,
         open INTEGER NOT NULL,
+        swept INTEGER NOT NULL DEFAULT 0,
         detail TEXT NOT NULL,
         created_ms INTEGER NOT NULL,
         updated_ms INTEGER NOT NULL
@@ -171,15 +172,24 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Every ended move whose last change is older than `before_ms`: whose archives may go.
-    pub fn ended_moves_before(&self, before_ms: i64) -> Result<Vec<StoredMove>> {
+    /// Up to `limit` ended moves whose last change is older than `before_ms` and whose folders
+    /// were not swept yet, oldest first.
+    pub fn moves_to_sweep(&self, before_ms: i64, limit: usize) -> Result<Vec<StoredMove>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {MOVE_COLUMNS} FROM moves WHERE open = 0 AND updated_ms < ?1
-             ORDER BY created_ms, id"
+            "SELECT {MOVE_COLUMNS} FROM moves WHERE open = 0 AND swept = 0 AND updated_ms < ?1
+             ORDER BY updated_ms, id LIMIT ?2"
         ))?;
-        let rows = statement.query_map(params![before_ms], stored_move)?;
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = statement.query_map(params![before_ms, limit], stored_move)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The move's folders are gone.
+    pub fn set_move_swept(&self, id: &str) -> Result<()> {
+        self.lock()?
+            .execute("UPDATE moves SET swept = 1 WHERE id = ?1", params![id])?;
+        Ok(())
     }
 }
 

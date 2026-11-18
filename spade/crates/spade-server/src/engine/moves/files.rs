@@ -3,9 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// Most files and bytes one move carries.
 pub(super) const MOST_FILES: usize = 200_000;
-pub(super) const MOST_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 /// A regular file in a workspace.
 pub(super) struct Found {

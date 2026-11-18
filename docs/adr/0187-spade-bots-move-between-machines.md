@@ -64,12 +64,18 @@ routines and notes, but never its conversation, knowledge, workspace or anything
 5. **Any bot can move, Spade too, to an online machine of the fleet that runs Spade, only with
    the person's say on both machines.** The person starts it from the bot's profile (Move to…, or
    Move Spade to this machine); the CLI has `ace spade move <bot> --to <machine> --target-remote
-<profile>`. First the person accepts the move on the machine it goes to: `PUT
-/v1/moves/{move}/accept {bot}`, a change only they may make, which that machine's daemon
-   forwards only from a caller with their standing and stamps as theirs (the person stamp of ADR
-   0163 amendment 2, `x-ace-person`, over `move:<move>` and `accept:<bot>`, single use); Spade
-   refuses it unstamped. The app and the CLI then start it, with that move's id, on the machine
-   the bot is on, which does the work. A machine of the fleet alone can never push a bot in.
+<profile>`. The machine the bot is on reserves, freezes and packs it, and says what to accept:
+   the manifest's SHA-256. Then the person accepts exactly that on the machine it goes to, `PUT
+/v1/moves/{move}/accept {bot, from, to, digest, replaces}`: the bot, the machine it comes from
+   and the one it goes to, the manifest by its hash, and whether it replaces Spade (`main`) or
+   nothing (`bot`). It is a change only they may make: that machine's daemon forwards it only from
+   a caller with their standing and stamps it as theirs over all of it (the person stamp of ADR
+   0163 amendment 2, `x-ace-person`, over `move:<move>` and `accept:<bot>:<from>:<to>:<digest>:
+<replaces>`, single use); Spade refuses it unstamped, for another machine, or to replace a
+   Spade in use there. The app does both in one click; until the say arrives the move waits,
+   saying so, for up to half an hour. A machine of the fleet alone can never push a bot in, and
+   one that learns a move's id can't claim it: only the accepted manifest, from the accepted
+   machine, begins it.
 6. **What moves.** The bot and the worker bots it made (ADR 0161), each with its conversation and
    its helpers' hidden conversations (ADR 0152): every event, so its history, goals, plans, wakes
    and decision log come along; its notes, knowledge base and links, episodes and digests;
@@ -86,7 +92,8 @@ routines and notes, but never its conversation, knowledge, workspace or anything
    attached to its messages (the messages keep their words; images move). Links in the workspace
    are not followed and stay behind, named in the result. **The person's consent never crosses
    machines**: every grant (folders, toolchains, pushes, pull request comments, tools, apps and
-   sites it may drive), Full access (the bot arrives on the auto-review, unconfirmed), the apps
+   sites it may drive), Full access (every arriving bot is set to the auto-review explicitly,
+   unconfirmed, never left to follow the target's default, which may be Full access), the apps
    and plugins it may use (they arrive at none), every Always allow and every kept answer for a
    tool that declares nothing. History still moves, but the target closes each moved conversation
    with an `arrived` event, and the gate counts only answers given after it. What stayed is
@@ -103,62 +110,79 @@ routines and notes, but never its conversation, knowledge, workspace or anything
 9. **The target trusts nothing it is sent.** A move's id and every bot id are plain names
    (`[a-z0-9][a-z0-9_-]{0,79}`), parsed where they arrive, since they name folders; every folder a
    move writes in or removes is checked to sit where it should, never through a link. `begin` is
-   taken only for a move the person accepted here, for that bot, within the hour; it binds the
-   move to the machine that sent it and to the manifest, by hash, so no other machine can speak
-   for it and the manifest can't change. On `commit` the staged files are joined and checked
-   against the inventory (none missing, twice or unexpected, each of its size and hash, each
-   flushed to disk), then every row is written in one transaction: each row must have exactly its
-   table's columns with their types, must be one of the moving bots' own (its id, its agent, its
-   club, one of its listed settings, never a setting of the machine or of another bot), and after
-   writing, every table must hold exactly the rows written for the bots, with the count and hash
-   the manifest gave. Anything else rolls the whole transaction back and gives the move up here.
-10. **Taken only once it is all there.** The same transaction runs the arrival changes (below) and
-    stores everything needed to finish, and the move reads `placing`. The target then places the
-    workspace and images, flushes them and their folders to disk, and only then reads
-    `committed` and answers the commit. If placing fails it answers `503` and stays `placing`;
-    the source asks again, and the bot stays frozen on the source until the target confirms. A
-    retried commit of a `placing` move only places; a restart finishes placing by itself.
-11. **A failure leaves the bot where it was.** Any refusal or check that fails before the commit
+   taken only for the manifest the person accepted (by hash), from the machine they accepted,
+   replacing only what they accepted, within the hour; it binds the move to the machine that sent
+   it, so no other machine can speak for it. Spade in use on the target is never replaced:
+   checked at the acceptance, at `begin`, and again in the transaction that would replace it.
+10. **Bounded on both sides (ADR 0170).** A move carries at most 100,000 parts of 448 KiB, 12 GB
+    of parts, 250,000 files and images, 8 GB of them, and rows of 64 MB. The source checks every
+    file's size before it copies one, and its parts as it writes them. The target refuses a
+    manifest that declares more, or more than its free disk holds, before staging anything, and
+    counts every part, inventory entry, row piece and file against what was declared before it
+    is written or held; past it the move is given up and its staging removed.
+11. **Checked apart, written in batches.** On `commit` the target joins the staged files and
+    checks them against the inventory (none missing, twice or unexpected, none larger than its
+    entry, each of its hash, each flushed to disk). It writes the rows into a staging database of
+    the move's own, never Spade's connection: each row must have exactly its table's columns with
+    their types and be one of the moving bots' own (its id, its agent, its club, one of its listed
+    settings, never a setting of the machine or of another bot); then every table must hold exactly
+    the bots' rows with the manifest's counts and hashes, and nothing may point at a conversation,
+    knowledge entry or routine that didn't come with it. Only then are the rows copied into Spade's
+    database, 500 at a time, each batch its own short transaction, the bots hidden (`arriving`)
+    meanwhile; summed again a page at a time; and made this machine's in one small transaction
+    with the arrival changes and everything needed to finish (the move reads `placing`). Nothing
+    holds Spade's connection for more than one batch, so the other bots' requests go on. A failure
+    takes out what was copied, a batch at a time; a restart in the middle does the same, and the
+    source's next commit writes it afresh. The source reads its rows a page at a time too, and
+    removes them in batches once the move took.
+12. **Taken only once it is all there.** The target places the workspace and images, flushes them
+    and their folders to disk, and only then reads `committed` and answers the commit. If placing
+    fails it answers `503` and stays `placing`; the source asks again, and the bot stays frozen on
+    the source until the target confirms. A retried commit of a `placing` move only places; a
+    restart finishes placing by itself.
+13. **A failure leaves the bot where it was.** Any refusal or check that fails before the commit
     undoes the move on both sides: the target drops its staging, the source unfreezes the bot,
     untouched. An unreachable target is retried with backoff while the person watches; they can
     cancel up to the commit. Once the commit is sent the source waits for the target's answer (or
     asks for the move's state), because only the target knows whether it took.
-12. **Idempotent and self-healing.** Every step is keyed by the move's id: a part sent twice is
+14. **Idempotent and self-healing.** Every step is keyed by the move's id: a part sent twice is
     stored once, a second `begin` (with the same manifest) answers which parts are already there,
     a second `commit` answers the first commit's result. Both sides store the move's state, so a
     restart resumes it; a move cut off while it was being reserved never began. Staging the source
     abandoned, and an acceptance nobody used, is dropped after a day.
-13. **One move at a time, and only when the bot is still.** A bot (or one of its workers) that is
+15. **One move at a time, and only when the bot is still.** A bot (or one of its workers) that is
     working, waiting on the person, sleeping or running a service can't start moving; the person
     stops it or waits.
-14. **Its id stays.** The bot keeps its id, and its conversation's, on every machine, so links,
+16. **Its id stays.** The bot keeps its id, and its conversation's, on every machine, so links,
     other bots' references and club membership still resolve. A club on the source that lists it
     now lists it on the target; a club it leads moves with it; the target lists it as its own. An
     ask from another machine that reaches the old machine is answered with where the bot went, and
     the asking Spade sends it there.
-15. **On arrival.** Routines arrive paused until the person resumes them, and every webhook
+17. **On arrival.** Routines arrive paused until the person resumes them, and every webhook
     routine gets a new secret. Its security settings keep what only narrows it (its network,
-    where its commands run) and lose the person's consent (decision 7). The bot's profile shows
+    where its commands run), lose the person's consent and read the auto-review (decision 7),
+    including a bot that brought no security settings at all. The bot's profile shows
     one result line naming what needs the person: routines to resume, webhooks with new addresses,
     what to allow again, endpoints to add (the bot keeps its model, which runs once the endpoint
     is there), apps and plugins to allow again. It goes when the person dismisses it.
-16. **The archive.** The source keeps its copy in `<data>/moved/<move>/` (the parts it sent, which
-    hold no secret, and the workspace folders) for 30 days after the move ended, then removes it.
-17. **Moving the main Spade moves the choice with it.** The commit on the target stores a new host
+18. **The archive.** The source keeps its copy in `<data>/moved/<move>/` (the parts it sent, which
+    hold no secret, and the workspace folders) for 30 days after the move ended. A sweep running
+    every hour while Spade runs, never at start, removes at most five expired archives each time.
+19. **Moving the main Spade moves the choice with it.** The commit on the target stores a new host
     record naming the target (one version above the newest either side holds), and the source
     stores the same record as it finishes, so the old machine's main goes quiet, kept, in the
     same step. Windows copy the newer record to the rest of the fleet.
 
 ### What the person sees
 
-18. **Profile.** Details' Machine row carries Move to…, a menu of the fleet's other machines that
+20. **Profile.** Details' Machine row carries Move to…, a menu of the fleet's other machines that
     run Spade (offline ones named and not choosable). The main Spade's profile, read through a
     machine that isn't its host, offers Move Spade to this machine. Progress is one sentence in the
     profile and as the bot's line in the list ("Moving to Studio", "Copying files, 12 of 40",
     "Waiting for Studio to come online"), with Cancel as a text button until the commit; a failure
     is one sentence saying the bot is still here, with Try again and Dismiss. No icons, tints or
     progress bars.
-19. **iPhone.** Its Spade tab lists bots with their state line, so a moving bot reads as moving
+21. **iPhone.** Its Spade tab lists bots with their state line, so a moving bot reads as moving
     there; the move action lives in the profile, which the iPhone does not have yet.
 
 ## Consequences
@@ -170,6 +194,8 @@ routines and notes, but never its conversation, knowledge, workspace or anything
 - The person gives a moved bot its grants, Full access, apps and plugins again on the new
   machine: consent is given per machine.
 - Moving needs the person stamp of ADR 0163 amendment 2 (PR #2300), which this builds on.
+- The app waits for the source to pack before it can ask the target for the person's say, so a
+  very large bot takes a moment to reach "Waiting for your say".
 - Both machines must run the same Spade schema; a move between different versions is refused
   with "Update Spade on Studio first".
 - ace learns nothing new: the move travels as Spade inbox requests in the existing `spade`
@@ -187,8 +213,11 @@ routines and notes, but never its conversation, knowledge, workspace or anything
   access, apps and earlier answers stay behind and are named.
 - Adversarial: ids that name paths, a push the person never accepted, steps from another
   machine, a swapped manifest, a planted file, rows for another bot or the machine's settings,
-  two starts at once, files that can't be placed yet: each is refused or waits, and nothing of
-  it is kept.
+  two starts at once, files that can't be placed yet, a first `begin` from another machine,
+  replacing a Spade in use, a Full access target, a move past its limits or past what it
+  declared: each is refused or waits, and nothing of it is kept.
+- A large bot arriving never holds up the target's other bots' requests; an expired archive goes
+  without a restart.
 - API keys never leave the machine: no part of a move carries a stored key.
 - The main Spade moved to another machine shows there and goes quiet on the old one; the host
   record is the same on both.

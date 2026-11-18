@@ -17,14 +17,14 @@ use sha2::{Digest, Sha256};
 use spade_core::Event;
 use spade_core::event::Known;
 use spade_store::{
-    Arrived, Arriving, HostChange, Import, Part, Row, Selection, StoredMove, TableSum,
+    Activation, Arrived, Arriving, HostChange, Row, Selection, Stage, StoredMove, TableSum,
 };
 
 use super::files::is_sha256;
-use super::host::{HostRecord, MAIN_ENABLED, MAIN_HOST, MAIN_OFF};
+use super::host::{HostRecord, MAIN_ENABLED, MAIN_HOST, MAIN_OFF, main_active_with};
 use super::paths::{self, under};
 use super::receive::manifest_agents;
-use super::{ARRIVED, COMMITTED, Engine, PLACING, consent, detail};
+use super::{ACTIVATING, ARRIVED, COMMITTED, Engine, PLACING, RECEIVING, budget, consent, detail};
 
 /// Why a commit didn't end with the bot here.
 #[derive(Debug)]
@@ -35,9 +35,14 @@ pub(super) enum Failed {
     Placing(String),
 }
 
-/// The rows of the staged parts, in order: a run of pieces is joined into its one row.
+/// A part's rows, or why they can't be read.
+type Part = Result<(String, Vec<Row>), String>;
+
+/// The rows of the staged parts, in order: a run of pieces is joined into its one row, of at
+/// most `most` bytes.
 struct StagedRows {
     parts: std::vec::IntoIter<PathBuf>,
+    most: usize,
 }
 
 fn read_part(path: &Path) -> Result<Value, String> {
@@ -69,7 +74,11 @@ impl Iterator for StagedRows {
                     );
                 }
                 Some("piece") => {
-                    text.push_str(part["text"].as_str().unwrap_or_default());
+                    let piece = part["text"].as_str().unwrap_or_default();
+                    if text.len() + piece.len() > self.most {
+                        return Some(Err("a row is larger than a move carries".to_owned()));
+                    }
+                    text.push_str(piece);
                     if part["last"] == json!(true) {
                         return Some(match serde_json::from_str::<Row>(&text) {
                             Ok(row) => Ok((table, vec![row])),
@@ -110,11 +119,16 @@ fn inventory(
     manifest: &Value,
     agents: &[String],
 ) -> Result<BTreeMap<Key, (u64, String)>, String> {
+    let declared = budget::declared(manifest)?;
     let mut entries = Vec::new();
     for path in parts {
         let part = read_part(path)?;
         if part["kind"] == "inventory" {
-            entries.extend(part["entries"].as_array().cloned().unwrap_or_default());
+            let more = part["entries"].as_array().cloned().unwrap_or_default();
+            if (entries.len() + more.len()) as u64 > declared.files {
+                return Err("the inventory names more files than the move declared".to_owned());
+            }
+            entries.extend(more);
         }
     }
     let sha: String = Sha256::digest(Value::Array(entries.clone()).to_string())
@@ -127,6 +141,7 @@ fn inventory(
         return Err("the inventory isn't the one the move began with".to_owned());
     }
     let mut named = BTreeMap::new();
+    let mut total: u64 = 0;
     for entry in &entries {
         let key = key_of(entry).ok_or("the inventory names something Spade doesn't move")?;
         let fine = match key.0.as_str() {
@@ -138,6 +153,10 @@ fn inventory(
         };
         if !fine || !is_sha256(hash) {
             return Err("the inventory names a file Spade can't place".to_owned());
+        }
+        total = total.saturating_add(size);
+        if total > declared.file_bytes {
+            return Err("the inventory's files are larger than the move declared".to_owned());
         }
         if named.insert(key, (size, hash.to_owned())).is_some() {
             return Err("the inventory names a file twice".to_owned());
@@ -189,9 +208,19 @@ fn assemble(
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
+        let encoded = part["data"].as_str().unwrap_or_default();
+        // Decoded, it may not run past the size the inventory gave it.
+        let decoded = (encoded.len() as u64 / 4) * 3;
+        let most = expected.get(&key).map_or(0, |(size, _)| *size);
+        if written.saturating_add(decoded.saturating_sub(2)) > most {
+            return Err(format!("{} is larger than the inventory says", key.2));
+        }
         let data = base64::engine::general_purpose::STANDARD
-            .decode(part["data"].as_str().unwrap_or_default())
+            .decode(encoded)
             .map_err(|e| e.to_string())?;
+        if written + data.len() as u64 > most {
+            return Err(format!("{} is larger than the inventory says", key.2));
+        }
         let mut out = std::fs::OpenOptions::new()
             .create(true)
             .append(written > 0)
@@ -310,23 +339,68 @@ impl Engine {
             }),
             detail: &placing,
         };
+        // Staged and checked in a database of its own, then copied in batches: Spade's own
+        // connection is never held for the whole move (ADR 0170).
         let mut rows = StagedRows {
             parts: parts.clone().into_iter(),
+            most: budget::MOST_ROW_BYTES,
         };
-        let written = {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.store.move_import(Import {
-                agents: &agents,
-                expected: &expected,
-                parts: &mut rows,
-                main: entry.main,
-                arriving,
-            })
-        };
-        let (written, _) = match written {
-            Ok(Ok(done)) => done,
+        let stage = Stage::create(&staging.join("stage.sqlite"), &agents, entry.main)
+            .map_err(|e| refuse(e.to_string()))
+            .and_then(|mut stage| {
+                for part in rows.by_ref() {
+                    let (table, list) = part.map_err(&refuse)?;
+                    stage
+                        .add(&table, list)
+                        .map_err(|e| refuse(e.to_string()))?
+                        .map_err(&refuse)?;
+                }
+                Ok(stage)
+            })?;
+        let selection = match stage.verify(&expected) {
+            Ok(Ok(selection)) => selection,
             Ok(Err(problem)) => return Err(refuse(problem)),
             Err(error) => return Err(refuse(error.to_string())),
+        };
+        let mut activating = kept.clone();
+        activating["selection"] = json!({
+            "agents": selection.agents,
+            "conversations": selection.conversations,
+            "groups": selection.groups,
+        });
+        self.store
+            .set_move(
+                &entry.id,
+                ACTIVATING,
+                &activating.to_string(),
+                self.now_ms(),
+            )
+            .map_err(|e| Failed::Placing(e.to_string()))?;
+        self.freeze(&entry.id, &selection.conversations);
+        let here = self.here();
+        let main_active =
+            |read: &dyn Fn(&str) -> Option<String>| main_active_with(read, here.as_deref());
+        let written = self.store.move_activate(
+            &stage,
+            Activation {
+                selection: &selection,
+                expected: &expected,
+                main: entry.main,
+                main_active: &main_active,
+                arriving,
+            },
+        );
+        let written = match written {
+            Ok(Ok((written, _))) => written,
+            Ok(Err(problem)) => {
+                self.thaw(&entry.id, &selection.conversations);
+                return Err(refuse(problem));
+            }
+            Err(error) => {
+                self.thaw(&entry.id, &selection.conversations);
+                let _ = self.store.move_forget(&selection);
+                return Err(refuse(error.to_string()));
+            }
         };
         // Nothing of it runs until its files are in place; its apps start at none.
         self.freeze(&entry.id, &written.conversations);
@@ -345,6 +419,25 @@ impl Engine {
             .flatten()
             .ok_or_else(|| Failed::Placing("the move's state can't be read".to_owned()))?;
         self.finish_placing(&placing)
+    }
+
+    /// Takes out what a cut-off activation copied in, a batch at a time, so the source's next
+    /// commit writes it afresh.
+    pub(super) fn undo_activation(&self, entry: &StoredMove) {
+        let kept = detail(entry);
+        let list = |name: &str| super::strings(&kept["selection"][name]);
+        let selection = Selection {
+            agents: list("agents"),
+            conversations: list("conversations"),
+            groups: list("groups"),
+        };
+        if let Err(error) = self.store.move_forget(&selection) {
+            tracing::error!(%error, "a cut-off move's rows could not be taken out");
+            return;
+        }
+        let _ = self
+            .store
+            .set_move(&entry.id, RECEIVING, &entry.detail, self.now_ms());
     }
 
     /// What the person must add or allow again here that lies outside the rows: endpoints this
@@ -482,4 +575,99 @@ fn arrival_json(
         "plugins": outside["plugins"],
         "left": manifest["left"].as_array().map(|left| left.iter().take(50).cloned().collect::<Vec<_>>()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    use base64::Engine as _;
+    use serde_json::{Value, json};
+    use sha2::{Digest, Sha256};
+
+    use super::{StagedRows, assemble, inventory};
+
+    fn parts(dir: &std::path::Path, parts: &[Value]) -> Vec<PathBuf> {
+        parts
+            .iter()
+            .enumerate()
+            .map(|(i, part)| {
+                let path = dir.join(format!("{i:06}.json"));
+                std::fs::write(&path, part.to_string()).unwrap_or_else(|e| panic!("{e}"));
+                path
+            })
+            .collect()
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn a_row_joined_from_pieces_past_its_limit_is_refused_before_it_grows_further() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let piece = |last: bool| json!({ "kind": "piece", "table": "events", "text": "x".repeat(40), "last": last });
+        let staged = parts(dir.path(), &[piece(false), piece(false), piece(true)]);
+        let mut rows = StagedRows {
+            parts: staged.into_iter(),
+            most: 100,
+        };
+        assert!(rows.next().is_some_and(|row| row.is_err()));
+    }
+
+    fn manifest(entries: &[Value], count: u64, bytes: u64) -> Value {
+        json!({
+            "parts": 1, "bytes": 1,
+            "inventory": {
+                "count": count, "bytes": bytes,
+                "sha256": hex(Value::Array(entries.to_vec()).to_string().as_bytes()),
+            },
+        })
+    }
+
+    #[test]
+    fn an_inventory_past_what_the_move_declared_is_refused() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let entry = |path: &str, size: u64| json!({ "kind": "file", "agent": "a_1", "path": path, "size": size, "sha256": "0".repeat(64) });
+        let entries = [entry("a.md", 10), entry("b.md", 10)];
+        let staged = parts(
+            dir.path(),
+            &[json!({ "kind": "inventory", "entries": entries })],
+        );
+        let agents = ["a_1".to_owned()];
+        assert!(inventory(&staged, &manifest(&entries, 2, 20), &agents).is_ok());
+        // More files than declared, or larger together than declared.
+        assert!(inventory(&staged, &manifest(&entries, 1, 20), &agents).is_err());
+        assert!(inventory(&staged, &manifest(&entries, 2, 19), &agents).is_err());
+    }
+
+    #[test]
+    fn a_file_larger_than_its_inventory_says_is_refused_before_it_is_written() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let data = vec![7u8; 4096];
+        let staged = parts(
+            dir.path(),
+            &[json!({
+                "kind": "file", "agent": "a_1", "path": "big.bin", "offset": 0, "last": true,
+                "data": base64::engine::general_purpose::STANDARD.encode(&data),
+            })],
+        );
+        let staging = dir.path().join("in");
+        std::fs::create_dir_all(&staging).unwrap_or_else(|e| panic!("{e}"));
+        let mut expected = BTreeMap::new();
+        let key = ("file".to_owned(), "a_1".to_owned(), "big.bin".to_owned());
+        expected.insert(key.clone(), (16, hex(&data)));
+        let refused = assemble(&staging, &staged, &expected);
+        assert!(refused.is_err_and(|why| why.contains("larger")));
+        assert!(
+            !staging.join("files/a_1/big.bin").exists(),
+            "nothing was written"
+        );
+        expected.insert(key, (4096, hex(&data)));
+        assert_eq!(assemble(&staging, &staged, &expected), Ok(()));
+    }
 }

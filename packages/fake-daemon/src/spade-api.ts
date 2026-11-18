@@ -99,6 +99,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   mainOff = false;
   /** Moves the person accepted here, by id, with the bot each brings. */
   acceptedMoves = new Map<string, string>();
+  /** What the person accepted for each move, as sent. */
+  acceptances = new Map<string, Json>();
   /** Names of the machines a move can go to, by host id. */
   machineNames = new Map<string, string>();
   /** Whether Spade's main bot shows here, as Spade decides it. */
@@ -560,6 +562,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "moves" && id && sub === "accept" && request.method === "PUT") {
       if (typeof body.bot !== "string") return problem(400, "Name the bot.");
       this.acceptedMoves.set(id, body.bot);
+      this.acceptances.set(id, body);
       return reply({ accepted: true });
     }
     if (root === "agents" && id && (sub === "move" || sub === "arrival")) {
@@ -585,6 +588,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
         id: body.move,
         to: { host: to, name: this.machineNames.get(to) ?? to },
         state: "sending",
+        from: this.here ?? "this-mac",
+        digest: "a".repeat(64),
+        replaces: agent.kind === "main" ? "main" : "bot",
         sent: 3,
         total: 12,
         waiting: false,

@@ -14,7 +14,14 @@ import { cn } from "@/lib/cn.ts";
 import { primaryMachineId, useMachines } from "@/lib/machines.ts";
 import { pillButton } from "./spade-profile-parts.tsx";
 import { spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
-import { acceptMove, cancelMove, dismissArrival, newMoveId, startMove } from "./spade-move-api.ts";
+import {
+  acceptMove,
+  cancelMove,
+  dismissArrival,
+  newMoveId,
+  readMove,
+  startMove,
+} from "./spade-move-api.ts";
 import { agentsKey, mainKey, type RosterBot } from "./use-spade-roster.ts";
 
 /*
@@ -43,6 +50,17 @@ function useMoveTargets(bot: RosterBot) {
     }));
 }
 
+/** Reads the move until it says what to accept (or ends); about five minutes at most. */
+async function untilPacked(read: () => Promise<SpadeMove | undefined>) {
+  for (let tries = 0; tries < 600; tries++) {
+    const move = await read();
+    if (!move || move.state === "failed") return undefined;
+    if (move.accept) return move.accept;
+    await new Promise((done) => setTimeout(done, 500));
+  }
+  throw new Error("The move took too long to get ready.");
+}
+
 function useMoveActions(bot: RosterBot) {
   const client = useSpadeClient();
   const here = useClient();
@@ -66,15 +84,18 @@ function useMoveActions(bot: RosterBot) {
   return {
     problem,
     busy,
-    // The person's one click: accepted on the machine it goes to, then started where it is.
+    // The person's one click: started where it is; once packed, accepted on the machine it
+    // goes to, exactly as packed.
     move: (to: string) =>
       run(async () => {
         const machine = machines.find((candidate) => candidate.id === to);
         const target = machine?.primary ? here : machine?.client;
         if (!target) throw new Error("That machine can't be reached now.");
         const id = newMoveId(crypto.randomUUID());
-        await acceptMove(target, id, bot.id);
         await startMove(client, bot.id, to, id);
+        const packed = await untilPacked(() => readMove(client, bot.id));
+        if (!packed) return;
+        await acceptMove(target, id, { bot: bot.id, to, ...packed });
       }),
     cancel: () => run(() => cancelMove(client, bot.id)),
     dismissArrival: () => run(() => dismissArrival(client, bot.id)),

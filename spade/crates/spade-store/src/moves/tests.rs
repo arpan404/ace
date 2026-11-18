@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use spade_core::Event;
 use spade_core::event::Known;
 
-use super::{Arriving, Import, MOVE_TABLES, Row, RowSums, Selection, TableSum};
+use super::{Activation, Arriving, MOVE_TABLES, Row, RowSums, Selection, Stage, TableSum};
 use crate::{NewAgent, ROUTINE, Store, StoredRoutine};
 
 type Rows = Vec<(String, Vec<Row>)>;
@@ -65,7 +65,7 @@ fn source() -> (tempfile::TempDir, Store) {
     (dir, store)
 }
 
-/// Every row of `a_1`, table by table, and what each table sums to.
+/// Every row of `a_1`, table by table, a page at a time, and what each table sums to.
 fn export(store: &Store) -> (Rows, BTreeMap<String, TableSum>) {
     let selection = store
         .move_selection(&["a_1".to_owned()])
@@ -73,60 +73,78 @@ fn export(store: &Store) -> (Rows, BTreeMap<String, TableSum>) {
     let mut rows = Vec::new();
     let mut sums = BTreeMap::new();
     for table in MOVE_TABLES {
-        let mut all = if table.paged() {
-            let mut events = Vec::new();
-            for conversation in &selection.conversations {
-                events.extend(
-                    store
-                        .move_events(conversation, i64::MIN, 10_000)
-                        .unwrap_or_else(|e| panic!("{e}")),
-                );
+        let mut all = Vec::new();
+        let mut cursor = None;
+        loop {
+            let (page, next) = store
+                .move_page(table, &selection, &cursor)
+                .unwrap_or_else(|e| panic!("{e}"));
+            all.extend(page);
+            match next {
+                Some(next) => cursor = Some(next),
+                None => break,
             }
-            events
-        } else {
-            store
-                .move_rows(table, &selection)
-                .unwrap_or_else(|e| panic!("{e}"))
-        };
+        }
         let mut sum = RowSums::default();
         for row in &all {
             sum.add(row);
         }
         sums.insert(table.name.to_owned(), sum.finish());
         if !all.is_empty() {
-            rows.push((table.name.to_owned(), std::mem::take(&mut all)));
+            rows.push((table.name.to_owned(), all));
         }
     }
     (rows, sums)
 }
 
-fn import(store: &Store, rows: Rows, sums: &BTreeMap<String, TableSum>) -> Result<(), String> {
+/// Stages `rows`, checks them there, then writes them into `store` as a move does.
+fn import_as(
+    store: &Store,
+    rows: Rows,
+    sums: &BTreeMap<String, TableSum>,
+    main: bool,
+    main_active: bool,
+) -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let agents = vec!["a_1".to_owned()];
-    let mut parts = rows.into_iter().map(Ok);
+    let mut stage = Stage::create(&dir.path().join("stage.sqlite"), &agents, main)
+        .map_err(|e| e.to_string())?;
+    for (table, rows) in rows {
+        stage.add(&table, rows).map_err(|e| e.to_string())??;
+    }
+    let selection = stage.verify(sums).map_err(|e| e.to_string())??;
     let marker = Event::Known(Known::Arrived {
         from: "Laptop".into(),
     });
+    let active = move |_: &dyn Fn(&str) -> Option<String>| main_active;
     store
-        .move_import(Import {
-            agents: &agents,
-            expected: sums,
-            parts: &mut parts,
-            main: false,
-            arriving: Arriving {
-                move_id: "mv_1",
-                placing: "placing",
-                now_ms: 5,
-                from: "host-laptop",
-                secret: &|| "new-secret".to_owned(),
-                security_key: &|agent| format!("security:{agent}"),
-                reset: &|text| (text.to_owned(), Vec::new()),
-                marker: &marker,
-                host: None,
-                detail: &|_: &Selection, _| "{}".to_owned(),
+        .move_activate(
+            &stage,
+            Activation {
+                selection: &selection,
+                expected: sums,
+                main,
+                main_active: &active,
+                arriving: Arriving {
+                    move_id: "mv_1",
+                    placing: "placing",
+                    now_ms: 5,
+                    from: "host-laptop",
+                    secret: &|| "new-secret".to_owned(),
+                    security_key: &|agent| format!("security:{agent}"),
+                    reset: &|text| (format!("reset {text}"), Vec::new()),
+                    marker: &marker,
+                    host: None,
+                    detail: &|_: &Selection, _| "{}".to_owned(),
+                },
             },
-        })
-        .unwrap_or_else(|e| panic!("{e}"))
+        )
+        .map_err(|e| e.to_string())?
         .map(|_| ())
+}
+
+fn import(store: &Store, rows: Rows, sums: &BTreeMap<String, TableSum>) -> Result<(), String> {
+    import_as(store, rows, sums, false, false)
 }
 
 fn row(value: Value) -> Row {
@@ -166,6 +184,17 @@ fn a_clean_move_imports_and_its_webhook_gets_a_new_secret_that_never_travelled()
     );
     let (_b, to) = target();
     assert_eq!(import(&to, rows, &sums), Ok(()));
+    // It brought no security settings: it gets the reset ones all the same.
+    assert_eq!(
+        to.setting("security:a_1").ok().flatten().as_deref(),
+        Some("reset {}")
+    );
+    assert!(
+        to.agents()
+            .unwrap_or_default()
+            .iter()
+            .any(|a| a.id == "a_1")
+    );
     let routine = to.routine("r_1").ok().flatten();
     assert_eq!(
         routine.as_ref().and_then(|r| r.secret.as_deref()),
@@ -271,4 +300,30 @@ fn a_row_with_a_missing_extra_or_mistyped_column_is_refused() {
         assert!(import(&to, rows, &sums).is_err(), "{change} was taken");
         untouched(&to);
     }
+}
+
+#[test]
+fn spade_in_use_here_is_never_replaced_and_nothing_of_the_move_is_kept() {
+    let (_a, from) = source();
+    let (mut rows, sums) = export(&from);
+    if let Some((_, agents)) = rows.iter_mut().find(|(name, _)| name == "agents")
+        && let Some(agent) = agents.first_mut()
+    {
+        agent.insert("kind".into(), json!("main"));
+    }
+    let mut sums = sums;
+    let agents_rows: Vec<Row> = rows
+        .iter()
+        .filter(|(name, _)| name == "agents")
+        .flat_map(|(_, rows)| rows.clone())
+        .collect();
+    let mut sum = RowSums::default();
+    for one in &agents_rows {
+        sum.add(one);
+    }
+    sums.insert("agents".into(), sum.finish());
+    let (_b, to) = target();
+    let refused = import_as(&to, rows, &sums, true, true);
+    assert!(refused.is_err_and(|why| why.contains("in use")));
+    untouched(&to);
 }

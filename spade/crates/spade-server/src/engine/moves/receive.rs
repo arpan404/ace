@@ -13,13 +13,13 @@ use spade_store::{Store, StoredMove};
 
 use super::paths::{self, plain_id};
 use super::{
-    ABORTED, ACCEPTED, COMMITTED, Engine, FORMAT, IN, PLACING, RECEIVING, VERSION, detail, lock,
+    ABORTED, ACCEPTED, ACTIVATING, COMMITTED, Engine, FORMAT, IN, PLACING, RECEIVING, VERSION,
+    budget, detail, lock,
 };
 use crate::engine::inbox::{InboxAnswer, Sender};
 
-/// Most agents (a bot and its workers) and parts one move may bring.
+/// Most agents (a bot and its workers) one move may bring.
 const MOST_AGENTS: usize = 1_000;
-const MOST_PARTS: u64 = 4_000_000;
 /// A move that stopped sending this long ago is given up here.
 const STALE_MS: i64 = 24 * 60 * 60_000;
 
@@ -43,8 +43,8 @@ pub(super) fn manifest_agents(manifest: &Value) -> Option<Vec<String>> {
         .then_some(agents)
 }
 
-/// The manifest's hash, which binds the move to it at `begin`.
-fn manifest_sha(manifest: &Value) -> String {
+/// The manifest's hash: what the person accepted, and what binds the move at `begin`.
+pub(super) fn manifest_sha(manifest: &Value) -> String {
     Sha256::digest(manifest.to_string())
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -67,12 +67,6 @@ fn manifest_problem(manifest: &Value, bot: &str) -> Option<(u16, &'static str)> 
             403,
             "this move brings another bot than the one the person accepted",
         ));
-    }
-    if manifest["parts"]
-        .as_u64()
-        .is_none_or(|parts| parts > MOST_PARTS)
-    {
-        return Some((400, "the move's parts are not counted right"));
     }
     let inventory = &manifest["inventory"];
     let sha_ok = inventory["sha256"]
@@ -124,9 +118,13 @@ impl Engine {
             Ok(Some(entry)) if entry.direction == IN => entry,
             Ok(Some(_)) => return refuse(409, "that move is this machine's own"),
             Ok(None) => {
-                return refuse(
+                // The source waits for the person's say here, then tries again.
+                return (
                     403,
-                    "the person hasn't accepted this move here; they accept it in ace first",
+                    json!({
+                        "error": "the person hasn't accepted this move here; they accept it in ace first",
+                        "awaiting": true,
+                    }),
                 );
             }
             Err(error) => return refuse(500, &error.to_string()),
@@ -178,11 +176,37 @@ impl Engine {
                 "the person's acceptance here ran out; accept the move again",
             );
         }
+        // Exactly the move the person accepted: its manifest, from that machine, replacing what
+        // they said it would.
+        if kept["digest"].as_str() != Some(sha.as_str()) {
+            return refuse(403, "this isn't the move the person accepted here");
+        }
+        if manifest["from"] != kept["from"] {
+            return refuse(
+                403,
+                "this move comes from another machine than the person accepted",
+            );
+        }
+        let main = manifest["bot"]["main"] == json!(true);
+        if main != (kept["replaces"] == "main") {
+            return refuse(403, "this move replaces something the person didn't accept");
+        }
         if let Some((status, problem)) = manifest_problem(manifest, &entry.agent_id) {
             return refuse(status, problem);
         }
+        if main && self.main_enabled().unwrap_or(true) {
+            return refuse(409, "Spade is in use on this machine; it can't be replaced");
+        }
+        let declared = match budget::declared(manifest) {
+            Ok(declared) => declared,
+            Err(problem) => return refuse(413, &problem),
+        };
+        if let Some(free) = budget::free_bytes(&self.data_dir())
+            && free < budget::room_needed(declared)
+        {
+            return refuse(507, "this machine hasn't the room for this move");
+        }
         let agents = manifest_agents(manifest).unwrap_or_default();
-        let main = manifest["bot"]["main"] == json!(true);
         let name: String = manifest["bot"]["name"]
             .as_str()
             .unwrap_or("The bot")
@@ -192,7 +216,9 @@ impl Engine {
         for agent in &agents {
             match self.store.agent(agent) {
                 // Spade's own quiet copy from an earlier stay here is replaced.
-                Ok(Some(held)) if main && held.kind == super::MAIN => {}
+                Ok(Some(held))
+                    if main && held.kind == super::MAIN && !self.main_enabled().unwrap_or(true) => {
+                }
                 Ok(Some(_)) => return refuse(409, &format!("{name} is already on this machine")),
                 Ok(None) => {}
                 Err(error) => return refuse(500, &error.to_string()),
@@ -206,12 +232,13 @@ impl Engine {
         {
             return refuse(500, &error);
         }
-        let begun = json!({
-            "manifest": manifest,
-            "manifest_sha": sha,
-            "sender": sender.host,
-            "from_name": sender.name,
-        });
+        let mut begun = kept.clone();
+        begun["manifest"] = manifest.clone();
+        begun["manifest_sha"] = json!(sha);
+        begun["sender"] = json!(sender.host);
+        begun["from_name"] = json!(sender.name);
+        begun["staged"] = json!(0);
+        begun["listed"] = json!(0);
         let now = self.now_ms();
         let stored = self
             .store
@@ -248,6 +275,25 @@ impl Engine {
         ) {
             return refuse(400, "that part is not one Spade here can read");
         }
+        // Counted against what the manifest declared before anything is written; past it the
+        // move is given up here and its staging removed.
+        let mut kept = detail(&entry);
+        let text = part.to_string();
+        let size = text.len() as u64;
+        let listed = part["entries"].as_array().map_or(0, Vec::len) as u64;
+        let declared = budget::declared(&kept["manifest"]).ok();
+        let staged = kept["staged"].as_u64().unwrap_or(0) + size;
+        let named = kept["listed"].as_u64().unwrap_or(0) + listed;
+        let over = size > budget::MOST_PART_BYTES
+            || declared.is_none_or(|d| staged > d.bytes || named > d.files);
+        let fresh = self
+            .staging(&entry.id)
+            .and_then(|staging| paths::child(&staging, "parts"))
+            .is_ok_and(|dir| !dir.join(format!("{index:06}.json")).exists());
+        if fresh && over {
+            self.drop_staging(&entry, "the move sent more than it declared");
+            return refuse(413, "the move sent more than it declared");
+        }
         let written = self
             .staging(&entry.id)
             .and_then(|staging| paths::child(&staging, "parts"))
@@ -257,16 +303,20 @@ impl Engine {
                     return Ok(());
                 }
                 let tmp = dir.join(format!(".{index:06}.tmp"));
-                std::fs::write(&tmp, part.to_string())
+                std::fs::write(&tmp, &text)
                     .and_then(|()| std::fs::rename(&tmp, &path))
                     .map_err(|e| e.to_string())
             });
         if let Err(error) = written {
             return refuse(500, &error);
         }
+        if fresh {
+            kept["staged"] = json!(staged);
+            kept["listed"] = json!(named);
+        }
         let _ = self
             .store
-            .set_move(&entry.id, RECEIVING, &entry.detail, self.now_ms());
+            .set_move(&entry.id, RECEIVING, &kept.to_string(), self.now_ms());
         (200, json!({}))
     }
 
@@ -286,6 +336,7 @@ impl Engine {
             }
             ABORTED => return refuse(409, "this move was given up here; start it again"),
             ACCEPTED => return refuse(409, "this move hasn't begun"),
+            ACTIVATING => return refuse(503, "this move is being written; ask again in a moment"),
             _ => {}
         }
         if entry.state == RECEIVING {
@@ -363,7 +414,12 @@ impl Engine {
         };
         let now = self.now_ms();
         for entry in open {
-            if entry.state == PLACING {
+            if entry.state == ACTIVATING {
+                // Cut off while its rows were being copied in: they come out again, and the
+                // source's next commit writes them afresh.
+                let engine = self.clone();
+                tokio::task::spawn_blocking(move || engine.undo_activation(&entry));
+            } else if entry.state == PLACING {
                 self.freeze(&entry.id, &super::strings(&detail(&entry)["conversations"]));
                 let engine = self.clone();
                 tokio::task::spawn_blocking(move || {

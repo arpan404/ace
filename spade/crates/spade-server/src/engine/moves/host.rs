@@ -56,6 +56,22 @@ impl HostRecord {
     }
 }
 
+/// Whether Spade's main bot is in use on the machine `here`, from its settings as `read` gives
+/// them: the person hasn't switched it off there, and the host record names it (before any
+/// record, the old switch is on). One rule, for the roster and for a move that would replace it.
+pub(crate) fn main_active_with(read: &dyn Fn(&str) -> Option<String>, here: Option<&str>) -> bool {
+    if read(MAIN_OFF).is_some() {
+        return false;
+    }
+    let record = read(MAIN_HOST)
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| HostRecord::parse(&value));
+    match (record, here) {
+        (Some(record), Some(here)) => record.host == here,
+        _ => read(MAIN_ENABLED).as_deref() != Some("false"),
+    }
+}
+
 impl Engine {
     /// This machine's host id, as ace's home says it.
     pub fn here(&self) -> Option<String> {
@@ -90,16 +106,14 @@ impl Engine {
     /// Whether Spade's main bot shows on this machine: the person hasn't switched it off here,
     /// and the record names this machine (or, before any record, the old switch is on).
     pub fn main_enabled(&self) -> Result<bool, StoreError> {
-        if self.store.setting(MAIN_OFF)?.is_some() {
-            return Ok(false);
-        }
-        let legacy = || -> Result<bool, StoreError> {
-            Ok(self.store.setting(MAIN_ENABLED)?.as_deref() != Some("false"))
+        let read = |key: &str| match self.store.setting(key) {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(%error, "a setting for Spade's host couldn't be read");
+                None
+            }
         };
-        match (self.host_record()?, self.here()) {
-            (Some(record), Some(here)) => Ok(record.host == here),
-            _ => legacy(),
-        }
+        Ok(main_active_with(&read, self.here().as_deref()))
     }
 
     /// `PUT /v1/main`. From the person (`by: "person"`), a switch they keep until they turn it

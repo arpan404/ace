@@ -84,8 +84,12 @@ export function personStamp(
   return `v1.${atMs}.${nonce}.${mac}`;
 }
 
-/** Accepting a bot moving here: the move and the bot as Spade will check them, or nothing to
- * stamp when either isn't a plain id (Spade then refuses it unstamped). */
+/**
+ * Accepting a bot moving here (ADR 0187): the whole move as Spade will check it (the bot, the
+ * machine it comes from and the one it goes to, the manifest by its hash, and whether it
+ * replaces Spade), or nothing to stamp when any part isn't what Spade takes (it then refuses it
+ * unstamped).
+ */
 function moveAcceptWrite(target: string, body: Buffer | undefined): PersonOnlyWrite | undefined {
   if (!plainId.test(target.slice("move:".length))) return undefined;
   let value: unknown;
@@ -94,8 +98,14 @@ function moveAcceptWrite(target: string, body: Buffer | undefined): PersonOnlyWr
   } catch {
     return undefined;
   }
-  const bot = value !== null && typeof value === "object" ? Reflect.get(value, "bot") : undefined;
-  return typeof bot === "string" && plainId.test(bot)
-    ? { target, value: `accept:${bot}` }
-    : undefined;
+  if (value === null || typeof value !== "object") return undefined;
+  const field = (name: string) => {
+    const got: unknown = Reflect.get(value, name);
+    return typeof got === "string" ? got : undefined;
+  };
+  const [bot, from, to, digest, replaces] = ["bot", "from", "to", "digest", "replaces"].map(field);
+  const plain = [bot, from, to].every((id) => id !== undefined && plainId.test(id));
+  if (!plain || !digest || !/^[0-9a-f]{64}$/.test(digest)) return undefined;
+  if (replaces !== "bot" && replaces !== "main") return undefined;
+  return { target, value: `accept:${bot}:${from}:${to}:${digest}:${replaces}` };
 }
