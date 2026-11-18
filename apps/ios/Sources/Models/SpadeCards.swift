@@ -34,6 +34,9 @@ import Observation
     /// Cards sent and not yet settled.
     private var sent: [Key: Submission] = [:]
     private var submissions = 0
+    /// What the person has typed or picked on each unsettled card, so Answer later, which folds
+    /// the card's view away, keeps it.
+    private var drafted: [Key: [SpadeQuestionCard.Draft]] = [:]
     /// The cards on screen now, as Spade last put them.
     private var shown: [Key: SpadeQuestionCard] = [:]
 
@@ -71,11 +74,26 @@ import Observation
         if sent[key]?.id == id { sent[key] = nil }
     }
 
+    /// What the card's inputs hold, nil before anything was kept.
+    func drafts(_ conversation: String, callId: String) -> [SpadeQuestionCard.Draft]? {
+        drafted[Key(conversation: conversation, callId: callId)]
+    }
+
+    func keep(_ drafts: [SpadeQuestionCard.Draft], conversation: String, callId: String) {
+        let key = Key(conversation: conversation, callId: callId)
+        if drafted[key] != drafts { drafted[key] = drafts }
+    }
+
     /// Spade put `card` in `conversation`: a sent card whose standing moved on is settled.
     func saw(_ card: SpadeQuestionCard, in conversation: String) {
         let key = Key(conversation: conversation, callId: card.callId)
         // A settled card is done: only open and later ones are kept.
-        if card.standing == .settled { shown[key] = nil } else if shown[key] != card { shown[key] = card }
+        if card.standing == .settled {
+            shown[key] = nil
+            drafted[key] = nil
+        } else if shown[key] != card {
+            shown[key] = card
+        }
         if let out = sent[key], out.from != card.standing { sent[key] = nil }
     }
 
@@ -83,5 +101,6 @@ import Observation
     func reset() {
         sent = [:]
         shown = [:]
+        drafted = [:]
     }
 }

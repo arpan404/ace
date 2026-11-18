@@ -3,7 +3,7 @@ import XCTest
 /// Spade on the spike fixture (`scripts/spade-scenario.ts`): its tab after Chats while the
 /// machine shows it, the bots in web's order, a conversation streaming a reply, an approval
 /// answered and a message sent, a card of questions answered (and locked while Spade's update is
-/// on its way), and the tab gone once Settings ›
+/// on its way, and kept as filled in through Answer later), and the tab gone once Settings ›
 /// Beta turns Spade off.
 @MainActor final class SpadeUITests: XCTestCase {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
@@ -171,6 +171,33 @@ import XCTest
 
         try await stage("release")
         XCTAssertTrue(app.descendants(matching: .any)["You: 5 nights"].waitForExistence(timeout: 15))
+    }
+
+    func testAnswerLaterKeepsWhatWasFilledInWhenTheCardIsOpenedAgain() {
+        let app = launch()
+        _ = openSpade(app)
+        let planner = app.buttons["spade.bot.planner"]
+        XCTAssertTrue(planner.waitForExistence(timeout: 20))
+        planner.tap()
+        let porto = app.buttons["spade.question.option.1"]
+        XCTAssertTrue(porto.waitForExistence(timeout: 15))
+        porto.tap()
+        XCTAssertTrue(porto.isSelected)
+
+        // Left for later, the card folds to its line; opened again, Porto is still picked.
+        app.buttons["spade.question.later"].tap()
+        let answer = app.buttons.matching(identifier: "spade.question.answer")
+        let folded = NSPredicate(format: "count >= 2")
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: folded, evaluatedWith: answer)], timeout: 10), .completed)
+        XCTAssertFalse(app.buttons["spade.question.option.1"].exists)
+        answer.element(boundBy: answer.count - 1).tap()
+        XCTAssertTrue(app.buttons["spade.question.option.1"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["spade.question.option.1"].isSelected)
+        screenshot("spade-12-question-kept")
+
+        // Never mind settles it, so the next test starts with one card for later again.
+        app.buttons["spade.question.dismiss"].tap()
+        XCTAssertTrue(app.buttons["spade.question.option.1"].waitForNonExistence(timeout: 10))
     }
 
     func testTheTabGoesWhenBetaTurnsSpadeOff() async throws {

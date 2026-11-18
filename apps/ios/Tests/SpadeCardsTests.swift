@@ -56,6 +56,22 @@ import Testing
         #expect(cards.isSending("c1", callId: "q1"))
     }
 
+    @Test func whatWasFilledInStaysWithTheCardThroughAnswerLaterUntilItSettles() {
+        let cards = SpadeCards()
+        cards.saw(SpadeCardsTests.card(.open), in: "c1")
+        let filled: [SpadeQuestionCard.Draft] = [.picks(["Porto"], other: ""), .number("", language: nil)]
+        cards.keep(filled, conversation: "c1", callId: "q1")
+
+        // Left for later, folded, and opened again: the same drafts.
+        cards.saw(SpadeCardsTests.card(.later), in: "c1")
+        cards.saw(SpadeCardsTests.card(.later), in: "c1")
+        #expect(cards.drafts("c1", callId: "q1") == filled)
+        #expect(cards.drafts("c2", callId: "q1") == nil)
+
+        cards.saw(SpadeCardsTests.card(.settled), in: "c1")
+        #expect(cards.drafts("c1", callId: "q1") == nil)
+    }
+
     @Test func anAcceptedCardWhoseUpdateNeverComesIsReadBackAndUnlocked() async {
         let clock = ManualClock()
         let cards = SpadeCards(wait: { await clock.sleep($0) })

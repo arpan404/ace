@@ -13,6 +13,8 @@ struct SpadeQuestionCardView: View {
     /// Its reply is out and Spade hasn't settled it: locked, wherever it is drawn
     /// (`SpadeModel.send`).
     let sending: Bool
+    /// What its inputs hold, kept with the card beyond this view.
+    let drafts: Binding<[SpadeQuestionCard.Draft]>
     let fold: (Bool) -> Void
     let reply: ([String: Any]) async -> SpadeOutcome
 
@@ -20,7 +22,8 @@ struct SpadeQuestionCardView: View {
         switch card.standing {
         case .later where !unfolded: laterLine
         case .open, .later:
-            SpadeOpenQuestionCard(card: card, sending: sending, fold: card.standing == .later ? { fold(false) } : nil, reply: reply)
+            SpadeOpenQuestionCard(card: card, sending: sending, fold: card.standing == .later ? { fold(false) } : nil,
+                                  reply: reply, drafts: drafts)
         case .settled: settled
         }
     }
@@ -100,7 +103,9 @@ private struct SpadeOpenQuestionCard: View {
     /// A card already for later folds back to its line instead of being left for later again.
     let fold: (() -> Void)?
     let reply: ([String: Any]) async -> SpadeOutcome
-    @State private var drafts: [SpadeQuestionCard.Draft] = []
+    /// What its inputs hold, kept with the card (`SpadeCards`), not here: Answer later folds this
+    /// view away, and opened again the card is as the person left it.
+    @Binding var drafts: [SpadeQuestionCard.Draft]
     @State private var page = 0
     @State private var problem: String?
     @State private var answered = 0
@@ -139,7 +144,6 @@ private struct SpadeOpenQuestionCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(card.label)
         .accessibilityIdentifier("spade.question")
-        .onAppear { if drafts.count != count { drafts = card.questions.map(SpadeQuestionCard.Draft.empty) } }
     }
 
     private func draftBinding(_ index: Int) -> Binding<SpadeQuestionCard.Draft> {
