@@ -13,10 +13,11 @@ const thread = "thread-cold-start";
 /** A tree with no chrome: its rows as text, and a way to open and fold folders. */
 function Probe(props: { threadId: string; initial: string[] }) {
   const [expanded, setExpanded] = useState(props.initial);
+  const [paused, setPaused] = useState(false);
   const tree = useFolderTree({
     threadId: props.threadId,
     expanded: new Set(expanded),
-    paused: false,
+    paused,
   });
   const toggle = (folder: string) =>
     setExpanded((folders) =>
@@ -26,6 +27,9 @@ function Probe(props: { threadId: string; initial: string[] }) {
     <div>
       <button type="button" onClick={() => toggle("apps/")}>
         toggle apps
+      </button>
+      <button type="button" onClick={() => setPaused((each) => !each)}>
+        pause
       </button>
       <div data-part="rows">{tree.rows.map((row) => `${row.kind}:${row.key}`).join("|")}</div>
     </div>
@@ -133,6 +137,20 @@ test("a reconnect sends the watch set again and lists open folders again", async
   await waitFor(() =>
     expect(folders.watches.filter((each) => same(each, ["", "apps"])).length).toBe(watches + 1),
   );
+});
+
+test("pausing a loading folder stops its request and drops the Loading row", async () => {
+  const { app, folders } = await setup();
+  const release = folders.hold("apps");
+  render(
+    <ClientProvider client={app.client}>
+      <Probe threadId={thread} initial={["apps/"]} />
+    </ClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByText(/loading:loading:apps\//)).toBeTruthy());
+  await userEvent.click(screen.getByRole("button", { name: "pause" }));
+  await waitFor(() => expect(screen.queryByText(/loading:loading:apps\//)).toBeNull());
+  release();
 });
 
 test("a folder with no rows yet shows Loading, then its entries", async () => {
