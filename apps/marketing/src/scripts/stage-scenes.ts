@@ -52,7 +52,7 @@ function filter(root: Root, machine: string | undefined, label: string): void {
   if (shown) shown.textContent = label;
 }
 
-function tone(root: Root, id: string, kind: string, label?: string): void {
+export function tone(root: Root, id: string, kind: string, label?: string): void {
   const row = q(root, `[data-row="${id}"]`);
   if (!row) return;
   row.dataset.tone = kind;
@@ -68,7 +68,10 @@ function set(element: HTMLElement | null, name: string, value: string): void {
  * Every scene starts from the same app: one thread open, nothing answered, nothing open. Scenes
  * after the cold-start thread handed off its work keep its agents group open (`agents`).
  */
-function show(root: Root, state: { thread: string; approved?: boolean; agents?: boolean }): void {
+export function show(
+  root: Root,
+  state: { thread: string; approved?: boolean; agents?: boolean },
+): void {
   const app = ace(root);
   if (!app) return;
   select(root, state.thread);

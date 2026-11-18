@@ -1,9 +1,8 @@
 ---
 import Closing from "../components/Closing.astro";
 import AgentStrip from "../components/AgentStrip.astro";
-import Hero from "../components/Hero.astro";
 import LinkCards from "../components/site/LinkCards.astro";
-import MacStory from "../components/mac/MacStory.astro";
+import ZoomStory from "../components/zoom/ZoomStory.astro";
 import Principle from "../components/Principle.astro";
 import Spade from "../components/Spade.astro";
 import { product } from "../content/product.ts";
@@ -35,8 +34,7 @@ const onward = [
   description={product.description}
   schema={[softwareApplication(schema), sourceCode(schema)]}
 >
-  <Hero />
-  <MacStory />
+  <ZoomStory />
   <Principle />
   <AgentStrip />
   <Spade />

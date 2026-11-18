@@ -1,0 +1,569 @@
+---
+/*
+ * The home page's opening: one prompt in ace's composer, then the camera pulls back as the
+ * visitor scrolls, to the thread it became, the app around it, the machines it reached and the
+ * phone it calls. Everything is drawn once in one coordinate space (the "world", in the app's
+ * own pixels) and scripts/zoom-story.ts moves a camera over it. Labels and captions sit
+ * outside the world, so they keep their size at every zoom. Each drawing carries its place
+ * twice: side by side for wide screens (`--x`, `--y`) and stacked for narrow ones (`--tx`,
+ * `--ty`). Without the script the story reads as the headline and its captions, in order.
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import { delegates, rows } from "../../content/stage.ts";
+import { product } from "../../content/product.ts";
+import { zoomCaptions, zoomCast, zoomHero, zoomLinks, type CastId } from "../../content/zoom.ts";
+import { shotOrder } from "../../scripts/zoom-camera.ts";
+import { links } from "../../site.ts";
+import BrandMark from "../BrandMark.astro";
+import DownloadButton from "../DownloadButton.astro";
+import Icon from "../Icon.astro";
+import MacDesktop from "../mac/MacDesktop.astro";
+import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
+
+/* Where each drawing stands: side by side on wide screens, stacked on narrow ones. */
+const places: Record<CastId, { wide: [number, number]; tall: [number, number] }> = {
+  mac: { wide: [0, 0], tall: [0, 0] },
+  build: { wide: [1592, 0], tall: [0, 1100] },
+  workstation: { wide: [1592, 520], tall: [692, 1100] },
+  phone: { wide: [-660, 2], tall: [470, 1650] },
+};
+const place = (id: CastId) => {
+  const { wide, tall } = places[id];
+  return `--x: ${wide[0]}; --y: ${wide[1]}; --tx: ${tall[0]}; --ty: ${tall[1]}`;
+};
+
+const codex = providerIcon({ provider: "codex" }).brand;
+const soak = delegates.find((agent) => agent.machine === "build-server");
+const sweep = rows.find((row) => row.machine === "workstation");
+const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
+---
+
+<section class="zoom" data-zoom style={`--moves: ${shotOrder.length - 1}`}>
+  <div class="stage" data-zoom-stage>
+    <div class="ground" data-zoom-grid></div>
+
+    <div class="lens" data-zoom-lens>
+    <div class="world" data-zoom-world aria-hidden="true">
+      <svg class="links" width="1" height="1">
+        {zoomLinks.map((line) => <path data-link data-from={line.from} data-to={line.to} />)}
+      </svg>
+
+      <div class="thing mac" data-thing="mac" style={place("mac")}>
+        <MacDesktop />
+      </div>
+
+      <div class="thing screen far" data-thing="build" style={place("build")}>
+        <div class="bar">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="who">{codex && <BrandMark brand={codex} size={16} />}{soak?.name}</span>
+        </div>
+        <pre class="term"><span class="dim">codex@build-server:~/ace$</span> bun run soak --clients 2000
+<span class="dim">resuming every client from a cold start</span>
+
+<span class="meter"><i></i></span>
+<span class="running">{soak?.detail}</span><span class="finished">2,000 of 2,000 clients resumed</span>
+<span class="finished ok">held: each replay capped at 200 events</span></pre>
+      </div>
+
+      <div class="thing screen far short" data-thing="workstation" style={place("workstation")}>
+        <div class="bar">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="who">{codex && <BrandMark brand={codex} size={16} />}{sweep?.title}</span>
+        </div>
+        <pre class="term"><span class="dim">codex@workstation:~/billing-api$</span> bun run test --repeat 5
+<span class="dim">started by an automation, every night</span>
+
+checkout.spec.ts <span class="warn">fails 1 run in 5</span>
+cart.spec.ts <span class="ok">passes</span>
+webhooks.spec.ts <span class="ok">passes</span></pre>
+      </div>
+
+      <div class="thing phone" data-thing="phone" data-phone-shown style={place("phone")}>
+        <PhoneLockScreen />
+      </div>
+    </div>
+    </div>
+
+    <div class="ghost ace" data-zoom-ghost aria-hidden="true"></div>
+
+    <div class="marks" aria-hidden="true">
+      {
+        cast.map(([id, entry]) => (
+          <span class:list={["mark", id === "phone" ? "near" : id === "mac" ? "home" : "far"]} data-label={id}>
+            <b>{entry.name}</b>
+            {entry.note}
+          </span>
+        ))
+      }
+      {
+        zoomLinks.map((line) => (
+          <span class:list={["verb", line.to === "phone" ? "near" : "far"]} data-verb>
+            {line.verb}
+          </span>
+        ))
+      }
+    </div>
+
+    <div class="hero" data-zoom-hero>
+      <div class="page">
+        <h1 data-zoom-edge>
+          {zoomHero.headline.map((line) => <span>{line}</span>)}
+        </h1>
+        <p class="summary">{product.summary}</p>
+        <div class="actions">
+          <DownloadButton />
+          <a class="button button-secondary" href={links.source}>
+            <Icon name="github-logo" size={16} />
+            Star on GitHub
+          </a>
+        </div>
+        <p class="facts">{product.heroFacts.join(". ")}.</p>
+      </div>
+    </div>
+
+    <ol class="captions page" data-zoom-captions>
+      {
+        zoomCaptions.map((caption) => (
+          <li data-caption={caption.shot}>
+            <h2>{caption.title}</h2>
+            <p>
+              {caption.body} <a href={caption.href}>More</a>
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>
+
+<style>
+  /* Each move of the camera takes a little over a screen of scrolling. */
+  .zoom[data-live] {
+    position: relative;
+    height: calc(var(--moves) * 115vh + 100vh);
+    --machines: 0;
+    --phone: 0;
+  }
+
+  .stage {
+    position: relative;
+  }
+
+  .zoom[data-live] .stage {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    height: 100svh;
+    overflow: hidden;
+  }
+
+  /* Without the script there is no camera: the drawing is left out and the story is its words. */
+  .zoom:not([data-live]) :is(.world, .marks, .ground) {
+    display: none;
+  }
+
+  .ground {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.6px);
+    background-size: 28px 28px;
+  }
+
+  /* What the camera sees. It fades into the page above the captions, so nothing runs under them. */
+  .lens {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(
+      to top,
+      transparent var(--band, 0px),
+      #000 calc(var(--band, 0px) + 48px)
+    );
+    mask-image: linear-gradient(to top, transparent var(--band, 0px), #000 calc(var(--band, 0px) + 48px));
+  }
+
+  /*
+   * The opening shows the composer alone on the page: this copy of it stands exactly where the
+   * camera holds the real one, and gives way once the app has faded in around it.
+   */
+  .ghost {
+    inset: auto;
+    left: 0;
+    top: 0;
+    overflow: visible;
+    background: none;
+    transform-origin: 0 0;
+  }
+
+  .ghost :global(.composer) {
+    box-shadow: 0 24px 60px -30px var(--frame-shadow);
+  }
+
+  .zoom:not([data-live]) .ghost {
+    display: none;
+  }
+
+  .world {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    transform-origin: 0 0;
+  }
+
+  .thing {
+    position: absolute;
+    left: calc(var(--x) * 1px);
+    top: calc(var(--y) * 1px);
+  }
+
+  @media (max-width: 759px) {
+    .thing {
+      left: calc(var(--tx) * 1px);
+      top: calc(var(--ty) * 1px);
+    }
+  }
+
+  /* The Mac: its display, with the desktop drawn inside at the Mac's own points. */
+  .mac {
+    width: 1352px;
+    height: 880px;
+    overflow: hidden;
+    border-radius: 20px;
+    box-shadow:
+      0 0 0 1px var(--frame-edge),
+      0 0 0 10px var(--frame),
+      0 0 0 11px var(--frame-edge),
+      0 60px 120px -50px var(--frame-shadow);
+  }
+
+  .far {
+    opacity: var(--machines);
+  }
+
+  /* Another machine's screen: a terminal, in the app's own dark. */
+  .screen {
+    width: 660px;
+    height: 420px;
+    overflow: hidden;
+    border-radius: 16px;
+    background: #0b0c0e;
+    color: #d6d8dc;
+    box-shadow:
+      0 0 0 1px var(--frame-edge),
+      0 0 0 8px var(--frame),
+      0 0 0 9px var(--frame-edge),
+      0 40px 80px -40px var(--frame-shadow);
+  }
+
+  .short {
+    height: 360px;
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 44px;
+    padding: 0 16px;
+    border-bottom: 1px solid #1e2024;
+    font-size: 14px;
+    color: #a9adb4;
+  }
+
+  .dots {
+    display: flex;
+    gap: 7px;
+  }
+
+  .dots i {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #2c2f34;
+  }
+
+  .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .term {
+    margin: 0;
+    padding: 22px 24px;
+    font-family: var(--font-mono);
+    font-size: 15px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+  }
+
+  .dim {
+    color: #7b8088;
+  }
+
+  .ok {
+    color: #57bd9b;
+  }
+
+  .warn {
+    color: #edc070;
+  }
+
+  .meter {
+    display: block;
+    width: 62%;
+    height: 6px;
+    margin: 6px 0 10px;
+    border-radius: 3px;
+    background: #1e2024;
+  }
+
+  .meter i {
+    display: block;
+    width: 62%;
+    height: 100%;
+    border-radius: 3px;
+    background: #6a8fd8;
+    transition:
+      width 0.6s var(--ease-out),
+      background-color 0.3s;
+  }
+
+  .finished,
+  .zoom[data-done] .running {
+    display: none;
+  }
+
+  .zoom[data-done] .finished {
+    display: inline;
+  }
+
+  .zoom[data-done] .meter i {
+    width: 100%;
+    background: #57bd9b;
+  }
+
+  /* The phone is drawn a quarter larger than life, so its Lock Screen reads from further back. */
+  .phone {
+    width: 412px;
+    height: 875px;
+    opacity: var(--phone);
+  }
+
+  .phone :global(.lock) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: auto;
+    transform: scale(1.25);
+    transform-origin: 0 0;
+    opacity: 1;
+    transition: none;
+  }
+
+  .links {
+    position: absolute;
+    left: 0;
+    top: 0;
+    overflow: visible;
+  }
+
+  .links path {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    opacity: var(--machines);
+  }
+
+  .links path[data-to="phone"] {
+    opacity: var(--phone);
+  }
+
+  /* Labels: outside the scaled world, moved into place by the script. */
+  .marks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .mark,
+  .verb {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    color: var(--subtle);
+    white-space: nowrap;
+  }
+
+  /* A label stands just above its drawing's top left corner. */
+  .mark {
+    margin: -30px 0 0 2px;
+    opacity: var(--machines);
+  }
+
+  .mark b {
+    margin-right: 8px;
+    color: var(--line);
+    font-weight: 600;
+  }
+
+  .verb {
+    padding: 5px 7px;
+    color: var(--line);
+    font-size: 11px;
+    border-radius: 999px;
+    background: var(--background);
+    opacity: var(--machines);
+  }
+
+  .mark.near,
+  .verb.near {
+    opacity: var(--phone);
+  }
+
+  .hero {
+    position: relative;
+    padding-top: 108px;
+  }
+
+  .zoom[data-live] .hero {
+    position: absolute;
+    inset: 0 0 auto;
+  }
+
+  h1 {
+    font-size: clamp(42px, 7.2vw, 96px);
+    font-weight: 600;
+    letter-spacing: -0.055em;
+    line-height: 0.96;
+  }
+
+  h1 span {
+    display: block;
+  }
+
+  .summary {
+    margin-top: clamp(18px, 2.4vw, 28px);
+    max-width: 34em;
+    color: var(--muted);
+    font-size: clamp(16px, 1.5vw, 19px);
+    line-height: 1.5;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+
+  .facts {
+    margin-top: 16px;
+    color: var(--subtle);
+    font-size: 13px;
+  }
+
+  .captions {
+    display: grid;
+    gap: 40px;
+    padding-block: 56px;
+  }
+
+  .zoom[data-live] .captions {
+    position: absolute;
+    inset: auto 0 0;
+    gap: 0;
+    padding-block: 0 clamp(20px, 4vh, 40px);
+  }
+
+  .zoom[data-live] .captions li {
+    grid-area: 1 / 1;
+    align-self: end;
+    opacity: 0;
+    transform: translateY(8px);
+    transition:
+      opacity 0.2s var(--ease-out),
+      transform 0.2s var(--ease-out);
+    pointer-events: none;
+  }
+
+  .zoom[data-live] .captions li.on {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.4s var(--ease-out) 0.15s,
+      transform 0.5s var(--ease-out) 0.15s;
+    pointer-events: auto;
+  }
+
+  .captions h2 {
+    max-width: 16em;
+    font-size: clamp(26px, 3.4vw, 44px);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 1.02;
+  }
+
+  .captions p {
+    margin-top: 10px;
+    max-width: 38em;
+    color: var(--muted);
+    font-size: clamp(15px, 1.25vw, 17px);
+    line-height: 1.5;
+  }
+
+  .captions a {
+    color: var(--foreground);
+    text-underline-offset: 3px;
+  }
+
+  /* The drawn window, as this story needs it: the prompt waits in the composer, then the thread
+     appears a line at a time. */
+  .zoom :global(.ace .composer) {
+    background: var(--a-canvas);
+  }
+
+  .zoom :global(.ace .placeholder.filled) {
+    color: var(--a-fg);
+  }
+
+  .zoom :global(.ace .thread[data-for="cold-start"] > *),
+  .zoom :global(.ace .dock .strip) {
+    transition:
+      opacity 0.35s var(--ease-out),
+      transform 0.45s var(--ease-out);
+  }
+
+  .zoom :global(.ace[data-lines="0"] .thread[data-for="cold-start"] > *),
+  .zoom :global(.ace[data-lines="1"] .thread[data-for="cold-start"] > :nth-child(n + 2)),
+  .zoom :global(.ace[data-lines="2"] .thread[data-for="cold-start"] > :nth-child(n + 3)),
+  .zoom :global(.ace[data-lines="3"] .thread[data-for="cold-start"] > :nth-child(n + 4)) {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  .zoom :global(.ace:not([data-lines="4"]) .dock .strip) {
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zoom :global(.ace .thread > *),
+    .zoom :global(.ace .dock .strip),
+    .captions li,
+    .meter i {
+      transition: none !important;
+    }
+  }
+</style>
+
+<script>
+  import { startZoomStory } from "../../scripts/zoom-story.ts";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-zoom]")) startZoomStory(root);
+</script>
