@@ -69,6 +69,9 @@ import Testing
         // An edit whose keyboard isn't known keeps the one the number has.
         let unknown = SpadeQuestionCard.Draft.number("1,5", language: "de-DE").typingNumber("1,55", on: nil)
         #expect(unknown.payload["text"] as? String == "1.55")
+        // Begun where the keyboard wasn't known and finished on a known one: unread.
+        let late = empty.typingNumber("1,2", on: nil).typingNumber("1,25", on: "de-DE")
+        #expect(late.payload["unread"] as? Bool == true)
     }
 
     @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {

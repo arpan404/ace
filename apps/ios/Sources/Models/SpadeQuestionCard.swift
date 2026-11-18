@@ -81,12 +81,14 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
 
         /// The number edited to `text` on a keyboard of `language` (nil when not known). Edits
         /// from two languages leave it `mixed`, so it is sent unread: `1,23` typed in English
-        /// with `4` added in German is neither 1.234 nor 1,234. Cleared, it starts over.
+        /// with `4` added in German is neither 1.234 nor 1,234; so is a number begun where the
+        /// keyboard wasn't known and finished on a known one. Cleared, it starts over.
         func typingNumber(_ text: String, on language: String?) -> Draft {
             guard case let .number(typed, had, mixed) = self, !typed.isEmpty, !text.isEmpty else {
                 return .number(text, language: text.isEmpty ? nil : language)
             }
-            let switched = had != nil && language != nil && had != language
+            // Begun where the keyboard wasn't known, a known one taking over is a switch too.
+            let switched = language != nil && had != language
             return .number(text, language: had ?? language, mixed: mixed || switched)
         }
 
