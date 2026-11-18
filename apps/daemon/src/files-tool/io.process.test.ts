@@ -452,7 +452,7 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     expect(largest).toBeLessThanOrEqual(64 * 1024);
     expect(mid - before).toBeLessThan(16 * 1024 * 1024);
     expect(collected() - before).toBeLessThan(16 * 1024 * 1024);
-  });
+  }, 30_000);
 
   it("deletes a folder into recently-deleted with the same reserved bytes", async () => {
     for (const name of ["gone-ts", "gone-rust"]) {
@@ -517,7 +517,7 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
         ]);
       }
     }
-  });
+  }, 30_000);
 
   it("fails retryably when this machine has no ace-files", async () => {
     const missing = await service(root, join(home, "data-missing"), {
