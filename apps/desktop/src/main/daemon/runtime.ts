@@ -21,6 +21,7 @@ import {
 } from "./probe.ts";
 import { expectedLocalDaemon } from "./expected.ts";
 import { loginService } from "./service.ts";
+import { ownershipPorts } from "./ownership-ports.ts";
 import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions } from "./spawn.ts";
 import type { DaemonProcess } from "./supervisor.ts";
 import { DaemonSupervisor } from "./supervisor.ts";
@@ -66,8 +67,6 @@ export interface RuntimeOptions {
   spawnDaemon?: (options: SpawnOptions) => DaemonProcess;
   /** The supervisor's decisions and the runtime's own records. */
   log: Log;
-  /** Each line the spawned daemon prints; by default logged as `daemon: <line>`. */
-  daemonOutput?: (line: string, stream: "stdout" | "stderr") => void;
   /**
    * Milliseconds since the app launched, for the launch steps the log records (login PATH,
    * first lookup, spawn, running). Without it those records are not written.
@@ -162,10 +161,7 @@ export class DaemonRuntime {
                     ...this.spawnOptions(home, path, safeMode),
                     loginPath: confirm,
                     prioritize: launchPolicy.wrap,
-                    onOutput:
-                      options.daemonOutput ??
-                      ((line, stream) =>
-                        options.log(stream === "stderr" ? "warn" : "info", `daemon: ${line}`)),
+                    report: (line) => options.log("warn", `daemon: ${line}`),
                   });
                 }
               : undefined,
@@ -181,6 +177,15 @@ export class DaemonRuntime {
             return found;
           },
           health: daemonHealth,
+          // Only the managed daemon is ever the app's; development's is `bun run daemon`'s.
+          ...(this.target.kind === "managed"
+            ? ownershipPorts({
+                home,
+                version: options.version,
+                platform: options.platform ?? process.platform,
+                now: Date.now,
+              })
+            : {}),
           service: this.target.kind === "managed" ? loginService(home) : undefined,
           setMaintenance,
           setUpdateHold,
@@ -343,9 +348,17 @@ export class DaemonRuntime {
     return this.supervisor.busy();
   }
 
-  /** Stop only a daemon this app started. */
+  /**
+   * Stop the daemon this app started (an earlier launch's included), never anyone else's: "Quit
+   * ace completely", and before an update installs.
+   */
   async stop(): Promise<void> {
     await this.supervisor?.stop();
+  }
+
+  /** A plain quit: the app goes and its daemon keeps running for the next launch (ADR 0185). */
+  async release(): Promise<void> {
+    await this.supervisor?.release();
   }
 
   /** Whether the local daemon files exist at all (for the "not running" state in dev). */

@@ -3,6 +3,16 @@ import type { EndpointWatch } from "./readiness.ts";
 import type { FreezeSignal } from "./watchdog.ts";
 import type { AdmissionFacts, Health, LocalDaemon } from "./probe.ts";
 
+/** A daemon an earlier launch of this app started and left running (ADR 0185). */
+export interface OwnedDaemon {
+  /** A handle to stop it and to notice its exit, though it is not this process's child. */
+  process: DaemonProcess;
+  /** Started by another version of the app: replaced by the bundled daemon, never served from. */
+  replace: boolean;
+  /** The app version that started it. */
+  version: string;
+}
+
 /** Everything the supervisor does to the world, passed in so tests substitute it. */
 export interface SupervisorPorts {
   /**
@@ -19,6 +29,17 @@ export interface SupervisorPorts {
   watchEndpoint?: (() => EndpointWatch | undefined) | undefined;
   /** A healthy daemon already serving this ACE_HOME, if any. */
   find(): Promise<LocalDaemon | undefined>;
+  /**
+   * The found daemon, when an earlier launch of this app started it (its ownership record names
+   * the run holding the home's lock). Undefined for anyone else's: the CLI's, the login
+   * service's. Without it every found daemon is someone else's.
+   */
+  claimOwned?: ((daemon: LocalDaemon) => Promise<OwnedDaemon | undefined>) | undefined;
+  /**
+   * Records the daemon this app spawned as the app's, so a later launch adopts it. False when it
+   * could not be recorded (it has not taken the home's lock yet).
+   */
+  recordOwned?: ((process: DaemonProcess) => Promise<boolean>) | undefined;
   /**
    * Whether the daemon answers its status endpoint, giving up after `timeoutMs`; with its
    * admission when the daemon includes it.
@@ -74,6 +95,11 @@ export interface SupervisorOptions {
   lockWaitMs?: number;
   /** While waiting on that lock: how long to look for the other daemon before spawning again. */
   lockRetryMs?: number;
+  /**
+   * How long running work may take to finish in the app's own daemon from another version,
+   * found at launch, before it is stopped and replaced anyway. The update drain's bound.
+   */
+  replaceDrainMs?: number;
 }
 
 export function supervisorDefaults(options: SupervisorOptions): Required<SupervisorOptions> {
@@ -89,5 +115,6 @@ export function supervisorDefaults(options: SupervisorOptions): Required<Supervi
     safeModeAfter: options.safeModeAfter ?? 2,
     lockWaitMs: options.lockWaitMs ?? 300_000,
     lockRetryMs: options.lockRetryMs ?? 5_000,
+    replaceDrainMs: options.replaceDrainMs ?? 5 * 60_000,
   };
 }

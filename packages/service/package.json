@@ -8,6 +8,7 @@
     "./home": "./src/home.ts",
     "./home-path": "./src/home-path.ts",
     "./login-path": "./src/login-path.ts",
+    "./launch-log": "./src/launch-log.ts",
     "./exit-codes": "./src/exit-codes.ts",
     "./desktop-update": "./src/desktop-update.ts",
     "./desktop-update-argument": "./src/desktop-update-argument.ts",

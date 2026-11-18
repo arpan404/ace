@@ -57,6 +57,7 @@ function menu(platform: NodeJS.Platform) {
     developer: false,
     trigger: (id) => effects.push(`action:${id}`),
     checkForUpdates: () => effects.push("updates"),
+    quitCompletely: () => effects.push("quit-completely"),
     openUrl: (url) => effects.push(`open:${url}`),
     showLogs: () => effects.push("logs"),
     zoom: (change) => effects.push(`zoom:${change}`),
@@ -221,6 +222,7 @@ it("a rebound menu label shows the new shortcut and clicks still dispatch New Th
     bindings: { newThread: "mod+shift+j" },
     trigger: (id) => actions.push(id),
     checkForUpdates() {},
+    quitCompletely() {},
     openUrl() {},
     showLogs() {},
     zoom() {},
@@ -231,4 +233,18 @@ it("a rebound menu label shows the new shortcut and clicks still dispatch New Th
   if (!item?.click) throw new Error("New Thread unavailable");
   Reflect.apply(item.click, undefined, []);
   expect(actions).toEqual(["newThread"]);
+});
+
+describe("Quit ace completely", () => {
+  it("sits beside Quit on every platform and stops the daemon too, while Quit stays the plain quit", () => {
+    for (const platform of platforms) {
+      const built = menu(platform);
+      const where = platform === "darwin" ? built.top("ace") : built.top("File");
+      const quit = where.findIndex((entry) => entry.role === "quit");
+      expect(quit).toBeGreaterThanOrEqual(0);
+      const next = where[quit + 1];
+      expect(next?.label).toBe("Quit ace completely");
+      expect(built.choose(next)).toBe("quit-completely");
+    }
+  });
 });

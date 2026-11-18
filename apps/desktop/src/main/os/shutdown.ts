@@ -30,3 +30,18 @@ export async function shutDownBeforeQuit(steps: {
   const failed = before.find((result) => result.status === "rejected");
   if (failed) throw failed.reason;
 }
+
+/**
+ * What a quit does with the daemon this app started (ADR 0185). A plain quit (Cmd+Q, the menu's
+ * or the tray's Quit, the last window closing) leaves it running, with its agents, for the next
+ * launch to adopt. "Quit ace completely" stops it, and so does any quit that installs an update,
+ * so that the new version starts its own.
+ */
+export function daemonAtQuit(facts: {
+  /** The person chose "Quit ace completely", or an update is restarting the app. */
+  completely: boolean;
+  /** A downloaded update installs as the app quits. */
+  updateInstalls: boolean;
+}): "stop" | "leave" {
+  return facts.completely || facts.updateInstalls ? "stop" : "leave";
+}
