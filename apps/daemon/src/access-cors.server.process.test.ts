@@ -140,10 +140,10 @@ it("the desktop renderer can redeem a link, request a ticket and read remote sta
   }
 });
 
-it("the desktop app and the hosted web app are allowed without configuration; other origins are not", async () => {
+it("the desktop app and the hosted web app, stable and beta, are allowed without configuration; other origins are not", async () => {
   const f = await setup();
 
-  for (const origin of ["app://ace", "https://app.acehq.dev"]) {
+  for (const origin of ["app://ace", "https://app.acehq.dev", "https://beta.app.acehq.dev"]) {
     const allowed = await preflight(`${f.server.httpUrl}/v1/pair`, origin, "POST");
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-origin")).toBe(origin);
@@ -153,6 +153,10 @@ it("the desktop app and the hosted web app are allowed without configuration; ot
     page,
     "http://app.acehq.dev",
     "https://evil.acehq.dev",
+    "http://beta.app.acehq.dev",
+    "https://beta.app.acehq.dev.evil.example",
+    "https://beta.app.acehq.dev:8443",
+    "https://beta.ace-web.pages.dev",
     "ace://thread",
     "null",
   ]) {

@@ -398,10 +398,72 @@ jobs:
       # Straight to 100% with a smoke check; rolls back to the previous Worker version on failure.
       - run: bun run deploy:workers production --version "$TAG"
 
+  deploy-web:
+    name: Deploy the web app
+    needs: [gate, prepare, deploy-production]
+    # After the cloud it talks to, before publish: a stable release's web app goes to
+    # app.acehq.dev (Pages project ace-web, branch main) and beta.app.acehq.dev (branch beta),
+    # a beta's to beta.app.acehq.dev only.
+    if: ${{ !cancelled() && needs.deploy-production.result == 'success' }}
+    runs-on: [self-hosted, linux, omarchy]
+    environment: production
+    timeout-minutes: 30
+    concurrency:
+      group: web-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # A branch is skipped when it already serves a later published release: never goes back.
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.gate.outputs.sha }}
+        run: node apps/desktop/scripts/pipeline/web-plan.ts "$TAG"
+      # The same build Pages ran from main, stamped so the app names itself web/<version>.
+      - if: steps.plan.outputs.deploy == 'true'
+        env:
+          ACE_VERSION: ${{ steps.plan.outputs.version }}
+        run: apps/web/scripts/cloudflare-pages-build.sh
+      # One build to each planned branch. Only this step holds the token. It runs in
+      # tools/workers-release for that package's wrangler, with no wrangler config or functions
+      # folder there for Pages to pick up. A rerun deploys again: Pages uploads only files it
+      # lacks, and the result is the same build.
+      - if: steps.plan.outputs.deploy == 'true'
+        working-directory: tools/workers-release
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CI: "1"
+          WRANGLER_SEND_METRICS: "false"
+          BRANCHES: ${{ steps.plan.outputs.branches }}
+          COMMIT: ${{ steps.plan.outputs.commit }}
+          MESSAGE: ${{ steps.plan.outputs.message }}
+        run: |
+          set -eu
+          for branch in $BRANCHES; do
+            bun x wrangler pages deploy "$GITHUB_WORKSPACE/apps/web/dist" --project-name ace-web \
+              --branch "$branch" --commit-hash "$COMMIT" --commit-message "$MESSAGE" \
+              --commit-dirty=false
+          done
+
   publish:
     name: Publish
-    needs: [gate, prepare, upload, notes, deploy-production]
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.published == 'true' || (needs.upload.result == 'success' && needs.notes.result == 'success' && needs.deploy-production.result == 'success')) }}
+    needs: [gate, prepare, upload, notes, deploy-production, deploy-web]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.published == 'true' || (needs.upload.result == 'success' && needs.notes.result == 'success' && needs.deploy-production.result == 'success' && needs.deploy-web.result == 'success')) }}
     runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 30
     permissions:
@@ -426,6 +488,29 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: node apps/desktop/scripts/pipeline/publish.ts "$TAG" "$VERSION"
 
+  refresh-marketing:
+    name: Rebuild acehq.dev
+    needs: [prepare, publish]
+    # acehq.dev builds its download links and version from the latest release; rebuild it once a
+    # stable release is live. Runs no repository code, and never fails the release: an unset hook
+    # or a failed request is only a notice, and notify doesn't wait for it.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.prepare.outputs.kind == 'stable' }}
+    runs-on: [self-hosted, linux, omarchy]
+    environment: production
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          HOOK: ${{ secrets.MARKETING_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::No MARKETING_DEPLOY_HOOK in the production environment; acehq.dev rebuilds on its next push to main."
+          elif curl -fsS -o /dev/null -X POST --max-time 30 --retry 2 "$HOOK"; then
+            echo "Asked Pages to rebuild ace-marketing."
+          else
+            echo "::warning::The ace-marketing deploy hook failed; rebuild acehq.dev from the Pages dashboard."
+          fi
+
   notify:
     name: Tell the owner
     needs:
@@ -439,6 +524,7 @@ jobs:
         notes,
         deploy-staging,
         deploy-production,
+        deploy-web,
         publish,
       ]
     # Only after the gate passed: notify runs the validated commit's code, nothing else.
@@ -465,4 +551,4 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: >-
           node apps/desktop/scripts/pipeline/notify.ts "$TAG" "$RUN_URL"
-          gate prepare build-mac build-linux build-windows upload notes deploy-staging deploy-production publish
+          gate prepare build-mac build-linux build-windows upload notes deploy-staging deploy-production deploy-web publish

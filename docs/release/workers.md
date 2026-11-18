@@ -242,7 +242,7 @@ one exists.
 - Account › Workers Scripts › Edit: versions, deployments, rollbacks, secrets untouched.
 - Account › D1 › Edit: migrations.
 - Account › Workers R2 Storage › Edit: the market's bucket binding.
-- Account › Cloudflare Pages › Edit: the web app's deploy.
+- Account › Cloudflare Pages › Edit: the web app's deploy to the `ace-web` project ([web.md](web.md)).
 - Zone › Workers Routes › Edit, on the `acehq.dev` zone only: wrangler re-attaches each
   Worker's custom domains on every deploy, and custom domains are a zone setting.
 
