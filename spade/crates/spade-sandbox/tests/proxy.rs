@@ -188,6 +188,41 @@ async fn a_host_off_the_allow_list_is_refused_and_logged() {
 }
 
 #[tokio::test]
+async fn a_run_keeps_each_host_it_reached_or_was_refused_once_after_its_ticket_ends() {
+    let setup = setup().await;
+    let port = echo().await;
+    let ticket = setup
+        .proxy
+        .open("bot1", "run1", allowing(format!("127.0.0.1:{port}")));
+    let watch = ticket.watch();
+    let token = token_of(&ticket.url());
+    for host in [
+        format!("127.0.0.1:{port}"),
+        "exfil.example:443".to_owned(),
+        format!("127.0.0.1:{port}"),
+        "exfil.example:443".to_owned(),
+    ] {
+        ask(
+            &setup.proxy,
+            &format!(
+                "CONNECT {host} HTTP/1.1\r\nProxy-Authorization: Basic {}\r\n\r\nhi",
+                basic(&token)
+            ),
+        )
+        .await;
+    }
+    drop(ticket);
+    let seen = watch.seen();
+    assert_eq!(seen.reached, vec!["127.0.0.1".to_owned()]);
+    assert_eq!(seen.refused.len(), 1);
+    assert_eq!(
+        (seen.refused[0].host.as_str(), seen.refused[0].port),
+        ("exfil.example", 443)
+    );
+    assert!(seen.refused[0].reason.contains("allow-list"), "{seen:?}");
+}
+
+#[tokio::test]
 async fn a_request_without_a_live_ticket_is_asked_to_authenticate() {
     let setup = setup().await;
     let port = echo().await;

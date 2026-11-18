@@ -171,6 +171,7 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                 files: Box::default(),
                 shared: crate::tools::Shared::default(),
                 transient: false,
+                command: None,
             }
         }
         // Nothing ran (ace was away or busy): a background call is parked and tried again later

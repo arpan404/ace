@@ -175,6 +175,11 @@ fn spawn(
                 });
                 keep_trying(|| engine.record(&id, &shared).map(|_| ())).await;
             }
+            // A command that outlived the foreground says where it ran under its own step.
+            if let Some(command) = output.command.clone() {
+                let ran = command.event(&reply, &job);
+                keep_trying(|| engine.record(&id, &ran).map(|_| ())).await;
+            }
             let content = super::trim::trim(&output.content, engine.limits.result_chars);
             // A helper's spend shows with the turn that reads its result (ADR 0152).
             let cost_micros = if name == spade_core::helper::TOOL {

@@ -79,6 +79,35 @@ pub struct ToolOutput {
     /// The call failed for a while (the network, a rate limit, a `5xx`), so trying it again later
     /// may work: a background job that ends so is parked and run again (ADR 0160).
     pub transient: bool,
+    /// Where a command ran and how it went, stored as `command_ran` beside the result for the
+    /// reply's steps; the model is not shown it. Set only by the tools that run commands.
+    pub command: Option<Box<CommandRun>>,
+}
+
+/// Where a command ran and how it went (`command_ran`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommandRun {
+    /// The sandbox held it.
+    pub contained: bool,
+    pub exit_code: Option<i32>,
+    pub timed_out: bool,
+    pub reached: Vec<String>,
+    pub refused: Vec<spade_core::event::RefusedHost>,
+}
+
+impl CommandRun {
+    /// The stored event for call `call_id` of reply `reply`.
+    pub fn event(self, reply: &str, call_id: &str) -> spade_core::Event {
+        spade_core::Event::Known(spade_core::event::Known::CommandRan {
+            reply: reply.to_owned(),
+            call_id: call_id.to_owned(),
+            contained: self.contained,
+            exit_code: self.exit_code,
+            timed_out: self.timed_out,
+            reached: self.reached,
+            refused: self.refused,
+        })
+    }
 }
 
 /// Images and documents a tool showed the person, by reference.
@@ -105,6 +134,7 @@ impl ToolOutput {
             files: Box::default(),
             shared: Shared::default(),
             transient: false,
+            command: None,
         }
     }
 
@@ -132,6 +162,7 @@ impl ToolOutput {
             files: Box::default(),
             shared: Shared::default(),
             transient: false,
+            command: None,
         }
     }
 

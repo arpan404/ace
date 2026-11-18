@@ -143,6 +143,7 @@ impl Confine for Security {
         // Windows: when the run ends (its processes gone, so no open handle survives revocation),
         // the hold stops the bridge and takes back the run's ACL grants and its profile. The
         // rollback guard made above now becomes that run-end cleanup.
+        let watch = ticket.as_ref().map(spade_sandbox::egress::Ticket::watch);
         #[cfg(windows)]
         let hold: Box<dyn std::any::Any + Send + Sync> = Box::new((ticket, bridge_hold, run_hold));
         #[cfg(not(windows))]
@@ -153,6 +154,7 @@ impl Confine for Security {
             env,
             path_first,
             hold,
+            watch,
         })))
     }
 

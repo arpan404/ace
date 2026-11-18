@@ -279,6 +279,7 @@ impl Transcript {
             | Known::PluginOutsideAnswered { .. }
             | Known::HookRan { .. }
             | Known::Shared { .. }
+            | Known::CommandRan { .. }
             | Known::MemoryIndexed { .. }
             | Known::KnowledgeIndexed { .. }
             | Known::EpisodeStored { .. }
