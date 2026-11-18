@@ -204,6 +204,13 @@ impl Events {
     }
 
     fn offer(&self, event: notify::Result<Event>) {
+        // Reads are not changes: inotify reports every open, read and close of a file, and the
+        // daemon's own indexing and searching would fill the queue with them.
+        if let Ok(event) = &event
+            && matches!(event.kind, notify::EventKind::Access(_))
+        {
+            return;
+        }
         match self.sender.try_send(Command::Event(event)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => self.overflow.store(true, Ordering::Release),

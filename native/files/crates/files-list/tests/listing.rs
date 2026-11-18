@@ -156,6 +156,7 @@ fn lists_the_same_folder_from_several_threads() {
 #[test]
 fn does_not_list_entries_the_api_could_not_address() {
     use std::ffi::OsStr;
+    use std::fs::File;
     use std::os::unix::ffi::OsStrExt;
 
     let home = TempDir::new().unwrap();
