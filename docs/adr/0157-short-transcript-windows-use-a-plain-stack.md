@@ -68,5 +68,5 @@ ADR 0062's window bounds and paging stay as they are.
   while still, no switch back without a replacement under the low mark, waiting out a scroll, and
   rows hovering around the limit switching at most once.
 - `AceUITests/TranscriptAccessibilityUITests/testSwipingTheMomentALongFinishedThreadOpensStaysResponsive`
-  and `ThreadUITests/testASwipeStartingOnTheTurnRailsEdgeStillScrollsTheTranscript` (no longer an
+  and `ThreadUITests/testASwipeAlongTheTranscriptsTrailingEdgeScrollsIt` (no longer an
   expected failure) swipe `ios-log-long` the moment it opens.
