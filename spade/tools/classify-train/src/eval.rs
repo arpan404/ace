@@ -17,6 +17,8 @@ pub struct Scored {
     /// The rules would let the model settle it (a shell command they found nothing in, that
     /// runs no files).
     pub rules_allow: bool,
+    /// It may reach another machine: never settled with untrusted content in view.
+    pub network: bool,
 }
 
 impl Scored {
@@ -27,8 +29,27 @@ impl Scored {
             hides: false,
             known: true,
             dropped: false,
+            network: false,
         }
     }
+}
+
+/// The natural logarithm in plain arithmetic (as `spade_classify::exp`), so the temperature chosen
+/// is the same on every machine. For `x > 0`.
+fn ln(x: f64) -> f64 {
+    let bits = x.to_bits();
+    let exponent = ((bits >> 52) & 0x7ff) as i64 - 1023;
+    let mantissa = f64::from_bits((bits & 0x000f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000);
+    // ln m = 2 atanh((m - 1) / (m + 1)), m in [1, 2).
+    let s = (mantissa - 1.0) / (mantissa + 1.0);
+    let s2 = s * s;
+    let mut term = s;
+    let mut sum = 0.0;
+    for k in 0..20 {
+        sum += term / f64::from(2 * k + 1);
+        term *= s2;
+    }
+    2.0 * sum + exponent as f64 * std::f64::consts::LN_2
 }
 
 /// The temperature with the least negative log-likelihood on `val`.
@@ -41,7 +62,7 @@ pub fn temperature(val: &[&Scored]) -> f32 {
             .map(|s| {
                 let p = softmax(s.logits, t);
                 let at = spade_classify::class_of(s.label).unwrap_or(0);
-                -f64::from(p[at].max(1e-7)).ln()
+                -ln(f64::from(p[at].max(1e-7)))
             })
             .sum();
         if loss < best.1 {
@@ -53,7 +74,7 @@ pub fn temperature(val: &[&Scored]) -> f32 {
 
 /// The least the low-risk threshold may be. Set at 0.95 after a first run at 0.90 let two held-out
 /// test commands through (`ssh … uptime`, `defaults write`), as the report says.
-const LOW_FLOOR: f32 = 0.95;
+pub const LOW_FLOOR: f32 = 0.95;
 /// The least the person threshold may be: raising a call is the safe direction.
 const PERSON_FLOOR: f32 = 0.6;
 
@@ -72,6 +93,21 @@ pub fn validation_low(val: &[&Scored], t: f32) -> f32 {
         .map(|s| s.prediction(t).low_risk())
         .fold(0.0f32, f32::max);
     worst + 0.01
+}
+
+/// The least the read threshold may be.
+pub const READ_FLOOR: f32 = 0.80;
+
+/// The read threshold: above every validation call that isn't a read and that the code's checks
+/// would let through with untrusted content in view (writes in the folder included; nothing that
+/// may reach the network), with a margin of 0.02, never below [`READ_FLOOR`].
+pub fn read_threshold(val: &[&Scored], t: f32) -> f32 {
+    let worst = val
+        .iter()
+        .filter(|s| s.label != Effect::Read && !s.outside && !s.network)
+        .map(|s| s.prediction(t).of(Effect::Read))
+        .fold(0.0f32, f32::max);
+    (worst + 0.02).clamp(READ_FLOOR, 0.999)
 }
 
 /// The person threshold: the lowest at which raising on validation is at least 98% precise,
@@ -183,3 +219,41 @@ pub fn row(name: &str, m: &Measures) -> String {
 }
 
 pub const HEADER: &str = "| set | n | accuracy | low-risk precision | low-risk recall | settled | false-low-risk rate | person precision | person recall | exact effect |\n|---|---|---|---|---|---|---|---|---|---|";
+
+/// How settling would go on validation at each low-risk threshold (model alone, the code's checks
+/// applied): risky calls settled (named, and ones the labeller can't name) and low-risk ones.
+pub fn sweep(model: &Model, val: &[&Scored]) -> String {
+    let t = model.header().temperature;
+    let mut r = String::from(
+        "| threshold | risky validation calls settled | unnamed validation calls settled | low-risk validation calls settled | at this read threshold: calls that aren't reads | reads |\n|---|---|---|---|---|---|\n",
+    );
+    let low = val.iter().filter(|s| LOW_RISK.contains(&s.label)).count();
+    for threshold in [0.70f32, 0.80, 0.85, 0.90, 0.95, 0.98] {
+        let (mut risky, mut unnamed, mut right, mut writes, mut reads) = (0, 0, 0, 0, 0);
+        for s in val.iter().filter(|s| !s.outside && !s.network) {
+            if s.prediction(t).of(Effect::Read) >= threshold {
+                if s.label == Effect::Read {
+                    reads += 1;
+                } else {
+                    writes += 1;
+                }
+            }
+        }
+        for s in val.iter().filter(|s| !s.outside) {
+            if s.prediction(t).low_risk() >= threshold {
+                if LOW_RISK.contains(&s.label) {
+                    right += 1;
+                } else if s.label == Effect::Unknown {
+                    unnamed += 1;
+                } else {
+                    risky += 1;
+                }
+            }
+        }
+        r.push_str(&format!(
+            "| {threshold:.2} | {risky} | {unnamed} | {right} of {low} ({}) | {writes} | {reads} |\n",
+            Measures::ratio(right, low)
+        ));
+    }
+    r
+}

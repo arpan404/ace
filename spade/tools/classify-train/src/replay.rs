@@ -20,7 +20,7 @@ use crate::label::{Label, label};
 use crate::real::{self, Call, Kind};
 
 /// Where the replay sent calls.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct Outcomes {
     pub calls: usize,
     pub shell: usize,
@@ -39,6 +39,17 @@ pub struct Outcomes {
     /// Calls labelled person-only that reached the classifier.
     pub person_seen: usize,
     pub tainted: usize,
+    /// Shell commands the rules sent to review, by the first gate condition that keeps the
+    /// classifier from settling them: the rules found something, it runs files the reviewer
+    /// is shown, untrusted content is in view; or none (the classifier could settle it).
+    pub review_found: usize,
+    pub review_runs_files: usize,
+    pub review_tainted: usize,
+    pub review_open: usize,
+    /// What the rules found in commands they sent to review, by kind.
+    pub found: std::collections::BTreeMap<&'static str, usize>,
+    /// Why the classifier abstained on a command it was allowed to settle, by the first check.
+    pub abstained: std::collections::BTreeMap<&'static str, usize>,
 }
 
 impl Outcomes {
@@ -120,6 +131,49 @@ impl shell::Place for Folder {
         names.sort();
         Ok(names)
     }
+}
+
+/// Each thread placed in the folder it worked in: the absolute folder its commands `cd` into
+/// most, else the folder it was started in. A counterfactual, labelled as one: the same calls
+/// as a Spade bot whose own folder is that one would make them.
+pub fn placed(calls: &[Call]) -> Vec<Call> {
+    let mut most: std::collections::BTreeMap<&str, std::collections::BTreeMap<String, usize>> =
+        Default::default();
+    for call in calls {
+        let Kind::Shell(command) = &call.kind else {
+            continue;
+        };
+        for simple in shell::read(command).unwrap_or_default() {
+            if let [cd, dir, ..] = simple.words.as_slice()
+                && cd == "cd"
+                && dir.starts_with('/')
+            {
+                *most
+                    .entry(&call.thread)
+                    .or_default()
+                    .entry(dir.trim_end_matches('/').to_owned())
+                    .or_default() += 1;
+            }
+        }
+    }
+    let folder: std::collections::BTreeMap<&str, String> = most
+        .into_iter()
+        .filter_map(|(thread, dirs)| {
+            dirs.into_iter()
+                .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+                .map(|(dir, _)| (thread, dir))
+        })
+        .collect();
+    calls
+        .iter()
+        .map(|call| Call {
+            workspace: folder
+                .get(call.thread.as_str())
+                .cloned()
+                .unwrap_or_else(|| call.workspace.clone()),
+            ..call.clone()
+        })
+        .collect()
 }
 
 /// Replays `calls`; `with_workspace` passes the bot's folder to the classifier (the server on
@@ -256,13 +310,41 @@ fn shell_call(
         command,
         workspace: with_workspace.then_some(call.workspace.as_str()),
     };
+    if !reviewing.plain_command || reviewing.concern {
+        o.review_found += 1;
+        let kind = match classed.class {
+            Class::Sensitive(kind) => kind_name(kind),
+            _ if credentials => "credentials",
+            _ => "other",
+        };
+        *o.found.entry(kind).or_default() += 1;
+    } else if reviewing.runs_files {
+        o.review_runs_files += 1;
+    } else if reviewing.tainted {
+        o.review_tainted += 1;
+    } else {
+        o.review_open += 1;
+    }
     let truth = label(&real::relative_to(command, &call.workspace), None);
     let person = matches!(truth, Label::Sure(e) if spade_classify::PERSON_ONLY.contains(&e));
     o.person_seen += usize::from(person);
+    if person && std::env::var_os("CLASSIFY_DUMP").is_some() && with_workspace {
+        let p = model.predict(&subject);
+        let short: String = command.chars().take(160).collect();
+        eprintln!(
+            "REPLAY PERSON {truth:?} p={:.3} {:?} {short:?}",
+            p.person_only().1,
+            p.top().0
+        );
+    }
     match decide(model, &subject, reviewing) {
         Screen::LowRisk => {
             o.classifier_run += 1;
             if !truth.low() {
+                if std::env::var_os("CLASSIFY_DUMP").is_some() {
+                    let short: String = command.chars().take(300).collect();
+                    eprintln!("REPLAY FALSE-LOW {truth:?} {short:?}");
+                }
                 o.false_low += 1;
                 o.false_low_unsure += usize::from(truth == Label::Unsure);
             }
@@ -271,15 +353,87 @@ fn shell_call(
             o.classifier_person += 1;
             o.raised_right += usize::from(person);
         }
-        Screen::Abstain => o.reviewer += 1,
+        Screen::Abstain => {
+            o.reviewer += 1;
+            if reviewing.may_settle_read() && !with_workspace_none(&subject) {
+                let p = model.predict(&subject);
+                let why = if p.reaches_outside {
+                    "outside the folder"
+                } else if p.hides {
+                    "hides what it runs"
+                } else if !p.known {
+                    "a part never seen as low-risk"
+                } else if p.dropped {
+                    "past a bound"
+                } else if reviewing.tainted && p.network {
+                    "may reach the network, untrusted content in view"
+                } else if reviewing.tainted && truth != Label::Sure(Effect::Read) {
+                    "not a read, untrusted content in view"
+                } else {
+                    "under the threshold"
+                };
+                *o.abstained.entry(why).or_default() += 1;
+                if std::env::var_os("CLASSIFY_DUMP").is_some()
+                    && with_workspace
+                    && matches!(why, "under the threshold" | "a part never seen as low-risk")
+                {
+                    let short: String = command.chars().take(150).collect();
+                    eprintln!(
+                        "REPLAY {why} {truth:?} r={:.3} {short:?}",
+                        p.of(Effect::Read)
+                    );
+                }
+            }
+        }
     }
+}
+
+fn with_workspace_none(subject: &Subject<'_>) -> bool {
+    matches!(
+        subject,
+        Subject::Shell {
+            workspace: None,
+            ..
+        }
+    )
+}
+
+fn kind_name(kind: spade_core::autonomy::Sensitive) -> &'static str {
+    use spade_core::autonomy::Sensitive::*;
+    match kind {
+        Payment => "payment",
+        MessageAsPerson => "message as the person",
+        Publish => "publish",
+        DeleteOutside => "delete outside",
+        Credentials => "access change",
+        Unknown => "unknown tool",
+        Network => "network",
+        WriteOutside => "write outside",
+        RemoteChange => "remote change",
+        Automation => "drives apps",
+        Admin => "admin",
+        Unclear => "unclear",
+        TaintedRoutine => "tainted routine",
+        UnseenScript => "unseen script",
+    }
+}
+
+/// A count map as `a 12, b 3`, largest first.
+pub fn tally(map: &std::collections::BTreeMap<&'static str, usize>) -> String {
+    let mut items: Vec<_> = map.iter().collect();
+    items.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    items
+        .iter()
+        .map(|(k, v)| format!("{k} {v}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The outcomes as a table row: shares of all calls.
 pub fn row(name: &str, o: &Outcomes) -> String {
     let share = |n: usize| format!("{:.1}%", 100.0 * n as f64 / o.calls.max(1) as f64);
     format!(
-        "| {name} | {} | {} | {} | {} | {} | {} | {} | {} | {} ({} unsure) |",
+        "| {name} | {} | {} | {} | {} | {} | {} | {} | {} | {} ({} unsure) | {} of {} ({} wrongly) |",
         o.calls,
         share(o.rules_run),
         share(o.classifier_run),
@@ -290,7 +444,85 @@ pub fn row(name: &str, o: &Outcomes) -> String {
         share(o.decided()),
         o.false_low,
         o.false_low_unsure,
+        o.raised_right,
+        o.person_seen,
+        o.classifier_person - o.raised_right,
     )
 }
 
-pub const HEADER: &str = "| replay | calls | run by the rules | run on the classifier | person, by the rules | person, raised | refused | reviewer | decided without the reviewer | false low-risk |\n|---|---|---|---|---|---|---|---|---|---|";
+pub const HEADER: &str = "| replay | calls | run by the rules | run on the classifier | person, by the rules | person, raised | refused | reviewer | decided without the reviewer | false low-risk | person-only calls it raised |\n|---|---|---|---|---|---|---|---|---|---|---|";
+
+/// Why shell commands sent to review couldn't be settled, as shares of them.
+pub fn causes_row(name: &str, o: &Outcomes) -> String {
+    let all = o.review_found + o.review_runs_files + o.review_tainted + o.review_open;
+    let share = |n: usize| format!("{:.1}%", 100.0 * n as f64 / all.max(1) as f64);
+    format!(
+        "| {name} | {all} | {} | {} | {} | {} |",
+        share(o.review_found),
+        share(o.review_runs_files),
+        share(o.review_tainted),
+        share(o.review_open)
+    )
+}
+
+pub const CAUSES: &str = "| replay | shell commands sent to review | the rules found something | runs files the reviewer is shown | untrusted content in view | none of these |\n|---|---|---|---|---|---|";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shell(thread: &str, command: &str) -> Call {
+        Call {
+            thread: thread.to_owned(),
+            workspace: "/nonexistent/bot".to_owned(),
+            kind: Kind::Shell(command.to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_plain_read_after_a_commands_output_runs_on_this_builds_word_and_waits_on_mains() {
+        let Some(model) = Model::embedded() else {
+            panic!("the built-in model doesn't read");
+        };
+        let calls = [
+            shell("t", "cargo build"),
+            shell("t", "grep -rn TODO src"),
+            shell("t", "cargo test"),
+        ];
+        let this = replay(&calls, model, &|m, s, r| m.decide(s, r).1, true);
+        // The first command runs before anything untrusted is in view; the read after it settles;
+        // the test run after it waits for the reviewer.
+        assert_eq!(this.classifier_run, 2);
+        assert_eq!(this.reviewer, 1);
+        let main = replay(
+            &calls,
+            model,
+            &|m, s, r| {
+                let p = m.predict(s);
+                if r.may_settle() {
+                    m.screen(&p)
+                } else {
+                    m.raise(&p)
+                }
+            },
+            false,
+        );
+        assert_eq!(main.classifier_run, 1);
+        assert_eq!(main.reviewer, 2);
+        assert_eq!(this.false_low + main.false_low, 0);
+    }
+
+    #[test]
+    fn each_thread_is_placed_in_the_folder_it_cds_into_most() {
+        let calls = [
+            shell("a", "cd /srv/app && git status"),
+            shell("a", "cd /srv/app && cargo test"),
+            shell("a", "cd /srv/other && ls"),
+            shell("b", "ls"),
+        ];
+        let placed = placed(&calls);
+        assert_eq!(placed[0].workspace, "/srv/app");
+        assert_eq!(placed[2].workspace, "/srv/app");
+        assert_eq!(placed[3].workspace, "/nonexistent/bot");
+    }
+}

@@ -12,10 +12,13 @@ use serde_json::{Map, Value, json};
 use spade_classify::{Mcp, Subject};
 use spade_core::effect::Effect;
 
+use crate::agent_families::AGENT_FAMILIES;
 use crate::fixtures;
+use crate::label::{Label, label};
 use crate::obfuscate::TRANSFORMS;
 use crate::rng::Rng;
 use crate::shell_families::{FAMILIES, PREFIXES, SUFFIXES};
+use crate::tldr;
 use crate::tool_families::{SERVERS, TOOLS, ToolFamily, Val};
 use crate::vocab::{Half, expand, value};
 
@@ -147,7 +150,7 @@ fn trick(command: &str, held_out_too: bool, rng: &mut Rng) -> Option<(String, &'
 
 fn shell(seed: u64, out: &mut Vec<Example>) {
     let mut seen = Vec::new();
-    for family in FAMILIES {
+    for family in FAMILIES.iter().chain(AGENT_FAMILIES) {
         let mut rng = Rng::stream(seed, family.name);
         let (train, val, test) = assign(family.variants, &mut rng);
         let mut push = |command: String, split, trick: Option<&'static str>, adversarial| {
@@ -546,6 +549,34 @@ fn fixture_examples(seed: u64, root: &Path) -> Vec<Example> {
                 adversarial: false,
                 seen_form: false,
             }
+        })
+        .collect()
+}
+
+/// tldr-pages examples, labelled by the reference labeller (`label.rs`) and split by page: one in
+/// five pages is test and one validation, so a held-out page shares no form with training. One
+/// the labeller can't name is `unknown`: measured as risky, never trained on.
+pub fn tldr(examples: &[tldr::Example]) -> Vec<Example> {
+    examples
+        .iter()
+        .map(|e| Example {
+            input: Input::Shell(e.command.clone()),
+            label: match label(&e.command, Some(&e.description)) {
+                Label::Sure(effect) => effect,
+                Label::Unsure => Effect::Unknown,
+            },
+            family: "tldr",
+            source: "tldr",
+            split: if crate::measure::tldr_test_page(&e.page) {
+                Split::Test
+            } else if crate::measure::tldr_val_page(&e.page) {
+                Split::Val
+            } else {
+                Split::Train
+            },
+            trick: None,
+            adversarial: false,
+            seen_form: false,
         })
         .collect()
 }

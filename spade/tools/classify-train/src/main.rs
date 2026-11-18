@@ -8,6 +8,9 @@
 //! Run from the `spade` folder. It never calls a model or the network; the labels come from
 //! Spade's own rules and the generator's known intent.
 
+mod agent_families;
+mod compare;
+mod connectors;
 mod data;
 mod eval;
 mod fixtures;
@@ -15,6 +18,7 @@ mod fresh;
 mod hard;
 mod label;
 mod measure;
+mod mlp;
 mod obfuscate;
 mod real;
 mod replay;
@@ -54,6 +58,7 @@ fn main() {
     let mut fresh_seed = DEFAULT_FRESH_SEED;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut out = root.join("crates/spade-classify/model");
+    let (mut tldr_dir, mut real_dir) = (None, None);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -65,13 +70,28 @@ fn main() {
                     .unwrap_or(fresh_seed);
             }
             "--out" => out = args.next().map(PathBuf::from).unwrap_or(out),
+            "--tldr" => tldr_dir = args.next().map(PathBuf::from),
+            "--real" => real_dir = args.next().map(PathBuf::from),
             _ => {
-                eprintln!("usage: classify-train [--seed N] [--fresh-seed N] [--out DIR]");
+                eprintln!(
+                    "usage: classify-train [--seed N] [--fresh-seed N] [--out DIR] [--tldr DIR] [--real DIR]\n       classify-train measure [--weights FILE] [--tldr DIR] [--real DIR]"
+                );
                 std::process::exit(2);
             }
         }
     }
-    if let Err(error) = run(seed, fresh_seed, &root, &out) {
+    let Some(tldr_dir) = tldr_dir else {
+        eprintln!(
+            "classify-train: the shipped model trains on tldr-pages; fetch it with \
+             tools/classify-train/fetch-corpora.sh DIR and pass --tldr DIR/tldr"
+        );
+        std::process::exit(2);
+    };
+    let corpora = Corpora {
+        tldr: &tldr_dir,
+        real: real_dir.as_deref(),
+    };
+    if let Err(error) = run(seed, fresh_seed, &root, &out, corpora) {
         eprintln!("classify-train: {error}");
         std::process::exit(1);
     }
@@ -104,7 +124,8 @@ fn fit(
         .iter()
         .zip(vectors)
         .filter(|(e, _)| keep(e))
-        .map(|(e, v)| (v.vector.as_slice(), class_of(e.label).unwrap_or(0)))
+        // A call the labeller can't name is measured, never trained on.
+        .filter_map(|(e, v)| class_of(e.label).map(|c| (v.vector.as_slice(), c)))
         .collect();
     let settings = train::Settings {
         epochs: 8,
@@ -118,6 +139,7 @@ fn fit(
         temperature: 1.0,
         low: 1.0,
         person: 1.0,
+        read: 1.0,
         scales,
         bias: trained.bias,
     };
@@ -143,6 +165,7 @@ fn score(model: &Model, examples: &[Example], vectors: &[spade_classify::Feature
             outside: v.reaches_outside || v.hides || v.dropped || !model.knows(&v.keys),
             label: e.label,
             rules_allow: rules_allow(e),
+            network: v.network,
         })
         .collect()
 }
@@ -160,9 +183,25 @@ fn held_back(e: &Example) -> bool {
             })
 }
 
-fn run(seed: u64, fresh_seed: u64, root: &Path, out: &Path) -> Result<(), String> {
+/// The public corpus the model trains on, and the real sessions it is only measured on.
+#[derive(Clone, Copy)]
+struct Corpora<'a> {
+    tldr: &'a Path,
+    real: Option<&'a Path>,
+}
+
+fn run(
+    seed: u64,
+    fresh_seed: u64,
+    root: &Path,
+    out: &Path,
+    corpora: Corpora<'_>,
+) -> Result<(), String> {
+    let tldr_examples = tldr::read(corpora.tldr)?;
+    let real_calls = corpora.real.map(real::read).transpose()?;
     let mut examples = data::build(seed, root);
     examples.extend(data::fresh(fresh_seed));
+    examples.extend(data::tldr(&tldr_examples));
     let vectors: Vec<spade_classify::Features> =
         examples.iter().map(|e| features(&e.subject())).collect();
     // The measured run: trained on training templates only; its validation set sets the
@@ -171,10 +210,17 @@ fn run(seed: u64, fresh_seed: u64, root: &Path, out: &Path) -> Result<(), String
     let raw = Model::parse(Cow::Owned(encode(&header, &weights, &known))).map_err(|e| e.0)?;
     let scored = score(&raw, &examples, &vectors);
     let val = subset(&examples, &scored, |e| e.split == Split::Val);
-    header.temperature = eval::temperature(&val);
-    header.low = eval::low_threshold(&val, header.temperature);
-    header.person = eval::person_threshold(&val, header.temperature);
+    // Calibrated, settled and raised on the validation calls whose effect the labels name; the
+    // ones the labeller can't name are still counted as risky in every measure.
+    let named = subset(&examples, &scored, |e| {
+        e.split == Split::Val && e.label != spade_core::effect::Effect::Unknown
+    });
+    header.temperature = eval::temperature(&named);
+    header.low = eval::low_threshold(&named, header.temperature);
+    header.person = eval::person_threshold(&named, header.temperature);
+    header.read = eval::read_threshold(&named, header.temperature);
     let measured = Model::parse(Cow::Owned(encode(&header, &weights, &known))).map_err(|e| e.0)?;
+    let known_measured = known;
     if std::env::var_os("CLASSIFY_DUMP").is_some() {
         dump(&examples, &scored, &measured);
     }
@@ -183,6 +229,7 @@ fn run(seed: u64, fresh_seed: u64, root: &Path, out: &Path) -> Result<(), String
     shipped_header.temperature = header.temperature;
     shipped_header.low = header.low;
     shipped_header.person = header.person;
+    shipped_header.read = header.read;
     let file = encode(&shipped_header, &weights, &known);
     let shipped = Model::parse(Cow::Owned(file.clone())).map_err(|e| e.0)?;
     let shipped_scored = score(&shipped, &examples, &vectors);
@@ -192,9 +239,11 @@ fn run(seed: u64, fresh_seed: u64, root: &Path, out: &Path) -> Result<(), String
     let _ = writeln!(
         report,
         "\nValidation alone would put the low-risk threshold at {:.3}, just above its riskiest \
-         call that the code's checks let through. The fixed floor of 0.95 is stricter, and \
-         validation shows no risky call settled at either, so the floor is kept as the bound.",
-        eval::validation_low(&val, header.temperature)
+         call with a named risky effect that the code's checks let through. The threshold is that, with a margin, and never below the floor of \
+         {:.2}.\n\n{}",
+        eval::validation_low(&named, header.temperature),
+        eval::LOW_FLOOR,
+        eval::sweep(&measured, &val),
     );
     report.push_str(&shipped_report(
         &examples,
@@ -210,6 +259,37 @@ fn run(seed: u64, fresh_seed: u64, root: &Path, out: &Path) -> Result<(), String
             ("shipped", &shipped_scored, &shipped),
         ],
     ));
+    let wirings: [(&str, replay::Decide<'_>, bool); 2] = [
+        ("main's wiring", &decide_main, false),
+        ("this build", &decide_this, true),
+    ];
+    report.push_str(
+        "\n# Realistic measures\n\nThe measured model (trained without the held-out tldr-pages):\n",
+    );
+    report.push_str(&measure::report(
+        &measured,
+        Some(&tldr_examples),
+        real_calls.as_deref(),
+        &wirings,
+    ));
+    report.push_str(
+        "\nThe shipped model (trained on every tldr-pages page, so only the sets it never saw):\n",
+    );
+    report.push_str(&measure::report(
+        &shipped,
+        None,
+        real_calls.as_deref(),
+        &wirings,
+    ));
+    if std::env::var_os("CLASSIFY_SKIP_MLP").is_none() {
+        report.push_str(&compare::report(
+            &examples,
+            &vectors,
+            &known_measured,
+            seed,
+            (&measured, &scored),
+        )?);
+    }
     std::fs::write(out.join("REPORT.md"), &report).map_err(|e| e.to_string())?;
     println!("{report}");
     Ok(())
@@ -372,14 +452,17 @@ fn report(seed: u64, examples: &[Example], scored: &[Scored], model: &Model) -> 
     let _ = writeln!(
         r,
         "Written by `classify-train` (seed {seed}). The measured run: trained on the training \
-         templates only (int8, {} buckets × {} classes, and a {} KiB set of the programs, \
-         subcommands and flags seen in low-risk training commands). Temperature {:.2}; settles as low-risk at \
-         P(read or write_local) ≥ {:.3}; raises to the person at P(one person-only effect) ≥ {:.2}.\n",
+         templates and the training pages of tldr-pages only (int8, {} buckets × {} classes, and \
+         a {} KiB set of the programs, subcommands and flags seen in low-risk training commands). \
+         Temperature {:.2}; settles as low-risk at P(read or write_local) ≥ {:.3}, and with \
+         untrusted content in view only a read with P(read) ≥ {:.3} as well; raises to the person \
+         at P(any person-only effect) ≥ {:.2}.\n",
         spade_classify::BUCKETS,
         CLASSES.len(),
         spade_classify::KNOWN_BITS / 8 / 1024,
         h.temperature,
         h.low,
+        h.read,
         h.person,
     );
     let mut counts: BTreeMap<(&str, &str), usize> = BTreeMap::new();
@@ -425,11 +508,17 @@ fn report(seed: u64, examples: &[Example], scored: &[Scored], model: &Model) -> 
          only be raised or abstain.\n\n{}",
         eval::HEADER
     );
-    let sets: [(&str, Pick); 7] = [
-        ("validation", Box::new(|e| e.split == Split::Val)),
+    let template = |e: &Example| e.source != "tldr";
+    let sets: [(&str, Pick); 9] = [
+        (
+            "validation",
+            Box::new(move |e| e.split == Split::Val && template(e)),
+        ),
         (
             "test, clean",
-            Box::new(|e| e.split == Split::Test && !e.adversarial && !e.seen_form),
+            Box::new(move |e| {
+                e.split == Split::Test && !e.adversarial && !e.seen_form && template(e)
+            }),
         ),
         (
             "test, adversarial",
@@ -451,12 +540,20 @@ fn report(seed: u64, examples: &[Example], scored: &[Scored], model: &Model) -> 
             "test, seen forms with held-out values",
             Box::new(|e| e.seen_form),
         ),
+        (
+            "validation, tldr-pages",
+            Box::new(|e| e.split == Split::Val && e.source == "tldr"),
+        ),
+        (
+            "test, tldr-pages held-out pages",
+            Box::new(|e| e.split == Split::Test && e.source == "tldr"),
+        ),
     ];
     for (name, keep) in &sets {
         let items = subset(examples, scored, keep);
         let _ = writeln!(r, "{}", row(name, &measure(model, &items, false)));
     }
-    for (name, keep) in sets[..4].iter().chain(&sets[6..]) {
+    for (name, keep) in sets[..4].iter().chain(&sets[6..7]) {
         let items = subset(examples, scored, keep);
         let _ = writeln!(
             r,
@@ -552,6 +649,27 @@ fn dump(examples: &[Example], scored: &[Scored], model: &Model) {
     for (p, what) in risky.iter().take(8) {
         println!("RISKY VAL {p:.3} {what}");
     }
+    let mut writes: Vec<(f32, String)> = examples
+        .iter()
+        .zip(scored)
+        .filter(|(e, s)| {
+            e.split == Split::Val
+                && e.label != spade_core::effect::Effect::Read
+                && e.label != spade_core::effect::Effect::Unknown
+                && !s.outside
+                && !s.network
+        })
+        .map(|(e, s)| {
+            (
+                s.prediction(t).of(spade_core::effect::Effect::Read),
+                format!("{} {:?} {:?}", e.family, e.label, e.input),
+            )
+        })
+        .collect();
+    writes.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (p, what) in writes.iter().take(40) {
+        println!("NOT-READ VAL {p:.3} {what}");
+    }
     let mut worst: Vec<_> = confusion.into_iter().collect();
     worst.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     for ((label, top), n) in worst.iter().take(20) {
@@ -572,6 +690,15 @@ fn decide_main(
     } else {
         model.raise(&prediction)
     }
+}
+
+/// The classifier's decision as this build wires it (`spade_classify::Model::decide`).
+fn decide_this(
+    model: &Model,
+    subject: &spade_classify::Subject<'_>,
+    reviewing: spade_classify::Reviewing,
+) -> spade_classify::Screen {
+    model.decide(subject, reviewing).1
 }
 
 /// `classify-train measure [--weights FILE] [--tldr DIR] [--real DIR]`: the realistic measures
@@ -604,7 +731,10 @@ fn measure_only(mut args: impl Iterator<Item = String>) -> Result<(), String> {
     };
     let tldr = tldr_dir.map(|d| tldr::read(&d)).transpose()?;
     let real = real_dir.map(|d| real::read(&d)).transpose()?;
-    let wirings: [(&str, replay::Decide<'_>, bool); 1] = [("as on main", &decide_main, false)];
+    let wirings: [(&str, replay::Decide<'_>, bool); 2] = [
+        ("main's wiring", &decide_main, false),
+        ("this build", &decide_this, true),
+    ];
     println!(
         "Model `{}`.\n{}",
         model.id(),

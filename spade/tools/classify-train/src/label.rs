@@ -269,7 +269,10 @@ fn one(simple: &Simple) -> Label {
         };
         label = worse(label, wrote);
     }
-    if label == Label::Sure(WriteLocal) && positional.iter().any(|a| a.contains('/') && outside(a))
+    if label == Label::Sure(WriteLocal)
+        && positional
+            .iter()
+            .any(|a| a.contains('/') && !a.contains(char::is_whitespace) && outside(a))
     {
         label = Label::Sure(Network);
     }

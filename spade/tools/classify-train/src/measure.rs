@@ -143,7 +143,6 @@ pub fn tldr_test_page(page: &str) -> bool {
 }
 
 /// Whether a tldr page is the measured model's validation.
-#[allow(dead_code)]
 pub fn tldr_val_page(page: &str) -> bool {
     page_bucket(page) == 1
 }
@@ -251,6 +250,14 @@ pub fn report(
     }
     let _ = writeln!(
         r,
+        "{}",
+        row(
+            "hand-labelled connector calls (raise only, as wired)",
+            &crate::connectors::measure(model)
+        )
+    );
+    let _ = writeln!(
+        r,
         "\nWhy low-risk calls weren't settled (the first check that stops each, in this \
          order):\n\n{BLOCKERS}"
     );
@@ -265,7 +272,11 @@ pub fn report(
              (`effect::route` with the shell classifier's reading), then the classifier on what \
              they send to review. A command's output and files Spade didn't write are untrusted, \
              so after a thread's first such call untrusted content is in view ({} of {} shell \
-             commands). Provider-only tools with no Spade counterpart are left out.\n\n{}",
+             commands). Provider-only tools with no Spade counterpart are left out. These sessions often \
+             work outside the folder they were started in (sibling worktrees, `/tmp`, the home \
+             folder), which the classifier never settles; the rows placed in the folder each \
+             thread worked in (the absolute folder it `cd`s into most) show the same calls as a \
+             bot whose own folder that is would make them.\n\n{}",
             replay::replay(calls, model, wirings[0].1, wirings[0].2).tainted,
             calls
                 .iter()
@@ -273,9 +284,31 @@ pub fn report(
                 .count(),
             replay::HEADER
         );
+        let mut causes = Vec::new();
+        let placed = replay::placed(calls);
         for (name, decide, with_workspace) in wirings {
             let o = replay::replay(calls, model, *decide, *with_workspace);
             let _ = writeln!(r, "{}", replay::row(name, &o));
+            causes.push((replay::causes_row(name, &o), (name.to_string(), o)));
+        }
+        for (name, decide, with_workspace) in wirings {
+            let name = format!("{name}, each thread placed in the folder it worked in");
+            let o = replay::replay(&placed, model, *decide, *with_workspace);
+            let _ = writeln!(r, "{}", replay::row(&name, &o));
+            causes.push((replay::causes_row(&name, &o), (name, o)));
+        }
+        let _ = writeln!(r, "\n{}", replay::CAUSES);
+        for (line, _) in &causes {
+            let _ = writeln!(r, "{line}");
+        }
+        let _ = writeln!(r);
+        for (_, (name, o)) in &causes {
+            let _ = writeln!(
+                r,
+                "- {name}: the rules found {}; the classifier abstained on what it could settle for: {}.",
+                replay::tally(&o.found),
+                replay::tally(&o.abstained)
+            );
         }
     }
     r
