@@ -242,3 +242,76 @@ fn transfer_temporaries_never_appear_in_listings_or_quick_open() {
         Some("docs/a.md")
     );
 }
+
+#[test]
+fn a_folder_deleted_after_the_build_leaves_no_paths_behind() {
+    let checkout = checkout(&[("docs/old/kept.md", "deleted, not gone\n")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+    await_index(&mut client, root);
+    let id = client.request(Op::IndexQuery {
+        root,
+        query: "kept".to_owned(),
+        limit: 10,
+    });
+    let Reply::Index(index) = client.reply(id) else {
+        panic!("indexQuery answered");
+    };
+    assert!(
+        index.hits.iter().any(|hit| hit.path == "docs/old/kept.md"),
+        "the file is in the index before the delete: {:?}",
+        index.hits
+    );
+
+    // A delete is a rename into the daemon's trash, which the watcher reports like any other
+    // change: neither the folder's old paths nor its new name may reach a listing or quick open.
+    let subscription = common::watch(&mut client, root);
+    std::fs::rename(
+        checkout.path().join("docs/old"),
+        checkout.path().join(".ace-upload-trash-2"),
+    )
+    .expect("the delete's rename");
+    common::await_reported(
+        &mut client,
+        checkout.path(),
+        subscription,
+        ".ace-upload-trash-2",
+    );
+
+    let id = client.request(Op::List {
+        root,
+        dir: String::new(),
+        limit: 100,
+        cursor: None,
+        hide: hide(),
+    });
+    let Reply::Page(page) = client.reply(id) else {
+        panic!("list answered");
+    };
+    assert!(
+        page.entries
+            .iter()
+            .all(|entry| !entry.name.starts_with(".ace-upload-")),
+        "the trash name is not listed: {:?}",
+        page.entries
+    );
+
+    for query in ["kept", "trash"] {
+        let id = client.request(Op::IndexQuery {
+            root,
+            query: query.to_owned(),
+            limit: 20,
+        });
+        let Reply::Index(index) = client.reply(id) else {
+            panic!("indexQuery answered");
+        };
+        assert!(
+            index
+                .hits
+                .iter()
+                .all(|hit| !hit.path.contains(".ace-upload-") && hit.path != "docs/old/kept.md"),
+            "quick open forgot the deleted folder for {query:?}: {:?}",
+            index.hits
+        );
+    }
+}
