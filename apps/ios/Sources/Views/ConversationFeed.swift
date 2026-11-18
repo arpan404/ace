@@ -677,8 +677,7 @@ struct ConversationFeed: View {
     /// heights and the scroll catches up with the end. The rows stay hidden until the content's
     /// height and offset have held for two frames with the feed at the end it follows, a quarter
     /// second at most (`TranscriptSettle`), then show there in one frame (ADR 0157). A saved
-    /// place being reopened counts as not yet placed until its row is back where it was: its
-    /// session anchor is set before the window is asked for and cleared once the row is placed.
+    /// place being reopened counts as not yet placed until its row is back where it was.
     private func revealWhenSettled(proxy: ScrollViewProxy) {
         let intent = intent
         let started = CACurrentMediaTime()
@@ -686,7 +685,7 @@ struct ConversationFeed: View {
         surface.untilSettled(.reveal, { time in
             let metrics = intent.metrics
             let placed = TranscriptSettle.opened(following: pinned, fromEnd: Double(metrics.bottom),
-                                                 restoring: viewport.sessionAnchor != nil)
+                                                 restoring: viewport.sessionAnchor != nil || reading.loading)
             return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
         }) { outcome in
             // Still short of the end it follows at the limit: shown at the end, not on the way.
@@ -696,8 +695,6 @@ struct ConversationFeed: View {
             withTransaction(still) { revealed = true }
             TranscriptJumpHooks.revealed(after: CACurrentMediaTime() - started, capped: outcome == .capped)
             TranscriptJumpHooks.landed { Double(intent.metrics.bottom) }
-            // Paging waited for the feed to show: rows short of the screen page in from here.
-            pageIfNeeded(proxy)
         }
     }
     /// An older page is about to join above the reader's line. What is drawn is frozen over the
@@ -1101,9 +1098,7 @@ struct ConversationFeed: View {
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
-        // A hidden opening passes through the top of its lazy content on its way to the end; a
-        // page asked for there would land as a window the reader never scrolled to.
-        guard revealed, thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
+        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
             !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
