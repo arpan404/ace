@@ -44,7 +44,7 @@ export function SpadeNewGroupScreen() {
   const choices = choicesOf(roster.bots, machines);
   const primary = machines.find((machine) => machine.primary)?.id ?? "";
   return (
-    <Screen page="spade" title="New group" namedByPanel>
+    <Screen page="spade" title="New club" namedByPanel>
       <div className="h-full overflow-y-auto">
         <div className={cn(readingColumn, "max-w-120 pt-10 pb-16")}>
           {!line.ready ? (
@@ -106,7 +106,7 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
   };
   return (
     <form
-      aria-label="New group"
+      aria-label="New club"
       className="flex flex-col"
       onSubmit={(event) => {
         event.preventDefault();
@@ -124,7 +124,7 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- the draft opens to be named
           autoFocus
           aria-label="Name"
-          placeholder="Name the group"
+          placeholder="Name the club"
           value={name}
           maxLength={spadeGroupNameMax}
           onChange={(event) => setName(event.target.value.replaceAll(/[\r\n]/g, " "))}
@@ -208,7 +208,7 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
           disabled={blocked !== undefined || saving}
           aria-describedby={blocked ? whyBlocked : undefined}
         >
-          {saving ? "Making…" : "Make group"}
+          {saving ? "Making…" : "Make club"}
         </Button>
       </div>
     </form>

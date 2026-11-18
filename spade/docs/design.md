@@ -217,7 +217,7 @@ compaction costs one cache miss and happens rarely.
    research; canvases; image generation; background tasks that notify when done.
 2. **Crews:** bots with a name, avatar, instructions, model, allowed connectors, knowledge files
    and their own memory. Versioned; shared by link, with a team or publicly; forkable.
-3. **Group chat:** rooms with several people and bots; a lead bot can split work across a crew.
+3. **Club chat:** rooms with several people and bots; a lead bot can split work across a crew.
 4. **Marketplace:** publish, browse, use, fork, rate and report bots; a permission list before
    use; safety review before listing. Paid bots later.
 5. **Connectors:** see below.
@@ -264,7 +264,7 @@ after K steps or a cost cap. Reads run; writes ask unless the person chose "alwa
 actions and payments always ask. Content from email and web pages is data, never instructions; a
 tool call it triggers needs approval.
 
-**Who speaks in group chat.** An @mention speaks. Otherwise a cheap router scores each bot
+**Who speaks in club chat.** An @mention speaks. Otherwise a cheap router scores each bot
 against the message and the room's topic; at most two bots above a threshold reply to a person's
 message. Bot-to-bot replies stop after three hops, with a room cooldown and cost budget. Crew
 mode: the lead plans, members work in parallel into a shared scratchpad, the lead posts one
@@ -298,5 +298,5 @@ action is shown and logged on the daemon. Details in ace's draft ADR.
 4. Memory.
 5. Chat apps (Telegram, Discord and Slack first) with sender pairing; proactive schedules.
 6. Connectors (Gmail, Calendar, Drive, GitHub, Notion first).
-7. Crews and group chat; then the marketplace, and a hosted Spade for people without spare
+7. Crews and club chat; then the marketplace, and a hosted Spade for people without spare
    hardware.

@@ -121,16 +121,16 @@ test("opening a bot that finished unseen marks its conversation seen, and a seen
   expect(spade.sent("PUT", "/v1/conversations/c-news/seen")).toHaveLength(1);
 });
 
-test("+, the third top button, offers New bot, New group and Import bot, and an imported bot opens", async () => {
+test("+, the third top button, offers New bot, New club and Import bot, and an imported bot opens", async () => {
   const { spade } = await spadeApp("/spade", crew);
   // New bot opens its conversation, not a dialog.
   await openNew("New bot");
   await screen.findByRole("textbox", { name: "Name" });
   expect(screen.queryByRole("dialog")).toBeNull();
 
-  await openNew("New group");
-  // New group opens in place, as a route, not a dialog.
-  await screen.findByRole("form", { name: "New group" });
+  await openNew("New club");
+  // New club opens in place, as a route, not a dialog.
+  await screen.findByRole("form", { name: "New club" });
   expect(screen.queryByRole("dialog")).toBeNull();
 
   await openNew("Import bot…");

@@ -108,7 +108,7 @@ impl Engine {
         // Words from another machine are never the person's own here: an ask names the bot that
         // sent it or the group it came through.
         if !body["from"].is_object() && !body["group"].is_object() {
-            return refuse(400, "an ask names the bot or the group it comes from");
+            return refuse(400, "an ask names the bot or the club it comes from");
         }
         let depth = body["depth"]
             .as_u64()
@@ -140,11 +140,7 @@ impl Engine {
         let from_group = body["group"].as_object().map(|group| {
             Box::new(FromGroup {
                 id: short(group.get("id"), 128, "group"),
-                name: short(
-                    group.get("name"),
-                    crate::engine::GROUP_NAME_CHARS,
-                    "a group",
-                ),
+                name: short(group.get("name"), crate::engine::GROUP_NAME_CHARS, "a club"),
                 run: short(group.get("run"), 128, "run"),
                 ask: key.to_owned(),
                 machine: Some(sender.name.clone()),

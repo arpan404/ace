@@ -105,7 +105,7 @@ export async function botRow(name: string) {
   return (await roster()).findByRole("link", { name: new RegExp(`^${name}`) });
 }
 
-/** + in the Spade list's header, then one of its items: "New bot", "New group", "Import bot…". */
+/** + in the Spade list's header, then one of its items: "New bot", "New club", "Import bot…". */
 export async function openNew(item: string) {
   await userEvent.click(await screen.findByRole("button", { name: "New" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: item }));

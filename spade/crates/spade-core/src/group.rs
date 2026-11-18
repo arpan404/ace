@@ -28,7 +28,7 @@ impl Refusal {
     /// Words for the bot that asked.
     pub fn words(&self) -> String {
         match self {
-            Self::Stopped => "Refused: the person stopped this group's work. Answer with what \
+            Self::Stopped => "Refused: the person stopped this club's work. Answer with what \
                               you have."
                 .to_owned(),
             Self::TooDeep => format!(
@@ -241,7 +241,7 @@ pub fn framed(from: &FromGroup, text: &str) -> String {
         ""
     };
     format!(
-        "<group name=\"{}\" id=\"{}\"{place}>\nYour reply is posted in this group as your \
+        "<group name=\"{}\" id=\"{}\"{place}>\nYour reply is posted in this club as your \
          message.{ask}\n\n{text}\n</group>",
         from.name, from.id
     )
