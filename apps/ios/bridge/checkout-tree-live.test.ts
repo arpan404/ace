@@ -96,12 +96,15 @@ function files() {
   const calls: { folder: string; cursor: string | undefined; scope: FilesScope }[] = [];
   let contents: (folder: string, cursor: string | undefined) => FolderPage = noPage;
   let marks: readonly GitStatusFile[] = [];
+  let statusGate: Promise<void> | undefined;
+  let releaseStatus: (() => void) | undefined;
   const source: TreeFiles = {
     async listFolder(requested, directory, cursor) {
       calls.push({ folder: directory, cursor, scope: requested });
       return contents(directory, cursor);
     },
     async status() {
+      if (statusGate) await statusGate;
       return marks;
     },
   };
@@ -114,6 +117,16 @@ function files() {
     },
     setStatus(next: readonly GitStatusFile[]) {
       marks = next;
+    },
+    /** Hold git's answer until the returned function is called. */
+    holdStatus() {
+      statusGate = new Promise((resolve) => {
+        releaseStatus = resolve;
+      });
+      return () => {
+        statusGate = undefined;
+        releaseStatus?.();
+      };
     },
     folders: () => calls.map((call) => call.folder),
   };
@@ -318,6 +331,21 @@ test("folders holding a change open at first and deleted files keep their mark",
   );
   expect(rowsOf(view.last())).toContainEqual(
     expect.objectContaining({ key: outbox, mark: "M", markLabel: "Modified" }),
+  );
+});
+
+test("a deleted file at the root shows once git's status arrives after the first page", async () => {
+  const { tree, view, trees } = opened();
+  const release = tree.holdStatus();
+  tree.setPages(() => page([entry("a.ts")]));
+  tree.setStatus([change("gone.ts", "deleted")]);
+  trees.handle({ type: "files.tree.show", scope });
+  await settle();
+  expect(rowsOf(view.last()).map((row) => row.key)).toEqual(["a.ts"]);
+  release();
+  await settle();
+  expect(rowsOf(view.last())).toContainEqual(
+    expect.objectContaining({ key: "gone.ts", mark: "D", markLabel: "Deleted" }),
   );
 });
 

@@ -8,6 +8,7 @@ import {
   folderPageFailed,
   folderRequestPath,
   foldersToRelist,
+  parentPath,
   startingFolderPage,
   watchedFolders,
   type FolderStates,
@@ -276,14 +277,18 @@ export class CheckoutTrees {
 
   /** The folders holding uncommitted changes start open, as the web's Files tree shows them. */
   #reveal(tree: TreeState, changes: readonly GitStatusFile[]): void {
+    const before = new Set(tree.open);
     for (const change of changes)
-      for (const folder of ancestorFolders(change.path)) {
-        if (tree.open.has(folder)) continue;
-        tree.open.add(folder);
-        this.#list(tree, folder, "first");
-      }
+      for (const folder of ancestorFolders(change.path)) tree.open.add(folder);
+    for (const folder of tree.open) if (!before.has(folder)) this.#list(tree, folder, "first");
+    // A folder read before git answered may miss a deleted file, which is a row git names and
+    // the folder no longer holds.
+    const deleted = new Set<string>();
+    for (const change of changes)
+      if (change.status === "deleted") deleted.add(folderKey(parentPath(change.path)));
+    for (const folder of deleted) if (before.has(folder)) this.#list(tree, folder, "first");
     this.#emit(tree);
-    this.#scheduleWatch(tree);
+    if (tree.open.size !== before.size) this.#scheduleWatch(tree);
   }
 
   /** A `files.folders_changed` names the watched folders to list again; a rescan names all. */
