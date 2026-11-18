@@ -209,7 +209,16 @@ const span: Record<ShowcaseId, string> = {
     border-color: var(--border-strong);
   }
 
+  /* Two across on a tablet, under the browser at full width; a row of two and a row of three
+     on a wide screen. Five tiles never leave a hole. */
   @media (min-width: 760px) {
+    .mid,
+    .third {
+      grid-column: span 6;
+    }
+  }
+
+  @media (min-width: 1040px) {
     .wide {
       grid-column: span 7;
     }
@@ -218,12 +227,6 @@ const span: Record<ShowcaseId, string> = {
       grid-column: span 5;
     }
 
-    .third {
-      grid-column: span 6;
-    }
-  }
-
-  @media (min-width: 1040px) {
     .third {
       grid-column: span 4;
     }

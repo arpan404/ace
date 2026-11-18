@@ -141,6 +141,7 @@ export function startZoomStory(root: HTMLElement): void {
     stage.style.setProperty("--band", `${band}px`);
     const insets = { top: 64 + 44, right: side, bottom: band + 60, left: side };
     promptBox = rectOf(composer);
+    settleHero(side);
     if (ghost) {
       const width = narrow ? (size.width - side * 2) / readable : promptBox.width;
       ghost.style.width = `${width}px`;
@@ -187,6 +188,25 @@ export function startZoomStory(root: HTMLElement): void {
     });
   }
 
+  let lift = 0;
+
+  /**
+   * On a tall screen the opening (words, composer, cue) would sit at the top with the rest
+   * empty. This lowers it so the space is shared above and below, a little more below.
+   */
+  function settleHero(side: number): void {
+    if (!promptBox) return;
+    const free = size.width - side * 2;
+    const drawn = narrow
+      ? (ghost?.offsetHeight ?? promptBox.height) * readable
+      : promptBox.height * Math.min(1.3, composerWidth(free) / promptBox.width);
+    const spare = size.height - (hero.offsetHeight - lift) - 36 - drawn - 72;
+    const next = Math.max(0, Math.round(spare * 0.42));
+    if (Math.abs(next - lift) < 2) return;
+    lift = next;
+    hero.style.setProperty("--lift", `${lift}px`);
+  }
+
   /** Places the opening's tree of agents around the composer as the first shot shows it. */
   function growTeam(side: number): void {
     const camera = cameras[0];
@@ -199,14 +219,17 @@ export function startZoomStory(root: HTMLElement): void {
           height: (ghost?.offsetHeight ?? promptBox.height) * readable,
         }
       : { ...at, width: promptBox.width * camera.scale, height: promptBox.height * camera.scale };
+    const headline = edge.getBoundingClientRect().top - stage.getBoundingClientRect().top;
     const tree = teamTree(
       composerBox,
       size,
       side,
       fanLeaves.length,
       { width: 172, height: 38 },
-      narrow,
+      headline + 8,
     );
+    // Without the tree, the hero names the agents with their marks beside its facts.
+    root.dataset.team = tree ? "tree" : "marks";
     fan.hidden = !tree;
     if (!tree) return;
     tree.leaves.forEach((leaf, index) => {
@@ -300,7 +323,7 @@ export function startZoomStory(root: HTMLElement): void {
         if (waiting > 0) {
           const box = ghost.getBoundingClientRect();
           const within = stage.getBoundingClientRect();
-          cue.style.transform = `translate(${box.left - within.left + (narrow ? 34 : 4)}px, ${box.bottom - within.top + 16}px)`;
+          cue.style.transform = `translate(${box.left - within.left + 4}px, ${box.bottom - within.top + 16}px)`;
         }
       }
     }
@@ -343,7 +366,10 @@ export function startZoomStory(root: HTMLElement): void {
   // side by side and stacked all move the drawings; each is measured again.
   const watcher = new ResizeObserver(remeasure);
   for (const element of [stage, hero, captions, composer, ...things]) watcher.observe(element);
-  matchMedia("(max-width: 759px)").addEventListener("change", remeasure);
+  matchMedia("(max-width: 759px), (max-aspect-ratio: 11 / 10)").addEventListener(
+    "change",
+    remeasure,
+  );
   addEventListener("load", remeasure);
   void document.fonts.ready.then(remeasure);
   remeasure();

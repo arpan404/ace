@@ -1,8 +1,8 @@
 ---
 /*
- * Every part of ace, in four groups (content/parts.ts). A part with a page of its own is a
- * link; the rest are plain lines. The home page's story shows a few of these at work, and this
- * is where a visitor finds the rest.
+ * Every part of ace (content/parts.ts), one group at a time: four tabs, and under them the
+ * chosen group's line and its six parts. A part with a page of its own is a link. Without the
+ * script every group shows, one under the other, and the tabs are left out.
  */
 import { partGroups } from "../../content/parts.ts";
 import Icon from "../Icon.astro";
@@ -20,20 +20,40 @@ const emblems: Record<string, string> = {
 };
 ---
 
-<section class="section page parts">
+<section class="section page parts" data-parts>
   <header class="head reveal">
     <h2 class="section-title">Every part of ace.</h2>
     <a class="text-link" href="/features/">All features</a>
   </header>
-  <div class="groups">
+
+  <div class="tabs reveal" role="tablist" aria-label="Parts of ace">
     {
-      partGroups.map((group) => (
-        <section class="group reveal">
-          <svg class="emblem" width="64" height="40" viewBox="0 0 64 40" aria-hidden="true">
-            <Fragment set:html={emblems[group.name] ?? ""} />
-          </svg>
-          <h3>{group.name}</h3>
-          <p class="line">{group.line}</p>
+      partGroups.map((group, index) => (
+        <button
+          type="button"
+          role="tab"
+          id={`parts-tab-${index}`}
+          aria-controls={`parts-panel-${index}`}
+          aria-selected={index === 0 ? "true" : "false"}
+          tabindex={index === 0 ? 0 : -1}
+        >
+          {group.name}
+        </button>
+      ))
+    }
+  </div>
+
+  <div class="panels reveal">
+    {
+      partGroups.map((group, index) => (
+        <div class="panel" role="tabpanel" id={`parts-panel-${index}`} aria-labelledby={`parts-tab-${index}`}>
+          <div class="lead">
+            <svg class="emblem" viewBox="0 0 64 40" aria-hidden="true">
+              <Fragment set:html={emblems[group.name] ?? ""} />
+            </svg>
+            <h3>{group.name}</h3>
+            <p class="line">{group.line}</p>
+          </div>
           <ul>
             {group.parts.map((part) => {
               const text = (
@@ -41,7 +61,7 @@ const emblems: Record<string, string> = {
                   <span class="name">
                     {part.name}
                     {part.beta && <span class="beta">Beta</span>}
-                    {part.href && <Icon name="arrow-right" size={14} />}
+                    {part.href && <Icon name="arrow-right" size={15} />}
                   </span>
                   <span class="body">{part.body}</span>
                 </>
@@ -49,7 +69,7 @@ const emblems: Record<string, string> = {
               return <li>{part.href ? <a href={part.href}>{text}</a> : <div>{text}</div>}</li>;
             })}
           </ul>
-        </section>
+        </div>
       ))
     }
   </div>
@@ -68,46 +88,142 @@ const emblems: Record<string, string> = {
     font-size: clamp(36px, 5.6vw, 72px);
   }
 
-  .groups {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
-    gap: 16px;
-    margin-top: clamp(40px, 6vw, 72px);
+  /* The four groups as one segmented control. It only shows once the script can switch panels. */
+  .tabs {
+    display: none;
   }
 
-  /* Each group is a card, like the showcase's tiles. */
-  .group {
-    padding: 26px 24px 12px;
+  .parts[data-enhanced] .tabs {
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 2px;
+    max-width: 100%;
+    margin-top: clamp(28px, 4vw, 44px);
+    padding: 5px;
     border: 1px solid var(--border);
-    border-radius: 24px;
+    border-radius: 999px;
     background: var(--surface);
+  }
+
+  .tabs button {
+    height: 42px;
+    padding: 0 clamp(12px, 2.4vw, 26px);
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--motion-base) var(--ease-out),
+      color var(--motion-fast) var(--ease-out);
+  }
+
+  .tabs button:hover {
+    color: var(--foreground);
+  }
+
+  .tabs button[aria-selected="true"] {
+    background: var(--ink);
+    color: var(--ink-foreground);
+  }
+
+  @media (max-width: 519px) {
+    .parts[data-enhanced] .tabs {
+      display: grid;
+    }
+
+    .tabs button {
+      padding: 0;
+      font-size: 14px;
+    }
+  }
+
+  .panels {
+    display: grid;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  /* One group: its drawing and line on one side, its parts in two columns on the other. */
+  .panel {
+    display: grid;
+    gap: clamp(24px, 4vw, 40px) clamp(32px, 6vw, 72px);
+    padding: clamp(24px, 4.4vw, 52px);
+    border: 1px solid var(--border);
+    border-radius: clamp(20px, 3vw, 32px);
+    background: var(--surface);
+  }
+
+  .panel[hidden] {
+    display: none;
+  }
+
+  @media (min-width: 960px) {
+    .panel {
+      grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+    }
+  }
+
+  :global(html.motion) .parts[data-enhanced] .panel {
+    animation: turn 0.35s var(--ease-out) both;
+  }
+
+  @keyframes turn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
   }
 
   .emblem {
     display: block;
-    margin-bottom: 22px;
+    width: clamp(72px, 9vw, 104px);
+    height: auto;
     fill: none;
     stroke: var(--line);
-    stroke-width: 1.5;
+    stroke-width: 1.2;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
 
   h3 {
+    margin-top: clamp(20px, 3vw, 32px);
+    color: var(--line);
     font-family: var(--font-mono);
     font-size: 13px;
     font-weight: 500;
     letter-spacing: 0;
-    color: var(--line);
+  }
+
+  /* The tab already names the group. */
+  .parts[data-enhanced] h3 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .line {
-    margin: 10px 0 18px;
-    min-height: 2.4em;
-    font-size: 20px;
+    margin-top: clamp(14px, 2vw, 24px);
+    max-width: 12em;
+    font-size: clamp(26px, 3.2vw, 40px);
     font-weight: 600;
-    letter-spacing: -0.035em;
-    line-height: 1.2;
+    letter-spacing: -0.045em;
+    line-height: 1.04;
+  }
+
+  ul {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    column-gap: clamp(24px, 4vw, 48px);
+    align-content: start;
   }
 
   li {
@@ -116,8 +232,8 @@ const emblems: Record<string, string> = {
 
   li > * {
     display: grid;
-    gap: 3px;
-    padding: 13px 0 14px;
+    gap: 5px;
+    padding: 18px 0 20px;
     text-decoration: none;
   }
 
@@ -125,9 +241,9 @@ const emblems: Record<string, string> = {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 15px;
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
   }
 
   .name :global(svg) {
@@ -151,8 +267,51 @@ const emblems: Record<string, string> = {
   }
 
   .body {
+    max-width: 30em;
     color: var(--muted);
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.5;
   }
 </style>
+
+<script>
+  /*
+   * Tabs: one group shows at a time. A click or the arrow, Home and End keys choose it; only
+   * the chosen tab takes Tab focus, as tab lists do.
+   */
+  for (const root of document.querySelectorAll<HTMLElement>("[data-parts]")) {
+    const tabs = [...root.querySelectorAll<HTMLElement>('[role="tab"]')];
+    const panels = [...root.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+    const choose = (index: number, focus = false) => {
+      tabs.forEach((tab, at) => {
+        tab.setAttribute("aria-selected", at === index ? "true" : "false");
+        tab.tabIndex = at === index ? 0 : -1;
+      });
+      panels.forEach((panel, at) => {
+        panel.hidden = at !== index;
+      });
+      if (focus) tabs[index]?.focus();
+    };
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => choose(index));
+      tab.addEventListener("keydown", (event) => {
+        const last = tabs.length - 1;
+        const next =
+          event.key === "ArrowRight"
+            ? (index + 1) % tabs.length
+            : event.key === "ArrowLeft"
+              ? (index + last) % tabs.length
+              : event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? last
+                  : -1;
+        if (next < 0) return;
+        event.preventDefault();
+        choose(next, true);
+      });
+    });
+    root.dataset.enhanced = "";
+    choose(0);
+  }
+</script>

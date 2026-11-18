@@ -206,10 +206,10 @@ export interface Tree {
 }
 
 /**
- * The opening's picture of "a whole team out": a tree growing from the composer, one branch
- * per agent, drawn the way ace draws a thread's agents. On a wide screen the chips stand in a
- * column at the right edge and the trunk leaves the composer's side; on a narrow one they hang
- * under it. Returns nothing when a wide screen has no room beside the composer.
+ * The opening's picture of "a whole team out": a tree growing from the composer's side, one
+ * branch per agent, drawn the way ace draws a thread's agents. The chips stand in a column at
+ * the stage's right edge. Returns nothing when there is no room beside the composer, as on a
+ * phone or a narrow window.
  */
 export function teamTree(
   composer: Rect,
@@ -217,32 +217,16 @@ export function teamTree(
   side: number,
   count: number,
   chip: Size,
-  narrow: boolean,
+  /** Where the column of chips starts, in stage pixels: level with the top of the headline. */
+  top = 116,
 ): Tree | undefined {
   const radius = 14;
   const bottom = composer.y + composer.height;
-  if (narrow) {
-    const trunk = composer.x + 18;
-    const x = trunk + 30;
-    const leaves = Array.from({ length: count }, (_, index) => ({
-      x,
-      y: bottom + 60 + index * (chip.height + 10),
-    }));
-    return {
-      leaves,
-      lines: leaves.map((leaf) => {
-        const y = leaf.y + chip.height / 2;
-        return `M${trunk} ${bottom}V${y - radius}Q${trunk} ${y} ${trunk + radius} ${y}H${leaf.x}`;
-      }),
-    };
-  }
-
   const right = composer.x + composer.width;
   const x = stage.width - side - chip.width;
   if (x - right < 96) return undefined;
   const trunk = right + (x - right) * 0.42;
   const from = composer.y + composer.height / 2;
-  const top = 116;
   const last = bottom - chip.height;
   const step = count > 1 ? (last - top) / (count - 1) : 0;
   const leaves = Array.from({ length: count }, (_, index) => ({ x, y: top + step * index }));
