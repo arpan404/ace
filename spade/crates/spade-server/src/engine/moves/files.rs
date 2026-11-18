@@ -1,7 +1,7 @@
 //! A bot's workspace folder as a move carries it (ADR 0187): its regular files, found without
 //! following links, and the relative paths the other machine accepts.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 /// Most files and bytes one move carries.
 pub(super) const MOST_FILES: usize = 200_000;
@@ -59,23 +59,6 @@ pub(super) fn walk(root: &Path) -> std::io::Result<Walked> {
     Ok(walked)
 }
 
-/// `path` (relative, `/`-separated, as a part names it) under `root`, or `None` when it could
-/// leave it: absolute, `..`, `.`, an empty or odd component.
-pub(super) fn under(root: &Path, path: &str) -> Option<PathBuf> {
-    if path.is_empty() || path.len() > 4096 || path.contains(['\\', '\0']) {
-        return None;
-    }
-    let mut full = root.to_path_buf();
-    for part in path.split('/') {
-        let mut components = Path::new(part).components();
-        match (components.next(), components.next()) {
-            (Some(Component::Normal(name)), None) if name == part => full.push(name),
-            _ => return None,
-        }
-    }
-    Some(full)
-}
-
 /// Whether `text` is a SHA-256 in lowercase hex.
 pub(super) fn is_sha256(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -98,30 +81,7 @@ pub(super) fn image_refs(text: &str, into: &mut Vec<String>) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use super::{image_refs, under, walk};
-
-    #[test]
-    fn a_path_that_could_leave_the_workspace_is_refused() {
-        let root = Path::new("/w");
-        assert_eq!(
-            under(root, "a/b.txt"),
-            Some(Path::new("/w/a/b.txt").to_path_buf())
-        );
-        for bad in [
-            "",
-            "/etc/passwd",
-            "../x",
-            "a/../b",
-            "a//b",
-            "./a",
-            "a\\b",
-            "a/",
-        ] {
-            assert_eq!(under(root, bad), None, "{bad}");
-        }
-    }
+    use super::{image_refs, walk};
 
     #[test]
     fn image_hashes_are_found_once_each() {

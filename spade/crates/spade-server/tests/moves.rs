@@ -4,189 +4,14 @@
 
 mod support;
 
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use spade_server::clock::Ids;
-use spade_server::teams::proof::inbox_proof;
-use spade_server::teams::{BoxFuture, Machine, Remote, RemoteError};
 use spade_testkit::Script;
-use support::{Options, Result, Spade, TOKEN};
-
-/// Both daemons' local token, in each ace home: what signs a forwarded inbox request.
-const DAEMON_TOKEN: &str = "d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0";
-
-/// Ids that never collide between the two machines, as UUIDs never do.
-struct MachineIds(&'static str, AtomicU64);
-
-impl Ids for MachineIds {
-    fn next(&self, prefix: &str) -> String {
-        format!(
-            "{prefix}_{}{}",
-            self.0,
-            self.1.fetch_add(1, Ordering::SeqCst) + 1
-        )
-    }
-}
-
-/// What the fake daemons carry between the two Spades, and how they misbehave on purpose.
-#[derive(Default)]
-struct Fleet {
-    /// host id → (Spade's address, machine name).
-    spades: Mutex<Vec<(String, String, String)>>,
-    offline: Mutex<HashSet<String>>,
-    /// Listed online, but every call is lost before it arrives.
-    unreachable: AtomicBool,
-    /// Drops one note row from the next notes part on the way.
-    change_notes: AtomicBool,
-    /// Delivers the next commit, then says the connection was lost.
-    lose_commit_answer: AtomicBool,
-    /// Every request body carried, as sent.
-    carried: Mutex<Vec<String>>,
-}
-
-/// One machine's daemon as its Spade sees it.
-struct Link {
-    me: String,
-    fleet: Arc<Fleet>,
-}
-
-impl Remote for Link {
-    fn host(&self) -> Option<String> {
-        Some(self.me.clone())
-    }
-
-    fn machines(&self) -> BoxFuture<'_, std::result::Result<Vec<Machine>, RemoteError>> {
-        Box::pin(async move {
-            let offline = self
-                .fleet
-                .offline
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .clone();
-            Ok(self
-                .fleet
-                .spades
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .iter()
-                .filter(|(host, _, _)| *host != self.me)
-                .map(|(host, _, name)| Machine {
-                    host_id: host.clone(),
-                    name: name.clone(),
-                    online: !offline.contains(host),
-                })
-                .collect())
-        })
-    }
-
-    fn call(
-        &self,
-        machine: &str,
-        mut request: Value,
-    ) -> BoxFuture<'_, std::result::Result<(u16, Value), RemoteError>> {
-        let machine = machine.to_owned();
-        Box::pin(async move {
-            let (base, my_name) = {
-                let spades = self.fleet.spades.lock().unwrap_or_else(|p| p.into_inner());
-                let base = spades
-                    .iter()
-                    .find(|(host, _, _)| *host == machine)
-                    .map(|(_, base, _)| base.clone())
-                    .ok_or_else(|| RemoteError::UnknownMachine(machine.clone()))?;
-                let mine = spades
-                    .iter()
-                    .find(|(host, _, _)| *host == self.me)
-                    .map(|(_, _, name)| name.clone())
-                    .unwrap_or_default();
-                (base, mine)
-            };
-            if self.fleet.unreachable.load(Ordering::SeqCst)
-                || self
-                    .fleet
-                    .offline
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .contains(&machine)
-            {
-                return Err(RemoteError::Offline);
-            }
-            if request["step"] == "part"
-                && request["part"]["table"] == "notes"
-                && self.fleet.change_notes.swap(false, Ordering::SeqCst)
-                && let Some(rows) = request["part"]["rows"].as_array_mut()
-            {
-                rows.pop();
-            }
-            let body = serde_json::to_vec(&request).map_err(|_| RemoteError::Offline)?;
-            self.fleet
-                .carried
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .push(String::from_utf8_lossy(&body).into_owned());
-            let time = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as i64);
-            let proof =
-                inbox_proof(DAEMON_TOKEN, time, &self.me, &my_name, &body).unwrap_or_default();
-            let answer = reqwest::Client::new()
-                .post(format!("{base}/v1/inbox"))
-                .bearer_auth(TOKEN)
-                .header("content-type", "application/json")
-                .header("x-ace-from-host", &self.me)
-                .header("x-ace-from-name", &my_name)
-                .header("x-ace-inbox-time", time.to_string())
-                .header("x-ace-inbox-proof", proof)
-                .body(body)
-                .send()
-                .await
-                .map_err(|_| RemoteError::Offline)?;
-            let status = answer.status().as_u16();
-            let answer = answer.json().await.unwrap_or(Value::Null);
-            if request["step"] == "commit"
-                && self.fleet.lose_commit_answer.swap(false, Ordering::SeqCst)
-            {
-                return Err(RemoteError::Disconnected);
-            }
-            Ok((status, answer))
-        })
-    }
-}
-
-/// A machine: its Spade, with ace's home holding the daemon's token, linked into the fleet.
-async fn machine(
-    fleet: &Arc<Fleet>,
-    host: &str,
-    name: &str,
-    scripts: Vec<Script>,
-) -> Result<Spade> {
-    let home = tempfile::tempdir()?.keep();
-    std::fs::write(home.join("daemon-token"), format!("{DAEMON_TOKEN}\n"))?;
-    let tag = if host == "host-laptop" { "l" } else { "s" };
-    let spade = Spade::start_with(
-        scripts,
-        Vec::new(),
-        Options {
-            ace_home: Some(home),
-            ids: Some(Arc::new(MachineIds(tag, AtomicU64::new(0)))),
-            ..Options::default()
-        },
-    )
-    .await?;
-    fleet
-        .spades
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .push((host.to_owned(), spade.base.clone(), name.to_owned()));
-    spade.engine.set_remote(Arc::new(Link {
-        me: host.to_owned(),
-        fleet: fleet.clone(),
-    }));
-    Ok(spade)
-}
+use support::fleet::{Fleet, link, machine, move_bot, move_ends};
+use support::{Result, Spade};
 
 async fn pair() -> Result<(Arc<Fleet>, Spade, Spade)> {
     let fleet = Arc::new(Fleet::default());
@@ -274,19 +99,6 @@ async fn listed(spade: &Spade, bot: &str) -> Result<Option<Value>> {
         .and_then(|all| all.iter().find(|a| a["id"] == bot).cloned()))
 }
 
-/// Waits until the move from `spade` ends; answers its last view (`null` once it is done).
-async fn move_ends(spade: &Spade, bot: &str) -> Result<Value> {
-    for _ in 0..400 {
-        let (_, body) = spade.get(&format!("/v1/agents/{bot}/move")).await?;
-        let state = &body["move"]["state"];
-        if body["move"].is_null() || state == "failed" || state == "cancelled" {
-            return Ok(body["move"].clone());
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    Err("the move never ended".into())
-}
-
 async fn events(spade: &Spade, conversation: &str) -> Result<Vec<Value>> {
     let (_, body) = spade
         .get(&format!("/v1/conversations/{conversation}/events"))
@@ -321,12 +133,7 @@ async fn a_bot_moved_to_another_machine_keeps_its_history_notes_files_and_id_and
     let history = events(&laptop, &conversation).await?;
     let kept_notes = notes(&laptop, &bot).await?;
 
-    let (status, started) = laptop
-        .post(
-            &format!("/v1/agents/{bot}/move"),
-            json!({ "to": "host-studio" }),
-        )
-        .await?;
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_1", "host-studio").await?;
     assert_eq!(status, 202, "{started}");
     assert_eq!(
         move_ends(&laptop, &bot).await?,
@@ -394,12 +201,7 @@ async fn a_move_that_fails_halfway_leaves_the_bot_where_it_was() -> Result {
     let kept_notes = notes(&laptop, &bot).await?;
     fleet.change_notes.store(true, Ordering::SeqCst);
 
-    let (status, started) = laptop
-        .post(
-            &format!("/v1/agents/{bot}/move"),
-            json!({ "to": "host-studio" }),
-        )
-        .await?;
+    let (status, started) = move_bot(&laptop, &studio, &bot, "mv_2", "host-studio").await?;
     assert_eq!(status, 202, "{started}");
     let ended = move_ends(&laptop, &bot).await?;
     assert_eq!(ended["state"], "failed", "{ended}");
@@ -451,12 +253,7 @@ async fn a_move_waiting_on_an_unreachable_machine_can_be_cancelled_and_the_bot_s
     let (fleet, laptop, studio) = pair().await?;
     let bot = furnished(&laptop).await?;
     fleet.unreachable.store(true, Ordering::SeqCst);
-    let (status, _) = laptop
-        .post(
-            &format!("/v1/agents/{bot}/move"),
-            json!({ "to": "host-studio" }),
-        )
-        .await?;
+    let (status, _) = move_bot(&laptop, &studio, &bot, "mv_3", "host-studio").await?;
     assert_eq!(status, 202);
     let mut waiting = Value::Null;
     for _ in 0..200 {
@@ -511,12 +308,7 @@ async fn a_move_interrupted_by_a_restart_carries_on_by_itself() -> Result {
     let (fleet, laptop, studio) = pair().await?;
     let bot = furnished(&laptop).await?;
     fleet.unreachable.store(true, Ordering::SeqCst);
-    let (status, _) = laptop
-        .post(
-            &format!("/v1/agents/{bot}/move"),
-            json!({ "to": "host-studio" }),
-        )
-        .await?;
+    let (status, _) = move_bot(&laptop, &studio, &bot, "mv_4", "host-studio").await?;
     assert_eq!(status, 202);
     for _ in 0..200 {
         let shown = listed(&laptop, &bot).await?.ok_or("gone")?;
@@ -528,17 +320,8 @@ async fn a_move_interrupted_by_a_restart_carries_on_by_itself() -> Result {
     let laptop = laptop
         .restart(Vec::new(), vec![Script::reply("unused")])
         .await?;
-    {
-        let mut spades = fleet.spades.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(entry) = spades.iter_mut().find(|(host, _, _)| host == "host-laptop") {
-            entry.1 = laptop.base.clone();
-        }
-    }
     fleet.unreachable.store(false, Ordering::SeqCst);
-    laptop.engine.set_remote(Arc::new(Link {
-        me: "host-laptop".to_owned(),
-        fleet: fleet.clone(),
-    }));
+    link(&fleet, "host-laptop", &laptop);
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null, "it finished");
     assert!(listed(&laptop, &bot).await?.is_none());
     assert!(listed(&studio, &bot).await?.is_some());
@@ -550,12 +333,7 @@ async fn a_commit_whose_answer_was_lost_still_finishes_the_move_once() -> Result
     let (fleet, laptop, studio) = pair().await?;
     let bot = furnished(&laptop).await?;
     fleet.lose_commit_answer.store(true, Ordering::SeqCst);
-    let (status, _) = laptop
-        .post(
-            &format!("/v1/agents/{bot}/move"),
-            json!({ "to": "host-studio" }),
-        )
-        .await?;
+    let (status, _) = move_bot(&laptop, &studio, &bot, "mv_5", "host-studio").await?;
     assert_eq!(status, 202);
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
     assert!(listed(&laptop, &bot).await?.is_none());
@@ -591,12 +369,7 @@ async fn api_keys_never_leave_the_machine() -> Result {
         .await?;
     assert_eq!(status, 200, "{body}");
 
-    laptop
-        .post(
-            &format!("/v1/agents/{bot}/move"),
-            json!({ "to": "host-studio" }),
-        )
-        .await?;
+    move_bot(&laptop, &studio, &bot, "mv_6", "host-studio").await?;
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
     let carried = fleet
         .carried
@@ -638,12 +411,7 @@ async fn moving_spade_names_the_new_machine_its_host_and_the_old_ones_main_goes_
         "the studio's Spade is quiet while the laptop hosts it"
     );
 
-    let (status, started) = laptop
-        .post(
-            &format!("/v1/agents/{spade_id}/move"),
-            json!({ "to": "host-studio" }),
-        )
-        .await?;
+    let (status, started) = move_bot(&laptop, &studio, &spade_id, "mv_7", "host-studio").await?;
     assert_eq!(status, 202, "{started}");
     assert_eq!(move_ends(&laptop, &spade_id).await?, Value::Null);
 

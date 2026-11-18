@@ -18,6 +18,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/main/host", put(offer_host))
         .route("/agents/{id}/move", get(read).post(start).delete(cancel))
         .route("/agents/{id}/arrival", delete(dismiss_arrival))
+        .route("/moves/{id}/accept", put(accept))
 }
 
 /// `GET /v1/main`, beside `PUT /v1/main` in the agents routes.
@@ -47,6 +48,7 @@ fn move_problem(error: &MoveError) -> Response {
         MoveError::NotFound => StatusCode::NOT_FOUND,
         MoveError::Refused(_) => StatusCode::CONFLICT,
         MoveError::Invalid(_) => StatusCode::BAD_REQUEST,
+        MoveError::PersonOnly(_) => StatusCode::FORBIDDEN,
         MoveError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -55,6 +57,31 @@ fn move_problem(error: &MoveError) -> Response {
 #[derive(Deserialize)]
 struct To {
     to: String,
+    /// The move's id, as the person accepted it on the machine it goes to.
+    #[serde(rename = "move")]
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct Accept {
+    bot: String,
+}
+
+/// The person accepts, here, a bot arriving by this move: only with their stamp, which ace's
+/// daemon adds for a caller with their standing (ADR 0163 amendment 2, ADR 0187).
+async fn accept(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+    Body(body): Body<Accept>,
+) -> Response {
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|value| value.to_str().ok());
+    match state.engine.accept_move(&id, &body.bot, stamp) {
+        Ok(()) => Json(json!({ "accepted": true })).into_response(),
+        Err(error) => move_problem(&error),
+    }
 }
 
 async fn start(
@@ -65,7 +92,7 @@ async fn start(
     let connectors = state.connectors.clone();
     match state
         .engine
-        .start_move(&id, body.to.trim(), connectors.as_deref())
+        .start_move(&id, body.to.trim(), body.id.trim(), connectors.as_deref())
         .await
     {
         Ok(started) => (StatusCode::ACCEPTED, Json(json!({ "move": started }))).into_response(),

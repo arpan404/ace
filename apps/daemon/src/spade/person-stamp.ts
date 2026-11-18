@@ -11,14 +11,20 @@ import { createHmac } from "node:crypto";
 
 export const personHeader = "x-ace-person";
 
-/** A change only the person may make: which bot (or `machine`) and to what. */
+/** A change only the person may make: which bot (or `machine`, or `move:<id>`) and to what. */
 export interface PersonOnlyWrite {
   target: string;
-  /** `full_access`, or `null`: following the parent or the machine can raise a bot too. */
-  value: "full_access" | "null";
+  /**
+   * `full_access`, or `null`: following the parent or the machine can raise a bot too. For a
+   * move, `accept:<bot>`: the person accepts that bot arriving by that move (ADR 0187).
+   */
+  value: string;
 }
 
 const botAutonomy = /^\/v1\/agents\/([^/?#]+)\/security\/autonomy$/;
+const moveAccept = /^\/v1\/moves\/([^/?#]+)\/accept$/;
+/** A move's or a bot's id, as Spade takes them: one plain name. */
+const plainId = /^[a-z0-9][a-z0-9_-]{0,79}$/;
 const machineAutonomy = "/v1/security/autonomy";
 
 /** The route a guarded change goes to, whatever its body; undefined for every other request. */
@@ -26,6 +32,9 @@ export function personOnlyRoute(method: string, path: string): string | undefine
   if (method !== "PUT") return undefined;
   const bare = path.split("?")[0] ?? "";
   if (bare === machineAutonomy) return "machine";
+  // Accepting a bot moving here: always the person's, whatever the body says.
+  const move = moveAccept.exec(bare)?.[1];
+  if (move !== undefined) return `move:${move}`;
   const bot = botAutonomy.exec(bare)?.[1];
   if (bot === undefined) return undefined;
   try {
@@ -47,6 +56,7 @@ export function personOnlyWrite(
 ): PersonOnlyWrite | undefined {
   const target = personOnlyRoute(method, path);
   if (target === undefined) return undefined;
+  if (target.startsWith("move:")) return moveAcceptWrite(target, body);
   let value: unknown;
   try {
     value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);
@@ -72,4 +82,20 @@ export function personStamp(
     .update(`ace-spade-person/1\n${write.target}\n${write.value}\n${atMs}\n${nonce}`)
     .digest("hex");
   return `v1.${atMs}.${nonce}.${mac}`;
+}
+
+/** Accepting a bot moving here: the move and the bot as Spade will check them, or nothing to
+ * stamp when either isn't a plain id (Spade then refuses it unstamped). */
+function moveAcceptWrite(target: string, body: Buffer | undefined): PersonOnlyWrite | undefined {
+  if (!plainId.test(target.slice("move:".length))) return undefined;
+  let value: unknown;
+  try {
+    value = body === undefined ? undefined : (JSON.parse(body.toString("utf8")) as unknown);
+  } catch {
+    return undefined;
+  }
+  const bot = value !== null && typeof value === "object" ? Reflect.get(value, "bot") : undefined;
+  return typeof bot === "string" && plainId.test(bot)
+    ? { target, value: `accept:${bot}` }
+    : undefined;
 }

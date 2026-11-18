@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use spade_store::{Selection, StoredMove};
 
 use super::host::HostRecord;
+use super::paths;
 use super::{
     CANCELLED, COMMITTING, DONE, Engine, FAILED, FINISHING, MOVED, PACKING, SENDING, detail, lock,
     strings,
@@ -251,7 +252,10 @@ impl Engine {
                 let status = json!({ "op": "move", "step": "status", "move": entry.id });
                 match self.call_peer(entry, status, false).await {
                     Ok((200, body)) if body["state"] == "committed" => (200, body),
-                    Ok((_, body)) if body["state"] == "receiving" => return Next::Again,
+                    Ok((_, body)) if body["state"] == "receiving" || body["state"] == "placing" => {
+                        tokio::time::sleep(FIRST_WAIT).await;
+                        return Next::Again;
+                    }
                     Ok((_, body)) => return Next::Fail(error_of(&body)),
                     Err(next) => return next,
                 }
@@ -267,6 +271,13 @@ impl Engine {
             // Parts went missing there: send them again.
             409 if body["missing"].is_array() => {
                 self.update(entry, SENDING, |_| {});
+                Next::Again
+            }
+            // Written there but its files are still being placed, or that machine stumbled:
+            // only it knows when the move took, so ask again.
+            500..=599 => {
+                self.update(entry, COMMITTING, |kept| kept["waiting"] = json!(true));
+                tokio::time::sleep(LONGEST_WAIT.min(FIRST_WAIT * 8)).await;
                 Next::Again
             }
             _ => Next::Fail(error_of(&body)),
@@ -298,7 +309,7 @@ impl Engine {
             }
         }
         self.update(entry, DONE, |_| {});
-        self.thaw(&conversations);
+        self.thaw(&entry.id, &conversations);
         Next::Again
     }
 
@@ -306,12 +317,14 @@ impl Engine {
     fn archive(&self, entry: &StoredMove) -> Result<(), String> {
         let kept = detail(entry);
         let agents = strings(&kept["agents"]);
-        let archive = self.data_dir().join("moved").join(&entry.id);
-        std::fs::create_dir_all(archive.join("workspace")).map_err(|e| e.to_string())?;
+        let archive = paths::child(&self.data_dir().join("moved"), &entry.id)?;
+        let kept_files = paths::child(&archive, "workspace")?;
+        std::fs::create_dir_all(&kept_files).map_err(|e| e.to_string())?;
+        let workspaces = self.data_dir().join("workspace");
         for agent in &agents {
-            let folder = self.data_dir().join("workspace").join(agent);
+            let folder = paths::child(&workspaces, agent)?;
             if folder.exists() {
-                std::fs::rename(&folder, archive.join("workspace").join(agent))
+                std::fs::rename(&folder, paths::child(&kept_files, agent)?)
                     .map_err(|e| e.to_string())?;
             }
             let moved = json!({ "to": entry.peer, "name": entry.peer_name, "at": self.now_ms() });
@@ -319,11 +332,12 @@ impl Engine {
                 .set_setting(&format!("{MOVED}:{agent}"), Some(&moved.to_string()))
                 .map_err(|e| e.to_string())?;
         }
-        let parts = self.packed(&entry.id);
+        // The parts hold no secret: webhook secrets never leave a machine, keys never enter one.
+        let parts = self.packed(&entry.id)?;
         if parts.exists() {
-            std::fs::rename(&parts, archive.join("parts")).map_err(|e| e.to_string())?;
+            std::fs::rename(&parts, paths::child(&archive, "parts")?).map_err(|e| e.to_string())?;
         }
-        let _ = std::fs::remove_dir_all(self.moves_dir(&entry.id));
+        paths::remove_child(&self.data_dir().join("moves"), &entry.id)?;
         let selection = self
             .store
             .move_selection(&agents)
@@ -370,13 +384,13 @@ impl Engine {
             let _ = tokio::time::timeout(Duration::from_secs(10), remote.call(&entry.peer, abort))
                 .await;
         }
-        let _ = std::fs::remove_dir_all(self.moves_dir(&entry.id));
+        let _ = paths::remove_child(&self.data_dir().join("moves"), &entry.id);
         let kept = detail(entry);
         self.update(entry, state, |kept| {
             kept["problem"] = json!(problem);
             kept["waiting"] = json!(false);
         });
-        self.thaw(&strings(&kept["conversations"]));
+        self.thaw(&entry.id, &strings(&kept["conversations"]));
         lock(&self.moves.cancelled).remove(&entry.id);
         for conversation in strings(&kept["conversations"]) {
             self.forget_activity(&conversation);

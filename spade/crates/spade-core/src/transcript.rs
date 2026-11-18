@@ -310,6 +310,7 @@ impl Transcript {
             | Known::WorkerReported(_)
             | Known::WorkerDetached { .. }
             | Known::DecisionMade(_)
+            | Known::Arrived { .. }
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {

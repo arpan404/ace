@@ -11,7 +11,7 @@ use spade_core::autonomy::{self, Class, Mode, Runs, Sensitive};
 use spade_core::context;
 use spade_core::effect::{self, Place, Route};
 use spade_core::event::Verdict;
-use spade_core::event::{Call, Known};
+use spade_core::event::{Call, Known, since_arrival};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::question;
@@ -178,21 +178,26 @@ pub(super) async fn handle_calls(
                         .tools
                         .get_for(id, &name)
                         .and_then(|tool| tool.always_scope_in(&key, &arguments));
-                    let always_in = |owner: &str, owned: &[Event]| match &scope {
-                        Some(scope) => allowed_always_for(engine, owner, owned, &name, scope),
-                        None => Transcript::fold(owned)
-                            .always_allowed
-                            .iter()
-                            .any(|t| t == &name),
+                    // Only answers given on this machine count: a bot that moved here brought its
+                    // history, not the person's consent (ADR 0187).
+                    let always_in = |owner: &str, owned: &[Event]| {
+                        let here = since_arrival(owned);
+                        match &scope {
+                            Some(scope) => allowed_always_for(engine, owner, here, &name, scope),
+                            None if here.len() == owned.len() && owner == id => {
+                                transcript.always_allowed.iter().any(|t| t == &name)
+                            }
+                            None => Transcript::fold(here)
+                                .always_allowed
+                                .iter()
+                                .any(|t| t == &name),
+                        }
                     };
                     let always = match (&helper, &bot_events) {
                         (Some(h), Some(owned)) => {
                             always_in(id, events) || always_in(&h.parent, owned)
                         }
-                        _ => match &scope {
-                            Some(scope) => allowed_always_for(engine, id, events, &name, scope),
-                            None => transcript.always_allowed.iter().any(|t| t == &name),
-                        },
+                        _ => always_in(id, events),
                     };
                     let tainted = match def.risk {
                         // Only saving and rewriting can wait as a suggestion; any other change to
@@ -234,10 +239,10 @@ pub(super) async fn handle_calls(
                             .map(|tool| engine.tool_key(id, tool.identity())),
                     };
                     let remembered = tool_key.as_deref().and_then(|key| {
-                        effect::remembered(events, key).or_else(|| {
+                        effect::remembered(since_arrival(events), key).or_else(|| {
                             bot_events
                                 .as_deref()
-                                .and_then(|owned| effect::remembered(owned, key))
+                                .and_then(|owned| effect::remembered(since_arrival(owned), key))
                         })
                     });
                     let target = spade_core::outward::target(&name, &arguments);

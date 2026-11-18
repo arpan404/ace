@@ -641,6 +641,25 @@ pub enum Known {
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),
+    /// The bot arrived from another machine (ADR 0187): consent given there doesn't count here,
+    /// so no answer before this event is remembered (`since_arrival`).
+    Arrived {
+        /// The machine it came from, by name.
+        from: String,
+    },
+}
+
+/// The events after the bot's latest arrival from another machine (all of them when it never
+/// moved): where the person's remembered answers are looked for, so an "Always allow" or a
+/// kept answer given on another machine never counts on this one (ADR 0187).
+pub fn since_arrival(events: &[Event]) -> &[Event] {
+    match events
+        .iter()
+        .rposition(|event| matches!(event, Event::Known(Known::Arrived { .. })))
+    {
+        Some(at) => &events[at + 1..],
+        None => events,
+    }
 }
 
 fn is_zero(n: &u32) -> bool {

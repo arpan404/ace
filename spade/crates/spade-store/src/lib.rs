@@ -27,8 +27,8 @@ pub use episodes::{NewEpisode, StoredEpisode};
 pub use helpers::StoredHelper;
 pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};
 pub use moves::{
-    Arrived, Arriving, EVENTS, HostChange, Import, MOVE_TABLES, MoveTable, Part, Row, RowSums,
-    Selection, StoredMove, TableSum, move_table,
+    Arrived, Arriving, EVENTS, HostChange, Import, MOVE_TABLES, MoveTable, OPEN_MOVE,
+    PER_BOT_SETTINGS, Part, Row, RowSums, Selection, StoredMove, TableSum, move_table, open_state,
 };
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};

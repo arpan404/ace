@@ -63,3 +63,22 @@ test("the stamp is the one Spade checks, keyed with the shared key", () => {
     "v1.1700000000000.00112233445566778899aabbccddeeff.9d4be3f27e7c4b4e0aadae6e330483846f5ea77ecbe60121799f8c4b3c9b4149",
   );
 });
+
+test("accepting a bot moving here is the person's, stamped for that move and that bot only", () => {
+  const json = (value: unknown) => Buffer.from(JSON.stringify(value));
+  const accept = "/v1/moves/mv_0190ab/accept";
+  expect(personOnlyRoute("PUT", accept)).toBe("move:mv_0190ab");
+  expect(personOnlyWrite("PUT", accept, json({ bot: "a_1" }))).toEqual({
+    target: "move:mv_0190ab",
+    value: "accept:a_1",
+  });
+  // Forwarded only stamped: an odd move or bot id gets no stamp, and Spade refuses it.
+  for (const [path, body] of [
+    [accept, json({ bot: "../a" })],
+    [accept, json({})],
+    ["/v1/moves/../accept", json({ bot: "a_1" })],
+    ["/v1/moves/MV_1/accept", json({ bot: "a_1" })],
+  ] as const)
+    expect(personOnlyWrite("PUT", path, body), path).toBeUndefined();
+  expect(personOnlyRoute("PUT", "/v1/moves/../accept")).toBe("move:..");
+});

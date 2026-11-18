@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod fleet;
 pub mod gated;
 pub mod plugins;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]

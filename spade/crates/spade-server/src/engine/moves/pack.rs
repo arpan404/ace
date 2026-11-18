@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use spade_store::{MOVE_TABLES, Row, RowSums, StoredMove};
 
 use super::files::{self, MOST_BYTES};
+use super::paths;
 use super::{Engine, FORMAT, VERSION, detail, strings};
 
 /// Most bytes of one part's JSON: with the request around it, well inside the 512 KiB an inbox
@@ -77,8 +78,8 @@ impl Parts {
         Ok(())
     }
 
-    /// A file in pieces: its hash and size ride on the last piece.
-    fn file(&mut self, head: Value, full: &Path) -> Result<u64, String> {
+    /// A file in pieces; answers its size and SHA-256 for the inventory.
+    fn file(&mut self, head: Value, full: &Path) -> Result<(u64, String), String> {
         let mut file = std::fs::File::open(full).map_err(|e| e.to_string())?;
         let mut digest = Sha256::new();
         let mut buffer = vec![0u8; FILE_PIECE];
@@ -102,13 +103,9 @@ impl Parts {
             part["data"] = json!(base64::engine::general_purpose::STANDARD.encode(piece));
             part["last"] = json!(last);
             offset += filled as u64;
-            if last {
-                part["size"] = json!(offset);
-                part["sha256"] = json!(hex(&digest.clone().finalize()));
-            }
             self.write(&part)?;
             if last {
-                return Ok(offset);
+                return Ok((offset, hex(&digest.clone().finalize())));
             }
         }
     }
@@ -133,21 +130,25 @@ fn endpoints_of(model: &str, into: &mut Vec<String>) {
 
 impl Engine {
     /// The move's folder of parts and its manifest, written once.
-    pub(super) fn packed(&self, id: &str) -> PathBuf {
-        self.moves_dir(id).join("out")
+    pub(super) fn packed(&self, id: &str) -> Result<PathBuf, String> {
+        paths::child(&self.moves_dir(id)?, "out")
     }
 
     /// Writes the move's parts and manifest (on a blocking thread). Answers the manifest.
     pub(super) fn pack(&self, entry: &StoredMove) -> Result<Value, String> {
-        let out = self.packed(&entry.id);
+        let out = self.packed(&entry.id)?;
         if let Ok(text) = std::fs::read_to_string(out.join("manifest.json")) {
             return serde_json::from_str(&text).map_err(|e| e.to_string());
         }
-        let tmp = self.moves_dir(&entry.id).join("out.tmp");
-        let _ = std::fs::remove_dir_all(&tmp);
+        let folder = self.moves_dir(&entry.id)?;
+        paths::remove_child(&folder, "out-tmp")?;
+        let tmp = paths::child(&folder, "out-tmp")?;
         std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
         let kept = detail(entry);
         let agents = strings(&kept["agents"]);
+        if let Some(odd) = agents.iter().find(|agent| !paths::plain_id(agent)) {
+            return Err(format!("the bot {odd} has an id Spade can't move"));
+        }
         let selection = self
             .store
             .move_selection(&agents)
@@ -224,23 +225,31 @@ impl Engine {
             );
         }
         parts.flush()?;
-        let mut image_count = 0;
+        // Every file and image, with its size and hash: what the other machine must end up with,
+        // exactly.
+        let mut inventory = Vec::new();
         for sha in &images {
             let path = self.images.dir().join(sha);
             if path.is_file() {
-                parts.file(json!({ "kind": "image", "sha256_name": sha }), &path)?;
-                image_count += 1;
+                let (size, hash) =
+                    parts.file(json!({ "kind": "image", "sha256_name": sha }), &path)?;
+                inventory
+                    .push(json!({ "kind": "image", "name": sha, "size": size, "sha256": hash }));
             }
         }
-        let (mut count, mut bytes, mut left) = (0u64, 0u64, Vec::new());
+        let (mut bytes, mut left) = (0u64, Vec::new());
+        let workspaces = self.data_dir().join("workspace");
         for agent in &agents {
-            let root = self.data_dir().join("workspace").join(agent);
+            let root = paths::child(&workspaces, agent)?;
             let walked = files::walk(&root).map_err(|e| e.to_string())?;
             left.extend(walked.left);
             for found in walked.files {
                 let head = json!({ "kind": "file", "agent": agent, "path": found.path });
-                bytes += parts.file(head, &found.full)?;
-                count += 1;
+                let (size, hash) = parts.file(head, &found.full)?;
+                inventory.push(json!({
+                    "kind": "file", "agent": agent, "path": found.path, "size": size, "sha256": hash,
+                }));
+                bytes += size;
                 if bytes > MOST_BYTES {
                     return Err(format!(
                         "{}'s folder holds more than {} GB, more than a move carries.",
@@ -249,6 +258,24 @@ impl Engine {
                     ));
                 }
             }
+        }
+        let inventory_sha = hex(&Sha256::digest(Value::Array(inventory.clone()).to_string()));
+        let count = inventory.len();
+        let mut chunk = Vec::new();
+        let mut chunk_bytes = 0;
+        for entry in inventory {
+            let size = entry.to_string().len() + 1;
+            if chunk_bytes + size > PART_BYTES - 1024 && !chunk.is_empty() {
+                parts.write(
+                    &json!({ "kind": "inventory", "entries": std::mem::take(&mut chunk) }),
+                )?;
+                chunk_bytes = 0;
+            }
+            chunk_bytes += size;
+            chunk.push(entry);
+        }
+        if !chunk.is_empty() {
+            parts.write(&json!({ "kind": "inventory", "entries": chunk }))?;
         }
         let endpoints = self.store.endpoints().map_err(|e| e.to_string())?;
         let needs: Vec<Value> = models
@@ -281,8 +308,7 @@ impl Engine {
             "bot": { "id": entry.agent_id, "name": entry.agent_name, "main": entry.main },
             "agents": agents,
             "tables": sums,
-            "files": { "count": count, "bytes": bytes },
-            "images": image_count,
+            "inventory": { "count": count, "bytes": bytes, "sha256": inventory_sha },
             "parts": parts.next,
             "endpoints": needs,
             "extras": extras,
@@ -290,14 +316,14 @@ impl Engine {
         });
         std::fs::write(tmp.join("manifest.json"), manifest.to_string())
             .map_err(|e| e.to_string())?;
-        let _ = std::fs::remove_dir_all(&out);
+        paths::remove_child(&folder, "out")?;
         std::fs::rename(&tmp, &out).map_err(|e| e.to_string())?;
         Ok(manifest)
     }
 
     /// One packed part, as sent.
     pub(super) fn packed_part(&self, id: &str, index: u64) -> Result<Value, String> {
-        let text = std::fs::read_to_string(self.packed(id).join(format!("{index:06}.json")))
+        let text = std::fs::read_to_string(self.packed(id)?.join(format!("{index:06}.json")))
             .map_err(|e| e.to_string())?;
         serde_json::from_str(&text).map_err(|e| e.to_string())
     }

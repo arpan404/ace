@@ -1,8 +1,11 @@
-//! A moved bot arriving (ADR 0187): its staged files are put together and checked, its rows
-//! are written and checked in one transaction together with what changes on arrival (routines
-//! paused, webhooks given new secrets, folder grants checked again, clubs pointed here, the
-//! host choice for Spade), then its files are placed. A crash after the rows were written
-//! leaves the move `placing`, and placing finishes at the next start.
+//! A moved bot arriving (ADR 0187). Its staged files are put together and checked against the
+//! move's inventory (every file and image named with its size and hash, the inventory bound to
+//! the manifest the move began with): nothing missing, twice or unexpected. Then its rows are
+//! written and checked in one transaction together with what changes on arrival and everything
+//! needed to finish (the move reads `placing`); then its files are placed and flushed to disk.
+//! Only then does the move read `committed`, which is what the source waits for. A crash after
+//! the rows were written leaves the move `placing`, and placing finishes at the next start or
+//! the next `commit`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -11,16 +14,35 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use spade_store::{Arrived, Arriving, HostChange, Import, Part, Row, StoredMove, TableSum};
+use spade_core::Event;
+use spade_core::event::Known;
+use spade_store::{
+    Arrived, Arriving, HostChange, Import, Part, Row, Selection, StoredMove, TableSum,
+};
 
-use super::files::{is_sha256, under};
+use super::files::is_sha256;
 use super::host::{HostRecord, MAIN_ENABLED, MAIN_HOST, MAIN_OFF};
+use super::paths::{self, under};
 use super::receive::manifest_agents;
-use super::{ARRIVED, COMMITTED, Engine, PLACING, detail};
+use super::{ARRIVED, COMMITTED, Engine, PLACING, consent, detail};
+
+/// Why a commit didn't end with the bot here.
+#[derive(Debug)]
+pub(super) enum Failed {
+    /// The move doesn't hold up; it is given up here and nothing of it is kept.
+    Refused(String),
+    /// Its rows are written but its files aren't placed yet: ask again.
+    Placing(String),
+}
 
 /// The rows of the staged parts, in order: a run of pieces is joined into its one row.
 struct StagedRows {
     parts: std::vec::IntoIter<PathBuf>,
+}
+
+fn read_part(path: &Path) -> Result<Value, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
 impl Iterator for StagedRows {
@@ -29,21 +51,22 @@ impl Iterator for StagedRows {
     fn next(&mut self) -> Option<Part> {
         let mut text = String::new();
         for path in self.parts.by_ref() {
-            let part: Value = match std::fs::read_to_string(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
-            {
+            let part = match read_part(&path) {
                 Ok(part) => part,
                 Err(problem) => return Some(Err(problem)),
             };
             let table = part["table"].as_str().unwrap_or_default().to_owned();
             match part["kind"].as_str() {
                 Some("rows") => {
-                    let rows: Vec<Row> = part["rows"]
-                        .as_array()
-                        .map(|rows| rows.iter().filter_map(|r| r.as_object().cloned()).collect())
-                        .unwrap_or_default();
-                    return Some(Ok((table, rows)));
+                    let Some(list) = part["rows"].as_array() else {
+                        return Some(Err("a part's rows are not a list".to_owned()));
+                    };
+                    let rows: Option<Vec<Row>> =
+                        list.iter().map(|r| r.as_object().cloned()).collect();
+                    return Some(
+                        rows.map(|rows| (table, rows))
+                            .ok_or_else(|| "a part holds a row that is not an object".to_owned()),
+                    );
                 }
                 Some("piece") => {
                     text.push_str(part["text"].as_str().unwrap_or_default());
@@ -57,43 +80,110 @@ impl Iterator for StagedRows {
                 _ => {}
             }
         }
-        None
+        (!text.is_empty()).then(|| Err("a row's last piece is missing".to_owned()))
     }
 }
 
-/// Where the staged files go together: `files/<agent>/…` and `images/<sha256>`.
-fn assemble(staging: &Path, parts: &[PathBuf], agents: &[String]) -> Result<u64, String> {
-    let mut current: Option<(PathBuf, Sha256, u64)> = None;
-    let mut files = 0;
+/// A file or image the inventory names: its kind and where it goes.
+type Key = (String, String, String);
+
+fn key_of(entry: &Value) -> Option<Key> {
+    match entry["kind"].as_str()? {
+        "file" => Some((
+            "file".into(),
+            entry["agent"].as_str()?.into(),
+            entry["path"].as_str()?.into(),
+        )),
+        "image" => Some((
+            "image".into(),
+            String::new(),
+            entry["name"].as_str()?.into(),
+        )),
+        _ => None,
+    }
+}
+
+/// The inventory from its parts, checked against the manifest: its hash and count, every
+/// entry well formed, no name twice. By key, each entry's size and hash.
+fn inventory(
+    parts: &[PathBuf],
+    manifest: &Value,
+    agents: &[String],
+) -> Result<BTreeMap<Key, (u64, String)>, String> {
+    let mut entries = Vec::new();
     for path in parts {
-        let part: Value =
-            serde_json::from_str(&std::fs::read_to_string(path).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
-        let target = match part["kind"].as_str() {
-            Some("file") => {
-                let agent = part["agent"].as_str().unwrap_or_default();
-                if !agents.iter().any(|a| a == agent) {
-                    return Err("a file belongs to no bot of the move".to_owned());
-                }
-                let root = staging.join("files").join(agent);
-                under(&root, part["path"].as_str().unwrap_or_default())
-                    .ok_or("a file's path would leave the bot's folder")?
-            }
-            Some("image") => {
-                let name = part["sha256_name"].as_str().unwrap_or_default();
-                if !is_sha256(name) {
-                    return Err("an image is not named by its hash".to_owned());
-                }
-                staging.join("images").join(name)
-            }
-            _ => continue,
+        let part = read_part(path)?;
+        if part["kind"] == "inventory" {
+            entries.extend(part["entries"].as_array().cloned().unwrap_or_default());
+        }
+    }
+    let sha: String = Sha256::digest(Value::Array(entries.clone()).to_string())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if manifest["inventory"]["sha256"].as_str() != Some(sha.as_str())
+        || manifest["inventory"]["count"].as_u64() != Some(entries.len() as u64)
+    {
+        return Err("the inventory isn't the one the move began with".to_owned());
+    }
+    let mut named = BTreeMap::new();
+    for entry in &entries {
+        let key = key_of(entry).ok_or("the inventory names something Spade doesn't move")?;
+        let fine = match key.0.as_str() {
+            "file" => agents.contains(&key.1) && under(Path::new("/w"), &key.2).is_some(),
+            _ => is_sha256(&key.2),
         };
-        let offset = part["offset"].as_u64().unwrap_or(u64::MAX);
-        let (file, mut digest, written) = match current.take() {
-            Some((at, digest, written)) if at == target && offset == written => {
-                (at, digest, written)
+        let (Some(size), Some(hash)) = (entry["size"].as_u64(), entry["sha256"].as_str()) else {
+            return Err("the inventory has an entry without its size and hash".to_owned());
+        };
+        if !fine || !is_sha256(hash) {
+            return Err("the inventory names a file Spade can't place".to_owned());
+        }
+        if named.insert(key, (size, hash.to_owned())).is_some() {
+            return Err("the inventory names a file twice".to_owned());
+        }
+    }
+    Ok(named)
+}
+
+/// Puts the staged files together under `files/<agent>/…` and `images/<sha256>`, each flushed
+/// to disk, and checks them against the inventory: every one named, of its size and hash, none
+/// twice, none missing.
+fn assemble(
+    staging: &Path,
+    parts: &[PathBuf],
+    expected: &BTreeMap<Key, (u64, String)>,
+) -> Result<(), String> {
+    let files = paths::child(staging, "files")?;
+    let images = paths::child(staging, "images")?;
+    let mut done: BTreeSet<Key> = BTreeSet::new();
+    let mut current: Option<(Key, PathBuf, Sha256, u64)> = None;
+    for path in parts {
+        let part = read_part(path)?;
+        let key = match part["kind"].as_str() {
+            Some("file") => {
+                key_of(&json!({ "kind": "file", "agent": part["agent"], "path": part["path"] }))
             }
-            _ if offset == 0 => (target, Sha256::new(), 0),
+            Some("image") => key_of(&json!({ "kind": "image", "name": part["sha256_name"] })),
+            _ => continue,
+        }
+        .ok_or("a file part doesn't say what it is")?;
+        if !expected.contains_key(&key) {
+            return Err(format!("{} isn't in the inventory", key.2));
+        }
+        let target = if key.0 == "file" {
+            under(&paths::child(&files, &key.1)?, &key.2)
+        } else {
+            under(&images, &key.2)
+        }
+        .ok_or("a file's path would leave its folder")?;
+        let offset = part["offset"].as_u64().unwrap_or(u64::MAX);
+        let (key, file, mut digest, written) = match current.take() {
+            Some((at, file, digest, written)) if at == key && offset == written => {
+                (at, file, digest, written)
+            }
+            _ if offset == 0 && !done.contains(&key) => (key, target, Sha256::new(), 0),
+            _ if done.contains(&key) => return Err(format!("{} came twice", key.2)),
             _ => return Err("a file's pieces arrived out of order".to_owned()),
         };
         if let Some(parent) = file.parent() {
@@ -113,98 +203,71 @@ fn assemble(staging: &Path, parts: &[PathBuf], agents: &[String]) -> Result<u64,
         digest.update(&data);
         let written = written + data.len() as u64;
         if part["last"] == json!(true) {
+            out.sync_all().map_err(|e| e.to_string())?;
             let sha: String = digest
                 .finalize()
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect();
-            if part["size"].as_u64() != Some(written) || part["sha256"].as_str() != Some(&sha) {
-                return Err(format!("{} arrived changed", file.display()));
+            if expected.get(&key) != Some(&(written, sha)) {
+                return Err(format!("{} arrived changed", key.2));
             }
-            if part["kind"] == "file" {
-                files += 1;
-            }
+            done.insert(key);
         } else {
-            current = Some((file, digest, written));
+            current = Some((key, file, digest, written));
         }
     }
     if current.is_some() {
         return Err("a file's last piece is missing".to_owned());
     }
-    Ok(files)
-}
-
-/// A bot's security settings with every folder this machine doesn't have dropped, and those
-/// folders. Folders that exist here are kept, as the same project is usually at the same path.
-fn recheck_folders(text: &str) -> (String, Vec<String>) {
-    let Ok(mut settings) = serde_json::from_str::<Value>(text) else {
-        return (text.to_owned(), Vec::new());
-    };
-    let mut dropped = Vec::new();
-    if let Some(grants) = settings["grants"].as_array_mut() {
-        grants.retain(|grant| {
-            let folder = grant["kind"] == "folder";
-            let path = grant["path"].as_str().unwrap_or_default();
-            let here = Path::new(path).is_absolute() && Path::new(path).is_dir();
-            if folder && !here {
-                dropped.push(path.to_owned());
-            }
-            !folder || here
-        });
+    if let Some(missing) = expected.keys().find(|key| !done.contains(*key)) {
+        return Err(format!("{} never arrived", missing.2));
     }
-    if let Some(toolchains) = settings["toolchains"].as_array_mut() {
-        toolchains.retain(|t| {
-            let here = t.as_str().is_some_and(|p| Path::new(p).is_dir());
-            if !here {
-                dropped.push(t.as_str().unwrap_or_default().to_owned());
-            }
-            here
-        });
-    }
-    (settings.to_string(), dropped)
+    Ok(())
 }
 
 impl Engine {
-    /// Writes the staged move here and answers what needs the person, or why it didn't take
-    /// (the move is then given up here, and nothing of it kept).
+    /// Writes the staged move here. Answers what needs the person once the move took, else
+    /// why not: refused (nothing kept, the move given up) or not placed yet (ask again).
     pub(super) fn arrive(
         &self,
         entry: &StoredMove,
         host: &Value,
         connectors: Option<&spade_connect::Connectors>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, Failed> {
         let kept = detail(entry);
         let manifest = &kept["manifest"];
-        let agents = manifest_agents(manifest).ok_or("the move's bots are not named right")?;
-        let staging = self.moves_dir(&entry.id).join("in");
-        let total = manifest["parts"].as_u64().unwrap_or(0);
-        let parts: Vec<PathBuf> = (0..total)
-            .map(|i| staging.join("parts").join(format!("{i:06}.json")))
-            .collect();
         let refuse = |problem: String| {
             self.drop_staging(entry, &problem);
-            Err(problem)
+            Failed::Refused(problem)
         };
-        let _ = std::fs::remove_dir_all(staging.join("files"));
-        let _ = std::fs::remove_dir_all(staging.join("images"));
-        match assemble(&staging, &parts, &agents) {
-            Ok(files) if Some(files) == manifest["files"]["count"].as_u64() => {}
-            Ok(_) => return refuse("files went missing on the way".to_owned()),
-            Err(problem) => return refuse(problem),
+        let agents = manifest_agents(manifest)
+            .ok_or_else(|| refuse("the move's bots are not named right".to_owned()))?;
+        let staging = self
+            .moves_dir(&entry.id)
+            .and_then(|folder| paths::child(&folder, "in"))
+            .map_err(&refuse)?;
+        let total = manifest["parts"].as_u64().unwrap_or(0);
+        let parts_dir = paths::child(&staging, "parts").map_err(&refuse)?;
+        let parts: Vec<PathBuf> = (0..total)
+            .map(|i| parts_dir.join(format!("{i:06}.json")))
+            .collect();
+        for name in ["files", "images"] {
+            paths::remove_child(&staging, name).map_err(&refuse)?;
         }
+        let expected_files = inventory(&parts, manifest, &agents).map_err(&refuse)?;
+        assemble(&staging, &parts, &expected_files).map_err(&refuse)?;
         let expected: BTreeMap<String, TableSum> = manifest["tables"]
             .as_object()
             .map(|tables| {
                 tables
                     .iter()
                     .map(|(name, sum)| {
-                        (
-                            name.clone(),
-                            TableSum {
-                                rows: sum["rows"].as_u64().unwrap_or(0),
-                                hash: sum["hash"].as_str().unwrap_or_default().to_owned(),
-                            },
-                        )
+                        let sum = TableSum {
+                            rows: sum["rows"].as_u64().unwrap_or(0),
+                            hash: sum["hash"].as_str().unwrap_or_default().to_owned(),
+                        };
+                        (name.clone(), sum)
                     })
                     .collect()
             })
@@ -220,6 +283,16 @@ impl Engine {
                 .is_some_and(|record| held.is_none_or(|held| record.newer_than(&held)))
         };
         let security_key = |agent: &str| crate::security::settings::key(agent);
+        let marker = Event::Known(Known::Arrived {
+            from: entry.peer_name.clone(),
+        });
+        let outside = self.outside_needs(manifest, &agents);
+        let placing = |written: &Selection, arrived: &Arrived| {
+            let mut placing = kept.clone();
+            placing["conversations"] = json!(written.conversations);
+            placing["arrival"] = arrival_json(entry, &self.now_ms(), arrived, &outside, manifest);
+            placing.to_string()
+        };
         let arriving = Arriving {
             move_id: &entry.id,
             placing: PLACING,
@@ -227,13 +300,15 @@ impl Engine {
             from: &entry.peer,
             secret: &secret,
             security_key: &security_key,
-            recheck: &recheck_folders,
+            reset: &consent::reset,
+            marker: &marker,
             host: record.as_ref().map(|record| HostChange {
                 key: MAIN_HOST,
                 value: record.to_json().to_string(),
                 newer: &newer,
                 clear: &[MAIN_ENABLED, MAIN_OFF],
             }),
+            detail: &placing,
         };
         let mut rows = StagedRows {
             parts: parts.clone().into_iter(),
@@ -248,37 +323,33 @@ impl Engine {
                 arriving,
             })
         };
-        let (written, needs) = match written {
+        let (written, _) = match written {
             Ok(Ok(done)) => done,
-            Ok(Err(problem)) => return refuse(problem),
-            Err(error) => return refuse(error.to_string()),
+            Ok(Err(problem)) => return Err(refuse(problem)),
+            Err(error) => return Err(refuse(error.to_string())),
         };
-        // Nothing of it runs until its files are in place.
-        self.freeze(&written.conversations);
-        let arrival = self.arrival(entry, manifest, &agents, &needs, connectors);
-        let mut kept = kept.clone();
-        kept["arrival"] = arrival.clone();
-        kept["conversations"] = json!(written.conversations);
-        let _ = self
-            .store
-            .set_move(&entry.id, PLACING, &kept.to_string(), self.now_ms());
-        if let Ok(Some(placing)) = self.store.stored_move(&entry.id) {
-            self.finish_placing(&placing);
+        // Nothing of it runs until its files are in place; its apps start at none.
+        self.freeze(&entry.id, &written.conversations);
+        if let Some(hub) = connectors {
+            for agent in &agents {
+                let none = spade_connect::Access::Only(BTreeSet::new());
+                if let Err(error) = hub.set_access(agent, none) {
+                    tracing::warn!(%error, "a moved bot's apps could not be set to none");
+                }
+            }
         }
-        Ok(arrival)
+        let placing = self
+            .store
+            .stored_move(&entry.id)
+            .ok()
+            .flatten()
+            .ok_or_else(|| Failed::Placing("the move's state can't be read".to_owned()))?;
+        self.finish_placing(&placing)
     }
 
-    /// What needs the person, stored for the bot's profile: routines to resume, webhooks with
-    /// new addresses, folders to grant again, endpoints to add, apps to connect, plugins to
-    /// install, and what stayed behind.
-    fn arrival(
-        &self,
-        entry: &StoredMove,
-        manifest: &Value,
-        agents: &[String],
-        needs: &Arrived,
-        connectors: Option<&spade_connect::Connectors>,
-    ) -> Value {
+    /// What the person must add or allow again here that lies outside the rows: endpoints this
+    /// machine lacks, and the apps and plugins the bot used, which start at none.
+    fn outside_needs(&self, manifest: &Value, agents: &[String]) -> Value {
         let here: BTreeSet<String> = self
             .store
             .endpoints()
@@ -289,151 +360,126 @@ impl Engine {
             .map(|all| {
                 all.iter()
                     .filter(|e| !e["id"].as_str().is_some_and(|id| here.contains(id)))
-                    .map(|e| e["name"].clone())
+                    .filter_map(|e| {
+                        e["name"]
+                            .as_str()
+                            .map(|n| json!(n.chars().take(80).collect::<String>()))
+                    })
                     .collect()
             })
             .unwrap_or_default();
         let mut plugins = BTreeSet::new();
         let mut apps = BTreeSet::new();
         for agent in agents {
-            let wanted: BTreeSet<String> = manifest["extras"]["plugins"][agent]
+            for name in manifest["extras"]["plugins"][agent]
                 .as_array()
-                .map(|n| {
-                    n.iter()
-                        .filter_map(|v| v.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if let Some(hub) = self.plugins() {
-                let mut kept = wanted.clone();
-                while let Err(crate::plugins::AllowError::Unknown(name)) =
-                    hub.set_allowed(agent, kept.clone())
-                {
-                    kept.remove(&name);
-                    plugins.insert(name);
-                }
-            } else {
-                plugins.extend(wanted);
-            }
-            let choice = &manifest["extras"]["connectors"][agent];
-            if choice == "all" {
-                if let Some(hub) = connectors {
-                    let _ = hub.set_access(agent, spade_connect::Access::All);
-                }
-            } else if let Some(chosen) = choice.as_array() {
-                let names: BTreeSet<String> = chosen
-                    .iter()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect();
-                match connectors {
-                    Some(hub) => {
-                        let known: BTreeSet<String> =
-                            hub.list().into_iter().map(|c| c.id).collect();
-                        let (have, lack): (BTreeSet<_>, BTreeSet<_>) =
-                            names.into_iter().partition(|id| known.contains(id));
-                        apps.extend(lack);
-                        let _ = hub.set_access(agent, spade_connect::Access::Only(have));
-                    }
-                    None => apps.extend(names),
+                .into_iter()
+                .flatten()
+            {
+                if let Some(name) = name.as_str() {
+                    plugins.insert(name.chars().take(80).collect::<String>());
                 }
             }
+            match &manifest["extras"]["connectors"][agent] {
+                Value::String(all) if all == "all" => {
+                    apps.insert("every app you connected".to_owned());
+                }
+                Value::Array(ids) => apps
+                    .extend(ids.iter().filter_map(|v| {
+                        v.as_str().map(|s| s.chars().take(80).collect::<String>())
+                    })),
+                _ => {}
+            }
         }
-        let arrival = json!({
-            "from": { "host": entry.peer, "name": entry.peer_name },
-            "at": self.now_ms(),
-            "routines_paused": needs.routines_paused,
-            "webhooks": needs.webhooks,
-            "folders": needs.folders,
-            "endpoints": endpoints,
-            "apps": apps,
-            "plugins": plugins,
-            "left": manifest["left"],
-        });
-        if let Err(error) = self.store.set_setting(
-            &format!("{ARRIVED}:{}", entry.agent_id),
-            Some(&arrival.to_string()),
-        ) {
-            tracing::error!(%error, "what a moved bot needs could not be stored");
-        }
-        arrival
+        json!({ "endpoints": endpoints, "apps": apps, "plugins": plugins })
     }
 
-    /// Puts the staged files in place (each step can run again), then the move has taken.
-    pub(super) fn finish_placing(&self, entry: &StoredMove) {
+    /// Puts the staged files in place (each step can run again), flushes them to disk, and only
+    /// then records that the move took. Answers what needs the person.
+    pub(super) fn finish_placing(&self, entry: &StoredMove) -> Result<Value, Failed> {
         let kept = detail(entry);
-        let staging = self.moves_dir(&entry.id).join("in");
+        let placing = |problem: String| Failed::Placing(problem);
         let data = self.data_dir();
+        let staging = self
+            .moves_dir(&entry.id)
+            .and_then(|folder| paths::child(&folder, "in"))
+            .map_err(placing)?;
         let agents = manifest_agents(&kept["manifest"]).unwrap_or_default();
-        let mut placed = true;
+        let workspaces = data.join("workspace");
+        std::fs::create_dir_all(&workspaces).map_err(|e| placing(e.to_string()))?;
+        let files = paths::child(&staging, "files").map_err(placing)?;
         for agent in &agents {
-            let from = staging.join("files").join(agent);
-            let to = data.join("workspace").join(agent);
-            if from.exists() {
-                if to.exists() {
-                    let aside = data
-                        .join("moved")
-                        .join(&entry.id)
-                        .join("replaced")
-                        .join(agent);
-                    let _ = std::fs::create_dir_all(aside.parent().unwrap_or(&data));
-                    placed &= std::fs::rename(&to, &aside).is_ok();
-                }
-                let _ = std::fs::create_dir_all(data.join("workspace"));
-                placed &= std::fs::rename(&from, &to).is_ok();
+            let from = paths::child(&files, agent).map_err(placing)?;
+            if !from.exists() {
+                continue;
             }
+            let to = paths::child(&workspaces, agent).map_err(placing)?;
+            if to.exists() {
+                let aside = paths::child(&data.join("moved"), &entry.id)
+                    .and_then(|archive| paths::child(&archive, "replaced"))
+                    .map_err(placing)?;
+                std::fs::create_dir_all(&aside).map_err(|e| placing(e.to_string()))?;
+                let into = paths::child(&aside, agent).map_err(placing)?;
+                std::fs::rename(&to, into).map_err(|e| placing(e.to_string()))?;
+            }
+            std::fs::rename(&from, &to).map_err(|e| placing(e.to_string()))?;
         }
-        if let Ok(images) = std::fs::read_dir(staging.join("images")) {
-            for image in images.filter_map(|e| e.ok()) {
-                let to = self.images.dir().join(image.file_name());
+        paths::sync_dir(&workspaces).map_err(placing)?;
+        let images = paths::child(&staging, "images").map_err(placing)?;
+        if let Ok(staged) = std::fs::read_dir(&images) {
+            for image in staged.filter_map(|e| e.ok()) {
+                let name = image.file_name().to_string_lossy().into_owned();
+                if !is_sha256(&name) {
+                    continue;
+                }
+                let to = self.images.dir().join(&name);
                 if !to.exists() {
-                    placed &= std::fs::rename(image.path(), to).is_ok();
+                    std::fs::rename(image.path(), to).map_err(|e| placing(e.to_string()))?;
                 }
             }
         }
-        if !placed {
-            tracing::error!(id = %entry.id, "a moved bot's files could not all be placed");
-            return;
-        }
+        paths::sync_dir(self.images.dir()).map_err(placing)?;
         let conversations = super::strings(&kept["conversations"]);
         for conversation in &conversations {
             self.forget_activity(conversation);
         }
         self.forget_tree();
-        let _ = std::fs::remove_dir_all(self.moves_dir(&entry.id));
-        if let Err(error) =
-            self.store
-                .set_move(&entry.id, COMMITTED, &kept.to_string(), self.now_ms())
-        {
-            tracing::error!(%error, "a moved bot's arrival could not be stored");
+        let arrival = kept["arrival"].clone();
+        self.store
+            .set_setting(
+                &format!("{ARRIVED}:{}", entry.agent_id),
+                Some(&arrival.to_string()),
+            )
+            .and_then(|()| {
+                self.store
+                    .set_move(&entry.id, COMMITTED, &kept.to_string(), self.now_ms())
+            })
+            .map_err(|e| placing(e.to_string()))?;
+        if let Err(error) = paths::remove_child(&data.join("moves"), &entry.id) {
+            tracing::warn!(%error, "a moved bot's staging could not be removed");
         }
-        self.thaw(&conversations);
+        self.thaw(&entry.id, &conversations);
+        Ok(arrival)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::recheck_folders;
-
-    #[test]
-    fn a_folder_grant_this_machine_lacks_is_dropped_and_named() {
-        let here = std::env::temp_dir();
-        let here = here.to_string_lossy();
-        let text = serde_json::json!({
-            "grants": [
-                { "id": "g1", "kind": "folder", "path": here, "write": false, "by": "person", "created_at": 1 },
-                { "id": "g2", "kind": "folder", "path": "/no/such/folder/anywhere", "by": "person", "created_at": 1 },
-                { "id": "g3", "kind": "git_push", "repo": "o/r", "branch": "main", "by": "person", "created_at": 1 },
-            ],
-            "toolchains": ["/no/such/toolchain"],
-        })
-        .to_string();
-        let (checked, dropped) = recheck_folders(&text);
-        assert_eq!(dropped, ["/no/such/folder/anywhere", "/no/such/toolchain"]);
-        let checked: serde_json::Value = serde_json::from_str(&checked).unwrap_or_default();
-        let ids: Vec<_> = checked["grants"]
-            .as_array()
-            .map(|g| g.iter().filter_map(|g| g["id"].as_str()).collect())
-            .unwrap_or_default();
-        assert_eq!(ids, ["g1", "g3"]);
-    }
+/// What needs the person since the bot arrived, as its profile shows it.
+fn arrival_json(
+    entry: &StoredMove,
+    now: &i64,
+    arrived: &Arrived,
+    outside: &Value,
+    manifest: &Value,
+) -> Value {
+    json!({
+        "from": { "host": entry.peer, "name": entry.peer_name },
+        "at": now,
+        "routines_paused": arrived.routines_paused,
+        "webhooks": arrived.webhooks,
+        "consent": arrived.consent,
+        "endpoints": outside["endpoints"],
+        "apps": outside["apps"],
+        "plugins": outside["plugins"],
+        "left": manifest["left"].as_array().map(|left| left.iter().take(50).cloned().collect::<Vec<_>>()),
+    })
 }
