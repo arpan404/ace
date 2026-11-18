@@ -1,6 +1,7 @@
 import {
   spadeForLaterWords,
   spadeLiveSurfaces,
+  spadeModelState,
   spadeStateLine,
   spadeTaskLine,
 } from "@ace/ui-core/spade-chat";
@@ -21,7 +22,7 @@ import {
 } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
-import { SpadeKeySetup } from "./spade-key-setup.tsx";
+import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
 import { ConversationPill } from "./spade-pill.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import type { FilesAt } from "./computer/profile-computer.tsx";
@@ -88,6 +89,13 @@ export function Conversation(props: {
   const client = useSpadeClient();
   const digests = useSpadeDigests(bot.id);
   const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
+  // Until the bot has a model it can use, sending waits; setting one up is one step away: Spade's
+  // own card above its conversation, another bot's endpoints in Settings.
+  const needsModel = endpoints !== undefined && spadeModelState(bot.model, endpoints) === "none";
+  const setUpModel = () => {
+    if (bot.kind === "main" && showModelSetup()) return;
+    void navigate({ to: "/settings/spade/models" });
+  };
   const [stopping, setStopping] = useState(false);
   // A decision the person is changing: quoted on their next message (Work's Change).
   const [quote, setQuote] = useState<string>();
@@ -265,10 +273,9 @@ export function Conversation(props: {
                 });
             }}
             onOpenWork={() => go({ profile: "work" })}
-            onRetry={(text) =>
-              conversation
-                .send({ text, images: [] })
-                .then(() => true, failed(`Couldn't send to ${bot.name}`))
+            onSetUpModel={setUpModel}
+            onRetry={(reply) =>
+              conversation.tryAgain(reply).then(() => true, failed(`Couldn't try again`))
             }
             proposals={skills.proposals}
             onProposal={(id, save) =>
@@ -290,6 +297,7 @@ export function Conversation(props: {
         onStop={computer.paused ? undefined : stop}
         stopping={stopping}
         blocked={line.ready ? undefined : line.sentence}
+        needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
         placeholder={`Message ${bot.name}`}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }

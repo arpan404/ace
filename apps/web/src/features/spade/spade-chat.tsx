@@ -89,8 +89,10 @@ export function SpadeChat(props: {
   onProposal?(id: string, save: boolean): Promise<boolean>;
   /** An endpoint's name by its id, for a failed reply's sentence; undefined when unknown. */
   endpointName?(id: string): string | undefined;
-  /** Try again on a failed reply: sends the person's last message again. */
-  onRetry?(text: string): Promise<boolean>;
+  /** Try again on a failed reply, by its id: Spade answers that turn again in its place. */
+  onRetry?(reply: string): Promise<boolean>;
+  /** Set up a model, offered where a reply failed for want of one. */
+  onSetUpModel?(): void;
   /** Its digests (ADR 0165), oldest first: messages of its own where each was made. */
   digests?: readonly SpadeDigest[] | undefined;
   /** The resting line's actions on its wake; resolves false when it didn't go through. */
@@ -154,6 +156,7 @@ export function SpadeChat(props: {
     onQuestion: props.onQuestion,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
+    onSetUpModel: props.onSetUpModel,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
@@ -228,7 +231,8 @@ interface Handlers {
   /** Reply to a card of questions; resolves with what to say under it when refused. */
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onOpenFile(path: string): void;
-  onRetry: ((text: string) => Promise<boolean>) | undefined;
+  onRetry: ((reply: string) => Promise<boolean>) | undefined;
+  onSetUpModel: (() => void) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
@@ -364,6 +368,7 @@ function RunItem(props: {
                     }
                     spaced={Boolean(item.text)}
                     onRetry={handlers.onRetry}
+                    onSetUpModel={handlers.onSetUpModel}
                   />
                 ) : (
                   item.end && (

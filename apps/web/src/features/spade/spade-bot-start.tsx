@@ -9,6 +9,7 @@ import {
 import {
   spadeAgentNameMax,
   spadeAgentTaskMax,
+  spadeFirstUsableModel,
   type SpadeAgent,
   type SpadeTemplate,
 } from "@ace/ui-core/spade-chat";
@@ -350,6 +351,7 @@ function NewBotConversation(props: {
               name={shown}
               model={model}
               newBotModel={models.data?.newBotModel}
+              firstUsable={spadeFirstUsableModel(models.data?.endpoints ?? [])}
               onModel={setModel}
               onMachine={(next) => {
                 // Another machine has its own models and templates.

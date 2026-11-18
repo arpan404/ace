@@ -79,6 +79,14 @@ export function useSpadeConversation(conversation: string) {
         throw error;
       }
     },
+    /**
+     * Try again on the last reply, which failed: Spade answers the same turn again in its place,
+     * so nothing is posted twice and the failure gives way to the new reply.
+     */
+    async tryAgain(reply: string): Promise<void> {
+      await spadeHttp(client, "POST", `${path}/retry`, { body: { reply } });
+      listChanged();
+    },
     async stop(): Promise<void> {
       try {
         await spadeHttp(client, "POST", `${path}/stop`);

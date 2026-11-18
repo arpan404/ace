@@ -920,6 +920,20 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (agent) this.status(agent, "working", null);
       return reply({});
     }
+    if (sub === "retry" && request.method === "POST") {
+      // Try again: only the last reply, while it failed; the new reply opens in its place.
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const last = list.findLast((stored) => stored.event.type === "reply_started");
+      const failed = list.some(
+        (stored) => stored.event.type === "reply_failed" && stored.event.reply === body.reply,
+      );
+      if (!failed || last?.event.reply !== body.reply)
+        return problem(409, "only the last reply can be tried again, and only when it failed");
+      this.store(id, { type: "reply_retried", reply: body.reply });
+      this.store(id, { type: "reply_started", reply: `${String(body.reply)}~again` });
+      if (agent) this.status(agent, "working", "Thinking");
+      return reply({}, 202);
+    }
     if (sub === "stop" && request.method === "POST") {
       const open = list.findLast((stored) => stored.event.type === "reply_started");
       if (open) this.store(id, { type: "reply_stopped", reply: open.event.reply, text: "" });

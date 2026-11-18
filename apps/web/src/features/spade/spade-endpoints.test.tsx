@@ -166,3 +166,88 @@ test("Spade never asks for a key the keychain may still hold", async () => {
   await screen.findByRole("feed");
   expect(screen.queryByRole("region", { name: setupName })).toBeNull();
 });
+
+test("sending is held until a model is chosen, with one line and a way to set one up", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    api.presets.push(opencode);
+    main(api, "");
+  });
+  const held = await screen.findByText("Spade needs a model before it can answer.");
+  const field = await screen.findByRole("combobox", { name: "Message Spade" });
+  await userEvent.type(field, "hello{Enter}");
+  expect(spade.sent("POST", "/v1/conversations/c-main/messages")).toEqual([]);
+  // Set up a model takes the person to the first-run card, its first control ready.
+  await userEvent.click(
+    within(held.parentElement ?? document.body).getByRole("button", {
+      name: "Set up a model",
+    }),
+  );
+  const setup = within(screen.getByRole("region", { name: setupName }));
+  expect(setup.getByRole("combobox", { name: "Endpoint" })).toBe(document.activeElement);
+});
+
+test("first run names each service plainly once, and adds a local server by its address", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    api.presets.push(opencode, {
+      ...opencode,
+      id: "go-anthropic",
+      name: "OpenCode Go (Anthropic format)",
+    });
+    api.presets.push({ ...anthropic, id: "google", name: "Google Gemini (OpenAI format)" });
+    api.liveModels.set("local-server", [{ id: "llama3" }]);
+    main(api, "");
+  });
+  const setup = within(await screen.findByRole("region", { name: setupName }));
+  await userEvent.click(setup.getByRole("combobox", { name: "Endpoint" }));
+  const offered = (await screen.findAllByRole("option")).map((option) => option.textContent);
+  expect(offered).toEqual(["OpenCode Go", "Google Gemini", "Custom or local server"]);
+  await userEvent.click(screen.getByRole("option", { name: "Custom or local server" }));
+  await userEvent.type(setup.getByLabelText("Address"), "http://localhost:11434/v1");
+  await userEvent.click(setup.getByRole("button", { name: "Add server" }));
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/agents/main")).toEqual([{ model: "local-server/llama3" }]),
+  );
+  expect(spade.sent("POST", "/v1/endpoints")).toEqual([
+    {
+      name: "Local server",
+      format: "openai-chat",
+      base_url: "http://localhost:11434/v1/",
+      needs_key: false,
+    },
+  ]);
+  expect(spade.sent("PUT", "/v1/keys/local-server")).toEqual([]);
+});
+
+test("Add a model offers what the endpoint lists, with facts only where they are known", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api, "openrouter/saved/model");
+  });
+  const openrouter = within(await screen.findByRole("region", { name: "OpenRouter" }));
+  await userEvent.click(openrouter.getByRole("button", { name: "Add a model" }));
+  const models = within(await screen.findByRole("listbox", { name: "Models" }));
+  await models.findByRole("option", { name: /^Sonnet/ });
+  // Saved ones aren't offered again; Llama's list gave no tools, so none are claimed.
+  expect(models.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "Llama128K context",
+    "Sonnet200K context · images, tools",
+  ]);
+  await userEvent.click(models.getByRole("option", { name: /^Llama/ }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([{ id: "meta/llama" }]),
+  );
+});
+
+test("Settings › Models reads in setup order: endpoints, Add an endpoint, then other work", async () => {
+  await spadeApp("/settings/spade/models", (api) => {
+    withEndpoint(api);
+    main(api, "openrouter/saved/model");
+  });
+  const endpoint = await screen.findByRole("region", { name: "OpenRouter" });
+  const add = screen.getByRole("button", { name: "Add an endpoint" });
+  const roles = await screen.findByRole("region", { name: "Models for other work" });
+  const follows = (a: Element, b: Element) =>
+    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(follows(endpoint, add)).toBe(true);
+  expect(follows(add, roles)).toBe(true);
+});

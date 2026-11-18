@@ -5,10 +5,18 @@ import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
- * is rate limiting, the model failed, or anything else. Spade has no spending caps (ADR 0166): a
- * `cap` an older Spade stored reads as `other`.
+ * is rate limiting, the model failed, the bot has no model it can use (none chosen yet, or its
+ * model is gone from the person's endpoints), or anything else. Spade has no spending caps (ADR
+ * 0166): a `cap` an older Spade stored reads as `other`.
  */
-export const spadeFailureKinds = ["unreachable", "key", "rate_limited", "model", "other"] as const;
+export const spadeFailureKinds = [
+  "unreachable",
+  "key",
+  "rate_limited",
+  "model",
+  "no_model",
+  "other",
+] as const;
 export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
 
 /*
@@ -84,6 +92,8 @@ const known = z.discriminatedUnion("type", [
     endpoint: z.string().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("reply_interrupted"), reply, text: text.default("") }),
+  /** Try again on `reply`, which failed: the reply stored next takes its place. */
+  z.object({ type: z.literal("reply_retried"), reply }),
   z.object({
     type: z.literal("approval_requested"),
     reply,

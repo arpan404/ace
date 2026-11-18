@@ -247,9 +247,9 @@ export function spadeJobEndLine(name: string, outcome: "done" | "failed" | "stop
 }
 
 /**
- * A failed reply in one plain sentence, by its kind (`reply_failed`), naming the endpoint by the
- * name the person gave it; "the endpoint" when it isn't known. The endpoint's own words stay
- * with Details and the activity log.
+ * A failed reply in plain words, by its kind (`reply_failed`): what failed, naming the endpoint
+ * by the name the person gave it ("the endpoint" when it isn't known), then what to do about it.
+ * The endpoint's own words stay with Details and the activity log.
  */
 export function spadeFailureSentence(kind: SpadeFailureKind, endpoint: string | undefined): string {
   // A name stays as the person wrote it; only the stand-in starts a sentence capitalised.
@@ -257,16 +257,18 @@ export function spadeFailureSentence(kind: SpadeFailureKind, endpoint: string | 
   const subject = endpoint ?? "The endpoint";
   switch (kind) {
     case "unreachable":
-      return `Couldn't reach ${name}.`;
+      return `Couldn't reach ${name}. Check it's running and online, then try again.`;
     case "key":
-      return `${subject} refused the key.`;
+      return `${subject} refused the key. Replace it in Settings › Models, then try again.`;
     case "rate_limited":
-      return `${subject} is limiting requests right now.`;
+      return `${subject} is limiting requests right now. Wait a moment, then try again.`;
     case "model":
       return endpoint
-        ? `The model on ${endpoint} failed to answer.`
-        : "The model failed to answer.";
+        ? `The model on ${endpoint} failed to answer. Try again, or see Details.`
+        : "The model failed to answer. Try again, or see Details.";
+    case "no_model":
+      return "There's no model set up to answer. Set one up, then try again.";
     case "other":
-      return "Couldn't finish this reply.";
+      return "Couldn't finish this reply. Try again, or see Details.";
   }
 }
