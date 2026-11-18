@@ -8,9 +8,12 @@
 
 pub mod address;
 pub mod sensitive;
+pub mod table;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+
+use table::Finds;
 
 /// Where a step acts, as resolved right before it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,22 +128,11 @@ pub const DEVICE_INPUT: &str =
 pub const UNPLACED: &str =
     "It acts in a page or app as you and Spade can't tell which, so you decide.";
 
-/// ace's tools that send input to a page or an app, which ace holds to the place the gate
-/// checked (`expect`) while the step waits in its queue. The others open, list or set up a tab,
-/// or act on a device, and send no input to a page.
-const INPUT_TOOLS: &[&str] = &[
-    "browser_act",
-    "browser_evaluate",
-    "browser_history",
-    "browser_measure",
-    "screen_act",
-    "screen_state",
-];
-
-/// Whether the step `tool` at `place` must be held to it inside ace before only the reviewer
-/// may let it run: it sends input there, and ace can be told where (`Place::expect`).
-pub fn needs_binding(tool: &str, place: &Place) -> bool {
-    INPUT_TOOLS.contains(&tool) && place.expect().is_some()
+/// Whether the step at `place` must be held to it inside ace before only the reviewer may let
+/// it run: its operation sends input there or picks a tab to change ([`table`]), and ace can be
+/// told where (`Place::expect`).
+pub fn needs_binding(tool: &str, arguments: &Value, place: &Place) -> bool {
+    table::operation(tool, arguments).is_some_and(|row| row.holds) && place.expect().is_some()
 }
 
 pub const UNBOUND: &str = "this version of ace can't hold the step to it while it waits, so you \
@@ -161,7 +153,10 @@ pub fn bind(
     takes_expect: bool,
     reviewer_only: bool,
 ) -> Result<Value, &'static str> {
-    let must = reviewer_only && needs_binding(tool, place);
+    // Arguments that aren't an object name no operation: held whenever there is a place to hold.
+    let must = reviewer_only
+        && (needs_binding(tool, &arguments, place)
+            || (!arguments.is_object() && place.expect().is_some()));
     let (Some(expect), true) = (place.expect(), takes_expect) else {
         return if must { Err(CANT_HOLD) } else { Ok(arguments) };
     };
@@ -195,9 +190,19 @@ pub enum Lookup {
     },
 }
 
-/// What to ask ace, right before the step, to know where it acts.
+/// What to ask ace, right before the step, to know where it acts: from the step's row in the
+/// table, reading only the fields that operation uses.
 pub fn lookup(tool: &str, arguments: &Value) -> Lookup {
-    let text = |key: &str| arguments.get(key).and_then(Value::as_str);
+    let Some(row) = table::operation(tool, arguments) else {
+        return Lookup::Named(Step::nowhere(UNPLACED));
+    };
+    let text = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
     // Where the call runs: another machine, or the person's own Chrome.
     let routed = |mut asked: Map<String, Value>| {
         for key in ["machine", "browser"] {
@@ -207,24 +212,22 @@ pub fn lookup(tool: &str, arguments: &Value) -> Lookup {
         }
         Value::Object(asked)
     };
-    if tool.starts_with("sim_") {
-        return Lookup::Named(device(tool, arguments));
-    }
-    if tool.starts_with("browser_") {
-        // Opening an address: the page is the one it opens. Anything else acts in a tab as it
-        // is now.
-        if let Some(url) = text("url") {
-            return Lookup::Named(site(url));
-        }
+    let tabs = || {
         let mut asked = Map::new();
         asked.insert("action".to_owned(), json!("list"));
-        return Lookup::Ask {
+        Lookup::Ask {
             tool: "browser_tabs",
             arguments: routed(asked),
-        };
-    }
-    if tool.starts_with("screen_") {
-        return match text("app").map(str::trim).filter(|app| !app.is_empty()) {
+        }
+    };
+    match row.finds {
+        Finds::Tab | Finds::CurrentTab | Finds::NamedTab | Finds::DialogTab => tabs(),
+        Finds::Opens => Lookup::Named(text("url").map_or(Step::nowhere(table::NO_URL), site)),
+        Finds::OpensElseTab | Finds::SelectsTab => match text("url") {
+            Some(url) => Lookup::Named(site(url)),
+            None => tabs(),
+        },
+        Finds::App => match text("app") {
             Some(app) => {
                 let mut asked = Map::new();
                 asked.insert("query".to_owned(), json!(app));
@@ -234,9 +237,20 @@ pub fn lookup(tool: &str, arguments: &Value) -> Lookup {
                 }
             }
             None => Lookup::Named(Step::nowhere(UNPLACED)),
-        };
+        },
+        Finds::AppById => Lookup::Named(match text("bundleId") {
+            Some(id) => Step::at(Place::App {
+                id: id.to_owned(),
+                name: String::new(),
+            }),
+            None => Step::nowhere(UNPLACED),
+        }),
+        Finds::Browser => Lookup::Named(Step::nowhere(table::CLOSES_BROWSER)),
+        Finds::Device | Finds::DeviceApp | Finds::DeviceUrl => {
+            Lookup::Named(device(row.finds, arguments))
+        }
+        Finds::Nowhere(why) => Lookup::Named(Step::nowhere(why)),
     }
-    Lookup::Named(Step::nowhere(UNPLACED))
 }
 
 /// Where the step acts, from ace's `answer` to [`lookup`]'s question (`None`: ace couldn't
@@ -246,41 +260,47 @@ pub fn read(tool: &str, arguments: &Value, answer: Option<&str>) -> Step {
         Lookup::Named(step) => return step,
         Lookup::Ask { tool: asked, .. } => asked,
     };
+    let Some(row) = table::operation(tool, arguments) else {
+        return Step::nowhere(UNPLACED);
+    };
     let given = arguments.get("app").and_then(Value::as_str).unwrap_or("");
     match (ask, answer) {
-        ("browser_tabs", Some(answer)) => tab(answer, arguments),
+        ("browser_tabs", Some(answer)) => tab(answer, arguments, row.finds),
         ("browser_tabs", None) => Step::nowhere(NO_TAB),
         ("screen_apps", answer) => app(given, answer),
         _ => Step::nowhere(UNPLACED),
     }
 }
 
-/// The page of the tab a step runs in, as ace lists them now: for a dialog's answer the tab
-/// that raised the dialog (ace sends the answer there, whichever tab the call names), else its
-/// `tabId`, else the caller's current tab. A tab that is loading, private or missing has no
-/// place yet.
-fn tab(answer: &str, arguments: &Value) -> Step {
+/// The page of the tab a step runs in, as ace lists them now, found as its row says: the tab
+/// that raised the dialog it answers, the tab it names, or the caller's current tab. A tab that
+/// is loading, private or missing has no place yet.
+fn tab(answer: &str, arguments: &Value, finds: Finds) -> Step {
     let Ok(listed) = serde_json::from_str::<Value>(answer) else {
         return Step::nowhere(NO_TAB);
     };
     let tabs = listed.get("tabs").and_then(Value::as_array);
-    let dialog = (arguments.get("action").and_then(Value::as_str) == Some("dialog"))
-        .then(|| arguments.get("dialogId").map(scalar).unwrap_or_default());
-    let wanted = arguments.get("tabId");
-    let found = tabs
-        .into_iter()
-        .flatten()
-        .find(|tab| match (&dialog, wanted) {
-            (Some(dialog), _) => {
-                tab.get("pending_dialog")
+    let named = arguments.get("tabId").map(scalar);
+    let dialog = arguments.get("dialogId").map(scalar);
+    let current = |tab: &Value| tab.get("current").and_then(Value::as_bool) == Some(true);
+    let id_of = |tab: &Value| tab.get("tabId").map(scalar);
+    let found = tabs.into_iter().flatten().find(|tab| match finds {
+        Finds::DialogTab => {
+            dialog.is_some()
+                && tab
+                    .get("pending_dialog")
                     .and_then(|pending| pending.get("dialogId"))
                     .map(scalar)
-                    .as_ref()
-                    == Some(dialog)
-            }
-            (None, Some(wanted)) => tab.get("tabId").map(scalar) == Some(scalar(wanted)),
-            (None, None) => tab.get("current").and_then(Value::as_bool) == Some(true),
-        });
+                    == dialog
+        }
+        Finds::NamedTab | Finds::SelectsTab => named.is_some() && id_of(tab) == named,
+        Finds::Tab => match &named {
+            Some(named) => id_of(tab).as_ref() == Some(named),
+            None => current(tab),
+        },
+        _ => current(tab),
+    });
+    let dialog = (finds == Finds::DialogTab).then_some(());
     let Some(found) = found else {
         return Step::nowhere(if dialog.is_some() { NO_DIALOG } else { NO_TAB });
     };
@@ -373,10 +393,10 @@ fn row(line: &str) -> Option<(String, String)> {
     (!id.is_empty()).then(|| (name.to_owned(), id.to_owned()))
 }
 
-/// A simulator or device step. ace reports no app in the foreground of a device, so input
-/// (a tap, typing, a key, the clipboard) has no place; opening an app or address is placed by
-/// what it opens, and the device's own operations by the device.
-fn device(tool: &str, arguments: &Value) -> Step {
+/// A simulator or device step, placed as its row says: the device itself, the app it opens, or
+/// the address it opens. ace reports no app in a device's foreground, so input there (a tap,
+/// typing, a key, the clipboard) is a row with no place.
+fn device(finds: Finds, arguments: &Value) -> Step {
     let text = |key: &str| {
         arguments
             .get(key)
@@ -384,29 +404,20 @@ fn device(tool: &str, arguments: &Value) -> Step {
             .map(str::trim)
             .filter(|value| !value.is_empty())
     };
-    let device = || Place::Device {
-        device: text("simId").unwrap_or("the device").to_owned(),
-    };
-    match (tool, text("action")) {
-        ("sim_start" | "sim_stop", _) => Step::at(device()),
-        ("sim_act", Some("open_app")) => match text("appId") {
+    let device = text("simId").unwrap_or("the device").to_owned();
+    match finds {
+        Finds::DeviceApp => match text("appId") {
             Some(app) => Step::at(Place::DeviceApp {
-                device: text("simId").unwrap_or("").to_owned(),
+                device,
                 app: app.to_owned(),
             }),
             None => Step::nowhere(DEVICE_INPUT),
         },
-        ("sim_act", Some("open_url")) => match text("url").and_then(address::parse) {
-            Some(page) => Step::at(Place::DeviceSite {
-                device: text("simId").unwrap_or("").to_owned(),
-                page,
-            }),
+        Finds::DeviceUrl => match text("url").and_then(address::parse) {
+            Some(page) => Step::at(Place::DeviceSite { device, page }),
             None => Step::nowhere(NOT_WEB),
         },
-        ("sim_act", Some("install" | "record_start" | "record_stop" | "posture")) => {
-            Step::at(device())
-        }
-        _ => Step::nowhere(DEVICE_INPUT),
+        _ => Step::at(Place::Device { device }),
     }
 }
 

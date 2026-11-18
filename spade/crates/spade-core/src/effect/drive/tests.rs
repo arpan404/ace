@@ -20,7 +20,11 @@ fn tabs(listed: &[(&str, &str, bool, bool)]) -> String {
     json!({ "tabs": tabs }).to_string()
 }
 
-fn in_tab(arguments: Value, answer: &str) -> Step {
+/// A `browser_act` step (a click, unless the arguments say otherwise) in the tabs `answer`.
+fn in_tab(mut arguments: Value, answer: &str) -> Step {
+    if arguments.get("action").is_none() {
+        arguments["action"] = json!("click");
+    }
     read("browser_act", &arguments, Some(answer))
 }
 
@@ -78,7 +82,7 @@ fn a_step_without_a_tab_acts_in_the_current_tab_ace_lists_not_the_last_one_repor
     let none_current = tabs(&[("t2", "https://docs.rs/serde", false, false)]);
     assert_eq!(in_tab(json!({}), &none_current).place, Err(NO_TAB));
     assert_eq!(
-        read("browser_act", &json!({}), None).place,
+        read("browser_act", &json!({"action": "click"}), None).place,
         Err(NO_TAB),
         "ace couldn't answer"
     );
@@ -115,7 +119,7 @@ fn back_navigation_and_redirects_are_read_from_the_tab_as_it_is_now() {
     assert_eq!(
         lookup(
             "browser_act",
-            &json!({"machine": "mini", "browser": "user"})
+            &json!({"action": "click", "machine": "mini", "browser": "user"})
         ),
         Lookup::Ask {
             tool: "browser_tabs",
@@ -446,32 +450,47 @@ fn a_page_a_device_opens_is_never_a_site_a_grant_names_either_way() {
 }
 
 #[test]
-fn only_input_into_a_tab_or_an_app_needs_ace_to_hold_it_there() {
+fn only_input_into_a_tab_or_an_app_or_a_change_to_a_tab_needs_ace_to_hold_it_there() {
     let Ok(tab) = in_tab(json!({}), &tabs(&[("t1", "https://docs.rs/", true, false)])).place else {
         panic!("placed");
     };
-    for tool in [
-        "browser_act",
-        "browser_evaluate",
-        "browser_history",
-        "browser_measure",
+    for (tool, arguments) in [
+        ("browser_act", json!({"action": "press", "key": "Enter"})),
+        ("browser_act", json!({"action": "dialog", "dialogId": "d1"})),
+        ("browser_evaluate", json!({"expression": "1"})),
+        ("browser_history", json!({"direction": "back"})),
+        ("browser_measure", json!({})),
+        ("browser_tabs", json!({"action": "close", "tabId": "t1"})),
+        ("browser_tabs", json!({"action": "keep", "tabId": "t1"})),
+        ("browser_tabs", json!({"action": "select", "tabId": "t1"})),
     ] {
-        assert!(needs_binding(tool, &tab), "{tool}");
+        assert!(needs_binding(tool, &arguments, &tab), "{tool} {arguments}");
     }
-    // Listing, opening or setting up tabs sends no input to the page.
-    for tool in ["browser_tabs", "browser_open", "browser_settings"] {
-        assert!(!needs_binding(tool, &tab), "{tool}");
+    // Listing tabs, reading the history or setting up the tab sends no input to the page.
+    for (tool, arguments) in [
+        ("browser_tabs", json!({"action": "list"})),
+        ("browser_tabs", json!({})),
+        ("browser_open", json!({})),
+        ("browser_history", json!({})),
+        ("browser_settings", json!({"action": "resize"})),
+    ] {
+        assert!(!needs_binding(tool, &arguments, &tab), "{tool} {arguments}");
     }
     let app = Place::App {
         id: "com.apple.TextEdit".into(),
         name: "TextEdit".into(),
     };
-    assert!(needs_binding("screen_act", &app) && needs_binding("screen_state", &app));
+    let none = json!({});
+    assert!(needs_binding("screen_act", &none, &app) && needs_binding("screen_state", &none, &app));
     // An address being opened has no tab to hold it to.
     let Ok(opening) = site("https://docs.rs/").place else {
         panic!("placed");
     };
-    assert!(!needs_binding("browser_act", &opening));
+    assert!(!needs_binding(
+        "browser_act",
+        &json!({"action": "click"}),
+        &opening
+    ));
 }
 
 #[test]
@@ -533,4 +552,108 @@ fn a_step_only_the_reviewer_let_run_runs_only_where_ace_holds_it() {
         bind("browser_tabs", list.clone(), &tab, false, true),
         Ok(list)
     );
+}
+
+#[test]
+fn closing_a_tab_is_placed_by_the_tab_it_closes_never_by_an_address_it_ignores() {
+    let answer = tabs(&[
+        ("t1", "https://docs.rs/serde", true, false),
+        ("t2", "https://mail.google.com/mail/u/0", false, false),
+    ]);
+    for action in ["close", "keep"] {
+        let arguments = json!({"action": action, "tabId": "t2", "url": "https://docs.rs/"});
+        let step = read("browser_tabs", &arguments, Some(&answer));
+        assert_eq!(tab_of(&step), Some("t2"), "{action}");
+        assert!(step.sensitive.is_some(), "{action} acts on the mail tab");
+        // Bound to that tab, as ace lists it.
+        let Ok(place) = step.place else {
+            panic!("placed");
+        };
+        assert_eq!(
+            place.expect(),
+            Some(json!({"tabId": "t2", "url": "https://mail.google.com/mail/u/0"}))
+        );
+        // Without the tab it names, there is no place.
+        let unnamed = json!({"action": action, "url": "https://docs.rs/"});
+        assert_eq!(
+            read("browser_tabs", &unnamed, Some(&answer)).place,
+            Err(NO_TAB)
+        );
+    }
+    // Listing ignores a tab it is given; selecting with an address goes there.
+    let listed = read(
+        "browser_tabs",
+        &json!({"action": "list", "tabId": "t2"}),
+        Some(&answer),
+    );
+    assert_eq!(tab_of(&listed), Some("t1"));
+    let select = json!({"action": "select", "tabId": "t1", "url": "https://paypal.com/"});
+    assert!(
+        read("browser_tabs", &select, Some(&answer))
+            .sensitive
+            .is_some()
+    );
+}
+
+#[test]
+fn closing_the_whole_browser_has_no_place_a_review_could_cover() {
+    let step = read(
+        "browser_settings",
+        &json!({"action": "close", "tabId": "t1"}),
+        None,
+    );
+    assert_eq!(step.place, Err(table::CLOSES_BROWSER));
+}
+
+#[test]
+fn an_operation_the_table_doesnt_know_has_no_place() {
+    let answer = tabs(&[("t1", "https://docs.rs/", true, false)]);
+    for (tool, arguments) in [
+        ("browser_act", json!({"action": "teleport", "tabId": "t1"})),
+        ("browser_act", json!({"tabId": "t1"})),
+        ("browser_act", json!({"action": 3})),
+        ("browser_settings", json!({})),
+        ("browser_new_thing", json!({"tabId": "t1"})),
+        ("screen_input", json!({"sessionId": "s1"})),
+        ("sim_act", json!({"simId": "s1", "action": "shake"})),
+    ] {
+        let step = read(tool, &arguments, Some(&answer));
+        assert!(step.place.is_err(), "{tool} {arguments}");
+    }
+}
+
+#[test]
+fn every_row_of_the_table_is_one_of_aces_driving_tools_and_appears_once() {
+    let mut seen = std::collections::HashSet::new();
+    for row in table::TABLE {
+        assert!(drives(row.tool), "{}", row.tool);
+        assert!(
+            seen.insert((row.tool, row.op)),
+            "{} {:?} twice",
+            row.tool,
+            row.op
+        );
+    }
+    // Every operation browser_act takes in ace (mcp-schemas.ts `actKinds`) has its row.
+    for action in [
+        "click",
+        "type",
+        "fill_form",
+        "press",
+        "hover",
+        "select",
+        "check",
+        "uncheck",
+        "drag",
+        "focus",
+        "upload",
+        "scroll",
+        "dialog",
+    ] {
+        let arguments = json!({ "action": action });
+        assert!(
+            table::operation("browser_act", &arguments).is_some(),
+            "{action}"
+        );
+    }
 }

@@ -264,7 +264,7 @@ pub(super) async fn handle_calls(
                                     .is_ok_and(|place| engine.drive_granted(id, place)),
                                 // An ace from before `expect` can't hold the step to its place.
                                 bound: step.place.as_ref().is_ok_and(|place| {
-                                    !effect::drive::needs_binding(&name, place)
+                                    !effect::drive::needs_binding(&name, &arguments, place)
                                         || engine.takes_expect(id, &name)
                                 }),
                             });

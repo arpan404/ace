@@ -683,6 +683,7 @@ fn a_step_spade_cant_place_asks_the_person_even_in_a_granted_app() {
         drive::NO_TAB,
         drive::LOADING,
         drive::DEVICE_INPUT,
+        drive::table::CLOSES_BROWSER,
     ] {
         assert_eq!(route_of(step(Err(why), None, false)), why);
         assert_eq!(route_of(step(Err(why), None, true)), why);
