@@ -13,6 +13,8 @@ struct SearchHome: View {
     @Binding var query: String
     /// Bumped by a second tap on the Search tab: the field takes focus.
     var focusAsks = 0
+    /// The app has a lock, so Search finds App lock.
+    var hasLock = false
     @State private var openPulls: Int?
     @FocusState private var fieldFocused: Bool
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -23,7 +25,7 @@ struct SearchHome: View {
                 if text.isEmpty {
                     SearchStart(inbox: inbox, openPulls: openPulls, actions: actions, query: $query)
                 } else {
-                    InboxSearchList(inbox: inbox, query: $query, includes: { _ in true }, openTitle: openTitle, actions: actions)
+                    InboxSearchList(inbox: inbox, query: $query, includes: { _ in true }, openTitle: openTitle, actions: actions, hasLock: hasLock)
                 }
             }
             .background(AceTheme.Colours.background)

@@ -25,7 +25,8 @@ struct FoundPull: Identifiable, Equatable {
         let current = generation
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         asked = text
-        guard text.count >= 2 else { found = []; problem = nil; return }
+        // Nothing to ask, or no machine to ask it: what an earlier machine found goes with it.
+        guard text.count >= 2, inbox.sessions.contains(where: { $0.client.connection == "ready" }) else { found = []; problem = nil; return }
         // Typing settles before the machine is asked.
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled, current == generation,
