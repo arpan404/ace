@@ -67,8 +67,11 @@ goes to the lead.
 Each recipient answers in **its own conversation**: the message is stored there as a
 `user_message` with `from_group {id, name, run, ask, untrusted}` and the group's recent messages
 in its context, so it answers with its own model, memory, tools and connectors. Its reply (the
-first reply to finish after the message) is posted in the group. A member's own chat shows these
-messages with the label `In <group>`.
+first reply to finish after the message) is posted in the group. Each message lives in one
+conversation: the group's. The member's own chat, its list row and its unseen mark leave out a
+group's message and a reply that answers only group messages (`group::answering_replies`); a card
+or an approval such a reply asks still shows there, where the person answers it. A reply that also
+answers the person, a job or a wake is the member's own and shows.
 
 `group_ask {member, text}` (a tool every bot has; it refuses outside a group turn) hands work to
 another member: it is posted as a handoff line, the member answers in its own conversation, the

@@ -30,7 +30,7 @@ function conversation() {
     stored: (at: number, event: Record<string, unknown>) =>
       frame("stored", { seq: ++seq, at, event }),
     caughtUp: () => frame("caught_up", { seq }),
-    status: (state: string, status: string | null) => frame("status", { state, status }),
+    status: (now: string, words: string | null) => frame("status", { state: now, status: words }),
     view: () => spadeView(state),
   };
 }

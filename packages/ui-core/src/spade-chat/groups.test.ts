@@ -173,7 +173,7 @@ test("a group's turn lives in the group: the bot's own chat shows only a card it
     const input = parseSpadeLiveFrame("stored", JSON.stringify({ seq: ++seq, at: seq, event }));
     if (input) foldSpade(state, input);
   };
-  const said = () =>
+  const shown = () =>
     spadeBubbles(spadeView(state)).map((bubble) =>
       bubble.kind === "bot" || bubble.kind === "person"
         ? `${bubble.kind}: ${bubble.text}`
@@ -184,7 +184,7 @@ test("a group's turn lives in the group: the bot's own chat shows only a card it
   stored({ type: "reply_started", reply: "r1" });
   stored({ type: "step_finished", reply: "r1", text: "Two flights.", calls: [] });
   stored({ type: "reply_finished", reply: "r1", text: "Two flights." });
-  expect(said()).toEqual([]);
+  expect(shown()).toEqual([]);
 
   stored({ type: "user_message", text: "Which seat?", from_group: fromGroup });
   stored({ type: "reply_started", reply: "r2" });
@@ -195,12 +195,12 @@ test("a group's turn lives in the group: the bot's own chat shows only a card it
     calls: [{ id: "q1", name: "ask_user" }],
   });
   stored({ type: "question_asked", reply: "r2", call_id: "q1", question: "Window?" });
-  expect(said()).toEqual(["question"]);
+  expect(shown()).toEqual(["question"]);
 
   // The person writes here while it answers the group: the reply answers them too, so it shows.
   stored({ type: "user_message", text: "Also, the hotel" });
   stored({ type: "reply_finished", reply: "r2", text: "Window it is. Hotel booked." });
-  expect(said()).toEqual([
+  expect(shown()).toEqual([
     "question",
     "person: Also, the hotel",
     "bot: Window it is. Hotel booked.",

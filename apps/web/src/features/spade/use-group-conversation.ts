@@ -31,11 +31,10 @@ export function useGroupConversation(group: { id: string; conversation: string }
   const snapshot = useSyncExternalStore(follow.subscribe, follow.get, follow.get);
   // The list row says what this chat shows, from the same view.
   const machine = useSpadeMachine().key;
-  usePublishLiveGroup(
-    liveRowKey(machine, group.conversation),
-    spadeLiveGroup(snapshot.view),
-    [...groupsKey, machine],
-  );
+  usePublishLiveGroup(liveRowKey(machine, group.conversation), spadeLiveGroup(snapshot.view), [
+    ...groupsKey,
+    machine,
+  ]);
   const listChanged = () => void cache.invalidateQueries({ queryKey: groupsKey });
 
   return {
