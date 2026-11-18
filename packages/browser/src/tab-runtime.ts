@@ -12,6 +12,7 @@ import {
   type BrowserTabActor,
   type BrowserTabLifecycle,
   type BrowserPageState,
+  type BrowserExpectedPlace,
 } from "@ace/protocol";
 import { BrowserActionError } from "./action-error.ts";
 import { AnnotationSession } from "./annotation-session.ts";
@@ -503,6 +504,16 @@ export class TabRuntime {
     const checkTarget = () => {
       if (target && !target.current()) throw new BrowserActionError("backend_changed");
     };
+    // The place the caller's gate decided on: this tab, at this address, at every input.
+    const expected = "expect" in command ? command.expect : undefined;
+    const checkPlace = () => {
+      if (expected && !atPlace(expected, this.id, this.page.url()))
+        throw new BrowserActionError("place_changed");
+    };
+    const beforeInput = () => {
+      checkTarget();
+      checkPlace();
+    };
     const submittedGeneration = this.access.generation;
     const privateEpoch = this.access.epoch;
     // Dialog answers cannot wait behind a renderer command paused by that dialog.
@@ -514,7 +525,8 @@ export class TabRuntime {
         this.readCheck(actor, privateEpoch);
         this.check(actor, signal, submittedGeneration);
         if (command.action === "dialog") this.leaveCheck(command, actor);
-        return this.run(command, actor, signal, submittedGeneration);
+        checkPlace();
+        return this.run(command, actor, signal, submittedGeneration, checkPlace);
       })();
     // The person's Back and Forward land at once, as in any browser: never behind an agent's
     // slow command or a page dialog in this tab (the engine decides what the dialog does).
@@ -562,10 +574,12 @@ export class TabRuntime {
       this.readCheck(actor, privateEpoch);
       if (mutatesBrowser(part)) this.check(actor, signal, submittedGeneration, privateEpoch);
       this.crashCheck(part);
+      // Its turn came: the page may have moved on while it waited in the queue.
+      checkPlace();
       let result: unknown;
       try {
         result = await this.queue.untilDialog(() =>
-          this.run(part, actor, signal, submittedGeneration, checkTarget, target?.navigate),
+          this.run(part, actor, signal, submittedGeneration, beforeInput, target?.navigate),
         );
       } catch (error) {
         if (error instanceof BrowserOriginError) this.host.blockedNavigation(error.blocked);
@@ -790,5 +804,18 @@ export class TabRuntime {
       beginRecording: (check, by) => host.beginRecording(this.id, check, by),
       finishRecording: () => host.finishRecording(),
     });
+  }
+}
+
+/** Whether a tab is the place a caller expected: the same tab, at the same address. */
+export function atPlace(expected: BrowserExpectedPlace, tabId: string, url: string): boolean {
+  return expected.tabId === tabId && sameAddress(expected.url, url);
+}
+
+function sameAddress(a: string, b: string): boolean {
+  try {
+    return new URL(a).href === new URL(b).href;
+  } catch {
+    return a === b;
   }
 }

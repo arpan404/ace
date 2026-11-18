@@ -7,7 +7,12 @@ const url = z.string().min(1).max(8192);
 const timeout = z.number().int().min(1).max(browserWaitLimitMs).default(10_000).describe("ms");
 /** Every page tool takes it: commands on different tabs run at the same time (ADR 0083). */
 const tabId = z.string().min(1).max(256).optional();
-const tab = { tabId };
+/** Set by a caller's gate (Spade) to bind the step to the tab and address it checked. */
+const expect = z
+  .object({ tabId: z.string().min(1).max(256), url })
+  .optional()
+  .describe("Set by your host; leave it out.");
+const tab = { tabId, expect };
 
 export const browserOpenShape = {
   url: url.optional().describe("http(s) URL, localhost too."),
@@ -109,7 +114,7 @@ export const browserActShape = {
   promptText: z.string().max(4096).optional(),
 };
 /** Fields every browser tool may carry whatever its action. */
-const routing = ["action", "tabId", "machine", "browser"];
+const routing = ["action", "tabId", "expect", "machine", "browser"];
 export const checkAct: Refine = (input, context) => {
   const action = z.enum(actKinds).parse(input["action"]);
   const fields = actFields[action];

@@ -85,6 +85,27 @@ it("apps the person listed are refused by name or bundle id, in any case", async
   expect((await call("screen_state", { app: "Calculator" })).text).toContain("6 text 0");
 });
 
+it("an act bound to the app its caller checked does nothing when the name finds another app", async () => {
+  const { call, ops } = await world();
+  const refused = await call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "type", text: "12" }],
+    expect: { app: "com.apple.TextEdit" },
+  });
+  expect(refused.result.isError).toBe(true);
+  expect(refused.text).toContain("not the app that was checked");
+  expect(await ops()).toEqual(["resolve Calculator"]);
+  // Bound to the app the name does find, it acts.
+  const looked = await call("screen_state", { app: "Calculator" });
+  const id = /\(([^)]+)\)/.exec(looked.text)?.[1] ?? "";
+  const acted = await call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "type", text: "12" }],
+    expect: { app: id.toUpperCase() },
+  });
+  expect(acted.result.isError).toBeFalsy();
+});
+
 it("the helper's own explanation of a failed step reaches the model, with what already ran", async () => {
   const { call } = await world();
   await call("screen_state", { app: "Calculator" });

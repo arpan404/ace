@@ -155,6 +155,7 @@ export function computerToolkit(
   const target = async (
     app: string,
     context: ToolContext,
+    expected?: { app: string },
   ): Promise<ResolvedApp & { key: string; running?: boolean }> => {
     const key = `${callerOf(context)}/${app.trim().toLowerCase()}`;
     let found: (ResolvedApp & { running?: boolean }) | undefined = memory.app(key);
@@ -167,6 +168,13 @@ export function computerToolkit(
     }
     const blocked = blockedReason(found, await personBlocked(), host);
     if (blocked) throw new ComputerError("app_blocked", blocked);
+    // The caller's gate decided on one app: the name now finds another, so nothing is done. The
+    // helper sends every step of the batch to this app's id, so it can't drift after this.
+    if (expected && expected.app.toLowerCase() !== found.bundleId.toLowerCase())
+      throw new ComputerError(
+        "place_changed",
+        `${app} now finds ${found.name} (${found.bundleId}), not the app that was checked (${expected.app}). Nothing was done; look again with screen_state.`,
+      );
     return { ...found, key };
   };
 
@@ -231,9 +239,9 @@ export function computerToolkit(
       return { content: [{ type: "text", text }] };
     },
     async screen_state(args, context) {
-      const { app, window, screenshot, outline, full, find } =
+      const { app, window, screenshot, outline, full, find, expect } =
         computerSchemas.screen_state.parse(args);
-      const resolved = await target(app, context);
+      const resolved = await target(app, context, expect);
       const pictureOnly = outline === false;
       const state = ComputerState.parse(
         await use(resolved, context, "state", {
@@ -276,8 +284,9 @@ export function computerToolkit(
       }
     },
     async screen_act(args, context) {
-      const { app, actions, window, screenshot, observe } = computerSchemas.screen_act.parse(args);
-      const resolved = await target(app, context);
+      const { app, actions, window, screenshot, observe, expect } =
+        computerSchemas.screen_act.parse(args);
+      const resolved = await target(app, context, expect);
       if (options.personExclusive?.(resolved.bundleId)) throw new PublicToolError("person_driving");
       if (resolved.running === false)
         throw new ComputerError(

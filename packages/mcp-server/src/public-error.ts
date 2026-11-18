@@ -45,6 +45,7 @@ export const PublicToolCode = z.enum([
   "browser_paused",
   "browser_closed",
   "backend_changed",
+  "place_changed",
   "queue_full",
   "tab_not_found",
   "tab_limit",
@@ -284,6 +285,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   backend_changed: {
     message: "Browser backend changed during command",
     hint: "Call browser_snapshot for fresh refs before retrying.",
+  },
+  place_changed: {
+    message: "The page or app changed since the step was checked",
+    hint: "Nothing more was done. Look at it again (browser_snapshot or screen_state), then act.",
   },
   queue_full: {
     message: "Browser command queue full",

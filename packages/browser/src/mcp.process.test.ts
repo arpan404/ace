@@ -106,6 +106,30 @@ it("refuses an act whose fields do not fit its action before touching the page",
   }
 });
 
+it("an act carries the place its caller's gate checked through to the tab's command", async () => {
+  const executed: unknown[] = [];
+  const tab = { tabId: "t1", url: "https://docs.example/", title: "" };
+  const f = agent({
+    open: async () => tab,
+    tab: async () => tab,
+    state: () => BrowserState.parse({ threadId: "thread", status: "open" }),
+    execute: async (_caller, command) => {
+      executed.push(command);
+      return { ok: true };
+    },
+    screenshot: unused,
+    close: unused,
+  });
+  try {
+    const expected = { tabId: "t1", url: "https://docs.example/" };
+    const result = await f.call("browser_act", { action: "press", key: "Enter", expect: expected });
+    expect(textOf(result)).not.toContain("invalid_arguments");
+    expect(executed).toEqual([expect.objectContaining({ action: "press", expect: expected })]);
+  } finally {
+    f.close();
+  }
+});
+
 it("tells agents the tab works at a person's phone viewport, in tab lists and screenshots", async () => {
   const phone = {
     tabId: "t1",

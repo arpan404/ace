@@ -175,3 +175,68 @@ it("a delayed screencast frame captured while the tab was private never enters t
   expect(images).toContain("public-after-handback");
   expect(images.some((image) => image.includes("PRIVATE-PIXELS"))).toBe(false);
 });
+
+it.each([
+  ["moved on", "https://mail.google.com/mail/u/0", "place_changed"],
+  ["stayed", "https://docs.example/guide", undefined],
+] as const)(
+  "an input queued behind another runs only while its tab is still where its caller checked (%s)",
+  async (_case, after, refused) => {
+    const backend = new FakeHeadless(),
+      open = backend.open.bind(backend);
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    onTestFinished(() => release.resolve());
+    backend.open = async (request) => ({
+      ...(await open(request)),
+      // The first input holds the tab's queue until the test lets it go.
+      wheel: async () => {
+        entered.resolve();
+        await release.promise;
+      },
+    });
+    const f = await backendFixture({
+      headlessBackend: backend,
+      backendPreference: () => "headless",
+    });
+    await f.open();
+    const page = backend.pages.at(-1);
+    if (!page) throw new Error("no page");
+    page.url = "https://docs.example/guide";
+    const tabId = f.service.state("thread").activeTabId ?? "page";
+    const scrolling = f.service.execute("thread", { action: "scroll", x: 0, y: 10 });
+    await entered.promise;
+    // A ref-less Enter, checked on docs.example, waits its turn while the page moves on.
+    const pressing = f.service.execute("thread", {
+      action: "press",
+      key: "Enter",
+      expect: { tabId, url: "https://docs.example/guide" },
+    });
+    page.url = after;
+    release.resolve();
+    await scrolling;
+    if (refused) {
+      await expect(pressing).rejects.toMatchObject({ code: refused });
+      expect(page.effects).not.toContain("key");
+    } else {
+      await pressing;
+      expect(page.effects).toContain("key");
+    }
+  },
+);
+
+it("an input bound to another tab never runs in this one, at the same address", async () => {
+  const f = await backendFixture({ backendPreference: () => "headless" });
+  await f.open();
+  const page = f.headless.pages.at(-1);
+  if (!page) throw new Error("no page");
+  page.url = "https://docs.example/guide";
+  await expect(
+    f.service.execute("thread", {
+      action: "press",
+      key: "Enter",
+      expect: { tabId: "another-tab", url: "https://docs.example/guide" },
+    }),
+  ).rejects.toMatchObject({ code: "place_changed" });
+  expect(page.effects).not.toContain("key");
+});
