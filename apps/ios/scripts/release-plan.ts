@@ -9,11 +9,18 @@
  *   automatic signing create the certificates and profiles it needs on a clean machine (CI).
  */
 
+import { resolve, sep } from "node:path";
+
 export type Env = Readonly<Record<string, string | undefined>>;
 
 export interface ReleasePlan {
   mode: "unsigned" | "signed" | "upload";
   archivePath: string;
+  /**
+   * Whether `archivePath` is the script's own, which it replaces each run. A path from
+   * `ACE_IOS_ARCHIVE` is never deleted: it must not exist yet.
+   */
+  ownsArchive: boolean;
   archiveArgs: string[];
   /** Only for `upload`: the `-exportArchive` call and the options plist it reads. */
   upload?: { exportPath: string; optionsPath: string; options: string; args: string[] };
@@ -114,7 +121,9 @@ export function releasePlan(input: {
     env.ACE_IOS_BUILD_NUMBER?.trim() ||
     (mode === "upload" ? timestampBuildNumber(input.nowMs) : "1");
   if (!buildNumber.test(build))
-    throw new Error(`ACE_IOS_BUILD_NUMBER must be a whole number, not "${build}".`);
+    throw new Error(
+      `ACE_IOS_BUILD_NUMBER must be one to three whole numbers joined by dots, like 42 or 20261117.200512, not "${build}".`,
+    );
 
   // Remote push needs a paid team's `aps-environment`; an App Store build has one, so upload
   // turns it on unless ACE_PUSH says otherwise. Other builds keep it off unless asked.
@@ -122,10 +131,16 @@ export function releasePlan(input: {
   if (push !== "YES" && push !== "NO")
     throw new Error(`ACE_PUSH must be YES or NO, not "${push}".`);
 
-  // archive.ts replaces whatever is at this path, so it must name an archive.
-  const archivePath = env.ACE_IOS_ARCHIVE?.trim() || `${root}/.build/Ace.xcarchive`;
-  if (!archivePath.endsWith(".xcarchive"))
-    throw new Error(`ACE_IOS_ARCHIVE must end in .xcarchive, not "${archivePath}".`);
+  // The script's own folders, which archive.ts replaces on every run.
+  const ownArchive = resolve(root, ".build/Ace.xcarchive");
+  const exportPath = resolve(root, ".build/export");
+  const custom = env.ACE_IOS_ARCHIVE?.trim();
+  const archivePath = custom ? resolve(root, custom) : ownArchive;
+  if (custom && !archivePath.endsWith(".xcarchive"))
+    throw new Error(`ACE_IOS_ARCHIVE must end in .xcarchive, not "${custom}".`);
+  if (custom && (archivePath === exportPath || archivePath.startsWith(exportPath + sep)))
+    throw new Error(`ACE_IOS_ARCHIVE can't be inside ${exportPath}, which each upload replaces.`);
+  const ownsArchive = archivePath === ownArchive;
   const archiveArgs = [
     "-project",
     "Ace.xcodeproj",
@@ -149,14 +164,13 @@ export function releasePlan(input: {
     ...(key ?? []),
   ];
   if (mode !== "upload" || !key)
-    return { mode, archivePath, archiveArgs, buildNumber: build, version };
+    return { mode, archivePath, ownsArchive, archiveArgs, buildNumber: build, version };
 
-  // The script's own folders, which it replaces on every run.
-  const exportPath = `${root}/.build/export`;
-  const optionsPath = `${root}/.build/ExportOptions.plist`;
+  const optionsPath = resolve(root, ".build/ExportOptions.plist");
   return {
     mode,
     archivePath,
+    ownsArchive,
     archiveArgs,
     buildNumber: build,
     version,

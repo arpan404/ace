@@ -124,6 +124,29 @@ describe("uploading to App Store Connect", () => {
   );
 });
 
+describe("where the archive goes", () => {
+  const env = { ACE_IOS_TEAM_ID: "TEAM123456", ...key };
+
+  test("the script's own archive is replaced each run", () => {
+    const own = plan(["--upload"], env);
+    expect(own.archivePath).toBe("/repo/apps/ios/.build/Ace.xcarchive");
+    expect(own.ownsArchive).toBe(true);
+  });
+
+  test("a chosen archive path is resolved from apps/ios and never replaced", () => {
+    const chosen = plan(["--upload"], { ...env, ACE_IOS_ARCHIVE: "../out/Ace.xcarchive" });
+    expect(chosen.archivePath).toBe("/repo/apps/out/Ace.xcarchive");
+    expect(chosen.ownsArchive).toBe(false);
+    expect(after(chosen.archiveArgs, "-archivePath")).toBe("/repo/apps/out/Ace.xcarchive");
+  });
+
+  test("a chosen archive inside the export folder, which each upload replaces, is refused", () => {
+    expect(() =>
+      plan(["--upload"], { ...env, ACE_IOS_ARCHIVE: ".build/export/Ace.xcarchive" }),
+    ).toThrow(/export/);
+  });
+});
+
 describe("archiving without uploading", () => {
   test("an unsigned archive turns signing and push off and needs no team", () => {
     const unsigned = plan(["--unsigned"], {});

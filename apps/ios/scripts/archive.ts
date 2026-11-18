@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { releasePlan } from "./release-plan.ts";
 
@@ -24,7 +24,13 @@ console.log(
   `Archiving ace for iOS (${plan.mode}), version ${plan.version ?? "from project.yml"}, build ${plan.buildNumber}.`,
 );
 run("bun", ["run", "generate"]);
-rmSync(plan.archivePath, { recursive: true, force: true });
+if (plan.ownsArchive) rmSync(plan.archivePath, { recursive: true, force: true });
+else if (existsSync(plan.archivePath)) {
+  console.error(
+    `${plan.archivePath} already exists. Remove it or set ACE_IOS_ARCHIVE to a new path.`,
+  );
+  process.exit(1);
+}
 run("xcodebuild", plan.archiveArgs);
 
 if (plan.upload) {
