@@ -8,6 +8,7 @@ import {
   rowOffset,
   rowText,
   wrapLine,
+  type WrapRow,
 } from "./wrap.ts";
 
 /*
@@ -124,6 +125,22 @@ test("every column of a wrapped line keeps its own x, the spaces at a break incl
     // Hit testing comes back to the same column through the same range.
     if (column < text.length) expect(columnOnRow(text, row, x * cell + 1, cell)).toBe(column);
   }
+});
+
+test("the row of a column on a very long line is found without walking the rows", () => {
+  const rows: WrapRow[] = [];
+  for (let at = 0; at < 100_000; at++) rows.push({ start: at * 8, end: (at + 1) * 8, indent: 0 });
+  let reads = 0;
+  const counted = new Proxy(rows, {
+    get(target, key, receiver) {
+      if (typeof key === "string" && /^\d+$/.test(key)) reads++;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+
+  expect(rowOfColumn(counted, 8 * 79_999)).toBe(79_999);
+  expect(rowOfColumn(counted, 8 * 79_999, true)).toBe(79_998);
+  expect(reads).toBeLessThan(64);
 });
 
 test("a line narrower than the row stays on one row, whatever it holds", () => {

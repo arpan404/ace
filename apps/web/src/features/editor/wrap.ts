@@ -76,15 +76,32 @@ export function wrapLine(text: string, columns: number): readonly WrapRow[] {
 /**
  * The row a UTF-16 column falls on. `before` keeps a column that begins a row at the end of the
  * row before it (a hard break), which is where the caret sits after End or a click past the edge.
+ * Row starts are sorted, so a line of a million columns still costs a binary search.
  */
 export function rowOfColumn(rows: readonly WrapRow[], column: number, before = false): number {
-  for (let index = rows.length - 1; index > 0; index--) {
-    const row = rows[index];
-    if (!row || row.start > column) continue;
-    if (row.start === column && before && rows[index - 1]?.end === column) return index - 1;
-    return index;
+  let low = 0;
+  let high = rows.length - 1;
+  let found = 0;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const row = rows[middle];
+    if (row !== undefined && row.start <= column) {
+      found = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
   }
-  return 0;
+  const row = rows[found];
+  if (
+    found > 0 &&
+    row !== undefined &&
+    row.start === column &&
+    before &&
+    rows[found - 1]?.end === column
+  )
+    return found - 1;
+  return found;
 }
 
 /** Whether a column sits at the end of its row and begins the next one: a hard break. */
@@ -114,6 +131,9 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
   const parts = graphemes(text);
   const indent = Math.min(leadingIndent(text), Math.max(0, width - leastRowCells));
   const indentEnd = leadingEnd(text);
+  // The last cluster that is not whitespace settles every "is the rest all space?" question in
+  // one pass, so a very long line never rescans its tail once per row.
+  const lastSolid = lastSolidPart(parts);
   const rows: WrapRow[] = [];
   let start = 0;
   let at = 0;
@@ -152,7 +172,7 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
     if (index >= parts.length) {
       end = text.length;
       resume = parts.length;
-    } else if (onlyWhitespace(parts, index)) {
+    } else if (lastSolid < index) {
       // Whitespace after the last word stays on this row, past its edge, for the caret to reach.
       end = text.length;
       resume = parts.length;
@@ -180,14 +200,17 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
 function wrapCodeUnits(text: string, width: number): WrapRow[] {
   const indent = Math.min(leadingIndent(text), Math.max(0, width - leastRowCells));
   const indentEnd = leadingEnd(text);
+  // One pass for the same two questions the grapheme path asks: where the last real character
+  // is, and where each row's last space may be. A megabyte of text is never rescanned per row.
+  const lastText = lastNonSpace(text);
   const rows: WrapRow[] = [];
   let start = 0;
   while (start < text.length) {
     const room = rows.length === 0 ? width : Math.max(leastRowCells, width - indent);
     let end = Math.min(text.length, start + room);
     if (end < text.length) {
-      if (hasTextAfter(text, end)) {
-        const space = text.lastIndexOf(" ", end - 1);
+      if (lastText >= end) {
+        const space = lastSpaceWithin(text, start, end);
         // The space is kept at this row's end, past its edge, so the caret has a column for it.
         if (space > start && space >= indentEnd) end = space + 1;
       } else {
@@ -201,20 +224,28 @@ function wrapCodeUnits(text: string, width: number): WrapRow[] {
   return rows;
 }
 
-/** Whether every character from `from` on is whitespace. */
-function onlyWhitespace(parts: readonly Grapheme[], from: number): boolean {
-  for (let index = from; index < parts.length; index++) {
-    if (!isBreak(parts[index]?.text ?? "")) return false;
+/** The index of the last cluster that is not a break, or -1 when every cluster is one. */
+function lastSolidPart(parts: readonly Grapheme[]): number {
+  for (let index = parts.length - 1; index >= 0; index--) {
+    if (!isBreak(parts[index]?.text ?? "")) return index;
   }
-  return true;
+  return -1;
 }
 
-/** Whether anything but spaces follows `at`, so a space there is not just trailing padding. */
-function hasTextAfter(text: string, at: number): boolean {
-  for (let index = at; index < text.length; index++) {
-    if (text[index] !== " ") return true;
+/** The index of the last character that is not a space, or -1 when only spaces remain. */
+function lastNonSpace(text: string): number {
+  for (let index = text.length - 1; index >= 0; index--) {
+    if (text.charCodeAt(index) !== 32) return index;
   }
-  return false;
+  return -1;
+}
+
+/** The last space in `[start, end)`, or -1 when that range holds none. */
+function lastSpaceWithin(text: string, start: number, end: number): number {
+  for (let index = end - 1; index > start; index--) {
+    if (text.charCodeAt(index) === 32) return index;
+  }
+  return -1;
 }
 
 function isBreak(cluster: string): boolean {

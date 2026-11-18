@@ -296,11 +296,17 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               const long = text.length > longLine;
               const lineTokens = tokens[offset];
               const lineMatches = activeQuery ? byLine.get(line) : undefined;
-              return lineRows.map((row, at) => {
+              // A line can be a megabyte long: only the rows inside the window are built, and a
+              // row outside it is never sliced, coloured or given a find match.
+              const from = Math.max(0, firstRow - startRow);
+              const to = Math.min(lineRows.length, lastRow - startRow);
+              const drawn = [];
+              for (let at = from; at < to; at++) {
+                const row = lineRows[at];
+                if (!row) continue;
                 const index = startRow + at;
-                if (index < firstRow || index >= lastRow) return null;
                 const end = Math.min(row.end, text.length);
-                return (
+                drawn.push(
                   <EditorLine
                     key={`${line}:${at}`}
                     line={line}
@@ -323,9 +329,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
                     query={activeQuery}
                     long={long}
                     clip={!wrap}
-                  />
+                  />,
                 );
-              });
+              }
+              return drawn;
             })}
             <CaretLayers
               selections={state.selections}
@@ -333,6 +340,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               layout={layout}
               firstLine={first}
               lastLine={last - 1}
+              firstRow={firstRow}
+              lastRow={lastRow}
               gutter={gutter}
               cell={cell}
               affinity={affinity}

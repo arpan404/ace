@@ -43,6 +43,8 @@ function boxes(
   layout: RowLayout,
   firstLine: number,
   lastLine: number,
+  firstRow: number,
+  lastRow: number,
   gutter: number,
   cell: number,
   affinity: Affinity,
@@ -66,15 +68,20 @@ function boxes(
         const from = line === start.line ? start.column : 0;
         const to = line === end.line ? end.column : text.length;
         const headRow = rowOfColumn(rows, selection.head.column, headBefore);
-        rows.forEach((row, at) => {
-          // A selection that runs past a space dropped at a break reaches the row's edge; the
-          // next row starts where its own text does.
+        // A selection can cover a megabyte on one line: only the rows inside the window are drawn.
+        const fromRow = Math.max(0, firstRow - startRow);
+        const toRow = Math.min(rows.length, lastRow - startRow);
+        for (let at = fromRow; at < toRow; at++) {
+          const row = rows[at];
+          if (!row) continue;
+          // A selection that runs past a space kept at a break reaches the row's edge; the next
+          // row starts where its own text does.
           const low = Math.max(from, row.start);
           const high = Math.min(to, row.end);
           // A row the selection only touches at its edge draws nothing, except the caret's own
           // row, where VS Code leaves a sliver.
           const caretRow = primaryHere && line === selection.head.line && at === headRow;
-          if (high <= low && !caretRow) return;
+          if (high <= low && !caretRow) continue;
           const left = gutter + rowOffset(text, row, low) * cell;
           const right = gutter + rowOffset(text, row, high) * cell;
           rects.push({
@@ -84,7 +91,7 @@ function boxes(
             width: Math.max(2, right - left),
             height: lineHeight,
           });
-        });
+        }
       }
     }
     const caret = caretOf(lines, layout, selection.head, gutter, cell, headBefore);
@@ -105,6 +112,9 @@ export function CaretLayers(props: {
   layout: RowLayout | undefined;
   firstLine: number;
   lastLine: number;
+  /** The rows the editor draws; a selection is drawn only where the list has rows. */
+  firstRow: number;
+  lastRow: number;
   gutter: number;
   cell: number;
   /** Each caret's side of a hard break, so secondary carets draw on their own row. */
@@ -122,6 +132,8 @@ export function CaretLayers(props: {
     layout,
     props.firstLine,
     props.lastLine,
+    props.firstRow,
+    props.lastRow,
     props.gutter,
     props.cell,
     props.affinity,

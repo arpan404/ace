@@ -507,6 +507,23 @@ test("an edit above the view keeps every line where its own rows put it", async 
   }
 });
 
+test("a selection across a megabyte-long wrapped line draws only the rows on screen", async () => {
+  const { ref } = await openView({ text: "x".repeat(1_000_000), path: "notes.txt", wrap: true });
+  await waitFor(() => expect(rowTexts().length).toBeGreaterThan(0));
+
+  act(() =>
+    ref.current?.setSelections([
+      { anchor: { line: 0, column: 0 }, head: { line: 0, column: 1_000_000 } },
+    ]),
+  );
+
+  const boxes = document.querySelectorAll("[data-selection]");
+  expect(boxes.length).toBeGreaterThan(0);
+  expect(boxes.length).toBeLessThan(200);
+  // The rows that are drawn are still all there: the window, not the line, is the limit.
+  expect(document.querySelectorAll("[data-row]").length).toBeLessThan(200);
+});
+
 test("a 50,000-line file with wrap mounts only the rows near the view", async () => {
   const text = Array.from(
     { length: 50_000 },
