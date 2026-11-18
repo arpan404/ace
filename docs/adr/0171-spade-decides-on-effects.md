@@ -240,7 +240,10 @@ Spade checked it.`) and the bot looks again, so the gate decides on where it act
 close`) has no place either, so the person decides it.
 - **Checked where input leaves, and a script is the person's.** The place is checked in each
   backend's transport, for every input command of every session it holds, inside the held
-  command's own async context, so the person's input and other commands are never held to it. A
+  command's own async context, so the person's input and other commands are never held to it.
+  The check runs with the transport's command slot in hand, right before the write, and asks the
+  page itself where it is first: a real Chromium reports a route a mousedown handler changed only
+  after the press is acknowledged, so the browser's own report alone let a release through. A
   gesture's end whose press moved the page isn't sent. `browser_evaluate` runs any script the page
   allows, which no check on its calls confines: unrestricted, it always goes to the person; only
   ace's side-effect-free mode (`mode: read-only`) may be left to the reviewer.

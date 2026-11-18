@@ -151,7 +151,11 @@ reach the table.
 ace checks a held step in the tab's queue, and the command then runs inside its hold: every CDP
 command that sends input or moves the page, from any session the backend holds (the page, its
 frames, the person's own Chrome, the desktop's tabs) and whichever helper sends it, and every
-input the desktop takes as an operation, checks the place where it leaves for the page. The end of
+input the desktop takes as an operation, checks the place where it leaves for the page: inside
+the transport's slot, right before the write, after waiting for one, and against the page's own
+answer to where it is (asked of the page right then, so a route a handler just changed counts
+before the browser reports it; a frame, or a page that gives no value, falls back to the
+browser's report, and one that can't answer fails the step). The end of
 a press, key or touch begun under the hold that finds the place changed is never sent (a drag is
 cancelled instead), so no mouseup, click, keyup or drop lands on the page the tab moved to; the
 step fails with `place_changed`. A test lists every way a command leaves for a page and fails if
