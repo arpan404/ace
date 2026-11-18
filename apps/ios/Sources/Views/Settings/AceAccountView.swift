@@ -2,7 +2,7 @@ import AuthenticationServices
 import SwiftUI
 
 /// Profile, as an iOS account page: the person, then their account's machines, a year of their
-/// agents' work, Sign out, and the legal pages. The words follow web's Profile.
+/// agents' work, Sign out, Delete account, and the legal pages. The words follow web's Profile.
 struct AceAccountView: View {
     /// Nil for the debug fixture, which has no account machines.
     var machines: MachinesModel?
@@ -60,7 +60,10 @@ struct AceAccountView: View {
                     activityRead += 1
                 }
             }
-            if model.account != nil { signOut }
+            if model.account != nil {
+                signOut
+                AccountDeleteSection(model: model)
+            }
             legal
         }
     }
@@ -110,6 +113,11 @@ struct AceAccountView: View {
                     .disabled(!model.configured || model.busy)
                     .accessibilityIdentifier("account.signIn")
             }
+        } footer: {
+            Text("By signing in you agree to the [Terms of service](https://acehq.dev/terms-of-service/) and [Privacy policy](https://acehq.dev/privacy-policy/).")
+                .font(AceDesign.Typeface.meta)
+                .foregroundStyle(AceDesign.Ink.muted)
+                .accessibilityIdentifier("account.signIn.terms")
         }
         .insetRowBackground()
     }
