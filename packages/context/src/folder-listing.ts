@@ -20,7 +20,7 @@ export async function folderListing(
   for await (const entry of workspace.list(folder)) {
     total++;
     if (full) continue;
-    const line = entry.size === 0 ? entry.path : `${entry.path} (${entry.size} bytes)`;
+    const line = `${entry.path} (${entry.size} bytes)`;
     if (
       lines.length >= folderListingLimits.entries ||
       bytes + Buffer.byteLength(line) + 1 > limit - 256
