@@ -63,6 +63,21 @@ enum SettingsSearch {
         return pages + rows
     }
 
+    /// This phone's pages that `query` finds, as Search's commands (`settings:<page>`, as
+    /// `bridge/palette.ts` names them), for when no machine answers: a setting finds its page,
+    /// listed once, best match first.
+    static func phoneCommands(_ items: [SettingsResult], query: String) -> [PaletteAnswer.Command] {
+        let pages = items.filter { $0.place == nil }
+        var commands: [PaletteAnswer.Command] = []
+        for found in matches(items, query: query) {
+            guard let page = pages.first(where: { $0.target == found.target }) else { continue }
+            let id = "settings:" + page.id.replacingOccurrences(of: "phone/", with: "")
+            guard !commands.contains(where: { $0.id == id }) else { continue }
+            commands.append(PaletteAnswer.Command(id: id, label: page.title, detail: "Settings", score: 0))
+        }
+        return commands
+    }
+
     /// This phone's own settings pages and the settings on them that people look for by name.
     static func phoneItems(notifications: Bool, lock: Bool) -> [SettingsResult] {
         func page(_ route: SettingsRoute, _ id: String, _ title: String, _ keywords: [String] = []) -> SettingsResult {
