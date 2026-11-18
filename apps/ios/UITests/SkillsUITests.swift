@@ -29,10 +29,11 @@ import XCTest
         app.buttons["skill.new.create"].tap()
 
         // The new skill's page opens once the machine has it.
-        let edit = app.buttons["skill.edit"]
-        XCTAssertTrue(edit.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["Write release notes from merged pull requests"].exists)
+        XCTAssertTrue(app.staticTexts["Write release notes from merged pull requests"].waitForExistence(timeout: 15))
         screenshot("page")
+        let edit = app.buttons["skill.edit"]
+        for _ in 0..<6 where !(edit.exists && edit.isHittable) { app.swipeUp() }
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
 
         edit.tap()
         let field = app.textFields["skill.edit.description"]
@@ -44,7 +45,9 @@ import XCTest
         app.buttons["skill.edit.save"].tap()
         XCTAssertTrue(app.staticTexts["Write release notes from merged pull requests, newest first"].waitForExistence(timeout: 15))
 
-        app.buttons["skill.agents"].tap()
+        let agents = app.buttons["skill.agents"]
+        for _ in 0..<6 where !(agents.exists && agents.isHittable) { app.swipeDown() }
+        agents.tap()
         let claude = app.switches["skill.agent.claude"]
         XCTAssertTrue(claude.waitForExistence(timeout: 10))
         // Codex reads ~/.agents/skills itself, so it stays on and says why.
@@ -54,7 +57,9 @@ import XCTest
         app.buttons["skill.agents.done"].tap()
         XCTAssertTrue(app.staticTexts["Codex, OpenCode, Cursor and Pi"].waitForExistence(timeout: 15))
 
-        app.buttons["skill.delete"].tap()
+        let delete = app.buttons["skill.delete"]
+        for _ in 0..<6 where !(delete.exists && delete.isHittable) { app.swipeUp() }
+        delete.tap()
         let confirm = app.sheets.buttons["Delete skill"].firstMatch.exists ? app.sheets.buttons["Delete skill"].firstMatch : app.buttons["Delete skill"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         screenshot("delete")
@@ -128,7 +133,9 @@ import XCTest
     func testAPersonalSkillHasNoOpenOnComputer() throws {
         let app = launchIntoSkills()
         app.buttons["skills.row.research"].tap()
-        XCTAssertTrue(app.buttons["skill.edit"].waitForExistence(timeout: 15))
+        let edit = app.buttons["skill.edit"]
+        for _ in 0..<6 where !(edit.exists && edit.isHittable) { app.swipeUp() }
+        XCTAssertTrue(edit.waitForExistence(timeout: 15))
         XCTAssertFalse(app.descendants(matching: .any)["skill.openOnComputer"].firstMatch.exists)
     }
 
