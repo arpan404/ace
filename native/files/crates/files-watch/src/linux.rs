@@ -5,10 +5,10 @@
 //! inotify's recursive mode would register a watch inside every folder, including the
 //! `node_modules` trees the excludes exist to avoid, and the per-user watch budget is small.
 //! This backend walks the tree itself, adds a watch per folder it keeps, and adds watches for
-//! folders that appear later.
+//! folders that appear later. A folder moved in is walked as well, and its files reported,
+//! because contents can change before the new watches exist.
 
-use std::collections::HashSet;
-use std::path::PathBuf;
+use std::collections::BTreeSet;
 
 use files_safe::Root;
 use notify::{INotifyWatcher, RecursiveMode, Watcher as NotifyWatcher};
@@ -16,15 +16,13 @@ use notify::{INotifyWatcher, RecursiveMode, Watcher as NotifyWatcher};
 use crate::batch::{Change, ChangeKind};
 use crate::error::Error;
 use crate::exclude::Excluder;
-use crate::observed::Flavour;
+use crate::translate::Notice;
 use crate::watch::Events;
 
 /// A set of per-folder inotify watches.
 pub(crate) struct Folders {
     watcher: INotifyWatcher,
-    root: Root,
-    excluder: Excluder,
-    watched: HashSet<String>,
+    watched: BTreeSet<String>,
 }
 
 impl Folders {
@@ -37,67 +35,84 @@ impl Folders {
         let mut folders = Folders {
             watcher: INotifyWatcher::new(events, notify::Config::default())
                 .map_err(|error| Error::Unsupported(error.to_string()))?,
-            root: root.clone(),
-            excluder: excluder.clone(),
-            watched: HashSet::new(),
+            watched: BTreeSet::new(),
         };
-        folders.add_tree("")?;
+        folders.add_tree(root, excluder, "")?;
         Ok(folders)
     }
 
-    pub(crate) fn flavour(&self) -> Flavour {
-        Flavour::native()
-    }
-
-    /// Watches folders that just appeared and reports the files already inside them, because
-    /// their contents can change before the new watch exists.
-    pub(crate) fn adopt(&mut self, changes: &mut Vec<Change>) -> Option<String> {
-        for change in changes.iter() {
-            if change.kind == ChangeKind::Deleted && change.directory {
-                self.forget(&change.path);
+    pub(crate) fn adopt(
+        &mut self,
+        root: &Root,
+        excluder: &Excluder,
+        notices: &mut Vec<Notice>,
+    ) -> Result<(), Error> {
+        // Whatever is gone loses its watches, whatever the event said about it: a rename or a
+        // truncated event cannot always tell a folder from a file.
+        for notice in notices.iter() {
+            if notice.change.kind == ChangeKind::Deleted {
+                self.forget(&notice.change.path);
             }
         }
-        let created: Vec<String> = changes
+        let created: Vec<String> = notices
             .iter()
-            .filter(|change| change.kind == ChangeKind::Created && change.directory)
-            .map(|change| change.path.clone())
+            .filter(|notice| notice.change.kind == ChangeKind::Created && notice.change.directory)
+            .map(|notice| notice.change.path.clone())
             .collect();
         for folder in created {
-            if let Err(error) = self.adopt_tree(&folder, changes) {
-                return Some(format!("cannot watch new folder {folder}: {error}"));
-            }
+            self.adopt_tree(root, excluder, &folder, notices)?;
         }
-        None
+        Ok(())
+    }
+
+    /// After a queue overflow the kernel may have dropped watches: walk the folder again.
+    pub(crate) fn rescan(
+        &mut self,
+        root: &Root,
+        excluder: &Excluder,
+        dir: Option<&str>,
+    ) -> Result<(), Error> {
+        self.add_tree(root, excluder, dir.unwrap_or(""))
     }
 
     pub(crate) fn stop(self) {
         drop(self.watcher);
     }
 
-    fn add_tree(&mut self, dir: &str) -> Result<(), Error> {
+    fn add_tree(&mut self, root: &Root, excluder: &Excluder, dir: &str) -> Result<(), Error> {
         let mut stack = vec![dir.to_owned()];
         while let Some(folder) = stack.pop() {
-            self.add(&folder)?;
-            stack.extend(self.subfolders(&folder));
+            self.add(root, &folder)?;
+            stack.extend(self.subfolders(root, excluder, &folder));
         }
         Ok(())
     }
 
-    fn adopt_tree(&mut self, dir: &str, changes: &mut Vec<Change>) -> Result<(), Error> {
+    fn adopt_tree(
+        &mut self,
+        root: &Root,
+        excluder: &Excluder,
+        dir: &str,
+        notices: &mut Vec<Notice>,
+    ) -> Result<(), Error> {
         let mut stack = vec![dir.to_owned()];
         while let Some(folder) = stack.pop() {
             if self.watched.contains(&folder) {
                 continue;
             }
-            self.add(&folder)?;
-            for (path, is_dir) in self.children(&folder) {
+            self.add(root, &folder)?;
+            for (path, is_dir) in self.children(root, excluder, &folder) {
                 if is_dir {
                     stack.push(path);
                 } else {
-                    changes.push(Change {
-                        path,
-                        kind: ChangeKind::Created,
-                        directory: false,
+                    notices.push(Notice {
+                        change: Change {
+                            path,
+                            kind: ChangeKind::Created,
+                            directory: false,
+                        },
+                        rename: false,
+                        present: Some(false),
                     });
                 }
             }
@@ -105,13 +120,17 @@ impl Folders {
         Ok(())
     }
 
-    /// Adds one non-recursive watch. The inotify budget running out is the one error worth
-    /// giving up on native watching for; a folder we may not watch is skipped.
-    fn add(&mut self, rel: &str) -> Result<(), Error> {
+    /// Adds one non-recursive watch. The inotify budget running out is the one error the
+    /// caller has to act on by switching to polling; a folder we may not watch is skipped.
+    fn add(&mut self, root: &Root, rel: &str) -> Result<(), Error> {
         if !self.watched.insert(rel.to_owned()) {
             return Ok(());
         }
-        let path = self.absolute(rel);
+        let path = if rel.is_empty() {
+            root.path().to_path_buf()
+        } else {
+            root.path().join(rel)
+        };
         if let Err(error) = self.watcher.watch(&path, RecursiveMode::NonRecursive) {
             self.watched.remove(rel);
             if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) {
@@ -123,28 +142,42 @@ impl Folders {
         Ok(())
     }
 
-    fn forget(&mut self, dir: &str) {
-        let prefix = format!("{dir}/");
-        self.watched
-            .retain(|watched| watched != dir && !watched.starts_with(&prefix));
+    /// Drops the watches at and below a path. The range scan keeps this proportional to the
+    /// folders that go away, not to the whole tree.
+    fn forget(&mut self, path: &str) {
+        self.watched.remove(path);
+        let prefix = format!("{path}/");
+        let gone: Vec<String> = self
+            .watched
+            .range(prefix.clone()..)
+            .take_while(|watched| watched.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for watched in gone {
+            self.watched.remove(&watched);
+        }
     }
 
-    fn subfolders(&self, dir: &str) -> Vec<String> {
-        self.children(dir)
+    fn subfolders(&self, root: &Root, excluder: &Excluder, dir: &str) -> Vec<String> {
+        self.children(root, excluder, dir)
             .into_iter()
             .filter(|(_, is_dir)| *is_dir)
             .map(|(path, _)| path)
             .collect()
     }
 
-    /// The immediate children of `dir`, minus everything the excludes keep out.
-    fn children(&self, dir: &str) -> Vec<(String, bool)> {
+    /// The immediate children of `dir`, minus everything the excludes keep out. A symbolic
+    /// link is neither a folder to walk into nor a file to report.
+    fn children(&self, root: &Root, excluder: &Excluder, dir: &str) -> Vec<(String, bool)> {
         let mut children = Vec::new();
-        let Ok(entries) = std::fs::read_dir(self.absolute(dir)) else {
+        let Ok(handle) = root.open_dir(dir) else {
+            return children;
+        };
+        let Ok(entries) = handle.entries() else {
             return children;
         };
         for entry in entries.flatten() {
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
             let path = if dir.is_empty() {
@@ -152,20 +185,12 @@ impl Folders {
             } else {
                 format!("{dir}/{name}")
             };
-            if self.excluder.is_excluded(&path) {
+            if excluder.is_excluded(&path) {
                 continue;
             }
             let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
             children.push((path, is_dir));
         }
         children
-    }
-
-    fn absolute(&self, rel: &str) -> PathBuf {
-        if rel.is_empty() {
-            self.root.path().to_path_buf()
-        } else {
-            self.root.path().join(rel)
-        }
     }
 }

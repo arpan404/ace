@@ -25,6 +25,7 @@
 //! # }
 //! ```
 
+mod adopt;
 mod backend;
 mod batch;
 mod coalesce;
