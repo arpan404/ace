@@ -136,7 +136,12 @@ export function startAccountManagement(context: ServiceContext): void {
     },
   });
   services.accountManagement = management;
-  const initialized = repeatableWarmup(context, "accountManagement", () => management.initialize());
+  // Restoring accounts registers model catalogs with an environment and probes CLIs for limits:
+  // only on the login shell's PATH (`login-path-handoff.ts`); "starting" until then.
+  const initialized = repeatableWarmup(context, "accountManagement", async () => {
+    await options.loginPath?.final;
+    await management.initialize();
+  });
   // Re-read limits well within the staleness window while they matter (a held thread, working
   // agents, a client reading them), so an account that reset or bought more lets its held
   // threads go without anyone asking; otherwise only once a known reset has passed.

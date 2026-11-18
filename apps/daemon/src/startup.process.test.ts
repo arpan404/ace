@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -258,13 +258,17 @@ it("a provider discovery that never settles leaves the engine starting while the
   expect((await daemon.exited)[0]).toBe(0);
 });
 
-/** A daemon entry whose provider discovery reports the PATH it read CLIs on. */
+/**
+ * A daemon entry that reports, when asked, the PATH engine discovery read CLIs on, the PATH of
+ * the first provider status probe, and whether model admission registered a codex instance.
+ */
 function discoveryReporter() {
   const index = new URL("./index.ts", import.meta.url).href;
   return `
     import { startDaemon } from ${JSON.stringify(index)};
     let seen;
     const discovered = new Promise((settle) => (seen = settle));
+    let probedOn;
     const daemon = await startDaemon({
       engine: {
         adapterDiscovery: async () => {
@@ -273,12 +277,27 @@ function discoveryReporter() {
           throw new Error("No provider CLIs here");
         },
       },
+      providerStatus: {
+        probe: async () => {
+          probedOn ??= process.env.PATH;
+          return { code: 1, stdout: "", stderr: "" };
+        },
+      },
     });
-    process.once("message", async () =>
-      process.send({ discoveredOn: await discovered }, () => process.disconnect()),
-    );
+    const until = async (check) => {
+      for (let tries = 0; tries < 100 && !check(); tries++)
+        await new Promise((settle) => setTimeout(settle, 50));
+      return check();
+    };
+    process.once("message", async () => {
+      const discoveredOn = await discovered;
+      await until(() => probedOn !== undefined);
+      const codexModels = await until(() => daemon.models.hasInstance("codex-cli-default"));
+      process.send({ discoveredOn, probedOn, codexModels }, () => process.disconnect());
+    });
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
-    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+    // The daemon's own stop is what is checked; nothing else the fake CLI left may hold the exit.
+    process.once("SIGTERM", () => { void daemon.close().then(() => process.exit(0), () => process.exit(1)); });
   `;
 }
 
@@ -288,13 +307,19 @@ const startedOnSavedPath = {
 };
 
 it("a daemon the app started on a saved PATH reads providers only on the login shell's PATH", async () => {
+  // codex is only in a folder the login shell's PATH has.
+  const login = await mkdtemp(join(tmpdir(), "ace-startup-login-"));
+  cleanups.push(() => rm(login, { recursive: true, force: true }));
+  await writeFile(join(login, "codex"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   const daemon = await launch(discoveryReporter(), undefined, undefined, startedOnSavedPath);
   // Listening and serving already, on the saved PATH; providers wait for the login shell's.
   expect(daemon.status.ready).toBe(true);
   const answer = once(daemon.child, "message");
   daemon.child.send("discovered?");
-  daemon.child.stdin?.end(encodeLoginPathLine("/bundled:/login/bin:/saved/bin"));
-  expect((await answer)[0]).toEqual({ discoveredOn: "/bundled:/login/bin:/saved/bin" });
+  const path = ["/bundled", login, "/saved/bin"].join(":");
+  daemon.child.stdin?.end(encodeLoginPathLine(path));
+  // Engine discovery, provider status and model admission all read CLIs on it.
+  expect((await answer)[0]).toEqual({ discoveredOn: path, probedOn: path, codexModels: true });
   await daemon.client.close();
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
@@ -306,7 +331,10 @@ it.skipIf(process.platform === "win32")(
     const root = await mkdtemp(join(tmpdir(), "ace-startup-shell-"));
     cleanups.push(() => rm(root, { recursive: true, force: true }));
     const shell = join(root, "shell");
-    await writeFile(shell, "#!/bin/sh\nprintf '__ACE_PATH__/shell/bin__ACE_PATH__'\n", {
+    const shellBin = join(root, "bin");
+    await mkdir(shellBin);
+    await writeFile(join(shellBin, "codex"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    await writeFile(shell, `#!/bin/sh\nprintf '__ACE_PATH__${shellBin}__ACE_PATH__'\n`, {
       mode: 0o755,
     });
     const daemon = await launch(discoveryReporter(), undefined, undefined, {
@@ -317,9 +345,8 @@ it.skipIf(process.platform === "win32")(
     daemon.child.send("discovered?");
     // The app quit before its shell answered.
     daemon.child.stdin?.end();
-    expect((await answer)[0]).toEqual({
-      discoveredOn: ["/bundled", "/shell/bin", "/usr/bin", "/bin"].join(":"),
-    });
+    const path = ["/bundled", shellBin, "/usr/bin", "/bin"].join(":");
+    expect((await answer)[0]).toEqual({ discoveredOn: path, probedOn: path, codexModels: true });
     await daemon.client.close();
     daemon.child.kill("SIGTERM");
     expect((await daemon.exited)[0]).toBe(0);

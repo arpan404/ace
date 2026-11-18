@@ -14,6 +14,11 @@ import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation
 import { probeOutput } from "@ace/provider-kit/process";
 
 export interface ProviderStatusOptions extends DiscoveryOptions {
+  /**
+   * Settles once the daemon's PATH is final (`login-path-handoff.ts`). No CLI is probed before:
+   * rows stay `refreshing` meanwhile rather than report what a saved PATH would find.
+   */
+  pathReady?: Promise<unknown>;
   piExecutable?: string;
   configuration?: (
     provider: Status["provider"],
@@ -126,6 +131,7 @@ export class ProviderStatuses {
   private cancelTimer: (() => void) | undefined;
   private lastChecked: number | undefined;
   private readonly first: Promise<void>;
+  private pathFinal = false;
   constructor(options: ProviderStatusOptions, runtime: ProviderStatusRuntime) {
     assertTestEnvironmentIsolation({ ...process.env, ...options.env });
     this.options = options;
@@ -223,6 +229,15 @@ export class ProviderStatuses {
   refresh(): Promise<void> {
     if (this.flight) return this.flight;
     if (this.controller.signal.aborted) return Promise.resolve();
+    const { pathReady } = this.options;
+    if (pathReady && !this.pathFinal) {
+      this.flight = pathReady.then(() => {
+        this.pathFinal = true;
+        this.flight = undefined;
+        return this.refresh();
+      });
+      return this.flight;
+    }
     this.cancelTimer?.();
     this.cancelTimer = undefined;
     const options = {

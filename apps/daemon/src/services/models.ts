@@ -95,13 +95,24 @@ export async function startModels(context: ServiceContext): Promise<void> {
   // hand over; seed them now, before any instance registers and admits discovery.
   if (services.providerStatuses)
     applyInstallations(models, services.providerStatuses.installations());
+  // CLI instances run their CLIs (and the `node` their scripts name) on PATH, and CLI paths are
+  // resolved once and kept: only on the login shell's PATH. A daemon the app started on a saved
+  // PATH waits for it (`login-path-handoff.ts`); any other runs this at once.
+  const loginPath = options.loginPath;
+  const pathFinal = Promise.resolve(loginPath?.final);
+  const afterPath = (run: () => void) => {
+    if (loginPath) void loginPath.final.then(run);
+    else run();
+  };
   const stopConfiguration = context.services.providerConfigurations?.listen(() => {
     models.configurationChanged();
     if (options.modelInstances === undefined)
-      registerConfiguredModelInstances(
-        models,
-        config.dataDir,
-        services.providerConfigurations?.current() ?? [],
+      afterPath(() =>
+        registerConfiguredModelInstances(
+          models,
+          config.dataDir,
+          services.providerConfigurations?.current() ?? [],
+        ),
       );
   });
   if (stopConfiguration) resources.own(stopConfiguration);
@@ -147,14 +158,17 @@ export async function startModels(context: ServiceContext): Promise<void> {
         return () => clearTimeout(timer);
       },
     );
-    registerConfiguredModelInstances(
-      models,
-      config.dataDir,
-      services.providerConfigurations?.current() ?? [],
+    afterPath(() =>
+      registerConfiguredModelInstances(
+        models,
+        config.dataDir,
+        services.providerConfigurations?.current() ?? [],
+      ),
     );
-    services.refreshModelInstances = (provider) =>
-      models.hasInstance(`${provider}-cli-default`)
-        ? Promise.resolve()
+    services.refreshModelInstances = async (provider) => {
+      await pathFinal;
+      return models.hasInstance(`${provider}-cli-default`)
+        ? undefined
         : registerDefaultModelInstances(
             models,
             config.dataDir,
@@ -164,14 +178,17 @@ export async function startModels(context: ServiceContext): Promise<void> {
             services.providerConfigurations?.current() ?? [],
             installationsKnown,
           );
-    const admission = registerDefaultModelInstances(
-      models,
-      config.dataDir,
-      process.env,
-      context.signal,
-      new Set(sdkInstance ? ["cursor"] : []),
-      services.providerConfigurations?.current() ?? [],
-      installationsKnown,
+    };
+    const admission = pathFinal.then(() =>
+      registerDefaultModelInstances(
+        models,
+        config.dataDir,
+        process.env,
+        context.signal,
+        new Set(sdkInstance ? ["cursor"] : []),
+        services.providerConfigurations?.current() ?? [],
+        installationsKnown,
+      ),
     );
     services.modelsReady = admission.then(() => {
       if (!context.signal.aborted) models.revalidate();

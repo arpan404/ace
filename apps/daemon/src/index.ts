@@ -110,13 +110,6 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const clock = options.engine?.clock;
   const now = clock ? () => clock.now() : Date.now;
   const config = options.config ?? readConfig();
-  const diagnostics = options.diagnostics ?? {
-    doctor: () => connectedDoctorReport(config, process.env, now),
-    toolchains: () =>
-      daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
-  };
-  const sharedDiagnostics = shareDiagnostics(diagnostics);
-  options = { ...options, diagnostics: sharedDiagnostics };
   // Started by the desktop app on last launch's PATH: the login shell's follows on stdin, or
   // the daemon asks the shell itself (`login-path-handoff.ts`).
   if (!options.loginPath) {
@@ -128,6 +121,20 @@ export async function startDaemon(options: DaemonOptions = {}) {
     });
     if (loginPath) options = { ...options, loginPath };
   }
+  // The doctor and toolchains find CLIs on PATH: only on the final one.
+  const pathFinal = options.loginPath?.final;
+  const diagnostics = options.diagnostics ?? {
+    doctor: async () => {
+      await pathFinal;
+      return connectedDoctorReport(config, process.env, now);
+    },
+    toolchains: async () => {
+      await pathFinal;
+      return daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir));
+    },
+  };
+  const sharedDiagnostics = shareDiagnostics(diagnostics);
+  options = { ...options, diagnostics: sharedDiagnostics };
   // Reject test path escapes before optional-service failures can be downgraded to degraded startup.
   if (process.env.ACE_TEST_REAL_HOME) {
     // The home boundary above owns ambient HOME; this check owns other path selectors.

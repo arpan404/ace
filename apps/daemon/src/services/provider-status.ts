@@ -56,6 +56,7 @@ export function startProviderStatuses(context: ServiceContext): void {
     {
       ...context.options.providerStatus,
       probe: context.options.providerStatus?.probe ?? probes.probe,
+      ...(context.options.loginPath ? { pathReady: context.options.loginPath.final } : {}),
       antigravity: (signal) => antigravityDiscovery(context, signal),
       modelsAvailable: () =>
         Boolean(
