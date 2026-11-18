@@ -17,9 +17,9 @@
   "dependencies": {
     "@ace/account-grant": "workspace:*",
     "@ace/protocol": "workspace:*",
-    "@ace/service": "workspace:*",
     "@ace/relay": "workspace:*",
     "@ace/secure-channel": "workspace:*",
+    "@ace/service": "workspace:*",
     "@noble/ciphers": "2.0.1",
     "@noble/curves": "2.0.1",
     "@noble/hashes": "2.0.1",
