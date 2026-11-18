@@ -95,7 +95,11 @@ export function SpadeComposer(props: {
   };
   return (
     <ComposerDock>
-      <div className="[--composer-control:var(--spade-composer-button)] [&_[data-slot=composer][data-pill]]:min-h-13">
+      {/*
+        The capsule grows in place: its buttons stay at the bottom edge as the words wrap, and the
+        field keeps the same room above and below its first line.
+      */}
+      <div className="[--composer-control:var(--spade-composer-button)] [&_[data-slot=composer][data-pill]]:min-h-13 [&_[data-slot=composer][data-pill]]:items-end [&_[data-slot=composer][data-pill]]:rounded-[1.625rem] [&_[data-slot=composer][data-pill]]:pb-1.5 [&_[data-slot=composer][data-pill]>[data-slot=composer-input]]:pt-4 [&_[data-slot=composer][data-pill]>[data-slot=composer-input]]:pb-2.5">
         {props.blocked && (
           <p id={reason} className="sr-only">
             {props.blocked}

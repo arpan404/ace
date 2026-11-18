@@ -5,7 +5,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -77,6 +77,7 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
   const picked = keys.flatMap((key) => ordered.filter((choice) => choice.key === key));
   const lead = draftLead(picked, asked);
   const blocked = draftProblem(name, picked);
+  const whyBlocked = useId();
   const where = (choice: MemberChoice) =>
     choice.host === props.primaryHost ? choice.name : `${choice.name} on ${choice.machineName}`;
   const make = async () => {
@@ -113,11 +114,12 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
       }}
     >
       <div className="flex flex-col items-center gap-3">
-        {picked.length > 0 ? (
-          <GroupFaces members={picked} size={72} className="[--faces-cut:var(--background)]" />
-        ) : (
-          <span aria-hidden className="size-18 rounded-full bg-surface-1" />
-        )}
+        {/* The faces once it is a group; until then their room stays, so nothing below moves. */}
+        <div className="flex h-18 items-center">
+          {picked.length >= spadeGroupMembersMin && (
+            <GroupFaces members={picked} size={72} className="[--faces-cut:var(--background)]" />
+          )}
+        </div>
         <input
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- the draft opens to be named
           autoFocus
@@ -172,31 +174,39 @@ function Draft(props: { choices: readonly MemberChoice[]; primaryHost: string })
           );
         })}
       </ul>
-      {picked.length > 1 && lead && (
-        <div className="mt-4 flex min-h-12 items-center gap-3 rounded-xl bg-surface-1 px-3 py-1.5">
-          <span className="min-w-0 flex-1 text-md text-foreground">Messages with no @ go to</span>
-          <Select
-            label="Lead"
-            className="w-32 shrink-0"
-            value={lead.key}
-            options={picked.map((choice) => ({ value: choice.key, label: where(choice) }))}
-            onValueChange={setAsked}
-          />
-        </div>
-      )}
+      {/* Always there, so ticking a member never pushes Make group from under the pointer. */}
+      <div className="mt-4 flex min-h-12 items-center gap-3 rounded-xl bg-surface-1 px-3 py-1.5">
+        <span className="min-w-0 flex-1 text-md text-foreground">Messages with no @ go to</span>
+        <Select
+          label="Lead"
+          className="w-32 shrink-0"
+          value={lead?.key ?? ""}
+          disabled={picked.length < 2}
+          options={
+            lead
+              ? picked.map((choice) => ({ value: choice.key, label: where(choice) }))
+              : [{ value: "", label: "No one yet" }]
+          }
+          onValueChange={setAsked}
+        />
+      </div>
       {problem && (
         <p role="alert" className="mt-4 text-ui text-destructive">
           {problem}
         </p>
       )}
       <div className="mt-5 flex items-center justify-end gap-3">
-        {blocked && name.trim() && <span className="text-ui text-muted-foreground">{blocked}</span>}
+        {blocked && (
+          <span id={whyBlocked} className="text-ui text-muted-foreground">
+            {blocked}
+          </span>
+        )}
         <Button
           type="submit"
           variant="primary"
           className="rounded-full"
           disabled={blocked !== undefined || saving}
-          title={blocked}
+          aria-describedby={blocked ? whyBlocked : undefined}
         >
           {saving ? "Making…" : "Make group"}
         </Button>

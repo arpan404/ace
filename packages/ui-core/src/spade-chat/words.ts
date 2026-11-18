@@ -26,6 +26,11 @@ const tools: Record<string, ToolWords> = {
     done: "Looked for a skill",
   },
   call_tool: { base: "use a tool", doing: "Using a tool", done: "Used a tool" },
+  ask_user: {
+    base: "ask you a question",
+    doing: "Asking you a question",
+    done: "Asked you a question",
+  },
   skill_load: { base: "load a skill", doing: "Reading a skill", done: "Read a skill" },
   skill_propose: {
     base: "suggest a skill",

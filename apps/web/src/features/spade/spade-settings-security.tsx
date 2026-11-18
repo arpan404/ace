@@ -1,16 +1,15 @@
 import {
   spadeSandboxSentence,
-  type SpadeBotDefaults,
   type SpadeNetworkPolicy,
+  type SpadeSecurityMachine,
 } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   SettingCard,
+  SettingDisclosure,
   SettingList,
-  SettingNote,
   SettingRow,
   SettingSection,
-  settingsGroup,
 } from "@/components/setting-row.tsx";
 import { PolicyRows } from "./spade-bot-network.tsx";
 import { CommandsChoice } from "./spade-commands-choice.tsx";
@@ -25,16 +24,12 @@ import {
 import { LoadingRows } from "./spade-settings-loading.tsx";
 import { CouldNotRead, SpadeNotRunning, useSpadeRunning } from "./spade-settings-rows.tsx";
 
-const networks: [SpadeNetworkFor, string, (bots: SpadeBotDefaults) => SpadeNetworkPolicy][] = [
-  ["commands", "Commands", (bots) => bots.network],
-  ["plugins", "Plugins", (bots) => bots.pluginNetwork],
-];
-
 /**
- * Settings › Spade › Security (ADR 0167, 0171): whether this machine seals commands off, where
- * commands run (in the sandbox or outside it), the network rules every bot inherits for its
- * commands and its plugins, and the sites listed by default.
- * Each bot's own rule, folders, grants and checkpoints are in its profile.
+ * Settings › Spade › Security (ADR 0167, 0171): whether this machine seals commands off, said
+ * once as the page's first line; then, for commands, where they run and what they may reach, and
+ * for plugins what they may reach: the rules every bot inherits. The sites listed by default
+ * wait behind their count. Each bot's own rule, folders, grants and checkpoints are in its
+ * profile.
  */
 export function SpadeSecuritySettings() {
   const { line, reading } = useSpadeRunning();
@@ -61,51 +56,48 @@ export function SpadeSecuritySettings() {
         <LoadingRows label="Spade's security settings" rows={3} />
       </SettingCard>
     );
+  const show = (next: SpadeSecurityMachine) => cache.setQueryData(securityMachineKey(key), next);
+  const network = (which: SpadeNetworkFor, policy: SpadeNetworkPolicy) => (
+    <PolicyRows
+      which={which}
+      title="What they can reach"
+      policy={policy}
+      defaults={status.defaults}
+      save={async (next) => show(await setMachineNetwork(client, which, next))}
+    />
+  );
   return (
     <>
-      <div className={settingsGroup}>
-        <SettingCard>
-          <SettingNote>{spadeSandboxSentence(status)}</SettingNote>
-        </SettingCard>
-      </div>
+      <p className="mb-6 text-ui text-muted-foreground">
+        {spadeSandboxSentence(status)} Every bot uses these unless it sets its own.
+      </p>
       <SettingSection label="Commands" anchor="commands">
         <CommandsChoice
+          title="Where they run"
           value={status.bots.commands}
           effective={status.bots.commands}
-          inheritable={false}
           save={async (choice) => {
-            if (choice === "inherit") return;
-            cache.setQueryData(securityMachineKey(key), await setMachineCommands(client, choice));
+            if (choice !== "inherit") show(await setMachineCommands(client, choice));
           }}
         />
+        {network("commands", status.bots.network)}
       </SettingSection>
-      <SettingSection label="Network" anchor="network">
-        <SettingNote>Bots use these unless they set their own.</SettingNote>
-        {networks.map(([which, title, policy]) => (
-          <PolicyRows
-            key={which}
-            which={which}
-            title={title}
-            policy={policy(status.bots)}
-            defaults={status.defaults}
-            save={async (next) =>
-              cache.setQueryData(
-                securityMachineKey(key),
-                await setMachineNetwork(client, which, next),
-              )
-            }
-          />
-        ))}
+      <SettingSection label="Plugins" anchor="plugins">
+        {network("plugins", status.bots.pluginNetwork)}
       </SettingSection>
       {status.defaults.length > 0 && (
         <SettingSection label="Sites listed by default" anchor="sites">
-          <SettingList aria-label="Sites listed by default">
-            {status.defaults.map((host) => (
-              <li key={host}>
-                <SettingRow title={host} density="compact" />
-              </li>
-            ))}
-          </SettingList>
+          <SettingDisclosure
+            title={`${status.defaults.length} ${status.defaults.length === 1 ? "site" : "sites"}`}
+          >
+            <SettingList aria-label="Sites listed by default">
+              {status.defaults.map((host) => (
+                <li key={host}>
+                  <SettingRow title={host} density="compact" />
+                </li>
+              ))}
+            </SettingList>
+          </SettingDisclosure>
         </SettingSection>
       )}
     </>

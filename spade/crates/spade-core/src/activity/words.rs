@@ -52,6 +52,12 @@ const TOOLS: &[(&str, &str, &str, &str)] = &[
     ),
     ("call_tool", "use a tool", "Using a tool", "Used a tool"),
     (
+        "ask_user",
+        "ask you a question",
+        "Asking you a question",
+        "Asked you a question",
+    ),
+    (
         "skill_load",
         "load a skill",
         "Reading a skill",
@@ -514,6 +520,12 @@ mod tests {
         assert_eq!(tool_words("ace__screen_act").done, "Used an app");
         assert_eq!(tool_words("linear__create_issue").base, "use create issue");
         assert_eq!(tool_words("ace_thread_start").doing, "Using thread start");
+    }
+
+    #[test]
+    fn asking_the_person_reads_as_a_question_not_a_tool_name() {
+        assert_eq!(tool_words("ask_user").done, "Asked you a question");
+        assert_eq!(tool_words("ask_user").doing, "Asking you a question");
     }
 
     #[test]

@@ -13,13 +13,22 @@ export const spadeNetworkModes: readonly { value: SpadeNetworkMode; label: strin
   { value: "open", label: "Open" },
 ];
 
+/**
+ * The machine Spade runs on, as the person names it from the platform it reports: "this Mac" on
+ * macOS, else "this computer". Undefined (not read yet) is "this computer", never a guess.
+ */
+export function spadeMachinePlace(platform: string | undefined): string {
+  return platform === "macos" || platform === "darwin" ? "this Mac" : "this computer";
+}
+
 /** The machine's sandbox in one sentence. */
 export function spadeSandboxSentence(machine: SpadeSecurityMachine): string {
-  const place = machine.platform === "macos" ? "this Mac" : "this computer";
+  const place = spadeMachinePlace(machine.platform);
   if (machine.contained) return `Commands run sealed off on ${place}.`;
-  const computer = machine.platform === "macos" ? "This Mac" : "This computer";
-  return `${computer} can't seal commands off yet, so Spade asks before they run.`;
+  return `${capital(place)} can't seal commands off yet, so Spade asks before they run.`;
 }
+
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** A grant as a sentence: "Push to `spade/*` of arpan404/ace". */
 export function spadeGrantSentence(grant: SpadeGrant): string {

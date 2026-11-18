@@ -88,3 +88,18 @@ test("an idle bot's empty composer draws voice off, saying it is coming, and Sen
   expect(await screen.findByRole("button", { name: /^(Send|Steer message)$/ })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Talk with Garden" })).toBeNull();
 });
+
+test("the composer stays one capsule row while words are typed, and opens only for a file", async () => {
+  await spadeApp("/spade/garden", garden);
+  await feed("Garden");
+  const field = await screen.findByRole("combobox", { name: "Message Garden" });
+  const capsule = () => field.closest("[data-slot=composer]");
+  await waitFor(() => expect(capsule()?.hasAttribute("data-pill")).toBe(true));
+  await userEvent.type(field, "water the ferns on Friday");
+  expect(capsule()?.hasAttribute("data-pill")).toBe(true);
+  await userEvent.upload(
+    capsule()?.querySelector<HTMLInputElement>("input[type=file]") as HTMLInputElement,
+    new File(["x"], "plan.txt", { type: "text/plain" }),
+  );
+  await waitFor(() => expect(capsule()?.hasAttribute("data-pill")).toBe(false));
+});

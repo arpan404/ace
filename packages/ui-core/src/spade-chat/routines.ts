@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatClock } from "../time.ts";
 import { spadeJson } from "./json.ts";
 
 /*
@@ -179,11 +180,13 @@ export function spadeRunWords(run: SpadeRun): string {
 }
 
 /**
- * When something runs, relative to `now` in `timeZone`, standing alone: `9:00` today, `Tomorrow
- * 9:00`, `Fri 9:00` within a week, else `Nov 20, 9:00`.
+ * When something runs, relative to `now` in `timeZone`, standing alone: `9:00 AM` today,
+ * `Tomorrow 9:00 AM`, `Fri 9:00 AM` within a week, else `Nov 20, 9:00 AM`. The clock is the
+ * reader's (`locale`, undefined for theirs), as the chat's time lines have it: 24-hour only
+ * where the locale is.
  */
-export function spadeWhen(at: number, now: number, timeZone: string): string {
-  const when = spadeWhenInSentence(at, now, timeZone);
+export function spadeWhen(at: number, now: number, timeZone: string, locale?: string): string {
+  const when = spadeWhenInSentence(at, now, timeZone, locale);
   return when.charAt(0).toUpperCase() + when.slice(1);
 }
 
@@ -191,15 +194,16 @@ export function spadeWhen(at: number, now: number, timeZone: string): string {
  * The same, inside a sentence after a label: `Next: tomorrow 9:00`, `Next: Fri 9:00`. Only the
  * relative days are lower case; weekdays and months stay names.
  */
-export function spadeWhenInSentence(at: number, now: number, timeZone: string): string {
+export function spadeWhenInSentence(
+  at: number,
+  now: number,
+  timeZone: string,
+  locale?: string,
+): string {
   const zone = safeZone(timeZone);
   const day = (ms: number) =>
     new Intl.DateTimeFormat("en-CA", { timeZone: zone, dateStyle: "short" }).format(ms);
-  const clock = new Intl.DateTimeFormat("en-GB", {
-    timeZone: zone,
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(at);
+  const clock = formatClock(at, locale, zone);
   const days = Math.round((Date.parse(day(at)) - Date.parse(day(now))) / 86_400_000);
   if (days === 0) return clock;
   if (days === 1) return `tomorrow ${clock}`;
