@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { failureSentence } from "./market-model.ts";
 import { Avatar } from "./market-marks.tsx";
 import { useMarketPicture, usePublishAction } from "./market-publishing.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * Making and editing your publisher profile (ADR 0174 §3): a handle and a name to start, then
@@ -52,7 +53,9 @@ export function MakeProfile() {
   };
   return (
     <div className="mk-form" style={{ maxWidth: 480, marginTop: 8 }}>
-      <h1 className="mk-display-sm">Make your publisher profile</h1>
+      <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
+        Make your publisher profile
+      </h1>
       <p className="mk-lead" style={{ fontSize: 15 }}>
         People see it on everything you publish.
       </p>

@@ -120,7 +120,13 @@ export function Byline(props: {
   // "By ace" is the official mark: only for ace's own publisher by the signed list, never a name.
   const label = props.ace ? "By ace" : `Published by ${props.name}`;
   return props.onOpen ? (
-    <button type="button" className="mk-by" aria-label={label} onClick={props.onOpen}>
+    <button
+      type="button"
+      {...part("link", undefined, "publisher")}
+      className="mk-by"
+      aria-label={label}
+      onClick={props.onOpen}
+    >
       {inner}
     </button>
   ) : (

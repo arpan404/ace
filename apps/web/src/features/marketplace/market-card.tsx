@@ -150,9 +150,11 @@ export function Section(props: {
       aria-label={props.title}
     >
       <div className="mk-section-head">
-        <h2 className="mk-h2">{props.title}</h2>
+        <h2 {...part("section-title", undefined, "market")} className="mk-h2">
+          {props.title}
+        </h2>
         {props.all ? (
-          <button type="button" className="mk-quiet" onClick={props.all}>
+          <button type="button" {...part("link")} className="mk-quiet" onClick={props.all}>
             See all
           </button>
         ) : props.meta !== undefined ? (

@@ -63,7 +63,7 @@ export function PrSection(props: {
       <div
         className={`sticky top-0 z-1 -mx-[var(--forge-gutter,1rem)] flex h-8 items-center gap-1 bg-panel px-[var(--forge-gutter,1rem)] ${sceneBar}`}
       >
-        <h3 className="min-w-0">
+        <h3 {...part("section-title")} className="min-w-0">
           {props.fixed ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               {heading}

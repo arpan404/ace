@@ -2,7 +2,7 @@ import { Activity, createElement, Suspense, useEffect, useRef, type ReactNode } 
 import { RegionScene } from "@/features/suits/index.ts";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { cn } from "@/lib/cn.ts";
-import { boundaryMarker, controlDivider, toolbarEdge } from "@/components/ui/rules.ts";
+import { boundaryMarker, controlDivider, panelReveal, toolbarEdge } from "@/components/ui/rules.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import {
   PanelPlaceContext,
@@ -16,7 +16,6 @@ import { roomLimits, type PanelMode } from "@/lib/shell-room.ts";
 import { clampToBounds, type Bounds } from "./bounds.ts";
 import { useFocusBackOnHide } from "./panel-focus.ts";
 import { TabContent } from "./tab-content.tsx";
-import { panelReveal } from "./panel-reveal.ts";
 
 // The close question ships with the panel: a tab can only be closed once the panel has loaded.
 export { CloseConfirm } from "./close-confirm.tsx";

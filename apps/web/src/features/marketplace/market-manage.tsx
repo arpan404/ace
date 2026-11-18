@@ -14,6 +14,7 @@ import { useMarketNav } from "./market-nav.ts";
 import { VersionState } from "./market-profile.tsx";
 import { useOwnEntry, usePublishAction } from "./market-publishing.ts";
 import { Stage } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * Managing one of your entries (ADR 0174 §5): its listing's words, every version with its state
@@ -234,7 +235,9 @@ function Manage(props: { entry: MarketOwnEntry }) {
           size="small"
         />
         <div style={{ display: "grid", gap: 4 }}>
-          <h1 className="mk-display-sm">{summary.title}</h1>
+          <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
+            {summary.title}
+          </h1>
           <span className="mk-line">
             {[
               typeWord(summary.type),

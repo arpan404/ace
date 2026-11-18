@@ -23,6 +23,7 @@ import { canDoSentences, entryAction, failureSentence, typeWord } from "./market
 import { TypeMark } from "./market-marks.tsx";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
 import { AppMark, SuitPicture, Stage } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * One entry, as a page pushed over its place: a bot with its face large on its colour and what
@@ -66,7 +67,9 @@ function BotPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
         )}
         <div className="mk-entry-hero-words">
           <span className="mk-line">Bot</span>
-          <h1 className="mk-display">{summary.title}</h1>
+          <h1 {...part("page-title", undefined, "market")} className="mk-display">
+            {summary.title}
+          </h1>
           <p className="mk-lead">{summary.line}</p>
           <EntrySub entry={summary} />
           <EntryBlocked detail={props.detail} />
@@ -102,7 +105,9 @@ function RecipeRows(props: { body: Recipe }) {
     <>
       {body.routines.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Routines</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Routines
+          </h3>
           {body.routines.map((routine) => (
             <div key={routine.name} className="mk-fact-row">
               <span className="mk-words">
@@ -116,7 +121,9 @@ function RecipeRows(props: { body: Recipe }) {
       )}
       {body.needs.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Apps</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Apps
+          </h3>
           {body.needs.map((need) => (
             <div key={need.key} className="mk-fact-row">
               <AppMark name={need.label} size={32} />
@@ -131,7 +138,9 @@ function RecipeRows(props: { body: Recipe }) {
       )}
       {body.brings.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">What it brings</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            What it brings
+          </h3>
           {body.brings.map((brought) => (
             <div key={`${brought.type}/${brought.name}`} className="mk-fact-row">
               <span className="mk-words">
@@ -192,7 +201,9 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
       <div className="mk-entry-head">
         <div className="mk-words">
           <span className="mk-line">Suit</span>
-          <h1 className="mk-display">{summary.title}</h1>
+          <h1 {...part("page-title", undefined, "market")} className="mk-display">
+            {summary.title}
+          </h1>
           <EntrySub entry={summary} />
           <EntryBlocked detail={props.detail} />
         </div>
@@ -266,7 +277,9 @@ function ToolPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
       <div className="mk-entry-head">
         <div className="mk-words">
           <span className="mk-line">{typeWord(summary.type)}</span>
-          <h1 className="mk-display">{summary.title}</h1>
+          <h1 {...part("page-title", undefined, "market")} className="mk-display">
+            {summary.title}
+          </h1>
           <EntrySub entry={summary} />
           <EntryBlocked detail={props.detail} />
         </div>
