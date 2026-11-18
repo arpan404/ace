@@ -66,7 +66,7 @@ struct ProviderSettingsView: View {
             .insetRowBackground()
             OtherProvidersSections(model: model, others: others)
             Section {
-                NavigationLink { AcpRegistryView(model: model) } label: { InsetRow("Add agent", systemImage: "plus") }
+                NavigationLink { AcpRegistryView(model: model) } label: { AddRow("Add agent") }
             }
             .insetRowBackground()
             if let problem = model.providers?.problem { ServiceProblem(message: problem).listRowBackground(Color.clear) }

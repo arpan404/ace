@@ -33,11 +33,7 @@ struct AutomationsView: View {
     var body: some View {
         List {
             Section {
-                Button { creating = true } label: {
-                    Text("New automation").font(AceDesign.Typeface.body)
-                        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
+                Button { creating = true } label: { AddRow("New automation") }
                 .disabled(!model.canOperate || unavailable)
                 .accessibilityIdentifier("automations.new")
                 if !model.canOperate {

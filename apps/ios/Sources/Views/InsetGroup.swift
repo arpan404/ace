@@ -10,6 +10,12 @@ extension View {
             .background(AceDesign.Surface.background)
             .modifier(InsetRowDensity())
             .listSectionSpacing(AceDesign.Space.group)
+            .barEdge()
+    }
+    /// Rows scroll under the navigation bar behind a firm edge, so none reads through the title
+    /// (iOS 26's hard scroll-edge effect; before it the system bar's own material).
+    @ViewBuilder func barEdge() -> some View {
+        if #available(iOS 26, *) { scrollEdgeEffectStyle(.hard, for: .top) } else { self }
     }
     /// Rows pass under the bottom search field behind a firm edge, so none reads through it.
     @ViewBuilder func searchBarEdge() -> some View {
@@ -23,7 +29,7 @@ extension View {
 /// page it pushes gets it too.
 struct SystemSwitchStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
-        Toggle(configuration).toggleStyle(.switch).tint(AceDesign.Ink.accent)
+        Toggle(configuration).toggleStyle(.switch).tint(AceDesign.Ink.action)
     }
 }
 
@@ -72,30 +78,55 @@ struct InsetRow<Trailing: View>: View {
         self.trailing = trailing
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// At accessibility sizes the row stacks: the glyph stays at the leading edge, the title
+    /// wraps at word breaks across the row's width and the trailing view goes under it, so a
+    /// value or a switch never squeezes a word apart.
     var body: some View {
-        HStack(spacing: AceDesign.Space.groupGlyphGap) {
-            switch glyph {
-            case .symbol(let name)?:
-                Image(systemName: name).font(.system(size: glyphSize - AceDesign.Space.tight, weight: AceDesign.Typeface.regular))
-                    .foregroundStyle(AceDesign.Ink.muted)
-                    .frame(width: glyphSize).accessibilityHidden(true)
-            case .ace(let name)?:
-                AceIcon(name, size: AceDesign.Size.groupGlyph, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.muted)
-                    .frame(width: glyphSize)
-            case nil:
-                EmptyView()
-            }
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
-                if let subtitle {
-                    Text(subtitle).aceFont(AceDesign.TextRole.meta)
-                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+        HStack(alignment: stacked ? .firstTextBaseline : .center, spacing: AceDesign.Space.groupGlyphGap) {
+            glyphView
+            if stacked {
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    words
+                    trailing()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                words
+                Spacer(minLength: AceDesign.Space.related)
+                trailing()
             }
-            Spacer(minLength: AceDesign.Space.related)
-            trailing()
         }
         .contentShape(Rectangle())
+    }
+
+    private var stacked: Bool { typeSize.isAccessibilitySize }
+
+    @ViewBuilder private var glyphView: some View {
+        switch glyph {
+        case .symbol(let name)?:
+            Image(systemName: name).font(.system(size: glyphSize - AceDesign.Space.tight, weight: AceDesign.Typeface.regular))
+                .foregroundStyle(AceDesign.Ink.muted)
+                .frame(width: glyphSize).accessibilityHidden(true)
+        case .ace(let name)?:
+            AceIcon(name, size: AceDesign.Size.groupGlyph, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.muted)
+                .frame(width: glyphSize).accessibilityHidden(true)
+        case nil:
+            EmptyView()
+        }
+    }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            Text(title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle).aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(stacked ? nil : 1)
+            }
+        }
+        .layoutPriority(1)
     }
 }
 
@@ -110,13 +141,37 @@ extension InsetRow where Trailing == InsetValue {
     }
 }
 
+/// The one row that adds something to the list above it ("Add account", "New automation"): a
+/// plus in the glyph column and the words, both in the action colour, at the row's height. A
+/// label, so it goes in a Button or a NavigationLink.
+struct AddRow: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+    @ScaledMetric(relativeTo: .subheadline) private var glyphSize = AceDesign.Size.groupGlyph
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.groupGlyphGap) {
+            Image(systemName: "plus").font(.system(size: glyphSize - AceDesign.Space.tight, weight: AceDesign.Typeface.strong))
+                .frame(width: glyphSize).accessibilityHidden(true)
+            Text(title).aceFont(AceDesign.TextRole.rowTitle).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: AceDesign.Space.related)
+        }
+        .foregroundStyle(AceDesign.Ink.action)
+        .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
+        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
 /// The muted trailing value of an inset row.
 struct InsetValue: View {
     let text: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         if let text {
             Text(text).aceFont(AceDesign.TextRole.action)
-                .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
+                .foregroundStyle(AceDesign.Ink.subtle).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
         }
     }
 }

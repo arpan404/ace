@@ -70,7 +70,7 @@ struct ProviderAccountsView: View {
                     ForEach(screen.accounts) { account in section(account, screen: screen) }
                     if model.canOperate {
                         Section {
-                            Button("Add account") { adding = true }.frame(minHeight: AceDesign.Size.tap)
+                            Button { adding = true } label: { AddRow("Add account") }
                         } footer: {
                             let lines = [screen.accounts.isEmpty ? "No accounts yet." : nil, screen.apiKey].compactMap { $0 }
                             if !lines.isEmpty { Text(lines.joined(separator: " ")) }
