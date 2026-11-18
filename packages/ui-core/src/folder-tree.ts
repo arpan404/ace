@@ -102,6 +102,20 @@ export function toggledFolders(
   return next;
 }
 
+/**
+ * The open folders that are actually on screen: a folder shows only while every folder above
+ * it is open too. Root is always visible; a folder whose parent was folded is neither listed
+ * nor watched until its parent opens again, though what it loaded is kept.
+ */
+export function visibleFolders(open: Iterable<string>): ReadonlySet<string> {
+  const all = new Set([""]);
+  for (const folder of open) if (folder) all.add(folderKey(folder));
+  const visible = new Set([""]);
+  for (const folder of all)
+    if (folder && ancestorFolders(folder).every((parent) => all.has(parent))) visible.add(folder);
+  return visible;
+}
+
 /** Start listing `folder`: a first page forgets the old cursor, a later page keeps it. */
 export function startingFolderPage(
   folders: FolderStates,
@@ -173,6 +187,28 @@ export function folderPageFailed(
   return { ...folders, [folder]: { ...state, loading: false, error: failure.message } };
 }
 
+/**
+ * The request for `folder` was stopped (it was folded, the tree paused or the connection went
+ * away): nothing is on its way any more, so it is no longer loading.
+ */
+export function folderStopped(folders: FolderStates, folder: string): FolderStates {
+  const state = folders[folder];
+  if (!state?.loading) return folders;
+  return { ...folders, [folder]: { ...state, loading: false } };
+}
+
+/**
+ * What Try again asks for after a failure: the page that failed. A failed next page keeps its
+ * cursor, so it asks for that page; a failed first page (or a folder with no error) starts over.
+ */
+export function folderRetry(
+  state: FolderState | undefined,
+): { mode: "first" } | { mode: "more"; cursor: string } {
+  if (state?.error && typeof state.nextCursor === "string")
+    return { mode: "more", cursor: state.nextCursor };
+  return { mode: "first" };
+}
+
 /** A row of the tree the virtual list draws. Entry rows carry a checkout path. */
 export interface FolderRow {
   /** The row's path for an entry; a synthetic key for a loading, more or error row. */
@@ -182,6 +218,8 @@ export interface FolderRow {
   depth: number;
   /** A folder's row only: whether its children show. */
   expanded: boolean;
+  /** A folder's row only: whether its children are on their way. */
+  busy: boolean;
   /** Listed but excluded by the checkout's gitignore rules: shown, dimmed. */
   ignored: boolean;
   /** The folder a loading, more or error row belongs to. */
@@ -190,14 +228,24 @@ export interface FolderRow {
   error?: string;
 }
 
-const row = (entry: FolderEntry, depth: number, expanded: boolean): FolderRow => ({
-  key: entryOpens(entry) ? folderKey(entry.path) : entry.path,
-  kind: entryOpens(entry) ? "folder" : "file",
-  name: entry.name,
-  depth,
-  expanded,
-  ignored: entry.ignored,
-});
+const row = (
+  entry: FolderEntry,
+  depth: number,
+  expanded: boolean,
+  folders: FolderStates,
+): FolderRow => {
+  const opens = entryOpens(entry);
+  const state = folders[folderKey(entry.path)];
+  return {
+    key: opens ? folderKey(entry.path) : entry.path,
+    kind: opens ? "folder" : "file",
+    name: entry.name,
+    depth,
+    expanded,
+    busy: opens && expanded && (state === undefined || state.loading),
+    ignored: entry.ignored,
+  };
+};
 
 /** Whether an entry opens into a folder: a folder, or a link to one. */
 export function entryOpens(entry: FolderEntry): boolean {
@@ -217,6 +265,7 @@ function statusRow(
     name,
     depth,
     expanded: false,
+    busy: false,
     ignored: false,
     folder,
     ...(error === undefined ? {} : { error }),
@@ -225,8 +274,9 @@ function statusRow(
 
 /**
  * The rows the tree shows: the root's entries, then every open folder's entries under their
- * folder. A folder whose first page is on its way shows one Loading… row; a folder with another
- * page shows Show more, which asks for it. Folders that aren't open list nothing.
+ * folder. A folder with nothing listed yet shows one Loading… row; a folder with entries that
+ * is still loading keeps them. A folder with another page shows Show more, which asks for it.
+ * Folders that aren't open list nothing.
  */
 export function folderRows(folders: FolderStates, expanded: ReadonlySet<string>): FolderRow[] {
   const rows: FolderRow[] = [];
@@ -238,10 +288,11 @@ export function folderRows(folders: FolderStates, expanded: ReadonlySet<string>)
     }
     for (const entry of state.entries) {
       const open = entryOpens(entry) && expanded.has(folderKey(entry.path));
-      rows.push(row(entry, depth, open));
+      rows.push(row(entry, depth, open, folders));
       if (open) walk(folderKey(entry.path), depth + 1);
     }
-    if (state.loading) rows.push(statusRow("loading", folder, depth + 1, "Loading…"));
+    if (state.loading && state.entries.length === 0)
+      rows.push(statusRow("loading", folder, depth + 1, "Loading…"));
     if (state.error) rows.push(statusRow("error", folder, depth + 1, state.error, state.error));
     if (!state.loading && !state.error && state.nextCursor)
       rows.push(statusRow("more", folder, depth + 1, "Show more"));
