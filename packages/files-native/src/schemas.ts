@@ -175,6 +175,7 @@ export const eventPayloadSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("rescan"), dir: z.string().optional() }),
   z.object({ type: z.literal("warning"), message: z.string() }),
   z.object({ type: z.literal("matches"), file: fileMatchesSchema }),
+  z.object({ type: z.literal("searchFailed"), code: z.string(), message: z.string() }),
   z.object({ type: z.literal("searchDone"), summary: summarySchema }),
 ]);
 

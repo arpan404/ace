@@ -29,7 +29,12 @@
 //! Optional fields are left out of the JSON when they are absent. Unknown fields in incoming JSON
 //! are ignored, so either side can add one without a protocol bump. Every nested value is tagged
 //! too: a response's `result.type` says which op it answers, an event payload's `type` says which
-//! event it is, and a listed entry's `kind.type` is `file`, `directory`, `symlink` or `other`.
+//! event it is (`changes`, `rescan`, `warning`, `matches`, `searchFailed` or `searchDone`), and a
+//! listed entry's `kind.type` is `file`, `directory`, `symlink` or `other`.
+//!
+//! A `search` request is answered exactly once, by the `response` that carries its subscription.
+//! Anything that goes wrong after that — including a pattern the searcher could not compile — is a
+//! `searchFailed` event on that subscription, never a second answer with the request id.
 //!
 //! A kind-1 payload that does not parse still yields its request `id` through [`Error::id`], and
 //! an op tag this build does not know comes back as `UNSUPPORTED`, so an older binary answers the

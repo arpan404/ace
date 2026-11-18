@@ -61,25 +61,29 @@ impl Shared {
         }
     }
 
-    /// Finish a search: the summary when it ran to the end, and an `ABORTED` error when it was
-    /// stopped, since the daemon should know the request never finished. A search that ran to the
-    /// end after its subscription was closed sends the summary nowhere.
+    /// Finish a search: the summary when it ran to the end, and a `searchFailed` event when it
+    /// stopped early, since the daemon should know the request never finished. The request itself
+    /// was answered when its subscription was handed out, so neither outcome is a second reply: a
+    /// search that ran to the end after its subscription was closed reports nowhere.
     pub fn finish_search(&self, id: u64, subscription: u64, outcome: Result<Summary, Error>) {
         let open = matches!(self.subscriptions.remove(subscription), Ok(Some(_)));
-        match outcome {
-            Ok(summary) => {
-                self.requests.finish(id);
-                if open {
-                    self.out.send(Message::Event {
-                        subscription,
-                        payload: EventPayload::SearchDone {
-                            summary: convert::summary(summary),
-                        },
-                    });
-                }
-            }
-            Err(error) => self.respond(id, Err(error)),
+        self.requests.finish(id);
+        if !open {
+            return;
         }
+        let payload = match outcome {
+            Ok(summary) => EventPayload::SearchDone {
+                summary: convert::summary(summary),
+            },
+            Err(error) => EventPayload::SearchFailed {
+                code: error.code().to_owned(),
+                message: error.to_string(),
+            },
+        };
+        self.out.send(Message::Event {
+            subscription,
+            payload,
+        });
     }
 }
 

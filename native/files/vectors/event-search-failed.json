@@ -1,0 +1,13 @@
+{
+  "json": {
+    "payload": {
+      "code": "ABORTED",
+      "message": "the search was stopped",
+      "type": "searchFailed"
+    },
+    "subscription": 4,
+    "type": "event"
+  },
+  "text": "{\"type\":\"event\",\"subscription\":4,\"payload\":{\"type\":\"searchFailed\",\"code\":\"ABORTED\",\"message\":\"the search was stopped\"}}",
+  "frame": "78000000017b2274797065223a226576656e74222c22737562736372697074696f6e223a342c227061796c6f6164223a7b2274797065223a227365617263684661696c6564222c22636f6465223a2241424f52544544222c226d657373616765223a2274686520736561726368207761732073746f70706564227d7d"
+}

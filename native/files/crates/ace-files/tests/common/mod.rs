@@ -308,6 +308,46 @@ impl Client {
         }
     }
 
+    /// Check that no reply for `id` arrives within `window`: the request was answered once.
+    pub fn expect_no_reply(&mut self, id: u64, window: Duration) {
+        let deadline = Instant::now() + window;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return;
+            }
+            match self.frames.recv_timeout(remaining) {
+                Err(_) => return,
+                Ok(Frame::Body { id, bytes }) => self.bodies.push_back((id, bytes)),
+                Ok(Frame::Message(message)) => {
+                    if let Message::Response { id: got, .. } | Message::Error { id: got, .. } =
+                        &message
+                        && *got == id
+                    {
+                        panic!("request {id} was answered twice: {message:?}");
+                    }
+                    self.pending.push_back(message);
+                }
+            }
+        }
+    }
+
+    /// Check that nothing at all arrives within `window`.
+    pub fn expect_silence(&mut self, window: Duration) {
+        let deadline = Instant::now() + window;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return;
+            }
+            match self.frames.recv_timeout(remaining) {
+                Err(_) => return,
+                Ok(Frame::Body { id, bytes }) => self.bodies.push_back((id, bytes)),
+                Ok(Frame::Message(message)) => panic!("expected silence, got {message:?}"),
+            }
+        }
+    }
+
     /// Wait for the binary to report `wanted` live roots, as `ACE_FILES_LIVE_ROOTS` makes it.
     ///
     /// A root the process forgot to release (a watcher that still points at it, say) never reaches
