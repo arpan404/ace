@@ -295,7 +295,10 @@ test("linking to an id merged here into another links to that other one", async 
 test("without authority a link is refused the same for a project that exists and one that doesn't", async () => {
   const d = await daemon();
   const a = d.legacy("a");
-  const missing = { type: "workspace.identity.unlink", workspaceId: "no-such-project" } as const;
+  const missing = {
+    type: "workspace.identity.unlink",
+    workspaceId: "no-such-project" as WorkspaceId,
+  } as const;
   const present = { type: "workspace.identity.unlink", workspaceId: a } as const;
   const [one, two] = [
     await d.command(missing, undefined, refused),
