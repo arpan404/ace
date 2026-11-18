@@ -1,5 +1,6 @@
 import { encodeBase64url, verifyCloudGrant } from "@ace/account-grant";
 import type { GrantKeySet } from "@ace/account-grant";
+import type { ServerGate } from "@ace/service/client-features";
 import { jsonBody } from "../account/respond.ts";
 import type { App, Client, ConfiguredApp } from "./apps.ts";
 import { maker } from "./maker.ts";
@@ -286,7 +287,8 @@ export function broker(deps: BrokerDeps) {
   }
 
   return {
-    async handle(request: Request): Promise<Response> {
+    /** `_gate` says which gated features the calling app supports (ADR 0189); none is gated yet. */
+    async handle(request: Request, _gate: ServerGate): Promise<Response> {
       const url = new URL(request.url);
       const back = callbackPath.exec(url.pathname)?.[1];
       if (back) {

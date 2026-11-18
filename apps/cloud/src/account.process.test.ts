@@ -127,6 +127,39 @@ it("ace keeps no usable token at rest and sign-out ends the session at once", as
   expect((await request("/v1/account/session", bearer(grant.token))).status).toBe(401);
 });
 
+it("an app's ace-client name, garbled or missing, never changes how the account API answers it", async () => {
+  // Header (apps outside a browser) or query parameter (browsers), from a caller address of its
+  // own: the rest of this file nearly fills the shared one's rate limit.
+  const answers = new Set<string>();
+  for (const [path, client] of [
+    ["/v1/account/session", undefined],
+    ["/v1/account/session", "desktop/0.0.24-beta.1"],
+    ["/v1/account/session", "garbled"],
+    [`/v1/account/session?ace-client=${encodeURIComponent("web/0.0.24-beta.1")}`, undefined],
+  ] as const) {
+    const response = await request(path, {
+      headers: {
+        Authorization: "Bearer not-a-session",
+        "CF-Connecting-IP": "192.0.2.89",
+        ...(client ? { "ace-client": client } : {}),
+      },
+    });
+    answers.add(`${response.status} ${await response.text()}`);
+  }
+  expect([...answers]).toEqual(['401 {"error":"unauthenticated"}']);
+  const preflight = await request("/v1/account/session", {
+    method: "OPTIONS",
+    headers: {
+      Origin: "app://ace",
+      "Access-Control-Request-Headers": "authorization,ace-client",
+      "CF-Connecting-IP": "192.0.2.89",
+    },
+  });
+  expect(preflight.headers.get("access-control-allow-headers")?.toLowerCase()).toContain(
+    "ace-client",
+  );
+});
+
 it("WorkOS revocation ends an ace session while WorkOS outages leave it retryable", async () => {
   const grant = await signedIn();
   const read = () => request("/v1/account/session", bearer(grant.token));

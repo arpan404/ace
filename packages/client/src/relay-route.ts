@@ -1,4 +1,5 @@
 import { ChannelClose, MachineCodeRefusal } from "@ace/protocol";
+import type { AceClient } from "@ace/protocol/ace-client";
 import { relayGrant, type Credential } from "./credentials.ts";
 import { ephemeralRelayKeys } from "./device-route.ts";
 import { relayCompression } from "./inflate.ts";
@@ -23,6 +24,8 @@ export interface RelayRouteOptions {
   relayUrl: string;
   /** The host key to pin: the machine's relay host id (its base32 fingerprint). */
   hostId: string;
+  /** This app's `ace-client` name (ADR 0189), for the relay's upgrade. */
+  aceClient?: AceClient | undefined;
   /**
    * A fresh credential for each connection attempt: a one-use ticket, or an account device
    * grant (five minutes) with the machine code once the person typed it. A grant is offered
@@ -177,6 +180,7 @@ export function relayRoute(options: RelayRouteOptions): {
               connectPortableRelay({
                 relayUrl: options.relayUrl,
                 pinnedFingerprint: options.hostId,
+                aceClient: options.aceClient,
                 socket: (url, protocols) => {
                   const socket = options.socket(url, protocols);
                   socket.addEventListener("open", () => {

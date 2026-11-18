@@ -23,7 +23,8 @@ Stable, a beta build on Beta. The first build that runs saves its line as the pe
 so a beta install stays on Beta after it updates to a stable release.
 
 **macOS arm64 only.** `release:beta` refuses any other platform or architecture until the
-owner says otherwise.
+owner says otherwise. (Amended by [ADR 0188](0188-tag-driven-release-pipeline.md): betas are
+built for macOS arm64, Linux x64 and arm64, and Windows x64.)
 
 **Names.** A beta is a GitHub prerelease on `arpan404/ace`. It is never marked latest.
 

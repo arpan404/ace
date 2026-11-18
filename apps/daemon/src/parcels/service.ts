@@ -88,6 +88,7 @@ export function startParcels(context: ServiceContext): void {
   };
   const relay = new RelayLink({
     connect: options.parcels?.connectRelay ?? connectClientViaRelay,
+    aceClient: config.aceClient,
     // ace's relay admits only devices on the machine's own account (ADR 0111).
     // Only ace's own relay ever gets an account grant: a relay a paired machine names is not
     // trusted with one (it could replay it), and is reached without a grant.
