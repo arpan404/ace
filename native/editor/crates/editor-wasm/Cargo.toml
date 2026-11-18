@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "editor-wasm"
+description = "Wasm bindings for ace's editor core: one document class over editor-core and editor-diff."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+editor-core = { path = "../editor-core" }
+editor-diff = { path = "../editor-diff" }
+# Pinned to the installed wasm-bindgen CLI, which refuses glue from another version.
+wasm-bindgen = "=0.2.129"
+# js-sys tracks wasm-bindgen exactly; 0.3.106 is the pair for 0.2.129.
+js-sys = "=0.3.106"

@@ -16,10 +16,13 @@ fn version_matches_javascript_format() {
     let fixture = Fixture::new();
     fixture.write("fraction.md", b"a draft the editor saves many times\n");
     fixture.write("whole.md", b"a draft saved in a whole second\n");
+    fixture.write("halfway.md", b"a draft saved at a halfway millisecond\n");
     fixture.set_modified("fraction.md", 1_731_800_000, 123_456_700);
     fixture.set_modified("whole.md", 1_731_800_000, 0);
+    // 1911493843000.78125 ms is exactly halfway between two decimals that both read back as it.
+    fixture.set_modified("halfway.md", 1_911_493_843, 781_250);
 
-    for relative in ["fraction.md", "whole.md"] {
+    for relative in ["fraction.md", "whole.md", "halfway.md"] {
         let javascript = javascript_version(&fixture.path(relative));
         assert_eq!(
             fixture.version(relative),

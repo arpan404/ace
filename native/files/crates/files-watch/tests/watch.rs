@@ -150,6 +150,7 @@ impl Session {
 fn options() -> WatchOptions {
     WatchOptions {
         debounce: DEBOUNCE,
+        max_wait: Duration::from_secs(1),
         exclude: Vec::new(),
         max_batch: 5_000,
     }
@@ -204,7 +205,8 @@ fn create_then_delete_in_one_window_reports_nothing() {
     // what must never reach the tree is a creation for a file that no longer exists.
     let session = Session::start(
         WatchOptions {
-            debounce: Duration::from_millis(3_000),
+            debounce: Duration::from_millis(6_000),
+            max_wait: Duration::from_secs(8),
             ..options()
         },
         |_| {},
@@ -214,10 +216,8 @@ fn create_then_delete_in_one_window_reports_nothing() {
     std::fs::remove_file(session.path("fleeting.txt")).unwrap();
     let reported = changes(&session.after_quiet());
     assert!(
-        reported
-            .iter()
-            .all(|change| change.path == "fleeting.txt" && change.kind != ChangeKind::Created),
-        "a create and delete reports nothing, or only the deletion, saw {reported:?}"
+        reported.is_empty(),
+        "a create and delete in one window cancels out, saw {reported:?}"
     );
     std::fs::write(session.path("kept.txt"), b"kept").unwrap();
     session.wait_for("kept.txt", ChangeKind::Created);
@@ -310,4 +310,119 @@ fn new_subfolder_is_watched() {
     std::fs::create_dir(session.path("fresh")).unwrap();
     std::fs::write(session.path("fresh/inside.txt"), b"inside").unwrap();
     session.wait_for("fresh/inside.txt", ChangeKind::Created);
+}
+
+#[test]
+fn deleting_and_recreating_files_never_reports_deleted() {
+    let session = Session::start(options(), |root| {
+        for index in 0..20 {
+            std::fs::write(root.join(format!("file{index}.txt")), b"old").unwrap();
+        }
+    });
+    for index in 0..20 {
+        let path = session.path(&format!("file{index}.txt"));
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&path, b"new").unwrap();
+    }
+    let reported = changes(&session.settle());
+    for index in 0..20 {
+        let path = format!("file{index}.txt");
+        let change = reported
+            .iter()
+            .find(|change| change.path == path)
+            .unwrap_or_else(|| panic!("no change for {path}, saw {reported:?}"));
+        assert_ne!(
+            change.kind,
+            ChangeKind::Deleted,
+            "{path} is still there, saw {reported:?}"
+        );
+    }
+}
+
+#[test]
+fn an_atomic_save_never_reports_the_saved_file_deleted() {
+    // A rename over an existing file can arrive as Created or Modified depending on how the OS
+    // splits the window; either keeps the file in the tree. A Deleted would drop it.
+    let session = Session::start(options(), |root| {
+        std::fs::write(root.join("x.txt"), b"old").unwrap();
+    });
+    std::fs::write(session.path("x.tmp"), b"new").unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    std::fs::rename(session.path("x.tmp"), session.path("x.txt")).unwrap();
+    let reported = changes(&session.settle());
+    let last = reported
+        .iter()
+        .rev()
+        .find(|change| change.path == "x.txt")
+        .unwrap_or_else(|| panic!("no change for x.txt, saw {reported:?}"));
+    assert_ne!(last.kind, ChangeKind::Deleted, "saw {reported:?}");
+    assert!(!last.directory);
+}
+
+#[test]
+fn a_renamed_in_folder_reports_its_files() {
+    let session = Session::start(options(), |root| {
+        std::fs::create_dir(root.join("src")).unwrap();
+        for name in ["one.txt", "two.txt", "three.txt"] {
+            std::fs::write(root.join("src").join(name), b"x").unwrap();
+        }
+    });
+    std::fs::rename(session.path("src"), session.path("dst")).unwrap();
+    session.wait_for("src", ChangeKind::Deleted);
+    for name in ["one.txt", "two.txt", "three.txt"] {
+        session.wait_for(&format!("dst/{name}"), ChangeKind::Created);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_is_one_file_change_and_its_tree_is_never_walked() {
+    let session = Session::start(options(), |_| {});
+    std::os::unix::fs::symlink("/usr", session.path("link")).unwrap();
+    let change = session.wait_for("link", ChangeKind::Created);
+    assert!(!change.directory, "a link is not the tree it points at");
+    session.settle();
+    let reported = changes(&session.seen());
+    assert!(
+        !reported
+            .iter()
+            .any(|change| change.path.starts_with("link/")),
+        "nothing inside a symbolic link is reported, saw {reported:?}"
+    );
+}
+
+#[test]
+fn a_burst_of_twenty_thousand_files_is_one_rescan() {
+    let session = Session::start(
+        WatchOptions {
+            debounce: Duration::from_millis(3_000),
+            ..options()
+        },
+        |root| {
+            std::fs::create_dir(root.join("many")).unwrap();
+        },
+    );
+    for index in 0..20_000 {
+        std::fs::write(session.path(&format!("many/file{index}")), b"x").unwrap();
+    }
+    session.settle();
+    let rescans = session
+        .seen()
+        .iter()
+        .filter(|batch| matches!(batch, Batch::Rescan { .. }))
+        .count();
+    assert_eq!(rescans, 1, "one rescan per burst");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_folder_moved_away_and_recreated_is_watched() {
+    let session = Session::start(options(), |root| {
+        std::fs::create_dir(root.join("a")).unwrap();
+        std::fs::write(root.join("a/old.txt"), b"x").unwrap();
+    });
+    std::fs::rename(session.path("a"), session.path("b")).unwrap();
+    std::fs::create_dir(session.path("a")).unwrap();
+    std::fs::write(session.path("a/x"), b"x").unwrap();
+    session.wait_for("a/x", ChangeKind::Created);
 }

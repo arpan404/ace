@@ -682,6 +682,9 @@
         "zod": "^4.1.11",
       },
     },
+    "packages/editor": {
+      "name": "@ace/editor",
+    },
     "packages/engine-api": {
       "name": "@ace/engine-api",
       "dependencies": {
@@ -1309,6 +1312,8 @@
     "@ace/devices": ["@ace/devices@workspace:packages/devices"],
 
     "@ace/diagnostics": ["@ace/diagnostics@workspace:packages/diagnostics"],
+
+    "@ace/editor": ["@ace/editor@workspace:packages/editor"],
 
     "@ace/engine-api": ["@ace/engine-api@workspace:packages/engine-api"],
 

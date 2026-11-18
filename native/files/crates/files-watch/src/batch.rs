@@ -4,14 +4,14 @@
 
 /// One batch of news about the tree.
 ///
-/// The sink is called from the watcher's worker thread, at most once per quiet period, and
+/// The sink is called from the watcher's own thread, at most once per quiet period, and
 /// batches arrive in the order the changes happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Batch {
     /// Paths that changed, sorted by path. Every path appears once per batch.
     Changes(Vec<Change>),
     /// The tree could not be tracked precisely: list that folder again, or the whole root
-    /// when `dir` is `None`.
+    /// when `dir` is `None`. Everything the batch would have reported is inside it.
     Rescan { dir: Option<String> },
     /// Watching works but is degraded; the message says why.
     Warning(String),
@@ -24,7 +24,7 @@ pub struct Change {
     pub path: String,
     /// What happened to the path inside the batch's window.
     pub kind: ChangeKind,
-    /// Whether the path is a directory.
+    /// Whether the path is a directory. A symbolic link is never one.
     pub directory: bool,
 }
 
@@ -33,8 +33,9 @@ pub struct Change {
 pub enum ChangeKind {
     /// The path appeared.
     Created,
-    /// The path's contents or metadata changed.
+    /// The path's contents or metadata changed, including a rename onto it.
     Modified,
-    /// The path is gone.
+    /// The path is gone. A deleted folder takes its whole subtree with it, whatever
+    /// `Change::directory` says (a rename or a truncated event cannot always tell what it was).
     Deleted,
 }
