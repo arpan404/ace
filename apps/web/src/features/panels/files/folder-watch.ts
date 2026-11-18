@@ -1,0 +1,92 @@
+import type { ClientApi } from "@ace/client";
+import { ThreadId } from "@ace/protocol";
+import { watchedFolders } from "@ace/ui-core";
+
+/** How long a change in what is on screen waits before `files.watch` names it. */
+export const watchDelay = 150;
+
+type Send = Pick<ClientApi, "send">;
+
+interface ThreadWatch {
+  /** Each mounted tree's visible open folders, by tree id. */
+  trees: Map<number, readonly string[]>;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  /** The folders last sent, joined; undefined when the daemon's set is unknown (a reconnect). */
+  sent: string | undefined;
+}
+
+/** One watch registry per client, one set per thread. */
+const registries = new WeakMap<Send, Map<string, ThreadWatch>>();
+let nextTree = 0;
+
+export interface FolderWatchHandle {
+  /** What this tree shows open; the thread watches the union of every mounted tree's set. */
+  set(folders: Iterable<string>): void;
+  /** After a reconnect: send the union again, even when it hasn't changed. */
+  resume(): void;
+  /** This tree is gone; the thread's last one stops watching with an empty set. */
+  leave(): void;
+}
+
+/**
+ * The `files.watch` sets of one thread: a tree adds the folders it shows open, and the daemon
+ * hears one debounced union for the thread, however many trees show it. The last tree to leave
+ * sends `[]`; before that, leaving only narrows the union.
+ */
+export function watchFolders(client: Send, threadId: string): FolderWatchHandle {
+  let registry = registries.get(client);
+  if (!registry) {
+    registry = new Map();
+    registries.set(client, registry);
+  }
+  let watch = registry.get(threadId);
+  if (!watch) {
+    watch = { trees: new Map(), timer: undefined, sent: undefined };
+    registry.set(threadId, watch);
+  }
+  const thread = watch;
+  const id = ++nextTree;
+  const send = (folders: string[]): void => {
+    const key = folders.join("\0");
+    try {
+      client.send({ type: "files.watch", threadId: ThreadId.parse(threadId), folders });
+      thread.sent = key;
+    } catch {
+      // Offline: the set is unknown to the daemon until the next resume sends it.
+      thread.sent = undefined;
+    }
+  };
+  const flush = () => {
+    thread.timer = undefined;
+    const folders = watchedFolders([...thread.trees.values()].flat());
+    if (folders.join("\0") === thread.sent) return;
+    send(folders);
+  };
+  const schedule = () => {
+    if (thread.timer !== undefined) return;
+    thread.timer = setTimeout(flush, watchDelay);
+  };
+  return {
+    set(folders) {
+      thread.trees.set(id, [...folders]);
+      schedule();
+    },
+    resume() {
+      thread.sent = undefined;
+      schedule();
+    },
+    leave() {
+      thread.trees.delete(id);
+      if (thread.trees.size > 0) {
+        schedule();
+        return;
+      }
+      if (thread.timer !== undefined) {
+        clearTimeout(thread.timer);
+        thread.timer = undefined;
+      }
+      send([]);
+      registry.delete(threadId);
+    },
+  };
+}
