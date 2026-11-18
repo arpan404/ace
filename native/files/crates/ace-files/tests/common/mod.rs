@@ -166,14 +166,6 @@ impl Client {
         }
     }
 
-    /// The next message, with anything already read waiting in front.
-    pub fn next_message(&mut self) -> Message {
-        if let Some(message) = self.pending.pop_front() {
-            return message;
-        }
-        self.incoming()
-    }
-
     /// A message matching `wanted`: first from what has already arrived, then from the wire.
     ///
     /// Everything read on the way stays in `pending`, so a reply and an event that arrive in the
