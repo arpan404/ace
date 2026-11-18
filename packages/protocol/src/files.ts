@@ -8,8 +8,36 @@ export const FileVersion = z.string().min(1).max(256);
 const expected = FileVersion.nullable();
 /** The most one `read` returns: big enough for most source files, small enough to share a link. */
 export const FILE_READ_PART = 256 * 1024;
+/** What a listed entry is; a symlink names what it points at when that stays inside the root. */
+export const FolderEntry = z.object({
+  name: z.string().max(1024),
+  path,
+  kind: z.enum(["file", "directory", "symlink", "other"]),
+  target: z.enum(["file", "directory", "other"]).optional(),
+  size: offset,
+  mtimeMs: z.number().int(),
+  ignored: z.boolean(),
+});
+export type FolderEntry = z.infer<typeof FolderEntry>;
+/** One page of a folder, with the cursor for the next page or null on the last. */
+export const FolderPage = z.object({
+  entries: z.array(FolderEntry).max(5000),
+  nextCursor: z.string().max(1024).nullable(),
+  total: offset,
+});
+export type FolderPage = z.infer<typeof FolderPage>;
 export const FileOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("list"), path, limit: z.number().int().min(1).max(1000).default(1000) }),
+  /**
+   * One folder of a checkout, paged and from ace-files. `INVALID_CURSOR` means the folder
+   * changed since the cursor was handed out: list it again from the start.
+   */
+  z.object({
+    op: z.literal("list.folder"),
+    path,
+    limit: z.number().int().min(1).max(5000).default(500),
+    cursor: z.string().max(1024).optional(),
+  }),
   z.object({ op: z.literal("stat"), path }),
   /**
    * A file's details and up to `length` of its bytes from `offset`, in one reply, so a viewer
@@ -168,6 +196,17 @@ export const FilesClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.cancel"), channel: z.number().int().min(1).max(0xffffffff) }),
 ]);
 export type FilesClientMessage = z.infer<typeof FilesClientMessage>;
+/**
+ * A client's watched folders of one checkout, for lights-out tree updates. Each message replaces
+ * that client's previous set for the thread; `[]` stops watching. The daemon needs no reply: a
+ * later message, or closing the socket, is the client's own cleanup.
+ */
+export const FilesWatch = z.object({
+  type: z.literal("files.watch"),
+  threadId: ThreadId,
+  folders: z.array(path).max(512),
+});
+export type FilesWatch = z.infer<typeof FilesWatch>;
 export const WorkspaceFileChange = z.object({
   id,
   op: z.string(),
@@ -226,6 +265,18 @@ export const FilesServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("files.changed"), change: WorkspaceFileChange }),
 ]);
 export type FilesServerMessage = z.infer<typeof FilesServerMessage>;
+/**
+ * Folders of one checkout whose contents changed, for a watching client. `folders` are the ones
+ * in that client's set (root-relative, `""` is the root); `rescan` means re-list every folder it
+ * watches, because the daemon overran its batch or the watcher lost track.
+ */
+export const FilesFoldersChanged = z.object({
+  type: z.literal("files.folders_changed"),
+  threadId: ThreadId,
+  folders: z.array(path).max(512),
+  rescan: z.boolean(),
+});
+export type FilesFoldersChanged = z.infer<typeof FilesFoldersChanged>;
 
 export const WorkspaceFilesChanged = z.object({
   type: z.literal("workspace.files_changed"),
