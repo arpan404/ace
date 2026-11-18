@@ -15,7 +15,7 @@ import {
 } from "@ace/ui-core";
 
 /**
- * The home's rows (ADR 0176 §9): the app's Inbox order (`arrange`) and its status rules
+ * The home's rows (ADR 0178 §9): the app's Inbox order (`arrange`) and its status rules
  * (`threadCard` → `rowAttention` → `rowStatusLook`), the same code the app runs, so the terminal
  * never calls a thread done while any part of its tree works or waits on a person. Pure.
  */

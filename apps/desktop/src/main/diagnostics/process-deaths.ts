@@ -56,10 +56,13 @@ export function processDeaths(options: ProcessDeathsOptions) {
     options.log("error", message, minidump ? { ...data, minidump } : data);
     if (minidump) return;
     options.schedule(() => {
-      void newDump(since).then((late) => {
-        if (late)
-          options.log("info", `Crash dump written: ${message}`, { ...data, minidump: late });
-      });
+      // newDump answers undefined when there is no dump yet; only a throw in the log is left.
+      void newDump(since)
+        .then((late) => {
+          if (late)
+            options.log("info", `Crash dump written: ${message}`, { ...data, minidump: late });
+        })
+        .catch(() => {});
     }, DUMP_RECHECK_MS);
   }
   return {

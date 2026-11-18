@@ -2,7 +2,7 @@ import type { ProviderStatus } from "@ace/protocol";
 import { columns, count } from "./provider-columns.ts";
 
 /**
- * `ace provider list|show|capabilities` for a person (ADR 0176 §3): the provider, its state in
+ * `ace provider list|show|capabilities` for a person (ADR 0178 §3): the provider, its state in
  * words, and what to do when it isn't ready. Pure.
  */
 

@@ -134,28 +134,33 @@ export async function openCursorSession(
     void close("shutdown").catch(() => {});
   };
   context.signal.addEventListener("abort", abort, { once: true });
-  void host.process.exited.then((exit) => {
-    exited = true;
-    context.signal.removeEventListener("abort", abort);
-    const detail = host.failureMessage;
-    frame(
-      "note",
-      "host-exit",
-      {
+  // exited resolves on its own; a throw while reporting the exit must not go unheard.
+  void host.process.exited
+    .then((exit) => {
+      exited = true;
+      context.signal.removeEventListener("abort", abort);
+      const detail = host.failureMessage;
+      frame(
+        "note",
+        "host-exit",
+        {
+          deliberate,
+          code: exit.code,
+          signal: exit.signal,
+          reason: exit.reason,
+          ...(detail ? { detail } : {}),
+        },
+        operation,
+        segment,
+      );
+      context.onExit({
         deliberate,
-        code: exit.code,
-        signal: exit.signal,
-        reason: exit.reason,
-        ...(detail ? { detail } : {}),
-      },
-      operation,
-      segment,
+        ...(deliberate ? {} : { message: unexpectedStopMessage(host.stopCause) }),
+      });
+    })
+    .catch((error: unknown) =>
+      process.emitWarning(`Cursor session exit handling failed: ${String(error)}`),
     );
-    context.onExit({
-      deliberate,
-      ...(deliberate ? {} : { message: unexpectedStopMessage(host.stopCause) }),
-    });
-  });
   const close = (reason: "idle" | "user" | "shutdown"): Promise<void> => {
     closing ??= (async () => {
       deliberate = true;

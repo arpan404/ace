@@ -115,7 +115,8 @@ export function createProbeThread(
       }
       // Still running, perhaps unrecorded: stop it and stay its owner until the worker confirms
       // the exit (or dies), so a global stop keeps waiting for it.
-      void stop(flight);
+      // settled absorbs the probe's failure; the caller still sees it through done.
+      void stop(flight).catch(() => {});
       return;
     }
     const flight = flights.get(message.data.id);
@@ -185,6 +186,7 @@ export async function probeOffThread(
   options: {
     timeoutMs: number;
     env: NodeJS.ProcessEnv;
+    cwd?: string | undefined;
     maxBytes: number;
     signal?: AbortSignal | undefined;
     schedule: (callback: () => void, milliseconds: number) => () => void;
@@ -210,7 +212,13 @@ export async function probeOffThread(
   }, options.timeoutMs);
   try {
     const exit = await thread.run(
-      { command, args: [...args], env, maxBytes: options.maxBytes },
+      {
+        command,
+        args: [...args],
+        env,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        maxBytes: options.maxBytes,
+      },
       stop.signal,
     );
     if (failure) throw failure;

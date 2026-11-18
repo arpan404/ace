@@ -157,7 +157,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
       }),
       handoffToolkit(store),
       suitToolkit(suitPreviews),
-      // The market as the asking thread (ADR 0176 §12.5): person-only actions become requests.
+      // The market as the asking thread (ADR 0178 §12.5): person-only actions become requests.
       marketToolkit({
         async request(caller, operation) {
           const market = services.marketAgent;

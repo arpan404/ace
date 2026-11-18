@@ -156,12 +156,16 @@ export function installShutdownHandlers({
   const terminate = (signal: NodeJS.Signals) => {
     if (terminating) return;
     terminating = true;
-    void Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs))).then(() => {
-      dispose();
-      // Incoming application handlers have run; restore default signal termination.
-      process.removeAllListeners(signal);
-      process.kill(process.pid, signal);
-    });
+    void Promise.allSettled(stoppers().map((entry) => entry.stop(graceMs)))
+      .then(() => {
+        dispose();
+        // Incoming application handlers have run; restore default signal termination.
+        process.removeAllListeners(signal);
+        process.kill(process.pid, signal);
+      })
+      .catch((error: unknown) =>
+        process.emitWarning(`Could not restore signal ${signal} termination: ${String(error)}`),
+      );
   };
   const onInt = () => terminate("SIGINT");
   const onTerm = () => terminate("SIGTERM");

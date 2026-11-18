@@ -101,19 +101,29 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
     delegations.releaseReservation(reservation);
   }
   // Interrupted filesystem work is never launched at startup. Cleanup precedes new handoff admission.
+  // Each reservation is cleaned on its own: one whose worktree ace may not remove (the person
+  // committed there, its repository is gone) keeps its rows for the next start and is logged,
+  // and never holds back every handoff after it.
   const recovery = Promise.all(
     delegations.journal
       .reservations()
       .filter((reservation) => reservation.record.resultDelivery !== "owner")
-      .map((reservation) => cleanup(reservation)),
+      .map((reservation) =>
+        cleanup(reservation).catch((error: unknown) =>
+          log.log("error", "Handoff recovery requires cleanup", {
+            childId: reservation.record.childId,
+            ...logError(error),
+          }),
+        ),
+      ),
   );
-  void recovery.catch((error) =>
-    log.log("error", "Handoff recovery requires cleanup", logError(error)),
-  );
-  resources.onShutdown(async () => {
+  resources.onShutdown(() => {
     for (const entry of pending.values()) entry.cancel();
-    await Promise.allSettled([...pending.values()].map((entry) => entry.work));
-    await recovery.catch(() => {});
+    // Shutdown doesn't wait for this callback, so the work is let go here and reported.
+    void (async () => {
+      await Promise.allSettled([...pending.values()].map((entry) => entry.work));
+      await recovery.catch(() => {});
+    })().catch((error: unknown) => log.log("error", "Handoff shutdown failed", logError(error)));
   });
   function sourceCheckout(id: ThreadId): string | undefined {
     try {

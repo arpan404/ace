@@ -109,7 +109,8 @@ export async function openSession(
     ctx.onExit({ deliberate, ...(message ? { message } : {}) });
   };
   const abort = () => {
-    void close();
+    // The session's own close awaits this promise and reports its failure.
+    void close().catch(() => {});
   };
   const close = (): Promise<void> => {
     closePromise ??= (async () => {
@@ -256,13 +257,16 @@ export async function openSession(
             ownedProcess = handle;
             if (handle.signal.aborted) pending.expire();
             else handle.signal.addEventListener("abort", () => pending.expire(), { once: true });
-            void handle.exited.then((exit) =>
-              end(
-                closed,
-                failureMessage ??
-                  `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
-              ),
-            );
+            // end() reports the exit through the session, so the chain has no listener to report to.
+            void handle.exited
+              .then((exit) =>
+                end(
+                  closed,
+                  failureMessage ??
+                    `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
+                ),
+              )
+              .catch(() => {});
           },
         }),
       canUseTool: (toolName, toolInput, toolOptions) => {

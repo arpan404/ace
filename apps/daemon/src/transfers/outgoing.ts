@@ -20,6 +20,7 @@ import type { RemoteProfile } from "../cli/profiles.ts";
 import { MachineFailure, MachineTimeout } from "../machines/transport.ts";
 import { ChunkPace } from "./chunk-pace.ts";
 import type { Store } from "../store.ts";
+import type { TransferIdentities } from "./identity.ts";
 import { TransferClient, type TransferTransport } from "./client.ts";
 import { ensureDirectory, fileBytes, readAt, removeQuietly, removeStray } from "./files.ts";
 import {
@@ -54,6 +55,8 @@ export interface OutgoingDeps {
   /** Waits between polls and retries; resolves early when aborted. */
   sleep(ms: number, signal: AbortSignal): Promise<void>;
   nextId(): string;
+  /** The source registration's logical project (ADR 0180), sent to a target that keeps them. */
+  identities?: Pick<TransferIdentities, "carried"> | undefined;
   log(message: string, fields: Record<string, unknown>): void;
   /** Longest a target may stay unreachable before the transfer fails. */
   offlineMs?: number;
@@ -504,6 +507,10 @@ export class OutgoingTransfers {
         thread && threadId
           ? { ...thread, sourceThreadId: threadId, handoff: this.deps.threads.handoff(threadId) }
           : undefined;
+      // Only a target that said it keeps identities is sent one: an older one refuses the field.
+      const identity = status.identity
+        ? this.deps.identities?.carried(record.transfer.workspaceId)
+        : undefined;
       status = await this.reach(signal, () =>
         client.call(
           {
@@ -519,6 +526,7 @@ export class OutgoingTransfers {
                   ignored: { bytes: ignored.bytes, sha256: ignored.sha256, files: ignored.files },
                 }
               : {}),
+            ...(identity ? { identity } : {}),
           },
           signal,
         ),

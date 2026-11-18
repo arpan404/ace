@@ -14,7 +14,7 @@ import {
   providerShowLines,
 } from "./render/provider.ts";
 
-/** The provider CLIs ace drives, their sign-in and their models (ADR 0176 §7). */
+/** The provider CLIs ace drives, their sign-in and their models (ADR 0178 §7). */
 
 const refusals: Readonly<Record<string, string>> = {
   forbidden: "This connection can't manage providers.",

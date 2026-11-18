@@ -95,7 +95,12 @@ import {
 } from "./terminal-client.ts";
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
-import { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "./suits.ts";
+import {
+  SuitClientMessage,
+  SuitReportMessage,
+  SuitServerMessage,
+  SuitWatchMessage,
+} from "./suits.ts";
 import { MarketClientMessage, MarketServerMessage } from "./marketplace.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
@@ -113,6 +118,7 @@ import {
 } from "./permission-client.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
+import { MachineRelayAnswer, MachineRelayCall, MachineRelayCancel } from "./machine-relay.ts";
 import {
   CommandsList,
   CommandsResolve,
@@ -275,6 +281,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PluginClientMessage,
   SuitClientMessage,
   SuitReportMessage,
+  SuitWatchMessage,
   MarketClientMessage,
   DiagnosticsHealthRequest,
   DiagnosticsRequest,
@@ -295,6 +302,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   UsageSeries,
   UsageSessionTotals,
   ...FilesClientMessage.options,
+  MachineRelayCall,
+  MachineRelayCancel,
   CommandsList,
   CommandsResolve,
   PromptFilesRequest,
@@ -415,6 +424,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   UsageLimitsChanged,
   UsageSessionTotalsMessage,
   ...FilesServerMessage.options,
+  MachineRelayAnswer,
   CommandsListResult,
   CommandsResolveResult,
   PromptFilesResponse,

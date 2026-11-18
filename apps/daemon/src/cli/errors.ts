@@ -2,7 +2,7 @@ import type { CliError, CliErrorCode, CliOutcome } from "@ace/protocol/cli-outpu
 import { CliFailure, type Outcome } from "./output.ts";
 
 /**
- * Any failure as a `CliError` and the sentence a person reads (ADR 0176 §4). Pure: it reads
+ * Any failure as a `CliError` and the sentence a person reads (ADR 0178 §4). Pure: it reads
  * the error's own fields and never imports the client, so the rescue path can use it.
  */
 

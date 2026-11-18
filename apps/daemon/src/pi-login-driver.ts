@@ -167,7 +167,8 @@ export function piLoginDriver(options: PiLoginOptions): ProviderLoginDriver {
       name: "Pi sign-in",
     });
     const abort = () => {
-      void terminal?.stop();
+      // Only a head start: the login stops the same terminal again below and reports there.
+      void terminal?.stop().catch(() => {});
     };
     signal.addEventListener("abort", abort, { once: true });
     try {
@@ -263,7 +264,8 @@ export function piLoginDriver(options: PiLoginOptions): ProviderLoginDriver {
       let completed = false;
       let invalid = false;
       const abort = () => {
-        void owned.stop();
+        // Only a head start: the login's finally stops the same process again and reports there.
+        void owned.stop().catch(() => {});
       };
       signal.addEventListener("abort", abort, { once: true });
       owned.stderr.on("line", () => {});

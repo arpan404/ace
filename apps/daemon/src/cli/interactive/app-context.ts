@@ -13,7 +13,7 @@ import type { NewThread } from "./new-thread.ts";
 import type { RequestsState } from "./requests.ts";
 
 /**
- * What the interactive shell's parts share (ADR 0176 §9): how it was opened, the terminal, the
+ * What the interactive shell's parts share (ADR 0178 §9): how it was opened, the terminal, the
  * screen and each view's state, and the connection. `app.ts` builds one; the renderer, the
  * effects and the keys read and change it. The models and views stay pure; only this is shared.
  */

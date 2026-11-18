@@ -70,14 +70,16 @@ export class CliInstallController {
       }),
       connection.subscribe(() => {
         const next = connection.getSnapshot() === "ready";
-        if (next && !ready) void (this.session ? this.poll() : this.reattach());
+        // poll() and reattach() report their own request failures.
+        if (next && !ready) void (this.session ? this.poll() : this.reattach()).catch(() => {});
         ready = next;
       }),
     ];
+    // Both report their own request failures.
     if (this.session) {
       this.view = { kind: "loading" };
-      if (ready) void this.poll();
-    } else if (ready) void this.reattach();
+      if (ready) void this.poll().catch(() => {});
+    } else if (ready) void this.reattach().catch(() => {});
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -178,7 +180,8 @@ export class CliInstallController {
     }
   }
   close(): void {
-    if (this.session) void this.poll();
+    // poll() reports its own request failures.
+    if (this.session) void this.poll().catch(() => {});
     else this.set({ kind: "idle" });
   }
   dispose(): void {

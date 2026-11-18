@@ -428,7 +428,8 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
             if (op.op === "git.draft.generate") generations.delete(op.input.generationId);
           });
         tasks.add(task);
-        void task.finally(() => tasks.delete(task));
+        // The task answers its own failure above; this only forgets it.
+        void task.finally(() => tasks.delete(task)).catch(() => {});
         return task;
       };
       if (!reads.admit(read)) {

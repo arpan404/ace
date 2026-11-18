@@ -20,8 +20,14 @@ import {
 import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
 import type { ForgePrStatus, ForgeRepository, InstalledEditor } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
-import { decodeProjectRow, projectSelect } from "./project-storage.ts";
-import { OriginCache, sameOriginProject } from "./project-origin.ts";
+import { decodeProjectRow, isSpadeProject, projectSelect } from "./project-storage.ts";
+import { markerAt } from "./project-marker.ts";
+import {
+  OriginCache,
+  checkoutOf,
+  identitySuggestions,
+  sameOriginProject,
+} from "./project-origin.ts";
 import { normalizeRemoteUrl } from "@ace/git/remote-url";
 import type { CreationProgress } from "./creation-progress.ts";
 import { CreationDrafts } from "./creation-drafts.ts";
@@ -39,6 +45,7 @@ import {
   gitStatusLimit,
   TerminalDescriptor,
   ThreadId,
+  WorkspaceId,
   type Command,
   type CommandResult,
   type ThreadDetails,
@@ -661,18 +668,60 @@ export class WorkspaceRuntime {
       return wrap({ kind: "origin", url: origin?.url ?? null });
     }
     if (op.op === "workspaces.match") {
+      // Every registration, most recently used first: one past the 64th, or a second checkout
+      // of the same repository, is still found (ADR 0180).
       const projects = this.store.atomic((db) =>
         db
           .prepare(
-            `${projectSelect} WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id) AND coalesce(m.kind,'')<>'spade' ORDER BY w.id`,
+            `SELECT w.id,w.path FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id
+            LEFT JOIN workspace_recent r ON r.workspace_id=w.id
+            WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)
+            AND m.kind IS NULL ORDER BY r.opened_at IS NULL,r.opened_at DESC,w.id`,
           )
           .all()
-          .map(decodeProjectRow)
-          .filter((project) => project.kind !== "chat")
-          .map((project) => ({ workspaceId: project.id, path: project.path })),
+          .map((row) => ({ workspaceId: WorkspaceId.parse(row.id), path: String(row.path) })),
       );
-      const match = await sameOriginProject(this.origins, projects, normalizeRemoteUrl(op.url));
+      const match = await sameOriginProject(
+        this.origins,
+        projects,
+        normalizeRemoteUrl(op.url),
+        op.subpath ?? "",
+      );
       return wrap({ kind: "match", workspaceId: match ?? null });
+    }
+    if (op.op === "workspace.checkout") {
+      const root = this.store.getWorkspacePath(op.workspaceId);
+      // Spade's folder is never a repository anything reads (ADR 0121).
+      if (!root || isSpadeProject(this.store, op.workspaceId))
+        throw new Error("workspace_not_found");
+      return wrap({ kind: "checkout", checkout: await checkoutOf(this.origins, root) });
+    }
+    if (op.op === "workspaces.identitySuggestions") {
+      if (!op.remotes.length && !op.identityId)
+        return wrap({ kind: "identitySuggestions", suggestions: [], next: null });
+      // One bounded page of registrations, in id order; `next` reads the rest.
+      const rows = this.store.atomic((db) =>
+        db
+          .prepare(
+            `SELECT w.id,w.path FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id
+            WHERE w.id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)
+            AND m.kind IS NULL ORDER BY w.id LIMIT ?`,
+          )
+          .all(op.after ?? "", op.limit + 1)
+          .map((row) => ({ workspaceId: WorkspaceId.parse(row.id), path: String(row.path) })),
+      );
+      const page = rows.slice(0, op.limit);
+      return wrap({
+        kind: "identitySuggestions",
+        suggestions: await identitySuggestions(
+          this.origins,
+          page,
+          op.remotes,
+          op.subpath,
+          op.identityId ? { id: op.identityId, read: markerAt } : undefined,
+        ),
+        next: rows.length > op.limit ? (page.at(-1)?.workspaceId ?? null) : null,
+      });
     }
     if (op.op === "branches.list") {
       const root = this.store.getWorkspacePath(op.workspaceId);

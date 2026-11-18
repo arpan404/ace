@@ -4,7 +4,7 @@ import type { SpadeAgent } from "@ace/ui-core/spade-chat";
 import { CliFailure, usageFailure } from "./output.ts";
 
 /**
- * Spade's bots and their conversations from the CLI (ADR 0176 §7), through the daemon's
+ * Spade's bots and their conversations from the CLI (ADR 0178 §7), through the daemon's
  * `spade.http` forwarding (ADR 0121): the same Spade API the app's Spade pages use. Spade owns
  * the bodies; they're read leniently with the app's own parsers.
  */

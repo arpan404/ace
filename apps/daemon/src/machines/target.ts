@@ -8,6 +8,7 @@ import {
   type MachineCallOrigin,
   type MachineCommandJobsResult,
   type MachineDescription,
+  type MachinePath,
   type MachineToolGroup,
   type ProviderKind,
 } from "@ace/protocol";
@@ -54,6 +55,10 @@ export interface MachineTargetDeps {
   /** The time, for inbox signatures. */
   now(): number;
   log(message: string, fields: Record<string, unknown>): void;
+  /** Parcels between agents here and on the calling machine (ADR 0182), once they serve. */
+  parcels?(): import("../parcels/target.ts").ParcelTarget | undefined;
+  /** The paths this machine serves now (ADR 0114), told to paired devices in `describe`. */
+  paths?(): MachinePath[];
 }
 export interface MachineAnswer {
   status: number;
@@ -93,6 +98,9 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         return deps.hosts[call.op]?.readOnly(call.tool, call.args) ? "read" : "operate";
       case "spade":
         return inboxRisk(call.request);
+      // Pulling a parcel sent to the caller's own thread only reads (ADR 0182).
+      case "parcel":
+        return ["outbox", "read", "ack"].includes(call.parcel.action) ? "read" : "operate";
       default:
         return "operate";
     }
@@ -139,6 +147,8 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       delegateAccounts: true,
       ...(grants.agents !== "off" ? { accounts: deps.threads.accounts() } : {}),
     };
+    const paths = deps.paths?.() ?? [];
+    if (paths.length > 0) description.paths = paths.slice(0, 16);
     return description;
   }
   async function hosted(
@@ -233,6 +243,12 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         return hosted(device, origin, call, signal, ticket, known);
       case "command.jobs":
         return deps.commandJobs(deps.guests.existing(device, origin), call.jobIds);
+      case "parcel": {
+        const parcels = deps.parcels?.();
+        if (!parcels)
+          throw new TargetRefusal("not_supported", "This machine doesn't take parcels yet.");
+        return parcels.handle(device, origin, call.parcel);
+      }
       case "spade":
         return forwardToInbox(
           deps.spade(),
@@ -261,7 +277,12 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         fromMachine: origin.hostName,
         fromThread: origin.threadId,
         ...(origin.agentId ? { fromAgent: origin.agentId } : {}),
-        op: "tool" in call ? call.tool : call.op,
+        op:
+          "tool" in call
+            ? call.tool
+            : call.op === "parcel"
+              ? `parcel.${call.parcel.action}`
+              : call.op,
         capability: typeof capability === "string" ? capability : "any",
       };
       // Episodes only for the few routine ops: any other call is logged every time anyway, and

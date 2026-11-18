@@ -209,7 +209,7 @@ it("only the entry points and tools_find load upfront, whatever the client", asy
   // the per-request budget above counts; a core or static client never lists them upfront.
   // Raised for transfer (ADR 0101), moving work to another machine, which no delegate or thread tool
   // can do; the base it landed on already listed 32. Raised from 33 to 35 for market_read and
-  // market_publish (ADR 0176 §12.5): nothing else reaches the market, and they load upfront
+  // market_publish (ADR 0178 §12.5): nothing else reaches the market, and they load upfront
   // nowhere.
   const own = full.tools.filter(
     (tool) => !/^(?:browser|screen|sim)_/.test(bareToolName(tool.name)),

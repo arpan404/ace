@@ -80,6 +80,18 @@ export const AppUpdateReply = AppUpdate.extend({
    * release only when that release can read them. Absent from older daemons; a value this
    * build can't read counts as absent rather than failing the reply.
    */
-  homeData: HomeData.optional().catch(undefined),
+  // A union, not `.catch()`: the protocol docs generator and browser workers leave `.catch()` out.
+  homeData: z
+    .union([
+      HomeData,
+      z
+        .unknown()
+        .transform(() => undefined)
+        .meta({
+          "x-ace-json-input": HomeData,
+          "x-ace-constraint": "A value this build can't read is ignored, as if absent.",
+        }),
+    ])
+    .optional(),
 });
 export type AppUpdateReply = z.infer<typeof AppUpdateReply>;

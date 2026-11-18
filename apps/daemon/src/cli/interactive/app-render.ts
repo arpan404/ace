@@ -14,7 +14,7 @@ import {
 import { agentTree } from "./tree.ts";
 
 /**
- * Draws the current screen (ADR 0176 §9) from the app's state and the live stores: the home
+ * Draws the current screen (ADR 0178 §9) from the app's state and the live stores: the home
  * (with the last run's rows, unconfirmed, until the live list arrives), the requests walk,
  * attach, or the line saying ace isn't running.
  */

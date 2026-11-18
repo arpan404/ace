@@ -2,7 +2,7 @@ import type { Client } from "@ace/client";
 import { accessHandlers } from "./access.ts";
 import { withSession, type CommandContext, type Handlers } from "./context.ts";
 
-/** Providers, models and the ace account (ADR 0176 §7); access commands join from access.ts. */
+/** Providers, models and the ace account (ADR 0178 §7); access commands join from access.ts. */
 
 type Providers = typeof import("../providers.ts");
 function providers(

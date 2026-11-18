@@ -6,6 +6,7 @@ import {
 } from "@ace/models";
 import { AcpIdentity, type ExecutionSelection, type ProviderKind, ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
+import { skippableAtStartup } from "./startup-skip.ts";
 import { cursorModelParams } from "@ace/provider-kit/cursor-selection";
 
 export class ModelSelectionError extends Error {
@@ -163,13 +164,18 @@ export class EngineModels {
       );
     });
   }
-  migrateCachedDefaults(): void {
-    const catalog = this.catalog;
-    if (!catalog?.resolveCached) return;
+  /**
+   * `unreadable` is told of a thread this pass could not migrate; the rest still migrate. A
+   * purged thread keeps its session row but no state, so it never matches.
+   */
+  migrateCachedDefaults(unreadable: (id: ThreadId, error: unknown) => void): void {
+    const resolve = this.catalog?.resolveCached?.bind(this.catalog);
+    if (!resolve) return;
     const rows = this.repo.store.atomic(() =>
       this.repo.store
         .statement(`
       SELECT s.thread_id FROM engine_sessions s JOIN threads t ON t.id=s.thread_id
+      JOIN thread_state st ON st.thread_id=s.thread_id
       LEFT JOIN engine_transitions x ON x.thread_id=s.thread_id
       WHERE lower(trim(s.model)) LIKE 'default%'
         OR lower(trim(json_extract(x.value,'$.selection.model'))) LIKE 'default%'
@@ -180,40 +186,53 @@ export class EngineModels {
         .all(),
     );
     for (const row of rows) {
-      const state = this.repo.requireState(ThreadId.parse(row.thread_id));
-      const metadata = this.repo.session(state.threadId);
-      const selection = this.repo.transitions.get(state.threadId).selection;
-      const legacyOpenCode =
-        state.config.provider === "opencode" &&
-        [metadata.model, selection?.model].some(
-          (model) => !!model && !isDefaultSelection(model) && !model.includes("/"),
-        );
-      if (
-        !isDefaultSelection(metadata.model) &&
-        !isDefaultSelection(selection?.model) &&
-        !legacyOpenCode
-      )
-        continue;
-      const previous = selection ?? { provider: state.config.provider, options: {}, ...metadata };
-      // Startup only uses already-known choices. Discovery belongs to session opening.
-      const filter = selectionModelFilter(
-        previous.provider,
-        previous.instanceId,
-        this.identity(state.threadId),
-      );
-      if (!filter) continue;
-      const resolution = catalog.resolveCached({
-        role: "thread",
-        ...filter,
-        ...(previous.model && !isDefaultSelection(previous.model) ? { model: previous.model } : {}),
-      });
-      if (legacyOpenCode && !resolution.ok) continue;
-      const model = resolution.ok ? executionModelId(resolution.model) : undefined;
-      // With no cached choice, restore an implicit selection. Resume discovers it later.
-      const { model: _oldModel, ...rest } = previous;
-      const next = { ...rest, ...(model ? { model } : {}) };
-      if (model !== metadata.model || model !== selection?.model)
-        this.remember(state.threadId, next);
+      const id = ThreadId.parse(row.thread_id);
+      try {
+        this.migrateCachedDefault(resolve, id);
+      } catch (error) {
+        if (!skippableAtStartup(error)) throw error;
+        unreadable(id, error);
+      }
     }
+  }
+  private migrateCachedDefault(
+    resolveCached: NonNullable<ModelCatalogApi["resolveCached"]>,
+    id: ThreadId,
+  ): void {
+    // A purged thread keeps its session row but has no state: nothing is left to migrate.
+    const state = this.repo.state(id);
+    if (!state) return;
+    const metadata = this.repo.session(state.threadId);
+    const selection = this.repo.transitions.get(state.threadId).selection;
+    const legacyOpenCode =
+      state.config.provider === "opencode" &&
+      [metadata.model, selection?.model].some(
+        (model) => !!model && !isDefaultSelection(model) && !model.includes("/"),
+      );
+    if (
+      !isDefaultSelection(metadata.model) &&
+      !isDefaultSelection(selection?.model) &&
+      !legacyOpenCode
+    )
+      return;
+    const previous = selection ?? { provider: state.config.provider, options: {}, ...metadata };
+    // Startup only uses already-known choices. Discovery belongs to session opening.
+    const filter = selectionModelFilter(
+      previous.provider,
+      previous.instanceId,
+      this.identity(state.threadId),
+    );
+    if (!filter) return;
+    const resolution = resolveCached({
+      role: "thread",
+      ...filter,
+      ...(previous.model && !isDefaultSelection(previous.model) ? { model: previous.model } : {}),
+    });
+    if (legacyOpenCode && !resolution.ok) return;
+    const model = resolution.ok ? executionModelId(resolution.model) : undefined;
+    // With no cached choice, restore an implicit selection. Resume discovers it later.
+    const { model: _oldModel, ...rest } = previous;
+    const next = { ...rest, ...(model ? { model } : {}) };
+    if (model !== metadata.model || model !== selection?.model) this.remember(state.threadId, next);
   }
 }

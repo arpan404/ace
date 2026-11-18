@@ -42,9 +42,11 @@ export default {
         await new Promise<void>((resolve, reject) => {
           const abort = () => reject(new Error("ace MCP readiness cancelled"));
           signal.addEventListener("abort", abort, { once: true });
+          // settled only ever resolves; the listener is removed either way.
           void settled.promise
             .then(resolve)
-            .finally(() => signal.removeEventListener("abort", abort));
+            .finally(() => signal.removeEventListener("abort", abort))
+            .catch(() => {});
           if (signal.aborted) abort();
         });
         signal.throwIfAborted();

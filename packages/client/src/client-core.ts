@@ -305,7 +305,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         // Signing out, another account, an expired or refused grant or a new machine code
         // keep it all: it comes back when the person signs in again.
         if (this.state === "fatal" && this.connection.error?.revoked === true)
-          void this.#snapshots?.forget();
+          // forget() drops what it can and resolves either way.
+          void this.#snapshots?.forget().catch(() => {});
         this.notifications.emit(["connection"]);
       },
       () => {
@@ -737,7 +738,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#collections.delete(sidebar);
         const written = sidebar.close();
         this.#checkpoints.add(written);
-        void written.finally(() => this.#checkpoints.delete(written));
+        // A checkpoint that fails writes nothing; the next change writes the newest copy.
+        void written.catch(() => {}).finally(() => this.#checkpoints.delete(written));
       },
     };
   }

@@ -162,9 +162,13 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
           child.kill(signal);
           return;
         }
-        void requestStop(options.home, child.pid).then((accepted) => {
-          if (!accepted && running()) child.kill(signal);
-        });
+        void requestStop(options.home, child.pid)
+          .then((accepted) => {
+            if (!accepted && running()) child.kill(signal);
+          })
+          .catch((error: unknown) =>
+            options.onOutput(`stop request failed: ${String(error)}`, "stderr"),
+          );
       },
       onExit: (listener) => {
         if (result) listener(...result);

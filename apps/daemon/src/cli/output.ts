@@ -8,7 +8,7 @@ export function formatOutput(value: unknown, json: boolean): string {
   return `${JSON.stringify(value, null, json ? undefined : 2)}\n`;
 }
 
-/** What a failure can carry besides its sentence (ADR 0176 §4). */
+/** What a failure can carry besides its sentence (ADR 0178 §4). */
 export interface FailureDetail {
   readonly code?: CliErrorCode;
   /** The next step, one line: "See your threads with ace thread list." */

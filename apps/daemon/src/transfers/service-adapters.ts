@@ -9,6 +9,7 @@ import {
   type ThreadContinuedOn,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
+import { threadGone } from "../thread-gone.ts";
 import type { ServiceContext } from "../services/types.ts";
 import type { TargetProjects, TargetThreadStarter } from "./landing.ts";
 import type { SourceThreads } from "./outgoing.ts";
@@ -49,7 +50,10 @@ export function targetProjects(context: ServiceContext): TargetProjects {
     list: () =>
       store
         .statement(
-          "SELECT id,path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 256",
+          // Every registration, most recently used first: a same-origin match prefers it.
+          `SELECT w.id,w.path FROM workspaces w LEFT JOIN workspace_recent r ON r.workspace_id=w.id
+          WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)
+          ORDER BY r.opened_at IS NULL,r.opened_at DESC,w.rowid DESC`,
         )
         .all()
         .map((row) => ({
@@ -194,7 +198,12 @@ export function targetThreads(context: ServiceContext): TargetThreadStarter {
       // One transaction: the handoff, the link back and the caller's completion all land or none.
       store.atomic(() => {
         const thread = store.getThread(input.threadId);
-        if (thread && !thread.details?.continuedFrom) {
+        // A thread deleted (or purged) before it was set up is left as it is.
+        if (
+          thread &&
+          !thread.details?.continuedFrom &&
+          !threadGone((id) => store.getThread(id), engine, input.threadId)
+        ) {
           engine.adoptMachineHandoff(input.threadId, {
             handoff: input.thread.handoff,
             commandId: `transfer:${input.threadId}`,

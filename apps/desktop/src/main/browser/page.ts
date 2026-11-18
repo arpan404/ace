@@ -225,7 +225,8 @@ export class EmbeddedPage implements ViewPage {
       if (page) {
         event.preventDefault();
         if (input.type !== "keyDown" || input.isAutoRepeat) return;
-        if (page === "CmdOrCtrl+P") void this.print();
+        if (page === "CmdOrCtrl+P")
+          void this.print().catch((error: unknown) => this.options.log(String(error)));
         else if (page === "Alt+CmdOrCtrl+I") this.devtools();
         else options.forward(page);
         return;
@@ -276,7 +277,10 @@ export class EmbeddedPage implements ViewPage {
       const paused = this.paused.event(method, params);
       // Nobody can approve a load while the daemon link is down: refuse it (fail closed).
       if (this.orphaned)
-        for (const request of paused) void this.paused.refuse((m, p) => this.send(m, p), request);
+        for (const request of paused)
+          void this.paused
+            .refuse((m, p) => this.send(m, p), request)
+            .catch((error: unknown) => this.options.log(String(error)));
       this.emit(method, params);
     });
     contents.debugger.on("detach", (_event, reason) => {
@@ -384,7 +388,9 @@ export class EmbeddedPage implements ViewPage {
   /** The daemon link dropped: the page lives on, refusing loads only the daemon may approve. */
   orphan(): void {
     this.orphaned = true;
-    void this.paused.refuseAll((method, params) => this.send(method, params));
+    void this.paused
+      .refuseAll((method, params) => this.send(method, params))
+      .catch((error: unknown) => this.options.log(String(error)));
   }
 
   /**

@@ -53,7 +53,8 @@ export async function createFileSink(
   const arm = () => {
     cancel = runtime.schedule(() => {
       fail(new Error("Log worker timed out"));
-      void worker.terminate();
+      // The timeout is already reported through fail(); a terminate failure adds nothing.
+      void worker.terminate().catch(() => {});
     }, runtime.deadlineMs);
   };
   const ready = new Promise<void>((resolve, reject) => {

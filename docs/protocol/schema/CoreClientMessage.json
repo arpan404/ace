@@ -11,7 +11,8 @@
             "browser",
             "screen",
             "provider_auth",
-            "media"
+            "media",
+            "machine"
           ],
           "type": "string"
         },

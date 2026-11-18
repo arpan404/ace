@@ -5,7 +5,7 @@ export interface Args {
   flags: Record<string, string | true>;
   /** Every value of a flag given more than once (`--keyword a --keyword b`). */
   lists?: Record<string, readonly string[]>;
-  /** A person is at a terminal and may be asked (ADR 0176 §9); false for agents and pipes. */
+  /** A person is at a terminal and may be asked (ADR 0178 §9); false for agents and pipes. */
   interactive?: boolean;
 }
 const switches = new Set([
@@ -85,7 +85,7 @@ export function option(args: Args, name: string): string | undefined {
 }
 /**
  * A command module's own check of what reached it. The command table already refused unknown
- * flags and wrong argument counts with their sentences (ADR 0176); this guards the module's
+ * flags and wrong argument counts with their sentences (ADR 0178); this guards the module's
  * narrower contract, as a usage error.
  */
 export function validateArgs(args: Args, names: readonly string[], min: number, max = min): void {

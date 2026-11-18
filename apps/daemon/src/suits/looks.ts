@@ -11,8 +11,8 @@ import type { SuitActive, SuitId, SuitLiveCheck } from "@ace/protocol/suits";
  * - A keep, and its undo, go only to the devices that saw that thread's preview. Without a
  *   preview, to the devices that may read the thread right then. A device of that set that is
  *   offline hears it when it reconnects within this daemon run.
- * - Each new socket hears the preview showing for it, or `none`, so a preview never outlives
- *   the socket or daemon run that showed it.
+ * - Only sockets that asked (`suitWatch`) are attached. Each hears, as it attaches, the preview
+ *   showing for it, or `none`, so a preview never outlives the socket or daemon run that showed it.
  *
  * No I/O: sockets and ids are passed in.
  */
@@ -47,7 +47,10 @@ export class SuitLooks {
     this.#id = id;
   }
 
-  /** A welcomed socket: it hears what shows for it now and what waited for its device. */
+  /**
+   * A socket that asked to watch: it hears what shows for it now and what waited for its device.
+   * Attaching the same socket again only tells it again.
+   */
   attach(socket: LookSocket): () => void {
     this.#sockets.add(socket);
     const preview = this.#preview;

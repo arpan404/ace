@@ -1,0 +1,78 @@
+{
+  "$id": "https://ace.local/protocol/v1/ParcelView.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "direction": {
+      "enum": [
+        "sent",
+        "received"
+      ],
+      "type": "string"
+    },
+    "error": {
+      "maxLength": 400,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/ParcelName.json"
+    },
+    "note": {
+      "maxLength": 2000,
+      "type": "string"
+    },
+    "parcelId": {
+      "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "peer": {
+      "additionalProperties": false,
+      "properties": {
+        "machine": {
+          "maxLength": 64,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "state": {
+      "enum": [
+        "sending",
+        "waiting",
+        "delivered",
+        "failed",
+        "cancelled",
+        "received"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "parcelId",
+    "direction",
+    "name",
+    "size",
+    "sha256",
+    "state",
+    "peer"
+  ],
+  "type": "object"
+}

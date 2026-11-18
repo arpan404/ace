@@ -30,6 +30,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "paths": {
+      "$ref": "https://ace.local/protocol/v1/MachinePaths.json"
+    },
     "projects": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/MachineProject.json"

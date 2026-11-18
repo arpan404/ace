@@ -137,7 +137,8 @@ function probeThreadPool(now: number): void {
       }
       ioSince = undefined;
       ioNextAt = answered + input.ioEveryMs;
-    });
+    })
+    .catch(() => {});
 }
 setInterval(() => {
   const now = performance.now();

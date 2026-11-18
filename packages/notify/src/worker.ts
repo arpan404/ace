@@ -108,7 +108,8 @@ export class NotificationWorker {
           return;
         }
         this.fail(new DOMException("Notification worker aborted", "AbortError"));
-        void this.worker.terminate();
+        // fail() already reports the abort; a terminate that fails adds nothing.
+        void this.worker.terminate().catch(() => {});
       };
       signal.addEventListener("abort", abort, { once: true });
       this.stopOnAbort = () => signal.removeEventListener("abort", abort);
@@ -188,7 +189,9 @@ export class NotificationWorker {
                 { type: "deliveryResult", id: message.id, result } satisfies ToWorker,
                 [],
               );
-          });
+          })
+          // A post to a worker that has gone fails; its exit handler already failed it.
+          .catch(() => {});
       }
     });
     return worker;
@@ -215,20 +218,25 @@ export class NotificationWorker {
       });
     this.cancelRestart = schedule(Math.min(30_000, 250 * 2 ** Math.min(this.retry++, 7)), () => {
       this.cancelRestart = undefined;
-      void stopped.then(() => {
-        if (!this.closing && !this.options.signal?.aborted) {
-          try {
-            this.worker = this.start();
-          } catch (restartError) {
-            this.failed = undefined;
-            this.fail(
-              restartError instanceof Error
-                ? restartError
-                : new Error("Notification worker failed"),
-            );
+      void stopped
+        .then(() => {
+          if (!this.closing && !this.options.signal?.aborted) {
+            try {
+              this.worker = this.start();
+            } catch (restartError) {
+              this.failed = undefined;
+              this.fail(
+                restartError instanceof Error
+                  ? restartError
+                  : new Error("Notification worker failed"),
+              );
+            }
           }
-        }
-      });
+        })
+        .catch(() => {
+          // A stop that could not be confirmed keeps the failed worker's place: no replacement
+          // starts over it, as before.
+        });
     });
   }
   private holdTimer(run: () => void): () => void {

@@ -175,7 +175,9 @@ export class NotificationDatabase {
           continue;
         }
         const row = this.statement("SELECT body FROM threads WHERE id=?").get(event.threadId);
-        if (!row) throw new Error("Missing notification thread");
+        // Its thread was purged: its whole log went, its creation too, so a write that reached
+        // it after that is all that names it. A gone thread has nothing to notify about.
+        if (!row) continue;
         const state = CompactThread.parse(JSON.parse(String(row.body)));
         const wasRemote = state.remote;
         const prior = this.statement("SELECT body FROM pending WHERE thread=?").get(event.threadId);

@@ -15,7 +15,7 @@ import { cutEnd, padStart, safeText, textWidth, wrap } from "../tui/layout.ts";
 import type { Paint, StateTone } from "../tui/paint.ts";
 
 /**
- * A thread's transcript as the app shows it (ADR 0176 §9), drawn for a terminal. Pure over the
+ * A thread's transcript as the app shows it (ADR 0178 §9), drawn for a terminal. Pure over the
  * client's thread store and ui-core's blocks: the person's messages, the agent's work folded
  * under "Worked for 3m 12s", answers in full, wrapped, and handoffs, stops and limits as one
  * quiet line each.

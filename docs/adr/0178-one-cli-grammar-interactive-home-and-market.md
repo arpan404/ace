@@ -1,4 +1,4 @@
-# 0176: One grammar for the ace CLI, an interactive home, and the market from the terminal
+# 0178: One grammar for the ace CLI, an interactive home, and the market from the terminal
 
 Status: accepted. Date: 2026-11-17. Decided by: the owner (2026-11-17: every recommendation of the
 draft, recorded under "The owner's decisions" at the end). Amends [ADR 0072](0072-headless-cli.md) (the headless CLI): its

@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/ParcelFacts.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "fromTitle": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/ParcelName.json"
+    },
+    "note": {
+      "maxLength": 2000,
+      "type": "string"
+    },
+    "parcelId": {
+      "$ref": "https://ace.local/protocol/v1/ParcelId.json"
+    },
+    "sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "size": {
+      "maximum": 1073741824,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "parcelId",
+    "name",
+    "size",
+    "sha256",
+    "fromTitle"
+  ],
+  "type": "object"
+}

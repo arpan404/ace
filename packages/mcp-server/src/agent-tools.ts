@@ -8,12 +8,15 @@ import {
   MessageArrival,
   MessageText,
   MonitorSnapshot,
+  ParcelId,
+  ParcelName,
   ProviderKind,
   RunRole,
   ThreadId,
   WaitMode,
   WaitResult,
   WaitTimeoutSeconds,
+  maxParcelNoteChars,
   maxWaitThreads,
 } from "@ace/protocol";
 import {
@@ -220,6 +223,53 @@ const transfer = controlTool({
   run: (input, control) => control.run({ op: "transfer", ...input }),
 });
 
+const dataSend = controlTool({
+  ...agents,
+  name: "data_send",
+  title: "Send data to another agent",
+  riskClass: "external-effect",
+  capability: "agents",
+  description:
+    'Send a file from your project, or text, to another agent in your tree: a child (from delegate, any machine), your parent ("parent"), or another thread in the same tree here. It is staged, hashed and carried end to end encrypted over the LAN, Tailscale or a relay. Returns parcelId at once; whether it arrived comes as a new turn, so end yours. Never poll.',
+  input: z.strictObject({
+    to: z
+      .union([ThreadId, z.literal("parent")])
+      .describe('A thread id from delegate or agents_status, or "parent".'),
+    path: z
+      .string()
+      .min(1)
+      .max(4096)
+      .optional()
+      .describe("A file in your project, relative to its folder. Or pass text."),
+    text: z.string().min(1).max(262_144).optional().describe("Text to send instead of a file."),
+    name: ParcelName.optional().describe("The name it arrives under. Default: the file's name."),
+    note: z.string().max(maxParcelNoteChars).optional().describe("What it is, for the receiver."),
+  }),
+  output: controlResult(z.looseObject({ parcelId: ParcelId })),
+  run: (input, control) => control.run({ op: "data.send", ...input }),
+});
+
+const dataReceive = controlTool({
+  ...agents,
+  name: "data_receive",
+  title: "Read or save data other agents sent",
+  riskClass: "thread-write",
+  capability: "agents",
+  description:
+    "Parcels this thread sent or received, newest first, with each one's state, size and SHA-256; a received one has a read-only path. With parcelId and saveAs, copy that received parcel into your project at saveAs (relative; never replaces a file).",
+  input: z.strictObject({
+    parcelId: ParcelId.optional().describe("From the arrival message or this list."),
+    saveAs: z
+      .string()
+      .min(1)
+      .max(1024)
+      .optional()
+      .describe("A new file path in your project, relative to its folder."),
+  }),
+  output: controlResult(z.unknown()),
+  run: (input, control) => control.run({ op: "data.receive", ...input }),
+});
+
 const models = controlTool({
   ...agents,
   name: "models",
@@ -254,5 +304,7 @@ export const agentTools = [
   agentCancel,
   machines,
   transfer,
+  dataSend,
+  dataReceive,
   models,
 ];

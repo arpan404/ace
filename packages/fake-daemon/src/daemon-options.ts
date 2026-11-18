@@ -18,6 +18,8 @@ export interface FakeDaemonOptions {
   largestEntity?: number;
   /** false: speak as a daemon from before placement, sending lists without places or dots. */
   placement?: false;
+  /** false: speak as a daemon from before logical project identity (ADR 0180). */
+  projectIdentity?: false;
   /** Keep creation visible for screenshot capture. */
   worktreeCreationSlow?: boolean;
   worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;

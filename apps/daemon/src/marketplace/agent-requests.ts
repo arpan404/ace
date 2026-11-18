@@ -4,7 +4,7 @@ import type { MarketPersonRequests } from "./person-requests.ts";
 
 /*
  * A market request an agent makes, from `market_read`/`market_publish` or from `ace market` in
- * its shell (ADR 0176 §12.5): the gate decides, then it runs as the person would, or becomes the
+ * its shell (ADR 0178 §12.5): the gate decides, then it runs as the person would, or becomes the
  * person's request in the asking thread. The shell around `agent-gate.ts`.
  */
 

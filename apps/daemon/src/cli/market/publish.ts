@@ -14,7 +14,7 @@ import { checkFolder, problemLine } from "./check.ts";
 import { answerOf, type MarketAsk } from "./request.ts";
 
 /*
- * `ace market publish TYPE PATH|ID` step by step (ADR 0176 §12.2): the local checks first, then
+ * `ace market publish TYPE PATH|ID` step by step (ADR 0178 §12.2): the local checks first, then
  * what would upload (checked here), the draft and its scan, the confirmation, and the publish.
  * `--wait` watches until the version is live or not reviewed (exit 0) or blocked (exit 1).
  */
@@ -144,7 +144,7 @@ export async function createDraft(
   return draftOf(created.answer);
 }
 
-/** The confirmation's question (ADR 0176 §12.2 step 4). */
+/** The confirmation's question (ADR 0178 §12.2 step 4). */
 export function publishQuestion(draft: MarketDraft, unlisted: boolean): string {
   const notes = draft.scan?.state === "done" ? draft.scan.report.findings.length : 0;
   return `Publish ${draft.type}/${draft.name} ${draft.version}? ${unlisted ? "Unlisted" : "Listed"}, ${draft.files} files, ${Math.ceil(draft.size / 1024)} KB. ${notes ? `The scan found ${notes} note${notes === 1 ? "" : "s"}.` : "The scan found nothing."}`;

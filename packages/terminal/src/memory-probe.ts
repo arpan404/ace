@@ -6,7 +6,10 @@ import { fixture, runNode } from "./test-support.ts";
 if (!global.gc) throw new Error("Run the memory probe with --expose-gc");
 const context = await fixture({ scrollbackBytes: 64 * 1024 }, (cleanup) => {
   process.once("SIGTERM", () => {
-    void cleanup().finally(() => process.exit(143));
+    // The probe exits either way; a cleanup failure changes nothing it could report.
+    void cleanup()
+      .catch(() => {})
+      .finally(() => process.exit(143));
   });
 });
 try {

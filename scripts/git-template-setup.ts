@@ -20,6 +20,7 @@ export default async function setup(project: TestProject) {
       context.testRealHome,
       process.env,
       context.enclosingRepository?.checkouts,
+      context.testToolPath,
     );
     await execute("git", ["init", "-b", "main", gitTemplate], {
       env,

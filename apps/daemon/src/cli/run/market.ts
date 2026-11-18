@@ -1,7 +1,7 @@
 import { legacy, type CommandContext, type Handlers } from "./context.ts";
 
 /*
- * The market's handlers (ADR 0176 §11, §12): people and publishers through the daemon's
+ * The market's handlers (ADR 0178 §11, §12): people and publishers through the daemon's
  * `marketplace.request`, the local check offline, and the maintainer tools straight to the
  * market. Modules load on use, so the table stays cheap to read.
  */

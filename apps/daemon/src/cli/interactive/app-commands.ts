@@ -5,7 +5,7 @@ import { words, type App } from "./app-context.ts";
 import { answerOutcome } from "./answer-outcome.ts";
 
 /**
- * Commands the interactive shell sends, and the answers it follows (ADR 0176 §9): an answer
+ * Commands the interactive shell sends, and the answers it follows (ADR 0178 §9): an answer
  * the daemon admitted is claimed only once its request closes (`answerOutcome`); one that
  * didn't land shows again in the requests walk.
  */

@@ -56,6 +56,7 @@ import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
 import { accountModelName, delegationEffort, selectedDelegationModel } from "./models.ts";
 import { modelLoadBudget, type ModelLoadBudget } from "./model-load-budget.ts";
 import { ConversationJournal } from "./conversation-journal.ts";
+import { threadGone } from "../thread-gone.ts";
 import {
   executionModelId,
   matchesModel,
@@ -129,7 +130,9 @@ export class DelegationService {
       () => {},
     );
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
-    this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
+    this.journal = new DelegationJournal(deps.store, deps.journalCapacity, (error) =>
+      this.report(error),
+    );
     this.conversations = new ConversationJournal(deps.store);
     this.senders = new MessageSenders(deps.store);
     this.launches = new LaunchQueue(deps.store);
@@ -234,6 +237,8 @@ export class DelegationService {
     }
     for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
       this.recoverOne(edge.childId, () => {
+        // An edge whose parent is gone settles without reaching the engine (ADR 0183).
+        if (this.sync.orphaned(edge)) return;
         this.sync.reconcile(edge);
         // A notice a crash or a refused send left unsent goes now.
         this.limits.recheck([edge.childId]);
@@ -1032,7 +1037,9 @@ export class DelegationService {
   /** A child that never ran settles at once: no run of its will ever end to settle it. */
   private settleUnlaunched(edge: DelegationRecord, outcome: "cancelled" | "failed"): void {
     this.launches.take(edge.childId);
-    if (this.deps.store.getThread(edge.childId)?.queuedLaunch)
+    const queued = this.deps.store.getThread(edge.childId);
+    // A deleted child's row is a tombstone: nothing is written to it.
+    if (queued?.queuedLaunch && queued.deletedAt === undefined)
       this.deps.store.appendEvents(edge.childId, [{ type: "thread.updated", queuedLaunch: null }]);
     const result: DelegationOutcome = {
       threadId: edge.childId,
@@ -1043,7 +1050,10 @@ export class DelegationService {
     };
     this.journal.settle(edge, result, this.deps.clock.now() + this.policy.coalesceMs);
     const thread = this.deps.store.getThread(edge.childId);
-    if (thread) {
+    if (
+      thread &&
+      !threadGone((id) => this.deps.store.getThread(id), this.deps.engine, edge.parentId)
+    ) {
       const shown = { ...thread, status: childStatus(edge, thread) };
       this.deps.engine.updateChild(edge.parentId, shown);
       this.deps.engine.delegationStarted(edge, shown);
@@ -1397,7 +1407,7 @@ export class DelegationService {
       try {
         this.deps.store.atomic(() => {
           const parent = this.deps.store.getThread(next.parent_id);
-          if (!parent) {
+          if (!parent || threadGone(() => parent, this.deps.engine, next.parent_id)) {
             this.journal.discard(next.parent_id);
             return;
           }

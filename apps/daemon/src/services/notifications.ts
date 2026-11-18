@@ -48,10 +48,11 @@ export async function startNotifications(context: ServiceContext): Promise<void>
       await notifications.service.connectDevice(device);
     // Repeatable: `ready()` wakes the worker again after a failure, and `activate()` does
     // nothing the second time, so a run after a failure resumes rather than starts twice.
+    // The warmup logs its own failure and reports the status.
     void repeatableWarmup(context, "notifications", async () => {
       if (retained) await notifications.ready();
       notifications.activate();
-    });
+    }).catch(() => {});
   });
 }
 

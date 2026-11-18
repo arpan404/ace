@@ -11,6 +11,7 @@ import { ForgeHostedChecksCommand } from "./forge-checks.ts";
 import { ForgeHostedMergeCommand, ForgeHostedMergeStateCommand } from "./forge-hosted-merge.ts";
 import { ForgeHostedPrCreateCommand } from "./forge-new-pr.ts";
 import { Project } from "./projects.ts";
+import { ProjectIdentityOperations, ProjectIdentityResults } from "./project-identity.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ForgeBrowserOperations, ForgeBrowserResult } from "./forge-browser.ts";
@@ -102,8 +103,17 @@ export const WorkspaceActionRequest = z.object({
     z.object({ op: z.literal("branches.list"), workspaceId: WorkspaceId }),
     /** The project's `origin` fetch URL, so another machine can find its own copy. */
     z.object({ op: z.literal("workspace.origin"), workspaceId: WorkspaceId }),
-    /** The registered project whose `origin` is the same repository as `url`. */
-    z.object({ op: z.literal("workspaces.match"), url: z.string().min(1).max(4096) }),
+    /**
+     * The registered project whose `origin` is the same repository as `url`: the one at
+     * `subpath` inside it when there is one ("" is the repository's root, the default), else
+     * the most recently used.
+     */
+    z.object({
+      op: z.literal("workspaces.match"),
+      url: z.string().min(1).max(4096),
+      subpath: z.string().max(4096).optional(),
+    }),
+    ...ProjectIdentityOperations,
     z.object({ op: z.literal("thread.details"), threadId: ThreadId }),
     z.object({ op: z.literal("pr.status"), threadId: ThreadId }),
     /** The files a commit of the thread's checkout would take, as `git status` reports them. */
@@ -181,6 +191,7 @@ export const WorkspaceActionResult = z.object({
     z.object({ kind: z.literal("origin"), url: z.string().max(4096).nullable() }),
     /** The project here with the same origin; null when there is none. */
     z.object({ kind: z.literal("match"), workspaceId: WorkspaceId.nullable() }),
+    ...ProjectIdentityResults,
     z.object({ kind: z.literal("details"), details: ThreadDetails }),
     z.object({ kind: z.literal("pr"), status: ForgePrStatus.nullable() }),
     z.object({

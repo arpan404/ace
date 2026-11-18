@@ -8,7 +8,7 @@ export interface StatusView {
 }
 
 /**
- * Three short lines (ADR 0176 §7): ace runs, who it's signed in as, what needs you and what
+ * Three short lines (ADR 0178 §7): ace runs, who it's signed in as, what needs you and what
  * works. Facts the daemon didn't give are left out, never guessed. Pure.
  */
 export function statusLines(view: StatusView): string[] {

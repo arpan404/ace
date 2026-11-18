@@ -10,7 +10,7 @@ import { chatAction } from "../chat-input.ts";
 import type { OpenRequest } from "./request-answer.ts";
 
 /**
- * Attach's slash commands (ADR 0176 §9), with the meaning `ace chat` gave them: `/steer TEXT`,
+ * Attach's slash commands (ADR 0178 §9), with the meaning `ace chat` gave them: `/steer TEXT`,
  * `/stop`, `/model MODEL`, `/resume [THREAD]`, `/approve` and `/deny`, `/help`, `/quit`. The
  * syntax is `chat-input.ts`'s; this turns each into the daemon command it stands for.
  */

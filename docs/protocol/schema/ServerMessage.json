@@ -607,6 +607,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MachineRelayAnswer.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/CommandsListResult.json"
     },
     {
@@ -1551,6 +1554,11 @@
           },
           "maxItems": 8,
           "type": "array"
+        },
+        "releaseLine": {
+          "maxLength": 32,
+          "minLength": 1,
+          "type": "string"
         },
         "ticket": {
           "properties": {

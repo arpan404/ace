@@ -406,7 +406,7 @@ export class Engine {
         await options.providersActivated;
         await recovery.prepare();
         for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
-        models.migrateCachedDefaults();
+        models.migrateCachedDefaults(unreadable);
         if (!this.closing) recover();
         this.readyState = true;
         for (const id of this.pendingSettles) this.stopSettled(id);
@@ -421,7 +421,10 @@ export class Engine {
   private stopSettled(id: ThreadId): void {
     if (this.closing) return;
     if (!this.readyState) this.pendingSettles.add(id);
-    else if (this.repo.state(id)) void this.settledTrees.stop(id, this.settleFailed);
+    else if (this.repo.state(id))
+      void this.settledTrees
+        .stop(id, this.settleFailed)
+        .catch((error: unknown) => this.report(error));
   }
   /** The liveness sweep's retry for a settled tree that still has a provider running. */
   async retrySettled(id: ThreadId): Promise<void> {
@@ -972,6 +975,10 @@ export class Engine {
       this.repo.sessionOpening(id) ||
       this.sessions.isClosing(id)
     );
+  }
+  /** Whether this thread has engine state: none once its data was purged, or if it never ran. */
+  hasState(id: ThreadId): boolean {
+    return this.repo.state(id) !== undefined;
   }
   cleanupThreads(id: ThreadId): ThreadId[] {
     return this.liveness.tree(id);

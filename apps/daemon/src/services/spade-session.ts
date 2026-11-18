@@ -108,12 +108,19 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
           data: event.data,
         });
       },
-    }).then((result) => {
-      if (streams.get(requestId) === stream) streams.delete(requestId);
-      if (stream.reason) return end(requestId, stream.reason);
-      if (result.kind === "refused") return end(requestId, "refused", result.status);
-      end(requestId, result.kind === "too_large" ? "too_large" : "closed");
-    });
+    })
+      .then((result) => {
+        if (streams.get(requestId) === stream) streams.delete(requestId);
+        if (stream.reason) return end(requestId, stream.reason);
+        if (result.kind === "refused") return end(requestId, "refused", result.status);
+        end(requestId, result.kind === "too_large" ? "too_large" : "closed");
+      })
+      .catch(() => {
+        // The stream's own answer never came: end it as closed, as an ended stream is.
+        if (streams.get(requestId) === stream) streams.delete(requestId);
+        if (stream.reason) return end(requestId, stream.reason);
+        end(requestId, "closed");
+      });
   }
 
   return {

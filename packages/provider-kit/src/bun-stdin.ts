@@ -38,6 +38,7 @@ export function reportBunStdinFailures(stdin: Writable): void {
       return;
     }
     flushing = true;
+    // The loop reports its own failure by destroying stdin.
     void (async () => {
       try {
         do {
@@ -50,7 +51,7 @@ export function reportBunStdinFailures(stdin: Writable): void {
       } finally {
         flushing = false;
       }
-    })();
+    })().catch(() => {});
   };
   const write = stdin.write.bind(stdin);
   // Every write of the stream, including end's final chunk, goes through write.

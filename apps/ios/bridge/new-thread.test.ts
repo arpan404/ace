@@ -795,3 +795,36 @@ test("a stopped start a fresh daemon never knew sends its card once, not on ever
   expect(asks() - before.asks).toBeLessThanOrEqual(1);
   later.close();
 });
+
+test("each project names its logical project's ids, so another machine's checkout of it is found", async () => {
+  const daemon = fixture();
+  const P = "11111111-1111-4111-8111-111111111111";
+  const Q = "22222222-2222-4222-8222-222222222222";
+  daemon.projects.seedFolders("/home/ada", [
+    { path: "/home/ada/code/weather", git: true },
+    { path: "/home/ada/review/weather", git: true },
+    { path: "/home/ada/code/notes", git: true },
+  ]);
+  const ids = ["/home/ada/code/weather", "/home/ada/review/weather", "/home/ada/code/notes"].map(
+    (path) => daemon.projects.command({ type: "workspace.add", path })?.workspace?.id ?? "",
+  );
+  const [main, review, notes] = ids;
+  daemon.projects.identities.set(main ?? "", P);
+  daemon.projects.identities.set(review ?? "", Q);
+  // Q was merged into P here: the review checkout still says Q, and P's alias joins them.
+  daemon.projects.identities.alias(Q, P);
+  const compose = await connect(daemon);
+  compose.compose({ kind: "projects" });
+  const patch = await until(
+    () => latest("compose.projects")?.state === "ready" && latest("compose.projects"),
+  );
+  const rows = patch.projects as { id: string; logical: string[] }[];
+  const logical = (id: string | undefined) => rows.find((row) => row.id === id)?.logical;
+  expect(logical(main)).toEqual([P, Q]);
+  expect(logical(review)).toEqual([P, Q]);
+  // Its own logical project, which nothing else here shares.
+  expect(logical(notes)).toHaveLength(1);
+  expect(logical(notes)).not.toContain(P);
+  // An older thread's project, never added by this ace, has none.
+  expect(logical("ace")).toEqual([]);
+});

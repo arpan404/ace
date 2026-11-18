@@ -5,7 +5,7 @@ import { aceToolsReadyBudgetMs, pause, readinessStep } from "./mcp-ready.ts";
 import type { Runtime } from "./runtime.ts";
 
 /**
- * Each OpenCode session's own shell variables (ADR 0176 §10).
+ * Each OpenCode session's own shell variables (ADR 0178 §10).
  *
  * An OpenCode server serves many sessions, and ace starts it before any thread exists, so its
  * process environment can't name a thread. OpenCode's `PUT /api/session/:id/environment` sets

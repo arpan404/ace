@@ -5,6 +5,7 @@ import {
   electronBinary as electronBinaryFrom,
   electronDist,
 } from "../src/packaging/electron-dist.ts";
+import { preferEsmBuilds } from "../src/packaging/esm-builds.ts";
 import { noNativeModules } from "../src/packaging/no-native-modules.ts";
 import { zodEnglishOnly } from "./zod-english.ts";
 
@@ -42,7 +43,7 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
     minify: true,
     sourcemap: "linked",
     external: ["electron"],
-    plugins: [zodEnglishOnly],
+    plugins: [zodEnglishOnly, preferEsmBuilds],
     logLevel: "warning",
     legalComments: "eof",
   };
@@ -57,7 +58,7 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
       chunkNames: "chunks/[name]-[hash]",
       outExtension: { ".js": ".mjs" },
       // app.asar stages no native packages; the daemon owns them.
-      plugins: [zodEnglishOnly, noNativeModules],
+      plugins: [zodEnglishOnly, preferEsmBuilds, noNativeModules],
       platform: "node",
       target: "node26",
       // CommonJS dependencies bundled into ESM still call `require` for Node built-ins.
@@ -78,7 +79,7 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
         "probe-worker": join(repo, "packages/provider-kit/src/probe-worker.ts"),
       },
       outdir,
-      plugins: [zodEnglishOnly, noNativeModules],
+      plugins: [zodEnglishOnly, preferEsmBuilds, noNativeModules],
       format: "esm",
       outExtension: { ".js": ".mjs" },
       platform: "node",

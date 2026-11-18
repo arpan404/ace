@@ -170,10 +170,13 @@ export async function simulatorCapture(options: {
     options.publish({ header, payload: packet.subarray(packet.length - payload.length), packet });
   };
   // A reused external serve-sim server exits its CLI normally. Its lifetime remains external.
-  void child.exited.then((exit) => {
-    if (!stopped && (!announced || exit.code !== 0))
-      failed(new Error("Simulator framebuffer helper stopped"));
-  });
+  // `exited` reports the helper's exit and does not reject.
+  void child.exited
+    .then((exit) => {
+      if (!stopped && (!announced || exit.code !== 0))
+        failed(new Error("Simulator framebuffer helper stopped"));
+    })
+    .catch(() => {});
   const endpoint = Promise.withResolvers<z.infer<typeof Endpoint>>();
   void endpoint.promise.catch(() => {});
   const cancel = runtime.after(10000, () => {
@@ -303,7 +306,8 @@ export async function simulatorCapture(options: {
               ? { orientation: config.data.orientation ?? screen.orientation }
               : config.data,
           );
-          if (options.screens) void readScreens(options.screens);
+          // readScreens swallows a failed read; the next size report asks again.
+          if (options.screens) void readScreens(options.screens).catch(() => {});
           sized.resolve();
           // A portrait-only app shows no new picture when the device turns; resend one so
           // viewers learn the new rotation anyway.
@@ -329,10 +333,13 @@ export async function simulatorCapture(options: {
       touching,
       new Promise<void>((resolve) => {
         const giveUp = runtime.after(3000, resolve);
-        void Promise.resolve(screensRead).finally(() => {
-          giveUp();
-          resolve();
-        });
+        // `screensRead` swallows a failed read; only the give-up timer is left to clear.
+        void Promise.resolve(screensRead)
+          .finally(() => {
+            giveUp();
+            resolve();
+          })
+          .catch(() => {});
       }),
     ]);
     controller.signal.throwIfAborted();
@@ -411,7 +418,7 @@ export async function simulatorCapture(options: {
         !transcoderFailed &&
         needsTranscode(viewer) !== (transcode !== undefined)
       )
-        void follow(viewer);
+        void follow(viewer).catch(() => {});
       if (transcode) return transcode.push(unit.payload, unit.keyframe, sequence, runtime.now());
       publish(
         {
@@ -480,12 +487,12 @@ export async function simulatorCapture(options: {
                 await previous?.stop();
                 // ace-media re-encodes for this viewer from now on, not the screen helper.
                 await stopTranscode();
-                if (viewer) void follow(viewer);
+                if (viewer) void follow(viewer).catch(() => {});
                 return { ingest: "on", boundary: null, cut: true };
               }
               fromMedia = false;
               mediaTranscoding = false;
-              if (viewer) void follow(viewer);
+              if (viewer) void follow(viewer).catch(() => {});
               if (video && !stopped)
                 await openH264()
                   .start()

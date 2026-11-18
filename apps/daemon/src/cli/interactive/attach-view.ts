@@ -9,7 +9,7 @@ import { requestStrip } from "./request-strip.ts";
 import type { LiveLine } from "./transcript.ts";
 
 /**
- * Attach's live region (ADR 0176 §9), below what is already in the scrollback: the turn in
+ * Attach's live region (ADR 0178 §9), below what is already in the scrollback: the turn in
  * progress, the request strip when one is open, the live line, then the composer. Pure.
  */
 export interface AttachView {

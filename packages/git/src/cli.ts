@@ -571,9 +571,12 @@ export class GitCli {
     if (known) return known;
     const files = standardConfigFiles(query).catch(() => undefined);
     this.standardFiles.set(key, files);
-    void files.then((found) => {
-      if (!found) this.standardFiles.delete(key);
-    });
+    // files never rejects; forgetting a missing answer is the only cleanup it needs.
+    void files
+      .then((found) => {
+        if (!found) this.standardFiles.delete(key);
+      })
+      .catch(ignoreError);
     return files;
   }
 
@@ -925,7 +928,7 @@ export class GitCli {
         child.stdout.on("error", ignoreError);
         child.stderr.on("error", ignoreError);
       };
-      const closed = async (code: number | null, signal: NodeJS.Signals | null) => {
+      const handleClose = async (code: number | null, signal: NodeJS.Signals | null) => {
         if (settled) return;
         if (signal && !spawnFailure) {
           fail(
@@ -953,7 +956,9 @@ export class GitCli {
               }),
             );
         }
-        if (code === 0 && (inputError || !inputDelivered))
+        // A call with no input has nothing to deliver: a Git that exits before its empty stdin
+        // reports `finish` (as one can under load) did all of its work.
+        if (code === 0 && options.input !== undefined && (inputError || !inputDelivered))
           return reject(
             new GitError("git_failed", "Git stopped reading its input before the end", {
               code,
@@ -962,6 +967,11 @@ export class GitCli {
             }),
           );
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
+      };
+      // handleClose() settles the operation through resolve/reject; a rejection here would have
+      // no other receiver, so it is ignored like a detached error listener.
+      const closed = (code: number | null, signal: NodeJS.Signals | null) => {
+        void handleClose(code, signal).catch(ignoreError);
       };
       child.once("close", closed);
       // Git ended by itself: what it left running stays, as it does outside a job.

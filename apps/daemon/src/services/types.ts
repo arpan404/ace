@@ -76,6 +76,19 @@ export interface Services {
   };
   /** Agent calls from other paired machines, answered here (ADR 0078). */
   machineCalls?: import("../machines/target.ts").MachineTarget;
+  /** Threads paired machines' agents started here (ADR 0078), for who owns what. */
+  machineThreads?: import("../machines/target-threads.ts").TargetThreads;
+  /** Data between agents across machines (ADR 0182). */
+  parcels?: import("../parcels/service.ts").DaemonParcels;
+  /** The paths this machine serves now (ADR 0114), set by the server once it knows them. */
+  servedPaths?: (() => import("@ace/protocol").MachinePath[]) | undefined;
+  /**
+   * A device grant on this machine's ace account for one of its paired devices elsewhere, set by
+   * the server; undefined while it isn't signed in (ADR 0182).
+   */
+  relayDeviceGrant?:
+    | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
+    | undefined;
   /** Projects and threads other machines send here (ADR 0101). */
   transferTarget?: import("../transfers/http.ts").TransferTarget;
   /** This machine's links to the person's other machines, made from Settings. */
@@ -146,7 +159,7 @@ export interface Services {
   pluginAvailability: import("./plugin-availability.ts").Availability<PluginService>;
   /** ace's marketplace (ADR 0168). */
   marketplace?: import("../marketplace/service.ts").MarketplaceService;
-  /** The marketplace as the person or an agent reaches it (ADR 0176 §12.5). */
+  /** The marketplace as the person or an agent reaches it (ADR 0178 §12.5). */
   marketAgent?: import("../marketplace/market-agent.ts").MarketAgent;
   /** The Suit library (ADR 0150). */
   suits?: import("../suits/library.ts").SuitLibrary;

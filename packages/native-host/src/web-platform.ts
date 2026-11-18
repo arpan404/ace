@@ -274,7 +274,10 @@ export function installWebPlatform(host: NativeHost, target: object = globalThis
   add("AbortController", cancellation.Controller);
   add("AbortSignal", cancellation.Signal);
   add("queueMicrotask", (callback: () => void) => {
-    void Promise.resolve().then(callback);
+    // The host installs no error channel: a microtask that throws has nowhere to report.
+    void Promise.resolve()
+      .then(callback)
+      .catch(() => {});
   });
   add("btoa", (value: string) => host.latin1Base64(value, false));
   add("atob", (value: string) => host.latin1Base64(value, true));

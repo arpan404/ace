@@ -140,7 +140,8 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     }
   });
   admission.flights.count++;
-  void task.finally(() => admission.flights.count--);
+  // lanes.run never rejects: the accept above reports its own failure.
+  void task.finally(() => admission.flights.count--).catch(() => {});
   // Bounded work per socket: past the cap the queue waits, so TCP backpressure applies.
   if (admission.flights.count > commandFlights) await task;
   else await settledWithin(task, commandGraceMs, admission.delay);

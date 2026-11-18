@@ -87,7 +87,8 @@ export class CursorAuthService {
       });
     const task = this.execute(owner, request);
     this.requests.add(task);
-    void task.finally(() => this.requests.delete(task));
+    // The caller receives task's own rejection; this chain only forgets the request.
+    void task.finally(() => this.requests.delete(task)).catch(() => undefined);
     return task;
   }
   private async execute(owner: string, input: CursorAuthRequest): Promise<CursorAuthEvent> {
@@ -211,7 +212,10 @@ export class CursorAuthService {
     if (this.jobs.has(job.id)) throw new Error("Duplicate login identity");
     this.jobs.set(job.id, job);
     job.cancelTimer = this.options.setTimer(() => {
-      void this.cancel(job).finally(() => this.jobs.delete(job.id));
+      // cancel() only waits on job.done, which reports its own failure; the job still goes.
+      void this.cancel(job)
+        .catch(() => undefined)
+        .finally(() => this.jobs.delete(job.id));
     }, 300000);
     job.done = Promise.resolve()
       .then(async () => {

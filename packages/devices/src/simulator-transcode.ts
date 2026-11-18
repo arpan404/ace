@@ -116,16 +116,19 @@ export function startSimulatorTranscode(options: {
       if (!stopped) options.failed(error);
     }
   });
-  void child.exited.then(() => {
-    if (!stopped)
-      options.failed(
-        new DeviceError(
-          "command_failed",
-          "The Simulator's transcoder stopped",
-          "Start the device view again.",
-        ),
-      );
-  });
+  // `exited` reports the transcoder's exit and does not reject.
+  void child.exited
+    .then(() => {
+      if (!stopped)
+        options.failed(
+          new DeviceError(
+            "command_failed",
+            "The Simulator's transcoder stopped",
+            "Start the device view again.",
+          ),
+        );
+    })
+    .catch(() => {});
   // Bytes handed to the pipe and not yet flushed, counted from write callbacks: Bun reports
   // `writableLength` as 0 however full the pipe is. Owed requests go out from the callback, not
   // on `drain`: Bun emits `drain` before the callback of the chunk that drained, so the last

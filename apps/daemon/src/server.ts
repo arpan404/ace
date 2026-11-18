@@ -7,6 +7,7 @@ import { createSocketRegistry } from "./services/registry.ts";
 import { decodeDeviceFrame, parseSocketMessage } from "./services/socket-message.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
+import { pairedMachinePaths } from "./machine-paths.ts";
 import { MaintenanceGate } from "@ace/service";
 import { AppUpdateBoard } from "./app-update-board.ts";
 import { createMachineUpdates } from "./machine-update/create.ts";
@@ -112,7 +113,15 @@ export async function startServer(options: ServerOptions): Promise<{
   let remoteOrigin: string | undefined;
   const pairing = (): PairingConnection | undefined =>
     options.remote && remoteOrigin
-      ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
+      ? {
+          origin: remoteOrigin,
+          fingerprint: options.remote.identity.fingerprint,
+          // The person's own relay from launch options, as a second way in (ADR 0182).
+          ...(options.relay &&
+          !isHostedRelay(options.relay.url, options.remoteConfig?.hostedRelayUrl)
+            ? { alsoRelay: relayPairing(options.relay).relay }
+            : {}),
+        }
       : dynamicRemote
         ? dynamicRemote.pairing()
         : // A relay from launch options (`ACE_RELAY_URL`) is self-hosted unless it is ace's.
@@ -128,9 +137,11 @@ export async function startServer(options: ServerOptions): Promise<{
       () => options.store.waitingBlockers(),
     );
   let ready = options.ready === undefined;
-  void options.ready?.then(() => {
-    ready = true;
-  });
+  void options.ready
+    ?.then(() => {
+      ready = true;
+    })
+    .catch((error: unknown) => options.log?.(error));
   const updateHold = new UpdateHold(maintenance, runtime);
   // A daemon started in the middle of an update holds until recovery releases it.
   if (options.maintenance || maintenance.held("update")) updateHold.persist();
@@ -189,6 +200,15 @@ export async function startServer(options: ServerOptions): Promise<{
     ...(options.homeData ? { homeData: options.homeData } : {}),
     updateHold,
   };
+  // Paired machines learn where else this one answers from `describe` (ADR 0182).
+  options.servedPaths = () => pairedMachinePaths(access.remoteStatus(), access.pairing());
+  options.relayDeviceGrant = async (deviceId, url, signal) => {
+    const account = options.machineAccount;
+    // A grant goes only to ace's own relay: any other address a machine names could replay it.
+    if (!isHostedRelay(url, options.remoteConfig?.hostedRelayUrl)) return undefined;
+    if (!account?.status().signedIn) return undefined;
+    return account.deviceGrant(deviceId, signal);
+  };
   const { local, remoteHttp } = httpChains(options, auth, access, maintenance, () => preview);
   const remote = options.remote
     ? httpsServer({ ...options.remote.identity, minVersion: "TLSv1.2" }, remoteHttp())
@@ -234,7 +254,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const closer = createSocketCloser(runtime.delay);
   const stopRevocation = auth.onRevoke((id) => {
     // Preview sessions name the credential that opened them, so the authority decides.
-    void preview?.revalidate();
+    void preview?.revalidate().catch((error: unknown) => options.log?.(error));
     void options.notifications
       ?.revoke?.(DeviceId.parse(id))
       .catch(() => options.log?.(new Error("Notification revocation failed")));
@@ -253,7 +273,7 @@ export async function startServer(options: ServerOptions): Promise<{
   // Its account sockets are not the pairing's and stay.
   const stopReplaced = auth.onCredentialReplaced((id) => {
     // Its preview links, sessions and open streams were the old credential's (ADR 0115).
-    void preview?.revalidate();
+    void preview?.revalidate().catch((error: unknown) => options.log?.(error));
     for (const [socket, device] of authenticated)
       if (
         device.revocable &&
@@ -375,7 +395,7 @@ export async function startServer(options: ServerOptions): Promise<{
       return activeDevice(current, auth.now()) && allows(current, scope);
     };
     // Authenticated with the daemon's token file on loopback: the person's whole authority, which
-    // any process able to read the file has (ADR 0176 §12.5).
+    // any process able to read the file has (ADR 0178 §12.5).
     const hostCredential = () =>
       relayed === undefined &&
       accountAdmitted === undefined &&

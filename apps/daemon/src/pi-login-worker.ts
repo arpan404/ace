@@ -152,7 +152,9 @@ try {
         signal: signal.signal,
         notify(value) {
           const event = Event.parse(value);
-          if (event.type === "auth_url" || event.type === "device_code") void send(event);
+          // A failed write means the parent has gone; the worker's own exit reports it.
+          if (event.type === "auth_url" || event.type === "device_code")
+            void send(event).catch(() => {});
         },
         async prompt(value) {
           const prompt = Prompt.parse(value);

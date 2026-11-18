@@ -10,7 +10,7 @@ export const kindSwitches: readonly StorageKind[] = StorageKind.options;
 const ForcedItems = z.array(z.string().min(1).max(256)).max(256);
 
 /**
- * `storage plan` and `storage clean` flags as one daemon plan request (ADR 0176 §8):
+ * `storage plan` and `storage clean` flags as one daemon plan request (ADR 0178 §8):
  * `--force-item ID` repeated and `--retention @FILE`. The first CLI's JSON forms
  * (`--force-items '["id"]'`, `--retention '{…}'`, `--kinds a,b`) still work in the window.
  * `readFile` is the only effect; everything else is pure.

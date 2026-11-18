@@ -263,7 +263,9 @@ export function createSpadeHttp(context: {
       .then((answer) => {
         clearTimeout(timeout);
         respond(message.requestId, answer);
-      });
+      })
+      // A send that fails here has no request left to answer.
+      .catch(() => undefined);
   }
 
   function read(message: SpadeHttpRead) {

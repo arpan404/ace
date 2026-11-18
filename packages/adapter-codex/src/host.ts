@@ -251,15 +251,19 @@ export class CodexHost {
     const peer = this.#peer;
     peer.onNotification = (message) => this.#notification(message);
     peer.onRequest = (message) => this.#request(message);
-    void proc.exited.then((exit) => {
-      this.#cancelDrain?.();
-      proc.signal.removeEventListener("abort", drain);
-      this.#exited({
-        ...exit,
-        ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
-        outputDrained: this.#outputDrained,
-      });
-    });
+    void proc.exited
+      .then((exit) => {
+        this.#cancelDrain?.();
+        proc.signal.removeEventListener("abort", drain);
+        this.#exited({
+          ...exit,
+          ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
+          outputDrained: this.#outputDrained,
+        });
+      })
+      .catch((error: unknown) =>
+        process.emitWarning(`Codex app-server exit handling failed: ${String(error)}`),
+      );
     this.#ready = (async () => {
       await peer.request("initialize", config.initialize, { timeoutMs: 30_000 });
       await peer.notify("initialized");
@@ -605,7 +609,11 @@ export class CodexHost {
       this.#flush(hold, "all");
       return;
     }
-    if (!hold.resolving && !hold.chain) void this.#resolve(thread, hold);
+    // Frames stay held when ancestry cannot be read, so the failure is reported here.
+    if (!hold.resolving && !hold.chain)
+      void this.#resolve(thread, hold).catch((error: unknown) =>
+        process.emitWarning(`Codex thread ancestry failed: ${String(error)}`),
+      );
   }
 
   /** Find an owned ancestor through Codex's own thread records. */

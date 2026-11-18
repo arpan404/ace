@@ -2,6 +2,7 @@ import { DelegationFailure } from "./delegation-failure.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
+import { ParcelId, ParcelName, maxParcelNoteChars } from "./parcels.ts";
 import { WorktreeBase } from "./worktree-base.ts";
 import { AgentId, ItemId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -314,6 +315,25 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     thread: z.literal("self").optional(),
     includeChanges: z.boolean().optional(),
     includeIgnored: z.boolean().optional(),
+  }),
+  /** Data for another agent in this tree, here or on a paired machine (ADR 0182). */
+  z.strictObject({
+    op: z.literal("data.send"),
+    to: z.union([ThreadId, z.literal("parent")]),
+    path: z.string().min(1).max(4096).optional(),
+    text: z
+      .string()
+      .min(1)
+      .max(256 * 1024)
+      .optional(),
+    name: ParcelName.optional(),
+    note: z.string().max(maxParcelNoteChars).optional(),
+  }),
+  /** Parcels this thread sent or received; with saveAs, a received one copied into its project. */
+  z.strictObject({
+    op: z.literal("data.receive"),
+    parcelId: ParcelId.optional(),
+    saveAs: z.string().min(1).max(1024).optional(),
   }),
   z.strictObject({ op: z.literal("agent.result"), threadId: ThreadId }),
   z.strictObject({ op: z.literal("agent.cancel"), threadId: ThreadId, requestId: key }),

@@ -14,7 +14,7 @@ import { usageFailure } from "../output.ts";
 import { parseEntry, parseRef, parseVersioned } from "./refs.ts";
 
 /*
- * Which `marketplace.request` each `ace market` command sends (ADR 0176 §11, §12.1): one command,
+ * Which `marketplace.request` each `ace market` command sends (ADR 0178 §11, §12.1): one command,
  * one operation, built from the command line. The verbs agents use through `market_read` and
  * `market_publish` are the same (`@ace/mcp-server/market-verbs`), so the CLI adds no market
  * logic. Texts read from files or stdin (`@FILE`, `-`) arrive already read. Pure.

@@ -62,19 +62,23 @@ export function scheduleChecks(
   let lastCheck: number | undefined;
   const tick = () => {
     lastCheck = ports.now();
-    void checker.check("background");
+    // check() logs a background failure and keeps the status it had.
+    void checker.check("background").catch(() => {});
     cancel = ports.timers.set(wait(ports.active() ? schedule.everyMs : schedule.idleEveryMs), tick);
   };
   const launchedAt = ports.now();
   let cancel = ports.timers.set(schedule.launchLatestMs, tick);
-  void ports.daemonRunning.then(() => {
-    if (cancelled || lastCheck !== undefined) return;
-    // The earlier of the launch deadline and a few seconds after the daemon runs.
-    const deadlineIn = launchedAt + schedule.launchLatestMs - ports.now();
-    if (deadlineIn <= schedule.afterDaemonMs) return;
-    cancel();
-    cancel = ports.timers.set(schedule.afterDaemonMs, tick);
-  });
+  // daemonRunning settles either way; a failure here leaves the launch deadline above.
+  void ports.daemonRunning
+    .then(() => {
+      if (cancelled || lastCheck !== undefined) return;
+      // The earlier of the launch deadline and a few seconds after the daemon runs.
+      const deadlineIn = launchedAt + schedule.launchLatestMs - ports.now();
+      if (deadlineIn <= schedule.afterDaemonMs) return;
+      cancel();
+      cancel = ports.timers.set(schedule.afterDaemonMs, tick);
+    })
+    .catch(() => {});
   return {
     opened() {
       if (cancelled || lastCheck === undefined) return;

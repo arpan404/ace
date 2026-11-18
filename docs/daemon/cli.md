@@ -2,7 +2,7 @@
 
 <!-- Generated from apps/daemon/src/cli/commands by `bun apps/daemon/scripts/cli-doc.ts`. Don't edit by hand. -->
 
-Every command is `ace <noun> <verb> [ARGUMENTS] [FLAGS]` ([ADR 0176](../adr/0176-one-cli-grammar-interactive-home-and-market.md)).
+Every command is `ace <noun> <verb> [ARGUMENTS] [FLAGS]` ([ADR 0178](../adr/0178-one-cli-grammar-interactive-home-and-market.md)).
 `ace help COMMAND` prints the same page in a terminal, and `ace help --json` prints all of it as JSON.
 
 ## Global flags

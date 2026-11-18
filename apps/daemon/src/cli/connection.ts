@@ -1,4 +1,4 @@
-import { selectedProfile } from "./profiles.ts";
+import { directOf, selectedProfile } from "./profiles.ts";
 import { accessRequest, pinnedSocketTransport } from "../client-access.ts";
 import {
   Client,
@@ -88,6 +88,13 @@ export function connectChat(home: string, args: Args) {
 }
 async function connectWithLifetime(home: string, args: Args, duration: number | undefined) {
   const profile = selectedProfile(home, option(args, "remote"));
+  // The CLI reaches another machine only at its pinned TLS address.
+  const direct = profile ? directOf(profile) : undefined;
+  if (profile && !direct)
+    throw new CliFailure(
+      "refused",
+      `${profile.name} is linked through a relay only; the CLI reaches only machines it can address directly.`,
+    );
   const connection = profile ? undefined : await reachLocalDaemon(home);
   // On a remote the paired device's id is the only one its ticket admits.
   const local = localDevice(agentShell(process.env));
@@ -114,17 +121,17 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
   const client = cliClient({
     deviceId: profile?.deviceId ?? DeviceId.parse(local.id),
     transport: () =>
-      profile
-        ? pinnedSocketTransport(profile.origin.replace("https:", "wss:"), profile.fingerprint)
+      direct
+        ? pinnedSocketTransport(direct.origin.replace("https:", "wss:"), direct.fingerprint)
         : webSocketTransport(() => new WebSocket(connection?.origin.replace("http:", "ws:") ?? "")),
-    credential: profile
+    credential: direct
       ? ticketCredential(
-          async () => profile.token,
+          async () => direct.token,
           (token) =>
-            accessRequest(profile.origin, "/v1/tickets", {
+            accessRequest(direct.origin, "/v1/tickets", {
               method: "POST",
               token,
-              fingerprint: profile.fingerprint,
+              fingerprint: direct.fingerprint,
             }),
         )
       : async () => connection?.token ?? "",
@@ -154,7 +161,7 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
 }
 
 /**
- * A read-only connection to this machine's daemon, for tab completion (ADR 0176 §6): no outbox,
+ * A read-only connection to this machine's daemon, for tab completion (ADR 0178 §6): no outbox,
  * so nothing is written, and given up when `signal` aborts. Throws when a remote picked with
  * `ace remote use` is where commands go, as this daemon's references aren't its.
  */
