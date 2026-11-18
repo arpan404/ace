@@ -69,6 +69,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
       held.resolve();
     };
   }
+  /** True: a card's settling event is stored but never sent live, so a follower misses it. */
+  missQuestionSettles = false;
+  /** Settlements of question cards accepted while `holdQuestionSettles` holds them. */
+  private heldSettles: (() => void)[] | undefined;
+
+  /**
+   * Accepts a card's answer, deferral or dismissal at once but stores it only when the result is
+   * called, as a Spade slow to send the update would.
+   */
+  holdQuestionSettles(): () => void {
+    const held: (() => void)[] = [];
+    this.heldSettles = held;
+    return () => {
+      if (this.heldSettles === held) this.heldSettles = undefined;
+      for (const settle of held.splice(0)) settle();
+    };
+  }
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
   characterAvatars = true;
@@ -204,11 +221,17 @@ export class FakeSpadeApi implements FakeSpadeServer {
 
   /** Stores an event in a conversation and sends it to its live streams. */
   store(conversation: string, event: Json): void {
+    const stored = this.keep(conversation, event);
+    this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** Stores an event without sending it live, as a stream that fell behind would miss it. */
+  private keep(conversation: string, event: Json): Json {
     const list = this.events.get(conversation) ?? [];
     const stored = { seq: list.length + 1, at: this.now(), event };
     list.push(stored);
     this.events.set(conversation, list);
-    this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+    return stored;
   }
 
   /** The agent's state and its few words, on its row and its live stream. */
@@ -886,24 +909,35 @@ export class FakeSpadeApi implements FakeSpadeServer {
       );
       if (!asked || settled || (body.defer === true && deferred))
         return problem(409, "That question isn't open.");
-      if (body.defer === true) this.store(id, { type: "question_deferred", call_id: subId });
-      else if (body.dismiss === true)
-        this.store(id, { type: "question_dismissed", call_id: subId, late: deferred || undefined });
-      else if (Array.isArray(body.answers))
-        this.store(id, {
-          type: "question_answered",
-          call_id: subId,
-          answers: body.answers,
-          late: deferred || undefined,
-        });
-      else return problem(400, "Send exactly one of answers, defer or dismiss.");
-      if (agent) {
-        const later =
-          (agent.questions_for_later ?? 0) +
-          (body.defer === true ? questions : deferred ? -questions : 0);
-        agent.questions_for_later = Math.max(0, later);
-        if (agent.waiting_for === "question") this.status(agent, "idle", null);
-      }
+      if (body.defer !== true && body.dismiss !== true && !Array.isArray(body.answers))
+        return problem(400, "Send exactly one of answers, defer or dismiss.");
+      const settle = () => {
+        const put = (event: Json) =>
+          this.missQuestionSettles ? this.keep(id, event) : this.store(id, event);
+        if (body.defer === true) put({ type: "question_deferred", call_id: subId });
+        else if (body.dismiss === true)
+          put({
+            type: "question_dismissed",
+            call_id: subId,
+            late: deferred || undefined,
+          });
+        else
+          put({
+            type: "question_answered",
+            call_id: subId,
+            answers: body.answers,
+            late: deferred || undefined,
+          });
+        if (agent) {
+          const later =
+            (agent.questions_for_later ?? 0) +
+            (body.defer === true ? questions : deferred ? -questions : 0);
+          agent.questions_for_later = Math.max(0, later);
+          if (agent.waiting_for === "question") this.status(agent, "idle", null);
+        }
+      };
+      if (this.heldSettles) this.heldSettles.push(settle);
+      else settle();
       return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {

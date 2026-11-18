@@ -140,7 +140,7 @@ struct QuestionCard: View {
 }
 
 /// One choice as a grouped row: its words on the left, a checkmark on the right when chosen.
-private struct ChoiceRow<Content: View>: View {
+struct ChoiceRow<Content: View>: View {
     let chosen: Bool
     let first: Bool
     @ViewBuilder var content: () -> Content

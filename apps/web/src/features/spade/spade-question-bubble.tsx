@@ -1,6 +1,7 @@
 import {
   spadeAnswerWords,
   spadeCardAnswers,
+  spadeCardSettledWords,
   spadeDraftAnswer,
   spadeEmptyDraft,
   spadeRefusedQuestion,
@@ -329,20 +330,11 @@ function SettledCard(props: { item: Card; label: string }) {
               <SpadeBubbleText key={at} text={question.prompt} />
             ))}
           </div>
-          <p className={cn(settledLine, "mt-1 text-subtle-foreground")}>{settled(item)}</p>
+          <p className={cn(settledLine, "mt-1 text-subtle-foreground")}>
+            {spadeCardSettledWords(item)}
+          </p>
         </>
       )}
     </div>
   );
-}
-
-function settled(item: Card): string {
-  switch (item.standing) {
-    case "answered":
-      return item.typed && item.answers === undefined ? "Answered in the chat" : "Answered";
-    case "dismissed":
-      return "Dismissed";
-    default:
-      return "Not answered";
-  }
 }
