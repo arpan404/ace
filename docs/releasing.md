@@ -3,6 +3,8 @@
 Releases are built, signed and notarized on your Mac, then published as a GitHub release.
 Every installed app checks GitHub releases and updates itself from them
 ([ADR 0091](adr/0091-desktop-auto-update.md)).
+The iPhone and iPad app goes through App Review instead: see
+[releasing-ios-app-store.md](releasing-ios-app-store.md).
 
 ## One-time setup
 
