@@ -70,6 +70,24 @@ struct ScannerModelTests {
         #expect(model.handsBack("https://host/pair#a"))
     }
 
+    @Test func aQuickTripToTheBackgroundRunsAFreshCameraOnReturn() {
+        var model = ScannerModel(access: .allowed, hasCamera: true)
+        #expect(model.runsCamera)
+        let first = model.cameraRun
+        model.enteredBackground()
+        #expect(!model.runsCamera, "the camera stops in the background")
+        model.recheck(access: .allowed, hasCamera: true)
+        #expect(model.runsCamera)
+        #expect(model.cameraRun != first, "the stopped camera is never reused")
+    }
+
+    @Test func theCameraWaitsForThePromptsAnswerBeforeRunning() {
+        var model = ScannerModel(access: .undecided, hasCamera: true)
+        #expect(!model.runsCamera)
+        model.answered(granted: true)
+        #expect(model.runsCamera)
+    }
+
     @Test func aCodeTakenJustBeforeCloseIsNeverHandedBack() {
         var model = ScannerModel(access: .allowed, hasCamera: true)
         #expect(model.read("https://host/pair#a", problem: nil) == .accepted)

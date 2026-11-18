@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -22,9 +23,6 @@ struct QRScannerView: View {
     @State private var rejections = 0
     /// The half-second check before a taken code goes back; Close cancels it.
     @State private var handOver: Task<Void, Never>?
-    /// False while the app is in the background, when the camera is stopped.
-    @State private var foreground = true
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
@@ -55,14 +53,14 @@ struct QRScannerView: View {
         .sensoryFeedback(.success, trigger: model?.phase) { _, phase in if case .found = phase { true } else { false } }
         .sensoryFeedback(.warning, trigger: rejections)
         .task { await start() }
-        .onChange(of: scenePhase) { _, phase in
-            // Only the background stops the camera: the permission prompt and Control Center
-            // make the scene inactive without leaving.
-            if phase == .background { foreground = false }
-            if phase == .active && !foreground {
-                foreground = true
-                Task { await recheck() }
-            }
+        // The app's own notifications, not `scenePhase`: a quick switch can coalesce the phase
+        // back to active without an update, but each notification arrives. Only the background
+        // stops the camera; the permission prompt and Control Center just resign active.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            model?.enteredBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            if model?.backgrounded == true { Task { await recheck() } }
         }
         .onDisappear { handOver?.cancel() }
     }
@@ -82,10 +80,12 @@ struct QRScannerView: View {
             let found = if case .found = model.phase { true } else { false }
             ZStack {
                 Color.black
-                if live && foreground && model.phase != .asking {
+                if live && model.runsCamera {
                     CameraPreview(read: { read($0) }, failed: { self.model?.cameraFailed() }, torch: torch, held: found,
                                   torchAvailable: { torchAvailable = $0 },
                                   torchApplied: { lit in torchLit = lit; torch = lit })
+                    // A new camera for each run: one stopped in the background is never kept.
+                    .id(model.cameraRun)
                 }
                 ScannerDim(side: side, centre: centre)
                 ScannerFrame(side: side, found: found, reduceMotion: reduceMotion)

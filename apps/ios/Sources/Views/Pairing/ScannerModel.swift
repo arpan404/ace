@@ -37,6 +37,11 @@ struct ScannerModel: Equatable {
     private(set) var note: String?
     private var rejected: String?
     private var closed = false
+    /// In the background, where the camera is stopped, until `recheck` on return.
+    private(set) var backgrounded = false
+    /// Which run of the camera is on screen. Each return from the background starts a new one,
+    /// so a camera stopped there is never kept, however SwiftUI coalesces the updates.
+    private(set) var cameraRun = 0
 
     init(access: CameraAccess, hasCamera: Bool) {
         guard hasCamera else { phase = .noCamera; return }
@@ -54,6 +59,9 @@ struct ScannerModel: Equatable {
         case .denied, .restricted, .noCamera, .failed: false
         }
     }
+    /// Whether the live camera should be running: scanning (or holding a taken code) and not
+    /// in the background.
+    var runsCamera: Bool { showsCamera && phase != .asking && !backgrounded }
     var offersSettings: Bool { phase == .denied || phase == .restricted }
 
     /// The answer to the system's camera prompt.
@@ -71,10 +79,17 @@ struct ScannerModel: Equatable {
     /// turned on in Settings), so every state but a taken code is decided again. A camera that
     /// failed gets another try.
     mutating func recheck(access: CameraAccess, hasCamera: Bool) {
+        if backgrounded {
+            backgrounded = false
+            cameraRun += 1
+        }
         if case .found = phase { return }
         guard !closed else { return }
         phase = ScannerModel(access: access, hasCamera: hasCamera).phase
     }
+
+    /// The app went to the background, which stops the camera.
+    mutating func enteredBackground() { backgrounded = true }
 
     /// The person closed the scanner: a code still showing its check is not handed back.
     mutating func close() { closed = true }
