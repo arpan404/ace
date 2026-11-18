@@ -2,7 +2,7 @@ import { startSupportFiles } from "./support-files.ts";
 import { fileExportSource } from "../file-export-source.ts";
 import { filesScope } from "../files-scope.ts";
 import { listFolderPage } from "../files-tool/list-folder.ts";
-import type { FoldersChanged } from "../files-tool/folder-watch.ts";
+import type { FolderWatchClient, FoldersChanged } from "../files-tool/folder-watch.ts";
 import type { ThreadId } from "@ace/protocol";
 import { FilesWorkspaces } from "../files-workspaces.ts";
 import { repeatableWarmup } from "./warmup.ts";
@@ -165,11 +165,20 @@ export function createFilesSession(context: SocketContext): SocketService {
   const readableSource = (source: ThreadId | undefined) =>
     source === undefined ||
     (context.canReadThread(source) && context.options.store.hasLiveThread(source));
-  const resolve = filesScope(context);
+  const threadAccess = (threadId: ThreadId) =>
+    context.canReadThread(threadId) && context.options.store.hasLiveThread(threadId);
+  const resolve = filesScope({
+    authorize: (access) => context.authorize(access),
+    threadAccess,
+    connected: () => context.connected(),
+    options: context.options,
+  });
   const native = context.options.filesNative;
-  const watcher = {
+  const files = context.options.threadFiles;
+  const watcher: FolderWatchClient = {
     id: context.sessionId,
-    canSend: () => context.connected() && context.authorize("read"),
+    sendable: () => context.connected() && context.authorize("read"),
+    valid: ({ id, root }) => threadAccess(id) && (files?.matches(id, root) ?? false),
     send: (message: FoldersChanged) => {
       if (!context.connected() || !context.authorize("read")) return;
       if (!context.canReadThread(message.threadId)) return;
@@ -201,27 +210,51 @@ export function createFilesSession(context: SocketContext): SocketService {
     context.tasks.add(task);
     void task.finally(() => context.tasks.delete(task));
   };
+  /** At most this many folder listings run at once on one socket; more get BUSY. */
+  const listingLimit = 8;
+  let listings = 0;
+  /** A listing's abort switch, by request id, so `files.abort` cancels it in ace-files. */
+  const aborting = new Map<string, AbortController>();
   /** One folder from ace-files, authorized exactly as the old `list` is. */
   const listFolder = (message: Extract<SocketMessage, { type: "files.request" }>) => {
     const operation = message.operation;
     if (operation.op !== "list.folder") return;
     const requestId = message.requestId;
+    if (listings >= listingLimit) {
+      context.send({
+        type: "files.error",
+        requestId,
+        code: "BUSY",
+        message: "Folder listings are busy on this connection; try again",
+      });
+      return;
+    }
+    const controller = new AbortController();
+    listings++;
+    aborting.set(requestId, controller);
     background(
-      listFolderPage(resolve, native?.tool, {
-        threadId: message.threadId,
-        scope: message.scope,
-        workspaceId: message.workspaceId,
-        operation,
-      }).then(
-        (page) => context.send({ type: "files.result", requestId, value: page }),
-        (error: unknown) =>
+      (async () => {
+        try {
+          const page = await listFolderPage(resolve, native?.tool, {
+            threadId: message.threadId,
+            scope: message.scope,
+            workspaceId: message.workspaceId,
+            operation,
+            signal: controller.signal,
+          });
+          context.send({ type: "files.result", requestId, value: page });
+        } catch (error) {
           context.send({
             type: "files.error",
             requestId,
             code: filesErrorCode(error),
             message: error instanceof Error ? error.message : "Folder listing failed",
-          }),
-      ),
+          });
+        } finally {
+          listings--;
+          aborting.delete(requestId);
+        }
+      })(),
     );
   };
   /**
@@ -257,6 +290,8 @@ export function createFilesSession(context: SocketContext): SocketService {
     close() {
       channel?.close();
       chunks?.close();
+      for (const controller of aborting.values()) controller.abort();
+      aborting.clear();
       if (native) {
         const dropping = native.folders.disconnect(context.sessionId).catch(() => {});
         context.tasks.add(dropping);
@@ -276,6 +311,7 @@ export function createFilesSession(context: SocketContext): SocketService {
     },
     handle(message) {
       if (!message.type.startsWith("files.")) return false;
+      if (message.type === "files.abort") aborting.get(message.sourceRequestId)?.abort();
       if (message.type === "files.watch") {
         watchFolders(message);
         return true;

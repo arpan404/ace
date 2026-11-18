@@ -7,7 +7,11 @@ export type FolderLister = {
   listFolder(
     path: string,
     dir: string,
-    options: { limit?: number | undefined; cursor?: string | undefined },
+    options: {
+      limit?: number | undefined;
+      cursor?: string | undefined;
+      signal?: AbortSignal | undefined;
+    },
   ): Promise<FolderPage>;
 };
 
@@ -29,6 +33,8 @@ export type FolderListingRequest = {
   scope: "support" | undefined;
   workspaceId: WorkspaceId | undefined;
   operation: Extract<FileOperation, { op: "list.folder" }>;
+  /** One socket's cancellation; a relay's task is bounded by its listing cap instead. */
+  signal?: AbortSignal | undefined;
 };
 
 /**
@@ -59,6 +65,7 @@ export async function listFolderPage(
     return await tool.listFolder(root, request.operation.path, {
       limit: request.operation.limit,
       ...(request.operation.cursor === undefined ? {} : { cursor: request.operation.cursor }),
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
     });
   } finally {
     binding.release?.();

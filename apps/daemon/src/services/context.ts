@@ -4,7 +4,7 @@ import { observeNativeImages, imageReference } from "../native-images.ts";
 import { logError } from "@ace/diagnostics";
 import { warmup } from "./warmup.ts";
 import { contextScope } from "./context-scope.ts";
-import { daemonQuickOpen, quickOpenPaths } from "../files-tool/quick-open.ts";
+import { quickOpenResult } from "../files-tool/quick-open.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { ContextService, summarizeThreadReference } from "@ace/context";
@@ -146,21 +146,14 @@ export function createContextSession(context: SocketContext): SocketService {
   const nativeQuickOpen = async (
     message: Extract<SocketMessage, { type: "context.request" }>,
   ): Promise<Extract<ServerMessage, { type: "context.result" }> | undefined> => {
-    const native = options.filesNative;
-    if (!native || message.operation.op !== "mention.complete") return undefined;
     const operation = message.operation;
-    const paths = await quickOpenPaths(
-      daemonQuickOpen(options.store, native.tool),
-      operation.threadId,
-      operation.query,
-      operation.limit,
-    );
-    if (paths === undefined) return undefined;
-    return {
-      type: "context.result",
+    if (operation.op !== "mention.complete") return undefined;
+    return quickOpenResult(options.store, options.filesNative?.tool, {
       requestId: message.requestId,
-      result: { kind: "completion", paths },
-    };
+      threadId: operation.threadId,
+      query: operation.query,
+      limit: operation.limit,
+    });
   };
   return {
     async handle(message, device) {

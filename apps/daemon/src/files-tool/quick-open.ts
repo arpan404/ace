@@ -1,4 +1,4 @@
-import type { ThreadId } from "@ace/protocol";
+import type { ServerMessage, ThreadId } from "@ace/protocol";
 import type { FilesTool } from "./tool.ts";
 
 /** Where quick open reads: a thread's checkout and ace-files' index over it. */
@@ -48,5 +48,39 @@ export function daemonQuickOpen(store: QuickOpenStore, tool: FilesTool): QuickOp
       return Promise.resolve(binding.ready ? binding.path : undefined);
     },
     ask: (root, query, limit) => tool.quickOpen(root, query, limit),
+  };
+}
+
+/** Where a `mention.complete` reply comes from: the daemon's store and the running ace-files. */
+export type QuickOpenRequest = {
+  requestId: string;
+  threadId: ThreadId;
+  query: string;
+  limit: number;
+};
+
+/**
+ * The completion reply for a `mention.complete`, or undefined to let the daemon's existing path
+ * index answer. The quick-open ranking is ace-files' (the Rust index), which is intended to match
+ * VS Code's quick open and may order hits differently from the TypeScript index; the reply shape
+ * and the 50-path limit are unchanged.
+ */
+export async function quickOpenResult(
+  store: QuickOpenStore | undefined,
+  tool: FilesTool | undefined,
+  request: QuickOpenRequest,
+): Promise<Extract<ServerMessage, { type: "context.result" }> | undefined> {
+  if (!store || !tool) return undefined;
+  const paths = await quickOpenPaths(
+    daemonQuickOpen(store, tool),
+    request.threadId,
+    request.query,
+    request.limit,
+  );
+  if (paths === undefined) return undefined;
+  return {
+    type: "context.result",
+    requestId: request.requestId,
+    result: { kind: "completion", paths },
   };
 }

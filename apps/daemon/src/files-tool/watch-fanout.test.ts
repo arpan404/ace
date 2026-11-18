@@ -126,12 +126,14 @@ it("a disconnected client hears nothing more", () => {
   expect(sent).toEqual([]);
 });
 
-it("a watcher warning names no folders", () => {
+it("a watcher warning re-lists every watched folder", () => {
   const { clock, sent, watch } = fanout();
-  watch.watch("phone", main, "/w", ["src"]);
+  watch.watch("phone", main, "/w", ["src", "docs"]);
   watch.batch("/w", { type: "warning", message: "polling" });
-  clock.advance(1_000);
-  expect(sent).toEqual([]);
+  clock.advance(100);
+  expect(sent).toEqual([
+    { client: "phone", update: { threadId: main, folders: ["docs", "src"], rescan: true } },
+  ]);
 });
 
 it("names folders the way a client writes them", () => {
@@ -151,5 +153,43 @@ it("each thread of one client hears only its own folders", () => {
   expect(sent).toEqual([
     { client: "phone", update: { threadId: main, folders: ["src"], rescan: false } },
     { client: "phone", update: { threadId: other, folders: ["docs"], rescan: false } },
+  ]);
+});
+
+it("a batch only reaches the watchers of its own root", () => {
+  const { clock, sent, watch } = fanout();
+  watch.watch("phone", main, "/one", ["src"]);
+  watch.watch("phone", other, "/two", ["src"]);
+  watch.batch("/one", changes("src/a.ts"));
+  clock.advance(100);
+  expect(sent).toEqual([
+    { client: "phone", update: { threadId: main, folders: ["src"], rescan: false } },
+  ]);
+});
+
+it("keeps at most eight watched threads per client and forgets the oldest", () => {
+  const { clock, sent, watch } = fanout();
+  const threads = Array.from({ length: 9 }, (_, index) => ThreadId.parse(`t${index}`));
+  for (const [index, threadId] of threads.entries()) {
+    watch.watch("phone", threadId, `/w${index}`, ["src"]);
+  }
+  watch.batch("/w0", changes("src/a.ts"));
+  clock.advance(1_000);
+  expect(sent).toEqual([]);
+  watch.batch("/w8", changes("src/a.ts"));
+  clock.advance(100);
+  expect(sent.map((entry) => entry.update.threadId)).toEqual([threads[8]]);
+});
+
+it("a thread watched again after eviction is re-listed in full", () => {
+  const { clock, sent, watch } = fanout();
+  const threads = Array.from({ length: 9 }, (_, index) => ThreadId.parse(`t${index}`));
+  for (const [index, threadId] of threads.entries()) {
+    watch.watch("phone", threadId, `/w${index}`, ["src", "docs"]);
+  }
+  watch.watch("phone", threads[0] as (typeof threads)[number], "/w0", ["src"]);
+  clock.advance(100);
+  expect(sent).toEqual([
+    { client: "phone", update: { threadId: threads[0], folders: ["src"], rescan: true } },
   ]);
 });

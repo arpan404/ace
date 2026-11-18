@@ -9,6 +9,8 @@ import {
   type FilesHost,
   type FilesLog,
   type FilesWatch,
+  type IndexReply,
+  type PageReply,
 } from "@ace/files-native";
 import type { FolderPage } from "@ace/protocol";
 import { existsSync } from "node:fs";
@@ -34,6 +36,10 @@ export function findFilesBinary(platform: NodeJS.Platform = process.platform): s
   });
 }
 
+/** ace-files' caps: a listing page and a quick-open answer never ask for more. */
+export const maxListFolderLimit = 5_000;
+export const maxIndexQueryLimit = 1_000;
+
 /** The code a client sees for a failed file request; both error types carry one. */
 export function filesErrorCode(error: unknown): string {
   return error instanceof Error && "code" in error && typeof error.code === "string"
@@ -49,6 +55,25 @@ export function aceFilesMissing(): FilesRequestError {
   );
 }
 
+/** What the tool needs from ace-files; `FilesClient` is the real one, a test brings a fake. */
+export type FilesToolClient = {
+  start(): Promise<void>;
+  dispose(): void;
+  openRoot(path: string): Promise<number>;
+  closeRoot(root: number): Promise<void>;
+  list(
+    root: number,
+    dir: string,
+    options: {
+      limit?: number | undefined;
+      cursor?: string | undefined;
+      signal?: AbortSignal | undefined;
+    },
+  ): Promise<PageReply>;
+  indexQuery(root: number, query: string, limit: number): Promise<IndexReply>;
+  watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch>;
+};
+
 export type FilesToolOptions = {
   /** The binary, or undefined when this install has none; looked up once per daemon. */
   binary: string | undefined;
@@ -57,6 +82,8 @@ export type FilesToolOptions = {
   log?: FilesLog | undefined;
   /** How long a root nobody holds stays open; the plan's ten minutes. */
   idleMs?: number | undefined;
+  /** A prepared client instead of spawning the binary; tests use it. */
+  open?: ((binary: string) => FilesToolClient) | undefined;
 };
 
 type RootWatch = {
@@ -79,9 +106,9 @@ export class FilesTool {
   readonly #clock: FilesClock;
   readonly #log: FilesLog;
   readonly #idleMs: number | undefined;
+  readonly #open: ((binary: string) => FilesToolClient) | undefined;
   readonly #watches = new Map<string, RootWatch>();
-  #process: FilesProcess | undefined;
-  #client: FilesClient | undefined;
+  #client: FilesToolClient | undefined;
   #roots: FilesRoots | undefined;
   #starting: Promise<void> | undefined;
   #closed = false;
@@ -92,6 +119,7 @@ export class FilesTool {
     this.#clock = options.clock ?? systemFilesClock;
     this.#log = options.log ?? (() => {});
     this.#idleMs = options.idleMs;
+    this.#open = options.open;
   }
 
   /** True when this install carries ace-files at all. */
@@ -131,23 +159,27 @@ export class FilesTool {
   }
 
   /** Start ace-files unless it runs, and resolve with the client once it answers `hello`. */
-  async client(): Promise<FilesClient> {
+  async client(): Promise<FilesToolClient> {
     if (this.#closed) throw new FilesRequestError("CANCELLED", "ace-files was disposed");
     if (!this.#binary) throw aceFilesMissing();
     if (!this.#client) {
-      const process = new FilesProcess({
-        binary: this.#binary,
-        host: this.#host,
-        clock: this.#clock,
-        log: this.#log,
-      });
-      this.#process = process;
-      this.#client = new FilesClient(process);
+      const process =
+        this.#open?.(this.#binary) ??
+        new FilesClient(
+          new FilesProcess({
+            binary: this.#binary,
+            host: this.#host,
+            clock: this.#clock,
+            log: this.#log,
+          }),
+        );
+      this.#client = process;
+      const client = process;
       const roots = new FilesRoots(
         {
           canonicalize: (path) => this.canonical(path),
-          open: async (path) => process.openRoot(path),
-          close: async (root) => process.closeRoot(root),
+          open: async (path) => client.openRoot(path),
+          close: async (root) => client.closeRoot(root),
           now: () => this.#clock.now(),
         },
         this.#idleMs,
@@ -174,13 +206,22 @@ export class FilesTool {
   async listFolder(
     path: string,
     dir: string,
-    options: { limit?: number | undefined; cursor?: string | undefined } = {},
+    options: {
+      limit?: number | undefined;
+      cursor?: string | undefined;
+      signal?: AbortSignal | undefined;
+    } = {},
   ): Promise<FolderPage> {
     const client = await this.client();
+    const limit = Math.min(
+      Math.max(1, options.limit ?? filesListDefaults.limit),
+      maxListFolderLimit,
+    );
     const page = await this.#rootBook().use(path, (root) =>
       client.list(root, dir, {
-        limit: options.limit ?? filesListDefaults.limit,
+        limit,
         ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
       }),
     );
     return folderPage(page);
@@ -193,8 +234,9 @@ export class FilesTool {
   async quickOpen(path: string, query: string, limit: number): Promise<string[] | undefined> {
     try {
       const client = await this.client();
+      const capped = Math.min(Math.max(1, Math.trunc(limit)), maxIndexQueryLimit);
       const answer = await this.#rootBook().use(path, (root) =>
-        client.indexQuery(root, query, limit),
+        client.indexQuery(root, query, capped),
       );
       return answer.ready ? answer.hits.map((hit) => hit.path) : undefined;
     } catch (error) {
@@ -249,8 +291,7 @@ export class FilesTool {
       await this.#dispose(entry);
     }
     this.#watches.clear();
-    this.#process?.dispose();
-    this.#process = undefined;
+    this.#client?.dispose();
     this.#client = undefined;
     this.#roots = undefined;
   }
@@ -263,9 +304,9 @@ export class FilesTool {
   }
 
   async #startWatch(canonical: string, entry: RootWatch): Promise<void> {
+    const client = await this.client();
     const hold = await this.#rootBook().hold(canonical);
     try {
-      const client = await this.client();
       const subscription = await client.watch(hold.root, (payload) => {
         for (const listener of entry.listeners) {
           try {
@@ -275,6 +316,16 @@ export class FilesTool {
           }
         }
       });
+      if (entry.disposed) {
+        // The tool closed while this subscription was in flight: give it back directly.
+        hold.release();
+        try {
+          await subscription.dispose();
+        } catch (error) {
+          this.#log("debug", "ace-files did not take its unwatch", { error: String(error) });
+        }
+        return;
+      }
       entry.hold = hold;
       entry.subscription = subscription;
       if (entry.closed) await this.#dispose(entry);

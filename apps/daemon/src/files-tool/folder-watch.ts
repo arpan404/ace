@@ -1,6 +1,6 @@
 import type { EventPayload } from "@ace/files-native";
 import type { FilesServerMessage, ThreadId } from "@ace/protocol";
-import { WatchFanout, type WatchClock } from "./watch-fanout.ts";
+import { WatchFanout, type FoldersUpdate, type WatchClock } from "./watch-fanout.ts";
 
 /** The push a watching client receives: folders of one thread whose contents changed. */
 export type FoldersChanged = Extract<FilesServerMessage, { type: "files.folders_changed" }>;
@@ -8,9 +8,11 @@ export type FoldersChanged = Extract<FilesServerMessage, { type: "files.folders_
 /** A socket that asked to watch folders, and how to tell it about them later. */
 export type FolderWatchClient = {
   id: string;
+  /** The socket may still receive pushes at all: connected and read-authorized. */
+  sendable(): boolean;
+  /** This thread is live, readable, and still runs on the checkout the watch was taken on. */
+  valid(thread: { id: ThreadId; root: string }): boolean;
   send(message: FoldersChanged): void;
-  /** Whether this client may still hear about the thread: access revoked or socket closing. */
-  canSend(): boolean;
 };
 
 /** What the book needs from ace-files: one shared watch per checkout. */
@@ -34,7 +36,8 @@ type RootSubscription = {
  * The daemon's folder watches: one ace-files watch per checkout, shared by every client and
  * thread on it, and each client's own folder sets for each thread. A batch names the folders it
  * makes stale (the fan-out's job); this book owns the subscriptions and the pushers, so a closed
- * socket or an idle checkout stops watching with nothing leaked.
+ * socket or an idle checkout stops watching with nothing leaked. One client's calls run in order,
+ * and a socket that closed while a watch was starting releases that watch behind its own close.
  */
 export class FolderWatch {
   readonly #ports: FolderWatchPorts;
@@ -43,19 +46,15 @@ export class FolderWatch {
   readonly #roots = new Map<string, RootSubscription>();
   readonly #watched = new Map<string, Map<ThreadId, string>>();
   readonly #tails = new Map<string, Promise<void>>();
+  /** Sockets that closed: nothing new may start for them, queued or otherwise. */
+  readonly #gone = new Set<string>();
   #closed = false;
 
   constructor(ports: FolderWatchPorts, options: FolderWatchOptions) {
     this.#ports = ports;
     this.#fanout = new WatchFanout({
       clock: options.clock,
-      send: (clientId, update) =>
-        this.#push(clientId, {
-          type: "files.folders_changed",
-          threadId: update.threadId,
-          folders: update.folders,
-          rescan: update.rescan,
-        }),
+      send: (clientId, update) => this.#push(clientId, update),
       ...(options.windowMs === undefined ? {} : { windowMs: options.windowMs }),
     });
   }
@@ -70,36 +69,22 @@ export class FolderWatch {
     root: string,
     folders: readonly string[],
   ): Promise<void> {
+    if (this.#gone.has(client.id)) return Promise.resolve();
     this.#clients.set(client.id, client);
-    const previous = this.#tails.get(client.id) ?? Promise.resolve();
-    const task = previous.then(() => this.#apply(client.id, threadId, root, folders));
-    this.#tails.set(
-      client.id,
-      task.catch(() => {}),
-    );
-    return task;
+    return this.#enqueue(client.id, () => this.#apply(client.id, threadId, root, folders));
   }
 
   /** Stop watching one thread of one client. */
   stop(clientId: string, threadId: ThreadId): Promise<void> {
-    const previous = this.#tails.get(clientId) ?? Promise.resolve();
-    const task = previous.then(() => this.#stop(clientId, threadId));
-    this.#tails.set(
-      clientId,
-      task.catch(() => {}),
-    );
-    return task;
+    if (this.#gone.has(clientId)) return Promise.resolve();
+    return this.#enqueue(clientId, () => this.#stop(clientId, threadId));
   }
 
-  /** The socket closed: drop its folder sets, pending pushes and root subscriptions. */
-  async disconnect(clientId: string): Promise<void> {
-    this.#clients.delete(clientId);
-    this.#fanout.disconnect(clientId);
-    this.#tails.delete(clientId);
-    const threads = this.#watched.get(clientId);
-    this.#watched.delete(clientId);
-    if (!threads) return;
-    for (const root of threads.values()) await this.#release(root);
+  /** The socket closed: after its queued work, drop its sets, pushes and subscriptions. */
+  disconnect(clientId: string): Promise<void> {
+    if (this.#gone.has(clientId)) return Promise.resolve();
+    this.#gone.add(clientId);
+    return this.#enqueue(clientId, () => this.#drop(clientId));
   }
 
   /** Stop every watch; the daemon is going away. */
@@ -120,7 +105,7 @@ export class FolderWatch {
     root: string,
     folders: readonly string[],
   ): Promise<void> {
-    if (this.#closed) return;
+    if (this.#closed || this.#gone.has(clientId)) return;
     if (!folders.length) {
       await this.#stop(clientId, threadId);
       return;
@@ -130,21 +115,83 @@ export class FolderWatch {
       threads = new Map();
       this.#watched.set(clientId, threads);
     }
-    this.#fanout.watch(clientId, threadId, root, folders);
+    const evicted = this.#fanout.watch(clientId, threadId, root, folders);
     const current = threads.get(threadId);
-    if (current === root) return;
-    threads.set(threadId, root);
-    if (current !== undefined) await this.#release(current);
-    try {
-      await this.#acquire(root);
-    } catch (error) {
-      threads.delete(threadId);
-      this.#fanout.stop(clientId, threadId);
-      throw error;
+    if (current !== root) {
+      threads.set(threadId, root);
+      try {
+        await this.#acquire(root);
+      } catch (error) {
+        threads.delete(threadId);
+        this.#fanout.stop(clientId, threadId);
+        if (evicted) await this.#forget(clientId, evicted.threadId, evicted.root);
+        throw error;
+      }
+      if (current !== undefined) await this.#release(current);
     }
+    if (evicted) await this.#forget(clientId, evicted.threadId, evicted.root);
   }
 
   async #stop(clientId: string, threadId: ThreadId): Promise<void> {
+    this.#fanout.stop(clientId, threadId);
+    const threads = this.#watched.get(clientId);
+    const root = threads?.get(threadId);
+    if (!threads || root === undefined) return;
+    threads.delete(threadId);
+    if (!threads.size) this.#watched.delete(clientId);
+    await this.#release(root);
+  }
+
+  async #drop(clientId: string): Promise<void> {
+    this.#clients.delete(clientId);
+    this.#fanout.disconnect(clientId);
+    this.#tails.delete(clientId);
+    const threads = this.#watched.get(clientId);
+    this.#watched.delete(clientId);
+    if (!threads) return;
+    for (const root of threads.values()) await this.#release(root);
+  }
+
+  /** Drop an evicted thread's root too, unless another of its threads still uses it. */
+  async #forget(clientId: string, threadId: ThreadId, root: string): Promise<void> {
+    const threads = this.#watched.get(clientId);
+    if (threads?.get(threadId) !== root) return;
+    threads.delete(threadId);
+    if (!threads.size) this.#watched.delete(clientId);
+    await this.#release(root);
+  }
+
+  /** One push, checked against the thread's checkout and the socket's live access. */
+  #push(clientId: string, update: FoldersUpdate): void {
+    const client = this.#clients.get(clientId);
+    if (!client) return;
+    const root = this.#watched.get(clientId)?.get(update.threadId);
+    if (root === undefined) return;
+    if (!client.sendable()) {
+      void this.#stopNow(clientId, update.threadId);
+      return;
+    }
+    if (!client.valid({ id: update.threadId, root })) {
+      const folders = this.#fanout.folders(clientId, update.threadId);
+      void this.#stopNow(clientId, update.threadId);
+      client.send({
+        type: "files.folders_changed",
+        threadId: update.threadId,
+        folders,
+        rescan: true,
+      });
+      return;
+    }
+    client.send({
+      type: "files.folders_changed",
+      threadId: update.threadId,
+      folders: update.folders,
+      rescan: update.rescan,
+    });
+  }
+
+  /** Stop a thread's watch from inside a push; the caller owns no ordering there. */
+  async #stopNow(clientId: string, threadId: ThreadId): Promise<void> {
     this.#fanout.stop(clientId, threadId);
     const threads = this.#watched.get(clientId);
     const root = threads?.get(threadId);
@@ -197,13 +244,13 @@ export class FolderWatch {
     if (release) await release().catch(() => {});
   }
 
-  #push(clientId: string, message: FoldersChanged): void {
-    const client = this.#clients.get(clientId);
-    if (!client || !client.canSend()) return;
-    try {
-      client.send(message);
-    } catch {
-      // A socket that cannot take the push is its own service's to close.
-    }
+  #enqueue(clientId: string, task: () => Promise<void>): Promise<void> {
+    const previous = this.#tails.get(clientId) ?? Promise.resolve();
+    const next = previous.then(task);
+    this.#tails.set(
+      clientId,
+      next.catch(() => {}),
+    );
+    return next;
   }
 }

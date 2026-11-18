@@ -97,3 +97,19 @@ it("closing the book closes every open root", async () => {
   await roots.close();
   expect(closed.toSorted()).toEqual([1, 2]);
 });
+
+it("keeps a root open while a request runs and closes it once idle", async () => {
+  const { roots, advance, closed } = book();
+  const gate = Promise.withResolvers<void>();
+  const running = roots.use("/w", async () => {
+    await gate.promise;
+    return "done";
+  });
+  advance(60 * 60_000);
+  expect(await roots.sweep()).toEqual([]);
+  gate.resolve();
+  expect(await running).toBe("done");
+  advance(10 * 60_000);
+  expect(await roots.sweep()).toEqual(["/real/w"]);
+  expect(closed).toHaveLength(1);
+});

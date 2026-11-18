@@ -2,7 +2,9 @@ import { FileError, type FilesService } from "@ace/files";
 import type { FileOperation, ThreadId, WorkspaceId } from "@ace/protocol";
 import { fileExportSource } from "./file-export-source.ts";
 import { projectFilesBinding } from "./project-files-binding.ts";
-import type { SocketContext } from "./services/socket.ts";
+import type { FilesWorkspaces } from "./files-workspaces.ts";
+import type { FilesNative } from "./files-tool/wiring.ts";
+import type { Store } from "./store.ts";
 
 /** One request's service, the checkout it reads, and who may read or write it. */
 export type FilesBinding = {
@@ -15,6 +17,20 @@ export type FilesBinding = {
   operation?: FileOperation;
 };
 
+/** What a scope needs from the socket or relay channel that owns the request. */
+export type FilesScopePorts = {
+  authorize(access: "read" | "operate"): boolean;
+  /** The thread exists, is readable by this device and is still live. */
+  threadAccess(threadId: ThreadId): boolean;
+  connected(): boolean;
+  options: {
+    threadFiles?: FilesWorkspaces | undefined;
+    supportFiles?: FilesService | undefined;
+    filesNative?: FilesNative | undefined;
+    store?: Store | undefined;
+  };
+};
+
 export type FilesScope = (
   threadId: ThreadId | undefined,
   scope: "support" | undefined,
@@ -24,40 +40,41 @@ export type FilesScope = (
 
 /**
  * Which service answers a scoped file request, with the same checks for every path into files:
- * the chunk channel, folder listings and watches. A thread reads its own checkout, a project its
- * registered folder (read-only), a support request the support registry; export identifiers
- * carry their own source, which the request may not widen.
+ * the main socket's chunk channel, folder listings and watches, and the relay's copies of them.
+ * A thread reads its own checkout, a project its registered folder (read-only), a support request
+ * the support registry; export identifiers carry their own source, which the request may not
+ * widen. Every checkout a binding reads is warmed for ace-files so quick open is ready.
  */
-export function filesScope(context: SocketContext): FilesScope {
-  const readableSource = (source: ThreadId | undefined) =>
-    source === undefined ||
-    (context.canReadThread(source) && context.options.store.hasLiveThread(source));
+export function filesScope(ports: FilesScopePorts): FilesScope {
   return async (threadId, scope, operation, workspaceId) => {
-    const files = context.options.threadFiles;
-    const tool = context.options.filesNative?.tool;
+    const files = ports.options.threadFiles;
+    const tool = ports.options.filesNative?.tool;
     if (workspaceId !== undefined) {
       if (!files) throw new Error("Project files unavailable");
       const binding = await projectFilesBinding(
         files,
         workspaceId,
         operation,
-        () => context.connected() && context.authorize("read"),
+        () => ports.connected() && ports.authorize("read"),
       );
       if (binding.root !== undefined) void tool?.warm(binding.root);
       return binding;
     }
     if (scope === "support") {
-      const service = context.options.supportFiles;
+      const service = ports.options.supportFiles;
       if (!service) throw new Error("Support export unavailable");
-      return { service, allowed: (access) => context.connected() && context.authorize(access) };
+      return {
+        service,
+        allowed: (access) => ports.connected() && ports.authorize(access),
+      };
     }
-    if (!threadId || !files || !context.canReadThread(threadId))
+    if (!threadId || !files || !ports.threadAccess(threadId))
       throw new Error("File thread unavailable");
     if (operation?.op === "link.download")
       return files.linkedFiles.bind(
         threadId,
         operation,
-        () => context.connected() && context.authorize("read") && context.canReadThread(threadId),
+        () => ports.connected() && ports.authorize("read") && ports.threadAccess(threadId),
       );
     if (operation?.op === "artifact.download" && operation.artifactId.startsWith("browser-")) {
       const artifacts = files.browserArtifacts;
@@ -67,19 +84,19 @@ export function filesScope(context: SocketContext): FilesScope {
         service: await artifacts.get(),
         allowed: (access) =>
           access === "read" &&
-          context.connected() &&
-          context.authorize("read") &&
-          context.canReadThread(threadId) &&
+          ports.connected() &&
+          ports.authorize("read") &&
+          ports.threadAccess(threadId) &&
           artifacts.owns(threadId, operation.artifactId),
       };
     }
     const root = files.root(threadId);
-    if (tool) void tool.warm(root);
+    void tool?.warm(root);
     const { service, release } = await files.acquire(threadId);
     let source: ThreadId | undefined;
     try {
-      source = fileExportSource(service, context.options.store, operation);
-      if (source !== undefined && (source !== threadId || !readableSource(source)))
+      source = fileExportSource(service, ports.options.store, operation);
+      if (source !== undefined && (source !== threadId || !ports.threadAccess(source)))
         throw new FileError("FORBIDDEN", "Export source is not readable by this thread");
     } catch (error) {
       release();
@@ -90,11 +107,11 @@ export function filesScope(context: SocketContext): FilesScope {
       service,
       release,
       allowed: (access) =>
-        context.connected() &&
-        context.authorize(access) &&
-        context.canReadThread(threadId) &&
+        ports.connected() &&
+        ports.authorize(access) &&
+        ports.threadAccess(threadId) &&
         files.matches(threadId, root) &&
-        readableSource(source),
+        (source === undefined || ports.threadAccess(source)),
     };
   };
 }
