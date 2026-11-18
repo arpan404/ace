@@ -13,6 +13,8 @@
     "./ace-media": "./src/ace-media.ts",
     "./ace-files": "./src/ace-files.ts",
     "./media-smoke": "./src/media-smoke.ts",
+    "./files-smoke": "./src/files-smoke.ts",
+    "./native-smoke": "./src/native-smoke.ts",
     "./screen-identity": "./src/screen-identity.ts"
   },
   "scripts": {
