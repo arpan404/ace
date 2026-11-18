@@ -48,6 +48,18 @@ export function relayFiles(options: RelayFilesOptions): RelayFiles {
   const push = (message: FilesServerMessage) => {
     if (!closed) options.push(message);
   };
+  /** A reply may leave the channel only while it may still read what it asked for. */
+  const replyAllowed = (threadId: ThreadId | undefined) =>
+    !closed &&
+    options.authorize("read") &&
+    (threadId === undefined || options.threadAccess(threadId));
+  const refuse = (requestId: string) =>
+    push({
+      type: "files.error",
+      requestId,
+      code: "FORBIDDEN",
+      message: "File access denied",
+    });
   const client: FolderWatchClient = {
     id: options.clientId,
     sendable: () => !closed && options.authorize("read"),
@@ -97,8 +109,16 @@ export function relayFiles(options: RelayFilesOptions): RelayFiles {
                 workspaceId: message.workspaceId,
                 operation,
               });
+              if (!replyAllowed(message.threadId)) {
+                refuse(requestId);
+                return;
+              }
               push({ type: "files.result", requestId, value: page });
             } catch (error) {
+              if (!replyAllowed(message.threadId)) {
+                refuse(requestId);
+                return;
+              }
               push({
                 type: "files.error",
                 requestId,

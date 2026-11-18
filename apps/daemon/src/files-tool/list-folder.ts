@@ -62,11 +62,16 @@ export async function listFolderPage(
     if (root === undefined)
       throw new FileError("FORBIDDEN", "Folder listing needs a thread or project folder");
     if (!tool) throw aceFilesMissing();
-    return await tool.listFolder(root, request.operation.path, {
+    const page = await tool.listFolder(root, request.operation.path, {
       limit: request.operation.limit,
       ...(request.operation.cursor === undefined ? {} : { cursor: request.operation.cursor }),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     });
+    // The listing crossed an await: a socket can close, a device lose its grant or a thread
+    // change its checkout while ace-files walks, so the binding decides again before any entry
+    // leaves the daemon.
+    if (!binding.allowed("read")) throw new FileError("FORBIDDEN", "File access denied");
+    return page;
   } finally {
     binding.release?.();
   }
