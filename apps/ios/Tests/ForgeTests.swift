@@ -205,9 +205,24 @@ import Foundation
         #expect(state("ready") == .reading)
         #expect(state("reconnecting") == .unreachable)
         #expect(state("offline") == .unreachable)
-        #expect(state("fatal") == .unreachable)
-        // A read that failed says why, whatever the connection; rows already read stay shown offline.
-        #expect(ForgeListState.of(loaded: false, failure: "Bad token", empty: true, connection: "offline") == .failed("Bad token"))
+        // A refused connection (a revoked pairing) won't come back by retrying: it asks for the person.
+        #expect(state("fatal") == .attention)
+    }
+
+    @Test func aMachineThatIsOutWinsOverAReadThatFailedWhileItWent() {
+        let failed = { (connection: String) in
+            ForgeListState.of(loaded: false, failure: "The request timed out", empty: true, connection: connection)
+        }
+        // The read failed because the machine went: say the machine is out, not that GitHub failed.
+        #expect(failed("offline") == .unreachable)
+        #expect(failed("reconnecting") == .unreachable)
+        #expect(failed("fatal") == .attention)
+        // Still connecting: the list reads again once it's ready, so the skeleton stays.
+        #expect(failed("connecting") == .reading)
+        #expect(failed("starting") == .reading)
+        // Only a ready machine's failure is GitHub's to explain.
+        #expect(failed("ready") == .failed("The request timed out"))
+        // Rows already read stay shown while the machine is out.
         #expect(ForgeListState.of(loaded: true, failure: nil, empty: false, connection: "offline") == .rows)
         #expect(ForgeListState.of(loaded: true, failure: nil, empty: true, connection: "offline") == .empty)
     }

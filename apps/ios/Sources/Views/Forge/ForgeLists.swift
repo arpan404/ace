@@ -13,6 +13,9 @@ struct ForgePullsList: View {
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
     let more: () async -> Void
+    /// Re-pairing and the Machines page, for a machine whose connection was refused.
+    var pair: (() -> Void)? = nil
+    var openMachines: (() -> Void)? = nil
     @State private var merge = ForgeMergeRunModel()
 
     /// The ready rows on show, in list order: the ones a verified merge can take.
@@ -21,8 +24,9 @@ struct ForgePullsList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
                        icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, notes: model.list?.failed ?? [], connection: client.connection, noun: "Pull requests",
-                       reconnect: { client.retry() }, refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [],
+                       machine: ForgeMachineRecovery(client: client, pair: pair, openMachines: openMachines), noun: "Pull requests",
+                       refresh: refresh, more: more) {
             // Rows open where they were read, even while another project's rows load.
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
@@ -73,9 +77,8 @@ struct ForgeIssuesList: View {
     /// The page open beside the list, whose row reads as selected.
     @Environment(\.openForgeRow) private var openRow
     let model: ForgeListModel<ForgeIssueList>
-    /// The machine's connection, and how to ask it to connect again.
-    var connection = "ready"
-    var reconnect: (() -> Void)? = nil
+    /// The machine, and how to get it back when it's out.
+    var machine: ForgeMachineRecovery? = nil
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
@@ -84,8 +87,8 @@ struct ForgeIssuesList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No issues match",
                        icon: .record, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, notes: model.list?.failed ?? [], connection: connection, noun: "Issues",
-                       reconnect: reconnect, refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], machine: machine, noun: "Issues",
+                       refresh: refresh, more: more) {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
@@ -101,36 +104,6 @@ struct ForgeIssuesList: View {
                 }
             } }
         }
-    }
-}
-
-/// What a list shows in place of rows, or that it shows its rows.
-enum ForgeListState: Equatable {
-    case reading, unreachable, failed(String), empty, rows
-
-    /// A list never read waits on a skeleton only while its machine is connecting or ready: one
-    /// that is offline or reconnecting reads nothing until it's back, so it says so instead of
-    /// waiting on a skeleton that never resolves. Rows already read stay shown either way.
-    static func of(loaded: Bool, failure: String?, empty: Bool, connection: String) -> ForgeListState {
-        if !loaded, let failure { return .failed(failure) }
-        if !loaded { return unreachable(connection) ? .unreachable : .reading }
-        return empty ? .empty : .rows
-    }
-
-    /// The machine is out and reads nothing until it's back.
-    static func unreachable(_ connection: String) -> Bool { ["reconnecting", "offline", "fatal"].contains(connection) }
-}
-
-/// The machine can't be reached, said once for every review list and the page before them:
-/// what loads once it's back, and Retry.
-struct ForgeUnreachable: View {
-    let noun: String
-    let retry: (() -> Void)?
-    var body: some View {
-        EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "\(noun) load once it's connected.") {
-            if let retry { Button("Retry", action: retry).accessibilityIdentifier("forge.list.retry") }
-        }
-        .accessibilityIdentifier("forge.list.unreachable")
     }
 }
 
@@ -150,12 +123,10 @@ struct ForgeListFrame<Rows: View>: View {
     let loading: Bool
     /// Repositories that couldn't be read, said over the rows the others gave.
     var notes: [String] = []
-    /// The machine's connection; the lists read nothing while it's out.
-    var connection = "ready"
+    /// The machine the list reads from; it reads nothing while the machine is out.
+    var machine: ForgeMachineRecovery? = nil
     /// What the list holds, for the offline line ("Pull requests").
     var noun = "Rows"
-    /// Asks the machine to connect again; nil hides Retry.
-    var reconnect: (() -> Void)? = nil
     let refresh: () async -> Void
     let more: () async -> Void
     @ViewBuilder let rows: () -> Rows
@@ -164,17 +135,19 @@ struct ForgeListFrame<Rows: View>: View {
 
     var body: some View {
         List {
-            switch ForgeListState.of(loaded: loaded, failure: failure, empty: empty, connection: connection) {
+            switch ForgeListState.of(loaded: loaded, failure: failure, empty: empty, connection: machine?.client.connection ?? "ready") {
             case .failed(let failure):
                 EmptyState(icon: nil, title: "Couldn't load from GitHub", line: failure, failed: true) {
                     Button("Try again") { Task { await refresh() } }
                 }
                 .padding(.top, AceDesign.Space.pageState)
                 .forgeRowChrome()
-            case .unreachable:
-                ForgeUnreachable(noun: noun, retry: reconnect)
-                    .padding(.top, AceDesign.Space.pageState)
-                    .forgeRowChrome()
+            case .unreachable, .attention:
+                if let machine {
+                    ForgeMachineOut(machine: machine, noun: noun, reload: refresh)
+                        .padding(.top, AceDesign.Space.pageState)
+                        .forgeRowChrome()
+                }
             case .reading:
                 SkeletonRows(count: 6).forgeRowChrome()
             case .empty:
