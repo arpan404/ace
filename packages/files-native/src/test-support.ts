@@ -3,10 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import type { FilesChild, FilesClock, FilesHost } from "./host.ts";
+import type {
+  FilesChild,
+  FilesClock,
+  FilesExit,
+  FilesHost,
+  FilesSink,
+  FilesSource,
+} from "./host.ts";
 import { nodeFilesHost } from "./host.ts";
 import { FilesProcess } from "./process.ts";
 import { messageSchema, type Message } from "./schemas.ts";
+import { encodeBody, encodeMessage } from "./wire.ts";
 
 /** A clock whose timers run only when the test advances it. */
 export class ManualClock implements FilesClock {
@@ -78,7 +86,25 @@ export function fakeFilesScript(): string {
   return fileURLToPath(new URL("../test-support/fake-ace-files.ts", import.meta.url));
 }
 
-export type FakeFilesBehaviour = "answer" | "hang" | "exit" | "oversize";
+export type FakeFilesBehaviour =
+  | "answer"
+  | "hang"
+  | "silent"
+  | "exit"
+  | "oversize"
+  | "answer-exit"
+  | "corrupt-reply"
+  | "read-no-body"
+  | "search-hang"
+  | "search-hold"
+  | "hold-requests";
+
+export type FakeFilesOptions = {
+  /** Extra environment, usually paths inside the harness's folder. */
+  env?: (dir: string) => Record<string, string>;
+  timeoutMs?: number;
+  stdinQueueLimit?: number;
+};
 
 export type FakeFilesHarness = {
   dir: string;
@@ -89,18 +115,33 @@ export type FakeFilesHarness = {
 };
 
 /** A process wired to the fake binary, a manual clock and a log the test can read. */
-export function fakeFilesHarness(behaviour: FakeFilesBehaviour = "answer"): FakeFilesHarness {
+export function fakeFilesHarness(
+  behaviour: FakeFilesBehaviour = "answer",
+  options: FakeFilesOptions = {},
+): FakeFilesHarness {
   const dir = mkdtempSync(join(tmpdir(), "ace-files-native-"));
   const logPath = join(dir, "fake.log");
   writeFileSync(logPath, "");
   const clock = new ManualClock();
   const host = trackingHost(
     nodeFilesHost(
-      { ...process.env, FAKE_FILES_BEHAVIOUR: behaviour, FAKE_FILES_LOG: logPath },
+      {
+        ...process.env,
+        FAKE_FILES_BEHAVIOUR: behaviour,
+        FAKE_FILES_LOG: logPath,
+        ...options.env?.(dir),
+      },
       () => ({ command: process.execPath, args: [fakeFilesScript()] }),
     ),
   );
-  const files = new FilesProcess({ binary: "/fake/ace-files", host, clock, log: () => {} });
+  const files = new FilesProcess({
+    binary: "/fake/ace-files",
+    host,
+    clock,
+    log: () => {},
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.stdinQueueLimit === undefined ? {} : { stdinQueueLimit: options.stdinQueueLimit }),
+  });
   return { dir, files, clock, host, logPath };
 }
 
@@ -148,4 +189,71 @@ export function fakeBodies(h: FakeFilesHarness): { id: number; bytes: number }[]
   return fakeFilesEntries(h).flatMap((entry) =>
     entry.event === "body" ? [{ id: entry.id, bytes: entry.bytes }] : [],
   );
+}
+
+/** A stdin sink whose saturation and drain the test controls. */
+export class FakeFilesSink implements FilesSink {
+  blocked = false;
+  readonly writes: Uint8Array[] = [];
+  readonly #drains: (() => void)[] = [];
+
+  write(chunk: Uint8Array): boolean {
+    this.writes.push(chunk);
+    return !this.blocked;
+  }
+
+  onDrain(listener: () => void): void {
+    this.#drains.push(listener);
+  }
+
+  drain(): void {
+    this.blocked = false;
+    for (const listener of this.#drains) listener();
+  }
+}
+
+class FakeFilesSource implements FilesSource {
+  readonly #listeners: ((chunk: Uint8Array) => void)[] = [];
+
+  onData(listener: (chunk: Uint8Array) => void): void {
+    this.#listeners.push(listener);
+  }
+
+  emit(chunk: Uint8Array): void {
+    for (const listener of this.#listeners) listener(chunk);
+  }
+}
+
+/** One in-memory child, for backpressure and frame timelines real pipes cannot pin down. */
+export class FakeFilesChild implements FilesChild {
+  readonly pid = 4242;
+  readonly stdin = new FakeFilesSink();
+  readonly stdout = new FakeFilesSource();
+  readonly stderr = new FakeFilesSource();
+  readonly exited: Promise<FilesExit>;
+  #settle!: (exit: FilesExit) => void;
+
+  constructor() {
+    this.exited = new Promise((resolve) => {
+      this.#settle = resolve;
+    });
+  }
+
+  send(message: Message): void {
+    this.stdout.emit(encodeMessage(message));
+  }
+
+  sendBody(id: number, bytes: Uint8Array): void {
+    this.stdout.emit(encodeBody(id, bytes));
+  }
+
+  kill(): void {
+    this.#settle({ code: null, signal: "SIGKILL" });
+  }
+}
+
+/** A host whose child the test drives frame by frame. */
+export function fakeFilesHost(): { host: FilesHost; child: FakeFilesChild } {
+  const child = new FakeFilesChild();
+  return { host: { spawn: () => child }, child };
 }

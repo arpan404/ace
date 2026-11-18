@@ -9,6 +9,8 @@ type Pending = {
   stopTimer: () => void;
   signal: AbortSignal | undefined;
   onAbort: (() => void) | undefined;
+  /** Runs synchronously as the response arrives, before the promise resolves. */
+  onReply: ((reply: Reply) => void) | undefined;
   /** Set once the response says a body follows. */
   reply: Reply | undefined;
   /** A body that arrived before the response naming it. */
@@ -35,7 +37,12 @@ export class PendingRequests {
   send(
     op: Op,
     timeoutMs: number,
-    options: { body?: Uint8Array | undefined; signal?: AbortSignal | undefined } = {},
+    options: {
+      body?: Uint8Array | undefined;
+      signal?: AbortSignal | undefined;
+      /** Runs synchronously inside the response frame, so same-chunk events find their book. */
+      onReply?: ((reply: Reply) => void) | undefined;
+    } = {},
   ): Promise<FilesResult> {
     if (options.signal?.aborted)
       return Promise.reject(
@@ -79,6 +86,7 @@ export class PendingRequests {
         stopTimer,
         signal: options.signal,
         onAbort,
+        onReply: options.onReply,
         reply: undefined,
         body: undefined,
       });
@@ -90,6 +98,7 @@ export class PendingRequests {
   acceptResponse(id: number, reply: Reply): void {
     const pending = this.#pending.get(id);
     if (!pending) return;
+    pending.onReply?.(reply);
     if (reply.type === "read" && reply.body && pending.body === undefined) {
       pending.reply = reply;
       return;

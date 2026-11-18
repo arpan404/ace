@@ -6,7 +6,7 @@ import { z } from "zod";
  * structs so encoding a parsed message reproduces the golden vectors byte for byte.
  */
 
-const u64 = z.number().int();
+const u64 = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 /** What a path is; a symlink names its target's kind when the target stays inside the root. */
 export type FileKind =

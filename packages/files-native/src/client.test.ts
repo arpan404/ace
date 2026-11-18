@@ -71,7 +71,7 @@ describe("FilesClient", () => {
     await until(() => fakeBodies(h).some((body) => body.bytes === 5));
   });
 
-  it("streams search matches and resolves with the summary", async () => {
+  it("streams search matches and resolves with the summary from the reply's chunk", async () => {
     const { client } = harness();
     await client.start();
     const root = await client.openRoot("/repo");

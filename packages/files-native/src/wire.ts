@@ -39,7 +39,8 @@ export type FilesFrame =
   | { kind: "body"; id: number; bytes: Uint8Array };
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+/** Fatal like serde: a kind-1 payload that is not valid UTF-8 is a broken message, not mojibake. */
+const decoder = new TextDecoder("utf-8", { fatal: true });
 
 /** Encode a JSON message as one kind-1 frame. */
 export function encodeMessage(message: Message): Uint8Array {
@@ -160,7 +161,12 @@ export class FrameDecoder {
 
 /** Parse one kind-1 payload, keeping the request id the bytes still carried on failure. */
 function decodeMessage(payload: Uint8Array): FilesFrame {
-  const text = decoder.decode(payload);
+  let text: string;
+  try {
+    text = decoder.decode(payload);
+  } catch (error) {
+    throw new FilesWireError("INVALID_ARGUMENT", `invalid message: ${reason(error)}`);
+  }
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -200,7 +206,9 @@ function probeId(text: string): number | undefined {
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null || !("id" in value)) return undefined;
-    return typeof value.id === "number" ? value.id : undefined;
+    return typeof value.id === "number" && Number.isSafeInteger(value.id) && value.id >= 0
+      ? value.id
+      : undefined;
   } catch {
     return undefined;
   }

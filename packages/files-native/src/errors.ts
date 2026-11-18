@@ -16,9 +16,9 @@ export class FilesRequestError extends Error {
     this.current = current;
   }
 
-  /** True while ace-files is restarting: the same request can be sent again. */
+  /** True when the same request can be sent again: restarting, or stdin is saturated. */
   get retryable(): boolean {
-    return this.code === "FILES_RESTARTING";
+    return this.code === "FILES_RESTARTING" || this.code === "BUSY";
   }
 }
 

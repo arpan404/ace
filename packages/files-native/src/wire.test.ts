@@ -175,6 +175,32 @@ describe("the files wire", () => {
     });
   });
 
+  it("decoder_rejects_invalid_utf8_in_a_message", () => {
+    const decoder = new FrameDecoder();
+    decoder.push(frameOfPayload(1, Uint8Array.of(0xff, 0xfe, 0x7b)));
+    expect(failureOf(() => decoder.poll()).code).toBe("INVALID_ARGUMENT");
+  });
+
+  it("decoder_rejects_ids_outside_the_safe_integer_range", () => {
+    const unsafe = frameOfPayload(
+      1,
+      new TextEncoder().encode('{"type":"cancel","id":9007199254740992}'),
+    );
+    const decoder = new FrameDecoder();
+    decoder.push(unsafe);
+    expect(failureOf(() => decoder.poll()).code).toBe("INVALID_ARGUMENT");
+
+    const broken = frameOfPayload(
+      1,
+      new TextEncoder().encode(
+        '{"type":"response","id":9007199254740992,"result":{"type":"bogus"}}',
+      ),
+    );
+    const second = new FrameDecoder();
+    second.push(broken);
+    expect(failureOf(() => second.poll()).id).toBeUndefined();
+  });
+
   it("decoder_rejects_an_empty_frame_and_a_truncated_body", () => {
     const empty = new FrameDecoder();
     empty.push(new Uint8Array(4));

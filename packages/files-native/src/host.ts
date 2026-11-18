@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 
-/** A byte sink the supervisor writes frames into. */
+/** A byte sink the supervisor writes frames into. False means the pipe is saturated. */
 export interface FilesSink {
-  write(chunk: Uint8Array): void;
+  write(chunk: Uint8Array): boolean;
+  /** Called when a saturated pipe accepts writes again. */
+  onDrain(listener: () => void): void;
 }
 
 /** A byte source the supervisor reads frames from. */
@@ -23,7 +25,10 @@ export interface FilesChild {
   readonly stdout: FilesSource;
   readonly stderr: FilesSource;
   readonly exited: Promise<FilesExit>;
-  /** SIGKILL, or TerminateProcess through the job object on Windows. */
+  /**
+   * SIGKILL on POSIX, TerminateProcess on Windows. There is no job object yet, so a process the
+   * child started itself is not covered.
+   */
   kill(): void;
 }
 
@@ -66,7 +71,9 @@ export function nodeFilesHost(
           settled = true;
           resolve(exit);
         };
-        child.once("exit", (code, signal) => settle({ code, signal }));
+        // `close` fires once both stdio pipes are drained, so a frame written just before the
+        // child exited is still delivered before the run is declared over.
+        child.once("close", (code, signal) => settle({ code, signal }));
         child.once("error", () => settle({ code: null, signal: null }));
       });
       // A broken pipe after the child dies is normal; it must never surface as an exception.
@@ -77,7 +84,10 @@ export function nodeFilesHost(
         pid: child.pid,
         stdin: {
           write(chunk) {
-            if (!child.stdin.destroyed) child.stdin.write(chunk);
+            return child.stdin.destroyed ? false : child.stdin.write(chunk);
+          },
+          onDrain(listener) {
+            child.stdin.on("drain", listener);
           },
         },
         stdout: {

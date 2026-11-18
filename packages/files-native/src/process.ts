@@ -9,6 +9,7 @@ import type { FilesChild, FilesClock, FilesHost } from "./host.ts";
 import { Operations, type FilesSearchOptions, type FilesWatch } from "./operations.ts";
 import { PendingRequests } from "./requests.ts";
 import type { EventPayload, Op, SearchQuery, Summary } from "./schemas.ts";
+import { StdinQueue } from "./stdin.ts";
 import { restartDelay, supervisionTimings } from "./supervision.ts";
 import { FrameDecoder, encodeMessage, FilesWireError, type FilesFrame } from "./wire.ts";
 
@@ -20,8 +21,19 @@ export type FilesProcessOptions = {
   clock: FilesClock;
   /** Per-request timeout; the plan's default is 30 s. */
   timeoutMs?: number | undefined;
+  /** Frames held while the child is not reading stdin; 64 MiB unless a test lowers it. */
+  stdinQueueLimit?: number | undefined;
   log?: FilesLog | undefined;
 };
+
+/** Ops with a dedicated method, which translates the root or subscription numbers. */
+const dedicatedOps: ReadonlySet<string> = new Set([
+  "openRoot",
+  "closeRoot",
+  "watch",
+  "unwatch",
+  "search",
+]);
 
 type Run = {
   child: FilesChild;
@@ -44,6 +56,7 @@ export class FilesProcess {
   readonly #clock: FilesClock;
   readonly #binary: string;
   readonly #timeoutMs: number;
+  readonly #stdinQueueLimit: number;
   readonly #log: FilesLog | undefined;
   readonly #requests: PendingRequests;
   readonly #operations: Operations;
@@ -53,16 +66,18 @@ export class FilesProcess {
   #attempt = 0;
   #restartTimer: (() => void) | undefined;
   #disposed = false;
+  #stdin: StdinQueue | undefined;
 
   constructor(options: FilesProcessOptions) {
     this.#host = options.host;
     this.#clock = options.clock;
     this.#binary = options.binary;
     this.#timeoutMs = options.timeoutMs ?? supervisionTimings.requestTimeoutMs;
+    this.#stdinQueueLimit = options.stdinQueueLimit ?? supervisionTimings.stdinQueueLimit;
     this.#log = options.log;
     this.#requests = new PendingRequests(options.clock, (bytes) => this.#write(bytes));
     this.#operations = new Operations({
-      send: (op, timeoutMs) => this.#requests.send(op, timeoutMs),
+      send: (op, timeoutMs, sendOptions) => this.#requests.send(op, timeoutMs, sendOptions),
       state: () => this.#state,
     });
   }
@@ -94,7 +109,18 @@ export class FilesProcess {
    * Open roots, watches and searches through their methods, which keep them across restarts.
    */
   async request(op: Op, options: FilesRequestOptions = {}): Promise<FilesResult> {
+    if (dedicatedOps.has(op.op))
+      throw new FilesRequestError(
+        "INVALID_ARGUMENT",
+        `${op.op} goes through its dedicated method, which translates its numbers`,
+      );
     if (this.#state !== "up") throw restarting();
+    const queued = this.#stdin?.queuedBytes ?? 0;
+    if (options.body !== undefined && queued > this.#stdinQueueLimit)
+      throw new FilesRequestError(
+        "BUSY",
+        `ace-files is not reading stdin; ${queued} bytes are queued`,
+      );
     return this.#requests.send(
       this.#operations.translate(op),
       options.timeoutMs ?? this.#timeoutMs,
@@ -142,6 +168,8 @@ export class FilesProcess {
       }
     }
     this.#state = "disposed";
+    this.#stdin?.discard();
+    this.#stdin = undefined;
     const error = new FilesRequestError("CANCELLED", "ace-files was disposed");
     this.#requests.failAll(error);
     this.#operations.failAll(error);
@@ -156,7 +184,7 @@ export class FilesProcess {
       child = this.#host.spawn(this.#binary);
     } catch (error) {
       this.#log?.("error", "ace-files failed to start", { error: String(error) });
-      this.#afterExit(undefined, { code: null, signal: null });
+      this.#afterExit(undefined, { code: null, signal: null }, false);
       return;
     }
     const run: Run = {
@@ -170,6 +198,9 @@ export class FilesProcess {
     };
     this.#run = run;
     this.#state = "starting";
+    this.#stdin = new StdinQueue(child.stdin, (error) =>
+      this.#log?.("warn", "ace-files stdin write failed", { error: String(error) }),
+    );
     child.stdout.onData((chunk) => this.#onData(run, chunk));
     child.stderr.onData((chunk) => {
       const text = new TextDecoder().decode(chunk).trim();
@@ -192,10 +223,14 @@ export class FilesProcess {
       try {
         frame = run.decoder.poll();
       } catch (error) {
-        if (error instanceof FilesWireError && error.code === "TOO_LARGE") {
-          this.#log?.("error", "ace-files sent an oversize frame", { error: error.message });
-          this.#kill(run, "oversize frame");
-          return;
+        if (error instanceof FilesWireError) {
+          if (error.code === "TOO_LARGE") {
+            this.#log?.("error", "ace-files sent an oversize frame", { error: error.message });
+            this.#kill(run, "oversize frame");
+            return;
+          }
+          if (error.id !== undefined)
+            this.#requests.acceptError(error.id, error.code, error.message);
         }
         this.#log?.("warn", "ace-files sent an invalid frame", { error: String(error) });
         continue;
@@ -269,14 +304,21 @@ export class FilesProcess {
 
   #onExit(run: Run, exit: { code: number | null; signal: string | null }): void {
     if (run !== this.#run) return;
+    const wasUp = this.#state === "up";
     this.#run = undefined;
     run.dead = true;
     run.stopHelloTimer();
+    this.#stdin?.discard();
+    this.#stdin = undefined;
     this.#log?.("warn", "ace-files exited", { code: exit.code, signal: exit.signal });
-    this.#afterExit(run, exit);
+    this.#afterExit(run, exit, wasUp);
   }
 
-  #afterExit(run: Run | undefined, exit: { code: number | null; signal: string | null }): void {
+  #afterExit(
+    run: Run | undefined,
+    exit: { code: number | null; signal: string | null },
+    wasUp: boolean,
+  ): void {
     const restartingError = restarting();
     this.#requests.failAll(restartingError);
     this.#operations.failAll(restartingError);
@@ -285,6 +327,9 @@ export class FilesProcess {
       for (const waiter of this.#waiters.splice(0)) waiter.reject(restartingError);
       return;
     }
+    // A start() waiting through a run that never came up settles now instead of hanging on the
+    // next restart; the caller can try again once the supervisor is healthy.
+    if (!wasUp) for (const waiter of this.#waiters.splice(0)) waiter.reject(restartingError);
     this.#state = "down";
     const now = this.#clock.now();
     if (run?.readyAt !== undefined && now - run.readyAt >= supervisionTimings.healthyResetMs)
@@ -313,11 +358,7 @@ export class FilesProcess {
   #write(bytes: Uint8Array): void {
     const run = this.#run;
     if (!run || run.dead) return;
-    try {
-      run.child.stdin.write(bytes);
-    } catch (error) {
-      this.#log?.("warn", "ace-files stdin is closed", { error: String(error) });
-    }
+    this.#stdin?.write(bytes);
   }
 }
 
