@@ -37,8 +37,18 @@ pub struct Description {
     pub mode: u64,
 }
 
-/// Describe the entry at `path`.
+/// Describe the entry at `path`; the empty path is the checkout itself.
 pub fn describe(root: &Root, path: &str) -> Result<Description, Error> {
+    if path.is_empty() {
+        let dir = root.dir();
+        let metadata = dir.dir_metadata()?;
+        return Ok(Description {
+            version: crate::tree::version(root, path, &dir.try_clone()?)?,
+            size: metadata.len(),
+            kind: Kind::Directory,
+            mode: permissions(&metadata),
+        });
+    }
     let (dir, name) = root.open_parent(path)?;
     let own = dir.symlink_metadata(&name)?;
     let mode = permissions(&own);
@@ -312,6 +322,18 @@ mod tests {
         let error = describe(&root, "escape").expect_err("an escaping link is refused");
 
         assert_eq!(error.code(), "PATH_ESCAPE");
+    }
+
+    #[test]
+    fn describes_the_checkout_itself() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::write(temp.path().join("a.md"), b"a").expect("write");
+        let root = root(temp.path());
+
+        let description = describe(&root, "").expect("describe");
+
+        assert_eq!(description.kind, Kind::Directory);
+        assert!(description.version.starts_with("tree:"), "{description:?}");
     }
 
     #[test]

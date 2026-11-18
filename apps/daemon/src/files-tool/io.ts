@@ -1,10 +1,4 @@
-import {
-  FileError,
-  type Description,
-  type EntryKind,
-  type FilesIo,
-  type WalkEntry,
-} from "@ace/files";
+import { FileError, type Description, type FilesIo, type WalkEntry } from "@ace/files";
 import { FilesRequestError } from "@ace/files-native";
 import { filesListDefaults } from "@ace/files-native/client";
 import { FilesTool, type FilesToolClient } from "./tool.ts";
@@ -100,22 +94,16 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
           });
           for (const entry of page.entries) {
             if (privatePath(entry.path)) continue;
-            if (entry.kind === "directory") {
-              pending.push(entry.path);
-              yield walked(entry.path, "directory", entry.size, entry.mtimeMs, entry.ignored);
-              continue;
-            }
-            if (entry.kind === "file") {
-              yield walked(entry.path, "file", entry.size, entry.mtimeMs, entry.ignored);
-              continue;
-            }
-            if (entry.kind !== "symlink") continue;
-            // A link is followed only while it stays inside the checkout; its target's size is
-            // what a reader gets, so the walk reports the target.
-            const target = await this.describe(root, entry.path, options);
-            if (target === null || target.kind === "symlink") continue;
-            yield walked(entry.path, target.kind, target.size, entry.mtimeMs, entry.ignored);
-            if (target.kind === "directory") pending.push(entry.path);
+            if (entry.kind === "directory") pending.push(entry.path);
+            // A link is reported as itself and never walked through, as the daemon's own walk
+            // does: an archive of a checkout must not follow a path out of it or into itself.
+            yield {
+              path: entry.path,
+              type: entry.kind,
+              size: entry.size,
+              mtime: entry.mtimeMs,
+              ignored: entry.ignored,
+            };
           }
           cursor = page.nextCursor ?? undefined;
         } while (cursor);
@@ -129,17 +117,6 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
       }
     },
   };
-}
-
-/** What the walk reports: a link's entry is its target's size and kind. */
-function walked(
-  path: string,
-  type: EntryKind,
-  size: number,
-  mtimeMs: number,
-  ignored: boolean,
-): WalkEntry {
-  return { path, type, size, mtime: mtimeMs, ignored };
 }
 
 /**

@@ -28,7 +28,7 @@ export interface ReadBytes {
 export interface WalkEntry {
   /** Relative to the root, `/` separated. */
   path: string;
-  /** The kind of what the path resolves to: a link to a file is a file. */
+  /** What the entry is: a link is `symlink`, never what it points at. */
   type: EntryKind;
   size: number;
   /** Milliseconds since the Unix epoch. */
@@ -65,8 +65,8 @@ export interface FilesIo {
   /** Delete a file or a folder and everything inside it. */
   remove(root: string, path: string): Promise<void>;
   /**
-   * Walk a file or a folder, preorder, with `.git` and the daemon's own transfer temporaries left
-   * out. A link is followed only while it stays inside the root; one that escapes is skipped.
+   * Walk a file or a folder with `.git` and the daemon's own transfer temporaries left out. A link
+   * is reported as itself and never followed, so a walk never reaches outside the root.
    */
   walk(root: string, path: string, options?: IoOptions): AsyncGenerator<WalkEntry>;
   /** The bytes of the files below a path, which is what a delete reserves in the trash. */

@@ -1,6 +1,8 @@
 // Reason: a client must see byte-identical replies whether ace-files or the TypeScript path answers
 // its file operations, and only two real services over one real checkout prove that.
+import { execFile as execFileCallback } from "node:child_process";
 import { mkdir, mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +13,7 @@ import { aceFilesIo } from "./io.ts";
 import { findFilesBinary, FilesTool } from "./tool.ts";
 
 const binary = findFilesBinary();
+const execFile = promisify(execFileCallback);
 
 /** A version string anywhere in a reply, whichever side produced it. */
 const versioned = expect.stringMatching(
@@ -167,14 +170,20 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), "ace-files-io-"));
     root = join(home, "checkout");
-    await mkdir(join(root, "docs"), { recursive: true });
+    await mkdir(join(root, "docs", "nested"), { recursive: true });
+    await execFile("git", ["init", "-q", root]);
     await writeFile(join(root, "notes.md"), "hello, world\n");
     await writeFile(join(root, "docs", "guide.md"), "guide\n");
+    await writeFile(join(root, "docs", "nested", "deep.md"), "deep\n");
+    await writeFile(join(root, "docs", ".gitignore"), "secret.md\n");
+    await writeFile(join(root, "docs", "secret.md"), "secret\n");
     await writeFile(join(root, "large.bin"), Buffer.alloc(4096, 7));
     const outside = join(home, "outside");
     await mkdir(outside);
     await writeFile(join(outside, "secret.txt"), "secret\n");
     await symlink(join(outside, "secret.txt"), join(root, "escape"));
+    await symlink("guide.md", join(root, "docs", "link.md"));
+    await symlink(join(outside, "secret.txt"), join(root, "docs", "escape.md"));
     local = await service(root, join(home, "data-ts"));
     native = await service(root, join(home, "data-rust"), { workspaceIo: aceFilesIo(tool) });
   });
@@ -453,16 +462,27 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
   });
 
   it("previews and downloads a folder archive with the same members", async () => {
-    const byTs = await preview(local, "docs");
-    const byRust = await preview(native, "docs");
-    expect(byRust).toMatchObject({
-      bytes: byTs.bytes,
-      entries: byTs.entries,
-      format: byTs.format,
-    });
-    expect(await archiveMembers(native, byRust.previewId)).toEqual(
-      await archiveMembers(local, byTs.previewId),
-    );
+    for (const path of ["docs", ""]) {
+      const byTs = await preview(local, path);
+      const byRust = await preview(native, path);
+      expect(byRust).toMatchObject({
+        bytes: byTs.bytes,
+        entries: byTs.entries,
+        format: byTs.format,
+      });
+      // Ignored files stay out, an inside link counts as its target, and an escaping one is
+      // neither followed nor listed.
+      const members = await archiveMembers(native, byRust.previewId);
+      expect(members).toEqual(await archiveMembers(local, byTs.previewId));
+      if (path === "docs") {
+        expect([...members.keys()].toSorted()).toEqual([
+          ".gitignore",
+          "guide.md",
+          "nested",
+          "nested/deep.md",
+        ]);
+      }
+    }
   });
 
   it("fails retryably when this machine has no ace-files", async () => {
