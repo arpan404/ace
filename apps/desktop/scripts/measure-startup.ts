@@ -27,7 +27,8 @@ import type { ScenarioConfig } from "./measure/scenario.ts";
  *
  * Options: --runs <n> (5) --modes reopen,first,cold --home <dir> --user-data <dir> --port <n>
  * (4343) --daemon-entry <cli.ts or a release ace.mjs> --daemon-delay <ms> (0) --daemon-slow
- * --occlusion --hide-ms <ms> --skip-renderer
+ * --occlusion --hide-ms <ms> --skip-renderer --linger <ms> (3000: open after the marks, so the
+ * window keeps what it showed for the next run)
  * --json <file>.
  */
 const { values: args } = parseArgs({
@@ -44,6 +45,7 @@ const { values: args } = parseArgs({
     occlusion: { type: "boolean", default: false },
     "hide-ms": { type: "string" },
     "skip-renderer": { type: "boolean", default: false },
+    linger: { type: "string", default: "3000" },
     json: { type: "string" },
   },
 });
@@ -130,6 +132,10 @@ async function launch(mainFile: string, userData: string): Promise<Marks> {
         ACE_DESKTOP_USER_DATA: userData,
         ACE_DESKTOP_RENDERER_URL: "",
         ACE_MEASURE: JSON.stringify(config),
+        // Never take the keyboard from whoever is using the Mac (`measure/entry.ts`).
+        ACE_MEASURE_INACTIVE: "1",
+        // Each run leaves what a person's session would: the next launch opens on it.
+        ACE_MEASURE_LINGER_MS: args.linger,
         ...(args["hide-ms"] ? { ACE_MEASURE_HIDE_MS: args["hide-ms"] } : {}),
       },
     },
@@ -162,6 +168,8 @@ const shown = [
   "live",
   "shownAgain",
   "hidden",
+  "daemonUpAt",
+  "liveAfterUp",
 ] as const;
 const results: Record<string, Marks[]> = {};
 const record = (name: string, marks: Marks) => {
@@ -204,6 +212,15 @@ try {
       record("cold", {
         ...marks,
         daemonUp: upAt - started.startedAt,
+        // When it answered, and how long after that the window was live, on the app's clock.
+        ...(marks.origin === undefined
+          ? {}
+          : {
+              daemonUpAt: upAt - marks.origin,
+              ...(marks.live === undefined
+                ? {}
+                : { liveAfterUp: marks.live - (upAt - marks.origin) }),
+            }),
       });
       log(`  daemon up ${(upAt - started.startedAt).toFixed(0)} ms after its spawn`);
       await stopDaemon(daemon);
