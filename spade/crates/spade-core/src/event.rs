@@ -618,6 +618,10 @@ pub enum Known {
         keep: bool,
         #[serde(default, skip_serializing_if = "is_zero")]
         restarts: u32,
+        /// The gate let it start only held by the sandbox (ADR 0171): started again after a
+        /// restart, it is held too, or refused.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        contained_only: bool,
     },
     /// An owned service ended.
     ServiceEnded {

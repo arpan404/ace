@@ -31,7 +31,7 @@ use tokio::time::Instant;
 
 use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
-use crate::workspace::shell::{Cleanup, Job, Ran, Shell, Tee};
+use crate::workspace::shell::{Cleanup, Job, LaunchPlan, Ran, Shell, Tee};
 
 /// How long a command's supervisor waits for the end of what it started before it gives up and
 /// quarantines the terminal.
@@ -695,14 +695,23 @@ impl Terminal {
     /// supervisor owns it: if this call is dropped, the command and everything it started are
     /// ended, and the next command starts only once that is done.
     pub async fn run(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
-        self.run_in_state(MAIN, command, timeout, None, false, &[], false)
-            .await
+        self.run_in_state(
+            MAIN,
+            command,
+            timeout,
+            None,
+            LaunchPlan::AS_FOUND,
+            &[],
+            false,
+        )
+        .await
     }
 
     /// [`Terminal::run`] in `session`, only while that session is in the state `expected` names
     /// (a [`Terminal::state_digest`]): checked under the session's command lock, right before it
     /// runs, so no command in between can change what it would run. Otherwise it is not run.
-    /// `outside`: the gate decided it runs with no sandbox (ADR 0171).
+    /// `plan`: where the gate decided it runs (ADR 0171): outside the sandbox, only held by it,
+    /// or as the sandbox finds it.
     #[allow(clippy::too_many_arguments)]
     pub async fn run_in_state(
         self: &Arc<Self>,
@@ -710,7 +719,7 @@ impl Terminal {
         command: &str,
         timeout: Duration,
         expected: Option<&str>,
-        outside: bool,
+        plan: LaunchPlan,
         overrides: &[(String, String)],
         settled: bool,
     ) -> Result<Ran, String> {
@@ -745,7 +754,7 @@ impl Terminal {
         let supervisor = tokio::spawn(async move {
             let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), outside, &overrides, settled) => Some(ran),
+                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), plan, &overrides, settled) => Some(ran),
                 _ = abandoned => None,
             };
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
@@ -812,7 +821,7 @@ impl Terminal {
         command: &str,
         timeout: Duration,
         cleanup: Cleanup,
-        outside: bool,
+        plan: LaunchPlan,
         overrides: &[(String, String)],
         settled: bool,
     ) -> Result<Ran, String> {
@@ -881,11 +890,10 @@ impl Terminal {
                     kind: crate::workspace::shell::Kind::Terminal {
                         scratch: self.scratch.clone(),
                     },
-                    outside,
-                    // The bot terminal is Unix-only, where confining never yields `NeedsReview`
-                    // (that is the Windows containment narrowing); the field is never consulted
-                    // here, so a reviewed terminal command runs as the gate decided.
-                    may_run_uncontained: true,
+                    outside: plan.outside,
+                    may_run_uncontained: plan.may_run_uncontained,
+                    // Cleared to run only contained: refused where nothing holds it.
+                    contained_only: plan.contained_only(),
                     clean: settled,
                     read_only: settled,
                 },

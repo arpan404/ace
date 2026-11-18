@@ -426,7 +426,15 @@ async fn a_helpers_commands_run_beside_the_bots_each_session_with_its_own_folder
     // A helper's session runs meanwhile, from the workspace, not the bot's folder.
     let started = std::time::Instant::now();
     let helper = terminal
-        .run_in_state("c_helper", "pwd", long, None, false, &[], false)
+        .run_in_state(
+            "c_helper",
+            "pwd",
+            long,
+            None,
+            spade_server::workspace::shell::LaunchPlan::AS_FOUND,
+            &[],
+            false,
+        )
         .await?;
     assert!(
         started.elapsed() < Duration::from_millis(700),
@@ -1418,7 +1426,15 @@ async fn a_settled_command_never_sees_variables_an_earlier_terminal_command_expo
         panic!("printenv has no hardened form");
     };
     let ran = terminal
-        .run_in_state("", "printenv", long, None, false, &form.env, true)
+        .run_in_state(
+            "",
+            "printenv",
+            long,
+            None,
+            spade_server::workspace::shell::LaunchPlan::AS_FOUND,
+            &form.env,
+            true,
+        )
         .await?;
     assert_eq!(ran.code, Some(0), "{ran:?}");
     let env = ran.stdout;
