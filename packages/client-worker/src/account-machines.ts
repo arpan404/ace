@@ -46,6 +46,11 @@ export interface AccountMachineOptions {
    */
   grantRefused?(grant: string, machine?: string): boolean;
   /**
+   * The standing grant the backend returned with `grant` (ADR 0189), sent beside it in the
+   * hello and never to the relay: without it the daemon gives the device a machine's standing.
+   */
+  standing?(grant: string): string | undefined;
+  /**
    * `machine` (its host id) no longer needs the record of how it got its grant: its connection
    * was welcomed, or the machine was closed or removed. An app that keeps such records drops
    * this one.

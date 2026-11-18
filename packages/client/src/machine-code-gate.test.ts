@@ -25,3 +25,17 @@ it("a wrong code is dropped so it is never sent twice, and malformed codes are r
   expect(await gate.credential()).toEqual({ grant: "grant" });
   expect(() => gate.enter("12")).toThrow();
 });
+
+it("the standing grant that came with a grant goes with it, and with the machine code", async () => {
+  const gate = machineCodeGate(
+    async () => "grant-1",
+    (grant) => (grant === "grant-1" ? "standing-1" : undefined),
+  );
+  expect(await gate.credential()).toEqual({ grant: "grant-1", standing: "standing-1" });
+  gate.enter("2468");
+  expect(await gate.credential()).toEqual({
+    grant: "grant-1",
+    standing: "standing-1",
+    machineCode: "2468",
+  });
+});

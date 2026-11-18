@@ -122,7 +122,7 @@ type HelloFields = {
  */
 export function earlyFlight(
   flight: string[],
-  credential: { ticket?: string; grant?: string },
+  credential: { ticket?: string; grant?: string; standing?: string | undefined },
 ): { early: HelloEarly; confirm: HelloConfirm; rest: string[] } | undefined {
   const [first, ...others] = flight;
   if (first === undefined) return undefined;
@@ -155,6 +155,9 @@ export function earlyFlight(
     deviceId: hello.deviceId as HelloEarly["deviceId"],
     ...(credential.ticket !== undefined ? { ticket: credential.ticket } : {}),
     ...(credential.grant !== undefined ? { grant: credential.grant } : {}),
+    ...(credential.grant !== undefined && credential.standing !== undefined
+      ? { standing: credential.standing }
+      : {}),
     ...(hello.trims ? { trims: hello.trims } : {}),
     ...(hello.framing ? { framing: hello.framing } : {}),
     ...(hello.compression ? { compression: hello.compression } : {}),

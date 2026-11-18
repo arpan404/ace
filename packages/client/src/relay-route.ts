@@ -1,5 +1,5 @@
 import { ChannelClose, MachineCodeRefusal } from "@ace/protocol";
-import { relayGrant, type Credential } from "./credentials.ts";
+import { helloStanding, relayGrant, type Credential } from "./credentials.ts";
 import { ephemeralRelayKeys } from "./device-route.ts";
 import { relayCompression } from "./inflate.ts";
 import { AceAccountError } from "./ace-account.ts";
@@ -256,7 +256,11 @@ export function relayRoute(options: RelayRouteOptions): {
                 if (stamp !== epoch) return;
                 const converted = earlyFlight(
                   first,
-                  plan.ticket !== undefined ? { ticket: plan.ticket } : grant ? { grant } : {},
+                  plan.ticket !== undefined
+                    ? { ticket: plan.ticket }
+                    : grant
+                      ? { grant, standing: helloStanding(credential) }
+                      : {},
                 );
                 flight = first;
                 if (converted) {

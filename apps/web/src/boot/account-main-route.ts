@@ -26,10 +26,16 @@ const schedule = (callback: () => void, delayMs: number) => {
  */
 export function accountMainRoute(
   machine: AccountMainMachine,
-  options: Pick<AccountMachineOptions, "relayUrl" | "deviceId" | "grant" | "socket" | "client">,
+  options: Pick<
+    AccountMachineOptions,
+    "relayUrl" | "deviceId" | "grant" | "standing" | "socket" | "client"
+  >,
 ): AccountMainRoute {
   const grants = trackedGrant(() => options.grant());
-  const code = machineCodeGate(() => grants.grant());
+  const code = machineCodeGate(
+    () => grants.grant(),
+    (grant) => options.standing?.(grant),
+  );
   return {
     code,
     deviceId: options.deviceId,
