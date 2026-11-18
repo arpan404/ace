@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { afterEach, expect, test } from "vitest";
@@ -289,10 +289,10 @@ test("directory deletion rechecks agent edits after a failed queued write", asyn
   expect(await readFile(join(f.root, "dir", "file"), "utf8")).toBe("agent edit");
 });
 
-test("directory deletion carries a descendant edit into recently-deleted", async () => {
-  // The queued delete re-checks the folder's own version, never its whole tree, so an edit made
-  // while the preflight finishes does not stop it (ADR 0178's trade-off: the rename to trash is
-  // atomic, so the edit travels with the folder and a restore brings it back).
+test("directory deletion refuses a descendant edit made after its digest was read", async () => {
+  // The guard is the whole tree: an edit that lands between preparation and the queued move
+  // changes the digest, so the delete is refused and the folder stays where the person can see
+  // it rather than travelling into the trash unguarded.
   let edit = false;
   let path = "";
   const f = await setup({
@@ -310,16 +310,18 @@ test("directory deletion carries a descendant edit into recently-deleted", async
   await writeFile(path, "before");
   const expected = await version(f, "dir");
   edit = true;
-  const deleted = z
-    .object({ trashId: z.string() })
-    .parse(await f.service.request("writer", { op: "delete", path: "dir", expected }));
-  await f.service.request("writer", {
-    op: "restore",
-    trashId: deleted.trashId,
-    path: "dir",
-    expected: null,
-  });
+
+  const refused = await f.service.request("writer", { op: "delete", path: "dir", expected }).then(
+    () => ({ ok: true as const }),
+    (error: unknown) => ({
+      ok: false as const,
+      code: error instanceof Error && "code" in error ? String(error.code) : "UNKNOWN",
+    }),
+  );
+
+  expect(refused).toMatchObject({ ok: false, code: "CONFLICT" });
   expect(await readFile(path, "utf8")).toBe("provider edit");
+  expect(await readdir(join(f.root, "dir"))).toEqual(["file"]);
 });
 
 test.runIf(process.platform === "win32")(

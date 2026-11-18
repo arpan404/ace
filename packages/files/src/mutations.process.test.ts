@@ -504,25 +504,48 @@ it.runIf(windows)("Windows renames a file to a case-only variant of its own name
   expect(await readFile(join(folder, "bar.txt"), "utf8")).toBe("two");
 });
 
-/** A port that changes a path once, exactly when the queued apply re-checks it. */
+/**
+ * A port that changes a path once, exactly when the queued mutation reaches its guarded step.
+ *
+ * The policy and the guard live in the mutation op now, so a race is injected on the op itself:
+ * the fake does the outside write and then hands the call on, as a program that wins the race
+ * between preparation and the queued step would.
+ */
 function racingIo(interject: (path: string) => Promise<void>) {
   const base = localFilesIo((root) => SafeRoot.create(root));
   const racing = {
     armed: false,
     target: "",
   };
+  const race = async (path: string) => {
+    if (!racing.armed || path !== racing.target) return;
+    racing.armed = false;
+    await interject(path);
+  };
   return {
     racing,
     io: {
       ...base,
-      async shallow(root: string, path: string, options: Parameters<typeof base.shallow>[2]) {
-        if (racing.armed && path === racing.target) {
-          racing.armed = false;
-          await interject(path);
-        }
-        return base.shallow(root, path, options);
+      async write(
+        root: string,
+        path: string,
+        bytes: Buffer,
+        expected: string | null,
+      ): Promise<string> {
+        await race(path);
+        return base.write(root, path, bytes, expected);
       },
-    },
+      async trash(
+        root: string,
+        path: string,
+        endpoint: string,
+        expected: string,
+        own: string | null,
+      ): Promise<void> {
+        await race(path);
+        return base.trash(root, path, endpoint, expected, own);
+      },
+    } satisfies typeof base,
   };
 }
 
@@ -541,7 +564,7 @@ it("reports the version on disk when a change lands between prepare and apply", 
   expect(await readFile(join(f.root, "file"), "utf8")).toBe("outside save");
 });
 
-it("re-reads a folder's digest when its own entries change during prepare", async () => {
+it("refuses a folder whose tree changed when the delete reaches the queue", async () => {
   const { io, racing } = racingIo(async () => {
     await writeFile(join(f.root, "dir", "arrived"), "new");
   });
@@ -557,6 +580,25 @@ it("re-reads a folder's digest when its own entries change during prepare", asyn
   expect(reply).toMatchObject({ type: "files.error", code: "CONFLICT", current });
   expect(current).not.toBe(before);
   expect(await readdir(join(f.root, "dir"))).toEqual(["a", "arrived"]);
+});
+
+it("rejects a folder's own version as a destructive guard", async () => {
+  const f = await setup();
+  const client = await f.connect();
+  await mkdir(join(f.root, "dir"));
+  await writeFile(join(f.root, "dir", "a"), "a");
+  const direct = localFilesIo((root) => SafeRoot.create(root));
+  const shallow = await direct.shallow(f.root, "dir");
+  expect(shallow?.version.startsWith("tree:") ?? false).toBe(false);
+
+  const refused = await client.request({
+    op: "delete",
+    path: "dir",
+    expected: shallow?.version ?? null,
+  });
+
+  expect(refused).toMatchObject({ type: "files.error", code: "INVALID_ARGUMENT" });
+  expect(await readFile(join(f.root, "dir", "a"), "utf8")).toBe("a");
 });
 
 it("restores a pre-cutover trash entry only onto an absent, link-free destination", async () => {

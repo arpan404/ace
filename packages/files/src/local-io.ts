@@ -5,7 +5,7 @@ import { PinnedDirectory, GitIgnore, walkWorkspace, type SafeRoot } from "@ace/w
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { atomicWrite, observed, treeVersion } from "./filesystem.ts";
 import type { Description, FilesIo, SafeRootSource, ReadBytes } from "./io.ts";
-import { codeOf, FileError, version } from "./types.ts";
+import { checkVersion, codeOf, FileError, version } from "./types.ts";
 
 /** A staging name for one save; `files-io` names its own copies the same way. */
 function stagingId(): string {
@@ -63,6 +63,8 @@ export function localFilesIo(
     async describe(root, path, options = {}): Promise<Description | null> {
       const safe = await safeRoot(root);
       if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
+      // The local port walks its whole tree up to the workspace's own cap; `full` only matters to
+      // ace-files, which budgets a display stat and never a guarded one.
       if (path === "") {
         const { info } = await safe.metadata("");
         return {
@@ -119,11 +121,6 @@ export function localFilesIo(
         kind: link?.isSymbolicLink() ? "symlink" : kindAt(info),
         mode: info.mode & 0o777,
       };
-    },
-    async checkMutation(root, path) {
-      const safe = await safeRoot(root);
-      if (reserved(path)) throw new FileError("INVALID_PATH", "Reserved mutation path");
-      await safe.target(path);
     },
     async metadata(root, path) {
       const safe = await safeRoot(root);
@@ -183,16 +180,35 @@ export function localFilesIo(
       }
       await target.verify();
     },
-    async move(root, from, to) {
+    async move(root, from, to, expected, _own) {
       const safe = await safeRoot(root);
       if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
       const source = await safe.target(from);
       if (process.platform === "win32" && (await caseOnlyRename(safe, from, to, source))) return;
       const destination = await safe.target(to);
+      if (expected !== null) checkVersion(await observed(safe, from), expected);
       await source.verify();
       await destination.verify();
       await exclusive.move(source.path, destination.path);
       await source.verify();
+      await destination.verify();
+    },
+    async trash(root, path, endpoint, expected, _own) {
+      const safe = await safeRoot(root);
+      const target = await safe.target(path);
+      checkVersion(await observed(safe, path), expected);
+      const location = join(safe.root, endpoint);
+      await target.verify();
+      await exclusive.move(target.path, location);
+      await target.verify();
+    },
+    async untrash(root, endpoint, path) {
+      const safe = await safeRoot(root);
+      const destination = await safe.target(path);
+      const source = join(safe.root, endpoint);
+      await lstat(source);
+      await destination.verify();
+      await exclusive.move(source, destination.path);
       await destination.verify();
     },
     async remove(root, path) {
@@ -240,17 +256,6 @@ export function localFilesIo(
       return { bytes, shallow: false };
     },
     internal: {
-      async move(root, from, to) {
-        const safe = await safeRoot(root);
-        if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
-        const source = await privateTarget(safe, from);
-        const destination = await privateTarget(safe, to);
-        await source.verify();
-        await destination.verify();
-        await exclusive.move(source.path, destination.path);
-        await source.verify();
-        await destination.verify();
-      },
       async remove(root, path) {
         const safe = await safeRoot(root);
         const target = await privateTarget(safe, path);

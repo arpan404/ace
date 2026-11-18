@@ -8,8 +8,9 @@ import { CHUNK_SIZE, FileError, type Download } from "./types.ts";
  * The first byte is read at open, so a file the daemon may not open, a folder and a missing path
  * all fail the request itself rather than the channel that follows, exactly as opening the file
  * did before. The whole file is never held: each chunk is read from the workspace's port at its
- * offset, and the port refuses a file that changes under the read, so a resumed download never
- * splices two versions together. An `offset` past 0 needs the validator it resumes.
+ * offset, every range is checked against the version and size the download started with, and the
+ * read itself refuses a file that changes underneath it, so a resumed download never splices two
+ * versions together. An `offset` past 0 needs the validator it resumes.
  */
 export async function openDownload(
   io: FilesIo,
@@ -36,6 +37,10 @@ export async function openDownload(
         offset: position,
         length: Math.min(CHUNK_SIZE, size - position),
       });
+      // The range carries the version and size it was read at. Anything else is a replacement:
+      // its bytes are never yielded, so a download and an archive never splice two files.
+      const changed = read.version !== current || read.size !== size;
+      if (changed) throw new FileError("CONFLICT", "File changed while reading", read.version);
       if (!read.bytes.length) throw new FileError("CONFLICT", "File was truncated while reading");
       position += read.bytes.length;
       yield read.bytes;

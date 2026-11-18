@@ -311,17 +311,20 @@ export class FilesService {
         await this.tail;
         continue;
       }
-      const result = await this.serial(async () => {
+      const applied = await this.serial(async () => {
         guard();
         this.authorize(device, "files.write");
         if (revision !== this.revision) return undefined;
         if (operation.op === "delete" || operation.op === "rename" || operation.op === "move")
           this.uploads.assertUnoccupied(operation.path);
-        const change = await this.mutations.apply(operation, prepared);
-        this.emit(change);
-        return change;
+        return this.mutations.apply(operation, prepared);
       });
-      if (result) return result;
+      if (!applied) continue;
+      // The new version is read after the queue: a folder's digest can walk a whole tree, and
+      // no other mutation should wait for it. This reply is the one the client is waiting on.
+      const change = await this.mutations.change(applied);
+      this.emit(change);
+      return change;
     }
     throw new FileError("BUSY", "Workspace changed during preparation; try again");
   }
