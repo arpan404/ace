@@ -349,6 +349,7 @@ import XCTest
         app.tapBack()
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         XCTAssertEqual(app.searchFields.firstMatch.value as? String, "settings")
+        capture("code-review-reopened")
     }
 
     func testCodeReviewWithNoComputerPairedOffersPairing() {
