@@ -75,6 +75,8 @@ export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
 import { MaintenanceGate } from "@ace/service";
 import { keepUserPause } from "./user-pause.ts";
+import { firstLine, loginPathWaitMs, onFinalPath, receiveLoginPath } from "./login-path-handoff.ts";
+import { daemonLoginPath } from "@ace/service/login-path";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
 export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
@@ -112,10 +114,32 @@ export async function startDaemon(options: DaemonOptions = {}) {
   const spawnedAt = entered - process.uptime() * 1000;
   const sinceSpawn = () => Math.round(now() - spawnedAt);
   const config = options.config ?? readConfig();
+  // Started by the desktop app on last launch's PATH: the login shell's follows on stdin, or
+  // the daemon asks the shell itself (`login-path-handoff.ts`).
+  // Aborted as the daemon stops (below): ends a lookup still waiting on a slow shell, and its
+  // processes, inside the shutdown budget.
+  const loginPathStop = new AbortController();
+  if (!options.loginPath) {
+    const loginPath = receiveLoginPath({
+      env: process.env,
+      read: () => firstLine(process.stdin, { signal: loginPathStop.signal }),
+      timeout: () => new Promise((settle) => setTimeout(settle, loginPathWaitMs).unref()),
+      lookup: (pending) => daemonLoginPath(pending, process.env, { signal: loginPathStop.signal }),
+      signal: loginPathStop.signal,
+    });
+    if (loginPath) options = { ...options, loginPath };
+  }
+  // The doctor and toolchains find CLIs on PATH: only on the final one.
+  const pathFinal = options.loginPath?.final;
   const diagnostics = options.diagnostics ?? {
-    doctor: () => connectedDoctorReport(config, process.env, now),
+    doctor: () =>
+      onFinalPath(pathFinal, loginPathStop.signal, () =>
+        connectedDoctorReport(config, process.env, now),
+      ),
     toolchains: () =>
-      daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
+      onFinalPath(pathFinal, loginPathStop.signal, () =>
+        daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
+      ),
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
@@ -314,6 +338,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   );
   const lifetime = new AbortController();
   resources.onShutdown(() => lifetime.abort());
+  // After `lifetime`: whatever waited on the final PATH wakes to a stopping daemon.
+  resources.onShutdown(() => loginPathStop.abort());
   let initialized = false;
   const abortReason = (): StopReason => {
     const reason: unknown = options.signal?.reason;
