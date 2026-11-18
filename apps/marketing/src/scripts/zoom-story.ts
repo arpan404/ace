@@ -251,8 +251,8 @@ export function startZoomStory(root: HTMLElement): void {
         cue.style.opacity = String(waiting);
         if (waiting > 0) {
           const box = ghost.getBoundingClientRect();
-          const frame = stage.getBoundingClientRect();
-          cue.style.transform = `translate(${box.left - frame.left + 4}px, ${box.bottom - frame.top + 16}px)`;
+          const within = stage.getBoundingClientRect();
+          cue.style.transform = `translate(${box.left - within.left + 4}px, ${box.bottom - within.top + 16}px)`;
         }
       }
     }
