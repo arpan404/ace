@@ -27,8 +27,8 @@ struct BrowserPageState: View {
         }
         if state.disconnected == true {
             return AnyView(EmptyState(icon: .warning, title: "The browser disconnected",
-                                      line: state.reason ?? "Reopen it to continue where it left off.") {
-                if model.canOperate { Button("Reopen") { model.browserReopen() }.buttonStyle(.textAction(.prominent)).frame(maxWidth: AceDesign.Size.loneAction) }
+                                      line: state.reason ?? "Reopen it to continue where it left off.", failed: true) {
+                if model.canOperate { Button("Reopen") { model.browserReopen() }.frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         if let certificate = state.certificate, let tabId = state.activeTabId {

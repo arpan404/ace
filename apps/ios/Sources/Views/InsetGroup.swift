@@ -118,16 +118,17 @@ struct InsetRow<Trailing: View>: View {
         }
     }
 
+    /// Side by side, the title and the trailing view split the width as the system's rows do,
+    /// so a trailing reason keeps its room; stacked, the title takes the row and wraps.
     private var words: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Text(title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
-                .fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: false, vertical: stacked)
             if let subtitle {
                 Text(subtitle).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(stacked ? nil : 1)
             }
         }
-        .layoutPriority(1)
     }
 }
 

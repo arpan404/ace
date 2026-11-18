@@ -29,10 +29,13 @@ import XCTest
         XCTAssertGreaterThanOrEqual(value.frame.minY, title.frame.maxY - 1, "the count sits under the title")
         XCTAssertLessThan(value.frame.minX, title.frame.maxX, "the count starts under the title, not past it")
         // A longer word gets the row's whole width: the glyph steps aside rather than split it.
-        let notifications = app.buttons["settings.notifications"].staticTexts["Notifications"]
-        if notifications.exists {
-            XCTAssertGreaterThan(notifications.frame.width, notifications.frame.height * 2.5, "“Notifications” stays whole")
-        }
+        let notificationsRow = app.buttons["settings.notifications"]
+        for _ in 0..<4 where !notificationsRow.isHittable { app.swipeUp() }
+        XCTAssertTrue(notificationsRow.isHittable, "Settings shows Notifications")
+        let notifications = notificationsRow.staticTexts["Notifications"]
+        XCTAssertTrue(notifications.exists, "the row shows its title")
+        XCTAssertGreaterThan(notifications.frame.width, notifications.frame.height * 2.5, "“Notifications” stays whole")
+        for _ in 0..<4 where !row.isHittable { app.swipeDown() }
 
         row.tap()
         let machine = app.descendants(matching: .any)
