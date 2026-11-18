@@ -182,6 +182,12 @@ fn git_config_runs_nothing(files: &dyn Files, path: &Path, seen: &mut usize) -> 
             return false;
         }
         if entry.key == "path" && matches!(entry.section.as_str(), "include" | "includeif") {
+            if entry.value.is_empty() {
+                continue;
+            }
+            if entry.value.starts_with("%(") {
+                return false;
+            }
             let target = match entry.value.strip_prefix("~/") {
                 Some(rest) => match files.var("HOME") {
                     Some(home) => Path::new(&home).join(rest),
@@ -206,83 +212,181 @@ pub(crate) struct Entry {
     pub value: String,
 }
 
-/// The entries of a git config file; `None` for text it can't read as one.
+/// The entries of a git config file, read by git's own rules (quoted values, the escapes `\\`,
+/// `\"`, `\n`, `\t`, `\b`, a backslash before a line's end, `#` and `;` comments outside
+/// quotes, `[section "sub"]` and `[section.sub]` headers); `None` for anything else, which then
+/// counts as running something.
 pub(crate) fn git_config(text: &str) -> Option<Vec<Entry>> {
+    let chars: Vec<char> = text.chars().collect();
+    let n = chars.len();
     let mut out = Vec::new();
-    let mut section = String::new();
-    let mut subsection = None;
-    let mut lines = text.lines();
-    while let Some(line) = lines.next() {
-        let mut line = line.trim().to_owned();
-        // A value continued on the next line.
-        while line.ends_with('\\') {
-            line.pop();
-            line.push_str(lines.next()?.trim());
+    let mut section: Option<(String, Option<String>)> = None;
+    let mut i = 0;
+    loop {
+        while i < n && chars[i].is_whitespace() {
+            i += 1;
         }
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
-            continue;
+        if i >= n {
+            return Some(out);
         }
-        if let Some(head) = line.strip_prefix('[') {
-            let (inside, rest) = head.split_once(']')?;
-            let rest = rest.trim();
-            if !rest.is_empty() && !rest.starts_with('#') && !rest.starts_with(';') {
-                // `[core] fsmonitor = x` on one line: read the rest as an entry too.
-                set(inside, &mut section, &mut subsection)?;
-                out.push(entry(&section, &subsection, rest)?);
-                continue;
+        match chars[i] {
+            '#' | ';' => {
+                while i < n && chars[i] != '\n' {
+                    i += 1;
+                }
             }
-            set(inside, &mut section, &mut subsection)?;
-            continue;
+            '[' => {
+                i += 1;
+                let start = i;
+                while i < n && (chars[i].is_ascii_alphanumeric() || matches!(chars[i], '-' | '.')) {
+                    i += 1;
+                }
+                let name: String = chars[start..i].iter().collect();
+                if name.is_empty() {
+                    return None;
+                }
+                let mut sub = None;
+                if i < n && matches!(chars[i], ' ' | '\t') {
+                    while i < n && matches!(chars[i], ' ' | '\t') {
+                        i += 1;
+                    }
+                    if chars.get(i) != Some(&'"') {
+                        return None;
+                    }
+                    i += 1;
+                    let mut text = String::new();
+                    loop {
+                        match chars.get(i)? {
+                            '"' => break,
+                            '\n' => return None,
+                            '\\' => {
+                                i += 1;
+                                let c = *chars.get(i)?;
+                                if c == '\n' {
+                                    return None;
+                                }
+                                text.push(c);
+                            }
+                            c => text.push(*c),
+                        }
+                        i += 1;
+                    }
+                    i += 1;
+                    sub = Some(text);
+                }
+                if chars.get(i) != Some(&']') {
+                    return None;
+                }
+                i += 1;
+                let (name, sub) = match (name.split_once('.'), sub) {
+                    (Some(_), Some(_)) => return None,
+                    (Some((head, rest)), None) => (head.to_owned(), Some(rest.to_owned())),
+                    (None, sub) => (name, sub),
+                };
+                section = Some((name.to_ascii_lowercase(), sub));
+            }
+            c if c.is_ascii_alphabetic() => {
+                let (name, sub) = section.clone()?;
+                let start = i;
+                while i < n && (chars[i].is_ascii_alphanumeric() || chars[i] == '-') {
+                    i += 1;
+                }
+                let key: String = chars[start..i]
+                    .iter()
+                    .collect::<String>()
+                    .to_ascii_lowercase();
+                while i < n && matches!(chars[i], ' ' | '\t') {
+                    i += 1;
+                }
+                let value = match chars.get(i) {
+                    None | Some('\n') | Some('#') | Some(';') => "true".to_owned(),
+                    Some('\r') if chars.get(i + 1) == Some(&'\n') => "true".to_owned(),
+                    Some('=') => {
+                        i += 1;
+                        let (value, next) = git_value(&chars, i)?;
+                        i = next;
+                        value
+                    }
+                    _ => return None,
+                };
+                out.push(Entry {
+                    section: name,
+                    subsection: sub,
+                    key,
+                    value,
+                });
+            }
+            _ => return None,
         }
-        if section.is_empty() {
-            return None;
-        }
-        out.push(entry(&section, &subsection, line)?);
     }
-    Some(out)
 }
 
-fn set(inside: &str, section: &mut String, subsection: &mut Option<String>) -> Option<()> {
-    let inside = inside.trim();
-    match inside.split_once(char::is_whitespace) {
-        Some((name, sub)) => {
-            *section = name.to_ascii_lowercase();
-            *subsection = Some(sub.trim().trim_matches('"').to_owned());
+/// A value from `at` to its line's end, and where reading stopped.
+fn git_value(chars: &[char], mut i: usize) -> Option<(String, usize)> {
+    let n = chars.len();
+    let mut value = String::new();
+    // Whitespace outside quotes, kept only if more of the value follows.
+    let mut pending = String::new();
+    let mut quoted = false;
+    let mut started = false;
+    while i < n {
+        let c = chars[i];
+        match c {
+            '\n' if quoted => return None,
+            '\n' => break,
+            '\r' if chars.get(i + 1) == Some(&'\n') && !quoted => break,
+            '#' | ';' if !quoted => {
+                while i < n && chars[i] != '\n' {
+                    i += 1;
+                }
+                break;
+            }
+            '"' => {
+                value.push_str(&pending);
+                pending.clear();
+                quoted = !quoted;
+                started = true;
+            }
+            '\\' => {
+                i += 1;
+                let escaped = match chars.get(i)? {
+                    'n' => Some('\n'),
+                    't' => Some('\t'),
+                    'b' => Some('\u{8}'),
+                    '"' => Some('"'),
+                    '\\' => Some('\\'),
+                    '\n' => None,
+                    '\r' if chars.get(i + 1) == Some(&'\n') => {
+                        i += 1;
+                        None
+                    }
+                    _ => return None,
+                };
+                if let Some(e) = escaped {
+                    value.push_str(&pending);
+                    pending.clear();
+                    value.push(e);
+                    started = true;
+                }
+            }
+            ' ' | '\t' if !quoted => {
+                if started {
+                    pending.push(c);
+                }
+            }
+            c => {
+                value.push_str(&pending);
+                pending.clear();
+                value.push(c);
+                started = true;
+            }
         }
-        None => match inside.split_once('.') {
-            Some((name, sub)) => {
-                *section = name.to_ascii_lowercase();
-                *subsection = Some(sub.to_owned());
-            }
-            None => {
-                *section = inside.to_ascii_lowercase();
-                *subsection = None;
-            }
-        },
+        i += 1;
     }
-    (!section.is_empty()).then_some(())
-}
-
-fn entry(section: &str, subsection: &Option<String>, line: &str) -> Option<Entry> {
-    let (key, value) = line.split_once('=').unwrap_or((line, "true"));
-    let key = key.trim().to_ascii_lowercase();
-    if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if quoted {
         return None;
     }
-    let value = value
-        .split(['#', ';'])
-        .next()
-        .unwrap_or("")
-        .trim()
-        .trim_matches('"')
-        .to_owned();
-    Some(Entry {
-        section: section.to_owned(),
-        subsection: subsection.clone(),
-        key,
-        value,
-    })
+    Some((value, i))
 }
 
 /// Sections every key of which names something git may run.
@@ -627,6 +731,52 @@ mod tests {
             .repo()
             .file("/w/.git/config", "[alias]\n\tst = status -sb");
         assert!(clean(&alias).git);
+    }
+
+    #[test]
+    fn config_is_read_by_gits_own_quoting_and_what_it_cant_read_counts() {
+        // A quoted include path keeps its `#`: the file it names is read.
+        let hash = Memory::default()
+            .repo()
+            .file("/w/.git/config", "[include]\n\tpath = \"extra#cfg\"")
+            .file("/w/.git/extra#cfg", "[core]\n\tfsmonitor = ./m");
+        assert!(!clean(&hash).git, "the include named extra#cfg");
+        // An unquoted `#` starts a comment, as git reads it.
+        let comment = Memory::default()
+            .repo()
+            .file("/w/.git/config", "[include]\n\tpath = extra # cfg")
+            .file("/w/.git/extra", "[core]\n\tpager = ./p");
+        assert!(!clean(&comment).git);
+        // A value continued with a backslash, and escapes.
+        let continued = Memory::default()
+            .repo()
+            .file("/w/.git/config", "[core]\n\tfsmon\\\nitor = x");
+        assert!(!clean(&continued).git, "not a key git reads: refused");
+        let escaped = Memory::default()
+            .repo()
+            .file("/w/.git/config", "[include]\n\tpath = \"ex\\\"tra\"")
+            .file("/w/.git/ex\"tra", "[core]\n\tpager = ./p");
+        assert!(!clean(&escaped).git);
+        for broken in [
+            "[core]\n\tpager = \"unterminated",
+            "[core]\n\tpager = a\\qb",
+            "[core \"x\n",
+            "key = value",
+            "[core]\n\t9key = v",
+            "[core.x \"y\"]",
+        ] {
+            let files = Memory::default().repo().file("/w/.git/config", broken);
+            assert!(!clean(&files).git, "{broken:?}");
+        }
+        let header_entry = Memory::default()
+            .repo()
+            .file("/w/.git/config", "[core] fsmonitor = ./m");
+        assert!(!clean(&header_entry).git);
+        let plain = Memory::default().repo().file(
+            "/w/.git/config",
+            "# comment\n[core]\n\tbare = false ; trailing\n[remote \"origin\"]\n\turl = \"https://example.com/a b.git\"\n",
+        );
+        assert!(clean(&plain).git);
     }
 
     #[test]

@@ -71,15 +71,15 @@ async fn a_plain_command_with_no_sandbox_runs_without_the_reviewer() -> Result {
     let commands = shell.calls();
     let spade = start(
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "cargo test" })),
-            Script::reply("Tests pass."),
+            Script::reply("").call("c1", "shell", json!({ "command": "grep -rn TODO src" })),
+            Script::reply("Found them."),
             Script::reply("").plain(TITLE),
         ],
         vec![Arc::new(shell) as Arc<dyn Tool>],
     )
     .await?;
     let conversation = conversation(&spade).await?;
-    spade.say(&conversation, "Run the tests").await?;
+    spade.say(&conversation, "Find the TODOs").await?;
     let events = spade.wait_for(&conversation, "reply_finished").await?;
     assert_eq!(ran(&commands), 1);
     let reviewed = verdict(&events, "c1").ok_or("no verdict")?;
@@ -101,7 +101,7 @@ async fn a_plain_command_with_no_sandbox_runs_without_the_reviewer() -> Result {
     assert_eq!(logged[0]["decision"], "low_risk");
     assert_eq!(logged[0]["call_id"], "c1");
     assert!(logged[0]["confidence"].as_f64().is_some());
-    assert!(!logged[0].to_string().contains("cargo"), "{}", logged[0]);
+    assert!(!logged[0].to_string().contains("TODO"), "{}", logged[0]);
     Ok(())
 }
 
@@ -321,7 +321,7 @@ async fn a_command_it_cant_place_against_the_bots_folder_goes_to_the_reviewer() 
     let commands = shell.calls();
     let spade = start(
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "cargo test" })),
+            Script::reply("").call("c1", "shell", json!({ "command": "ls -la src" })),
             Script::reply("").plain(APPROVE),
             Script::reply("Tests pass."),
             Script::reply("").plain(TITLE),

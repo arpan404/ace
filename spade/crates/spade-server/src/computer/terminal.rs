@@ -313,6 +313,10 @@ fn carried_over(name: &str, value: &str) -> bool {
         "FPATH",
     ];
     !(NEVER.contains(&name)
+        // What a settled command ran with stays with it (ADR 0172, amendment 3), and a bot's own
+        // git configuration variables never reach the next command.
+        || name.starts_with("GIT_CONFIG")
+        || spade_classify::hardening_names().iter().any(|n| n == name)
         || name.starts_with("LD_")
         || name.starts_with("DYLD_")
         || name.starts_with("BASH_FUNC_")
@@ -681,7 +685,8 @@ impl Terminal {
     /// supervisor owns it: if this call is dropped, the command and everything it started are
     /// ended, and the next command starts only once that is done.
     pub async fn run(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
-        self.run_in_state(MAIN, command, timeout, None, false).await
+        self.run_in_state(MAIN, command, timeout, None, false, &[])
+            .await
     }
 
     /// [`Terminal::run`] in `session`, only while that session is in the state `expected` names
@@ -695,7 +700,9 @@ impl Terminal {
         timeout: Duration,
         expected: Option<&str>,
         outside: bool,
+        overrides: &[(String, String)],
     ) -> Result<Ran, String> {
+        let overrides = overrides.to_vec();
         let lane = lock(&self.commands)
             .entry(session.to_owned())
             .or_default()
@@ -726,7 +733,7 @@ impl Terminal {
         let supervisor = tokio::spawn(async move {
             let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), outside) => Some(ran),
+                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), outside, &overrides) => Some(ran),
                 _ = abandoned => None,
             };
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
@@ -793,8 +800,18 @@ impl Terminal {
         timeout: Duration,
         cleanup: Cleanup,
         outside: bool,
+        overrides: &[(String, String)],
     ) -> Result<Ran, String> {
         let carried = self.carried_in(session);
+        // The variables carried from the last command, with the overrides a settled command runs
+        // with over them (ADR 0172, amendment 3).
+        let mut env: Vec<(String, String)> = carried
+            .env
+            .iter()
+            .filter(|(name, _)| !overrides.iter().any(|(o, _)| o == name))
+            .cloned()
+            .collect();
+        env.extend(overrides.iter().cloned());
         let dir = carried
             .dir
             .filter(|dir| dir.is_dir())
@@ -837,7 +854,7 @@ impl Terminal {
                     dir: &dir,
                     script: &script,
                     timeout,
-                    env: &carried.env,
+                    env: &env,
                     tee: Some(tee),
                     cleanup: Some(cleanup),
                     stdin: None,

@@ -608,6 +608,23 @@ impl Tool for ShellTool {
                 Err(refused) => return ToolOutput::error(refused),
             };
             let (outside, sandboxed) = (plan.outside, plan.sandboxed);
+            // A call Spade's classifier settled runs only in the form it was settled for, with
+            // the overrides that make it ignore configuration that could run a program, whatever
+            // the files say now (ADR 0172, amendment 3). Checked again from the command itself.
+            let form = place
+                .bots
+                .get()
+                .and_then(|engine| engine.take_hardening(&key));
+            if let Some(form) = &form
+                && spade_classify::hardening(&args.command).as_ref() != Some(form)
+            {
+                return ToolOutput::error(
+                    "Not run: it can't run with Spade's configuration overrides now. Call it \
+                     again to have it reviewed."
+                        .to_owned(),
+                );
+            }
+            let overrides: &[(String, String)] = form.as_ref().map_or(&[], |f| f.env.as_slice());
             let ran = match &shell {
                 Commands::OneShot(shell) => {
                     shell
@@ -615,7 +632,7 @@ impl Tool for ShellTool {
                             dir: &dir,
                             script: &args.command,
                             timeout,
-                            env: &[],
+                            env: overrides,
                             tee: None,
                             cleanup: None,
                             stdin: None,
@@ -628,7 +645,16 @@ impl Tool for ShellTool {
                         .await
                 }
                 Commands::Terminal(terminals) => {
-                    in_terminal(&place, &key, terminals, &args.command, timeout, outside).await
+                    in_terminal(
+                        &place,
+                        &key,
+                        terminals,
+                        &args.command,
+                        timeout,
+                        outside,
+                        overrides,
+                    )
+                    .await
                 }
             };
             // Whatever the command did to the folder, the app looks again.
@@ -673,6 +699,7 @@ async fn in_terminal(
     command: &str,
     timeout: Duration,
     outside: bool,
+    overrides: &[(String, String)],
 ) -> Result<Ran, String> {
     let bot = place
         .bots
@@ -701,7 +728,14 @@ async fn in_terminal(
     let session = place.bots.session_for_key(key);
     terminals
         .of(&bot)?
-        .run_in_state(&session, command, timeout, expected.as_deref(), outside)
+        .run_in_state(
+            &session,
+            command,
+            timeout,
+            expected.as_deref(),
+            outside,
+            overrides,
+        )
         .await
 }
 

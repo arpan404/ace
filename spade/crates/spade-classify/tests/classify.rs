@@ -132,15 +132,19 @@ fn plain_person_only_calls_go_to_the_person() {
 }
 
 #[test]
-fn plain_reads_and_builds_in_the_folder_are_low_risk() {
+fn plain_reads_and_writes_in_the_folder_with_a_hard_form_are_low_risk_and_builds_are_not() {
     for command in [
         "ls -la src",
-        "git status",
-        "cargo test",
+        "git log --oneline -5",
         "cat README.md",
-        "npm install",
+        "grep -rn TODO src",
+        "cp README.md docs/",
     ] {
         assert_eq!(screen(command), Screen::LowRisk, "{command}");
+    }
+    // A build or install reads configuration no override covers (ADR 0172, amendment 3).
+    for command in ["cargo test", "npm install", "git status"] {
+        assert_ne!(screen(command), Screen::LowRisk, "{command}");
     }
 }
 

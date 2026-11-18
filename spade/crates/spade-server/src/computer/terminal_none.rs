@@ -123,6 +123,7 @@ impl Terminal {
         _timeout: Duration,
         _expected: Option<&str>,
         _outside: bool,
+        _overrides: &[(String, String)],
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

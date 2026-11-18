@@ -11,6 +11,7 @@
 //! Pure and deterministic: the same input gives the same output, with no I/O and no network.
 
 mod ambient;
+mod harden;
 mod hash;
 mod math;
 mod model;
@@ -27,6 +28,7 @@ pub use spade_core::autonomy::ConfigTools;
 pub use spade_core::effect::{Effect, Mcp};
 
 pub use ambient::{Files, Found as FileRead, inspect};
+pub use harden::{Hardening, hardening, names as hardening_names};
 pub use hash::{BUCKETS, KNOWN_BITS, probes};
 pub use math::exp;
 pub use model::{Header, Invalid, Model, encode, known_bits, quantize, softmax};
@@ -96,6 +98,9 @@ pub struct Features {
     pub network: bool,
     /// The tools it runs whose configuration could name a program for them to run.
     pub config: ConfigTools,
+    /// It has a form that ignores configuration that could run a program ([`hardening`]): a
+    /// command without one is never settled. Always true for a tool call, which never settles.
+    pub hardened: bool,
 }
 
 pub fn features(subject: &Subject<'_>) -> Features {
@@ -117,6 +122,10 @@ pub fn features(subject: &Subject<'_>) -> Features {
         dropped: found.dropped,
         network: found.network,
         config: found.config,
+        hardened: match *subject {
+            Subject::Shell { command, .. } => hardening(command).is_some(),
+            Subject::Tool { .. } => true,
+        },
     }
 }
 
@@ -135,6 +144,8 @@ pub struct Prediction {
     pub network: bool,
     /// The tools it runs whose configuration could name a program for them to run.
     pub config: ConfigTools,
+    /// It has a form that ignores configuration that could run a program.
+    pub hardened: bool,
 }
 
 impl Prediction {
@@ -142,7 +153,7 @@ impl Prediction {
     /// the bot's folders, hides nothing, and is made only of parts the model knows as low-risk
     /// (`npm install` is known; `npm install -g`, a flag never seen in a low-risk command, isn't).
     pub fn plain(&self) -> bool {
-        !self.reaches_outside && !self.hides && self.known && !self.dropped
+        !self.reaches_outside && !self.hides && self.known && !self.dropped && self.hardened
     }
 
     /// The most likely effect and its probability.
@@ -216,6 +227,7 @@ impl Model {
             known: self.knows(&features.keys),
             network: features.network,
             config: features.config,
+            hardened: features.hardened,
         }
     }
 
@@ -265,32 +277,50 @@ impl Model {
     /// placed against it.
     ///
     /// `config_clean` is the tools whose configuration around the command's folder the gate
-    /// inspected ([`inspect`]) and found naming no program to run.
+    /// inspected ([`inspect`]) and found naming no program to run. A settled command comes with
+    /// the [`Hardening`] it must run in; the gate records it and the launch applies it.
     pub fn decide(
         &self,
         subject: &Subject<'_>,
         reviewing: Reviewing,
         config_clean: ConfigTools,
-    ) -> (Prediction, Screen) {
+    ) -> Decision {
         let prediction = self.predict(subject);
-        // A tool whose configuration could run a program settles only where the gate found its
-        // configuration runs nothing (ADR 0172, amendment 2).
-        let shell = matches!(
-            subject,
+        let command = match subject {
             Subject::Shell {
+                command,
                 workspace: Some(_),
-                ..
-            }
-        ) && prediction.config.within(config_clean);
-        let screen = if shell && reviewing.may_settle() {
+            } => Some(*command),
+            _ => None,
+        };
+        // A tool whose configuration could run a program settles only where the gate found its
+        // configuration runs nothing (ADR 0172, amendment 2), and only in its hard form
+        // (amendment 3).
+        let form = command
+            .filter(|_| prediction.config.within(config_clean))
+            .and_then(hardening);
+        let screen = if form.is_some() && reviewing.may_settle() {
             self.screen(&prediction)
-        } else if shell && reviewing.may_settle_read() {
+        } else if form.is_some() && reviewing.may_settle_read() {
             self.screen_read(&prediction)
         } else {
             self.raise(&prediction)
         };
-        (prediction, screen)
+        Decision {
+            prediction,
+            screen,
+            hardening: form.filter(|_| screen == Screen::LowRisk),
+        }
     }
+}
+
+/// What [`Model::decide`] came to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Decision {
+    pub prediction: Prediction,
+    pub screen: Screen,
+    /// For a settled command, the form it must run in.
+    pub hardening: Option<Hardening>,
 }
 
 /// What the gate knows about a call it sent to the reviewer, for whether the model may settle it.

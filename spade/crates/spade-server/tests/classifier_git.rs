@@ -1,8 +1,9 @@
-//! Spade's classifier and a repository's own configuration (ADR 0172, amendment 2), with the real
-//! shell tool, a real workspace and real git: a read the classifier would settle is not settled
-//! when the repository's config names a program git runs for it (here `core.fsmonitor`), and the
-//! program never runs before a review; in a repository whose config runs nothing the same read
-//! settles. A process test because what is under test is git reading the config on disk.
+//! Spade's classifier and a repository's own configuration (ADR 0172, amendments 2 and 3), with the
+//! real shell tool, a real workspace and real git. A read is not settled when the repository's
+//! config names a program git runs for it (here `core.fsmonitor`); in a repository whose config
+//! runs nothing it settles; and a settled read runs with Spade's overrides, so a config swapped in
+//! after the decision (a file replaced, or a symlink pointed elsewhere) never runs its program. A
+//! process test because what is under test is git reading the config on disk at launch.
 
 #![cfg(unix)]
 
@@ -21,6 +22,7 @@ use spade_testkit::Script;
 use support::{Options, Result, Spade};
 
 const REFUSE: &str = r#"{"verdict":"refuse","reason":"Not needed for the task."}"#;
+const APPROVE: &str = r#"{"verdict":"approve","reason":"It serves the task."}"#;
 const TITLE: &str = r#"{"title":"Status"}"#;
 
 struct Setup {
@@ -109,7 +111,7 @@ fn by_classifier(verdict: &Value) -> bool {
 #[tokio::test]
 async fn a_read_in_a_repository_whose_config_runs_a_program_goes_to_the_reviewer() -> Result {
     let setup = start(vec![
-        Script::reply("").call("c1", "shell", json!({ "command": "git status --short" })),
+        Script::reply("").call("c1", "shell", json!({ "command": "git ls-files" })),
         Script::reply("").plain(REFUSE),
         Script::reply("I won't run it."),
         Script::reply("").plain(TITLE),
@@ -148,7 +150,7 @@ async fn a_read_in_a_repository_whose_config_runs_a_program_goes_to_the_reviewer
 #[tokio::test]
 async fn the_same_read_in_a_repository_whose_config_runs_nothing_settles() -> Result {
     let setup = start(vec![
-        Script::reply("").call("c1", "shell", json!({ "command": "git status --short" })),
+        Script::reply("").call("c1", "shell", json!({ "command": "git ls-files" })),
         Script::reply("Clean."),
         Script::reply("").plain(TITLE),
     ])
@@ -170,4 +172,89 @@ async fn the_same_read_in_a_repository_whose_config_runs_nothing_settles() -> Re
         "the classifier settled it: {reviewed}"
     );
     Ok(())
+}
+
+/// A monitor that only leaves a marker, and a copy of the repository's config that names it.
+fn evil_config(root: &Path) -> Result<std::path::PathBuf> {
+    let marker = root.join("monitor-ran");
+    let monitor = root.join("monitor.sh");
+    std::fs::write(
+        &monitor,
+        format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marker.display()),
+    )?;
+    std::fs::set_permissions(&monitor, std::fs::Permissions::from_mode(0o755))?;
+    let evil = root.join(".git/evil.cfg");
+    std::fs::copy(root.join(".git/config"), &evil)?;
+    git(
+        root,
+        &[
+            "config",
+            "-f",
+            ".git/evil.cfg",
+            "core.fsmonitor",
+            &monitor.display().to_string(),
+        ],
+    )?;
+    Ok(marker)
+}
+
+/// Decides a settled read while the config is clean, then swaps the config with `swap` (run as a
+/// reviewed script) before the read launches: the marker must never appear.
+async fn swapped_after_the_decision(swap: &str, symlinked: bool) -> Result {
+    let setup = start(vec![
+        Script::reply("")
+            .call("c1", "shell", json!({ "command": "sh swap.sh" }))
+            .call(
+                "c2",
+                "shell",
+                json!({ "command": "sleep 1 && git ls-files" }),
+            ),
+        Script::reply("").plain(APPROVE),
+        Script::reply("Done."),
+        Script::reply("").plain(TITLE),
+    ])
+    .await?;
+    let (agent, conversation) = bot(&setup.spade).await?;
+    let root = setup.workspaces.of(&agent)?.path()?;
+    repository(&root)?;
+    let marker = evil_config(&root)?;
+    if symlinked {
+        std::fs::rename(root.join(".git/config"), root.join(".git/clean.cfg"))?;
+        std::os::unix::fs::symlink("clean.cfg", root.join(".git/config"))?;
+    }
+    std::fs::write(root.join("swap.sh"), swap)?;
+    // Without Spade's overrides, git would run the monitor once the config is swapped.
+    setup.spade.say(&conversation, "Swap, then list").await?;
+    let events = setup
+        .spade
+        .wait_for(&conversation, "reply_finished")
+        .await?;
+    let read = verdict(&events, "c2").ok_or("no verdict for the read")?;
+    assert!(
+        by_classifier(read),
+        "the classifier settled the read: {read}"
+    );
+    let ran = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c2")
+        .ok_or("the read never ran")?;
+    assert_eq!(ran["is_error"], false, "{ran}");
+    let swapped = std::fs::read_to_string(root.join(".git/config"))?;
+    assert!(
+        swapped.contains("fsmonitor"),
+        "the swap happened before the read"
+    );
+    assert!(!marker.exists(), "git ran the swapped-in monitor");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_settled_read_ignores_a_config_file_replaced_after_the_decision() -> Result {
+    swapped_after_the_decision("cp .git/evil.cfg .git/config\n", false).await
+}
+
+#[tokio::test]
+async fn a_settled_read_ignores_a_symlinked_config_pointed_elsewhere_after_the_decision() -> Result
+{
+    swapped_after_the_decision("ln -sf evil.cfg .git/config\n", true).await
 }

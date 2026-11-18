@@ -103,6 +103,15 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
         found.hides = true;
         found.network = true;
     }
+    // `xargs` and `parallel` run a program on operands read at run time: what it touches can't be
+    // placed against the folder.
+    if lower
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '('))
+        .any(|w| w == "xargs" || w == "parallel")
+    {
+        bag.add("M", &["xargs"]);
+        found.hides = true;
+    }
     if sets_loader(&lower) {
         bag.add("M", &["sets_loader"]);
         found.hides = true;
