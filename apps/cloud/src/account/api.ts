@@ -1,6 +1,6 @@
 import type { AccountSetup } from "./config.ts";
 import { sealer } from "./crypto.ts";
-import { accountEraser, deleteAccountRoute } from "./deletion.ts";
+import { accountEraser, deleteAccountRoute, sessionEraser } from "./deletion.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { directoryRoutes } from "./directory.ts";
 import { loginRoutes } from "./login.ts";
@@ -69,6 +69,7 @@ export function accountApi(
     sessions: reader,
     provider,
     erase: accountEraser(deps.db),
+    removeSession: sessionEraser(deps.db),
     ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
   });
   const directory = directoryRoutes({

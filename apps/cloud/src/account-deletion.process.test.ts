@@ -85,19 +85,23 @@ it("deleting an account removes it at WorkOS and ends its sessions, machines and
   });
 });
 
-it("a WorkOS failure leaves the account intact so the person can try again", async () => {
+it("a WorkOS failure keeps the asking session, so trying again finishes the deletion", async () => {
   const grant = await signIn("user_retry");
+  const otherDevice = await signIn("user_retry");
   await addMachine("D".repeat(52), "user_retry");
   workos.failDeletes(true);
   expect((await deleteAccount(grant.token)).status).toBe(502);
   expect(workos.deletedUsers()).not.toContain("user_retry");
+  // The asking phone can still retry; everything else ace held is already gone.
   expect((await session(grant.token)).status).toBe(200);
-  expect(await (await machines(grant.token)).json()).toMatchObject({
-    machines: [{ hostId: "D".repeat(52) }],
-  });
+  expect((await session(otherDevice.token)).status).toBe(401);
+  expect(await count("SELECT count(*) AS n FROM machines WHERE account_id = ?", "user_retry")).toBe(
+    0,
+  );
 
   workos.failDeletes(false);
   expect((await deleteAccount(grant.token)).status).toBe(200);
+  expect(workos.deletedUsers()).toContain("user_retry");
   expect((await session(grant.token)).status).toBe(401);
 });
 
