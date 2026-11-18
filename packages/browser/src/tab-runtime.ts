@@ -24,6 +24,7 @@ import { screenshotRegion } from "./page-capture.ts";
 import { BrowserOriginError } from "./policy.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import { SnapshotRefs } from "./refs.ts";
+import { guardedPage } from "./place-guard.ts";
 import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
@@ -530,7 +531,15 @@ export class TabRuntime {
         this.check(actor, signal, submittedGeneration);
         if (command.action === "dialog") this.leaveCheck(command, actor);
         checkPlace();
-        return this.run(command, actor, signal, submittedGeneration, checkPlace);
+        return this.run(
+          command,
+          actor,
+          signal,
+          submittedGeneration,
+          checkPlace,
+          undefined,
+          expected,
+        );
       })();
     // The person's Back and Forward land at once, as in any browser: never behind an agent's
     // slow command or a page dialog in this tab (the engine decides what the dialog does).
@@ -583,7 +592,15 @@ export class TabRuntime {
       let result: unknown;
       try {
         result = await this.queue.untilDialog(() =>
-          this.run(part, actor, signal, submittedGeneration, beforeInput, target?.navigate),
+          this.run(
+            part,
+            actor,
+            signal,
+            submittedGeneration,
+            beforeInput,
+            target?.navigate,
+            expected,
+          ),
         );
       } catch (error) {
         if (error instanceof BrowserOriginError) this.host.blockedNavigation(error.blocked);
@@ -767,16 +784,30 @@ export class TabRuntime {
     generation: number,
     beforeInput?: () => void,
     navigate?: () => Promise<void>,
+    /** The place the caller's gate held the command to: checked at every input it sends. */
+    expected?: BrowserExpectedPlace,
   ): Promise<unknown> {
     const epoch = this.access.epoch;
     const host = this.host;
+    const held = expected;
+    const place = held
+      ? () => {
+          if (!atPlace(held, this.id, this.page.url()))
+            throw new BrowserActionError("place_changed");
+        }
+      : () => {};
+    // The page the command acts through: with a held place, every input dispatch re-checks it.
+    const page = held ? guardedPage(this.page, place) : this.page;
     return executeBrowserCommand(command, actor, signal, generation, {
       options: host.options,
       tabId: this.id,
-      page: this.page,
-      answer: (dialogId, accept, promptText) => host.answer(dialogId, accept, promptText),
+      page,
+      answer: (dialogId, accept, promptText) => {
+        place();
+        return host.answer(dialogId, accept, promptText);
+      },
       beforeInput,
-      navigate,
+      navigate: navigate && (() => (place(), navigate())),
       refs: this.refs,
       annotation: this.annotation,
       view: this.view,
@@ -788,8 +819,12 @@ export class TabRuntime {
       clearBlocked: () => host.clearBlocked(),
       check: (who, checkSignal, checkGeneration) =>
         this.check(who, checkSignal, checkGeneration, epoch),
+      // Input to an element goes through its ref, whose own CDP the guarded page doesn't hold.
       refDispatch: (ref) =>
-        this.refs.dispatch(ref, () => this.check(actor, signal, generation, epoch)),
+        this.refs.dispatch(ref, () => {
+          this.check(actor, signal, generation, epoch);
+          place();
+        }),
       personPresent: () => this.humanWithin(host.timing.presentMs),
       personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
       point: (point, kind) => this.point(actor, point, kind),
@@ -804,7 +839,9 @@ export class TabRuntime {
           : undefined,
       capture: (work) => this.cursor.capture(work),
       emit: () => host.emit(),
-      run: (...args) => this.run(...args),
+      // A command run inside this one (a measured interaction's) is held to the same place.
+      run: (inner, who, innerSignal, innerGeneration, before) =>
+        this.run(inner, who, innerSignal, innerGeneration, before, undefined, held),
       beginRecording: (check, by) => host.beginRecording(this.id, check, by),
       finishRecording: () => host.finishRecording(),
     });

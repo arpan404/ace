@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { computerWorld, type WorldOptions } from "./testing/world.ts";
+import { computerSchemas } from "./schemas.ts";
 import { ScreenCowork } from "../cowork.ts";
 import { helperGate } from "../testing/gate.ts";
 import { deferred } from "../testing/support.ts";
@@ -104,6 +105,26 @@ it("an act bound to the app its caller checked does nothing when the name finds 
     expect: { app: id.toUpperCase() },
   });
   expect(acted.result.isError).toBeFalsy();
+});
+
+it("every screen tool that takes expect refuses to reach another app than the one checked", async () => {
+  // The smallest valid call of each tool that takes `expect`; a new one must be added here.
+  const minimal: Record<string, Record<string, unknown>> = {
+    screen_state: { app: "Calculator" },
+    screen_act: { app: "Calculator", actions: [{ type: "key", key: "Escape" }] },
+  };
+  const taking = Object.entries(computerSchemas)
+    .filter(([, schema]) => "expect" in schema.shape)
+    .map(([name]) => name);
+  expect(taking.toSorted()).toEqual(Object.keys(minimal).toSorted());
+  for (const name of taking) {
+    const { call, ops } = await world();
+    const refused = await call(name, { ...minimal[name], expect: { app: "com.apple.TextEdit" } });
+    expect(refused.result.isError, name).toBe(true);
+    expect(refused.text, name).toContain("not the app that was checked");
+    // Nothing reached the app: the name was resolved, and that is all.
+    expect(await ops(), name).toEqual(["resolve Calculator"]);
+  }
 });
 
 it("the helper's own explanation of a failed step reaches the model, with what already ran", async () => {

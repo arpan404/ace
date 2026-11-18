@@ -12,7 +12,9 @@ const expect = z
   .object({ tabId: z.string().min(1).max(256), url })
   .optional()
   .describe("Set by your host; leave it out.");
-const tab = { tabId, expect };
+const tab = { tabId };
+/** A tab tool whose input ace holds to the place the caller checked (`expect`). */
+const heldTab = { tabId, expect };
 
 export const browserOpenShape = {
   url: url.optional().describe("http(s) URL, localhost too."),
@@ -85,7 +87,7 @@ const actFields: Record<BrowserActKind, { required: string[]; optional?: string[
 };
 const delta = z.number().finite().min(-100_000).max(100_000);
 export const browserActShape = {
-  ...tab,
+  ...heldTab,
   action: z
     .enum(actKinds)
     .describe(
@@ -212,13 +214,13 @@ export const browserLogsShape = {
 };
 
 export const browserEvaluateShape = {
-  ...tab,
+  ...heldTab,
   expression: z.string().max(65_536),
   mode: z.enum(["read-only", "unrestricted"]).default("unrestricted"),
 };
 
 export const browserHistoryShape = {
-  ...tab,
+  ...heldTab,
   direction: z.enum(["back", "forward", "reload", "stop"]).optional(),
 };
 
@@ -245,4 +247,4 @@ export const checkSettings: Refine = (input, context) => {
       });
 };
 
-export const browserMeasureShape = { ...tab, ...BrowserMeasurementOptions.shape };
+export const browserMeasureShape = { ...heldTab, ...BrowserMeasurementOptions.shape };
