@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 use files_watch::{Batch, WatchOptions, Watcher};
 
 fn main() {
+    let count: usize = std::env::args()
+        .nth(1)
+        .and_then(|count| count.parse().ok())
+        .unwrap_or(1_000);
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("flood")).unwrap();
     std::thread::sleep(Duration::from_millis(1_200));
@@ -29,9 +33,9 @@ fn main() {
     )
     .unwrap();
     println!("watcher armed at {:?}", start.elapsed());
-    for index in 0..50_000 {
+    for index in 0..count {
         std::fs::write(dir.path().join(format!("flood/file{index}")), b"x").unwrap();
-        if index % 5_000 == 0 {
+        if index % 5_000 == 0 || count < 5_000 {
             println!("wrote {index} at {:?}", start.elapsed());
         }
     }

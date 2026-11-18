@@ -197,6 +197,8 @@ fn run(
     events: Events,
     started: SyncSender<Result<(), String>>,
 ) {
+    let born = std::time::Instant::now();
+    let mut completions = 0u64;
     let mut buffer = vec![0u8; BUFFER_BYTES];
     let mut overlapped = OVERLAPPED {
         hEvent: completion.0,
@@ -232,6 +234,7 @@ fn run(
             if code != Some(ERROR_IO_PENDING as i32) {
                 let message = format!("cannot watch {}: {error}", root.display());
                 if armed {
+                    eprintln!("[{:?}] read failed: {message}", born.elapsed());
                     events.failed(&message);
                 } else {
                     let _ = started.send(Err(message));
@@ -277,8 +280,17 @@ fn run(
             }
         } else if bytes == 0 {
             // A completion with nothing in it is the kernel saying its buffer ran out.
+            eprintln!("[{:?}] completion {completions}: overflow", born.elapsed());
             events.lost_events();
         } else {
+            completions += 1;
+            if completions <= 5 || completions % 500 == 0 {
+                let records = parse(&buffer[..bytes as usize]).len();
+                eprintln!(
+                    "[{:?}] completion {completions}: {bytes} bytes, {records} records",
+                    born.elapsed()
+                );
+            }
             emit(root, &buffer[..bytes as usize], &events);
         }
         // SAFETY: this resets this thread's own manual-reset completion event before the next
