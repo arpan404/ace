@@ -5,6 +5,9 @@
  * cloud credential. Run it against each of its hostnames.
  *
  *   node apps/cloud/scripts/smoke.ts https://cloud.acehq.dev
+ *
+ * Every request and WebSocket handshake has its own deadline (ACE_SMOKE_TIMEOUT_MS, 15 seconds
+ * by default), so a host that stops answering fails the smoke instead of hanging it.
  */
 import { WebSocket } from "ws";
 import { GrantKeySet } from "@ace/account-grant";
@@ -14,7 +17,9 @@ import { aceAccountClient } from "@ace/client/ace-account";
 const argument = process.argv[2];
 if (!argument) throw new Error("Usage: smoke.ts https://cloud.example.com");
 const origin = new URL(argument).origin;
-const signal = AbortSignal.timeout(15_000);
+const timeoutMs = Number(process.env.ACE_SMOKE_TIMEOUT_MS ?? "") || 15_000;
+/** A fresh deadline for one request. */
+const deadline = () => AbortSignal.timeout(timeoutMs);
 let failed = false;
 async function check(name: string, run: () => Promise<void>) {
   try {
@@ -30,7 +35,7 @@ async function check(name: string, run: () => Promise<void>) {
 function refusedUpgrade(path: string): Promise<number> {
   const url = new URL(path, origin.replace(/^http/, "ws"));
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url.toString());
+    const socket = new WebSocket(url.toString(), { handshakeTimeout: timeoutMs });
     socket.once("unexpected-response", (_request, response) => {
       resolve(response.statusCode ?? 0);
       socket.terminate();
@@ -44,19 +49,19 @@ function refusedUpgrade(path: string): Promise<number> {
 }
 
 await check("the Worker answers", async () => {
-  const response = await fetch(origin, { signal });
+  const response = await fetch(origin, { signal: deadline() });
   const text = await response.text();
   if (!response.ok || !text.startsWith("ace cloud")) throw new Error(`status ${response.status}`);
 });
 await check("grant keys are published", async () => {
-  const response = await fetch(`${origin}/v1/keys`, { signal });
+  const response = await fetch(`${origin}/v1/keys`, { signal: deadline() });
   if (!response.ok) throw new Error(`status ${response.status} (are the account secrets set?)`);
   GrantKeySet.parse(await response.json());
 });
 await check("a sign-in starts and is cancelled", async () => {
   const account = aceAccountClient({ origin, fetch });
-  const login = await account.login(signal);
-  await account.cancel(login, signal);
+  const login = await account.login(deadline());
+  await account.cancel(login, deadline());
 });
 const someHost = hostId(keyPair().publicKey);
 await check("a daemon without a grant is refused", async () => {
@@ -68,13 +73,18 @@ await check("a client without a grant is refused", async () => {
   if (status !== 401) throw new Error(`status ${status}, expected 401`);
 });
 await check("the sign-in broker wants a cloud credential", async () => {
-  const response = await fetch(`${origin}/v1/oauth/asana/start`, { method: "POST", signal });
+  const response = await fetch(`${origin}/v1/oauth/asana/start`, {
+    method: "POST",
+    signal: deadline(),
+  });
   const body: unknown = await response.json();
   if (response.status !== 401 || JSON.stringify(body) !== '{"error":"unauthorized"}')
     throw new Error(`status ${response.status}, expected 401 unauthorized`);
 });
 await check("a callback naming no sign-in is turned away", async () => {
-  const response = await fetch(`${origin}/v1/oauth/callback/asana?state=none&code=x`, { signal });
+  const response = await fetch(`${origin}/v1/oauth/callback/asana?state=none&code=x`, {
+    signal: deadline(),
+  });
   await response.body?.cancel();
   if (response.status !== 400) throw new Error(`status ${response.status}, expected 400`);
 });

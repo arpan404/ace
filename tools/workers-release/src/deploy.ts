@@ -18,7 +18,8 @@ import { checkMigrations, migrationRoots, repositoryRoot } from "./check-migrati
 import { runDeploy, type RunResult } from "./deploy-run.ts";
 import { formatProblem } from "./migration-lint.ts";
 import { exitCodes, releaseFor, smokeOrigins, type Environment, type Release } from "./release.ts";
-import { runProcess, wranglerWorker } from "./wrangler.ts";
+import { runProcess } from "./run-process.ts";
+import { wranglerWorker } from "./wrangler.ts";
 
 const appDirectories: Record<Worker, string> = {
   cloud: join(repositoryRoot, "apps/cloud"),
@@ -28,9 +29,16 @@ const appDirectories: Record<Worker, string> = {
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: repositoryRoot, encoding: "utf8" }).trim();
 
+/** A smoke still running after this has hung: it fails, so the release rolls back. */
+const smokeDeadlineMs = 180_000;
+
 async function smoke(cwd: string, origin: string): Promise<boolean> {
   try {
-    const ran = await runProcess("node", ["scripts/smoke.ts", origin], { cwd, capture: false });
+    const ran = await runProcess("node", ["scripts/smoke.ts", origin], {
+      cwd,
+      capture: false,
+      timeoutMs: smokeDeadlineMs,
+    });
     return ran.code === 0;
   } catch {
     return false;

@@ -83,7 +83,10 @@ Run one deploy at a time (a concurrency group that is never cancelled mid-run) a
 
 - **ace cloud** (`apps/cloud/scripts/smoke.ts`): the Worker answers, grant keys are published, a
   sign-in starts and is cancelled, relay upgrades without a grant are refused, and Spade's broker
-  wants a credential. It runs against each hostname.
+  wants a credential. It runs against each hostname. It is not strictly read-only: starting and
+  cancelling the sign-in writes and deletes a row in that environment's `ace-accounts` D1
+  database, and starting a sign-in also sweeps expired sign-ins and sessions there, as any real
+  sign-in does.
 - **The market** (`apps/market/scripts/smoke.ts`): the Worker answers, unknown paths are JSON
   404s, the index parses as devices read it and revalidates to a 304, categories and featured
   answer, the withdrawn list is signed if there is one, publishing without a grant is refused,
@@ -93,6 +96,10 @@ Run one deploy at a time (a concurrency group that is never cancelled mid-run) a
   and an empty catalog fails. Anywhere else, set `ACE_MARKET_KEYS` to that market's public keys
   (the `MARKET_PUBLIC_KEYS` JSON) to verify signatures; an empty catalog only skips the install
   path.
+
+Each request and WebSocket handshake in the cloud smoke has its own deadline
+(`ACE_SMOKE_TIMEOUT_MS`, 15 seconds by default), and the deploy kills any smoke still running
+after 3 minutes. A hung smoke counts as a failed one, so the release rolls back.
 
 Run either one by hand: `bun run --cwd apps/market smoke https://staging.market.acehq.dev`.
 

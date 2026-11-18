@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
 import type { WorkerPort } from "./deploy-run.ts";
+import type { Run } from "./run-process.ts";
 import {
   neverDeployed,
   parseDeployment,
@@ -13,33 +13,6 @@ import {
  * The thin shell between a release and Cloudflare: each WorkerPort call is one wrangler command
  * in the Worker's directory, so wrangler reads that Worker's config, account and token.
  */
-
-export interface Ran {
-  code: number;
-  output: string;
-}
-
-/** Runs a command; `capture` keeps its output instead of streaming it to the log. */
-export type Run = (
-  command: string,
-  args: readonly string[],
-  options: { cwd: string; capture: boolean },
-) => Promise<Ran>;
-
-/** The real process runner. Wrangler never prompts: CI=1 answers its confirmations. */
-export const runProcess: Run = (command, args, options) =>
-  new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false" },
-      stdio: options.capture ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
-    });
-    let output = "";
-    child.stdout?.on("data", (chunk: Buffer) => (output += chunk.toString()));
-    child.stderr?.on("data", (chunk: Buffer) => (output += chunk.toString()));
-    child.once("error", reject);
-    child.once("close", (code) => resolve({ code: code ?? 1, output }));
-  });
 
 export function wranglerWorker(run: Run, cwd: string, environment: Environment): WorkerPort {
   const env = ["--env", environment];
