@@ -34,7 +34,7 @@ impl Confine for Holds {
                 path_first: Vec::new(),
                 hold: Box::new(()),
                 watch: None,
-                online: self.online,
+                offline: !self.online,
             })),
             _ => Confinement::None,
         })

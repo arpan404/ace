@@ -76,6 +76,16 @@ const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/random", "/dev/urando
 
 /// The profile for `policy`.
 pub fn profile(policy: &Policy, read_only: bool) -> String {
+    profile_in(policy, read_only, read_only)
+}
+
+/// The profile for a normal run of `policy` with no network rule at all (ADR 0171, amendment 4):
+/// no outbound connection (the proxy, loopback and Unix sockets included), no bind, no inbound.
+pub fn profile_offline(policy: &Policy) -> String {
+    profile_in(policy, false, true)
+}
+
+fn profile_in(policy: &Policy, read_only: bool, offline: bool) -> String {
     let mut out = String::from("(version 1)\n(deny default)\n");
     out.push_str(
         "(allow process-exec process-fork)\n\
@@ -199,10 +209,10 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
             ]),
         );
     }
-    // Network: a read-only run is offline and gets no network rule at all. Otherwise only Spade's
-    // proxy on loopback, and listening on loopback (a dev server); no other connection, Unix
-    // sockets and DNS included, is.
-    if !read_only {
+    // Network: an offline run (a read-only one, a sealed plugin server) gets no network rule at
+    // all. Otherwise only Spade's proxy on loopback, and listening on loopback (a dev server); no
+    // other connection, Unix sockets and DNS included, is.
+    if !offline {
         if let Some(port) = policy.proxy_port {
             let _ = writeln!(
                 out,
@@ -340,6 +350,22 @@ mod tests {
         ] {
             assert!(!text.contains(&format!("(subpath \"{closed}")), "{closed}");
         }
+    }
+
+    #[test]
+    fn an_offline_run_gets_no_network_rule_but_writes_as_a_normal_run_does() {
+        let normal = profile(&policy(), false);
+        let offline = profile_offline(&policy());
+        for network in ["network-outbound", "network-bind", "network-inbound"] {
+            assert!(normal.contains(network), "{network}");
+            assert!(!offline.contains(network), "{network}");
+        }
+        // Everything else is the normal run's: its writes and services stay.
+        assert_eq!(
+            offline.matches("file-write").count(),
+            normal.matches("file-write").count()
+        );
+        assert!(offline.contains("mach-lookup"));
     }
 
     #[test]

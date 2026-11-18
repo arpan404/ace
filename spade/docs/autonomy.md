@@ -9,8 +9,9 @@ engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.
 
 ## How a bot decides: the auto-review, or Full access
 
-A plugin server is **sealed** when the sandbox holds it, its run has no network and its entry
-injects no environment of its own (`Tool::sealed`). Only a sealed server's tools are the
+A plugin server is **sealed** when the sandbox holds it, it launches under the enforced offline
+policy (no socket of its own, no connect, bind or listen; only where the machine holds every
+boundary) and its entry injects no environment of its own (`Tool::sealed`). Only a sealed server's tools are the
 sandbox's to decide; every other connector or plugin tool is decided as on the host, sandboxed or
 not, in both modes: the sandbox holds files, not what a server does with a token over the network
 (ADR 0171, amendment 4).

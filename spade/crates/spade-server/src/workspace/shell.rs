@@ -221,8 +221,10 @@ pub struct Confined {
     pub hold: Box<dyn std::any::Any + Send + Sync>,
     /// What the run did through the proxy, read once it ends; none when its network is off.
     pub watch: Option<spade_sandbox::egress::Watch>,
-    /// It can reach the network (through the proxy, under its policy).
-    pub online: bool,
+    /// It launches under the sandbox's enforced offline policy (ADR 0171, amendment 4): no socket
+    /// of its own, no connect, bind or listen, inherited by what it starts. Set only where that
+    /// policy is what the launch applies, never from a network setting alone.
+    pub offline: bool,
 }
 
 /// The ends of a command's processes, as they happen: each recorded before it runs and settled

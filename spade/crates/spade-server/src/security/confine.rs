@@ -132,10 +132,21 @@ impl Confine for Security {
                     .map_err(|error| format!("the sandbox could not start: {error}"))
             })
         };
+        // A plugin's server with its network off is held offline where the machine can enforce
+        // it fully (ADR 0171, amendment 4): what the launch applies is what makes it sealed.
+        #[cfg(not(windows))]
+        let offline =
+            ticket.is_none() && matches!(kind, Kind::Plugin { .. }) && self.runner.holds_offline();
+        #[cfg(windows)]
+        let offline = false;
         #[cfg(not(windows))]
         let launch: crate::workspace::shell::Launcher = Box::new(move |program, args| {
-            runner
-                .wrap(&policy, program, args)
+            let launched = if offline {
+                runner.wrap_offline(&policy, program, args)
+            } else {
+                runner.wrap(&policy, program, args)
+            };
+            launched
                 .map(|launch| (launch.program, launch.args))
                 .map_err(|error| format!("the sandbox could not start: {error}"))
         });
@@ -149,14 +160,13 @@ impl Confine for Security {
         #[cfg(not(windows))]
         let hold: Box<dyn std::any::Any + Send + Sync> = Box::new(ticket);
 
-        let online = watch.is_some();
         Ok(Confinement::Contained(Box::new(Confined {
             launch,
             env,
             path_first,
             hold,
             watch,
-            online,
+            offline,
         })))
     }
 
@@ -250,7 +260,8 @@ impl Confine for Security {
                 hold: Box::new(()),
                 // No network, so nothing goes through the proxy to watch.
                 watch: None,
-                online: false,
+                // A settled read-only command, not a plugin's server.
+                offline: false,
             })
         }
     }

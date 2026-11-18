@@ -41,8 +41,9 @@ pub struct Server {
     /// It runs in a sandbox that holds files and network here, so its calls are the OS's to
     /// decide (ADR 0171).
     contained: bool,
-    /// It runs in the sandbox with its network off and no environment of the plugin's own (where
-    /// API tokens go): nothing it does leaves this machine as anyone (ADR 0163, amendment 2).
+    /// It runs in the sandbox under the enforced offline policy and with no environment of the
+    /// plugin's own (where API tokens go): nothing it does leaves this machine as anyone (ADR
+    /// 0171, amendment 4).
     sealed: bool,
     /// It can't be sealed off here and the person allowed it to run outside the sandbox: it runs
     /// plainly, never `contained`, and its calls keep their reviews (ADR 0167).
@@ -178,7 +179,7 @@ impl Servers {
         // the person allows it to run outside the sandbox, and then plainly — never `contained`.
         // Where it should hold the server and can't, the server doesn't start.
         let kind = crate::workspace::shell::Kind::Plugin { root: root.into() };
-        let mut online = true;
+        let mut offline = false;
         let (hold, problem, outside, waiting) = match shell.review(dir, &kind) {
             Some(reason) => {
                 let start = super::outside::Start {
@@ -220,7 +221,7 @@ impl Servers {
                                     *path = format!("{}:{path}", confined.path_first.join(":"));
                                 }
                                 command.env.extend(confined.env);
-                                online = confined.online;
+                                offline = confined.offline;
                                 (Some(confined.hold), None)
                             }
                             Err(why) => (None, Some(why)),
@@ -246,7 +247,8 @@ impl Servers {
             problem: Mutex::new(problem),
             _hold: hold,
             contained,
-            sealed: contained && !online && !injects,
+            // From the policy its launch applies, not from its network setting.
+            sealed: contained && offline && !injects,
             outside,
             waiting,
             effects: server

@@ -96,8 +96,8 @@ pub fn main(args: &[OsString]) -> ExitCode {
     // sockets. Without either, the launcher refuses, so a settled command never runs half-confined.
     if plan.offline && (abi < 3 || plan.network != Network::Filtered) {
         return refused(
-            "a read-only command needs the full file and network boundary, which this machine \
-             can't apply here",
+            "an offline run needs the full file and network boundary, which this machine can't \
+             apply here",
         );
     }
     let private = plan.processes == Processes::Private;
@@ -214,12 +214,14 @@ fn run(plan: &Plan, program: &OsStr, args: &[OsString], io: Io) -> Result<ExitCo
     let (send, started) = mpsc::channel();
     let network = plan.network;
     let offline = plan.offline;
+    let pairs = plan.pairs;
     let (program, args) = (program.to_owned(), args.to_vec());
     std::thread::spawn(move || {
         confined(
             ruleset,
             network,
             offline,
+            pairs,
             Start {
                 program: &program,
                 args: &args,
@@ -269,6 +271,7 @@ fn confined(
     ruleset: RulesetCreated,
     network: Network,
     offline: bool,
+    pairs: bool,
     start: Start<'_>,
     send: &mpsc::Sender<Started>,
 ) {
@@ -281,7 +284,7 @@ fn confined(
         Err(error) => return fail(format!("the sandbox could not be applied: {error}")),
     };
     if network == Network::Filtered {
-        let loaded = seccomp::filter(abi >= 3, offline).and_then(|filter| {
+        let loaded = seccomp::filter(abi >= 3, offline, pairs).and_then(|filter| {
             filter.load().map_err(|e| e.to_string())?;
             filter.get_notify_fd().map_err(|e| e.to_string())
         });
