@@ -38,9 +38,18 @@ async function sectionOf(label: string) {
   return within(section);
 }
 
-test("Settings › Spade › Security says whether this machine seals commands off", async () => {
-  await spadeApp("/settings/spade/security", (api) => seed(api));
-  expect(await screen.findByText("Commands run sealed off on this Mac.")).toBeTruthy();
+/** Scout's Security section, its choices open to set its own. */
+async function scoutsOwnSecurity() {
+  const security = await sectionOf("Security");
+  await userEvent.click(await security.findByRole("button", { name: "Set its own" }));
+  return security;
+}
+
+test("Settings › Spade › Security says whether this machine seals commands off, and lists the default sites behind their count", async () => {
+  const { spade } = await spadeApp("/settings/spade/security", (api) => seed(api));
+  expect(await screen.findByText(/^Commands run sealed off on this Mac\./)).toBeTruthy();
+  const count = spade.security.defaults.length;
+  await userEvent.click(await screen.findByText(`${count} sites`, { selector: "summary" }));
   const sites = await screen.findByRole("list", { name: "Sites listed by default" });
   expect(within(sites).getByText("github.com")).toBeTruthy();
 });
@@ -58,14 +67,14 @@ test("a machine without a sandbox says Spade asks before commands run", async ()
   });
   expect(
     await screen.findByText(
-      "This computer can't seal commands off yet, so Spade asks before they run.",
+      /^This computer can't seal commands off yet, so Spade asks before they run\./,
     ),
   ).toBeTruthy();
 });
 
 test("turning a bot's command network off saves that rule and shows it", async () => {
   const { spade } = await spadeApp("/spade", (api) => seed(api));
-  const network = await sectionOf("Network");
+  const network = await scoutsOwnSecurity();
   const picker = await network.findByRole("combobox", { name: "Network for commands" });
   expect(picker.textContent).toContain("Listed sites");
   await userEvent.click(picker);
@@ -80,14 +89,14 @@ test("turning a bot's command network off saves that rule and shows it", async (
       "Off",
     ),
   );
-  expect(network.queryByText("Commands: listed sites")).toBeNull();
+  expect(network.queryByText("Listed sites for commands")).toBeNull();
   expect(spade.security.bot("scout").network?.mode).toBe("off");
 });
 
 test("a site Spade refuses says why and isn't added", async () => {
   const { spade } = await spadeApp("/spade", (api) => seed(api));
-  const network = await sectionOf("Network");
-  await userEvent.click(await network.findByText("Commands: listed sites"));
+  const network = await scoutsOwnSecurity();
+  await userEvent.click(await network.findByText("Listed sites for commands"));
   await userEvent.type(network.getByRole("textbox", { name: "Add a site" }), "https://x/y{Enter}");
   expect((await network.findByRole("alert")).textContent).toContain("is not a host");
   expect(spade.security.bot("scout").network).toBeNull();
@@ -150,14 +159,14 @@ test("Settings › Spade › Security saves where commands run, and says what ou
   const { spade } = await spadeApp("/settings/spade/security", (api) => seed(api));
   const commands = await screen.findByRole("combobox", { name: "Where commands run" });
   expect(commands.textContent).toContain("Sandboxed");
-  expect(screen.queryByText(/can reach your files and sign-ins/)).toBeNull();
+  expect(screen.queryByText(/with your own access/)).toBeNull();
   await pick(commands, "Outside the sandbox");
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/security/commands")).toEqual([{ commands: "outside" }]),
   );
   expect(
     await screen.findByText(
-      "Commands outside the sandbox can reach your files and sign-ins, so each one is reviewed.",
+      "Commands run with your own access and nothing contains them, so each one is reviewed.",
     ),
   ).toBeTruthy();
   expect(spade.security.botDefaults.commands).toBe("outside");
@@ -171,7 +180,7 @@ test("the machine's network rules save for commands and for plugins, and a bad s
       { mode: "off", allow: [], dropped: [] },
     ]),
   );
-  await userEvent.click(await screen.findByText("Commands: listed sites"));
+  await userEvent.click(await screen.findByText("Listed sites", { selector: "summary" }));
   await userEvent.type(screen.getByRole("textbox", { name: "Add a site" }), "https://x/y{Enter}");
   expect((await screen.findByRole("alert")).textContent).toContain("is not a host");
   expect(spade.security.botDefaults.network.allow).toEqual([]);
@@ -182,7 +191,14 @@ test("a bot inherits the machine's commands, picks its own, and goes back", asyn
     seed(api);
     api.security.botDefaults.commands = "outside";
   });
-  const commands = await sectionOf("Commands");
+  const commands = await sectionOf("Security");
+  // On the machine's settings: one line, the way to them, and no choices repeated here.
+  expect(await commands.findByText("Same as this Mac")).toBeTruthy();
+  expect(commands.getByRole("link", { name: "Security settings" }).getAttribute("href")).toBe(
+    "/settings/spade/security",
+  );
+  expect(commands.queryByRole("combobox")).toBeNull();
+  await userEvent.click(commands.getByRole("button", { name: "Set its own" }));
   const box = await commands.findByRole("combobox", { name: "Where commands run" });
   expect(box.textContent).toContain("Same as this Mac");
   await pick(box, "Sandboxed");
@@ -200,12 +216,27 @@ test("a bot inherits the machine's commands, picks its own, and goes back", asyn
   expect(spade.security.bot("scout").commands).toBeNull();
 });
 
+test("a bot with its own rule shows its choices at once, and names a Linux machine this computer", async () => {
+  await spadeApp("/spade", (api) => {
+    seed(api);
+    api.security.sandbox = { ...api.security.sandbox, platform: "linux", mechanism: "landlock" };
+    api.security.bot("scout").commands = "outside";
+  });
+  const security = await sectionOf("Security");
+  const box = await security.findByRole("combobox", { name: "Where commands run" });
+  expect(box.textContent).toContain("Outside the sandbox");
+  await waitFor(() =>
+    expect(security.getAllByText("Same as this computer").length).toBeGreaterThan(0),
+  );
+  expect(security.queryByText(/this Mac/)).toBeNull();
+});
+
 test("a bot's own network rule says so and goes back to the machine's", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     seed(api);
     api.security.botDefaults.network = { mode: "open", allow: [], dropped: [] };
   });
-  const network = await sectionOf("Network");
+  const network = await scoutsOwnSecurity();
   expect(
     (await network.findByRole("combobox", { name: "Network for commands" })).textContent,
   ).toContain("Open");
