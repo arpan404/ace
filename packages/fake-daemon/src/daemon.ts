@@ -1056,6 +1056,10 @@ export class FakeDaemon implements Host {
       ),
     });
   }
+  private canOperate(device: string): boolean {
+    const scopes = this.options.deviceScopes?.[device];
+    return !scopes || scopes.includes("operate") || scopes.includes("admin");
+  }
   private canManageProjects(device: string): boolean {
     const scopes = this.options.deviceScopes?.[device];
     return (
@@ -1200,8 +1204,12 @@ export class FakeDaemon implements Host {
     const payload = command.payload;
     if (
       ProjectCommand.options.some((option) => option.shape.type.value === payload.type) &&
+      payload.type !== "workspace.chat.create" &&
       !this.canManageProjects(command.deviceId)
     )
+      return { commandId: command.id, ok: false, error: "forbidden" };
+    // A chat's hidden project is where a new thread starts: `operate` is enough, as on a daemon.
+    if (payload.type === "workspace.chat.create" && !this.canOperate(command.deviceId))
       return { commandId: command.id, ok: false, error: "forbidden" };
     if (
       (payload.type === "thread.create" || payload.type === "thread.prepare") &&
