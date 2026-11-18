@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A page action in words (DESIGN.md: words, not chrome): no icon, a 44pt target, red when it
-/// undoes work. A disabled one says why underneath.
+/// A page action that is a row of its section (ADR 0184): its words in the action colour at the
+/// row's height, red when it undoes work, a spinner while it runs. A disabled one says why
+/// underneath.
 struct ForgeTextAction: View {
     let label: String
     var destructive = false
@@ -11,23 +12,20 @@ struct ForgeTextAction: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            Button(action: action) {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(label).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            Button(role: destructive ? .destructive : nil, action: action) {
+                HStack(spacing: AceDesign.Space.related) {
+                    Text(label)
                     if busy { ProgressView().controlSize(.small).transition(.opacity) }
                 }
-                .foregroundStyle(destructive ? AceTone.failed.text : AceTheme.Colours.foreground)
-                .frame(minHeight: AceDesign.Size.tap, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.rowAction)
             .disabled(reason != nil || busy)
             .accessibilityIdentifier(identifier)
-            if let reason { Text(reason).meta() }
+            if let reason { Text(reason).meta().padding(.bottom, AceDesign.Space.tight) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, AceTheme.Spacing.lg)
+        .padding(.horizontal, AceDesign.Space.margin)
         .animation(.default, value: busy)
     }
 }
@@ -94,24 +92,4 @@ extension ClientModel {
         drafts.save(before.isEmpty ? request : "\(before)\n\n\(request)", picks: drafts.picks(for: key), for: key)
         return true
     }
-}
-
-/// A word that acts inside a row ("Check out", "Run checks", "Ours"): no chrome, but the whole
-/// 44-point height takes the tap, and it dims while pressed or unavailable.
-struct ForgeWordButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { WordLabel(configuration: configuration) }
-    private struct WordLabel: View {
-        let configuration: ButtonStyleConfiguration
-        @Environment(\.isEnabled) private var enabled
-        var body: some View {
-            configuration.label
-                .frame(minHeight: AceDesign.Size.tap)
-                .contentShape(Rectangle())
-                .opacity(!enabled ? AceDesign.Ink.dimmedOpacity : configuration.isPressed ? AceDesign.Ink.settledOpacity : 1)
-        }
-    }
-}
-
-extension ButtonStyle where Self == ForgeWordButtonStyle {
-    static var forgeWord: ForgeWordButtonStyle { ForgeWordButtonStyle() }
 }
