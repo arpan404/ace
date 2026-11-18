@@ -13,6 +13,7 @@ import {
   type Unconfirmable,
 } from "./child-views.ts";
 import type { RequestMirror } from "./mirror.ts";
+import { parentGone } from "./parent-gone.ts";
 import { refusedNotFound } from "./transport.ts";
 
 /** How many lapsed children one poll marks lost; the rest go on the next. */
@@ -167,9 +168,14 @@ export class ChildLiveness {
     this.deps.ledger.stopAttempted(row.id, now);
     void this.deps.cancel(row).catch((error: unknown) => {
       // Its machine has no such child: the stop can never be confirmed there.
-      if (row.stopped_unconfirmed === 1 && refusedNotFound(error))
-        return this.unconfirmable(row, "gone");
-      this.deps.log("Machine child cancel not confirmed", { id: row.id, error: String(error) });
+      try {
+        if (row.stopped_unconfirmed === 1 && refusedNotFound(error))
+          return this.unconfirmable(row, "gone");
+        this.deps.log("Machine child cancel not confirmed", { id: row.id, error: String(error) });
+      } catch (failed) {
+        // Never an unhandled rejection, which would end the daemon; the next tick tries again.
+        this.deps.log("Machine child stop not settled", { id: row.id, error: String(failed) });
+      }
     });
   }
   /**
@@ -333,6 +339,7 @@ export class ChildLiveness {
     hold: "start" | "end" | undefined,
     ended?: MachineThreadView,
   ): void {
+    if (parentGone(this.deps.store, row.parent_thread)) return;
     const saved = savedView(row);
     const working = { state: "working" as const, agents: 1 };
     this.deps.engine()?.machineChild(

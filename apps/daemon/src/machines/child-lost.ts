@@ -14,6 +14,7 @@ import type { ChildResults } from "./child-results.ts";
 import { questionFacts, questionFate } from "./child-question.ts";
 import { abandonedView, lostLine, silentAbandonedView } from "./child-views.ts";
 import type { RequestMirror } from "./mirror.ts";
+import { parentGone } from "./parent-gone.ts";
 
 /** The answer that stops tracking a lost child. */
 export const STOP_TRACKING = "stop-tracking";
@@ -309,9 +310,8 @@ export class LostChildren {
    * parent is gone. Throws when the write fails.
    */
   private open(row: ChildRow, request: InteractionRequest): boolean {
-    const parent = this.deps.store.getThread(row.parent_thread);
     const engine = this.deps.engine();
-    if (!engine || !parent || parent.deletedAt !== undefined) return false;
+    if (!engine || parentGone(this.deps.store, row.parent_thread)) return false;
     const key = `machine-lost:${row.id}:${this.deps.now()}:${++this.asks}`;
     const ask = engine.openHostApproval(
       row.parent_thread,
@@ -343,6 +343,7 @@ export class LostChildren {
     outcome: Parameters<Engine["machineChild"]>[0]["outcome"] = null,
     contact?: "lost",
   ): void {
+    if (parentGone(this.deps.store, row.parent_thread)) return;
     this.deps.engine()?.machineChild(
       {
         id: row.id,

@@ -682,7 +682,9 @@ export class TargetThreads {
     if (!engine) return this.heldLater();
     let batch: ReturnType<HeldMessages["oldest"]>;
     try {
-      batch = this.held.oldest(heldBatch);
+      batch = this.held.oldest(heldBatch, (key, error) =>
+        this.deps.report(new Error(`Held message ${key} can't be read; kept`, { cause: error })),
+      );
     } catch (error) {
       this.deps.report(error);
       return this.heldLater();
