@@ -159,6 +159,13 @@ pub fn label(command: &str, description: Option<&str>) -> Label {
     if elevated {
         label = worse(label, Label::Sure(Network));
     }
+    // `xargs` runs a program on operands read at run time, which no reading can place.
+    if lower
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '('))
+        .any(|w| w == "xargs" || w == "parallel")
+    {
+        label = worse(label, Label::Unsure);
+    }
     // A corpus description naming something risky that the tables read as plain: unsure.
     if let Some(description) = description
         && label.low()
@@ -269,11 +276,12 @@ fn one(simple: &Simple) -> Label {
         };
         label = worse(label, wrote);
     }
-    if label == Label::Sure(WriteLocal)
-        && positional
-            .iter()
-            .any(|a| a.contains('/') && !a.contains(char::is_whitespace) && outside(a))
-    {
+    // A path given as an option's value (`of=/dev/sda`, `--target-directory=/usr/bin`) too.
+    let path_of = |a: &&str| -> Option<String> {
+        let value = a.split_once('=').map_or(*a, |(_, v)| v);
+        (value.contains('/') && !value.contains(char::is_whitespace)).then(|| value.to_owned())
+    };
+    if label == Label::Sure(WriteLocal) && args.iter().filter_map(path_of).any(|p| outside(&p)) {
         label = Label::Sure(Network);
     }
     label
@@ -299,6 +307,32 @@ mod tests {
             ("sudo ls", Label::Sure(Network)),
             ("cp notes.txt ~/Desktop/", Label::Sure(Network)),
             ("python3 -c 'print(1)'", Label::Unsure),
+            // Options and scripts that write, run something or change the system.
+            ("sort -o out.txt in.txt", Label::Sure(WriteLocal)),
+            ("sort -o /tmp/out in.txt", Label::Sure(Network)),
+            ("sed 'w out' in.txt", Label::Unsure),
+            ("sed 's/a/b/w out' in.txt", Label::Unsure),
+            ("sed '1e date' in.txt", Label::Unsure),
+            ("sed -n '1,20p' in.txt", Label::Sure(Read)),
+            ("awk '{print > \"out\"}' in.txt", Label::Unsure),
+            ("awk '{system(\"ls\")}' in.txt", Label::Unsure),
+            ("awk -F, '{print $2}' in.csv", Label::Sure(Read)),
+            ("find . -fprintf out '%p'", Label::Sure(WriteLocal)),
+            ("find . -exec rm {} +", Label::Unsure),
+            ("xargs rm < list.txt", Label::Unsure),
+            ("git log --output=log.txt", Label::Sure(WriteLocal)),
+            ("git grep -O TODO", Label::Unsure),
+            ("git difftool", Label::Unsure),
+            ("uniq in.txt out.txt", Label::Sure(WriteLocal)),
+            ("dd if=a of=/dev/sda", Label::Sure(Network)),
+            ("date -s '2020-01-01'", Label::Sure(Network)),
+            ("date +%s", Label::Sure(Read)),
+            ("less '+!rm x' notes.txt", Label::Unsure),
+            ("trap 'rm -rf x' EXIT", Label::Unsure),
+            ("python3 -m http.server", Label::Sure(Network)),
+            ("npx some-tool", Label::Sure(Network)),
+            ("gh browse", Label::Sure(Drive)),
+            ("gh pr view 3 --web", Label::Sure(Drive)),
             ("frobnicate --all", Label::Unsure),
         ] {
             assert_eq!(label(command, None), expected, "{command}");

@@ -33,40 +33,19 @@ pub(super) fn table(
         | "b2sum" | "true" | "false" | "test" | "[" | "sleep" | "seq" | "ps" | "pgrep" | "lsof"
         | "free" | "uptime" | "nproc" | "lscpu" | "lsblk" | "printenv" | "locale" | "tac"
         | "rev" | "fold" | "fmt" | "expand" | "paste" | "join" | "bat" | "exa" | "eza" | "wait"
-        | "command" | "time" | "timeout" | "getconf" | "ldd" | "nm" | "objdump" | "readelf"
-        | "size" | "tokei" | "cloc" | "pstree" | "w" | "who" | "last" | "groups" | "tty"
-        | "stty" | "cal" | "factor" | "expr" | "bc" | "numfmt" | "look" | "tput" | "dmesg"
+        | "command" | "time" | "timeout" | "getconf" | "nm" | "objdump" | "readelf" | "size"
+        | "tokei" | "cloc" | "pstree" | "w" | "who" | "last" | "groups" | "tty" | "stty"
+        | "cal" | "factor" | "expr" | "bc" | "numfmt" | "look" | "tput" | "dmesg"
         | "journalctl" | "lsmod" | "lspci" | "lsusb" | "ip" | "ss" | "netstat" | "env" | "set"
         | "export" | "unset" | "read" | "exit" | "return" | "shift" | "local" | "declare"
-        | "trap" | "jobs" | "hash" | "ulimit" | "umask" | "getent" | "mimetype" | "identify"
-        | "ffprobe" | "pdfinfo" | "pdftotext" | "fc-list" | "xdg-mime" | "awk" | "gawk"
-        | "mawk" | "cd" | "pushd" | "popd" | "watch" | "md5" | "csvlook" | "csvstat"
-        | "xmllint" | "tidy" | "glow" | "delta" | "difft" | "colordiff" | "vimdiff" | "hexyl"
-        | "fzf" => {
-            if program == "awk"
-                && args
-                    .iter()
-                    .any(|a| a.contains("system(") || a.contains('|'))
-            {
-                return Label::Unsure;
-            }
-            if program == "ip"
-                && !matches!(sub, "a" | "addr" | "address" | "r" | "route" | "link" | "")
-            {
-                return sure(Network);
-            }
-            if program == "journalctl" && has(&["--vacuum-size", "--vacuum-time", "--rotate"]) {
-                return sure(Network);
-            }
-            if program == "dmesg" && has(&["-c", "-C"]) {
-                return sure(Network);
-            }
-            sure(Read)
-        }
+        | "jobs" | "hash" | "ulimit" | "umask" | "getent" | "mimetype" | "ffprobe" | "pdfinfo"
+        | "pdftotext" | "fc-list" | "xdg-mime" | "awk" | "gawk" | "mawk" | "cd" | "pushd"
+        | "popd" | "md5" | "csvlook" | "csvstat" | "xmllint" | "tidy" | "glow" | "delta"
+        | "difft" | "colordiff" | "hexyl" => read_program(program, sub, args, positional, has),
         "sed" | "perl" if has(&["-i"]) => sure(WriteLocal),
-        "sed" => sure(Read),
+        "sed" => sed(args),
         "find" => {
-            if has(&["-delete", "-fprint", "-fls"]) {
+            if has(&["-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]) {
                 sure(WriteLocal)
             } else if has(&["-exec", "-execdir", "-ok", "-okdir"]) {
                 Label::Unsure
@@ -77,22 +56,22 @@ pub(super) fn table(
         // Changing files in the folder.
         "touch" | "mkdir" | "cp" | "mv" | "rm" | "rmdir" | "ln" | "tee" | "truncate" | "chmod"
         | "tar" | "zip" | "unzip" | "gzip" | "gunzip" | "xz" | "unxz" | "bzip2" | "zstd" | "7z"
-        | "patch" | "install" | "split" | "csplit" | "shred" | "dd" | "mktemp" | "rsync"
-        | "convert" | "magick" | "ffmpeg" | "pandoc" | "prettier" | "eslint" | "oxlint"
-        | "oxfmt" | "biome" | "black" | "ruff" | "isort" | "rustfmt" | "gofmt" | "clang-format"
-        | "shellcheck" | "shfmt" | "tsc" | "esbuild" | "vite" | "vitest" | "jest" | "mocha"
-        | "pytest" | "tox" | "nox" | "mypy" | "pyright" | "rustc" | "gcc" | "g++" | "cc"
-        | "clang" | "clang++" | "ld" | "javac" | "java" | "kotlinc" | "swiftc" | "zig" | "nim"
-        | "ghc" | "cabal" | "stack" | "cmake" | "ninja" | "meson" | "make" | "gmake" | "just"
-        | "task" | "bazel" | "buck" | "mvn" | "gradle" | "gradlew" | "ant" | "sbt" | "lein"
-        | "mix" | "elixir" | "erl" | "rebar3" | "dotnet" | "qmake" | "qmake6" | "makepkg"
-        | "pkg-config" | "protoc" | "sqlite3" | "duckdb" | "wasm-pack" | "trunk" | "turbo"
-        | "nx" | "lerna" | "playwright" | "cypress" | "storybook" | "tailwindcss" | "postcss"
-        | "sass" | "webpack" | "rollup" | "parcel" | "swc" | "deno" | "go" | "cargo" | "rustup"
-        | "npm" | "npx" | "pnpm" | "pnpx" | "yarn" | "bun" | "bunx" | "pip" | "pip3" | "uv"
-        | "uvx" | "poetry" | "pipenv" | "conda" | "mamba" | "gem" | "bundle" | "composer"
-        | "flutter" | "dart" | "swift" | "xcodebuild" | "docker" | "podman" | "git" | "gh"
-        | "glab" | "jj" | "hg" | "svn" => dev(program, sub, sub2, args, has),
+        | "patch" | "install" | "split" | "csplit" | "shred" | "dd" | "rsync" | "convert"
+        | "magick" | "ffmpeg" | "pandoc" | "prettier" | "eslint" | "oxlint" | "oxfmt" | "biome"
+        | "black" | "ruff" | "isort" | "rustfmt" | "gofmt" | "clang-format" | "shellcheck"
+        | "shfmt" | "tsc" | "esbuild" | "vite" | "vitest" | "jest" | "mocha" | "pytest" | "tox"
+        | "nox" | "mypy" | "pyright" | "rustc" | "gcc" | "g++" | "cc" | "clang" | "clang++"
+        | "ld" | "javac" | "java" | "kotlinc" | "swiftc" | "zig" | "nim" | "ghc" | "cabal"
+        | "stack" | "cmake" | "ninja" | "meson" | "make" | "gmake" | "just" | "task" | "bazel"
+        | "buck" | "mvn" | "gradle" | "gradlew" | "ant" | "sbt" | "lein" | "mix" | "elixir"
+        | "erl" | "rebar3" | "dotnet" | "qmake" | "qmake6" | "makepkg" | "pkg-config"
+        | "protoc" | "sqlite3" | "duckdb" | "wasm-pack" | "trunk" | "turbo" | "nx" | "lerna"
+        | "playwright" | "cypress" | "storybook" | "tailwindcss" | "postcss" | "sass"
+        | "webpack" | "rollup" | "parcel" | "swc" | "deno" | "go" | "cargo" | "rustup" | "npm"
+        | "npx" | "pnpm" | "pnpx" | "yarn" | "bun" | "bunx" | "pip" | "pip3" | "uv" | "uvx"
+        | "poetry" | "pipenv" | "conda" | "mamba" | "gem" | "bundle" | "composer" | "flutter"
+        | "dart" | "swift" | "xcodebuild" | "docker" | "podman" | "git" | "gh" | "glab" | "jj"
+        | "hg" | "svn" => dev(program, sub, sub2, args, has),
         // Interpreters: the code they run decides; Spade's rules show it to the reviewer.
         "python" | "python3" | "node" | "ruby" | "php" | "lua" | "sh" | "bash" | "zsh" | "dash"
         | "fish" | "pwsh" | "powershell" | "tclsh" | "Rscript" | "julia" => {
@@ -148,7 +127,10 @@ pub(super) fn table(
                 let a = a.to_ascii_lowercase();
                 a.starts_with("authorization:") || a.contains("bearer ") || a.contains("token ")
             }) || has(&["-u", "--user", "--oauth2-bearer"]);
-            if sends {
+            if has(&["-K", "--config"]) {
+                // Its options come from a file this reading doesn't see.
+                Label::Unsure
+            } else if sends {
                 sure(Network)
             } else if auth {
                 // Its own sign-in: what it reads may be the person's private data.
@@ -269,6 +251,223 @@ pub(super) fn table(
     }
 }
 
+/// A program that mostly reads: the options and scripts that make it write, run something or
+/// change the system instead. What this reading can't follow is `Unsure`.
+fn read_program(
+    program: &str,
+    sub: &str,
+    args: &[&str],
+    positional: &[&str],
+    has: &dyn Fn(&[&str]) -> bool,
+) -> Label {
+    let sure = Label::Sure;
+    match program {
+        "awk" | "gawk" | "mawk" => awk(args),
+        "ip" if !matches!(sub, "a" | "addr" | "address" | "r" | "route" | "link" | "") => {
+            sure(Network)
+        }
+        "journalctl"
+            if has(&[
+                "--vacuum-size",
+                "--vacuum-time",
+                "--vacuum-files",
+                "--rotate",
+                "--flush",
+                "--relinquish-var",
+            ]) =>
+        {
+            sure(Network)
+        }
+        "dmesg"
+            if has(&[
+                "-c",
+                "-C",
+                "-n",
+                "-D",
+                "-E",
+                "--clear",
+                "--read-clear",
+                "--console-level",
+            ]) =>
+        {
+            sure(Network)
+        }
+        "ss" if has(&["-K", "--kill"]) => sure(Network),
+        "date"
+            if has(&["-s", "--set"])
+                || positional
+                    .iter()
+                    .any(|p| p.len() >= 8 && p.chars().all(|c| c.is_ascii_digit() || c == '.')) =>
+        {
+            sure(Network)
+        }
+        "hostname" if !positional.is_empty() => sure(Network),
+        // Writing a named output file.
+        "sort" if has(&["-o", "--output"]) => sure(WriteLocal),
+        "uniq" if positional.len() >= 2 => sure(WriteLocal),
+        "xxd" if positional.len() >= 2 => sure(WriteLocal),
+        "tree" if has(&["-o"]) => sure(WriteLocal),
+        "file" if has(&["-C", "--compile"]) => sure(WriteLocal),
+        "pdftotext" => sure(WriteLocal),
+        "yq" if has(&["-i", "--inplace"]) => sure(WriteLocal),
+        "xmllint" if has(&["--output", "-o"]) => sure(WriteLocal),
+        "tidy" if has(&["-m", "-modify", "-o", "-output"]) => sure(WriteLocal),
+        "xdg-mime" if sub != "query" => Label::Unsure,
+        "stty" | "tput" if !positional.is_empty() && program == "stty" => sure(WriteLocal),
+        // A command line that runs a shell command (`less +!cmd`).
+        "less" | "more"
+            if args.iter().any(|a| {
+                a.starts_with('+') && !a[1..].chars().all(|c| c.is_ascii_digit())
+                    || a.starts_with("--lesskey")
+            }) =>
+        {
+            Label::Unsure
+        }
+        _ => sure(Read),
+    }
+}
+
+/// awk: a read unless the program runs something, redirects, pipes, reads another file with
+/// `getline`, loads code, or edits in place.
+fn awk(args: &[&str]) -> Label {
+    if args.iter().any(|a| {
+        matches!(*a, "-f" | "-i" | "-l" | "-E")
+            || a.starts_with("--file")
+            || a.starts_with("--include")
+            || a.starts_with("--load")
+            || a.starts_with("--exec")
+    }) {
+        return Label::Unsure;
+    }
+    let mut expect_value = false;
+    for a in args {
+        if expect_value {
+            expect_value = false;
+            continue;
+        }
+        if matches!(*a, "-F" | "-v") {
+            expect_value = true;
+            continue;
+        }
+        if a.starts_with('-') {
+            continue;
+        }
+        let p = a.to_ascii_lowercase();
+        if ["system", "|", ">", "getline", "@include", "@load", "close("]
+            .iter()
+            .any(|bad| p.contains(bad))
+        {
+            return Label::Unsure;
+        }
+        // The program is the first operand; the rest are files.
+        return Label::Sure(Read);
+    }
+    Label::Unsure
+}
+
+/// sed: a read when every script only selects, prints, deletes or substitutes into its output;
+/// one that writes (`w`, `W`, an `s///w` flag), runs a command (`e`, `s///e`), reads another file
+/// (`r`, `R`), or uses syntax this reading doesn't follow is `Unsure`.
+fn sed(args: &[&str]) -> Label {
+    let mut scripts: Vec<&str> = Vec::new();
+    let mut explicit = false;
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i];
+        if a == "-f" || a.starts_with("--file") {
+            return Label::Unsure;
+        }
+        if a == "-e" || a == "--expression" {
+            explicit = true;
+            match args.get(i + 1) {
+                Some(s) => scripts.push(s),
+                None => return Label::Unsure,
+            }
+            i += 2;
+            continue;
+        }
+        if let Some(s) = a.strip_prefix("--expression=") {
+            explicit = true;
+            scripts.push(s);
+        } else if a.starts_with('-') {
+            if !a.chars().skip(1).all(|c| "nEruzs".contains(c))
+                && !matches!(
+                    a,
+                    "--quiet"
+                        | "--silent"
+                        | "--regexp-extended"
+                        | "--null-data"
+                        | "--separate"
+                        | "--posix"
+                        | "--debug"
+                )
+            {
+                return Label::Unsure;
+            }
+        } else if !explicit && scripts.is_empty() {
+            scripts.push(a);
+        }
+        i += 1;
+    }
+    if !scripts.is_empty() && scripts.iter().all(|s| sed_selects(s)) {
+        Label::Sure(Read)
+    } else {
+        Label::Unsure
+    }
+}
+
+fn sed_selects(script: &str) -> bool {
+    let chars: Vec<char> = script.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    let skip_to = |mut i: usize, delim: char| -> Option<usize> {
+        while i < n && chars[i] != delim {
+            if chars[i] == '\\' {
+                i += 1;
+            }
+            i += 1;
+        }
+        (i < n).then_some(i + 1)
+    };
+    while i < n {
+        match chars[i] {
+            ' ' | '\t' | '\n' | ';' | '{' | '}' | '!' | ',' | '0'..='9' | '$' | '~' | '+' => i += 1,
+            '/' => match skip_to(i + 1, '/') {
+                Some(next) => i = next,
+                None => return false,
+            },
+            'p' | 'P' | 'd' | 'D' | 'q' | 'Q' | 'n' | 'N' | '=' | 'l' | 'g' | 'G' | 'h' | 'H'
+            | 'x' | 'z' | 'I' | 'M' => i += 1,
+            's' | 'y' => {
+                let Some(&delim) = chars.get(i + 1) else {
+                    return false;
+                };
+                if delim == '\\' || delim == '\n' {
+                    return false;
+                }
+                let Some(mid) = skip_to(i + 2, delim) else {
+                    return false;
+                };
+                let Some(end) = skip_to(mid, delim) else {
+                    return false;
+                };
+                i = end;
+                while i < n
+                    && (matches!(chars[i], 'g' | 'p' | 'i' | 'I' | 'm' | 'M')
+                        || chars[i].is_ascii_digit())
+                {
+                    i += 1;
+                }
+                if i < n && !matches!(chars[i], ';' | '}' | ' ' | '\t' | '\n') {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
 /// Dev tools: builds, tests, package managers, version control and forges.
 fn dev(
     program: &str,
@@ -306,6 +505,12 @@ fn dev(
             if global {
                 return sure(Network);
             }
+            // A package from the registry, fetched and run.
+            if matches!(program, "npx" | "pnpx" | "bunx")
+                || matches!(sub, "exec" | "x" | "dlx" | "create" | "init")
+            {
+                return Label::Unsure;
+            }
             match sub {
                 "publish" | "unpublish" | "deprecate" | "dist-tag" => sure(Publish),
                 "login" | "logout" | "adduser" | "token" | "owner" | "access" | "team" => {
@@ -325,6 +530,14 @@ fn dev(
             }
         }
         "pip" | "pip3" | "uv" | "uvx" | "poetry" | "pipenv" | "conda" | "mamba" => {
+            if program == "uvx"
+                || matches!(
+                    (program, sub),
+                    ("uv", "run") | ("pipenv", "run") | ("poetry", "run")
+                ) && sub2 == "--with"
+            {
+                return Label::Unsure;
+            }
             if global || has(&["--break-system-packages", "--prefix", "--target", "-t"]) {
                 return sure(Network);
             }
@@ -405,9 +618,21 @@ fn dev(
 
 fn git(sub: &str, sub2: &str, args: &[&str], has: &dyn Fn(&[&str]) -> bool) -> Label {
     let sure = Label::Sure;
+    if has(&["--output"])
+        && matches!(
+            sub,
+            "log" | "show" | "diff" | "format-patch" | "whatchanged"
+        )
+    {
+        return sure(WriteLocal);
+    }
     match sub {
         "push" => sure(Publish),
         "send-email" | "request-pull" | "imap-send" => sure(SendAsPerson),
+        // They run another program: a pager, a diff tool, a browser or man.
+        "difftool" | "mergetool" | "help" | "instaweb" | "web--browse" => Label::Unsure,
+        "grep" if has(&["-O", "--open-files-in-pager"]) => Label::Unsure,
+        "config" if has(&["-e", "--edit"]) => Label::Unsure,
         "credential" | "credential-store" | "credential-cache" => sure(Credential),
         "config" => {
             if has(&["--global", "--system"]) {
@@ -429,9 +654,9 @@ fn git(sub: &str, sub2: &str, args: &[&str], has: &dyn Fn(&[&str]) -> bool) -> L
         "status" | "log" | "diff" | "show" | "blame" | "rev-parse" | "ls-files" | "ls-tree"
         | "describe" | "reflog" | "grep" | "shortlog" | "cat-file" | "rev-list" | "merge-base"
         | "name-rev" | "for-each-ref" | "show-ref" | "whatchanged" | "count-objects"
-        | "check-ignore" | "check-attr" | "var" | "version" | "help" | "show-branch"
-        | "range-diff" | "cherry" | "ls-remote" | "annotate" | "difftool" | "verify-commit"
-        | "verify-tag" | "fsck" | "--version" => sure(Read),
+        | "check-ignore" | "check-attr" | "var" | "version" | "show-branch" | "range-diff"
+        | "cherry" | "ls-remote" | "annotate" | "verify-commit" | "verify-tag" | "fsck"
+        | "--version" => sure(Read),
         "branch" => {
             if has(&[
                 "-d",
@@ -510,10 +735,12 @@ fn forge(sub: &str, sub2: &str, args: &[&str], has: &dyn Fn(&[&str]) -> bool) ->
                 sure(Read)
             }
         }
+        // It opens the person's browser.
+        "browse" => sure(Drive),
+        _ if has(&["--web", "-w"]) && sub2 != "watch" => sure(Drive),
         "pr" | "mr" | "issue" | "release" | "run" | "workflow" | "repo" | "gist" | "label"
-        | "project" | "cache" | "ruleset" | "codespace" | "search" | "browse" | "status"
-        | "org" => {
-            if reads || matches!(sub, "search" | "status" | "browse") {
+        | "project" | "cache" | "ruleset" | "codespace" | "search" | "status" | "org" => {
+            if reads || matches!(sub, "search" | "status") {
                 return sure(Read);
             }
             match (sub, sub2) {
