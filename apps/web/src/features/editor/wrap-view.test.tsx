@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { CodeEditor } from "./editor.tsx";
 import { fallbackCharWidth, gutterWidth } from "./geometry.ts";
 import type { CodeEditorProps, EditorHandle } from "./types.ts";
+import { wrapLine } from "./wrap.ts";
 
 /*
  * Word wrap as the Files tab draws it: rows in the virtual list, the gutter on a line's first
@@ -28,6 +29,14 @@ const rowTexts = () =>
   [...document.querySelectorAll<HTMLElement>("[data-row]")].map(
     (row) => row.querySelector<HTMLElement>("[data-row-text]")?.textContent ?? "",
   );
+
+/** The row a line starts at, once every line above it has been measured. */
+const rowStart = (lines: readonly string[], line: number) =>
+  lines.slice(0, line).reduce((rows, one) => rows + wrapLine(one, columns).length, 0);
+
+/** The text one drawn row holds. */
+const rowText = (row: number) =>
+  document.querySelector<HTMLElement>(`[data-row="${row}"] [data-row-text]`)?.textContent;
 
 /** The content box inside the scroller; its height is the list's whole height. */
 const scrollerHost = () => document.querySelector<HTMLElement>("[data-editor-scroller] > div");
@@ -84,6 +93,39 @@ test("caret up and down across a line break follow the rows around it", async ()
   await userEvent.keyboard("{ArrowDown}");
   expect(ref.current?.selections()[0]?.head.line).toBe(1);
   expect(ref.current?.selections()[0]?.head.column).toBe(4);
+});
+
+test("two carets at hard breaks are each drawn on the row before the break", async () => {
+  const text = `${"中".repeat(240)}\n${"中".repeat(240)}`;
+  const { ref } = await openView({ text, wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0), caret(1, 0)]));
+
+  await userEvent.keyboard("{End}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow), caret(1, cjkRow)]);
+  // The primary sits at the end of line 0's first row; the secondary at line 1's first row,
+  // one row before where the same column would land without its own side of the break.
+  const tops = [...document.querySelectorAll<HTMLElement>("[data-caret]")].map(
+    (box) => box.style.top,
+  );
+  expect(tops).toEqual(["0px", `${4 * 22}px`]);
+});
+
+test("revealing a caret at a hard break scrolls to the side the move asked for", async () => {
+  const { ref } = await openView({ text: "中".repeat(240), wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+  // The second row is at the top edge, so the caret's own side decides whether to scroll at all.
+  scroller.scrollTop = 22;
+  fireEvent.scroll(scroller);
+
+  const scrollTo = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(() => undefined);
+  try {
+    await userEvent.keyboard("{End}");
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, left: 0 });
+  } finally {
+    scrollTo.mockRestore();
+  }
 });
 
 test("a click on a continuation row places the caret at the column under the pointer", async () => {
@@ -297,8 +339,8 @@ test("a selection that ends at a row's start leaves a sliver on the caret's row 
   );
 
   const boxes = [...document.querySelectorAll<HTMLElement>("[data-selection]")];
-  // Row 0 reaches its own edge (the dropped spaces are not drawn); row 1 is the caret's row.
-  expect(boxes.map((box) => box.style.width)).toEqual([`${120 * cell}px`, "2px"]);
+  // Row 0 holds the spaces the break kept; row 1 is the caret's own row, left as a sliver.
+  expect(boxes.map((box) => box.style.width)).toEqual([`${122 * cell}px`, "2px"]);
   expect(boxes.map((box) => box.style.top)).toEqual(["0px", "22px"]);
 });
 
@@ -328,6 +370,78 @@ test("the idle slices of a re-wrap keep the top line at the top", async () => {
   } finally {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   }
+});
+
+test("a newline above the view keeps the same text at the top, and undoing it puts it back", async () => {
+  const text = Array.from({ length: 200 }, (_, at) => `line ${at} `.padEnd(300, "x")).join("\n");
+  const { ref } = await openView({ text, wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  await waitFor(() => expect(document.querySelector('[data-line="1"]')).toBeTruthy());
+
+  const lines = text.split("\n");
+  const top = 50;
+  const start = rowStart(lines, top);
+  scroller.scrollTop = start * 22 + 11;
+  fireEvent.scroll(scroller);
+  expect(rowText(start)).toBe(`line ${top} `);
+
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+  await userEvent.keyboard("{Enter}");
+
+  // The line that was on top is now numbered 51; the view keeps its text and its offset in it.
+  const after = ["", ...lines];
+  const moved = rowStart(after, top + 1);
+  await waitFor(() => expect(scroller.scrollTop).toBe(moved * 22 + 11));
+  expect(
+    document.querySelector<HTMLElement>(`[data-row="${moved}"]`)?.getAttribute("data-line"),
+  ).toBe(String(top + 1));
+  expect(rowText(moved)).toBe(`line ${top} `);
+
+  await userEvent.keyboard("{Meta>}z{/Meta}");
+  await waitFor(() => expect(scroller.scrollTop).toBe(start * 22 + 11));
+  expect(rowText(start)).toBe(`line ${top} `);
+});
+
+test("toggling wrap in the middle of a line keeps that line at the top", async () => {
+  const ref = createRef<EditorHandle>();
+  const text = Array.from({ length: 200 }, (_, at) => `line ${at} `.padEnd(300, "x")).join("\n");
+  function Wrapped() {
+    const [wrap, setWrap] = useState(true);
+    return (
+      <CodeEditor
+        ref={ref}
+        text={text}
+        path="notes.txt"
+        label="Editor"
+        highlightDelay={60_000}
+        wrap={wrap}
+        onToggleWrap={() => setWrap((value) => !value)}
+      />
+    );
+  }
+  render(<Wrapped />);
+  const box = await screen.findByRole("textbox");
+  await waitFor(() => expect(ref.current).toBeTruthy());
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  await waitFor(() => expect(document.querySelector('[data-line="1"]')).toBeTruthy());
+  act(() => ref.current?.focus());
+
+  // Line 50's second visual row is at the top edge.
+  const lines = text.split("\n");
+  const start = lines.slice(0, 50).reduce((rows, one) => rows + wrapLine(one, columns).length, 0);
+  scroller.scrollTop = (start + 1) * 22;
+  fireEvent.scroll(scroller);
+  fireEvent.keyDown(box, { key: "z", code: "KeyZ", altKey: true });
+
+  await waitFor(() => expect(scroller.scrollTop).toBe(50 * 22));
+  expect(document.querySelector<HTMLElement>('[data-row="50"]')?.getAttribute("data-line")).toBe(
+    "50",
+  );
+  expect(
+    document.querySelector<HTMLElement>('[data-row="50"] [data-row-text]')?.textContent,
+  ).toContain("line 50 ");
 });
 
 test("Alt+Z keeps the line at the top when the file re-wraps around it", async () => {
@@ -369,6 +483,44 @@ test("a width change re-wraps the whole file in the background, not only the lin
   await waitFor(() => expect(scrollerHost()?.style.height).toBe(`${10_000 * 22}px`), {
     timeout: 10_000,
   });
+  expect(document.querySelectorAll("[data-row]").length).toBeLessThan(200);
+});
+
+test("an edit above the view keeps every line where its own rows put it", async () => {
+  // Every other line fills three visual rows: one line inserted above the rest moves the row
+  // counts of every line below it, so a count measured for the wrong line shows as a gap.
+  const lines = Array.from({ length: 300 }, (_, at) => "x".repeat(at % 2 ? 100 : 300));
+  const { ref } = await openView({ text: lines.join("\n"), wrap: true });
+  await waitFor(() => expect(rowTexts()[0]).toHaveLength(columns));
+
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(rowTexts()[0]).toBe(""));
+
+  const after = ["", ...lines];
+  const top = (line: number) =>
+    after.slice(0, line).reduce((rows, text) => rows + wrapLine(text, columns).length, 0);
+  for (let line = 0; line < 6; line++) {
+    expect(document.querySelector<HTMLElement>(`[data-line="${line}"]`)?.style.top).toBe(
+      `${top(line) * 22}px`,
+    );
+  }
+});
+
+test("a selection across a megabyte-long wrapped line draws only the rows on screen", async () => {
+  const { ref } = await openView({ text: "x".repeat(1_000_000), path: "notes.txt", wrap: true });
+  await waitFor(() => expect(rowTexts().length).toBeGreaterThan(0));
+
+  act(() =>
+    ref.current?.setSelections([
+      { anchor: { line: 0, column: 0 }, head: { line: 0, column: 1_000_000 } },
+    ]),
+  );
+
+  const boxes = document.querySelectorAll("[data-selection]");
+  expect(boxes.length).toBeGreaterThan(0);
+  expect(boxes.length).toBeLessThan(200);
+  // The rows that are drawn are still all there: the window, not the line, is the limit.
   expect(document.querySelectorAll("[data-row]").length).toBeLessThan(200);
 });
 

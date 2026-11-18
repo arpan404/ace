@@ -3,18 +3,27 @@
  * so a line's start row, the line a row belongs to, and an edit that inserts or removes lines
  * all cost logarithmic time instead of a walk over the file.
  *
- * A width change re-measures the lines on screen at once and spreads the rest over slices, a
- * line's text change re-measures only the lines its span covers, and the counts keep their old
- * values as estimates until then, so the scroll height never collapses in between.
+ * Measured rows and queued work belong to the treap node a line lives in, not to its line
+ * number: an edit that inserts or removes lines moves the numbers but keeps the identities, so
+ * nothing measured or pending is thrown away. A width change re-measures the lines on screen at
+ * once and spreads the rest over slices, a line's text change re-measures only the lines its
+ * span covers, and the counts keep their old values as estimates until then, so the scroll
+ * height never collapses in between.
+ *
+ * No line is measured while the document's version differs from the one the tree holds: a row
+ * count is only ever computed from the text it describes, never from a document that has already
+ * moved on underneath an older tree.
  */
 
 import type { LineEdit } from "@ace/editor";
-import { wrapLine, type WrapRow } from "./wrap.ts";
+import { wholeLineRow, wrapLine, type WrapRow } from "./wrap.ts";
 
 /** The text the index wraps: the open document, asked one line at a time. */
 export interface WrapText {
   lenLines(): number;
   line(index: number): string;
+  /** The document's version, so the tree never measures text from another one. */
+  version(): number;
 }
 
 /** Where a document's visual rows sit, for the list, the carets and the pointer. */
@@ -29,10 +38,12 @@ export interface RowLayout {
   total(): number;
 }
 
-/** The spans of one applied edit, and the document's line count after it. */
+/** The spans of one applied edit, and the document's line count and version after it. */
 export interface LineBatch {
   spans: readonly LineEdit[];
   lines: number;
+  /** The document's version once the spans were applied. */
+  version: number;
 }
 
 /** Rows kept from earlier renders; a long scroll forgets the far end rather than growing. */
@@ -53,7 +64,11 @@ function priority(seed: number): number {
 export class WrapIndex implements RowLayout {
   readonly #text: WrapText;
   #columns = Number.POSITIVE_INFINITY;
+  /** The document version every count in the tree was measured from. */
+  #version: number;
+  /** Measured rows by node, so a line keeps its rows while the lines around it move. */
   #rows = new Map<number, readonly WrapRow[]>();
+  /** Nodes still to measure at this width, in the order they were queued. */
   #pending: number[] = [];
   #from = 0;
   #dirtyCount = 0;
@@ -61,6 +76,8 @@ export class WrapIndex implements RowLayout {
   // The implicit treap, 1-based: node 0 is the empty tree. Its in-order walk is the document.
   #left = new Int32Array(64);
   #right = new Int32Array(64);
+  /** Each node's parent, so a node's rank and the sums above it need no walk from the root. */
+  #parent = new Int32Array(64);
   /** Nodes in this subtree, this one included. */
   #size = new Int32Array(64);
   /** This line's rows. */
@@ -69,7 +86,10 @@ export class WrapIndex implements RowLayout {
   #sum = new Int32Array(64);
   /** 1 = the count is an estimate to re-measure at this width. */
   #dirty = new Uint8Array(64);
-  #queued = new Uint8Array(64);
+  /** The node's generation when it was queued; 0 = not queued. */
+  #queued = new Int32Array(64);
+  /** A new generation each time a node is freed or handed out, which retires stale work. */
+  #stamp = new Int32Array(64);
   #priority = new Uint32Array(64);
   #root = 0;
   #used = 0;
@@ -78,6 +98,7 @@ export class WrapIndex implements RowLayout {
 
   constructor(text: WrapText) {
     this.#text = text;
+    this.#version = text.version();
     this.#root = this.#build(Math.max(0, text.lenLines()));
   }
 
@@ -102,6 +123,7 @@ export class WrapIndex implements RowLayout {
       this.#walk((node) => {
         this.#count[node] = 1;
         this.#dirty[node] = 0;
+        this.#queued[node] = 0;
         this.#sum[node] = this.#sizeOf(node);
       });
       this.#dirtyCount = 0;
@@ -109,6 +131,7 @@ export class WrapIndex implements RowLayout {
     }
     this.#walk((node) => {
       this.#dirty[node] = 1;
+      this.#queued[node] = 0;
     });
     this.#dirtyCount = this.#length;
     if (visible) this.prefer(visible);
@@ -120,7 +143,11 @@ export class WrapIndex implements RowLayout {
   prefer(range: { first: number; last: number }): void {
     const from = Math.max(0, range.first);
     const to = Math.min(this.#length, range.last);
-    for (let line = from; line < to; line++) if (this.#isDirty(line)) this.#measure(line);
+    for (let line = from; line < to; line++) {
+      const node = this.#nodeAt(line);
+      if (node === 0 || this.#dirty[node] !== 1) continue;
+      this.#measure(node);
+    }
   }
 
   startOf(line: number): number {
@@ -176,11 +203,13 @@ export class WrapIndex implements RowLayout {
   }
 
   rowsOf(line: number): readonly WrapRow[] {
-    const known = this.#rows.get(line);
+    const node = this.#nodeAt(line);
+    if (node === 0) return wholeLineRow;
+    const known = this.#rows.get(node);
     if (known) return known;
-    const rows = this.#measure(line);
-    if (this.#rows.size >= cachedRows) this.#rows.clear();
-    this.#rows.set(line, rows);
+    const rows = this.#measure(node);
+    if (!rows) return wholeLineRow;
+    this.#remember(node, rows);
     return rows;
   }
 
@@ -191,6 +220,7 @@ export class WrapIndex implements RowLayout {
    */
   apply(batches: readonly LineBatch[]): void {
     for (const batch of batches) {
+      this.#version = batch.version;
       if (batch.spans.some((span) => span.removedLines !== span.insertedLines)) {
         this.#restructure(batch.spans);
       }
@@ -202,10 +232,11 @@ export class WrapIndex implements RowLayout {
   pump(limit: number): number {
     let remaining = limit;
     while (this.#from < this.#pending.length && remaining > 0) {
-      const line = this.#pending[this.#from++];
-      if (line === undefined) continue;
-      if (!this.#isDirty(line)) continue;
-      this.#measure(line);
+      const node = this.#pending[this.#from++];
+      if (node === undefined) continue;
+      // A freed node's id is reused with a new generation: work queued for the old one is gone.
+      if (this.#queued[node] !== this.#stamp[node] || this.#dirty[node] !== 1) continue;
+      if (!this.#measure(node)) break;
       remaining--;
     }
     if (this.#from >= this.#pending.length) {
@@ -220,27 +251,19 @@ export class WrapIndex implements RowLayout {
   }
 
   #measureSpan(span: LineEdit): void {
+    // Every line is one row already, whatever its text: nothing to read or re-measure.
+    if (this.#columns === Infinity) return;
     const from = Math.max(0, span.firstLine);
     const to = Math.min(this.#length, span.firstLine + Math.max(1, span.insertedLines));
-    if (this.#columns === Infinity) {
-      // One row whatever the text says: no line needs reading.
-      for (let line = from; line < to; line++) {
-        this.#rows.delete(line);
-        this.#setCount(line, 1);
-      }
-      return;
-    }
     if (to - from > measuredNow) {
-      for (let line = from; line < to; line++) {
-        this.#rows.delete(line);
-        this.#markDirty(line);
-      }
-      this.#queueDirty();
+      for (let line = from; line < to; line++) this.#invalidate(this.#nodeAt(line));
       return;
     }
     for (let line = from; line < to; line++) {
-      this.#rows.delete(line);
-      this.#measure(line);
+      const node = this.#nodeAt(line);
+      if (node === 0) continue;
+      this.#invalidate(node);
+      this.#measure(node);
     }
   }
 
@@ -264,25 +287,19 @@ export class WrapIndex implements RowLayout {
       if (change.removed > 0) this.#erase(change.at, change.removed);
       if (change.inserted > 0) this.#insert(change.at, change.inserted);
     }
-    this.#rows.clear();
-    this.#pending = [];
-    this.#from = 0;
-    if (this.#columns === Infinity || this.#dirtyCount === 0) return;
-    this.#walk((node) => {
-      this.#queued[node] = 0;
-    });
-    this.#queueDirty();
   }
 
   #insert(at: number, count: number): void {
     const [before, after] = this.#split(this.#root, at);
     this.#root = this.#merge(this.#merge(before, this.#build(count)), after);
+    this.#parent[this.#root] = 0;
   }
 
   #erase(at: number, count: number): void {
     const [before, rest] = this.#split(this.#root, at);
     const [gone, after] = this.#split(rest, count);
     this.#root = this.#merge(before, after);
+    this.#parent[this.#root] = 0;
     this.#freeTree(gone);
   }
 
@@ -299,15 +316,23 @@ export class WrapIndex implements RowLayout {
       if (this.#used + 2 >= this.#left.length) this.#grow();
       node = ++this.#used;
     }
+    // A new identity: anything queued or remembered for the previous occupant is stale.
+    this.#stamp[node] = (this.#stamp[node] ?? 0) + 1;
     this.#left[node] = 0;
     this.#right[node] = 0;
+    this.#parent[node] = 0;
     this.#size[node] = 1;
     this.#count[node] = 1;
     this.#sum[node] = 1;
-    this.#dirty[node] = 1;
     this.#queued[node] = 0;
     this.#priority[node] = priority(++this.#seed);
-    this.#dirtyCount++;
+    this.#rows.delete(node);
+    if (this.#columns === Infinity) {
+      this.#dirty[node] = 0;
+    } else {
+      this.#dirty[node] = 1;
+      this.#dirtyCount++;
+    }
     return node;
   }
 
@@ -321,15 +346,15 @@ export class WrapIndex implements RowLayout {
     };
     this.#left = growInts(this.#left);
     this.#right = growInts(this.#right);
+    this.#parent = growInts(this.#parent);
     this.#size = growInts(this.#size);
     this.#count = growInts(this.#count);
     this.#sum = growInts(this.#sum);
+    this.#queued = growInts(this.#queued);
+    this.#stamp = growInts(this.#stamp);
     const dirty = new Uint8Array(size);
     dirty.set(this.#dirty);
     this.#dirty = dirty;
-    const queued = new Uint8Array(size);
-    queued.set(this.#queued);
-    this.#queued = queued;
     const priorities = new Uint32Array(size);
     priorities.set(this.#priority);
     this.#priority = priorities;
@@ -343,11 +368,13 @@ export class WrapIndex implements RowLayout {
       const [before, after] = this.#split(left, count);
       this.#left[node] = after;
       this.#pull(node);
+      this.#parent[node] = 0;
       return [before, node];
     }
     const [before, after] = this.#split(this.#rightOf(node), count - leftSize - 1);
     this.#right[node] = before;
     this.#pull(node);
+    this.#parent[node] = 0;
     return [node, after];
   }
 
@@ -357,10 +384,12 @@ export class WrapIndex implements RowLayout {
     if (this.#priorityOf(a) > this.#priorityOf(b)) {
       this.#right[a] = this.#merge(this.#rightOf(a), b);
       this.#pull(a);
+      this.#parent[a] = 0;
       return a;
     }
     this.#left[b] = this.#merge(a, this.#leftOf(b));
     this.#pull(b);
+    this.#parent[b] = 0;
     return b;
   }
 
@@ -378,63 +407,76 @@ export class WrapIndex implements RowLayout {
       if (this.#dirty[node] === 1) this.#dirtyCount--;
       this.#dirty[node] = 0;
       this.#queued[node] = 0;
+      this.#stamp[node] = (this.#stamp[node] ?? 0) + 1;
+      this.#rows.delete(node);
       this.#free.push(node);
     }
   }
 
+  /** Recomputes a node's counts from its children and points them back at it. */
   #pull(node: number): void {
     const left = this.#leftOf(node);
     const right = this.#rightOf(node);
     this.#size[node] = 1 + this.#sizeOf(left) + this.#sizeOf(right);
     this.#sum[node] = this.#countOf(node) + this.#sumOf(left) + this.#sumOf(right);
+    if (left !== 0) this.#parent[left] = node;
+    if (right !== 0) this.#parent[right] = node;
   }
 
-  #isDirty(line: number): boolean {
-    const node = this.#nodeAt(line);
-    return node !== 0 && this.#dirty[node] === 1;
+  /** Recomputes the sums from a node up to the root, whose row total changed. */
+  #settle(node: number): void {
+    for (let current = node; current !== 0; current = this.#parentOf(current)) this.#pull(current);
   }
 
-  #measure(line: number): readonly WrapRow[] {
-    const rows = wrapLine(this.#text.line(line), this.#columns);
-    this.#setCount(line, rows.length);
-    return rows;
-  }
-
-  /** Sets a line's row count, clears its estimate flag, and settles the sums above it. */
-  #setCount(line: number, count: number): void {
-    const path: number[] = [];
-    let node = this.#root;
-    let index = line;
-    while (node) {
-      path.push(node);
-      const left = this.#leftOf(node);
-      const leftSize = this.#sizeOf(left);
-      if (index < leftSize) {
-        node = left;
-        continue;
-      }
-      if (index === leftSize) break;
-      index -= leftSize + 1;
-      node = this.#rightOf(node);
+  /** The number of lines before `node`, read up its parent chain. */
+  #rankOf(node: number): number {
+    let rank = this.#sizeOf(this.#leftOf(node));
+    let child = node;
+    for (let parent = this.#parentOf(child); parent !== 0; parent = this.#parentOf(child)) {
+      if (this.#rightOf(parent) === child) rank += this.#sizeOf(this.#leftOf(parent)) + 1;
+      child = parent;
     }
-    if (node === 0) return;
+    return rank;
+  }
+
+  /**
+   * Measures one node's line at this width, answering its rows. Nothing is measured while the
+   * document's version has moved past the tree's: the count would describe the wrong text.
+   */
+  #measure(node: number): readonly WrapRow[] | undefined {
+    if (this.#text.version() !== this.#version) return undefined;
+    const rows = wrapLine(this.#text.line(this.#rankOf(node)), this.#columns);
+    this.#count[node] = rows.length;
     if (this.#dirty[node] === 1) {
       this.#dirty[node] = 0;
       this.#dirtyCount--;
     }
     this.#queued[node] = 0;
-    this.#count[node] = count;
-    for (let at = path.length - 1; at >= 0; at--) {
-      const current = path[at];
-      if (current !== undefined) this.#pull(current);
-    }
+    this.#settle(node);
+    return rows;
   }
 
-  #markDirty(line: number): void {
-    const node = this.#nodeAt(line);
-    if (node === 0 || this.#dirty[node] === 1) return;
-    this.#dirty[node] = 1;
-    this.#dirtyCount++;
+  #remember(node: number, rows: readonly WrapRow[]): void {
+    if (this.#rows.size >= cachedRows) this.#rows.clear();
+    this.#rows.set(node, rows);
+  }
+
+  /** Drops a node's measured rows and queues it to be measured again at this width. */
+  #invalidate(node: number): void {
+    if (node === 0) return;
+    this.#rows.delete(node);
+    if (this.#dirty[node] !== 1) {
+      this.#dirty[node] = 1;
+      this.#dirtyCount++;
+    }
+    this.#enqueue(node);
+  }
+
+  /** Queues a node unless it is already queued under its current generation. */
+  #enqueue(node: number): void {
+    if (node === 0 || this.#queued[node] === this.#stamp[node]) return;
+    this.#queued[node] = this.#stamp[node] ?? 0;
+    this.#pending.push(node);
   }
 
   #nodeAt(line: number): number {
@@ -457,13 +499,8 @@ export class WrapIndex implements RowLayout {
   /** Queues every dirty line in document order; a line already queued is left where it is. */
   #queueDirty(): void {
     if (this.#dirtyCount === 0) return;
-    let line = 0;
     this.#walk((node) => {
-      if (this.#dirty[node] === 1 && this.#queued[node] !== 1) {
-        this.#queued[node] = 1;
-        this.#pending.push(line);
-      }
-      line++;
+      if (this.#dirty[node] === 1) this.#enqueue(node);
     });
   }
 
@@ -488,6 +525,10 @@ export class WrapIndex implements RowLayout {
 
   #rightOf(node: number): number {
     return node === 0 ? 0 : (this.#right[node] ?? 0);
+  }
+
+  #parentOf(node: number): number {
+    return node === 0 ? 0 : (this.#parent[node] ?? 0);
   }
 
   #sizeOf(node: number): number {

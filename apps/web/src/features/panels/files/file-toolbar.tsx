@@ -113,8 +113,10 @@ export function FileToolbar(props: {
   wrap: boolean;
   finding: boolean;
   treeOpen: boolean;
-  /** The file can be read (shown as text); find and wrap need it. */
+  /** The file can be read (shown as text); find needs it. */
   readable: boolean;
+  /** The file is open in the editor, which wraps its own text. */
+  editing: boolean;
   online: boolean;
   actions: ReturnType<typeof useFileActions>;
   /** The line in view (a find hit, a quick-open `:line`), for opening the editor there. */
@@ -172,7 +174,7 @@ export function FileToolbar(props: {
             label={props.wrap ? "Don't wrap lines" : "Wrap lines"}
             keys="alt+z"
             pressed={props.wrap}
-            disabled={!props.readable}
+            disabled={!props.readable && !props.editing}
             className={tool}
             onClick={props.onWrap}
           />

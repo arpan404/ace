@@ -1,6 +1,7 @@
 import type { Position } from "@ace/editor";
 import type { MouseEvent, PointerEvent } from "react";
 import { useRef } from "react";
+import { noAffinity, sidesAt, type Affinity } from "./affinity.ts";
 import { wordAt } from "./cursor.ts";
 import { lineHeight, tabSize } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
@@ -21,9 +22,9 @@ export function usePointerSelection(options: {
   layout: RowLayout | undefined;
   element: { current: HTMLDivElement | null };
   focus(): void;
-  reveal(position: Position): void;
-  /** Records whether the click landed at a row's end where the next row begins. */
-  onBefore(before: boolean): void;
+  reveal(position: Position, before?: boolean): void;
+  /** Records every caret's side of a hard break after the click moved them. */
+  onBefore(affinity: Affinity): void;
 }) {
   const { state, cell, gutter, layout } = options;
   const drag = useRef<{ anchor: Position; box: boolean; moved: boolean } | undefined>(undefined);
@@ -59,7 +60,6 @@ export function usePointerSelection(options: {
     const position = target.position;
     event.preventDefault();
     options.focus();
-    options.onBefore(target.before);
     const selections = doc.selections();
     const current = selections[doc.primarySelection()];
     if (event.shiftKey && current) {
@@ -76,7 +76,8 @@ export function usePointerSelection(options: {
       drag.current = { anchor: position, box: false, moved: false };
       state.select([{ anchor: position, head: position }]);
     }
-    options.reveal(position);
+    options.onBefore(sidesAt(layout, doc.selections()));
+    options.reveal(position, target.before);
   };
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
@@ -86,14 +87,14 @@ export function usePointerSelection(options: {
     const doc = state.doc;
     if (!landed || !doc) return;
     target.moved = true;
-    options.onBefore(landed.before);
     if (target.box) {
       doc.selectColumn(target.anchor, landed.position, tabSize);
       state.select(doc.selections());
     } else {
       state.select([{ anchor: target.anchor, head: landed.position }]);
     }
-    options.reveal(landed.position);
+    options.onBefore(sidesAt(layout, doc.selections()));
+    options.reveal(landed.position, landed.before);
   };
 
   const onPointerUp = () => {
@@ -103,7 +104,9 @@ export function usePointerSelection(options: {
     if (target?.box && !target.moved && doc) {
       doc.setSelections([...doc.selections(), { anchor: target.anchor, head: target.anchor }]);
       state.select(doc.selections());
-      options.reveal(target.anchor);
+      const sides = sidesAt(layout, doc.selections());
+      options.onBefore(sides);
+      options.reveal(target.anchor, sides.at(-1) ?? false);
     }
   };
 
@@ -113,7 +116,7 @@ export function usePointerSelection(options: {
     if (!landed || !doc) return;
     const position = landed.position;
     event.preventDefault();
-    options.onBefore(false);
+    options.onBefore(noAffinity);
     const range = wordAt(doc.line(position.line), position.column);
     state.select([
       {
@@ -130,7 +133,7 @@ export function usePointerSelection(options: {
     if (!landed || !doc) return;
     const position = landed.position;
     event.preventDefault();
-    options.onBefore(false);
+    options.onBefore(noAffinity);
     const hasNext = position.line < doc.lenLines() - 1;
     state.select([
       {

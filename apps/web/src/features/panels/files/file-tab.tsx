@@ -239,6 +239,7 @@ export function FileTab(props: TabViewProps) {
           finding={find !== undefined}
           treeOpen={treeShown}
           readable={readable}
+          editing={data.draft !== undefined}
           online={online}
           actions={fileActions}
           line={find?.query && hits[hitIndex] ? (hits[hitIndex]?.line ?? 0) + 1 : data.line}

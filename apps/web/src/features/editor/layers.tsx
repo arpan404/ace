@@ -1,4 +1,5 @@
 import type { Position, Selection } from "@ace/editor";
+import { isBefore, type Affinity } from "./affinity.ts";
 import { ordered } from "./cursor.ts";
 import { lineHeight } from "./geometry.ts";
 import type { RowLayout } from "./wrap-index.ts";
@@ -42,16 +43,18 @@ function boxes(
   layout: RowLayout,
   firstLine: number,
   lastLine: number,
+  firstRow: number,
+  lastRow: number,
   gutter: number,
   cell: number,
-  before: boolean,
+  affinity: Affinity,
   primary: number,
 ): { selections: Box[]; carets: Box[] } {
   const rects: Box[] = [];
   const carets: Box[] = [];
   selections.forEach((selection, index) => {
     const primaryHere = index === primary;
-    const headBefore = primaryHere && before;
+    const headBefore = isBefore(affinity, index);
     const { start, end } = ordered(selection);
     if (start.line !== end.line || start.column !== end.column) {
       for (
@@ -65,15 +68,20 @@ function boxes(
         const from = line === start.line ? start.column : 0;
         const to = line === end.line ? end.column : text.length;
         const headRow = rowOfColumn(rows, selection.head.column, headBefore);
-        rows.forEach((row, at) => {
-          // A selection that runs past a space dropped at a break reaches the row's edge; the
-          // next row starts where its own text does.
+        // A selection can cover a megabyte on one line: only the rows inside the window are drawn.
+        const fromRow = Math.max(0, firstRow - startRow);
+        const toRow = Math.min(rows.length, lastRow - startRow);
+        for (let at = fromRow; at < toRow; at++) {
+          const row = rows[at];
+          if (!row) continue;
+          // A selection that runs past a space kept at a break reaches the row's edge; the next
+          // row starts where its own text does.
           const low = Math.max(from, row.start);
           const high = Math.min(to, row.end);
           // A row the selection only touches at its edge draws nothing, except the caret's own
           // row, where VS Code leaves a sliver.
           const caretRow = primaryHere && line === selection.head.line && at === headRow;
-          if (high <= low && !caretRow) return;
+          if (high <= low && !caretRow) continue;
           const left = gutter + rowOffset(text, row, low) * cell;
           const right = gutter + rowOffset(text, row, high) * cell;
           rects.push({
@@ -83,7 +91,7 @@ function boxes(
             width: Math.max(2, right - left),
             height: lineHeight,
           });
-        });
+        }
       }
     }
     const caret = caretOf(lines, layout, selection.head, gutter, cell, headBefore);
@@ -104,10 +112,13 @@ export function CaretLayers(props: {
   layout: RowLayout | undefined;
   firstLine: number;
   lastLine: number;
+  /** The rows the editor draws; a selection is drawn only where the list has rows. */
+  firstRow: number;
+  lastRow: number;
   gutter: number;
   cell: number;
-  /** The primary caret sits at the end of the row before a hard break. */
-  before: boolean;
+  /** Each caret's side of a hard break, so secondary carets draw on their own row. */
+  affinity: Affinity;
   primary: number;
   composing: Composing | undefined;
 }) {
@@ -121,9 +132,11 @@ export function CaretLayers(props: {
     layout,
     props.firstLine,
     props.lastLine,
+    props.firstRow,
+    props.lastRow,
     props.gutter,
     props.cell,
-    props.before,
+    props.affinity,
     props.primary,
   );
   const compose = props.composing;
@@ -153,7 +166,7 @@ export function CaretLayers(props: {
               selection.head,
               props.gutter,
               props.cell,
-              index === props.primary && props.before,
+              isBefore(props.affinity, index),
             );
             return (
               <div

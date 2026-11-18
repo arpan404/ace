@@ -11,6 +11,7 @@ import {
   stepBack,
   stepForward,
 } from "./cursor.ts";
+import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { columnAtVisual } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
 import type { RowLayout } from "./wrap-index.ts";
@@ -43,11 +44,12 @@ export interface EditorKeyOptions {
   onEscape?: (() => boolean) | undefined;
   /** Alt+Z: the person asked for wrap to toggle, as VS Code's own shortcut does. */
   onToggleWrap?: (() => void) | undefined;
-  /** True while the caret sits at a row's end where the next row begins (VS Code's Before). */
-  before: boolean;
-  /** Records the caret's side of a hard break after a move. */
-  onBefore(before: boolean): void;
-  reveal(position: Position): void;
+  /** Each caret's side of a hard break, as the last move left it (VS Code's Before). */
+  affinity: Affinity;
+  /** Records every caret's side of a hard break after a move. */
+  onBefore(affinity: Affinity): void;
+  /** Brings a position into view, drawn on the side of a hard break the move asked for. */
+  reveal(position: Position, before?: boolean): void;
 }
 
 export function useEditorKeys(options: EditorKeyOptions) {
@@ -111,11 +113,13 @@ export function useEditorKeys(options: EditorKeyOptions) {
     return { position: { line: target, column }, before: atHardBreak(rows, at, column) };
   };
 
-  const commitMove = (next: readonly Selection[], before = false) => {
-    options.onBefore(before);
+  const commitMove = (next: readonly Selection[], affinity: Affinity = noAffinity) => {
+    options.onBefore(affinity);
     state.select(next);
     const doc = state.doc;
-    if (doc) options.reveal(doc.selections()[doc.primarySelection()]?.head ?? head());
+    if (!doc) return;
+    const primary = doc.primarySelection();
+    options.reveal(doc.selections()[primary]?.head ?? head(), isBefore(affinity, primary));
   };
 
   const vertical = (delta: number, extend: boolean) => {
@@ -124,18 +128,18 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const selections = doc.selections();
     const primary = doc.primarySelection();
     const current = selections[primary]?.head ?? { line: 0, column: 0 };
-    goal.current ??= offsetOf(current, options.before);
+    goal.current ??= offsetOf(current, isBefore(options.affinity, primary));
     const keeper = goal.current ?? 0;
-    let nextBefore = false;
-    const moved = selections.map((selection) => {
-      const primaryHere = selection === selections[primary];
-      const keeperHere = primaryHere ? keeper : offsetOf(selection.head);
-      const row = rowOf(selection.head, primaryHere && options.before);
+    const moved: Selection[] = [];
+    const affinity: boolean[] = [];
+    selections.forEach((selection, index) => {
+      const keeperHere = index === primary ? keeper : offsetOf(selection.head);
+      const row = rowOf(selection.head, isBefore(options.affinity, index));
       const landed = positionOnRow(row + delta, keeperHere);
-      if (primaryHere) nextBefore = landed.before;
-      return { anchor: extend ? selection.anchor : landed.position, head: landed.position };
+      affinity.push(landed.before);
+      moved.push({ anchor: extend ? selection.anchor : landed.position, head: landed.position });
     });
-    commitMove(moved, nextBefore);
+    commitMove(moved, affinity);
   };
 
   const horizontal = (step: (text: string, column: number) => number, extend: boolean) => {
@@ -204,7 +208,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       event.preventDefault();
       goal.current = undefined;
       const last = documentEnd(doc.lenLines(), line(lastLine()));
-      options.onBefore(false);
+      options.onBefore(noAffinity);
       state.select([{ anchor: { line: 0, column: 0 }, head: last }]);
       options.reveal(last);
       return;
@@ -232,7 +236,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (!options.readOnly && mod && !event.shiftKey && key.toLowerCase() === "d") {
       event.preventDefault();
       if (doc.selectNextOccurrence()) {
-        options.onBefore(false);
+        options.onBefore(noAffinity);
         state.select(doc.selections());
       }
       return;
@@ -268,7 +272,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       if (options.onEscape?.()) return;
       const position = head();
       goal.current = undefined;
-      options.onBefore(false);
+      options.onBefore(noAffinity);
       state.select([caret(position.line, position.column)]);
       options.reveal(position);
       return;
@@ -306,16 +310,14 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (key === "Home" || key === "End") {
       event.preventDefault();
       goal.current = undefined;
-      const primary = doc.primarySelection();
       const moved = doc.selections().map((selection, index) => {
-        const before = index === primary && options.before;
+        const before = isBefore(options.affinity, index);
         const column = key === "End" ? end(selection.head, before) : home(selection.head, before);
         const position = { line: selection.head.line, column };
         return { anchor: event.shiftKey ? selection.anchor : position, head: position };
       });
-      const landed = moved[primary]?.head;
       // Home stops at a row's start; End stops at its end, which can begin the next row.
-      commitMove(moved, key === "End" && landed ? beforeAt(landed) : false);
+      commitMove(moved, key === "End" ? moved.map((one) => beforeAt(one.head)) : noAffinity);
       return;
     }
     if (key === "PageUp" || key === "PageDown") {
