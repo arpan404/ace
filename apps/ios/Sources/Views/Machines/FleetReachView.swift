@@ -73,7 +73,7 @@ struct FleetReachView: View {
                     if let question = action.confirm { asking = (question, entry, action) }
                     else { Task { await write(entry, action) } }
                 }
-                .buttonStyle(.textAction(action.value ? .prominent : .plain))
+                .buttonStyle(.secondaryAction).controlSize(.small)
                 .disabled(saving != nil)
                 .accessibilityIdentifier("fleetReach.\(entry.id).action")
             }

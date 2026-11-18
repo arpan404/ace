@@ -54,10 +54,7 @@ struct ProviderPageView<Extra: View>: View {
                 ProviderAdvancedSection(model: model, page: page, removeCLI: { plan("uninstall") }) { saved += 1 }
                 if !page.about.isEmpty { about(page) }
             } else if let problem {
-                Section {
-                    ServiceProblem(message: problem)
-                    Button("Retry") { Task { await read() } }.frame(minHeight: AceDesign.Size.tap)
-                }.insetRowBackground()
+                ProblemRow(problem, id: "provider.problem") { Task { await read() } }
             } else {
                 placeholder
             }
@@ -136,7 +133,7 @@ struct ProviderPageView<Extra: View>: View {
             }
             if let fix = page.fix, install?.idle ?? true { fixButton(fix, page) }
             if page.updateToo, install?.idle ?? true {
-                Button("Update") { plan("update") }.frame(minHeight: AceDesign.Size.tap)
+                Button("Update") { plan("update") }.buttonStyle(.rowAction)
                     .accessibilityIdentifier("provider.update")
             }
             ServiceProblem(message: editProblem)
@@ -154,12 +151,10 @@ struct ProviderPageView<Extra: View>: View {
             .accessibilityIdentifier("provider.fix")
         case "turn_on":
             Button(fix.label) { edit(["kind": "enabled", "on": true]) }
-                .buttonStyle(.textAction(.prominent))
-                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("provider.fix")
+                .buttonStyle(.rowAction).accessibilityIdentifier("provider.fix")
         default:
             Button(fix.label) { plan(fix.action) }
-                .buttonStyle(.textAction(.prominent))
-                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("provider.fix")
+                .buttonStyle(.rowAction).accessibilityIdentifier("provider.fix")
         }
     }
 

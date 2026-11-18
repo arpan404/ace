@@ -48,8 +48,8 @@ struct AddAccountView: View {
                     .transition(.opacity)
                     .safeAreaInset(edge: .bottom) {
                         if let problem {
-                            VStack { ServiceProblem(message: problem); Button("Retry") { Task { await finish() } }.buttonStyle(.textAction()).disabled(busy) }
-                                .padding(AceDesign.Space.margin).background(AceDesign.Surface.background)
+                            ProblemRow(problem, id: "accounts.add.problem", disabled: busy) { Task { await finish() } }
+                                .padding(.vertical, AceDesign.Space.related).background(AceDesign.Surface.background)
                         }
                     }
             } else { form.transition(.opacity) }
@@ -81,7 +81,7 @@ struct AddAccountView: View {
                             HStack {
                                 Text(option.label).foregroundStyle(AceDesign.Ink.primary)
                                 Spacer()
-                                if way?.id == option.id { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceDesign.Ink.primary) }
+                                if way?.id == option.id { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceDesign.Ink.action) }
                             }
                             .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
                         }
@@ -92,7 +92,7 @@ struct AddAccountView: View {
                         TextField("Location", text: $location).textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                 } header: { InsetHeader("Sign in with") } footer: { if let way { Text(way.next) } }
-                ServiceProblem(message: problem)
+                if let problem { ProblemRow(problem, id: "accounts.add.problem") }
             }
             .insetRowBackground()
         }
@@ -160,10 +160,9 @@ struct AccountSignInSheet: View {
                                 TextField("Google Cloud project ID", text: $project).textInputAutocapitalization(.never).autocorrectionDisabled()
                                 TextField("Location", text: $location).textInputAutocapitalization(.never).autocorrectionDisabled()
                             } header: { InsetHeader(target.way.label) } footer: { Text(target.way.next) }
-                            Button("Continue") { Task { await start() } }.disabled(busy)
+                            Button("Continue") { Task { await start() } }.buttonStyle(.rowAction).disabled(busy)
                         } else if busy { SkeletonRows(count: 1, label: "Starting sign-in").listRowInsets(EdgeInsets()) }
-                        ServiceProblem(message: problem)
-                        if problem != nil { Button("Retry") { Task { await start() } }.buttonStyle(.textAction()).disabled(busy) }
+                        if let problem { ProblemRow(problem, id: "accounts.signIn.problem", disabled: busy) { Task { await start() } } }
                     }
                     .insetRowBackground()
                 }
