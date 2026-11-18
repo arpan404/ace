@@ -26,8 +26,24 @@ fn in_tab(arguments: Value, answer: &str) -> Step {
 
 fn host(step: &Step) -> Option<&str> {
     match &step.place {
-        Ok(Place::Site { host, .. }) => Some(host),
+        Ok(Place::Site { page, .. }) => Some(&page.host),
         _ => None,
+    }
+}
+
+fn tab_of(step: &Step) -> Option<&str> {
+    match &step.place {
+        Ok(Place::Site { tab, .. }) => tab.as_deref(),
+        _ => None,
+    }
+}
+
+fn grant(scope: crate::grant::Scope) -> crate::grant::Grant {
+    crate::grant::Grant {
+        id: "g".into(),
+        scope,
+        by: crate::grant::BY_PERSON.into(),
+        created_at: 0,
     }
 }
 
@@ -301,4 +317,130 @@ fn a_sensitive_app_or_site_cant_be_granted() {
         assert!(grantable_site(host).is_err(), "{host}");
     }
     assert_eq!(grantable_site("github.com"), Ok(()));
+}
+
+#[test]
+fn a_dialog_answer_acts_in_the_tab_that_raised_the_dialog_whichever_tab_it_names() {
+    let mut listed: Value = serde_json::from_str(&tabs(&[
+        ("t1", "https://docs.rs/serde", true, false),
+        ("t2", "https://mail.google.com/mail/u/0", false, false),
+    ]))
+    .unwrap_or_default();
+    listed["tabs"][1]["pending_dialog"] = json!({"dialogId": "d7", "type": "confirm"});
+    let answer = listed.to_string();
+    let named_other = json!({"action": "dialog", "dialogId": "d7", "accept": true, "tabId": "t1"});
+    let step = in_tab(named_other, &answer);
+    assert_eq!(tab_of(&step), Some("t2"));
+    assert!(step.sensitive.is_some(), "the dialog is Gmail's");
+    let current = in_tab(
+        json!({"action": "dialog", "dialogId": "d7", "accept": true}),
+        &answer,
+    );
+    assert_eq!(tab_of(&current), Some("t2"));
+    // A dialog no tab shows can't be placed.
+    let gone = in_tab(
+        json!({"action": "dialog", "dialogId": "d8", "accept": true}),
+        &answer,
+    );
+    assert_eq!(gone.place, Err(NO_DIALOG));
+}
+
+#[test]
+fn a_step_is_bound_to_its_tab_and_whole_address_and_a_query_route_counts() {
+    // A route in the query is a route.
+    for url in [
+        "https://app.example.com/?view=settings",
+        "https://app.example.com/home?tab=billing&x=1",
+        "https://app.example.com/?next=%2Faccount%2Fsecurity",
+    ] {
+        assert!(site(url).sensitive.is_some(), "{url}");
+    }
+    // What someone searched for isn't where the page is.
+    assert_eq!(
+        site("https://www.google.com/search?q=checkout+bags").sensitive,
+        None
+    );
+    let at = |url: &str, tab: &str| {
+        in_tab(
+            json!({"tabId": tab}),
+            &tabs(&[(tab, url, true, false), ("other", url, false, false)]),
+        )
+        .place
+    };
+    let here = at("https://docs.example:8443/guide?x=1", "t1");
+    // Another port, another query, the same address in another tab: another place.
+    assert_ne!(here, at("https://docs.example:9443/guide?x=1", "t1"));
+    assert_ne!(here, at("https://docs.example:8443/guide?x=2", "t1"));
+    assert_ne!(here, at("https://docs.example:8443/guide?x=1", "other"));
+    assert_eq!(here, at("https://docs.example:8443/guide?x=1", "t1"));
+    // ace is told the tab and the whole address; a site grant still names only the host.
+    let Ok(place) = here else {
+        panic!("placed");
+    };
+    assert_eq!(
+        place.expect(),
+        Some(json!({"tabId": "t1", "url": "https://docs.example:8443/guide?x=1"}))
+    );
+    assert_eq!(
+        place.grant(),
+        Some(crate::grant::Scope::DriveSite {
+            host: "docs.example".into()
+        })
+    );
+    // An address being opened has no tab yet, so ace isn't told one.
+    let opening = site("https://docs.example/");
+    assert_eq!(opening.place.ok().and_then(|place| place.expect()), None);
+}
+
+#[test]
+fn only_loopback_addresses_and_local_names_are_the_persons_own_machine() {
+    for url in [
+        "https://127.example.com/settings",
+        "https://127.0.0.1.example.com/checkout",
+        "https://localhost.example.com/login",
+    ] {
+        assert!(site(url).sensitive.is_some(), "{url}");
+    }
+    for url in [
+        "http://127.0.0.1:5173/checkout",
+        "http://127.8.9.10/login",
+        "http://[::1]:3000/settings",
+        "http://localhost:3000/login",
+        "http://app.localhost/account",
+        "http://printer.local/settings",
+        "http://shop.test/cart",
+    ] {
+        assert_eq!(site(url).sensitive, None, "{url}");
+    }
+}
+
+#[test]
+fn a_page_a_device_opens_is_never_a_site_a_grant_names_either_way() {
+    let opened = read(
+        "sim_act",
+        &json!({"simId": "s1", "action": "open_url", "url": "https://github.com/acme"}),
+        None,
+    );
+    let Ok(on_device) = opened.place else {
+        panic!("open_url is placed");
+    };
+    assert!(matches!(on_device, Place::DeviceSite { .. }));
+    // It makes no site grant.
+    assert_eq!(on_device.grant(), None);
+    // And a site grant for the same host doesn't cover it, though it covers the browser's page.
+    let github = [grant(crate::grant::Scope::DriveSite {
+        host: "github.com".into(),
+    })];
+    assert!(!on_device.granted_by(&github));
+    let Ok(in_browser) = site("https://github.com/acme").place else {
+        panic!("placed");
+    };
+    assert!(in_browser.granted_by(&github));
+    // Its page is still read for where it is.
+    let paying = read(
+        "sim_act",
+        &json!({"simId": "s1", "action": "open_url", "url": "https://paypal.com/"}),
+        None,
+    );
+    assert!(paying.sensitive.is_some());
 }

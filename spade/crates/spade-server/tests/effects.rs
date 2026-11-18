@@ -723,4 +723,131 @@ mod sandboxed {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn a_step_is_handed_to_ace_bound_to_the_tab_and_address_it_was_checked_at() -> Result {
+        // An ace that takes `expect` says so in its schema.
+        let act = FakeTool::new("browser_act", Risk::Write, r#"{"ok":true}"#)
+            .declares(spade_core::effect::Effect::Drive)
+            .schema(json!({ "type": "object", "properties": { "expect": { "type": "object" } } }));
+        let acts = act.calls();
+        let listed = json!({ "tabs": [
+            { "tabId": "t1", "url": "https://docs.rs/tokio", "title": "", "current": true },
+        ] })
+        .to_string();
+        let tabs = FakeTool::new("browser_tabs", Risk::Write, &listed);
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(tabs)], |_| {
+            vec![
+                Script::reply("").call(
+                    "c1",
+                    "browser_act",
+                    json!({ "action": "press", "key": "Enter" }),
+                ),
+                Script::reply("").plain(APPROVE),
+                Script::reply("Pressed."),
+            ]
+        })
+        .await?;
+        w.spade.say(&w.conversation, "Press Enter").await?;
+        w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        let sent = acts.lock().map(|calls| calls.clone()).unwrap_or_default();
+        assert_eq!(
+            sent.first().map(|arguments| arguments["expect"].clone()),
+            Some(json!({ "tabId": "t1", "url": "https://docs.rs/tokio" }))
+        );
+        Ok(())
+    }
+}
+
+/// A browser step reviewed on docs.rs/tokio, then Spade stopped before it started: on the next
+/// start the tab is at `now`. Returns whether it ran and how many reviews it had.
+async fn restarted_between_review_and_start(
+    now: &str,
+    after: Vec<Script>,
+) -> Result<(usize, usize)> {
+    let listed = |url: &str| {
+        json!({ "tabs": [ { "tabId": "t1", "url": url, "title": "", "current": true } ] })
+            .to_string()
+    };
+    let drive = |answer: &str| {
+        FakeTool::new("browser_act", Risk::Write, answer)
+            .declares(spade_core::effect::Effect::Drive)
+    };
+    let tools = |act: FakeTool, url: &str| {
+        vec![
+            Arc::new(act) as Arc<dyn Tool>,
+            Arc::new(FakeTool::new("browser_tabs", Risk::Write, &listed(url))) as Arc<dyn Tool>,
+        ]
+    };
+    // The reviewer is the scripted model, before and after the restart.
+    let reviewed = || support::Options {
+        reviewer: None,
+        ..support::Options::default()
+    };
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "browser_act",
+                json!({ "action": "press", "key": "Enter" }),
+            ),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Pressed."),
+            Script::reply("").plain(TITLE),
+        ],
+        tools(drive("{}"), "https://docs.rs/tokio"),
+        reviewed(),
+    )
+    .await?;
+    let agent = spade.new_agent("Builder", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Press Enter").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    // Spade stopped for a restart between the review and the start: the turn paused there.
+    let again = drive("{}");
+    let pressed = again.calls();
+    let spade = spade
+        .restart_paused_with(
+            "DELETE FROM events WHERE seq > (SELECT seq FROM events
+                 WHERE json_extract(body, '$.type') = 'call_reviewed')
+               AND conversation_id = (SELECT conversation_id FROM events
+                 WHERE json_extract(body, '$.type') = 'call_reviewed');
+             INSERT INTO events (conversation_id, seq, at_ms, body)
+               SELECT conversation_id, seq + 1, at_ms,
+                 json_object('type', 'turn_paused', 'reply', json_extract(body, '$.reply'))
+               FROM events WHERE json_extract(body, '$.type') = 'call_reviewed';",
+            tools(again, now),
+            after,
+            reviewed(),
+        )
+        .await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let reviews = events
+        .iter()
+        .filter(|e| e["type"] == "call_reviewed" && e["call_id"] == "c1")
+        .count();
+    Ok((ran(&pressed), reviews))
+}
+
+#[tokio::test]
+async fn a_verdict_given_on_one_page_is_not_reused_on_another_after_a_restart() -> Result {
+    const REFUSE: &str = r#"{"verdict":"refuse","reason":"Not that page."}"#;
+    let (ran, reviews) = restarted_between_review_and_start(
+        "https://docs.rs/serde",
+        vec![Script::reply("").plain(REFUSE), Script::reply("Left it.")],
+    )
+    .await?;
+    assert_eq!(ran, 0, "reviewed again on the new page, and refused there");
+    assert_eq!(reviews, 2);
+    // On the page it was reviewed at, the stored verdict stands: no second review.
+    let (ran, reviews) = restarted_between_review_and_start(
+        "https://docs.rs/tokio",
+        vec![Script::reply("Pressed.")],
+    )
+    .await?;
+    assert_eq!((ran, reviews), (1, 1));
+    Ok(())
 }

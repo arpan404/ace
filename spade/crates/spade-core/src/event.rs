@@ -302,6 +302,10 @@ pub enum Known {
         /// approved with these runs only while they are unchanged.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bound: Option<String>,
+        /// For a driving step, where it acted when it was reviewed (ADR 0171, amendment 3): the
+        /// verdict holds only there, so a restart never carries it to another page or app.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.

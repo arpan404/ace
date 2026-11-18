@@ -379,6 +379,7 @@ pub(super) async fn handle_calls(
                                         def: &def,
                                         shown: &classed.shown,
                                         concern: concern.as_deref(),
+                                        acts_in: acts_in.as_ref(),
                                     };
                                     // An approval is bound to the files as the reviewer read them: the
                                     // stored one's, or these when this review is the first.
@@ -728,10 +729,10 @@ async fn run_tools(
             // A driving step whose page or app changed since it was decided on doesn't run: the
             // bot looks again and the gate decides on where it acts then (ADR 0171, amendment 3).
             let key = format!("{id}.{}", call.id);
-            if !engine.still_there(id, &key, &name, &arguments).await {
+            let Some(arguments) = engine.bind_place(id, &key, &name, arguments).await else {
                 finished.push_back((call, name, ToolOutput::ok(super::drive::MOVED.to_owned())));
                 continue;
-            }
+            };
             // A tool runs only once its start is stored, so a restart can never mistake a call
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one

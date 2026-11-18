@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use serde_json::Value;
 use spade_core::effect::drive::{self, Lookup, Place, Step};
-use spade_core::grant::Action;
 
 use super::Engine;
 
@@ -50,12 +49,7 @@ impl Engine {
         let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
             return false;
         };
-        let action = match place {
-            Place::App { id, .. } => Action::DriveApp { app: id },
-            Place::Site { host, .. } => Action::DriveSite { host },
-            Place::DeviceApp { .. } | Place::Device { .. } => return false,
-        };
-        spade_core::grant::allowed(&security.effective_grants(&agent), &action)
+        place.granted_by(&security.effective_grants(&agent))
     }
 
     /// Allows driving `place` for the bot that owns `conversation`, as the person answered a
@@ -88,19 +82,45 @@ impl Engine {
             .remove(key)
     }
 
-    /// Whether the step `key` still acts where it was decided on, read from ace right before
-    /// it runs. A step decided on with no place (the person allowed it so) has nothing to keep.
-    pub(super) async fn still_there(
+    /// The arguments the step `key` runs with, when it still acts where it was decided on: read
+    /// from ace right before it runs, and bound to that place inside ace too (`expect`, where the
+    /// tool takes it), so ace refuses the step if the page or app moves on while it waits in
+    /// ace's queue. `None` when the place changed. A step decided on with no place (the person
+    /// allowed it so) runs as it is.
+    pub(super) async fn bind_place(
         &self,
         conversation: &str,
         key: &str,
         name: &str,
-        arguments: &Value,
-    ) -> bool {
+        arguments: Value,
+    ) -> Option<Value> {
         let Some(decided) = self.take_place(key) else {
-            return true;
+            return Some(arguments);
         };
-        let now = self.drive_step(conversation, key, name, arguments).await;
-        now.place.as_ref() == Ok(&decided)
+        let now = self.drive_step(conversation, key, name, &arguments).await;
+        if now.place.as_ref() != Ok(&decided) {
+            return None;
+        }
+        Some(match decided.expect() {
+            Some(expect) if self.takes_expect(conversation, name) => {
+                let mut bound = arguments;
+                if let Some(fields) = bound.as_object_mut() {
+                    fields.insert("expect".to_owned(), expect);
+                }
+                bound
+            }
+            _ => arguments,
+        })
+    }
+
+    /// Whether ace's tool `name` takes `expect` (an ace from before it doesn't).
+    fn takes_expect(&self, conversation: &str, name: &str) -> bool {
+        self.tools.get_for(conversation, name).is_some_and(|tool| {
+            tool.def()
+                .spec
+                .schema
+                .pointer("/properties/expect")
+                .is_some()
+        })
     }
 }

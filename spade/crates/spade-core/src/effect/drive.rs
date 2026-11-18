@@ -18,12 +18,20 @@ use serde_json::{Map, Value, json};
 pub enum Place {
     /// An app on the computer, by its id as ace lists it.
     App { id: String, name: String },
-    /// A web page.
+    /// A web page: in the tab ace lists it in, when the step acts in one (an address it opens
+    /// has none yet).
     Site {
-        host: String,
-        path: String,
-        #[serde(default)]
-        fragment: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tab: Option<String>,
+        #[serde(flatten)]
+        page: address::Page,
+    },
+    /// A page a simulator or device is told to open (`sim_act open_url`): the device's, never
+    /// a site a grant names.
+    DeviceSite {
+        device: String,
+        #[serde(flatten)]
+        page: address::Page,
     },
     /// An app a device is told to open (`sim_act open_app`).
     DeviceApp { device: String, app: String },
@@ -37,7 +45,7 @@ impl Place {
         match self {
             Self::App { name, id } if name.is_empty() => id,
             Self::App { name, .. } => name,
-            Self::Site { host, .. } => host,
+            Self::Site { page, .. } | Self::DeviceSite { page, .. } => &page.host,
             Self::DeviceApp { app, .. } => app,
             Self::Device { device } => device,
         }
@@ -48,8 +56,36 @@ impl Place {
         use crate::grant::Scope;
         match self {
             Self::App { id, .. } => Some(Scope::DriveApp { app: id.clone() }),
-            Self::Site { host, .. } => Some(Scope::DriveSite { host: host.clone() }),
-            Self::DeviceApp { .. } | Self::Device { .. } => None,
+            Self::Site { page, .. } => Some(Scope::DriveSite {
+                host: page.host.clone(),
+            }),
+            Self::DeviceSite { .. } | Self::DeviceApp { .. } | Self::Device { .. } => None,
+        }
+    }
+
+    /// Whether one of `grants` covers the step here: an app grant an app by its id, a site
+    /// grant a page by its host. A device's page or app is never covered, and never makes a
+    /// grant, whatever its words.
+    pub fn granted_by(&self, grants: &[crate::grant::Grant]) -> bool {
+        use crate::grant::{Action, allowed};
+        match self {
+            Self::App { id, .. } => allowed(grants, &Action::DriveApp { app: id }),
+            Self::Site { page, .. } => allowed(grants, &Action::DriveSite { host: &page.host }),
+            Self::DeviceSite { .. } | Self::DeviceApp { .. } | Self::Device { .. } => false,
+        }
+    }
+
+    /// What ace is told the step must still act in, checked inside ace right before each
+    /// input (`expect` on the call): a tab at an address, or an app by its id. `None` where ace
+    /// can't check one (an address being opened, a device).
+    pub fn expect(&self) -> Option<Value> {
+        match self {
+            Self::Site {
+                tab: Some(tab),
+                page,
+            } => Some(json!({ "tabId": tab, "url": page.url })),
+            Self::App { id, .. } => Some(json!({ "app": id })),
+            _ => None,
         }
     }
 }
@@ -79,6 +115,8 @@ impl Step {
 }
 
 pub const NO_TAB: &str = "It acts in a browser tab Spade can't find right now, so you decide.";
+pub const NO_DIALOG: &str =
+    "It answers a dialog Spade can't find in any tab right now, so you decide.";
 pub const LOADING: &str = "It acts in a page that is still loading, so you decide.";
 pub const NOT_WEB: &str = "It acts in a page that isn't a web address, so you decide.";
 pub const NO_APP: &str = "It acts in an app Spade can't tell apart from others, so you decide.";
@@ -159,25 +197,43 @@ pub fn read(tool: &str, arguments: &Value, answer: Option<&str>) -> Step {
     };
     let given = arguments.get("app").and_then(Value::as_str).unwrap_or("");
     match (ask, answer) {
-        ("browser_tabs", Some(answer)) => tab(answer, arguments.get("tabId")),
+        ("browser_tabs", Some(answer)) => tab(answer, arguments),
         ("browser_tabs", None) => Step::nowhere(NO_TAB),
         ("screen_apps", answer) => app(given, answer),
         _ => Step::nowhere(UNPLACED),
     }
 }
 
-/// The page of the tab a step runs in: its `tabId`, else the caller's current tab, as ace
-/// lists them now. A tab that is loading, private or missing has no place yet.
-fn tab(answer: &str, wanted: Option<&Value>) -> Step {
+/// The page of the tab a step runs in, as ace lists them now: for a dialog's answer the tab
+/// that raised the dialog (ace sends the answer there, whichever tab the call names), else its
+/// `tabId`, else the caller's current tab. A tab that is loading, private or missing has no
+/// place yet.
+fn tab(answer: &str, arguments: &Value) -> Step {
     let Ok(listed) = serde_json::from_str::<Value>(answer) else {
         return Step::nowhere(NO_TAB);
     };
     let tabs = listed.get("tabs").and_then(Value::as_array);
-    let found = tabs.into_iter().flatten().find(|tab| match wanted {
-        Some(wanted) => tab.get("tabId").map(scalar) == Some(scalar(wanted)),
-        None => tab.get("current").and_then(Value::as_bool) == Some(true),
-    });
+    let dialog = (arguments.get("action").and_then(Value::as_str) == Some("dialog"))
+        .then(|| arguments.get("dialogId").map(scalar).unwrap_or_default());
+    let wanted = arguments.get("tabId");
+    let found = tabs
+        .into_iter()
+        .flatten()
+        .find(|tab| match (&dialog, wanted) {
+            (Some(dialog), _) => {
+                tab.get("pending_dialog")
+                    .and_then(|pending| pending.get("dialogId"))
+                    .map(scalar)
+                    .as_ref()
+                    == Some(dialog)
+            }
+            (None, Some(wanted)) => tab.get("tabId").map(scalar) == Some(scalar(wanted)),
+            (None, None) => tab.get("current").and_then(Value::as_bool) == Some(true),
+        });
     let Some(found) = found else {
+        return Step::nowhere(if dialog.is_some() { NO_DIALOG } else { NO_TAB });
+    };
+    let Some(id) = found.get("tabId").map(scalar) else {
         return Step::nowhere(NO_TAB);
     };
     let flag = |key: &str| found.get(key).and_then(Value::as_bool) == Some(true);
@@ -188,7 +244,7 @@ fn tab(answer: &str, wanted: Option<&Value>) -> Step {
         return Step::nowhere(NO_TAB);
     }
     match found.get("url").and_then(Value::as_str) {
-        Some(url) => site(url),
+        Some(url) => page_in(url, Some(id)),
         None => Step::nowhere(NO_TAB),
     }
 }
@@ -201,14 +257,14 @@ fn scalar(value: &Value) -> String {
     }
 }
 
-/// A page by its address.
+/// A page by its address, as a step opens it.
 pub fn site(url: &str) -> Step {
+    page_in(url, None)
+}
+
+fn page_in(url: &str, tab: Option<String>) -> Step {
     match address::parse(url) {
-        Some(found) => Step::at(Place::Site {
-            host: found.host,
-            path: found.path,
-            fragment: found.fragment,
-        }),
+        Some(page) => Step::at(Place::Site { tab, page }),
         None => Step::nowhere(NOT_WEB),
     }
 }
@@ -289,8 +345,11 @@ fn device(tool: &str, arguments: &Value) -> Step {
             }),
             None => Step::nowhere(DEVICE_INPUT),
         },
-        ("sim_act", Some("open_url")) => match text("url") {
-            Some(url) => site(url),
+        ("sim_act", Some("open_url")) => match text("url").and_then(address::parse) {
+            Some(page) => Step::at(Place::DeviceSite {
+                device: text("simId").unwrap_or("").to_owned(),
+                page,
+            }),
             None => Step::nowhere(NOT_WEB),
         },
         ("sim_act", Some("install" | "record_start" | "record_stop" | "posture")) => {
@@ -307,11 +366,7 @@ pub fn sensitive(place: &Place) -> Option<&'static str> {
         Place::App { id, name } => sensitive::app_by_name(name)
             .or_else(|| sensitive::app_by_name(id))
             .or_else(|| sensitive::app_given(id)),
-        Place::Site {
-            host,
-            path,
-            fragment,
-        } => sensitive::site(host, path, fragment),
+        Place::Site { page, .. } | Place::DeviceSite { page, .. } => sensitive::site(page),
         Place::DeviceApp { app, .. } => sensitive::app_given(app),
         Place::Device { .. } => None,
     }
@@ -332,7 +387,12 @@ pub fn grantable_app(app: &str) -> Result<(), &'static str> {
 /// for a host as a browser reads it.
 pub fn grantable_site(host: &str) -> Result<(), &'static str> {
     match address::parse(&format!("https://{}/", host.trim())) {
-        Some(found) if found.host == host.trim() => match sensitive::site(&found.host, "", "") {
+        Some(found) if found.host == host.trim() => match sensitive::site(&address::Page {
+            path: String::new(),
+            query: String::new(),
+            fragment: String::new(),
+            ..found
+        }) {
             Some(why) => Err(why),
             None => Ok(()),
         },

@@ -256,8 +256,13 @@ const PATH_PARTS: &[(&str, &str)] = &[
     ("messages", MAIL),
 ];
 
-/// Why a page (its canonical host, decoded path and fragment) is the person's.
-pub fn site(host: &str, path: &str, fragment: &str) -> Option<&'static str> {
+/// Query keys whose values are what someone searched for, not where the page is: their words
+/// never make a page sensitive (`?q=checkout+bags` is a search).
+const SEARCH_KEYS: &[&str] = &["q", "query", "search", "s", "term", "text", "keyword", "k"];
+
+/// Why a page (its canonical host and decoded path, query and fragment) is the person's.
+pub fn site(page: &super::address::Page) -> Option<&'static str> {
+    let host = page.host.as_str();
     let listed = HOSTS.iter().find_map(|(listed, why)| {
         let under = host == *listed
             || host
@@ -280,10 +285,20 @@ pub fn site(host: &str, path: &str, fragment: &str) -> Option<&'static str> {
             .then_some(*why)
     });
     by_host.or_else(|| {
-        // A single-page app's route (`#/settings`) is a path too.
-        let parts: Vec<&str> = [path, fragment]
-            .iter()
-            .flat_map(|text| text.split(['/', '.', '?', '&', '=', '!']))
+        // A single-page app's route (`#/settings`, `?view=settings`) is a path too.
+        let query = page.query.split('&').flat_map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            let value = if SEARCH_KEYS.contains(&key) {
+                ""
+            } else {
+                value
+            };
+            [key, value]
+        });
+        let parts: Vec<&str> = [page.path.as_str(), page.fragment.as_str()]
+            .into_iter()
+            .chain(query)
+            .flat_map(|text| text.split(['/', '.', '?', '&', '=', '!', ' ', ',', ';', ':']))
             .filter(|part| !part.is_empty())
             .collect();
         PATH_PARTS
@@ -292,11 +307,16 @@ pub fn site(host: &str, path: &str, fragment: &str) -> Option<&'static str> {
     })
 }
 
+/// The person's own machine: a loopback address, or a name only this machine or network
+/// answers (`localhost`, `*.localhost`, `*.local`, `*.test`). `127.example.com` is a name, not an
+/// address.
 fn loopback(host: &str) -> bool {
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if let Ok(address) = bare.parse::<std::net::IpAddr>() {
+        return address.is_loopback();
+    }
     host == "localhost"
         || host.ends_with(".localhost")
         || host.ends_with(".local")
         || host.ends_with(".test")
-        || host == "[::1]"
-        || host.starts_with("127.")
 }
