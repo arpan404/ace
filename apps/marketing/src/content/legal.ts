@@ -104,6 +104,7 @@ export const privacyPolicy: LegalDocument = {
             "Notifications: see the section above.",
           ],
         },
+        "The app makes one random id for itself when it's first installed. When you use your ace account, the account service signs this id into the short-lived pass that lets the phone reach your machines, so each machine knows it's the same phone. We don't store it.",
         "The app has no analytics or crash-reporting SDKs, and no advertising or tracking.",
       ],
     },

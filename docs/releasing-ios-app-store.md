@@ -17,12 +17,12 @@ The site deploys from `main` on Cloudflare Pages, so these pages must be live be
 Answer App Store Connect's questions to match the privacy policy and the account service:
 
 - [ ] Collected, linked to the user, not used for tracking, purpose App Functionality: **Email
-      Address**, **Name** and **User ID**.
+      Address**, **Name**, **User ID** and **Device ID** (the app's random install id, which the
+      account service signs into each relay pass and doesn't store).
 - [ ] Every other data type: **Not Collected**.
 - [ ] Tracking: No.
-- [ ] `apps/ios/Resources/PrivacyInfo.xcprivacy` lists no collected data types today
-      (`NSPrivacyCollectedDataTypes` is empty). Add the three above so the manifest says what the
-      App Store page says.
+- [ ] These match `NSPrivacyCollectedDataTypes` in `apps/ios/Resources/PrivacyInfo.xcprivacy`.
+      Change both together.
 
 ## Sign in with Apple (guideline 4.8)
 
