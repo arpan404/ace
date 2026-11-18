@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import { followAppAccount, handsOverOnSignIn, signsOutOnSignOut } from "./account-write.ts";
-import { fakeEnrollments, relayHostId, ticket } from "./enrollment-test-support.ts";
+import { fakeEnrollments, relayHostId } from "./enrollment-test-support.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
