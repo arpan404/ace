@@ -105,7 +105,11 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
   22/28 at 600, then Details · Library · Computer as a segmented control in the body.
 - **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps,
-  spending, then Duplicate and Delete. Everything edits in place: ⌘↵ saves a task, Esc puts it
+  spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
+  machines with Spade (an offline one named and not choosable); Spade read through a machine that
+  isn't its host offers Move Spade to this machine (ADR 0187). A move, a failed move or what needs
+  the person after one is one sentence above the task with its text buttons (Cancel; Try again
+  and Dismiss; Dismiss), the list row says the same in fewer words. Everything edits in place: ⌘↵ saves a task, Esc puts it
   back. The face opens a popover to change it.
 - **Routines** are a section of Details: schedule, webhook (its address and secret only here, with
   Copy), heartbeat, on a thread event. A row says a failed last run in words; paused reads paused.

@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { parseSpadeArrival, parseSpadeMove, spadeArrivalLine, spadeMoveLine } from "./index.ts";
+import {
+  parseSpadeAgentValue,
+  parseSpadeArrival,
+  parseSpadeMove,
+  spadeArrivalLine,
+  spadeBotRow,
+  spadeMoveLine,
+} from "./index.ts";
 
 const move = (fields: Record<string, unknown>) =>
   parseSpadeMove({ id: "mv_1", to: { host: "h2", name: "Studio" }, ...fields });
@@ -46,4 +53,23 @@ test("an arrival names everything that needs the person, and nothing when nothin
   const quiet = parseSpadeArrival({ from: { name: "Laptop" } });
   expect(quiet && spadeArrivalLine(quiet)).toBe("Moved from Laptop.");
   expect(parseSpadeArrival(null)).toBeUndefined();
+});
+
+test("a moving bot's row, here and on the phone, says where it is going", () => {
+  const agent = parseSpadeAgentValue({
+    id: "a_1",
+    name: "Research",
+    conversation: "c_1",
+    move: { id: "mv_1", to: { host: "h2", name: "Studio" }, state: "sending", sent: 2, total: 8 },
+  });
+  if (!agent) throw new Error("no agent");
+  const place = {
+    machine: { key: "primary", name: "This Mac", primary: true },
+    away: false,
+    unavailable: false,
+  };
+  expect(spadeBotRow({ ...agent, ...place })).toEqual({
+    state: "rest",
+    line: "Copying Research to Studio, 2 of 8.",
+  });
 });

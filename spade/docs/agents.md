@@ -12,9 +12,9 @@ describe. Agents run on models from the person's own endpoints.
   empty task, the person's first usable model (first endpoint with a key and a saved model), else
   no model (`""`): never a preset's, which the person hasn't set up. Until they choose one,
   messages to it answer `409` and say so. At most one per service. It cannot be deleted, and its name and avatar
-  cannot change (`409`); its task and model can. `PUT /v1/main {"enabled": false}` switches it off
-  on a machine that does not host Spade: it is left out of `GET /v1/agents` and `bots_list`, and
-  messages to its conversation answer `409`. Its stored conversation is kept.
+  cannot change (`409`); its task and model can. It shows only on the machine the fleet's host
+  record names (see "Where Spade lives"); elsewhere it is left out of `GET /v1/agents` and
+  `bots_list`, and messages to its conversation answer `409`. Its stored conversation is kept.
 - **Bots.** Created by the person. Name 1 to 40 characters (trimmed, one line), task up to 4,000
   characters, avatar, model.
 - **Task and model** changes are stored as an `agent_configured` event in the agent's
@@ -33,6 +33,65 @@ describe. Agents run on models from the person's own endpoints.
   character face (see Faces).
 - **Titles** and other side jobs use the person's fast model (`PUT /v1/settings`), else the
   agent's own model. Compaction always uses the agent's own model.
+
+### Where Spade lives
+
+[ADR 0187](../../docs/adr/0187-spade-bots-move-between-machines.md). The setting `main_host` holds
+the record `{host, version, at, by}` this machine heard last (`by` is `person`, `seed` or `move`);
+a record replaces it only when newer: a higher `version`, then a later `at`, then the higher
+`host`. This machine's own host id is `<SPADE_ACE_HOME>/host-id`. The main bot shows while the
+record names this machine, and the person hasn't switched it off here (`main_off`). Before any
+record the old election's `main_enabled` still decides; the first record heard drops it.
+
+| Method and path  | Body                       | Answer                                     |
+| ---------------- | -------------------------- | ------------------------------------------ |
+| `GET /main`      |                            | `{here, host: record \| null, shown, off}` |
+| `PUT /main/host` | a record                   | `200 {host}`: the record held after        |
+| `PUT /main`      | `{enabled, by?: "person"}` | `204`; without `by` ignored once a record  |
+
+### Moving a bot
+
+A bot moves to another of the person's machines with everything it knows (ADR 0187). The machine
+it is on does the work (`engine/moves/`):
+
+1. `POST /agents/{id}/move {to}` (a host id from the daemon's linked machines, online) answers
+   `202 {move}`. Refused (`409`) for a worker (it moves with its maker), the main bot on a machine
+   that doesn't host it, a bot already moving, and one that (or a worker of which) is working,
+   waiting on the person, sleeping or running a service. The bot and its workers are frozen:
+   messages answer `409` ("Research is moving to Studio …"), routines don't fire, and its
+   `status` reads "Moving to Studio".
+2. **Packing** (`moves/<id>/out/`): numbered parts of at most 384 KiB: rows table by table
+   (`spade_store::MOVE_TABLES`: its conversations and their events, helpers, spend, seen marks,
+   notes, knowledge and links, episodes, digests, routines and runs, skill uses, the clubs it leads
+   with their members, inbox keys, and every `<what>:<id>` or `<what>.<id>` setting), a row bigger
+   than a part as `piece`s of its text, every image its avatar or events name, then each workspace
+   file in 256 KiB pieces with its size and SHA-256 on the last. Links stay behind. Then
+   `manifest.json`: format `spade-move` 1, the schema version, the agents, per table its row count
+   and hash (SHA-256 over the sorted SHA-256s of each row's JSON), the file count, the endpoints
+   its models use (ids and names), plugin and connector choices. Never a key, a token or a
+   sign-in.
+3. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
+   machine call): `begin {manifest}` answers `{have, host}` (the parts already staged, and the
+   host record held there); `part {index, part}` stores one; then **committing**: `commit
+{host?}`. Unreachable means wait and try again (`waiting: true`); Cancel works until the
+   commit is sent.
+4. The target stages parts in `moves/<id>/in/`, and on `commit` joins the files (checking each
+   hash), then in one transaction deletes any older copy under the same ids, writes every row,
+   checks each table's count and hash, and arrives: routines pause, webhooks get new secrets, the
+   bot's clubs point here, folder grants and toolchains whose folder this machine lacks are
+   dropped and named, the host record for Spade is kept, and the move reads `placing`. It then
+   places the workspace and images (resumed at start if cut off) and answers `{committed,
+arrival}`. A refused check answers `422` and keeps nothing. `status` and `abort` answer a source
+   after a lost answer or when it gives up; staging left a day without news is dropped.
+5. **Finishing** on the source: the main bot goes quiet as the record now names the target;
+   any other bot is archived (`moved/<id>/parts` and `workspace/`), `moved:<id>` remembers
+   where it went, clubs here list it on the target, and its rows go.
+
+The target keeps `arrived:<id>` (`{from, at, routines_paused, webhooks, folders, endpoints, apps,
+plugins, left}`) until `DELETE /agents/{id}/arrival`. `GET /agents/{id}/move` answers `{move,
+arrival}`; `DELETE /agents/{id}/move` cancels or dismisses. The Agent JSON carries `move` (`{id,
+to: {host, name}, state, sent, total, waiting, problem, can_cancel}`, while one is open or failed)
+and `arrived`.
 
 ### Bots talking
 

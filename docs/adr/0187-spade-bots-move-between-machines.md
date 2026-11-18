@@ -80,7 +80,7 @@ routines and notes, but never its conversation, knowledge, workspace or anything
    moving to Studio", nothing of it starts), writes the export as numbered parts with a manifest
    (format `spade-move`, version 1, Spade's schema version, and per table and per file a count and
    a SHA-256), then sends it to the target Spade through its daemon as inbox requests (`op:
-   "move"`, steps `begin`, `part`, `commit`, `status`, `abort`), one part per request, at most 384
+"move"`, steps `begin`, `part`, `commit`, `status`, `abort`), one part per request, at most 384
    KiB each, so a large workspace streams in bounded pieces and neither daemon holds more than one
    part. The target keeps the parts in a staging folder, checks each against the manifest, and on
    `commit` writes every row in one database transaction and verifies the counts and hashes
