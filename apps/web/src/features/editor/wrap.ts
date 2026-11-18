@@ -69,7 +69,10 @@ export function wrapLine(text: string, columns: number): readonly WrapRow[] {
   const width = Math.max(leastRowCells, Math.floor(columns));
   if (text.length === 0) return wholeRow(text);
   if (text.length <= width && isPlain(text)) return wholeRow(text);
-  const rows = text.length > longLine ? wrapCodeUnits(text, width) : wrapGraphemes(text, width);
+  const rows =
+    text.length > longLine && isPlain(text)
+      ? wrapCodeUnits(text, width)
+      : wrapGraphemes(text, width);
   return rows.length ? rows : wholeRow(text);
 }
 
