@@ -141,7 +141,7 @@ struct InboxSearchList: View {
 
     /// Pull requests show only for an unfiltered search with a machine to ask; the empty state
     /// reads the same rule, so a hidden answer never stands in for "Search is offline".
-    private var showsPulls: Bool { everyKind && !offline && (!pulls.found.isEmpty || pulls.problem != nil) }
+    private var showsPulls: Bool { everyKind && !offline && (!pulls.visible(inbox).isEmpty || pulls.problem != nil) }
 
     @ViewBuilder private var results: some View {
         if everyKind { actionSection }
@@ -179,7 +179,7 @@ struct InboxSearchList: View {
         }
         if showsPulls {
             Section {
-                ForEach(pulls.found) { found in
+                ForEach(pulls.visible(inbox)) { found in
                     Button { remember(); actions.pull(found.route) } label: { ForgePullRowView(row: found.row) }
                         .buttonStyle(.row)
                         .accessibilityIdentifier("search.pull.\(found.row.number)")
