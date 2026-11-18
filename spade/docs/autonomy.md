@@ -155,7 +155,9 @@ input the desktop takes as an operation, checks the place where it leaves for th
 the transport's slot, right before the write, after waiting for one, and against the page's own
 answer to where it is (asked of the page right then, so a route a handler just changed counts
 before the browser reports it; a frame, or a page that gives no value, falls back to the
-browser's report, and one that can't answer fails the step). The end of
+browser's report, and one that can't answer fails the step). A dialog's answer can't ask the page
+(its script waits while the dialog is open): it is checked against what the browser reported, the
+dialog's own tab and the address it reported the dialog with. The end of
 a press, key or touch begun under the hold that finds the place changed is never sent (a drag is
 cancelled instead), so no mouseup, click, keyup or drop lands on the page the tab moved to; the
 step fails with `place_changed`. A test lists every way a command leaves for a page and fails if

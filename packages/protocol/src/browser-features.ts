@@ -7,6 +7,12 @@ export const BrowserDialog = z.object({
   type: z.enum(["alert", "confirm", "prompt", "beforeunload"]),
   message: z.string().max(4096),
   defaultPrompt: z.string().max(4096).optional(),
+  /**
+   * The address of the page that raised it, as the browser reported it with the dialog: a held
+   * answer (ADR 0171 amendment 3) is checked against it, since the page's own script can't run
+   * while the dialog is open.
+   */
+  url: z.string().max(8192).optional(),
 });
 export type BrowserDialog = z.infer<typeof BrowserDialog>;
 /**

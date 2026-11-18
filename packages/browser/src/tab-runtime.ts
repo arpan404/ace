@@ -805,7 +805,16 @@ export class TabRuntime {
         tabId: this.id,
         page: this.page,
         answer: (dialogId, accept, promptText) => {
-          place();
+          if (held) {
+            // The page's script waits while its dialog is open, so the place is what the
+            // browser reported: the dialog must be this tab's, raised at the checked address.
+            const dialog = host.dialog(this.id);
+            if (
+              dialog?.dialogId !== dialogId ||
+              !atPlace(held, this.id, dialog.url ?? this.page.url())
+            )
+              throw new BrowserActionError("place_changed");
+          }
           return host.answer(dialogId, accept, promptText);
         },
         beforeInput,

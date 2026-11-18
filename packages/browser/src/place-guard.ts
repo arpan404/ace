@@ -47,6 +47,9 @@ const moves: ReadonlySet<string> = new Set([
   "Page.handleJavaScriptDialog",
 ]);
 
+/** The CDP method that answers a page's dialog. */
+export const DIALOG_ANSWER = "Page.handleJavaScriptDialog";
+
 /** What a transport does with one outgoing command. */
 export type Dispatch =
   /** Send it. */
@@ -175,7 +178,12 @@ export async function dispatched<T>(
   params: Record<string, unknown> | undefined,
   send: (method: string, params?: Record<string, unknown>) => Promise<T>,
 ): Promise<T> {
-  const url = held() && dispatchesInput(method) ? await pageLocation(send) : undefined;
+  // A dialog's answer can't ask the page: its script waits while the dialog is open. Its place is
+  // the tab's report, and the dialog's own (tab-runtime.ts, `answer`).
+  const url =
+    held() && dispatchesInput(method) && method !== DIALOG_ANSWER
+      ? await pageLocation(send)
+      : undefined;
   const decided = beforeDispatch(method, params, url);
   if (decided.kind === "send") return send(method, params);
   if (decided.instead) await send(decided.instead.method, decided.instead.params).catch(() => {});
