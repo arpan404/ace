@@ -30,6 +30,8 @@ export interface UpdateStatus {
   buildLine: ReleaseLine;
   /** Why the line's release, older than this version, isn't offered; one sentence. */
   blocked: string | null;
+  /** The person's Restart is under way: the app closes and reopens on the update. */
+  restarting?: boolean;
   error: { during: "check" | "download" | "install"; message: string } | null;
 }
 
@@ -162,6 +164,7 @@ export function parseUpdateStatus(value: unknown): UpdateStatus | undefined {
     buildLine: build,
     line: isLine(line) ? line : build,
     blocked: text(field("blocked"), 400) ?? null,
+    ...(field("restarting") === true ? { restarting: true } : {}),
     error: parseError(field("error")),
   };
 }
@@ -302,4 +305,12 @@ export function useDesktopUpdate(scope: object = globalThis): DesktopUpdate {
       }
     },
   };
+}
+
+/**
+ * The app is closing to restart into its update: from the person's Restart until the window
+ * goes, the daemon stopping is part of that, not a connection to report. False in a browser.
+ */
+export function useUpdateClosing(scope: object = globalThis): boolean {
+  return useDesktopUpdate(scope).status?.restarting === true;
 }

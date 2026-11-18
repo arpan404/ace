@@ -104,6 +104,15 @@ export class AccountService {
     this.after = options.after ?? realAfter;
     this.homeWait = options.homeWait ?? {};
   }
+  /**
+   * The daemon's PATH became final after this service copied its environment: a daemon the
+   * app started on a saved PATH gets the login shell's before any session opens. Every later
+   * session, sign-in and ACP environment launches with `path`.
+   */
+  usePath(path: string): void {
+    this.env = { ...this.env, PATH: path };
+    this.cursorEnv = { ...this.cursorEnv, PATH: path };
+  }
   isChangingAccount(id: string): boolean {
     return this.migrating.has(id);
   }

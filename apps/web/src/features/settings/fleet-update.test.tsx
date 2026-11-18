@@ -138,7 +138,7 @@ test("a machine this window only reads shows its update without any action", asy
   daemon("studio").machineUpdate.seed(offer);
   await app.open("/settings/remote/studio");
   const software = await region("Software");
-  expect(await within(software).findByText("ace 0.0.18. 0.0.19 is available.")).toBeTruthy();
+  expect(await within(software).findByText("ace 0.0.18 · Update available · 0.0.19")).toBeTruthy();
   expect(
     await within(software).findByText(
       "This window can only read this machine. Pair it again as Administrator to update it.",

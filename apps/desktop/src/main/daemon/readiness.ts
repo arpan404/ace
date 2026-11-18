@@ -56,6 +56,8 @@ export async function waitForDaemon(
   ports: ReadinessPorts,
   timeoutMs: number,
   live: () => boolean,
+  /** The daemon wrote its endpoint (it listens), as far as the watch can tell. */
+  published?: () => void,
 ): Promise<LocalDaemon | undefined> {
   const deadline = ports.now() + timeoutMs;
   let watch = ports.watchEndpoint?.();
@@ -71,6 +73,7 @@ export async function waitForDaemon(
         // Published: the daemon is coming up, and its readiness is polled for.
         watch.close();
         watch = undefined;
+        if (live()) published?.();
       }
     }
   } finally {

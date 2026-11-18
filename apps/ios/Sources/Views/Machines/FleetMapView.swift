@@ -56,13 +56,7 @@ struct FleetMapView: View {
                 }
                 .insetRowBackground()
             }
-            if let problem {
-                Section {
-                    ServiceProblem(message: problem)
-                    Button("Retry") { Task { await load() } }.buttonStyle(.textAction())
-                }
-                .insetRowBackground()
-            }
+            if let problem { ProblemRow(problem, id: "fleetMap.problem") { Task { await load() } } }
         }
         .insetGroupedList()
         .smoothChange(reply)
@@ -78,7 +72,7 @@ struct FleetMapView: View {
         } message: { Text(asking?.question.body ?? "") }
     }
 
-    /// A node that needs the person: its state, what's wrong and why, and its fixes as words.
+    /// A node that needs the person: its state, what's wrong and why, and its fixes as buttons.
     private func problemRow(_ row: FleetMapReply.Row) -> some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             FleetMapRowLabel(row: row, line: row.state)
@@ -92,10 +86,10 @@ struct FleetMapView: View {
                 Text(hint).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("fleetMap.hint.\(row.id)")
             }
-            HStack(spacing: AceDesign.Space.row) {
+            HStack(spacing: AceDesign.Space.related) {
                 ForEach(row.fixes) { fix in
-                    Button(fix.label) { tapped(fix, row: row) }
-                        .buttonStyle(.textAction(fix.primary ? .prominent : .plain))
+                    let button = Button(fix.label) { tapped(fix, row: row) }
+                    Group { if fix.primary { button.buttonStyle(.primaryAction) } else { button.buttonStyle(.secondaryAction) } }
                         .disabled(busy || (fix.action.kind == "hint" && hints[row.id] != nil))
                         .accessibilityIdentifier("fleetMap.fix.\(row.id).\(fix.id)")
                 }

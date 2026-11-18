@@ -5,7 +5,9 @@ import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { DoctorReport, providerSummaries, type ProviderSummary } from "../../shared/onboarding.ts";
 import type { Log } from "../log/desktop-log.ts";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
-import { loginShellPath } from "./login-path.ts";
+import { loginShellPath } from "@ace/service/login-path";
+import { readSavedPath, writeSavedPath } from "./login-path.ts";
+import { launchPaths, type LaunchPaths, type SpawnPath } from "./spawn-path.ts";
 import { watchEndpointFile } from "./endpoint-watch.ts";
 import {
   daemonHealth,
@@ -73,6 +75,12 @@ export interface RuntimeOptions {
   sinceLaunch?: () => number;
   /** The app's one main-thread beat (`diagnostics/main-beat.ts`), read on `Date.now`'s clock. */
   freezes?: FreezeSignal;
+  /**
+   * Where the login shell's PATH is saved between launches (in the app's data folder), so the
+   * next launch can spawn the daemon without waiting for the shell. Without it, every spawn
+   * waits for the shell.
+   */
+  savedPathFile?: string;
 }
 
 /**
@@ -84,8 +92,9 @@ export class DaemonRuntime {
   readonly supervisor: DaemonSupervisor | undefined;
   private options: RuntimeOptions;
   private path: Promise<string>;
+  private paths: LaunchPaths;
   private status: DaemonStatus;
-  private resolvedPath = "";
+  private spawnPath: SpawnPath = { path: "" };
   private listeners = new Set<(status: DaemonStatus) => void>();
 
   constructor(options: RuntimeOptions) {
@@ -105,6 +114,17 @@ export class DaemonRuntime {
     };
     // loginShellPath answers the current PATH when the shell fails: this cannot reject.
     void this.path.then(() => launchStep("The login shell's PATH is ready")).catch(() => {});
+    const savedPathFile = options.savedPathFile;
+    this.paths = launchPaths({
+      saved: savedPathFile ? readSavedPath(savedPathFile) : undefined,
+      login: this.path,
+      save: (path) => {
+        if (!savedPathFile) return;
+        void writeSavedPath(savedPathFile, path).catch((error: unknown) =>
+          options.log("warn", `Could not save the login shell's PATH: ${String(error)}`),
+        );
+      },
+    });
     let looked = false;
     const source =
       this.target.kind === "remote" ? "remote" : this.target.kind === "fake" ? "fake" : "external";
@@ -136,9 +156,11 @@ export class DaemonRuntime {
           spawn:
             this.target.kind === "managed"
               ? ({ safeMode }) => {
-                  launchStep("Spawning the daemon", { safeMode });
+                  const { path, confirm } = this.spawnPath;
+                  launchStep("Spawning the daemon", { safeMode, savedPath: Boolean(confirm) });
                   return (options.spawnDaemon ?? spawnDaemon)({
-                    ...this.spawnOptions(home, this.resolvedPath, safeMode),
+                    ...this.spawnOptions(home, path, safeMode),
+                    loginPath: confirm,
                     prioritize: launchPolicy.wrap,
                     onOutput:
                       options.daemonOutput ??
@@ -148,8 +170,8 @@ export class DaemonRuntime {
                 }
               : undefined,
           prepareSpawn: async () => {
-            const [path] = await Promise.all([this.path, launchPolicy.ready()]);
-            this.resolvedPath = path;
+            const [path] = await Promise.all([this.paths.next(), launchPolicy.ready()]);
+            this.spawnPath = path;
           },
           watchEndpoint: () => watchEndpointFile(home),
           find: async () => {
@@ -188,8 +210,9 @@ export class DaemonRuntime {
   }
 
   /**
-   * Adopting a daemon that already runs needs no PATH, so the login shell (about a second on a
-   * busy shell profile) is waited for only before this app spawns its own.
+   * Adopting a daemon that already runs needs no PATH. A spawn uses the PATH saved last launch
+   * and hands the login shell's (seconds on a busy shell profile) to the daemon once it answers;
+   * only a first launch, with nothing saved, waits for the shell (`spawn-path.ts`).
    */
   async start(): Promise<void> {
     if (this.target.kind === "remote" || this.target.kind === "fake") {

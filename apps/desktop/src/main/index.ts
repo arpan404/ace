@@ -57,7 +57,7 @@ import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
 import { hyprlandShortcutHint } from "./os/hyprland-shortcut.ts";
 import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
 import { claimAceLinks } from "./os/link-handler.ts";
-import { loginShellPath } from "./daemon/login-path.ts";
+import { loginShellPath } from "@ace/service/login-path";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
 import { settingsEffects } from "./os/settings-effects.ts";
@@ -215,6 +215,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       packaged: app.isPackaged,
     },
     env: process.env,
+    savedPathFile: join(app.getPath("userData"), "login-path.json"),
     log: logger("supervisor"),
     sinceLaunch: () => performance.now(),
     freezes: beat,
@@ -283,14 +284,20 @@ function main(target: DaemonTarget, crashDumps: string): void {
    * Every quit waits here until the daemon this app started has exited: the browser backend
    * tells the daemon first, then that daemon stops (SIGTERM, then SIGKILL after its grace).
    */
+  const quitLog = logger("quit");
   const quitGate = new QuitGate({
     shutDown: async () => {
       globalShortcut.unregisterAll();
       // Before the daemon stops or the app goes: no client should keep showing this app's update,
       // and the browser backend tells the daemon it is going. Both at once, then the daemon.
       await shutDownBeforeQuit({
-        beforeDaemon: [() => updateReport.withdraw(), () => background.stop()],
+        beforeDaemon: [
+          { name: "update report withdrawn", run: () => updateReport.withdraw() },
+          { name: "browser backend stopped", run: () => background.stop() },
+        ],
         daemon: () => runtime.stop(),
+        now: Date.now,
+        log: (message, data) => quitLog("info", message, data),
       });
     },
     quit: () => {
@@ -298,8 +305,15 @@ function main(target: DaemonTarget, crashDumps: string): void {
       app.quit();
     },
     timers,
-    log: logger("quit"),
+    log: quitLog,
   });
+  // The daemon's lookup and spawn start now, beside serving the page and creating the window,
+  // not after them: they need nothing from Electron's ready. Only this app's single instance
+  // gets here, the QuitGate above already stops what this starts, and the supervisor picks a
+  // safe start itself. Nothing the updater does, later, can keep it from running.
+  void runtime
+    .start()
+    .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
   const daemonRunning = new Promise<void>((settle) => {
     if (runtime.current().state === "running") return settle();
     const stop = runtime.onStatus((status) => {
@@ -780,10 +794,6 @@ function main(target: DaemonTarget, crashDumps: string): void {
     }
     // The background link follows the daemon from here on: it attaches whenever one is ready.
     background.start();
-    // The daemon starts first: nothing the updater does can keep it from running.
-    void runtime
-      .start()
-      .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
     try {
       updates.start();
     } catch (error) {
