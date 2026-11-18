@@ -78,10 +78,10 @@ mod tests {
     use notify::event::{EventKind, ModifyKind, RenameMode};
 
     /// One record as the kernel lays it out: header, name, padding to a four-byte boundary.
-    fn record(action: u32, name: &str, next: u32) -> Vec<u8> {
+    fn record(action: u32, name: &str) -> Vec<u8> {
         let name: Vec<u16> = name.encode_utf16().collect();
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&next.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
         bytes.extend_from_slice(&action.to_le_bytes());
         bytes.extend_from_slice(&(name.len() as u32 * 2).to_le_bytes());
         for unit in name {
@@ -93,12 +93,27 @@ mod tests {
         bytes
     }
 
+    /// Records laid end to end, each naming the distance to the next one, as the kernel does.
+    fn chain(records: &[(u32, &str)]) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        let mut starts = Vec::new();
+        for (action, name) in records {
+            starts.push(buffer.len());
+            buffer.extend(record(*action, name));
+        }
+        for pair in starts.windows(2) {
+            let next = (pair[1] - pair[0]) as u32;
+            buffer[pair[0]..pair[0] + 4].copy_from_slice(&next.to_le_bytes());
+        }
+        buffer
+    }
+
     #[test]
     fn records_are_read_in_order_with_their_paths() {
-        let second = record(FILE_ACTION_REMOVED, "old.txt", 0);
-        let first = record(FILE_ACTION_ADDED, "src/main.rs", second.len() as u32);
-        let mut buffer = first;
-        buffer.extend(second);
+        let buffer = chain(&[
+            (FILE_ACTION_ADDED, "src/main.rs"),
+            (FILE_ACTION_REMOVED, "old.txt"),
+        ]);
         assert_eq!(
             parse(&buffer),
             [
@@ -110,7 +125,7 @@ mod tests {
 
     #[test]
     fn a_truncated_name_ends_the_scan_instead_of_panicking() {
-        let mut buffer = record(FILE_ACTION_ADDED, "src/main.rs", 0);
+        let mut buffer = record(FILE_ACTION_ADDED, "src/main.rs");
         buffer.truncate(buffer.len() - 4);
         assert!(parse(&buffer).is_empty());
     }
