@@ -78,6 +78,28 @@ fn answers_an_index_query_before_and_after_the_build() {
 }
 
 #[test]
+fn refuses_a_quick_open_page_above_a_thousand_hits() {
+    let checkout = checkout(&[("a.txt", "")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let too_big = client.request(Op::IndexQuery {
+        root,
+        query: "a".to_owned(),
+        limit: 1_001,
+    });
+    assert_eq!(client.error(too_big).code, "INVALID_ARGUMENT");
+
+    // A thousand is allowed, so the cap is a cap and not an off-by-one.
+    let capped = client.request(Op::IndexQuery {
+        root,
+        query: "a".to_owned(),
+        limit: 1_000,
+    });
+    assert!(matches!(client.reply(capped), Reply::Index(_)));
+}
+
+#[test]
 fn a_panicked_build_answers_an_error_instead_of_never_being_ready() {
     let checkout = checkout(&[("a.txt", "")]);
     let mut client = Client::launch(&[("ACE_FILES_PANIC_INDEX", "1")], false);
