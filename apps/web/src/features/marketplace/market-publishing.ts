@@ -8,7 +8,9 @@ import type {
 } from "@ace/protocol/marketplace";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { market, marketKey } from "./market-api.ts";
+import { market, marketKey, type PersonGrant } from "./market-api.ts";
+import { useAceAccountStore } from "@/features/ace-account/index.ts";
+import { browserInstallId } from "@/boot/install-id.ts";
 import { MarketFailure } from "./market-model.ts";
 
 /*
@@ -64,8 +66,15 @@ async function publishing<K extends MarketPublishAnswer["kind"]>(
   request: MarketPublishAction,
   kind: K,
   signal?: AbortSignal,
+  personGrant?: PersonGrant,
 ): Promise<Extract<MarketPublishAnswer, { kind: K }>> {
-  const { answer } = await market(client, { op: "publish", request }, "publish", signal);
+  const { answer } = await market(
+    client,
+    { op: "publish", request },
+    "publish",
+    signal,
+    personGrant,
+  );
   if (answer.kind !== kind) throw new MarketFailure("failed");
   return answer as Extract<MarketPublishAnswer, { kind: K }>;
 }
@@ -113,9 +122,10 @@ export function useSignals(type: MarketEntryType, name: string, enabled: boolean
 export function usePublishAction() {
   const client = useClient();
   const cache = useQueryClient();
+  const personGrant = usePersonGrant();
   return useMutation({
     mutationFn: async (request: MarketPublishAction) =>
-      (await market(client, { op: "publish", request }, "publish")).answer,
+      (await market(client, { op: "publish", request }, "publish", undefined, personGrant)).answer,
     onSettled: () => void cache.invalidateQueries({ queryKey: publishKey }),
   });
 }
@@ -123,13 +133,33 @@ export function usePublishAction() {
 /** Sends one publish action and answers it, for flows that step through several. */
 export function usePublishRequest() {
   const client = useClient();
+  const personGrant = usePersonGrant();
   return <K extends MarketPublishAnswer["kind"]>(request: MarketPublishAction, kind: K) =>
-    publishing(client, request, kind);
+    publishing(client, request, kind, undefined, personGrant);
 }
 
 /** Sends one publish action and answers whatever it answers. */
 export function usePublishSend() {
   const client = useClient();
+  const personGrant = usePersonGrant();
   return async (request: MarketPublishAction) =>
-    (await market(client, { op: "publish", request }, "publish")).answer;
+    (await market(client, { op: "publish", request }, "publish", undefined, personGrant)).answer;
+}
+
+/**
+ * This window's market grants for one sensitive request each (ADR 0190), from its own ace
+ * session: what the market takes withdrawals, transfers, handle changes and the like from.
+ */
+function usePersonGrant(): PersonGrant {
+  const store = useAceAccountStore();
+  return async (action) => {
+    const session = store?.get().session;
+    if (!store || !session) return undefined;
+    const grant = await store.client.grant(
+      session.token,
+      { kind: "device", subject: browserInstallId(), purpose: "market-publish", action },
+      AbortSignal.timeout(15_000),
+    );
+    return grant.token;
+  };
 }

@@ -34,8 +34,8 @@ export function sessionReader(deps: {
   const { store, provider, now } = deps;
   const inflight = new Map<string, Promise<ActiveSession | undefined>>();
 
-  async function refresh(hash: string): Promise<ActiveSession | undefined> {
-    const stored = await store.get(hash, now());
+  async function refresh(hash: string, held: boolean): Promise<ActiveSession | undefined> {
+    const stored = held ? await store.held(hash, now()) : await store.get(hash, now());
     if (!stored) return undefined;
     if (!(await store.lease(hash, now(), REFRESH_LEASE_MS)))
       return {
@@ -76,23 +76,26 @@ export function sessionReader(deps: {
     };
   }
 
-  async function readHash(hash: string): Promise<ActiveSession | undefined> {
-    const pending = inflight.get(hash);
+  /** `held`: read for a machine credential, which a retired session still serves. */
+  async function readHash(hash: string, held = false): Promise<ActiveSession | undefined> {
+    const key = `${held ? "held" : "token"}:${hash}`;
+    const pending = inflight.get(key);
     if (pending) return pending;
-    const run = refresh(hash);
-    inflight.set(hash, run);
+    const run = refresh(hash, held);
+    inflight.set(key, run);
     try {
       return await run;
     } finally {
-      inflight.delete(hash);
+      inflight.delete(key);
     }
   }
 
   return {
+    /** The session a bearer token opens: never a retired one (ADR 0190). */
     async read(token: string): Promise<ActiveSession | undefined> {
       return readHash(await digest(token));
     },
-    /** `read` by the token's digest, for a machine credential reading its session. */
+    /** By the token's digest; `held` for the session a machine credential lives on. */
     readHash,
     async revoke(token: string) {
       await store.remove(await digest(token));

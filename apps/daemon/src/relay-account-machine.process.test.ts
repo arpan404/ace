@@ -68,7 +68,7 @@ async function accountMachine(direct = false) {
     },
     (store) => {
       account = machineAccount({
-        relayHostId: async () => "A".repeat(52),
+        relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
         dataDir: root,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -85,7 +85,7 @@ async function accountMachine(direct = false) {
   cleanup.push(() => f.close());
   if (!account) throw new Error("Machine account missing");
   cleanup.push(() => account?.close());
-  await account.handover(backend.origin, backend.token);
+  await account.handover(backend.origin, { token: backend.token });
   const hostId = f.server.relayHostId;
   if (!hostId) throw new Error("Relay host missing");
   const accounts = aceAccountClient({ origin: backend.origin, fetch: globalThis.fetch });

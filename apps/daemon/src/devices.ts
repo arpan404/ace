@@ -34,7 +34,18 @@ export const activeDevice = (
  * opened (tickets, sockets, leases) stops carrying authority (ADR 0115). It is derived from the
  * stored hash, never the token, so holding it authenticates nothing.
  */
-export type PairedDevice = Device & { generation: string };
+export type PairedDevice = Device & {
+  generation: string;
+  /**
+   * Its pairing link was made by someone with the person's standing (ADR 0190): a paired or
+   * account device that is the person's, or the host token right after a browser sign-in. A
+   * link the host token alone made, or one from before links said, makes a device with no more
+   * standing than its maker: person-only actions need a fresh sign-in.
+   */
+  person: boolean;
+};
+/** Only a link a person made says so; devices paired before links said are not the person's. */
+const personOf = (row: Record<string, SQLOutputValue>) => row.person === 1;
 /**
  * Who a socket or channel speaks for. A revocable actor is a paired device and carries the
  * generation of the credential that opened it; the host and account devices are not revocable.
@@ -43,9 +54,8 @@ export type SessionActor = Device & {
   revocable: boolean;
   generation?: string | undefined;
   /**
-   * For an account device: its standing grant said person and verified against a key this build
-   * pins (ADR 0190). An account device without it has a machine's standing: person-only actions
-   * need a fresh sign-in, as over the host token.
+   * For a paired device: its link was the person's (`PairedDevice.person`, ADR 0190). An account
+   * device's standing is proven on its socket instead.
    */
   person?: boolean | undefined;
 };
@@ -97,7 +107,7 @@ export class Devices {
     );
     // A new credential is a new proof: the account device it was linked to proves it again.
     this.rekey = db.prepare(
-      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ?, account_link = NULL WHERE id = ?",
+      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ?, person = ?, account_link = NULL WHERE id = ?",
     );
     this.linkAccount = db.prepare("UPDATE devices SET account_link = ? WHERE id = ?");
     this.stamp = db.prepare("UPDATE devices SET install_id = ? WHERE id = ?");
@@ -114,7 +124,7 @@ export class Devices {
       "SELECT id FROM devices WHERE merged_into = ? AND revoked_at IS NULL ORDER BY id",
     );
     this.insert = db.prepare(
-      "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at, install_id) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+      "INSERT INTO devices (id, name, token_hash, scopes, created_at, last_seen_at, revoked_at, expires_at, install_id, person) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
     );
     this.byId = db.prepare("SELECT * FROM devices WHERE id = ?");
     this.byToken = db.prepare(
@@ -133,7 +143,8 @@ export class Devices {
   /**
    * `expiresAt` null: access lasts until revoked. An install that already holds a device here
    * (ADR 0115) keeps that record and its id: the new pairing's name, scopes and expiry replace
-   * the old ones and the old token stops working.
+   * the old ones and the old token stops working. `person`: the link's maker had the person's
+   * standing (ADR 0190).
    */
   create(
     name: string,
@@ -141,6 +152,7 @@ export class Devices {
     at: number,
     expiresAt: number | null = null,
     installId?: InstallId,
+    person = false,
   ): { device: Device; token: string } {
     const token = generateSecret(this.runtime.randomBytes);
     const held = installId === undefined ? undefined : this.byInstall.get(installId, at);
@@ -158,6 +170,7 @@ export class Devices {
         JSON.stringify(device.scopes),
         at,
         device.expiresAt ?? null,
+        person ? 1 : 0,
         device.id,
       );
       return { device, token };
@@ -183,6 +196,7 @@ export class Devices {
       device.lastSeenAt,
       device.expiresAt ?? null,
       installId ?? null,
+      person ? 1 : 0,
     );
     return { device, token };
   }
@@ -266,7 +280,7 @@ export class Devices {
     const row = this.byId.get(id);
     if (!row || generation === undefined || generationOf(row) !== generation) return undefined;
     const device = decode(row);
-    return activeDevice(device, at) ? { ...device, generation } : undefined;
+    return activeDevice(device, at) ? { ...device, generation, person: personOf(row) } : undefined;
   }
   authenticate(token: string, at: number): PairedDevice | undefined {
     const row = this.byToken.get(hash(token), at);
@@ -276,7 +290,7 @@ export class Devices {
     const device = decode(row);
     this.touch(device.id, at);
     device.lastSeenAt = at;
-    return { ...device, generation: generationOf(row) };
+    return { ...device, generation: generationOf(row), person: personOf(row) };
   }
   /** An ace account device connected: the paired record of the same install is seen too. */
   seen(installId: string, at: number): void {

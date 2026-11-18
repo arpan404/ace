@@ -289,12 +289,6 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * the same account, when the device id matches the grant.
        */
       grant: z.string().min(1).max(2048).optional(),
-      /**
-       * With a grant: the standing grant the backend returned with it (ADR 0190). The daemon
-       * counts the device as the person only when this says `person`; without it the device has
-       * a machine's standing. Older daemons ignore it.
-       */
-      standing: z.string().min(1).max(2048).optional(),
       /** The machine code, with a grant, when the daemon asked for it. */
       machineCode: MachineCode.optional(),
       /**
@@ -471,6 +465,20 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     requestId: z.string().min(1).max(128),
     grant: z.string().min(1).max(2048),
   }),
+  /**
+   * An account device proves the person's standing on this socket (ADR 0190): a person's format 2
+   * grant for this daemon and, signed with the device key it names, `standingProofText` over this
+   * daemon's host id, the welcome's `standingNonce` and the grant. The standing lasts until the
+   * grant expires; the client proves a fresh one before then. Answered with
+   * `account.standing.result`.
+   */
+  z.object({
+    type: z.literal("account.standing"),
+    requestId: z.string().min(1).max(128),
+    grant: z.string().min(1).max(2048),
+    /** ECDSA P-256 SHA-256 signature, IEEE P1363 (64 bytes), base64url. */
+    proof: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
+  }),
 ]);
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
@@ -550,6 +558,15 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
      * client can say so; `stable` otherwise. Absent from older daemons; unknown names are kept.
      */
     releaseLine: z.string().min(1).max(32).optional(),
+    /**
+     * For an ace account device: this socket's nonce for `account.standing` (ADR 0190), new for
+     * every socket, so a proof made for one is worth nothing on another. Absent for other
+     * credentials and from older daemons.
+     */
+    standingNonce: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{22,64}$/)
+      .optional(),
   }),
   /**
    * On a relay stream opened with Noise NK (ADR 0155): the daemon took the client's
@@ -677,6 +694,16 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     commands: z.array(z.object({ commandId: CommandId, state: CommandStatusState })),
   }),
   z.object({ type: z.literal("pong") }),
+  /** The answer to `account.standing` (ADR 0190): until when this socket is the person's. */
+  z.object({
+    type: z.literal("account.standing.result"),
+    requestId: z.string(),
+    /** `until`: when the person's standing on this socket ends, unless proven again. */
+    result: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), until: z.number().int().positive() }),
+      z.object({ ok: z.literal(false), code: z.string().max(64), message: z.string().max(256) }),
+    ]),
+  }),
   /** The answer to `account.grant.refresh`: how long the socket's grant now has, or why not. */
   z.object({
     type: z.literal("account.grant.refresh.result"),

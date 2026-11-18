@@ -21,6 +21,8 @@ export function browserClientOptions(options: {
   grant?: (() => Promise<string>) | undefined;
   /** A grant the daemon or relay refused: the app's grant cache drops it (`grant-cache.ts`). */
   grantRefused?: ClientOptions["grantRefused"];
+  /** Proves the person's standing on an account socket (ADR 0190). */
+  prove?: ClientOptions["prove"];
   storage: Storage;
   readSnapshots?: ClientOptions["readSnapshots"];
   /** The desktop's own daemon: the identity its current home names (`localHostId`). */
@@ -39,6 +41,7 @@ export function browserClientOptions(options: {
     credential: options.credential,
     ...(options.grant ? { grant: options.grant } : {}),
     ...(options.grantRefused ? { grantRefused: options.grantRefused } : {}),
+    ...(options.prove ? { prove: options.prove } : {}),
     storage: options.storage,
     ...(options.readSnapshots ? { readSnapshots: options.readSnapshots } : {}),
     // A thread paints from one screenful; the rest of its window pages in behind it.

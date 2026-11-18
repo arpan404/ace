@@ -211,6 +211,12 @@ export function accessHttp({
           // remote access can change or turn off while they wait.
           const app = await pairingApp?.();
           const input = pairing() ? await body(request) : undefined;
+          // The person's standing goes on only from someone who has it (ADR 0190): a device the
+          // person paired, or the host token right after a browser sign-in. The host token alone
+          // is what any process that reads it holds, so its links make no person's device.
+          const person = auth.local(token)
+            ? ((await account?.()?.freshSignIn()) ?? false)
+            : auth.deviceBearer(token)?.person === true;
           const creator = actor();
           const { id, url, expiresAt } = issuePairing(
             auth,
@@ -218,6 +224,7 @@ export function accessHttp({
             input,
             // The host token holds every scope; a device grants only what it has.
             (scope) => auth.local(token) || allows(creator, scope),
+            person,
             app,
           );
           result = { url, expiresAt, id };
@@ -291,7 +298,12 @@ async function accountRoute(
   if (path === "/v1/ace-account" && request.method === "PUT") {
     const handover = AceAccountHandover.safeParse(await body(request));
     if (!handover.success) throw new AccessError(400, "Invalid ace session");
-    return account.handover(handover.data.origin, handover.data.token, sessionCondition(request));
+    const { origin } = handover.data;
+    return account.handover(
+      origin,
+      "ticket" in handover.data ? { ticket: handover.data.ticket } : { token: handover.data.token },
+      sessionCondition(request),
+    );
   }
   if (path === "/v1/ace-account" && request.method === "DELETE")
     return account.signOut(sessionCondition(request));

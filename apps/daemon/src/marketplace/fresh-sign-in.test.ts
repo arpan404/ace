@@ -4,8 +4,14 @@ import {
   freshSignInMs,
   hostMarketRefusal,
   needsFreshSignIn,
-  signedInRecently,
+  verifiedSignInFresh,
 } from "./fresh-sign-in.ts";
+import {
+  GRANT_LIFETIME_MS,
+  MARKET_GRANT_ISSUER,
+  grantPublicKey,
+  signMarketGrant,
+} from "@ace/account-grant";
 
 const entry = { type: "suit", name: "dusk-harbor" } as const;
 const publish = (
@@ -45,16 +51,60 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
   });
 });
 
-describe("a sign-in counts as fresh for ten minutes before its grant", () => {
-  it.each([
-    [1_000, true],
-    [0, true],
-    [freshSignInMs, true],
-    [freshSignInMs + 1, false],
-    [-10 * 60_000, false],
-    [undefined, false],
-  ])("signed in %s ms before the grant: %s", (age, fresh) => {
-    expect(signedInRecently(age)).toBe(fresh);
+describe("a sign-in counts as fresh only from a pinned key's grant for this machine, for ten minutes", () => {
+  const key = { id: "k1", privateKey: new Uint8Array(32).fill(5) };
+  const keys = { keys: [grantPublicKey(key)] };
+  const host = "H".repeat(52);
+  const now = 10_000_000;
+  const grant = (
+    authAt: number,
+    claims: Partial<{
+      kind: "machine" | "device";
+      account: string;
+      subject: string;
+      iss: string;
+    }> = {},
+    signer = key,
+  ) =>
+    signMarketGrant(
+      {
+        kind: "machine",
+        account: "user_1",
+        subject: host,
+        iat: now - 1_000,
+        exp: now - 1_000 + GRANT_LIFETIME_MS,
+        iss: MARKET_GRANT_ISSUER,
+        emailVerified: true,
+        authAt,
+        ...claims,
+      },
+      signer,
+    );
+  const check = (token: string) =>
+    verifiedSignInFresh(token, {
+      keys,
+      issuer: MARKET_GRANT_ISSUER,
+      now,
+      account: "user_1",
+      subject: host,
+    });
+  it.each<[string, string, boolean]>([
+    ["signed in a minute ago", grant(now - 60_000), true],
+    ["signed in nine minutes ago", grant(now - 9 * 60_000), true],
+    ["signed in eleven minutes ago", grant(now - 11 * 60_000), false],
+    ["a sign-in from the future", grant(now + 10 * 60_000), false],
+    ["another account's", grant(now, { account: "user_2" }), false],
+    ["another machine's", grant(now, { subject: "G".repeat(52) }), false],
+    ["a device's", grant(now, { kind: "device" }), false],
+    ["another backend's", grant(now, { iss: "attacker.example" }), false],
+    [
+      "signed by a key this build doesn't pin",
+      grant(now, {}, { id: "k1", privateKey: new Uint8Array(32).fill(6) }),
+      false,
+    ],
+    ["not a grant", "not.a-grant", false],
+  ])("%s: %s", (_case, token, fresh) => {
+    expect(check(token)).toBe(fresh);
   });
 });
 

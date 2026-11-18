@@ -14,7 +14,7 @@ import {
   type WorkosUser,
 } from "@ace/cloud/testing";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
-import { relayHostIdFor } from "./account-access/relay-host-id.ts";
+import { relayHostIdFor, relayKeysFor } from "./account-access/relay-host-id.ts";
 import { StoredSession } from "./account-access/session-file.ts";
 import { fixture } from "./socket-test-support.ts";
 
@@ -74,7 +74,7 @@ async function daemon() {
       io: { ...fileIO, watch: async () => () => {} },
     });
     account = machineAccount({
-      relayHostId: () => relayHostIdFor(dir),
+      relayKeys: () => relayKeysFor(dir),
       personKeys,
       dataDir: dir,
       codes: store.machineCodes,
@@ -132,7 +132,7 @@ async function daemon() {
 async function signedInDaemon() {
   const session = await signInThroughWorker(worker.http, workos, person);
   const machine = await daemon();
-  await machine.account.handover(worker.http, session.token);
+  await machine.account.handover(worker.http, { token: session.token });
   return { ...machine, session };
 }
 

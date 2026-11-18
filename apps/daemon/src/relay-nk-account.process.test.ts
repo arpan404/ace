@@ -40,7 +40,7 @@ async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await fixture({ relay: { url: relay.url, keys: relayKeys } }, (store) => {
     account = machineAccount({
-      relayHostId: async () => "A".repeat(52),
+      relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
       dataDir: root,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -55,7 +55,7 @@ async function accountDaemon(grantLeftMs = GRANT_LIFETIME_MS) {
   });
   cleanup.push(() => f.close());
   cleanup.push(() => account?.close());
-  await account?.handover(backend.origin, backend.token);
+  await account?.handover(backend.origin, { token: backend.token });
   const accounts = aceAccountClient({ origin: backend.origin, fetch: globalThis.fetch });
   const grant = async (deviceId: string) =>
     (

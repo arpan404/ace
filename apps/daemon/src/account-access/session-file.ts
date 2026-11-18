@@ -53,3 +53,40 @@ export async function writeSession(dataDir: string, session: StoredSession | nul
   await chmod(temporary, 0o600);
   await rename(temporary, file(dataDir));
 }
+
+/**
+ * A machine credential this daemon chose and is asking the backend to issue (ADR 0190), written
+ * before it asks: if the answer is lost or the daemon stops, the next start tries the credential
+ * itself, or asks again with it. It holds no session.
+ */
+export const PendingCredential = z.object({
+  origin: StoredAceAccountOrigin,
+  credential: AceAccountGrant.shape.token,
+  source: StoredSession.shape.source,
+});
+export type PendingCredential = z.infer<typeof PendingCredential>;
+
+const pendingFile = (dataDir: string) => join(dataDir, "ace-account.pending.json");
+
+export async function readPending(dataDir: string): Promise<PendingCredential | undefined> {
+  try {
+    return PendingCredential.parse(JSON.parse(await readFile(pendingFile(dataDir), "utf8")));
+  } catch {
+    return undefined;
+  }
+}
+
+export async function writePending(
+  dataDir: string,
+  pending: PendingCredential | null,
+): Promise<void> {
+  if (!pending) {
+    await rm(pendingFile(dataDir), { force: true });
+    return;
+  }
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  const temporary = `${pendingFile(dataDir)}.${randomUUID()}`;
+  await writeFile(temporary, JSON.stringify(PendingCredential.parse(pending)), { mode: 0o600 });
+  await chmod(temporary, 0o600);
+  await rename(temporary, pendingFile(dataDir));
+}

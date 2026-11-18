@@ -34,8 +34,11 @@ export interface GrantCache {
    * for a grant fetched fresh for that machine's attempt, which a fresh one would not change.
    */
   refused(grant: string, machine?: string): boolean;
-  /** The standing grant that came with `grant` (ADR 0190), while it is one of the latest. */
-  standing(grant: string): string | undefined;
+  /**
+   * The person's grant that came with the latest grant (ADR 0190), while it still has a while to
+   * live: what a socket proves the person's standing with.
+   */
+  standing(): string | undefined;
   /**
    * `machine` no longer needs to know how it got its grant: its connection was welcomed, or the
    * machine was closed or removed. Its record goes, so records never outlive their use.
@@ -68,8 +71,8 @@ export function grantCache(
    * handing it out until its fate is known, and for one ace session only.
    */
   const served = new Map<string, { token: string; cached: boolean }>();
-  /** The latest grants' standing grants, by grant: a hello built from one finds its own. */
-  const standings = new Map<string, string>();
+  /** The person's grant from the latest fetch, and until when (wall clock) it is worth proving. */
+  let latest: { session: string; standing: string; until: number } | undefined;
   let servedSession: string | undefined;
   /** Records belong to one session: another (an account switch) starts with none. */
   const record = (session: string, machine: string, token: string, cached: boolean) => {
@@ -99,10 +102,10 @@ export function grantCache(
             const life = Math.min(grant.expiresAt - wallAt, grantLifetimeCapMs);
             if (pending === asked) pending = undefined;
             kept = { session, token: grant.token, at, wallAt, reuseMs: life - grantReuseMarginMs };
-            if (grant.standing !== undefined) {
-              standings.set(grant.token, grant.standing);
-              for (const old of standings.keys()) if (standings.size > 4) standings.delete(old);
-            }
+            latest =
+              grant.standing === undefined
+                ? undefined
+                : { session, standing: grant.standing, until: wallAt + life - 30_000 };
             return grant.token;
           }),
         };
@@ -123,15 +126,15 @@ export function grantCache(
       served.delete(machine);
       return given.cached;
     },
-    standing(grant) {
-      return standings.get(grant);
+    standing() {
+      return latest && clocks.wall() < latest.until ? latest.standing : undefined;
     },
     settled(machine) {
       served.delete(machine);
     },
     clear() {
       kept = undefined;
-      standings.clear();
+      latest = undefined;
       pending = undefined;
       served.clear();
       servedSession = undefined;

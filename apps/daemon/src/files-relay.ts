@@ -206,12 +206,7 @@ export async function startFilesRelay(
         // Credit fragments go only to a client that asked; its first one precedes the welcome.
         if (hello.flowControl?.includes("credit")) channel.flowControl?.();
         if (hello.channel === undefined) {
-          const actor = mainActor(
-            device,
-            admitted.stillAdmitted,
-            options,
-            admitted.person === true,
-          );
+          const actor = mainActor(device, admitted.stillAdmitted, options);
           if (!actor || !options.relayMain) {
             await channel
               .send({ type: "error", code: "unauthorized", message: "Valid hello required" })

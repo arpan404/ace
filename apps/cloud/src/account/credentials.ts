@@ -23,10 +23,25 @@ export type StoredMachineCredential = {
  */
 export function machineCredentialStore(db: D1Database) {
   return {
-    async put(hash: string, credential: StoredMachineCredential, now: number) {
-      await db
+    /**
+     * The statement that issues a credential, for the batch with the session's change (ADR 0190),
+     * only while `from` can still issue it: a session whose token isn't retired, or an unspent
+     * ticket. Two exchanges racing for one session or ticket issue at most one credential, and a
+     * retry of one that worked changes nothing.
+     */
+    inserting(
+      hash: string,
+      credential: StoredMachineCredential,
+      now: number,
+      from: { session: string } | { ticket: string },
+    ) {
+      const guard =
+        "session" in from
+          ? "SELECT 1 FROM sessions WHERE token = ? AND retired = 0 AND expires > ?"
+          : "SELECT 1 FROM machine_enrollments WHERE ticket = ? AND expires > ?";
+      return db
         .prepare(
-          "INSERT INTO machine_credentials (token, session, host_id, account_id, expires, sole, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          `INSERT OR IGNORE INTO machine_credentials (token, session, host_id, account_id, expires, sole, created_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (${guard})`,
         )
         .bind(
           hash,
@@ -36,8 +51,9 @@ export function machineCredentialStore(db: D1Database) {
           credential.expiresAt,
           credential.sole ? 1 : 0,
           now,
-        )
-        .run();
+          "session" in from ? from.session : from.ticket,
+          now,
+        );
     },
     async get(hash: string, now: number): Promise<StoredMachineCredential | undefined> {
       const raw = await db

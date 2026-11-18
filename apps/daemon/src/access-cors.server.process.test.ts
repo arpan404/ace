@@ -1,3 +1,4 @@
+import { keyPair as fixedKeyPair } from "@ace/secure-channel";
 import { expect, it } from "vitest";
 import { DeviceCredential, PairingResponse, SocketTicket } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
@@ -210,7 +211,7 @@ it("an allowed web app can set and clear this machine's code with an admin token
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await setup({ webOrigins: [page] }, (store, home) => {
     account = machineAccount({
-      relayHostId: async () => "A".repeat(52),
+      relayKeys: async () => fixedKeyPair(new Uint8Array(32).fill(3)),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,

@@ -37,7 +37,7 @@ async function signedInDaemon() {
   cleanup.push(() => store.close());
   const auth = new RemoteAuth(store.devices, "f".repeat(64), { now, secret: randomUUID });
   const account = machineAccount({
-    relayHostId: async () => "A".repeat(52),
+    relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
     dataDir: root,
     codes: store.machineCodes,
     fetch: globalThis.fetch,
@@ -49,7 +49,7 @@ async function signedInDaemon() {
     },
   });
   cleanup.push(() => account.close());
-  await account.handover(backend.origin, backend.token);
+  await account.handover(backend.origin, { token: backend.token });
   const relay = await startRelay();
   cleanup.push(() => relay.close());
   const keys = keyPair();
@@ -234,7 +234,7 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   const store = new Store(join(root, "store.sqlite"));
   cleanup.push(() => store.close());
   const options = {
-    relayHostId: async () => "A".repeat(52),
+    relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
     dataDir: root,
     codes: store.machineCodes,
     fetch: globalThis.fetch,
@@ -281,7 +281,7 @@ it("a sign-in or sign-out decided on an older read never replaces the machine's 
   const store = new Store(join(root, "store.sqlite"));
   cleanup.push(() => store.close());
   const account = machineAccount({
-    relayHostId: async () => "A".repeat(52),
+    relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
     dataDir: root,
     codes: store.machineCodes,
     fetch: globalThis.fetch,
@@ -303,7 +303,7 @@ it("a sign-in or sign-out decided on an older read never replaces the machine's 
   await expect.poll(() => account.status().signedIn).toBe(true);
   const own = account.status();
   await expect(
-    account.handover(backend.origin, backend.token, { session: read.sessionId ?? null }),
+    account.handover(backend.origin, { token: backend.token }, { session: read.sessionId ?? null }),
   ).rejects.toMatchObject({ status: 412 });
   await expect(account.signOut({ session: "stale" })).rejects.toMatchObject({ status: 412 });
   expect(account.status()).toMatchObject({ signedIn: true, source: "login" });
@@ -314,13 +314,21 @@ it("a sign-in or sign-out decided on an older read never replaces the machine's 
   const signedOut = account.status();
   await account.startLogin();
   await expect(
-    account.handover(backend.origin, backend.token, { session: signedOut.sessionId ?? null }),
+    account.handover(
+      backend.origin,
+      { token: backend.token },
+      { session: signedOut.sessionId ?? null },
+    ),
   ).rejects.toMatchObject({ status: 412 });
   expect(account.status().login).toBeDefined();
 
   // Once nothing changed since the read, both apply.
   await account.signOut();
-  const handed = await account.handover(backend.origin, backend.token, { session: null });
+  const handed = await account.handover(
+    backend.origin,
+    { token: backend.token },
+    { session: null },
+  );
   expect(handed).toMatchObject({ signedIn: true, source: "handover" });
   expect(handed.sessionId).not.toBe(own.sessionId);
   expect(await account.signOut({ session: handed.sessionId ?? null })).toMatchObject({
@@ -334,7 +342,7 @@ it("the host signs the machine in and sets its code over the local API; others a
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await fixture({}, (store, home) => {
     account = machineAccount({
-      relayHostId: async () => "A".repeat(52),
+      relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -416,7 +424,7 @@ it("a restarted machine whose session lapsed here but lives at the backend is si
   daemon.advance(2 * 86_400_000);
   expect(daemon.account.status().signedIn).toBe(false);
   const restarted = machineAccount({
-    relayHostId: async () => "A".repeat(52),
+    relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
     dataDir: daemon.root,
     codes: daemon.store.machineCodes,
     fetch: globalThis.fetch,
@@ -443,7 +451,7 @@ async function signedInServer() {
   let account: ReturnType<typeof machineAccount> | undefined;
   const f = await fixture({}, (store, home) => {
     account = machineAccount({
-      relayHostId: async () => "A".repeat(52),
+      relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -458,7 +466,7 @@ async function signedInServer() {
     await f.close();
   });
   if (!account) throw new Error("No machine account");
-  await account.handover(backend.origin, backend.token);
+  await account.handover(backend.origin, { token: backend.token });
   const grant = () => {
     const iat = Date.now();
     return signGrant(
@@ -610,7 +618,7 @@ async function clockedServer() {
   // The idle timeout reads the same clock: keep it out of the way of the jumps below.
   const f = await fixture({ now, idleTimeoutMs: 24 * 60 * 60_000 }, (store, home) => {
     account = machineAccount({
-      relayHostId: async () => "A".repeat(52),
+      relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
       dataDir: home,
       codes: store.machineCodes,
       fetch: globalThis.fetch,
@@ -625,7 +633,7 @@ async function clockedServer() {
     await f.close();
   });
   if (!account) throw new Error("No machine account");
-  await account.handover(backend.origin, backend.token);
+  await account.handover(backend.origin, { token: backend.token });
   let grants = 0;
   const grant = () => {
     grants++;
@@ -760,7 +768,7 @@ it("closing during the first sign-in request gives it up: no polling starts and 
   cleanup.push(() => store.close());
   let timers = 0;
   const account = machineAccount({
-    relayHostId: async () => "A".repeat(52),
+    relayKeys: async () => keyPair(new Uint8Array(32).fill(3)),
     dataDir: root,
     codes: store.machineCodes,
     fetch: slowFetch,

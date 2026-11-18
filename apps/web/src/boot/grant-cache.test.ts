@@ -348,20 +348,22 @@ test("a machine welcomed, closed or removed leaves no record behind", async () =
   for (const name of machines) expect(b.cache.refused("grant-1", name)).toBe(false);
 });
 
-test("a kept grant's standing grant is found by the grant, and a sign-out forgets it", async () => {
+test("the person's grant from the latest fetch is there to prove with until it nears its end, and a sign-out forgets it", async () => {
   let issued = 0;
+  let wall = 0;
   const cache = grantCache(
     async () => {
       issued++;
-      return { token: `grant-${issued}`, expiresAt: lifeMs, standing: `standing-${issued}` };
+      return { token: `grant-${issued}`, expiresAt: wall + lifeMs, standing: `standing-${issued}` };
     },
-    { wall: () => 0, elapsed: () => 0 },
+    { wall: () => wall, elapsed: () => wall },
   );
-  const first = await cache.grant("session", "machine-a");
-  // Another machine shares the kept grant, and its hello finds the same standing grant.
-  expect(await cache.grant("session", "machine-b")).toBe(first);
-  expect(cache.standing(first)).toBe("standing-1");
-  expect(cache.standing("grant-other")).toBeUndefined();
+  await cache.grant("session", "machine-a");
+  expect(cache.standing()).toBe("standing-1");
+  wall += lifeMs - 10_000;
+  expect(cache.standing()).toBeUndefined();
+  await cache.grant("session", "machine-a");
+  expect(cache.standing()).toBe("standing-2");
   cache.clear();
-  expect(cache.standing(first)).toBeUndefined();
+  expect(cache.standing()).toBeUndefined();
 });

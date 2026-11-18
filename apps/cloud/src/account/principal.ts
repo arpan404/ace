@@ -30,7 +30,7 @@ export function principalReader(deps: {
         const session = await sessions.readHash(hash);
         return session ? { kind: "session", hash, ...session } : undefined;
       }
-      const session = await sessions.readHash(credential.session);
+      const session = await sessions.readHash(credential.session, true);
       if (!session || session.account.id !== credential.accountId) {
         await credentials.remove(hash);
         return undefined;

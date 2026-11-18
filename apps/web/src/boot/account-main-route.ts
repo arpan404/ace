@@ -28,14 +28,11 @@ export function accountMainRoute(
   machine: AccountMainMachine,
   options: Pick<
     AccountMachineOptions,
-    "relayUrl" | "aceClient" | "deviceId" | "grant" | "standing" | "socket" | "client"
+    "relayUrl" | "aceClient" | "deviceId" | "grant" | "socket" | "client"
   >,
 ): AccountMainRoute {
   const grants = trackedGrant(() => options.grant());
-  const code = machineCodeGate(
-    () => grants.grant(),
-    (grant) => options.standing?.(grant),
-  );
+  const code = machineCodeGate(() => grants.grant());
   return {
     code,
     deviceId: options.deviceId,
@@ -123,7 +120,7 @@ export function browserAccountRoutes(options: {
     return accountMainRoute(machine, {
       ...account,
       grant,
-      client: (route) => accountMachineClient(options.session, origin, owner, route),
+      client: (route) => accountMachineClient(options.session, origin, owner, route, account.prove),
     });
   };
 }

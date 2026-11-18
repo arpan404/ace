@@ -5,7 +5,9 @@ import { sealer } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { machineCredentialStore } from "./credentials.ts";
 import { directoryRoutes } from "./directory.ts";
-import { machineCredentialRoute } from "./machine-credential-route.ts";
+import { machineSignInRoutes } from "./machine-credential-route.ts";
+import { enrollmentStore } from "./enrollments.ts";
+import { exchangeKeyPair } from "@ace/account-grant/machine-proof";
 import { loginRoutes } from "./login.ts";
 import { loginStore } from "./logins.ts";
 import { pictureRoute } from "./picture.ts";
@@ -46,18 +48,28 @@ export function accountApi(
       handle: async () => secure(fail(503, "account_not_configured"), undefined),
       sweep: async () => {},
     };
-  const { config, keys } = setup;
+  const { config } = setup;
   const { now, random } = deps;
+  // The key a daemon proves its host key against (ADR 0190), published with the grant keys.
+  const exchangeKey = exchangeKeyPair(
+    Uint8Array.from(config.encryptionKey.match(/../g) ?? [], (byte) => Number.parseInt(byte, 16)),
+  );
+  const keys = { ...setup.keys, exchangeKey: exchangeKey.publicKey };
   const seal = sealer(config.encryptionKey, random);
   const sessions = sessionStore(deps.db, seal);
   const provider = workos(config, deps.fetch);
   const reader = sessionReader({ store: sessions, provider, now });
   const credentials = machineCredentialStore(deps.db);
   const principals = principalReader({ sessions: reader, credentials, now });
-  const exchange = machineCredentialRoute({
+  const enrollments = enrollmentStore(deps.db);
+  const machineSignIn = machineSignInRoutes({
+    db: deps.db,
     principals,
+    sessions: reader,
     sessionStore: sessions,
     credentials,
+    enrollments,
+    exchangeKey,
     now,
     random,
   });
@@ -99,7 +111,10 @@ export function accountApi(
     const method = request.method;
     if (pathname === "/v1/keys" && method === "GET") return directory.keys();
     if (pathname === "/v1/grants" && method === "POST") return directory.grant(request);
-    if (pathname === "/v1/machine-credentials" && method === "POST") return exchange(request);
+    if (pathname === "/v1/machine-credentials" && method === "POST")
+      return machineSignIn.exchange(request);
+    if (pathname === "/v1/machine-enrollments" && method === "POST")
+      return machineSignIn.enroll(request);
     if (pathname === "/v1/machines" && method === "GET") return directory.list(request);
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);
@@ -131,6 +146,7 @@ export function accountApi(
     sweep: async () => {
       await logins.sweep(now());
       await credentials.sweep(now());
+      await enrollments.sweep(now());
     },
     /**
      * `limited` is the caller's rate-limit verdict for this client address; `_gate` says which

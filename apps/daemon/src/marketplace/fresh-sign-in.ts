@@ -1,3 +1,4 @@
+import { verifyMarketGrant, type GrantKeySet } from "@ace/account-grant";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 
 /*
@@ -33,11 +34,26 @@ export function needsFreshSignIn(operation: MarketOperation): boolean {
 }
 
 /**
- * Whether a sign-in `age` milliseconds before its grant was issued counts as fresh. A small
- * negative age is the backend's own rounding; a large one is a malformed grant.
+ * Whether market grant `grant` proves this machine's ace account signed in in a browser within
+ * ten minutes (ADR 0174 §2, ADR 0190). Only claims a key this build pins signed count, never ones
+ * the session's origin or the environment can name; the grant must be a machine grant for this
+ * account and this machine's relay host id; and the sign-in's age is measured on this daemon's
+ * clock now, so a grant held after it was taken can't stretch the ten minutes. A sign-in up to a
+ * minute ahead is the backend's clock running ahead. Pure.
  */
-export function signedInRecently(age: number | undefined): boolean {
-  return age !== undefined && age <= freshSignInMs && age >= -60_000;
+export function verifiedSignInFresh(
+  grant: string,
+  trust: { keys: GrantKeySet; issuer: string; now: number; account: string; subject: string },
+): boolean {
+  try {
+    const claims = verifyMarketGrant(grant, trust.keys, trust.now, trust.issuer);
+    if (claims.kind !== "machine") return false;
+    if (claims.account !== trust.account || claims.subject !== trust.subject) return false;
+    const age = trust.now - claims.authAt;
+    return age <= freshSignInMs && age >= -60_000;
+  } catch {
+    return false;
+  }
 }
 
 /**

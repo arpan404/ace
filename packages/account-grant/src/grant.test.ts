@@ -14,6 +14,13 @@ import {
   verifyMarketGrant,
   verifyStandingGrant,
 } from "./index.ts";
+import { encodeBase64url } from "./index.ts";
+import {
+  exchangeKeyPair,
+  machineCredentialProof,
+  machineCredentialProofValid,
+} from "./machine-proof.ts";
+import { x25519 } from "@noble/curves/ed25519.js";
 
 const key = { id: "k1", privateKey: crypto.getRandomValues(new Uint8Array(32)) };
 const other = { id: "k2", privateKey: crypto.getRandomValues(new Uint8Array(32)) };
@@ -53,27 +60,59 @@ it("a grant is refused when signed by an unpublished key, altered, or issued for
   expect(() => verifyGrant("not a grant", keys, 2_000, "device")).toThrow("Malformed");
 });
 
-it("a standing grant says whose session asked, and neither grant format passes for the other", () => {
+it("a format 2 grant says whose session asked and for which daemon, and neither format passes for the other", () => {
   const { kind: _kind, ...rest } = claims;
-  const person = signStandingGrant({ ...rest, standing: "person" }, key);
+  const host = "H".repeat(52);
+  const deviceKey = "k".repeat(87);
+  const person = signStandingGrant({ ...rest, standing: "person", host, key: deviceKey }, key);
   expect(verifyStandingGrant(person, keys, 2_000)).toMatchObject({
     v: 2,
     kind: "device",
+    aud: "ace-daemon",
     standing: "person",
-    account: "user_1",
-    subject: "phone",
+    host,
+    key: deviceKey,
   });
+  // A person's grant always names its daemon and device key.
+  expect(() => signStandingGrant({ ...rest, standing: "person" }, key)).toThrow();
   const machine = signStandingGrant({ ...rest, standing: "machine" }, key);
   expect(verifyStandingGrant(machine, keys, 2_000).standing).toBe("machine");
-  // An older daemon's strict format 1 parser refuses a standing grant; a format 1 device grant
-  // is no standing grant either.
-  expect(() => verifyGrant(person, keys, 2_000, "device")).toThrow("Malformed");
+  // An older daemon's strict format 1 parser refuses format 2; format 2 refuses format 1.
+  expect(() => verifyGrant(machine, keys, 2_000, "device")).toThrow("Malformed");
   expect(() => verifyStandingGrant(signGrant(claims, key), keys, 2_000)).toThrow("Malformed");
   expect(() => verifyStandingGrant(person, { keys: [grantPublicKey(other)] }, 2_000)).toThrow(
     "Unknown",
   );
   expect(() => verifyStandingGrant(person, keys, claims.exp)).toThrow("expired");
   expect(grantLifetimeMs(person)).toBe(GRANT_LIFETIME_MS);
+});
+
+it("a machine credential is asked for only with the host key its host id names", () => {
+  const exchange = exchangeKeyPair(new Uint8Array(32).fill(1));
+  const host = { privateKey: new Uint8Array(32).fill(2) };
+  const hostKey = encodeBase64url(x25519.getPublicKey(host.privateKey));
+  const proof = machineCredentialProof({
+    hostPrivateKey: host.privateKey,
+    exchangeKey: exchange.publicKey,
+    hostId: "H".repeat(52),
+    credential: "c".repeat(43),
+  });
+  const valid = (overrides: Partial<{ hostKey: string; hostId: string; credential: string }>) =>
+    machineCredentialProofValid({
+      exchangePrivateKey: exchange.privateKey,
+      hostKey,
+      hostId: "H".repeat(52),
+      credential: "c".repeat(43),
+      proof,
+      ...overrides,
+    });
+  expect(valid({})).toBe(true);
+  // Another host key, another host id, or another credential: the proof is for none of them.
+  expect(valid({ hostKey: encodeBase64url(x25519.getPublicKey(new Uint8Array(32).fill(3))) })).toBe(
+    false,
+  );
+  expect(valid({ hostId: "G".repeat(52) })).toBe(false);
+  expect(valid({ credential: "d".repeat(43) })).toBe(false);
 });
 
 it("the grant offered among WebSocket subprotocols is found by its prefix", () => {

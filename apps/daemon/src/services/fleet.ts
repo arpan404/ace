@@ -63,12 +63,16 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       // Read the setting first: the address must be current when the code is issued, since
       // remote access can change or turn off while the setting read waits.
       const app = await access.pairingApp?.();
+      // The person's standing goes on only from someone who has it (ADR 0190): a device that is
+      // the person's, or the host token right after a browser sign-in.
+      const person = await issuerIsPerson(context);
       // The creator grants only scopes it holds; the host credential holds every one.
       const issued = issuePairing(
         auth,
         access.pairing(),
         request,
         (scope) => context.authorize(scope),
+        person,
         app,
       );
       return { kind: "pairing", ...issued };
@@ -191,4 +195,16 @@ export function createFleetSession(context: SocketContext): SocketService {
       return true;
     },
   };
+}
+
+/**
+ * Whether a pairing link this socket makes carries the person's standing (ADR 0190): its own
+ * credential is the person's (a device the person paired, an account device that proved it on
+ * this socket), or it is the host token and this machine's ace account signed in in a browser
+ * in the last ten minutes, which a process holding only the token can't do.
+ */
+async function issuerIsPerson(context: SocketContext): Promise<boolean> {
+  if (context.personProven?.() === true) return true;
+  if (context.hostCredential?.() !== true) return false;
+  return (await context.options.machineAccount?.freshSignIn()) ?? false;
 }

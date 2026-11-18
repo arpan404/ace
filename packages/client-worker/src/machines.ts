@@ -365,10 +365,7 @@ export class MachinePool {
     const hostId = machine.hostId;
     let gate = this.gates.get(hostId);
     if (!gate) {
-      gate = machineCodeGate(
-        () => account.grant(hostId),
-        (grant) => account.standing?.(grant),
-      );
+      gate = machineCodeGate(() => account.grant(hostId));
       this.gates.set(hostId, gate);
     }
     const current = this.live.get(hostId);

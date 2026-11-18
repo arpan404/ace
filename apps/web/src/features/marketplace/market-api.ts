@@ -27,17 +27,31 @@ function answers<T extends MarketResult["op"]>(result: MarketResult, op: T): res
   return result.op === op;
 }
 
+/**
+ * A market grant from this window's own ace session naming one market request, `METHOD /path`
+ * (ADR 0190), or undefined when the window holds no session of the person's.
+ */
+export type PersonGrant = (action: string) => Promise<string | undefined>;
+
 export async function market<T extends MarketResult["op"]>(
   client: ClientApi,
   operation: Operation,
   expected: T,
   signal?: AbortSignal,
+  personGrant?: PersonGrant,
 ): Promise<Answer<T>> {
-  const reply = await client.request(
-    { type: "marketplace.request", operation },
-    signal ? { signal } : {},
-  );
-  const result = reply.result;
+  const ask = (grant?: string) =>
+    client.request(
+      { type: "marketplace.request", operation, ...(grant ? { personGrant: grant } : {}) },
+      signal ? { signal } : {},
+    );
+  let result = (await ask()).result;
+  // A sensitive action the market takes only from the person (ADR 0190): this window asks for a
+  // grant naming that one request with its own session, and sends the request again with it.
+  if (result.op === "error" && result.code === "person_grant" && result.action && personGrant) {
+    const grant = await personGrant(result.action).catch(() => undefined);
+    if (grant) result = (await ask(grant)).result;
+  }
   if (result.op === "error") throw new MarketFailure(result.code, result.scan, result.message);
   if (!answers(result, expected)) throw new MarketFailure("failed");
   return result;

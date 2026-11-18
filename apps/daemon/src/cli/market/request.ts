@@ -19,6 +19,8 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
   signed_out: ["needs-human", "signed_out"],
   reauth: ["needs-human", "reauth"],
   person_only: ["needs-human", "person_only"],
+  // The CLI never holds the person's session (ADR 0190): only an app they signed in on can.
+  person_grant: ["needs-human", "person_only"],
   blocked: ["failed", "blocked"],
   suspended: ["refused", "suspended"],
   quota: ["refused", "quota"],
@@ -37,6 +39,7 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
 const hints: Partial<Record<MarketError["code"], string>> = {
   signed_out: "Sign in with ace login, then run it again.",
   reauth: "Sign in again with ace login, then run it again.",
+  person_grant: "Do this in an ace app you're signed in on: the market takes it only from you.",
   unavailable:
     "Nothing was changed. Try again shortly; ace account status shows whether this machine is signed in.",
   expired: "The review ran out; run the command again for a fresh one.",

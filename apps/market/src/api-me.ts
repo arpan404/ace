@@ -12,7 +12,13 @@ import {
   type MarketProblem,
 } from "@ace/protocol/marketplace";
 import { draftRoute } from "./api-publish.ts";
-import { authenticate, reauthMs, type Authed, type AuthOptions } from "./auth.ts";
+import {
+  authenticate,
+  reauthMs,
+  type Authed,
+  type AuthOptions,
+  personGrantNeeded,
+} from "./auth.ts";
 import { meEntryRoute, storePicture } from "./api-me-entries.ts";
 import { avatarKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
@@ -74,9 +80,13 @@ const done = () => json({ status: "done" });
 
 /** A verified profile's edits need a recent sign-in (ADR 0174 §2). */
 const staleForVerified = (authed: Authed, context: Context) =>
-  authed.publisher?.verified === true && !(context.now - authed.claims.authAt <= reauthMs)
-    ? failure(401, "reauth", "Sign in again to do this.")
-    : undefined;
+  authed.publisher?.verified !== true
+    ? undefined
+    : !authed.personAction
+      ? personGrantNeeded()
+      : !(context.now - authed.claims.authAt <= reauthMs)
+        ? failure(401, "reauth", "Sign in again to do this.")
+        : undefined;
 
 export async function meRoute(
   request: Request,

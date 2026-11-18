@@ -8,6 +8,8 @@
  * relay's address.
  */
 import { MachineAccountStatus, type RemoteAccessStatus } from "@ace/protocol";
+import { aceAccountClient } from "@ace/client/ace-account";
+import { accountFetch } from "@/boot/account-config.ts";
 import { z } from "zod";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
 import { directTarget } from "@/boot/main-machine.ts";
@@ -30,7 +32,24 @@ function refusal(status: number, said: string | undefined): Error {
 
 type AccountRequest = Extract<MachineAccountRequest, { op: "signIn" | "signOut" }> & {
   token?: string;
+  /** The daemon's relay host id, from its status: the ticket is for it alone (ADR 0190). */
+  hostId?: string | undefined;
 };
+
+/** The single-use ticket that signs `request.hostId` in, got with this window's session. */
+async function enrollmentTicket(
+  request: Extract<AccountRequest, { op: "signIn" }>,
+): Promise<string> {
+  if (!request.token || !request.hostId)
+    throw new Error("Update ace on this computer to sign it in from here.");
+  const backend = aceAccountClient({ origin: request.origin, fetch: accountFetch(request.origin) });
+  const enrollment = await backend.machineEnrollment(
+    request.token,
+    request.hostId,
+    AbortSignal.timeout(15_000),
+  );
+  return enrollment.ticket;
+}
 
 const hostOnly = () =>
   new Error("Only this computer can sign itself in or out. Use the ace app on it, or `ace login`.");
@@ -43,8 +62,12 @@ function daemonRoutes(endpoint: DaemonEndpoint) {
   const options = accessOptions(endpoint);
   return async (request: AccountRequest) => {
     const path = "/v1/ace-account";
+    // The daemon is given an enrollment ticket for its own host id, never this window's session
+    // (ADR 0190): whatever answers at this address can only sign that machine in.
     const body =
-      request.op === "signIn" ? { origin: request.origin, token: request.token } : undefined;
+      request.op === "signIn"
+        ? { origin: request.origin, ticket: await enrollmentTicket(request) }
+        : undefined;
     let response: Response;
     try {
       response = await options.fetch(new URL(path, options.origin).href, {
@@ -82,7 +105,7 @@ export function machineAccountSource(
   const code = client && machineCodeAdminSource(client);
   const account = async (request: AccountRequest) => {
     if (bridge) {
-      const { token: _token, ...ask } = request;
+      const { token: _token, hostId: _hostId, ...ask } = request;
       return bridge(ask);
     }
     if (!routes) throw new Error("Connect to your computer first.");
@@ -90,7 +113,13 @@ export function machineAccountSource(
   };
   return {
     status: async () => (await remoteStatus()).account,
-    signIn: (origin, token) => account({ op: "signIn", origin, token }),
+    signIn: async (origin, token) =>
+      account({
+        op: "signIn",
+        origin,
+        token,
+        hostId: bridge ? undefined : (await remoteStatus()).account?.relayHostId,
+      }),
     signOut: () => account({ op: "signOut" }),
     setCode: (value) =>
       bridge ? bridge({ op: "setCode", code: value }) : code ? code.setCode(value) : offline(),

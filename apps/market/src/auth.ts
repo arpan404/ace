@@ -38,7 +38,20 @@ export interface Authed {
   account: string;
   /** The account's publisher; absent before it makes a profile. */
   publisher: AuthedPublisher | undefined;
+  /**
+   * The grant came from the person's own session and names this very request (ADR 0190): a
+   * `device` grant whose `action` is `METHOD /path`. Grants a machine holds never do.
+   */
+  personAction: boolean;
 }
+
+/** Why a sensitive action is refused: it needs the person's own grant for it, signed in lately. */
+export const personGrantNeeded = () =>
+  failure(
+    401,
+    "person_grant",
+    "Do this from an ace app you're signed in on: it needs a sign-in from the last 10 minutes.",
+  );
 
 interface PublisherRow {
   id: string;
@@ -114,12 +127,16 @@ export async function authenticate(
   }
   if (!claims.emailVerified)
     return failure(403, "email_unverified", "Verify your account's email to publish.");
+  const url = new URL(request.url);
+  const personAction =
+    claims.kind === "device" && claims.action === `${request.method} ${url.pathname}`;
+  if (options.sensitive && !personAction) return personGrantNeeded();
   if (options.sensitive && !(context.now - claims.authAt <= reauthMs))
     return failure(401, "reauth", "Sign in again to do this.");
   const publisher = await publisherFor(context.dbs, claims.account);
   if (publisher && publisher.state !== "active" && !options.allowInactive)
     return failure(403, "suspended", "This account can't publish right now.");
-  return { claims, account: claims.account, publisher };
+  return { claims, account: claims.account, publisher, personAction };
 }
 
 /** The refusal for an entry another publisher owns: never says who. */

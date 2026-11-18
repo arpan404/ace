@@ -1,6 +1,5 @@
 import { expect, it } from "vitest";
 import { fingerprint, keyPair } from "@ace/secure-channel";
-import { HelloEarly } from "@ace/protocol";
 import {
   NK_RETRY_MAX_MS,
   NK_RETRY_MS,
@@ -141,15 +140,4 @@ it("a dedicated channel or a machine code keeps XX, and a paired XX hello asks f
   expect(JSON.parse(askNextTicket(JSON.stringify(hello)))).toMatchObject({ nextTicket: true });
   const account = JSON.stringify({ ...hello, token: undefined, grant: "g" });
   expect(askNextTicket(account)).toBe(account);
-});
-
-it("an account device's standing grant goes in its first message beside the grant, which alone goes to the relay", () => {
-  const account = JSON.stringify({ ...hello, token: undefined, grant: "g.s", standing: "p.s" });
-  const converted = earlyFlight([account], { grant: "g.s", standing: "p.s" });
-  expect(converted?.early).toMatchObject({ grant: "g.s", standing: "p.s" });
-  expect(HelloEarly.safeParse(converted?.early).success).toBe(true);
-  // No standing grant without a grant: a paired device's ticket carries none.
-  expect(
-    earlyFlight([JSON.stringify(hello)], { ticket: "ab".repeat(32), standing: "p.s" })?.early,
-  ).not.toHaveProperty("standing");
 });

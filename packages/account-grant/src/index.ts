@@ -58,6 +58,12 @@ export const MarketGrantClaims = GrantClaims.extend({
     .regex(/^[a-z0-9.-]+(?::\d{1,5})?$/),
   emailVerified: z.boolean(),
   authAt: z.number().int().nonnegative(),
+  /**
+   * The one market request this grant may make, `METHOD /path` (ADR 0190): a person's grant for a
+   * sensitive action names it, so a grant captured on the way can only make that same request.
+   * Only `device` grants from a person's own session carry it.
+   */
+  action: z.string().min(1).max(512).optional(),
 });
 export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
 /** The market grant's issuer, `cloud.acehq.dev`, unless a deployment configures its own. */
@@ -70,41 +76,69 @@ export const MARKET_GRANT_ISSUER = "cloud.acehq.dev";
  */
 export const GrantStanding = z.enum(["person", "machine"]);
 export type GrantStanding = z.infer<typeof GrantStanding>;
+/** A daemon is the only reader of a format 2 device grant (ADR 0190). */
+export const DEVICE_GRANT_AUDIENCE = "ace-daemon";
+/** A device's public key: an uncompressed P-256 point, base64url (ADR 0190). */
+export const DeviceKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/);
+const HostIdClaim = z.string().regex(/^[A-Z2-7]{52}$/);
 /**
- * A standing grant (ADR 0190): format 2, beside a device's format 1 grant. It says whose
- * session asked for the device grant, so a daemon can tell the person from a process that read a
- * machine's files. Format 1 parsers (older daemons, the relay) refuse it, and this parser refuses
- * format 1, so neither stands in for the other.
+ * A format 2 device grant (ADR 0190). It says whose session asked (`standing`), for which daemon
+ * (`host`, `aud`) and, for the person's standing, which device key must prove each use (`key`).
+ * Format 1 parsers (older daemons, which would treat any device grant as the person) refuse it,
+ * and this parser refuses format 1, so neither stands in for the other. A person's grant always
+ * names its host and key.
  */
-export const StandingGrantClaims = z.strictObject({
-  v: z.literal(2),
-  kid: KeyId,
-  kind: z.literal("device"),
-  standing: GrantStanding,
-  account: GrantClaims.shape.account,
-  subject: GrantClaims.shape.subject,
-  iat: GrantClaims.shape.iat,
-  exp: GrantClaims.shape.exp,
-});
+export const StandingGrantClaims = z
+  .strictObject({
+    v: z.literal(2),
+    kid: KeyId,
+    kind: z.literal("device"),
+    aud: z.literal(DEVICE_GRANT_AUDIENCE),
+    standing: GrantStanding,
+    account: GrantClaims.shape.account,
+    subject: GrantClaims.shape.subject,
+    host: HostIdClaim.optional(),
+    key: DeviceKey.optional(),
+    iat: GrantClaims.shape.iat,
+    exp: GrantClaims.shape.exp,
+  })
+  .refine((claims) => claims.standing !== "person" || (claims.host && claims.key), {
+    message: "A person's grant names its host and device key",
+  });
 export type StandingGrantClaims = z.infer<typeof StandingGrantClaims>;
 
 export function signStandingGrant(
-  claims: Omit<StandingGrantClaims, "v" | "kid" | "kind">,
+  claims: Omit<StandingGrantClaims, "v" | "kid" | "kind" | "aud">,
   key: GrantSigningKey,
 ): string {
   return signClaims(
-    StandingGrantClaims.parse({ ...claims, v: 2, kid: key.id, kind: "device" }),
+    StandingGrantClaims.parse({
+      ...claims,
+      v: 2,
+      kid: key.id,
+      kind: "device",
+      aud: DEVICE_GRANT_AUDIENCE,
+    }),
     key,
   );
 }
 
-/** Verify a standing grant's signature and lifetime. Throws `GrantError` on any failure. */
+/** Verify a format 2 device grant's signature and lifetime. Throws `GrantError` on any failure. */
 export function verifyStandingGrant(
   token: string,
   keys: GrantKeySet,
   now: number,
 ): StandingGrantClaims {
   return verifySigned(token, keys, now, "device", StandingGrantClaims);
+}
+
+/**
+ * What a device signs with its key to use a person's grant on one socket (ADR 0190): the
+ * daemon's host id, the nonce that daemon gave this socket, and the grant itself. A proof made
+ * for one socket, daemon or grant proves nothing on another.
+ */
+export function standingProofText(input: { host: string; nonce: string; grant: string }): string {
+  return `ace-standing/v1\n${input.host}\n${input.nonce}\n${input.grant}`;
 }
 
 const AnyGrantClaims = z.union([
@@ -121,7 +155,7 @@ function signClaims(claims: object, key: GrantSigningKey): string {
 
 export function signMarketGrant(
   claims: Omit<GrantClaims, "v" | "kid"> &
-    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt">,
+    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt" | "action">,
   key: GrantSigningKey,
 ): string {
   const full = MarketGrantClaims.parse({
@@ -156,6 +190,11 @@ export const GrantKeySet = z.object({
     .array(z.object({ id: KeyId, publicKey: Base64url32 }))
     .min(1)
     .max(8),
+  /**
+   * The backend's X25519 key a daemon proves its host key against when it asks for a machine
+   * credential (ADR 0190, `@ace/account-grant/machine-proof`). Absent from older backends.
+   */
+  exchangeKey: Base64url32.optional(),
 });
 export type GrantKeySet = z.infer<typeof GrantKeySet>;
 

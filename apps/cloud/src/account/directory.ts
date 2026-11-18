@@ -12,23 +12,20 @@ import { HostId } from "@ace/relay/wire";
 import type { machineStore } from "./machines.ts";
 import { bearer, fail, json, jsonBody } from "./respond.ts";
 import type { Principal, PrincipalReader } from "./principal.ts";
-import type { SessionStore } from "./sessions.ts";
+import type { SessionStanding, SessionStore } from "./sessions.ts";
 
 /**
- * Whether a principal's device grants carry the person's standing (ADR 0190): a session signed
- * in after standing was kept, never written to a machine's disk. A session from before is the
- * person's only until `legacyPersonUntil`, the transition the deployment chose (none by default).
+ * Whether a session's grants speak for the person (ADR 0190): one an app signed in to after
+ * standing was kept, never seen on a machine's disk. A session from before is the person's only
+ * until `legacyPersonUntil`, the transition a deployment may choose (none by default).
  */
 export function speaksForPerson(
-  principal: Principal,
+  standing: SessionStanding | undefined,
   now: number,
   legacyPersonUntil: number | undefined,
 ): boolean {
-  if (principal.kind !== "session") return false;
-  if (principal.standing === "person") return true;
-  return (
-    principal.standing === "legacy" && legacyPersonUntil !== undefined && now < legacyPersonUntil
-  );
+  if (standing === "person") return true;
+  return standing === "legacy" && legacyPersonUntil !== undefined && now < legacyPersonUntil;
 }
 
 /**
@@ -38,8 +35,8 @@ export function speaksForPerson(
  */
 export function directoryRoutes(deps: {
   principals: PrincipalReader;
-  /** To mark a session a machine kept on its disk. */
-  sessionStore: Pick<SessionStore, "expose">;
+  /** To mark a session a machine kept on its disk, and read its standing as a grant is issued. */
+  sessionStore: Pick<SessionStore, "expose" | "standingNow">;
   /** Until when sessions from before ADR 0190 still speak for the person; undefined: never. */
   legacyPersonUntil?: number | undefined;
   machines: ReturnType<typeof machineStore>;
@@ -65,55 +62,96 @@ export function directoryRoutes(deps: {
     /** GET /v1/keys — public keys only. */
     keys: () => json(200, keys),
 
-    /** POST /v1/grants */
+    /**
+     * POST /v1/grants. What a principal gets (ADR 0190):
+     *
+     * - A machine credential: `machine` grants for its own host only; device grants in format 2
+     *   with a machine's standing, which older daemons (which treat any format 1 device grant as
+     *   the person) refuse; market grants as `machine`, which the market refuses for sensitive
+     *   actions.
+     * - A session a machine kept (`exposed`): the same, but `machine` grants for any host, as an
+     *   older daemon asks for its own.
+     * - The person's session (or one from before, which older daemons still need): format 1
+     *   device grants, and with `host` and `key` the person's format 2 grant beside it.
+     *
+     * A session asking for a `machine` grant is kept by an older daemon, so it is marked exposed
+     * first; the standing is then read again for this decision, never from before it.
+     */
     grant: (request: Request) =>
       authenticated(request, async (principal) => {
         const { account, signedInAt } = principal;
         const parsed = AceGrantRequest.safeParse(await jsonBody(request, 4096));
         if (!parsed.success) return fail(400, "invalid_request");
-        const { kind, subject, purpose } = parsed.data;
+        const { kind, subject, purpose, host, key, action } = parsed.data;
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");
         if (purpose === "spade-cloud" && kind !== "machine") return fail(400, "invalid_request");
-        // A machine credential speaks for its own machine only (ADR 0190).
+        if (action !== undefined && purpose !== "market-publish")
+          return fail(400, "invalid_request");
         if (principal.kind === "machine" && kind === "machine" && subject !== principal.hostId)
           return fail(403, "other_machine");
-        // A session asking as a machine is one an older daemon keeps in its session file: it has
-        // been on a machine's disk, so it never speaks for the person again.
-        if (principal.kind === "session" && kind === "machine" && principal.standing !== "exposed")
+        if (principal.kind === "session" && kind === "machine")
           await deps.sessionStore.expose(principal.hash);
+        const iat = now();
+        const standing =
+          principal.kind === "session"
+            ? await deps.sessionStore.standingNow(principal.hash)
+            : "exposed";
+        const person = speaksForPerson(standing, iat, deps.legacyPersonUntil);
+        const fromMachine = principal.kind === "machine" || standing === "exposed";
         // Publishing only ever as an account whose email WorkOS verified (ADR 0174 §2).
         if (purpose === "market-publish" && account.emailVerified !== true)
           return fail(403, "email_unverified");
-        const iat = now();
+        // Only the person's own session may name a sensitive market request.
+        if (action !== undefined && !person) return fail(403, "person_required");
         const exp = iat + GRANT_LIFETIME_MS;
         const claims = { kind, account: account.id, subject, iat, exp };
-        const token =
-          purpose === "spade-cloud"
-            ? signCloudGrant(claims, signingKey)
-            : purpose === "market-publish"
-              ? signMarketGrant(
-                  { ...claims, iss: issuer, emailVerified: true, authAt: signedInAt },
-                  signingKey,
-                )
-              : signGrant(claims, signingKey);
-        // A device grant comes with its standing grant: whose session asked (ADR 0190).
-        const standing =
-          kind === "device" && purpose === undefined
+        if (purpose === "spade-cloud")
+          return json(200, { token: signCloudGrant(claims, signingKey), expiresAt: exp });
+        if (purpose === "market-publish") {
+          const token = signMarketGrant(
+            {
+              ...claims,
+              // Anything but the person's own session publishes as a machine.
+              kind: person ? kind : "machine",
+              iss: issuer,
+              emailVerified: true,
+              authAt: signedInAt,
+              ...(action !== undefined ? { action } : {}),
+            },
+            signingKey,
+          );
+          return json(200, { token, expiresAt: exp });
+        }
+        if (kind === "machine")
+          return json(200, { token: signGrant(claims, signingKey), expiresAt: exp });
+        if (fromMachine)
+          return json(200, {
+            token: signStandingGrant(
+              {
+                standing: "machine",
+                account: account.id,
+                subject,
+                ...(host ? { host } : {}),
+                iat,
+                exp,
+              },
+              signingKey,
+            ),
+            expiresAt: exp,
+          });
+        const standingGrant =
+          person && host && key
             ? signStandingGrant(
-                {
-                  standing: speaksForPerson(principal, iat, deps.legacyPersonUntil)
-                    ? "person"
-                    : "machine",
-                  account: account.id,
-                  subject,
-                  iat,
-                  exp,
-                },
+                { standing: "person", account: account.id, subject, host, key, iat, exp },
                 signingKey,
               )
             : undefined;
-        return json(200, { token, expiresAt: exp, ...(standing ? { standing } : {}) });
+        return json(200, {
+          token: signGrant(claims, signingKey),
+          expiresAt: exp,
+          ...(standingGrant ? { standing: standingGrant } : {}),
+        });
       }),
 
     /** GET /v1/machines */

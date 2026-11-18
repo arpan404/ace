@@ -2,15 +2,11 @@ import { MachineCode, type MachineCodeRefusal } from "@ace/protocol";
 
 /**
  * An account device's credential for one machine (ADR 0111): a fresh device grant for every
- * connection, with the standing grant the backend gave with it (`standingOf`, ADR 0190), plus
- * the machine code the person typed when the daemon asks for it. Wire `credential`, `refused`
- * and `welcomed` into a channel; a UI reads `asking` and calls `enter`, then opens the channel
- * again. The code is kept only until the daemon answers it.
+ * connection, plus the machine code the person typed when the daemon asks for it. Wire
+ * `credential`, `refused` and `welcomed` into a channel; a UI reads `asking` and calls `enter`,
+ * then opens the channel again. The code is kept only until the daemon answers it.
  */
-export function machineCodeGate(
-  grant: () => Promise<string>,
-  standingOf: (grant: string) => string | undefined = () => undefined,
-) {
+export function machineCodeGate(grant: () => Promise<string>) {
   let code: string | undefined;
   let asking: MachineCodeRefusal | undefined;
   let lockedUntil: number | undefined;
@@ -19,14 +15,9 @@ export function machineCodeGate(
     for (const listener of listeners) listener();
   };
   return {
-    async credential(): Promise<{ grant: string; standing?: string; machineCode?: string }> {
+    async credential(): Promise<{ grant: string; machineCode?: string }> {
       const token = await grant();
-      const standing = standingOf(token);
-      return {
-        grant: token,
-        ...(standing === undefined ? {} : { standing }),
-        ...(code === undefined ? {} : { machineCode: code }),
-      };
+      return code === undefined ? { grant: token } : { grant: token, machineCode: code };
     },
     /** The daemon asked for the code, or refused the one sent. */
     refused(reason: MachineCodeRefusal, until?: number): void {

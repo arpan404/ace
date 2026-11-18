@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { shutdownDeadline, trackStage } from "./shutdown.ts";
 import { relayPairing, relayRoute } from "./relay-route.ts";
 import { isHostedRelay } from "./relay-account.ts";
@@ -406,11 +407,18 @@ export async function startServer(options: ServerOptions): Promise<{
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
-    // Whether this socket's credential is the person's for person-only actions (ADR 0190): an
-    // account device only when its standing grant said person; the host token never.
-    const personProven = () =>
-      !hostCredential() &&
-      (accountAdmitted === undefined || authenticated.get(socket)?.person === true);
+    // An account device proves the person's standing on this socket only, against this nonce,
+    // and only until its grant's expiry (ADR 0190); a grant refresh never carries it on.
+    const standingNonce = randomBytes(16).toString("base64url");
+    let personUntil = 0;
+    // Whether this socket's credential is the person's for person-only actions (ADR 0190): a
+    // paired device whose link the person made, an account device while its proven standing
+    // lasts; the host token never.
+    const personProven = () => {
+      if (hostCredential()) return false;
+      if (accountAdmitted !== undefined) return personUntil > auth.now();
+      return authenticated.get(socket)?.person === true;
+    };
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
@@ -638,7 +646,7 @@ export async function startServer(options: ServerOptions): Promise<{
             return;
           }
           auth.accountDeviceSeen(message.deviceId, message.link);
-          actor = accountDeviceActor(message.deviceId, auth.now(), admitted.person === true);
+          actor = accountDeviceActor(message.deviceId, auth.now());
           accountAdmitted = admitted.stillAdmitted;
           accountId = admitted.account;
           // Dedicated channels end with their main connection's access; the main socket refreshes.
@@ -708,6 +716,7 @@ export async function startServer(options: ServerOptions): Promise<{
           headSeq: options.store.headSeq(),
           databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
+          ...(accountAdmitted !== undefined ? { standingNonce } : {}),
           ...(next ? { ticket: next } : {}),
           // Announced only where the pinned key authenticates it: over the relay.
           ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
@@ -754,6 +763,33 @@ export async function startServer(options: ServerOptions): Promise<{
               } as const);
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({ type: "account.grant.refresh.result", requestId, result });
+          return;
+        }
+        case "account.standing": {
+          const { requestId } = message;
+          const proven =
+            accountAdmitted?.() === true && accountId !== undefined
+              ? await options.machineAccount?.proveStanding({
+                  grant: message.grant,
+                  proof: message.proof,
+                  nonce: standingNonce,
+                  deviceId: actor,
+                  account: accountId,
+                })
+              : undefined;
+          if (proven) personUntil = Math.max(personUntil, proven.until);
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({
+              type: "account.standing.result",
+              requestId,
+              result: proven
+                ? { ok: true, until: proven.until }
+                : {
+                    ok: false,
+                    code: "unauthorized",
+                    message: "That doesn't prove the person on this connection.",
+                  },
+            });
           return;
         }
         case "command":

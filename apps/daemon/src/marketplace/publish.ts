@@ -114,6 +114,7 @@ function readAnswer(call: Call, body: unknown): MarketPublishAnswer | undefined 
 const codes: Record<z.infer<typeof MarketApiError>["error"], ErrorResult["code"]> = {
   unauthorized: "signed_out",
   reauth: "reauth",
+  person_grant: "person_grant",
   email_unverified: "refused",
   suspended: "suspended",
   forbidden: "forbidden",
@@ -390,6 +391,11 @@ export async function publishAction(
   ports: {
     http: MarketHttp | undefined;
     grant: MarketGrantPort | undefined;
+    /**
+     * A person's market grant for this action's one call (ADR 0190), which the market takes
+     * for a sensitive action; the machine's own grant is used otherwise.
+     */
+    personGrant?: string | undefined;
     /** A draft's archive already read and checked on this machine (`check.ts`). */
     archive?: Uint8Array | undefined;
   },
@@ -407,7 +413,10 @@ export async function publishAction(
   }
   let grant: string | undefined;
   try {
-    grant = await ports.grant?.();
+    grant =
+      ports.personGrant !== undefined && calls.length === 1
+        ? ports.personGrant
+        : await ports.grant?.();
   } catch (error) {
     return failure(
       "unavailable",
@@ -439,7 +448,14 @@ export async function publishAction(
       if (error instanceof MarketHttpError) return failure("unavailable", error.message);
       throw error;
     }
-    if (reply.status < 200 || reply.status >= 300) return workerError(reply.status, reply.body);
+    if (reply.status < 200 || reply.status >= 300) {
+      const refused = workerError(reply.status, reply.body);
+      // The market wants the person's own grant for this call: say which, so the client can
+      // get one and send the request again (ADR 0190).
+      return refused.code === "person_grant" && calls.length === 1
+        ? { ...refused, action: `${call.method} ${path}` }
+        : refused;
+    }
     answer = readAnswer(call, reply.body);
     if (!answer) return failure("failed", "The market's answer isn't in a form this build reads");
     if (answer.kind === "draft") draftId = answer.draft.id;
