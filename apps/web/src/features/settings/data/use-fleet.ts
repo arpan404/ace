@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { useToast } from "@/components/ui/toast.tsx";
 import { useMachines, type Machine } from "@/lib/machines.ts";
 import {
   fleetKeys,
@@ -35,6 +36,7 @@ export function useFleet() {
   const pairings = useFleetPairings(machines);
   const update = useFleetUpdate(machines, devices);
   const queries = useQueryClient();
+  const toast = useToast();
 
   const facts: FleetMachineFacts[] = machines.map((machine) => ({
     id: machine.id,
@@ -75,12 +77,14 @@ export function useFleet() {
   const link = useMutation({
     mutationFn: async (wanted: readonly LinkGap[]) => {
       const failures: string[] = [];
+      const withoutProjects: Machine[] = [];
       for (const gap of wanted) {
         const from = byId(gap.from);
         const to = byId(gap.to);
         if (!from || !to) continue;
         try {
-          await linkMachine(from, to, "operate");
+          const linked = await linkMachine(from, to, "operate");
+          if (!linked.projects && !withoutProjects.includes(to)) withoutProjects.push(to);
         } catch (error) {
           failures.push(
             error instanceof Error ? error.message : `${from.name} didn't link to ${to.name}.`,
@@ -88,6 +92,12 @@ export function useFleet() {
         }
       }
       await refresh(wanted.flatMap((gap) => [gap.from, gap.to]));
+      // Linked, but this window couldn't hand out Projects there: say how to allow them later.
+      for (const to of withoutProjects)
+        toast.add({
+          title: `Linked without Projects on ${to.name}`,
+          description: `This device can't grant Projects on ${to.name}, so work can't move there yet. Allow projects on ${to.name}'s page in Settings › Fleet.`,
+        });
       if (failures.length) throw new Error(failures.join("\n"));
     },
   });

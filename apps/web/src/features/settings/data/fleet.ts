@@ -123,14 +123,31 @@ const pairingProblem = (error: unknown, machine: Machine) =>
 const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
   linkRedeemProblem(refusalCode(error), source.name, target.name);
 
-export async function linkMachine(from: Machine, to: Machine, access: LinkAccess) {
+/**
+ * Link `from` to `to`: `to` issues a pairing link and `from` redeems it. The link asks for
+ * Projects with operate, but a device grants only what it holds there; when this window's device
+ * on `to` doesn't hold Projects, the link is made without them (`projects: false`) and they can
+ * be allowed later on `to`'s page in Settings › Fleet.
+ */
+export async function linkMachine(
+  from: Machine,
+  to: Machine,
+  access: LinkAccess,
+): Promise<{ link: FleetLink; projects: boolean }> {
   if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
   const toClient = to.client;
   const fromClient = from.client;
-  const pairing = await createPairing(toClient, {
-    scopes: linkScopes(access),
-  }).catch((error: unknown) => {
-    throw new Error(pairingProblem(error, to));
+  const wanted = linkScopes(access);
+  const issue = (scopes: PairingScope[]) =>
+    createPairing(toClient, { scopes }).catch((error: unknown) => {
+      throw Object.assign(new Error(pairingProblem(error, to)), { code: refusalCode(error) });
+    });
+  let projects = wanted.includes("projects");
+  const pairing = await issue(wanted).catch(async (error: unknown) => {
+    // Refused for Projects this window can't hand out: link without them.
+    if (!projects || refusalCode(error) !== "forbidden") throw error;
+    projects = false;
+    return issue(wanted.filter((scope) => scope !== "projects"));
   });
   const result = await fleet(fromClient, {
     op: "link",
@@ -141,7 +158,7 @@ export async function linkMachine(from: Machine, to: Machine, access: LinkAccess
     throw new Error(redeemProblem(error, from, to));
   });
   if (result.kind !== "linked") throw new Error(`${from.name} didn't keep the link.`);
-  return result.link;
+  return { link: result.link, projects };
 }
 
 /**

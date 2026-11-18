@@ -159,8 +159,9 @@ export function linkScopes(access: LinkAccess): PairingScope[] {
 /** Why `to` couldn't make a pairing link for a link, in words the person acts on. */
 export function linkPairingProblem(code: string, to: string): string {
   if (code === "unavailable") return `Turn on remote access on ${to}.`;
+  // Projects this device can't grant are already dropped from the link; this is administrator.
   if (code === "forbidden")
-    return `This device doesn't have administrator access to ${to}. Pair it again as Administrator.`;
+    return `This device isn't an administrator on ${to}, so it can't link it. Pair it again as Administrator.`;
   if (code === "busy") return `${to} has too many pairing links open. Cancel one first.`;
   return `${to} didn't make a pairing link.`;
 }
