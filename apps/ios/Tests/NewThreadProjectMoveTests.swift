@@ -142,6 +142,81 @@ import Foundation
         #expect(drafts.draft.projectId == nil)
     }
 
+    /// The sheet's `.task(id: machineId)` on reaching a machine: the draft moves there unless it
+    /// is on it, then the opening's project applies, as `NewThreadSheet` does.
+    private func reach(_ drafts: NewThreadDraftModel, _ machine: String, _ opening: inout NewThreadOpening,
+                       initial: String?, memory: NewThreadMemoryStore) {
+        if drafts.draft.machineId != machine { drafts.edit { $0 = memory.load().open($0, on: machine) } }
+        if let project = opening.reach(drafts.draft, initialProject: initial) {
+            drafts.edit { $0 = memory.load().chose(project: project, in: $0) }
+        }
+    }
+    private func freshDrafts() -> NewThreadDraftModel {
+        NewThreadDraftModel(store: NewThreadDraftStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("new-thread-move-\(UUID().uuidString).json")))
+    }
+
+    @Test func aProjectsNewThreadMovedToAMachineWithNothingRememberedNeverTakesTheFirstMachinesProjectId() {
+        let memory = memoryStore()
+        let drafts = freshDrafts()
+        var opening = NewThreadOpening(), move = NewThreadProjectMove()
+        // New thread from the laptop's `ace` project; the CI machine has never been used.
+        reach(drafts, "laptop", &opening, initial: "ace", memory: memory)
+        #expect(drafts.draft.machineId == "laptop" && drafts.draft.projectId == "ace")
+        drafts.edit { $0.text = "Fix the flaky test" }
+        let ci = ComposeModel()
+        move.move(drafts, to: "ci", leaving: here, there: ci, memory: memory)
+        // The sheet reaches the CI machine before it has listed anything.
+        reach(drafts, "ci", &opening, initial: "ace", memory: memory)
+        #expect(drafts.draft.machineId == "ci" && drafts.draft.projectId == nil)
+        ci.apply(.projects(state: "loading", []))
+        move.listed(drafts, on: "ci", compose: ci, memory: memory)
+        ci.apply(.projects(state: "ready", ciProjects))
+        move.listed(drafts, on: "ci", compose: ci, memory: memory)
+        #expect(drafts.draft.projectId == "ace-review" && ciProjects.contains { $0.id == drafts.draft.projectId })
+        #expect(drafts.draft.text == "Fix the flaky test")
+        // Back on the laptop the logical match finds `ace` again; the opening applies only once.
+        move.move(drafts, to: "laptop", leaving: ciProjects[1], there: listing("ready", [here]), memory: memory)
+        reach(drafts, "laptop", &opening, initial: "ace", memory: memory)
+        #expect(drafts.draft.machineId == "laptop" && drafts.draft.projectId == "ace")
+    }
+
+    @Test func aMachineWithNoCheckoutLeavesTheDraftWithoutAProjectRatherThanTheOpeningsOne() {
+        let memory = memoryStore()
+        let drafts = freshDrafts()
+        var opening = NewThreadOpening(), move = NewThreadProjectMove()
+        reach(drafts, "laptop", &opening, initial: "ace", memory: memory)
+        let build = ComposeModel()
+        move.move(drafts, to: "build", leaving: here, there: build, memory: memory)
+        reach(drafts, "build", &opening, initial: "ace", memory: memory)
+        build.apply(.projects(state: "ready", [ComposeProject(id: "web", name: "web", path: "/srv/web", recent: true, logical: ["w"])]))
+        move.listed(drafts, on: "build", compose: build, memory: memory)
+        #expect(drafts.draft.machineId == "build" && drafts.draft.projectId == nil)
+    }
+
+    @Test func newChatStaysAChatAcrossMachinesAndAProjectPickedSinceStillFindsItsCheckout() {
+        let memory = memoryStore()
+        let drafts = drafts(memory)
+        var opening = NewThreadOpening(), move = NewThreadProjectMove()
+        reach(drafts, "laptop", &opening, initial: NewThreadDraft.chat, memory: memory)
+        #expect(drafts.draft.isChat)
+        // No project is no machine's: a move keeps the chat, though the CI machine last had `notes`.
+        move.move(drafts, to: "ci", leaving: nil, there: ComposeModel(), memory: memory)
+        reach(drafts, "ci", &opening, initial: NewThreadDraft.chat, memory: memory)
+        #expect(drafts.draft.machineId == "ci" && drafts.draft.isChat)
+        // Back on the laptop the person picks `ace`, then moves to the CI machine again.
+        move.move(drafts, to: "laptop", leaving: nil, there: listing("ready", [here]), memory: memory)
+        reach(drafts, "laptop", &opening, initial: NewThreadDraft.chat, memory: memory)
+        move.chose()
+        drafts.edit { $0 = memory.load().chose(project: "ace", in: $0) }
+        let ci = ComposeModel()
+        move.move(drafts, to: "ci", leaving: here, there: ci, memory: memory)
+        reach(drafts, "ci", &opening, initial: NewThreadDraft.chat, memory: memory)
+        #expect(!drafts.draft.isChat)
+        ci.apply(.projects(state: "ready", ciProjects))
+        move.listed(drafts, on: "ci", compose: ci, memory: memory)
+        #expect(drafts.draft.projectId == "ace-review")
+    }
+
     @Test func aProjectOfItsOwnNeverWaits() {
         let memory = memoryStore()
         let drafts = drafts(memory)

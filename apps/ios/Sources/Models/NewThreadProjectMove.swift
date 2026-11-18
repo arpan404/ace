@@ -56,12 +56,15 @@ struct NewThreadProjectMove: Equatable, Sendable {
 @MainActor extension NewThreadProjectMove {
     /// Moves `drafts` to `machine`, leaving `left`: that machine's last project and model come
     /// back, as the web's do, then its checkout of `left`'s logical project when `there`, its
-    /// reads, lists one.
+    /// reads, lists one. A chat stays a chat.
     mutating func move(_ drafts: NewThreadDraftModel, to machine: String, leaving left: ComposeProject?,
                        there: ComposeModel?, memory: NewThreadMemoryStore) {
         let before = drafts.draft
         drafts.edit { $0 = memory.load().open($0, on: machine) }
-        let same = move(before, to: drafts.draft, leaving: left, state: there?.projectsState ?? "idle", projects: there?.projects ?? [])
+        // No project belongs to no machine: a chat stays a chat.
+        if before.isChat { drafts.edit { $0 = memory.load().chose(project: NewThreadDraft.chat, in: $0) } }
+        let same = move(before, to: drafts.draft, leaving: before.isChat ? nil : left,
+                        state: there?.projectsState ?? "idle", projects: there?.projects ?? [])
         if let same { drafts.edit { $0 = memory.load().chose(project: same, in: $0) } }
     }
 

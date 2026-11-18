@@ -40,6 +40,8 @@ struct NewThreadSheet: View {
     /// A move to a machine that hadn't listed its projects, waiting for its checkout of the
     /// project left (ADR 0180).
     @State private var move = NewThreadProjectMove()
+    /// `initialProject`, applied once on the machine the sheet first reaches.
+    @State private var opening = NewThreadOpening()
     private var draft: NewThreadDraft { drafts.draft }
     /// The first message's files, in the chosen project's draft scope.
     private var files: [AttachmentFile] {
@@ -116,8 +118,8 @@ struct NewThreadSheet: View {
                 else { drafts.edit { $0 = memory.load().open($0, on: machineId) } }
             }
             // New chat always starts a chat, whatever the last draft was in. A handoff keeps its own.
-            if let initialProject, draft.handoff == nil, draft.projectId == nil || initialProject == NewThreadDraft.chat {
-                drafts.edit { $0 = memory.load().chose(project: initialProject, in: $0) }
+            if let initial = opening.reach(draft, initialProject: initialProject) {
+                drafts.edit { $0 = memory.load().chose(project: initial, in: $0) }
             }
             client.composeAction(["kind": "open"])
             client.composeChoice(draft)
