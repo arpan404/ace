@@ -6,7 +6,8 @@ import type { DatabaseSync } from "node:sqlite";
  * `sidebarRemovalLog` of them), with or without foreign keys on.
  *
  * Every threads row has exactly one revision row: the triggers keep that true for every
- * connection, and builds without them can't open this schema. Threads written before the
+ * connection, and builds without them can't open this schema. A trigger found missing at
+ * open runs the pass again. Threads written before the
  * triggers existed get theirs, and stale rows go, in one pass the first time a home opens
  * with this code; a marker records that it ran, so later opens never read every thread
  * (ADR 0170). That pass is not deferred: the sidebar's facts, its change feed and the thread
@@ -15,7 +16,22 @@ import type { DatabaseSync } from "node:sqlite";
 /** Removed ids kept for the live sidebar; a reader further behind rebuilds instead. */
 export const sidebarRemovalLog = 4096;
 
+const revisionTriggers = [
+  "sidebar_thread_insert",
+  "sidebar_thread_update",
+  "sidebar_thread_rekey",
+  "sidebar_thread_delete",
+];
+
 export function migrateSidebarRevisions(db: DatabaseSync): void {
+  // Threads written while a trigger was gone may lack a revision, so they need the pass again.
+  const kept = Number(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'trigger' AND name IN (${revisionTriggers.map(() => "?").join(", ")})`,
+      )
+      .get(...revisionTriggers)?.n,
+  );
   db.exec(`
     CREATE TABLE IF NOT EXISTS sidebar_thread_revisions (
       revision INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +87,7 @@ export function migrateSidebarRevisions(db: DatabaseSync): void {
     RELEASE sidebar_revision_triggers;
     CREATE TABLE IF NOT EXISTS sidebar_revisions_complete (id INTEGER PRIMARY KEY CHECK (id = 1));
   `);
+  if (kept < revisionTriggers.length) db.exec("DELETE FROM sidebar_revisions_complete");
   if (db.prepare("SELECT 1 FROM sidebar_revisions_complete").get()) return;
   // Once per home, with the marker in the same savepoint so a stop part way runs it again.
   db.exec(`

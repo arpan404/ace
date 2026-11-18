@@ -253,3 +253,37 @@ it("a thread whose JSON the sidebar can't read never blocks a write, and lists o
   expect(read).toEqual(fromJson(db, () => allPages(db, projects)));
   expect(read[0]?.pages[0]?.ids[0]).toBe("t-001");
 });
+
+it("a home from before the facts table lists, orders and counts every thread on its first open", () => {
+  const { store, raw, open } = setup();
+  const projects = seed(store, 20);
+  const db = raw();
+  db.exec(`
+    DROP TRIGGER sidebar_columns_insert;
+    DROP TRIGGER sidebar_columns_delete;
+    DROP TABLE sidebar_thread_columns;
+    DROP TABLE sidebar_columns_shape;
+    DROP TABLE sidebar_columns_complete;
+  `);
+  db.close();
+  open().close();
+  const check = raw();
+  const read = allPages(check, projects);
+  expect(read).toEqual(fromJson(check, () => allPages(check, projects)));
+  const inbox = read.find((each) => each.scope.project === undefined && !each.scope.archived);
+  expect(inbox?.live.total).toBe(20);
+});
+
+it("later opens don't read every thread to repair the facts table", () => {
+  const { store, raw, open } = setup();
+  seed(store, 5);
+  const rows = (db: DatabaseSync) =>
+    Number(db.prepare("SELECT COUNT(*) AS n FROM sidebar_thread_columns").get()?.n);
+  const db = raw();
+  // No trigger watches the facts table itself, so only a full pass at open would refill it.
+  db.exec("DELETE FROM sidebar_thread_columns WHERE thread_id = 't-001'");
+  db.close();
+  open().close();
+  const check = raw();
+  expect(rows(check)).toBe(4);
+});

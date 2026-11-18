@@ -79,3 +79,14 @@ it("later opens don't read every thread to check their revisions", () => {
   listed();
   raw((db) => expect(revisions(db)).toBe(ids.length - 1));
 });
+
+it("a thread written while a revision trigger was gone gets its revision at the next open", () => {
+  const { raw, ids, listed } = setup();
+  const [lost] = ids;
+  if (!lost) throw new Error("no thread");
+  raw((db) => {
+    db.exec("DROP TRIGGER sidebar_thread_insert");
+    dropRevision(db, lost);
+  });
+  expect(listed()).toEqual(ids.toSorted());
+});
