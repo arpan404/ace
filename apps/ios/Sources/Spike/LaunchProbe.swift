@@ -29,3 +29,23 @@ struct LaunchProbeView: View {
         return (try? JSONEncoder().encode(arguments)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
     }()
 }
+
+/// Fixture launches only (`--spike`): how many pairing links this launch sent to redeem, as one
+/// accessibility value, so a UI test can check that the confirm step sends exactly one and only
+/// after the tap. Release builds compile it away.
+struct PairingAttemptsProbe: View {
+    let count: Int
+    var body: some View {
+        #if ACE_FIXTURE
+        if SpikeConfiguration.enabled {
+            Color.clear.frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityAddTraits(.isStaticText)
+                .accessibilityIdentifier("pairing.attempts")
+                .accessibilityValue(String(count))
+                .accessibilitySortPriority(-1_000)
+                .allowsHitTesting(false)
+        }
+        #endif
+    }
+}

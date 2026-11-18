@@ -61,6 +61,7 @@ struct ConfirmPairingView: View {
             }
         }
         .insetGroupedList()
+        .overlay(alignment: .bottomTrailing) { PairingAttemptsProbe(count: machines.pairAttempts) }
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: Binding(get: { settingUp != nil }, set: { if !$0 { settingUp = nil } })) {

@@ -2,7 +2,7 @@ import XCTest
 
 /// Pairing a computer from a fresh install: the scanner's states, the pasted link and the
 /// confirm step. No fixture daemon is needed; nothing here pairs for real. `--spike-camera`
-/// stands in for the camera the simulator lacks; without it the simulator's own (none) is used.
+/// stands in for the camera, so no test depends on the simulator's hardware.
 @MainActor final class PairingUITests: XCTestCase {
     private let link = "https://127.0.0.1:4611/pair#fingerprint=910f1d462b3420fa56b536af54a2a35082154ff832fcced8095103e34dc5eecc"
         + "&code=ef12265409b0b5a3daa4ba0a61fef08c3e1f281c54e5b094534ac0617aee3cae&scopes=read%2Coperate"
@@ -10,11 +10,11 @@ import XCTest
     override func setUp() { continueAfterFailure = false }
 
     func testScanningWithNoCameraStaysOpenAndOffersPaste() {
-        let app = openPairing()
+        let app = openPairing(camera: ["--spike-camera", "none"])
         defer { app.terminate() }
         capture("pair")
         app.buttons["pairing.scan"].tap()
-        // The simulator has no camera: the scanner says so in place instead of closing.
+        // No camera: the scanner says so in place instead of closing.
         XCTAssertTrue(app.staticTexts["No camera"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["scanner.paste"].exists)
         capture("scanner-no-camera")
@@ -45,6 +45,14 @@ import XCTest
         XCTAssertTrue(fingerprint.waitForExistence(timeout: 10))
         XCTAssertTrue(fingerprint.label.hasPrefix("910f 1d46 2b34"))
         capture("confirm")
+        // Scanning only fills in the confirm step: nothing goes to the computer until the tap.
+        let attempts = app.descendants(matching: .any)["pairing.attempts"]
+        XCTAssertTrue(attempts.waitForExistence(timeout: 5))
+        XCTAssertEqual(attempts.value as? String, "0")
+        app.buttons["pairing.confirm"].tap()
+        // Nothing listens at the link's address, so the one attempt fails and offers Try again.
+        XCTAssertTrue(app.descendants(matching: .any)["pairing.error"].waitForExistence(timeout: 30))
+        XCTAssertEqual(attempts.value as? String, "1")
     }
 
     func testACodeThatIsNotAPairingLinkKeepsTheScannerOpen() {
