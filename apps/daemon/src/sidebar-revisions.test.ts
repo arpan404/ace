@@ -90,3 +90,20 @@ it("a thread written while a revision trigger was gone gets its revision at the 
   });
   expect(listed()).toEqual(ids.toSorted());
 });
+
+it("an open stopped while clearing the revision marker gives the thread its revision next time", () => {
+  const { raw, ids, listed } = setup();
+  const [lost] = ids;
+  if (!lost) throw new Error("no thread");
+  raw((db) => {
+    db.exec("DROP TRIGGER sidebar_thread_insert");
+    dropRevision(db, lost);
+    // The open stops at the point where it would clear the marker.
+    db.exec(
+      "CREATE TRIGGER stop_open BEFORE DELETE ON sidebar_revisions_complete BEGIN SELECT RAISE(ABORT, 'stopped'); END",
+    );
+  });
+  expect(() => listed()).toThrow();
+  raw((db) => db.exec("DROP TRIGGER stop_open"));
+  expect(listed()).toEqual(ids.toSorted());
+});

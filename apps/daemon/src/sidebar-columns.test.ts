@@ -38,7 +38,7 @@ function setup() {
     });
     return db;
   };
-  return { store: first, open, raw };
+  return { store: first, open, raw, path };
 }
 
 /** Threads in three projects, created through the writer, with activity that often ties. */
@@ -274,17 +274,78 @@ it("a home from before the facts table lists, orders and counts every thread on 
   expect(inbox?.live.total).toBe(20);
 });
 
-const factRows = (db: DatabaseSync) =>
-  Number(db.prepare("SELECT COUNT(*) AS n FROM sidebar_thread_columns").get()?.n);
+/** Every SQL statement a store opened on `path` runs while it opens. */
+function statementsAtOpen(path: string): string[] {
+  const ran: string[] = [];
+  const db = new DatabaseSync(path);
+  const watched = new Proxy(db, {
+    get(target, key) {
+      if (key === "prepare" || key === "exec")
+        return (sql: string) => {
+          ran.push(sql);
+          return key === "prepare" ? target.prepare(sql) : target.exec(sql);
+        };
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  new Store(path, console.error, { database: watched }).close();
+  return ran;
+}
 
-it("later opens don't read every thread to repair the facts table", () => {
+/** Statements whose query plan reads all of `threads` or `sidebar_thread_columns`. */
+function fullScans(path: string, statements: string[]): string[] {
+  const db = new DatabaseSync(path);
+  try {
+    return statements.filter((sql) => {
+      let plan: string[];
+      try {
+        plan = db
+          .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .all(...Array.from({ length: (sql.match(/\?/g) ?? []).length }, () => null))
+          .map((row) => String(row.detail));
+      } catch {
+        return false; // Several statements or schema changes: no plan to read.
+      }
+      return plan.some((step) => /^SCAN (threads|sidebar_thread_columns)\b/.test(step));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+it("a later open lists every thread correctly without reading every thread", () => {
+  const { store, raw, open, path } = setup();
+  const projects = seed(store, 30);
+  open().close();
+  const statements = statementsAtOpen(path);
+  const check = raw();
+  const read = allPages(check, projects);
+  expect(read).toEqual(fromJson(check, () => allPages(check, projects)));
+  const inbox = read.find((each) => each.scope.project === undefined && !each.scope.archived);
+  expect(inbox?.live.total).toBe(30);
+  expect(fullScans(path, statements)).toEqual([]);
+});
+
+it("an open stopped while clearing the repair marker repairs at the next open", () => {
   const { store, raw, open } = setup();
-  seed(store, 5);
+  const projects = seed(store, 6);
   const db = raw();
-  // No trigger watches the facts table itself, so only a full pass at open would refill it.
-  db.exec("DELETE FROM sidebar_thread_columns WHERE thread_id = 't-001'");
+  db.exec("DROP TRIGGER sidebar_columns_insert");
+  db.exec("UPDATE threads SET archived_at = 5000 WHERE id = 't-001'");
+  // The open stops at the point where it would clear the marker.
+  db.exec(
+    "CREATE TRIGGER stop_open BEFORE DELETE ON sidebar_columns_complete BEGIN SELECT RAISE(ABORT, 'stopped'); END",
+  );
   db.close();
+  expect(() => open()).toThrow();
+  const unstop = raw();
+  unstop.exec("DROP TRIGGER stop_open");
+  unstop.close();
   open().close();
   const check = raw();
-  expect(factRows(check)).toBe(4);
+  const read = allPages(check, projects);
+  expect(read).toEqual(fromJson(check, () => allPages(check, projects)));
+  const archive = read.find((each) => each.scope.project === undefined && each.scope.archived);
+  expect(archive?.live.page).toEqual(["t-001"]);
 });

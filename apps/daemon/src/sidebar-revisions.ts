@@ -52,10 +52,17 @@ export function migrateSidebarRevisions(db: DatabaseSync): void {
       revision INTEGER PRIMARY KEY AUTOINCREMENT,
       thread_id TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS sidebar_revisions_complete (id INTEGER PRIMARY KEY CHECK (id = 1));
+  `);
+  // The marker goes in the same savepoint as the triggers: an open stopped after recreating
+  // them must not leave a marker that a later open, finding every trigger, would believe.
+  inSavepoint(
+    db,
+    "sidebar_revision_triggers",
+    `${kept < revisionTriggers.length ? "DELETE FROM sidebar_revisions_complete;" : ""}
     -- Delete, then insert. A statement's own conflict rule (an upsert, OR IGNORE, OR
     -- ROLLBACK) replaces the rule of every statement its triggers run, so an OR REPLACE
     -- here could fail or be skipped. Recreated on every start, so older bodies are replaced.
-    SAVEPOINT sidebar_revision_triggers;
     DROP TRIGGER IF EXISTS sidebar_thread_insert;
     DROP TRIGGER IF EXISTS sidebar_thread_update;
     DROP TRIGGER IF EXISTS sidebar_thread_rekey;
@@ -84,19 +91,31 @@ export function migrateSidebarRevisions(db: DatabaseSync): void {
       DELETE FROM sidebar_thread_removals
         WHERE revision <= (SELECT MAX(revision) FROM sidebar_thread_removals) - ${sidebarRemovalLog};
     END;
-    RELEASE sidebar_revision_triggers;
-    CREATE TABLE IF NOT EXISTS sidebar_revisions_complete (id INTEGER PRIMARY KEY CHECK (id = 1));
-  `);
-  if (kept < revisionTriggers.length) db.exec("DELETE FROM sidebar_revisions_complete");
+  `,
+  );
   if (db.prepare("SELECT 1 FROM sidebar_revisions_complete").get()) return;
   // Once per home, with the marker in the same savepoint so a stop part way runs it again.
-  db.exec(`
-    SAVEPOINT sidebar_revisions_complete;
+  inSavepoint(
+    db,
+    "sidebar_revisions_complete",
+    `
     -- Rows deleted while foreign keys were off, before the delete trigger existed.
     DELETE FROM sidebar_thread_revisions WHERE thread_id NOT IN (SELECT id FROM threads);
     -- Rows written before the triggers existed get a revision, so every row has one.
     INSERT OR IGNORE INTO sidebar_thread_revisions(thread_id) SELECT id FROM threads;
     INSERT INTO sidebar_revisions_complete VALUES (1);
-    RELEASE sidebar_revisions_complete;
-  `);
+  `,
+  );
+}
+
+/** Run `sql` in a savepoint: all of it or, when any statement fails, none of it. */
+export function inSavepoint(db: DatabaseSync, name: string, sql: string): void {
+  db.exec(`SAVEPOINT ${name}`);
+  try {
+    db.exec(sql);
+  } catch (error) {
+    db.exec(`ROLLBACK TO ${name}; RELEASE ${name}`);
+    throw error;
+  }
+  db.exec(`RELEASE ${name}`);
 }
