@@ -446,7 +446,7 @@ Additive; the old `list` stays for shipped clients.
 - `FileOperation` gains `{ op: "list.folder", path, limit (1..=5000, default 500), cursor? }`
   returning `{ entries: FolderEntry[], nextCursor: string | null, total: number }` with
   `FolderEntry = { name, path, kind: "file" | "directory" | "symlink" | "other",
-  target?: "file" | "directory" | "other", size, mtimeMs, ignored }`. `INVALID_CURSOR` tells the
+target?: "file" | "directory" | "other", size, mtimeMs, ignored }`. `INVALID_CURSOR` tells the
   client to list the folder again from the start.
 - Client message `files.watch { threadId, folders: string[] }` (at most 512 folders; each call
   replaces that client's previous set for the thread; `[]` stops watching). The daemon pushes
@@ -469,5 +469,11 @@ Additive; the old `list` stays for shipped clients.
   (`list` per folder, `watch`, `indexQuery`, `search`) in `packages/protocol`; daemon wiring;
   file tree rewrite (lazy folders, live updates); `editor-wasm` and `packages/editor`; editor
   view in the Files tab; iOS bridge; release staging (`stageAceFiles`, desktop build, verify).
-- Wave 3: recently-deleted, uploads and archives on ace-files; delete the TypeScript list,
-  watch, search and path-index code; Windows VM and Linux runs; benches on a 1M-file checkout.
+- Wave 3:
+  - Reads and writes cut over to ace-files (files-io through the daemon), with recently-deleted,
+    uploads and archives; then delete the TypeScript list, watch, search and path-index code.
+  - Windows watching: notify ignores ReadDirectoryChangesW overflow and ERROR_NOTIFY_ENUM_DIR, so a
+    small Windows backend that turns them into `Rescan`, tested in the Windows VM; Linux runs on a
+    real machine.
+  - Word wrap in the editor (variable row heights in the virtual list).
+  - Benches on a 1,000,000-file checkout: tree open, quick open, search, watcher bursts.
