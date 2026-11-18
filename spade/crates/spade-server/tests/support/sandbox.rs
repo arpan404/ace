@@ -67,6 +67,27 @@ pub struct World {
 }
 
 impl World {
+    /// Spade's security service as a restarted Spade starts it: over the same database and key,
+    /// with nothing of the running one's memory.
+    pub async fn restarted_security(&self) -> Result<Arc<Security>> {
+        let root = self.home.parent().ok_or("no root")?.to_path_buf();
+        let data = root.join("data");
+        Ok(Security::start(Setup {
+            runner: spade_sandbox::Runner::unavailable("a second service in this test"),
+            store: Store::open(&self.spade.database())?,
+            home: self.home.clone(),
+            spade_data: data.clone(),
+            ace_data: None,
+            workspaces: data.join("workspace"),
+            log_dir: data.join("egress-restarted"),
+            clock: Arc::new(SystemClock),
+            ids: Arc::new(CountingIds::default()),
+            bots: EngineHandle::default(),
+            person_key: Some(root.join(spade_server::security::attest::KEY_FILE)),
+        })
+        .await)
+    }
+
     /// The daemon's stamp of the person's say on changing `target` to `value`, made now.
     pub fn stamp(&self, target: &str, value: &str) -> String {
         let now = std::time::SystemTime::now()
@@ -141,6 +162,15 @@ pub async fn wrapped_world(
         wrap,
     )
     .await
+}
+
+/// [`world`] built with `options`: plugins and their sandbox, say.
+pub async fn world_with_options(
+    options: super::Options,
+    sandboxed: bool,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_with(options, false, sandboxed, Vec::new(), scripts).await
 }
 
 async fn world_with(

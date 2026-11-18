@@ -11,12 +11,14 @@
 //! - a command outside the sandbox the shell classifier reads as a payment, a send or an access
 //!   change;
 //! - a command asking to leave the sandbox this once: Full access never widens the sandbox;
-//! - a tool that declares nothing, outside the sandbox: the person decides once for the bot, as on
-//!   the auto-review (its "yes" lets it run, never a send or payment the classifier raises);
+//! - a tool that declares nothing, outside the sandbox or able to reach the network: the person
+//!   decides once for the bot, as on the auto-review (its "yes" lets it run, never a send or payment the classifier raises);
 //!
-//! And what still goes to the reviewer: a connector's or plugin's tool that writes (it runs on a
-//! server with the person's sign-in, where no sandbox holds it) while untrusted content is in view,
-//! or while Spade's classifier, which may raise it to the person, is off or can't be loaded.
+//! And what still goes to the reviewer: a connector's or plugin's tool that writes and can reach
+//! the network (it acts on a server, often with the person's sign-in or a token; a sandbox that
+//! holds its files doesn't hold that) while untrusted content is in view, or while Spade's
+//! classifier, which may raise it to the person, is off or can't be loaded. Only a plugin server
+//! sealed in the sandbox with no network and no credentials of its own is exempt.
 //!
 //! Pure.
 
@@ -52,13 +54,22 @@ pub(super) fn route(call: Call<'_>) -> Route {
     // A tool that declares nothing asks once, as on the auto-review; the person's "yes" lets it
     // run below like a declared write, never past the classifier.
     if call.effect.is_none() {
-        let route = super::undeclared(call);
+        // A sandbox that holds an app tool's files doesn't hold what it does on its server.
+        let route = super::undeclared(if call.remote {
+            Call {
+                place: Place::Host,
+                ..call
+            }
+        } else {
+            call
+        });
         if route != Route::Run {
             return route;
         }
     }
     // An app's tool that writes runs on a server outside any sandbox, often as the person.
-    if call.remote && call.place != Place::Sandbox && call.effect != Some(Effect::Read) {
+    // Sandboxed or not: containing its files doesn't contain what it does as the person.
+    if call.remote && call.effect != Some(Effect::Read) {
         if call.tainted {
             return super::review(call, Some(TAINTED_OUTWARD));
         }

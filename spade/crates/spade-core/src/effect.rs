@@ -303,8 +303,9 @@ pub struct Call<'a> {
     pub drive: Drive<'a>,
     /// How the bot decides (ADR 0163, amendment 2).
     pub mode: Mode,
-    /// A connector's or plugin's MCP tool: it runs on a server outside Spade, often with the
-    /// person's sign-in.
+    /// A connector's or plugin's MCP tool that can reach the network: it acts on a server, often
+    /// with the person's sign-in or a token, whether or not a sandbox holds its files. False for
+    /// one sealed in the sandbox with no network and no credentials of its own.
     pub remote: bool,
     /// Spade's classifier (ADR 0172) is on and loaded, so a call the gate lets run can still be
     /// raised to the person.

@@ -54,6 +54,7 @@ impl Confine for ReadOnlyHere {
             path_first: Vec::new(),
             hold: Box::new(()),
             watch: None,
+            online: false,
         })
     }
 }
