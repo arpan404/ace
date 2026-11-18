@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::unwrap_used)]
+// Each test binary compiles this module and uses a different part of it.
+#![allow(dead_code)]
 
 //! The harness both watcher test files share: one watcher, one temp folder, a recorded sink.
 
