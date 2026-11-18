@@ -9,6 +9,7 @@ import {
   transferMachines,
 } from "./transfer-test-support.ts";
 import { writeFile } from "node:fs/promises";
+import { request as httpsRequest } from "node:https";
 
 /** Folders the target made for projects. */
 const made = async (root: string) => (await readdir(root)).toSorted();
@@ -65,11 +66,91 @@ it("a link allowed Projects there takes the transfer it refused, without pairing
     await studio.fleet({ ...allow, commandId: CommandId.parse("stop-projects"), allowed: false }),
   ).toMatchObject({ kind: "scoped", device: { scopes: ["read", "operate"] } });
   expect(await send()).toMatchObject({ ok: false, error: "machine_forbidden" });
-  // A retry of the first command answers its first outcome; it doesn't allow Projects again.
+  // A retry of the first command answers its first outcome; it doesn't allow Projects again,
+  // so the next transfer is still refused.
   expect(await studio.fleet(allow)).toMatchObject({
     kind: "scoped",
     device: { scopes: ["read", "operate"] },
   });
+  expect(await send()).toMatchObject({ ok: false, error: "machine_forbidden" });
+}, 120_000);
+
+/**
+ * One call on the target's transfer routes whose body arrives in two halves, with `between` run
+ * after the first half is in: the status and body it answers.
+ */
+function slowCall(
+  m: Awaited<ReturnType<typeof transferMachines>>,
+  route: { method: "POST" | "PUT"; path: string; body: Buffer },
+  between: () => Promise<unknown>,
+) {
+  return new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+    const sent = httpsRequest(
+      `${m.targetOrigin}${route.path}`,
+      {
+        method: route.method,
+        // The test's own self-signed target; the real sender pins its key.
+        rejectUnauthorized: false,
+        headers: {
+          authorization: `Bearer ${m.linkToken}`,
+          "content-length": route.body.length,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () =>
+          resolve({
+            status: response.statusCode ?? 0,
+            body: JSON.parse(Buffer.concat(chunks).toString() || "null"),
+          }),
+        );
+      },
+    );
+    sent.on("error", reject);
+    const half = Math.floor(route.body.length / 2);
+    sent.write(route.body.subarray(0, half));
+    // Long enough for the target to have authenticated and begun reading the body.
+    void new Promise((settle) => setTimeout(settle, 200))
+      .then(between)
+      .then(() => sent.end(route.body.subarray(half)), reject);
+  });
+}
+
+it("a call or chunk whose body is still arriving when Projects is taken away is refused", async () => {
+  const m = await transferMachines();
+  const studio = await m.targetWindow();
+  let turn = 0;
+  const narrow = (allowed: boolean) => () =>
+    studio.fleet({
+      op: "scope",
+      commandId: CommandId.parse(`narrow-${++turn}`),
+      deviceId: m.linkDevice,
+      scope: "projects",
+      allowed,
+    });
+  const call = await slowCall(
+    m,
+    {
+      method: "POST",
+      path: "/v1/transfers",
+      body: Buffer.from(JSON.stringify({ op: "cancel", transferId: "transfer-unknown" })),
+    },
+    narrow(false),
+  );
+  expect(call).toMatchObject({ status: 403, body: { error: "machine_forbidden" } });
+
+  await narrow(true)();
+  const chunk = await slowCall(
+    m,
+    {
+      method: "PUT",
+      path: "/v1/transfers/chunk?transfer=transfer-unknown&offset=0",
+      body: Buffer.alloc(64 * 1024, 1),
+    },
+    narrow(false),
+  );
+  expect(chunk).toMatchObject({ status: 403, body: { error: "machine_forbidden" } });
 }, 120_000);
 
 it("refuses a machine this one has no link to", async () => {

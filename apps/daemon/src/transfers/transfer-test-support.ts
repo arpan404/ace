@@ -329,6 +329,9 @@ export async function transferMachines(
     targetHostId,
     /** The source's device on the target: the link's credential there. */
     linkDevice: credential.device.id,
+    /** That credential's token, and where the target listens for paired devices. */
+    linkToken: credential.token,
+    targetOrigin: remoteUrl.replace("wss:", "https:").replace(/\/$/, ""),
     get here() {
       return here;
     },
