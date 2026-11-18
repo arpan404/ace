@@ -677,7 +677,8 @@ struct ConversationFeed: View {
     /// heights and the scroll catches up with the end. The rows stay hidden until the content's
     /// height and offset have held for two frames with the feed at the end it follows, a quarter
     /// second at most (`TranscriptSettle`), then show there in one frame (ADR 0157). A saved
-    /// place being reopened counts as not yet placed until its row is back where it was.
+    /// place being reopened counts as not yet placed until its row is back where it was: its
+    /// session anchor is set before the window is asked for and cleared once the row is placed.
     private func revealWhenSettled(proxy: ScrollViewProxy) {
         let intent = intent
         let started = CACurrentMediaTime()
@@ -685,7 +686,7 @@ struct ConversationFeed: View {
         surface.untilSettled(.reveal, { time in
             let metrics = intent.metrics
             let placed = TranscriptSettle.opened(following: pinned, fromEnd: Double(metrics.bottom),
-                                                 restoring: viewport.sessionAnchor != nil || reading.loading)
+                                                 restoring: viewport.sessionAnchor != nil)
             return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
         }) { outcome in
             // Still short of the end it follows at the limit: shown at the end, not on the way.
