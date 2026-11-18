@@ -4,16 +4,16 @@ import { promisify } from "node:util";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { watch, type FSWatcher } from "node:fs";
 import { performance } from "node:perf_hooks";
 import {
   GitWorkspace,
-  WorkspaceCache,
   UploadStore,
   resolveMentions,
   projectAttachments,
 } from "../src/index.ts";
 
+// Mention reads and context transfer only. Path-index and watcher timings moved with ace-files;
+// its own benches run inside native/files.
 const run = promisify(execFile);
 const root = await realpath(await mkdtemp(join(tmpdir(), "ace-context-bench-")));
 let store: UploadStore | undefined;
@@ -34,104 +34,9 @@ try {
   );
   const workspace = new GitWorkspace(root);
   let start = performance.now();
-  await workspace.initialize();
-  const indexMs = performance.now() - start;
-  const queries = ["pc19999", "component42", "p1c", "pkg", "", "component-49999"];
-  const samples: number[] = [];
-  for (let i = 0; i < 600; i++) {
-    start = performance.now();
-    workspace.index.complete(queries[i % queries.length] ?? "", 20);
-    samples.push((performance.now() - start) * 1000);
-  }
-  samples.sort((a, b) => a - b);
-  start = performance.now();
-  for (let i = 0; i < 20; i++) await workspace.update([`package-${i}/component-${i * 100}.ts`]);
-  const updateUs = ((performance.now() - start) * 1000) / 20;
-  start = performance.now();
   for (let i = 0; i < 20; i++)
     await resolveMentions(workspace, [{ path: "package-1/component-100.ts" }]);
   const mentionUs = ((performance.now() - start) * 1000) / 20;
-  start = performance.now();
-  for (let i = 0; i < 20; i++) await workspace.update([`package-${i}`]);
-  const subtreeUpdateUs = ((performance.now() - start) * 1000) / 20;
-  const entered = Promise.withResolvers<void>(),
-    release = Promise.withResolvers<void>();
-  const cache = new WorkspaceCache(4, (workspaceRoot) => ({
-    root: workspaceRoot,
-    get index() {
-      return workspace.index;
-    },
-    initialize: () => workspace.initialize(),
-    inspect: (path) => workspace.inspect(path),
-    read: (path, limit) => workspace.read(path, limit),
-    update: async (paths) => {
-      entered.resolve();
-      await release.promise;
-      await workspace.update(paths);
-    },
-  }));
-  const cachedSamples: number[] = [];
-  try {
-    await cache.get(root);
-    await writeFile(join(root, "package-0", "changed.ts"), "change");
-    await entered.promise;
-    for (let i = 0; i < 600; i++) {
-      start = performance.now();
-      (await cache.get(root)).index.complete(queries[i % queries.length] ?? "", 20);
-      cachedSamples.push((performance.now() - start) * 1000);
-    }
-  } finally {
-    release.resolve();
-    await cache.close();
-  }
-  cachedSamples.sort((a, b) => a - b);
-  await writeFile(join(root, "secret-context.ts"), "secret");
-  const scheduled = Promise.withResolvers<() => Promise<void>>();
-  let recoveryWatcher: FSWatcher | undefined;
-  const recoveryCache = new WorkspaceCache(
-    1,
-    (workspaceRoot) => {
-      const git = new GitWorkspace(workspaceRoot);
-      return {
-        root: workspaceRoot,
-        get index() {
-          return git.index;
-        },
-        initialize: () => git.initialize(),
-        inspect: (path) => git.inspect(path),
-        read: (path, limit) => git.read(path, limit),
-        update: async () => {
-          recoveryWatcher?.close();
-          throw new Error("transient Git I/O failure");
-        },
-      };
-    },
-    {
-      after: (_delay, task) => {
-        scheduled.resolve(task);
-        return () => {};
-      },
-    },
-    (workspaceRoot) => {
-      recoveryWatcher = watch(workspaceRoot, { recursive: true });
-      return recoveryWatcher;
-    },
-  );
-  let recoveryRebuildMs = 0;
-  try {
-    await recoveryCache.get(root);
-    await writeFile(join(root, ".gitignore"), "secret-context.ts\n");
-    const retry = await scheduled.promise;
-    // The scheduler's injected task becomes runnable after flush's finally.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    start = performance.now();
-    await retry();
-    recoveryRebuildMs = performance.now() - start;
-    if ((await recoveryCache.get(root)).index.complete("secret-context").length)
-      throw new Error("Recovery retained ignored path");
-  } finally {
-    await recoveryCache.close();
-  }
   store = await UploadStore.open({
     root: join(root, ".git", "context"),
     now: Date.now,
@@ -207,14 +112,6 @@ try {
     JSON.stringify(
       {
         files: 50_000,
-        indexMs,
-        completionMedianUs: samples[Math.floor(samples.length / 2)],
-        completionP95Us: samples[Math.floor(samples.length * 0.95)],
-        updateUs,
-        subtreeUpdateUs,
-        recoveryRebuildMs,
-        cachedCompletionDuringUpdateMedianUs: cachedSamples[300],
-        cachedCompletionDuringUpdateP95Us: cachedSamples[570],
         leaseUs,
         projection4MiBUs,
         mentionUs,

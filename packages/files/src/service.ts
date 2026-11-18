@@ -3,8 +3,6 @@ import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { SafeRoot } from "@ace/workspace";
-import { breadthFirstPaths } from "./breadth-list.ts";
-import { GitIgnore } from "@ace/workspace";
 import { FileOperation, type WorkspaceFileChange } from "@ace/protocol";
 import { ArtifactRecord, Catalog, TrashRecord, UploadRecord } from "./catalog.ts";
 import { ArchivePreviews } from "./archive-previews.ts";
@@ -202,9 +200,8 @@ export class FilesService {
     const capability = fileCapability(operation);
     this.authorize(device, capability);
     if (operation.op === "list") {
-      const listing = await breadthFirstPaths(
-        this.safe,
-        await GitIgnore.create(this.safe),
+      const listing = await this.workspaceIo.paths(
+        this.safe.root,
         operation.path,
         operation.limit,
       );

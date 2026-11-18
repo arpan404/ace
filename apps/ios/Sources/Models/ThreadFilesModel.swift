@@ -56,6 +56,8 @@ struct FileTreeRow: Decodable, Sendable, Identifiable, Hashable {
 struct FileSearch: Decodable, Sendable {
     let query: String
     let rows: [FileSearchRow]
+    /// False while the checkout's index is still building; the list keeps its skeleton.
+    let ready: Bool
 }
 struct FileSearchRow: Decodable, Sendable, Identifiable, Hashable {
     let path: String
@@ -191,6 +193,8 @@ struct QuickOpen: Decodable, Sendable {
     let text: String
     let query: String
     let line: Int?
+    /// False while the checkout's index is still building; the list keeps its skeleton.
+    let ready: Bool?
     let rows: [Row]
 }
 /// A folder's archive before it is saved (`archive` request).

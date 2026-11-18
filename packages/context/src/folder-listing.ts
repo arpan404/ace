@@ -1,13 +1,11 @@
-import { lstat } from "node:fs/promises";
-import { join } from "node:path";
 import type { WorkspaceFiles } from "./git-workspace.ts";
 
 export const folderListingLimits = { entries: 200, bytes: 16 * 1024 };
 
 /**
- * A folder mention names the folder and lists its indexed (non-ignored) files with sizes.
- * Agents read the files they need themselves, so no file contents are pasted here.
- * Work is bounded by the listing limits plus one pass over the indexed subtree to count it.
+ * A folder mention names the folder and lists its non-ignored files with sizes, as ace-files
+ * lists them. Agents read the files they need themselves, so no file contents are pasted here.
+ * Work is bounded by the listing limits plus one pass over the folder to count it.
  */
 export async function folderListing(
   workspace: WorkspaceFiles,
@@ -19,11 +17,10 @@ export async function folderListing(
     bytes = 0,
     full = false;
   const limit = Math.min(folderListingLimits.bytes, byteLimit);
-  for (const path of workspace.index.under(folder)) {
+  for await (const entry of workspace.list(folder)) {
     total++;
     if (full) continue;
-    const info = await lstat(join(workspace.root, path)).catch(() => undefined);
-    const line = info?.isFile() ? `${path} (${info.size} bytes)` : path;
+    const line = entry.size === 0 ? entry.path : `${entry.path} (${entry.size} bytes)`;
     if (
       lines.length >= folderListingLimits.entries ||
       bytes + Buffer.byteLength(line) + 1 > limit - 256

@@ -56,11 +56,19 @@ export class ComposeSearch {
       }));
     put("loading", []);
     try {
-      const paths = await this.complete(workspaceId, query, mentionLimit);
+      let found = await this.complete(workspaceId, query, mentionLimit);
+      // ace-files answers `ready: false` while it builds the folder's index; keep the loading
+      // state and ask again, up to a few seconds, until the query changes.
+      for (let attempt = 0; found.ready === false && attempt < 20; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        if (generation !== this.#query) return;
+        found = await this.complete(workspaceId, query, mentionLimit);
+      }
       if (generation !== this.#query) return;
+      if (found.ready === false) return put("failed", []);
       put(
         "ready",
-        paths.map((path) => this.#preview(path, 1024)),
+        found.paths.map((path) => this.#preview(path, 1024)),
       );
     } catch {
       if (generation === this.#query) put("failed", []);
@@ -79,7 +87,11 @@ export class ComposeSearch {
   }
 
   /** The daemon's own file search in a project before any thread exists, through the draft. */
-  async complete(workspaceId: string, query: string, limit: number): Promise<string[]> {
+  async complete(
+    workspaceId: string,
+    query: string,
+    limit: number,
+  ): Promise<{ paths: string[]; ready: boolean }> {
     const draftId = await this.draftScope(workspaceId);
     const reply = await this.#owner.request(
       {
@@ -89,7 +101,7 @@ export class ComposeSearch {
       quiet,
     );
     if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
-    return reply.result.paths.slice(0, limit);
+    return { paths: reply.result.paths.slice(0, limit), ready: reply.result.ready };
   }
 
   /** Release the draft scope: the sheet closed or moved to another project. */

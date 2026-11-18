@@ -8,8 +8,7 @@
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "bench": "node bench/context.ts",
-    "bench:resources": "node --expose-gc bench/index-resources.ts"
+    "bench": "node bench/context.ts"
   },
   "dependencies": {
     "@ace/handoff": "workspace:*",

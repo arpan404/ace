@@ -1,14 +1,22 @@
 import { readFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { ContextService, encodedContextBudget, type ProjectionCapabilities } from "./index.ts";
+import {
+  ContextService,
+  encodedContextBudget,
+  type ContextServiceOptions,
+  type ProjectionCapabilities,
+} from "./index.ts";
 import { repository, hash, png, thread } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup();
 });
-async function fixture(workspace?: (root: string) => Promise<string>) {
+async function fixture(
+  workspace?: (root: string) => Promise<string>,
+  hooks: Pick<ContextServiceOptions, "complete" | "listFolder"> = {},
+) {
   const repo = await repository();
   let id = 0;
   const service = await ContextService.open({
@@ -17,6 +25,7 @@ async function fixture(workspace?: (root: string) => Promise<string>) {
     id: () => `upload-${++id}`,
     authorize: (device, value) => device === "device" && value === thread,
     workspace: () => (workspace ? workspace(repo.root) : repo.root),
+    ...hooks,
   });
   cleanups.push(async () => {
     await service.close();
@@ -157,17 +166,28 @@ test("workspace contents are never returned to a denied device", async () => {
     f.service.compose("denied", thread, { mentions: [], attachments: [] }, caps),
   ).rejects.toMatchObject({ code: "forbidden" });
 });
-test("completion and folder listings share the initialized file index", async () => {
-  const f = await fixture();
+test("completion and folder listings come from ace-files", async () => {
+  const asked: { query: string; limit: number }[] = [];
+  const f = await fixture(undefined, {
+    async complete(_root, query, limit) {
+      asked.push({ query, limit });
+      return { paths: query === "smn" ? ["src/main.ts"] : [], ready: true };
+    },
+    listFolder: (_root, folder) =>
+      folder === "src" ? oneFile("src/main.ts", 6) : emptyListing(),
+  });
   await f.write("src/main.ts", "source");
-  await f.write(".gitignore", "hidden.txt\n");
-  await f.write("hidden.txt", "secret");
   const complete = await f.service.handle("device", {
     type: "context.request",
     requestId: "paths",
     operation: { op: "mention.complete", threadId: thread, query: "smn" },
   });
-  expect(complete.result).toEqual({ kind: "completion", paths: ["src/main.ts"] });
+  expect(asked).toEqual([{ query: "smn", limit: 20 }]);
+  expect(complete.result).toEqual({
+    kind: "completion",
+    paths: ["src/main.ts"],
+    ready: true,
+  });
   const mentions = await f.service.handle("device", {
     type: "context.request",
     requestId: "folder",
@@ -176,6 +196,41 @@ test("completion and folder listings share the initialized file index", async ()
   expect(mentions.result).toMatchObject({
     kind: "mentions",
     entries: [{ path: "src", text: expect.stringContaining("\nsrc/main.ts (6 bytes)") }],
+  });
+});
+
+test("an index still building answers with ready false", async () => {
+  const f = await fixture(undefined, {
+    complete: async () => ({ paths: [], ready: false }),
+  });
+  const reply = await f.service.handle("device", {
+    type: "context.request",
+    requestId: "paths",
+    operation: { op: "mention.complete", threadId: thread, query: "srv" },
+  });
+  expect(reply.result).toEqual({ kind: "completion", paths: [], ready: false });
+});
+
+test("a completion whose thread access is revoked while ace-files answers is dropped", async () => {
+  let release: ((answer: { paths: string[]; ready: boolean }) => void) | undefined;
+  const f = await fixture(undefined, {
+    complete: () => new Promise((resolve) => (release = resolve)),
+  });
+  let allowed = true;
+  const pending = f.service.handle(
+    "device",
+    {
+      type: "context.request",
+      requestId: "paths",
+      operation: { op: "mention.complete", threadId: thread, query: "srv" },
+    },
+    () => allowed,
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  allowed = false;
+  release?.({ paths: ["src/main.ts"], ready: true });
+  expect(await pending).toMatchObject({
+    result: { kind: "error", code: "forbidden" },
   });
 });
 
@@ -499,3 +554,12 @@ test.runIf(process.platform === "win32")(
     ]);
   },
 );
+
+function oneFile(path: string, size: number) {
+  return (async function* () {
+    yield { path, size };
+  })();
+}
+function emptyListing() {
+  return (async function* () {})();
+}

@@ -1,7 +1,7 @@
-import { symlink, rm } from "node:fs/promises";
+import { symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { resolveMentions, PathIndex } from "./index.ts";
+import { resolveMentions } from "./index.ts";
 import { listedPaths, repository, run } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -15,31 +15,11 @@ async function fixture() {
 }
 
 describe("workspace mentions", () => {
-  test("folder listings exclude nested ignore rules and include re-included files", async () => {
-    const f = await fixture();
-    await f.write("src/.gitignore", "*.secret\n!public.secret\n");
-    await f.write("src/private.secret", "hidden password");
-    await f.write("src/public.secret", "public text");
-    await f.write("src/main.ts", "export const answer = 42;");
-    await f.workspace.initialize();
-    const result = await resolveMentions(f.workspace, [{ path: "src" }]);
-    expect(listedPaths(result.entries).toSorted()).toEqual([
-      "src/.gitignore",
-      "src/main.ts",
-      "src/public.secret",
-    ]);
-    expect(result.entries.some((entry) => entry.text.includes("private.secret"))).toBe(false);
-    expect(
-      (await resolveMentions(f.workspace, [{ path: "src/private.secret" }])).diagnostics,
-    ).toContainEqual(expect.objectContaining({ code: "ignored" }));
-  });
-  test("tracked files newly ignored disappear from completion and resolution", async () => {
+  test("a tracked file newly ignored is refused as a mention", async () => {
     const f = await fixture();
     await f.write("secret.txt", "private");
     await run("git", ["-C", f.root, "add", "secret.txt"]);
     await f.write(".gitignore", "secret.txt\n");
-    await f.workspace.initialize();
-    expect(f.workspace.index.complete("secret")).toEqual([]);
     expect(
       (await resolveMentions(f.workspace, [{ path: "secret.txt" }])).diagnostics[0]?.code,
     ).toBe("ignored");
@@ -118,7 +98,6 @@ describe("workspace mentions", () => {
     const f = await fixture();
     await f.write("src/a.txt", "secret-a".repeat(10));
     await f.write("src/deep/b.txt", "bb");
-    await f.workspace.initialize();
     const result = await resolveMentions(f.workspace, [{ path: "src/" }]);
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0]?.path).toBe("src");
@@ -132,7 +111,6 @@ describe("workspace mentions", () => {
     const f = await fixture();
     for (let index = 0; index < 205; index++)
       await f.write(`many/file-${String(index).padStart(3, "0")}.txt`, "x");
-    await f.workspace.initialize();
     const result = await resolveMentions(f.workspace, [{ path: "many" }]);
     expect(listedPaths(result.entries)).toHaveLength(200);
     expect(result.entries[0]?.text).toContain("Folder: many/ (205 files");
@@ -148,53 +126,5 @@ describe("workspace mentions", () => {
     });
     expect(Buffer.byteLength(capped.entries[0]?.text ?? "")).toBeLessThanOrEqual(1000);
   });
-  test("incremental index updates add, delete and honor changed ignore rules", async () => {
-    const f = await fixture();
-    await f.write("old.ts", "old");
-    await f.workspace.initialize();
-    await f.write("src/new-module.ts", "new");
-    await rm(join(f.root, "old.ts"));
-    await f.workspace.update(["old.ts", "src/new-module.ts"]);
-    expect(f.workspace.index.complete("snm")).toEqual(["src/new-module.ts"]);
-    expect(f.workspace.index.complete("old")).toEqual([]);
-    await f.write(".gitignore", "src/\n");
-    await f.workspace.update([".gitignore"]);
-    expect(f.workspace.index.complete("snm")).toEqual([]);
-  });
-  test("directory creation and removal update descendants in the cached index", async () => {
-    const f = await fixture();
-    await f.workspace.initialize();
-    await f.write("new/inner/a.ts", "new");
-    await f.workspace.update(["new"]);
-    expect(f.workspace.index.complete("nia")).toEqual(["new/inner/a.ts"]);
-    await rm(join(f.root, "new"), { recursive: true });
-    await f.workspace.update(["new"]);
-    expect(f.workspace.index.complete("nia")).toEqual([]);
-  });
-  test("fuzzy completion ranks closer matches and stops at the result cap", () => {
-    const index = new PathIndex(4);
-    for (const path of ["src/very-long-main.ts", "src/main.ts", "src/mapping.ts"])
-      index.update(path, true);
-    expect(index.complete("smn", 1)).toEqual(["src/main.ts"]);
-    expect(index.complete("zzz")).toEqual([]);
-    index.update("src/main.ts", false);
-    expect(index.complete("smn")).not.toContain("src/main.ts");
-    expect(() => {
-      index.update("x", true);
-      index.update("y", true);
-      index.update("z", true);
-    }).toThrow("Workspace index limit");
-  });
 });
 
-test("folder completion chips remain indexed until their last descendant disappears", () => {
-  const index = new PathIndex();
-  index.update("src/deep/a.ts", true);
-  index.update("src/deep/b.ts", true);
-  expect(index.complete("sd", 1)).toEqual(["src/deep/"]);
-  expect([...index.under("src")]).toEqual(["src/deep/a.ts", "src/deep/b.ts"]);
-  index.update("src/deep/a.ts", false);
-  expect(index.complete("sd", 1)).toEqual(["src/deep/"]);
-  index.update("src/deep/b.ts", false);
-  expect(index.complete("sd")).toEqual([]);
-});

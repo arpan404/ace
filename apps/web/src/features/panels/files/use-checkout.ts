@@ -113,21 +113,26 @@ export function useSettled<T>(value: T, ms: number): T {
 }
 
 /**
- * Paths in the checkout matching `query` (the daemon's path index), searched once typing
- * pauses. `pending` is true from the first keystroke until the results for it arrive.
+ * Paths in the checkout matching `query` (ace-files' path index), searched once typing pauses.
+ * `pending` is true from the first keystroke until the results for it arrive, and stays true
+ * while the index is still building, so quick open shows its loading state rather than "no
+ * matches". A not-ready answer is asked again shortly.
  */
 export function useCheckoutSearch(threadId: string, query: string) {
   const source = useCheckoutSource();
   const trimmed = query.trim();
   const settled = useSettled(trimmed, 120);
-  const result = useDaemonQuery({
+  const result = useDaemonQuery<{ paths: string[]; ready: boolean }>({
     queryKey: ["checkout", "search", threadId, settled],
     enabled: settled.length > 0,
     staleTime: 10_000,
     retry: false,
     placeholderData: keepPreviousData,
+    refetchInterval: (state) => (state.state.data?.ready === false ? 300 : false),
     read: (_client, signal) => source.search(threadId, settled, signal),
   });
-  const pending = trimmed.length > 0 && (trimmed !== settled || result.isFetching);
-  return { ...result, pending, settledQuery: settled };
+  const ready = result.data?.ready !== false;
+  const pending =
+    trimmed.length > 0 && (trimmed !== settled || result.isFetching || !ready);
+  return { ...result, data: ready ? (result.data?.paths ?? []) : [], pending, settledQuery: settled };
 }

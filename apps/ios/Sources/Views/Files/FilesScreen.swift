@@ -186,7 +186,12 @@ struct FilesScreen: View {
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
                 .listRowSeparator(.hidden)
         } else if let shown {
-            if shown.rows.isEmpty { EmptyState.search(query).listRowSeparator(.hidden) }
+            if !shown.ready {
+                SkeletonRows(count: 3, label: "Searching files").listRowSeparator(.hidden).listRowBackground(AceTheme.Colours.background)
+                    .listRowInsets(EdgeInsets())
+            } else if shown.rows.isEmpty {
+                EmptyState.search(query).listRowSeparator(.hidden)
+            }
             ForEach(shown.rows) { row in
                 Button { pick(row) } label: { FileSearchRowView(row: row) }
                     .buttonStyle(.plain)
@@ -224,10 +229,17 @@ struct FilesScreen: View {
         try? await Task.sleep(for: .milliseconds(150))
         guard !Task.isCancelled else { return }
         do {
-            let found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
+            var found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
+            // A checkout whose index is still building answers empty with `ready: false`: keep
+            // the skeleton and ask again until it can answer, or the query changes.
+            while found.ready == false {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled, query.trimmingCharacters(in: .whitespaces) == text else { return }
+                found = try await model.files(scope, ["op": "quick", "text": text], as: QuickOpen.self)
+            }
             guard !Task.isCancelled else { return }
             quickLine = found.line
-            results = FileSearch(query: query, rows: found.rows.map(\.search))
+            results = FileSearch(query: query, rows: found.rows.map(\.search), ready: found.ready != false)
             searchFailure = nil
         } catch is CancellationError {
         } catch {

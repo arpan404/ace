@@ -1,5 +1,7 @@
 // Reason: the socket contract for list.folder, files.watch and quick open only holds end to end, through a real daemon and a real ace-files.
 import { once } from "node:events";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +13,7 @@ import { startDaemon, createDevThread } from "./index.ts";
 import { findFilesBinary } from "./files-tool/tool.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
+const exec = promisify(execFile);
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
@@ -204,6 +207,45 @@ describe.skipIf(!findFilesBinary())("the daemon's ace-files over its socket", ()
       await delay(100);
     }
     expect(paths).toContain("src/hello.ts");
+  }, 25_000);
+
+  it("answers the legacy list and a folder mention from ace-files", async () => {
+    const { root, daemon, thread } = await boot();
+    await exec("git", ["init", "--quiet", root]);
+    await writeFile(join(root, ".gitignore"), "*.log\n");
+    await writeFile(join(root, "src", "ignored.log"), "noise\n");
+    const client = await connect(daemon);
+    client.send({
+      type: "files.request",
+      requestId: "legacy-list",
+      threadId: thread.id,
+      operation: { op: "list", path: "", limit: 1000 },
+    });
+    const listing = await client.files("legacy-list");
+    expect(listing).toMatchObject({ type: "files.result", value: { truncated: false } });
+    const paths = (listing.value as { paths: string[] }).paths;
+    expect(paths).toEqual(expect.arrayContaining(["src/", "src/hello.ts"]));
+    expect(paths).not.toContain("src/ignored.log");
+
+    client.send({
+      type: "context.request",
+      requestId: "folder-mention",
+      operation: {
+        op: "mention.resolve",
+        threadId: ThreadId.parse(thread.id),
+        mentions: [{ path: "src" }],
+      },
+    });
+    const reply = await client.next(
+      (message) => message.type === "context.result" && message.requestId === "folder-mention",
+    );
+    expect(reply).toMatchObject({
+      result: {
+        kind: "mentions",
+        entries: [{ path: "src", text: expect.stringContaining("src/hello.ts") }],
+      },
+    });
+    expect(JSON.stringify(reply)).not.toContain("ignored.log");
   }, 25_000);
 
   it("refuses listings for a thread that is not live and in the support scope", async () => {

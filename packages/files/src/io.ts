@@ -69,6 +69,16 @@ export interface FilesIo {
    * also the check a delete and a restore run before they hand a client path to `internal`.
    */
   checkMutation(root: string, path: string): Promise<void>;
+  /**
+   * A folder's paths breadth-first, folders ending in `/`, at most `limit`; git-ignored entries
+   * and the daemon's own temporaries are left out. This is the legacy `list` reply's walk.
+   */
+  paths(
+    root: string,
+    dir: string,
+    limit: number,
+    options?: IoOptions,
+  ): Promise<{ paths: string[]; truncated: boolean }>;
   /** One range of a file; a file that changes while being read is `CONFLICT`. */
   read(
     root: string,

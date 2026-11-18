@@ -31,6 +31,7 @@ class FakeClient implements FilesToolClient {
   listLimits: number[] = [];
   indexLimits: number[] = [];
   answerListings = false;
+  indexReady = true;
   readonly #watch = Promise.withResolvers<void>();
   readonly #listings = Promise.withResolvers<void>();
 
@@ -117,7 +118,7 @@ class FakeClient implements FilesToolClient {
       hits: [],
       total: 0,
       truncated: false,
-      ready: true,
+      ready: this.indexReady,
     });
   }
 
@@ -147,7 +148,10 @@ it("fails folder features retryably when this machine has no ace-files", async (
     code: "FILES_RESTARTING",
     retryable: true,
   });
-  expect(await tool.quickOpen("/w", "main", 20)).toBeUndefined();
+  await expect(tool.quickOpen("/w", "main", 20)).rejects.toMatchObject({
+    code: "FILES_RESTARTING",
+    retryable: true,
+  });
   await tool.close();
 });
 
@@ -177,6 +181,14 @@ it("disposes a subscription that lands after the tool closed", async () => {
   client.landWatch();
   await expect(opening).resolves.toBeTypeOf("function");
   expect(client.watchesDisposed).toBe(1);
+});
+
+it("answers an index that is still building without paths", async () => {
+  const client = new FakeClient();
+  client.indexReady = false;
+  const tool = new FilesTool({ binary: "/fake/ace-files", open: () => client });
+  expect(await tool.quickOpen(checkout(), "main", 20)).toEqual({ paths: [], ready: false });
+  await tool.close();
 });
 
 it("asks for no more than ace-files' caps", async () => {

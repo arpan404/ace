@@ -89,7 +89,11 @@ export interface SuggestPorts {
   /** New thread's draft scope in a project, and its file completion. */
   draft: {
     draftScope(workspaceId: string): Promise<string>;
-    complete(workspaceId: string, query: string, limit: number): Promise<string[]>;
+    complete(
+      workspaceId: string,
+      query: string,
+      limit: number,
+    ): Promise<{ paths: string[]; ready: boolean }>;
   };
 }
 
@@ -281,18 +285,29 @@ export class ComposerSuggest {
     // Recent files and matching threads show at once; completed files join them.
     const early = rows([], []);
     put(early.length ? "ready" : "loading", early);
-    const [paths, tabs] = await Promise.all([
-      this.#complete(scope, workspaceId, query).catch(() => undefined),
-      threadId ? this.#browserTabs(threadId) : Promise.resolve([]),
-    ]);
+    const tabs = threadId ? this.#browserTabs(threadId) : Promise.resolve([]);
+    let completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
+    // A checkout whose index is still building answers empty with `ready: false`: keep the
+    // loading state and ask again while this query is current.
+    for (let attempt = 0; completion?.ready === false && attempt < 20; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (seq !== this.#seq) return;
+      completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
+    }
     if (seq !== this.#seq) return;
-    const all = rows(paths ?? [], tabs);
+    const all = rows(completion?.paths ?? [], await tabs);
     if (all.length) put("ready", all);
-    else put(paths ? "empty" : "failed");
+    else if (completion?.ready === false) put("loading", early);
+    else put(completion ? "empty" : "failed");
   }
 
-  async #complete(scope: Scope, workspaceId: string, query: string): Promise<string[]> {
-    if (scope.type === "draft") return this.#ports.draft.complete(workspaceId, query, 8);
+  async #complete(
+    scope: Scope,
+    workspaceId: string,
+    query: string,
+  ): Promise<{ paths: string[]; ready: boolean }> {
+    if (scope.type === "draft")
+      return this.#ports.draft.complete(workspaceId, query, 8);
     const reply = await this.#ports.owner.request(
       {
         type: "context.request",
@@ -306,7 +321,7 @@ export class ComposerSuggest {
       quiet,
     );
     if (reply.result.kind !== "completion") throw new Error(reply.result.kind);
-    return reply.result.paths.slice(0, 8);
+    return { paths: reply.result.paths.slice(0, 8), ready: reply.result.ready };
   }
 
   /** The thread's browser tabs agents may read, read again after two seconds. */
