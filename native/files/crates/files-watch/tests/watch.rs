@@ -54,6 +54,18 @@ fn rename_is_delete_plus_create() {
 }
 
 #[test]
+fn a_case_only_rename_reports_the_old_spelling_deleted_and_the_new_created() {
+    // On a volume that ignores case the old path still resolves to the entry under its new
+    // spelling; probing must answer for the spelling asked for, or the old name stays indexed.
+    let session = Session::start(options(), |root| {
+        std::fs::write(root.join("foo.txt"), b"content").unwrap();
+    });
+    std::fs::rename(session.path("foo.txt"), session.path("Foo.txt")).unwrap();
+    session.wait_for("foo.txt", ChangeKind::Deleted);
+    session.wait_for("Foo.txt", ChangeKind::Created);
+}
+
+#[test]
 fn create_then_delete_in_one_window_reports_nothing() {
     // The gap makes FSEvents report the creation on its own, which is the case the rule is
     // about; the debounce is wide enough to hold both deliveries in one window. When FSEvents

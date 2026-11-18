@@ -7,10 +7,9 @@
 //! buffer comes from the kernel, so every read is bounds-checked and a truncated or malformed
 //! record ends the scan instead of panicking.
 
-use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind, RenameMode};
+use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind};
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME,
-    FILE_ACTION_RENAMED_OLD_NAME,
+    FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
 };
 
 /// The three `u32`s at the start of every record.
@@ -43,10 +42,6 @@ pub(crate) fn kind(action: u32) -> Option<EventKind> {
         FILE_ACTION_ADDED => EventKind::Create(CreateKind::Any),
         FILE_ACTION_REMOVED => EventKind::Remove(RemoveKind::Any),
         FILE_ACTION_MODIFIED => EventKind::Modify(ModifyKind::Any),
-        // The kernel names the old path and the new one in separate records; translation
-        // reads them as the deletion and the creation a rename is.
-        FILE_ACTION_RENAMED_OLD_NAME => EventKind::Modify(ModifyKind::Name(RenameMode::From)),
-        FILE_ACTION_RENAMED_NEW_NAME => EventKind::Modify(ModifyKind::Name(RenameMode::To)),
         _ => return None,
     };
     Some(kind)
@@ -72,10 +67,7 @@ fn record(bytes: &[u8], offset: usize) -> Option<(u32, u32, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        FILE_ACTION_ADDED, FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, kind, parse,
-    };
-    use notify::event::{EventKind, ModifyKind, RenameMode};
+    use super::{FILE_ACTION_ADDED, FILE_ACTION_REMOVED, parse};
 
     /// One record as the kernel lays it out: header, name, padding to a four-byte boundary.
     fn record(action: u32, name: &str) -> Vec<u8> {
@@ -128,13 +120,5 @@ mod tests {
         let mut buffer = record(FILE_ACTION_ADDED, "src/main.rs");
         buffer.truncate(buffer.len() - 4);
         assert!(parse(&buffer).is_empty());
-    }
-
-    #[test]
-    fn a_new_name_is_the_creation_half_of_a_rename() {
-        assert_eq!(
-            kind(FILE_ACTION_RENAMED_NEW_NAME),
-            Some(EventKind::Modify(ModifyKind::Name(RenameMode::To)))
-        );
     }
 }

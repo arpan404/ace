@@ -56,10 +56,24 @@ pub(crate) fn look(root: &Root, path: &str) -> Presence {
         Err(_) => return Presence::Unknown,
     };
     match folder.symlink_metadata(&name) {
-        Ok(metadata) => Presence::Here(metadata.is_dir()),
+        Ok(metadata) => {
+            // `open_parent` hands back the spelling the folder stores. On a volume that ignores
+            // case, a case-only rename finds the entry under its new spelling, so the spelling
+            // that was asked for is gone even though the entry lives on. Reporting it present
+            // would keep the old name in the index next to the new one.
+            if name != leaf(path) {
+                return Presence::Gone;
+            }
+            Presence::Here(metadata.is_dir())
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Presence::Gone,
         Err(_) => Presence::Unknown,
     }
+}
+
+/// The last segment of a relative path.
+fn leaf(path: &str) -> &str {
+    path.rsplit_once('/').map_or(path, |(_, leaf)| leaf)
 }
 
 /// The `Notice` form of a presence: only a path seen on disk says anything.
