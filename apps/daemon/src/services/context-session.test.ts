@@ -1,9 +1,10 @@
 import { expect, it } from "vitest";
-import { ThreadId, type ServerMessage } from "@ace/protocol";
+import { DeviceId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { createContextSession } from "./context.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 
 const threadId = ThreadId.parse("main");
+const device = DeviceId.parse("device");
 
 function request(requestId: string): SocketMessage {
   return {
@@ -50,7 +51,7 @@ function setup() {
     authorize: () => scope,
     canReadThread: () => readable,
     connected: () => connected,
-    send: (message) => sent.push(message),
+    send: (message: ServerMessage) => sent.push(message),
     tasks: new Set(),
   } as unknown as SocketContext);
 
@@ -82,7 +83,7 @@ it("drops a native quick open whose thread access is revoked while the index ans
   const fixture = setup();
   const pending = Promise.withResolvers<string[]>();
   fixture.answerWith(() => pending.promise);
-  await fixture.session.handle?.(request("quick"), "device");
+  await fixture.session.handle?.(request("quick"), device);
   await settle();
   fixture.revokeThread();
   pending.resolve(["src/main.ts"]);
@@ -101,8 +102,8 @@ it("does not run a queued native quick open after the socket loses its scope", a
   const fixture = setup();
   const first = Promise.withResolvers<string[]>();
   fixture.answerWith(() => first.promise);
-  await fixture.session.handle?.(request("first"), "device");
-  await fixture.session.handle?.(request("second"), "device");
+  await fixture.session.handle?.(request("first"), device);
+  await fixture.session.handle?.(request("second"), device);
   await settle();
   expect(fixture.asked).toHaveLength(1);
   fixture.revokeRead();
@@ -128,7 +129,7 @@ it("drops a native quick open whose socket disconnected while the index answers"
   const fixture = setup();
   const pending = Promise.withResolvers<string[]>();
   fixture.answerWith(() => pending.promise);
-  await fixture.session.handle?.(request("quick"), "device");
+  await fixture.session.handle?.(request("quick"), device);
   await settle();
   fixture.disconnect();
   pending.resolve(["src/main.ts"]);
