@@ -15,7 +15,7 @@ struct SkillSourceRow: View {
     @State private var problem: String?
 
     var body: some View {
-        HStack(spacing: AceDesign.Space.related) {
+        StackingRow {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 QuietRowText(title: "Source", detail: check.map { "\(source) · \($0.status)" } ?? source)
                 if let problem {

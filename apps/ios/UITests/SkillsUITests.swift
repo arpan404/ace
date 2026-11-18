@@ -129,6 +129,29 @@ import XCTest
         XCTAssertEqual(opened.first?["path"], ".claude/skills/release-desktop/SKILL.md")
     }
 
+    /// At the largest text size the Agents row stacks: its Change button goes under the words,
+    /// so neither squeezes the other (design language, rows at accessibility sizes).
+    func testTheAgentsRowStacksItsButtonUnderItsWordsAtTheLargestTextSize() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchWithArguments()
+        defer { app.terminate() }
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
+        app.openBrowseDestination("library.skills")
+        let row = app.buttons["skills.row.research"]
+        for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        let change = app.buttons["skill.agents"]
+        for _ in 0..<6 where !(change.exists && change.isHittable) { app.swipeUp() }
+        XCTAssertTrue(change.waitForExistence(timeout: 15))
+        let words = app.staticTexts["Agents"].firstMatch
+        XCTAssertTrue(words.exists)
+        screenshot("large-agents")
+        XCTAssertGreaterThanOrEqual(change.frame.minY, words.frame.maxY - 1, "Change sits under the Agents words")
+    }
+
     /// A personal skill lives outside every project, so it offers no Open on computer.
     func testAPersonalSkillHasNoOpenOnComputer() throws {
         let app = launchIntoSkills()

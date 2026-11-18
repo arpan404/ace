@@ -100,7 +100,7 @@ struct SkillPageView: View {
 
     private func details(_ page: SkillPage) -> some View {
         Section {
-            HStack(spacing: AceDesign.Space.related) {
+            StackingRow {
                 QuietRowText(title: "Agents", detail: page.agentsText)
                 if page.editable, model.canOperate {
                     Button("Change") { choosingAgents = true }
