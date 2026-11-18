@@ -7,28 +7,38 @@
 //! `node_modules` of JavaScript packages. Source files carry about two gigabytes of content in
 //! total at a million files, which is the budget the content search is measured over.
 //!
-//! The tree is the bench's own folder. The first run writes an ownership marker before it writes
-//! anything else, and every later run — `--regenerate` included — refuses to empty a folder that
-//! does not carry it, so a mistyped `--dir` cannot delete a checkout. Generation is deterministic:
-//! the same `--files` value produces the same paths and the same inventory. The completion marker
-//! is written last and atomically, and reuse checks that the tree still holds the inventory that
-//! marker recorded.
+//! The tree is a folder the bench owns, and it proves that in three separate ways:
+//!
+//! - an ownership marker the bench creates exclusively (`create_new`) before writing any tree, and
+//!   the only thing that permits emptying the folder. A completion marker never grants ownership;
+//!   a tree whose completion marker is valid but whose ownership marker is missing is refused.
+//! - a lock file locked for the whole run, so two runs never act on the same folder.
+//! - an inventory check that every expected file is a regular file with the name the generator
+//!   would write, walked in one pass before a reused tree is measured. A symlink anywhere the
+//!   check walks is refused.
+//!
+//! Generation is deterministic: the same `--files` value produces the same paths and inventory.
+//! The completion marker is written last and atomically, and records the inventory that reuse
+//! checks against.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::content::{big_text, crate_name, file_name, module_name, node_text, source_text};
 
-/// Records that this bench created the folder, written before any tree goes into it. A folder is
-/// emptied only when this file says the bench owns it.
+/// Records that this bench created the folder. Created exclusively before any tree goes into it,
+/// and the only thing that permits emptying a non-empty folder.
 pub const OWNER: &str = ".ace-bench-owned";
 
 /// Records what was generated. Written last and atomically, so its presence means a complete tree.
 pub const MARKER: &str = ".ace-bench-tree";
+
+/// Held for the run so a second bench run cannot act on the same folder.
+pub const LOCK: &str = ".ace-bench-lock";
 
 /// What the ownership marker holds. A folder holding a different file of this name is not ours.
 const OWNER_TEXT: &str = "ace-files checkout bench folder\n";
@@ -53,13 +63,6 @@ const MIN_SOURCE_BYTES: usize = 128;
 
 /// How many threads write the tree. This Mac is shared and heavily loaded.
 const WRITERS: usize = 4;
-
-/// Leaf folders whose file inventory is checked one by one when a tree is reused. Every leaf is
-/// checked for existence; walking every file of every leaf would cost more than it protects.
-const LEAF_SAMPLES: usize = 16;
-
-/// Packages whose file inventory is checked one by one when a tree is reused.
-const PACKAGE_SAMPLES: usize = 8;
 
 /// The tree's shape, derived from the file count alone.
 #[derive(Clone, PartialEq, Eq)]
@@ -172,6 +175,15 @@ impl Shape {
     }
 }
 
+/// What the reuse check did, for the run's report.
+#[derive(Clone, Copy)]
+pub struct Check {
+    /// Files whose names and types the check walked.
+    pub files: usize,
+    /// How long the walk took.
+    pub elapsed: Duration,
+}
+
 /// A tree that is ready to measure.
 pub struct Tree {
     /// The checkout's absolute path.
@@ -184,34 +196,65 @@ pub struct Tree {
     pub generated: bool,
     /// When the tree's files were last written, so the report can say how warm the cache is.
     pub completed: Option<SystemTime>,
+    /// The inventory check a reused tree went through.
+    pub checked: Option<Check>,
+    /// Held for the whole run, so no second run acts on the same folder.
+    _lock: fs::File,
 }
 
-/// Make sure the tree exists, generating it when the marker does not describe it.
+/// What a folder already is, judged without writing anything into it.
+enum State {
+    Absent,
+    /// Nothing in it but a lock file, left by an earlier run.
+    Empty,
+    /// Carries the bench's ownership marker.
+    Owned,
+}
+
+/// Make sure the tree exists, generating it when the markers do not describe it.
 pub fn ensure(
     dir: &Path,
     files: usize,
     regenerate: bool,
 ) -> Result<Tree, Box<dyn std::error::Error>> {
     let shape = Shape::new(files)?;
-    reject_symlinks(dir)?;
+    reject_symlink(dir)?;
+    let state = inspect(dir)?;
+    let marker = read_marker(dir)?;
+    let reuse = !regenerate && marker.as_ref().is_some_and(|marker| marker.matches(&shape));
+
+    if matches!(state, State::Absent) {
+        fs::create_dir_all(dir)?;
+    }
+    let lock = lock(dir)?;
     let root = dir.to_path_buf();
-    if !regenerate
-        && let Some(marker) = read_marker(dir)?
-        && marker.matches(&shape)
-    {
-        validate_inventory(dir, &shape)?;
-        // A tree whose completion marker is ours is ours: claim it, so a later `--regenerate`
-        // may replace it. Older trees were written before the ownership marker existed.
-        own(dir)?;
+
+    if reuse {
+        // The markers now describe the same tree. The ownership marker was checked by `inspect`;
+        // a completion marker alone never makes a folder the bench's, and this path writes nothing.
+        let Some(marker) = marker else {
+            return Err(format!("{} lost its completion marker", dir.display()).into());
+        };
+        let started = Instant::now();
+        let checked_files = validate_inventory(dir, &shape)?;
         return Ok(Tree {
             root,
             shape,
             bytes: marker.bytes,
             generated: false,
             completed: Some(marker.completed),
+            checked: Some(Check {
+                files: checked_files,
+                elapsed: started.elapsed(),
+            }),
+            _lock: lock,
         });
     }
-    claim(dir)?;
+
+    if matches!(state, State::Owned) {
+        empty_owned(dir)?;
+    }
+    create_owner(dir)?;
     let started = Instant::now();
     println!(
         "generating {} files ({} folders) at {}: {} source files of {} bytes, {} node_modules files, {} in one folder",
@@ -233,6 +276,8 @@ pub fn ensure(
         bytes,
         generated: true,
         completed: Some(completed),
+        checked: None,
+        _lock: lock,
     })
 }
 
@@ -240,7 +285,8 @@ pub fn ensure(
 ///
 /// The folder's existing ancestors are resolved rather than refused: macOS's `/var` is itself a
 /// symlink to `/private/var`, and the bench never removes an ancestor, only the folder it names.
-fn reject_symlinks(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+/// Symlinks inside the tree are refused by [`validate_inventory`].
+fn reject_symlink(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if dir.as_os_str().is_empty() {
         return Err("--dir needs a path".into());
     }
@@ -266,41 +312,100 @@ fn reject_symlinks(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// Make `dir` an empty folder this bench owns, refusing a folder it did not create.
-fn claim(dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+/// Judge a folder by reading only: is it absent, empty, or a tree this bench owns?
+fn inspect(dir: &Path) -> Result<State, Box<dyn std::error::Error>> {
     match fs::symlink_metadata(dir) {
         Ok(metadata) if !metadata.is_dir() => {
-            return Err(format!("{} is not a folder", dir.display()).into());
+            Err(format!("{} is not a folder", dir.display()).into())
         }
         Ok(_) => {
-            let empty = fs::read_dir(dir)?.next().is_none();
-            if !empty {
-                let owner = fs::read_to_string(dir.join(OWNER)).unwrap_or_default();
-                if owner != OWNER_TEXT {
-                    return Err(format!(
-                        "{} holds files this bench did not create; pass a dedicated --dir for the bench, or empty it yourself",
-                        dir.display()
-                    )
-                    .into());
+            let mut only_lock = true;
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                if entry.file_name() != LOCK {
+                    only_lock = false;
                 }
-                // Only ever a folder the ownership marker says is the bench's own.
-                fs::remove_dir_all(dir)?;
+            }
+            if only_lock {
+                return Ok(State::Empty);
+            }
+            if carries_owner(dir)? {
+                Ok(State::Owned)
+            } else {
+                Err(format!(
+                    "{} holds files this bench did not create; pass a dedicated --dir for the bench, or empty it yourself",
+                    dir.display()
+                )
+                .into())
             }
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(format!("cannot inspect {}: {error}", dir.display()).into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(State::Absent),
+        Err(error) => Err(format!("cannot inspect {}: {error}", dir.display()).into()),
     }
-    fs::create_dir_all(dir)?;
-    own(dir)?;
+}
+
+/// True when the folder's ownership marker is a regular file holding this bench's text.
+fn carries_owner(dir: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(dir.join(OWNER)) {
+        Ok(metadata) if metadata.is_file() => {
+            Ok(fs::read_to_string(dir.join(OWNER))? == OWNER_TEXT)
+        }
+        _ => Ok(false),
+    }
+}
+
+/// Take the folder's exclusive lock for the whole run.
+fn lock(dir: &Path) -> Result<fs::File, Box<dyn std::error::Error>> {
+    let path = dir.join(LOCK);
+    if let Ok(metadata) = fs::symlink_metadata(&path)
+        && !metadata.is_file()
+    {
+        return Err(format!("{} is not a regular file", path.display()).into());
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(fs::TryLockError::WouldBlock) => Err(format!(
+            "another bench run holds {}; wait for it to finish",
+            path.display()
+        )
+        .into()),
+        Err(fs::TryLockError::Error(error)) => {
+            Err(format!("cannot lock {}: {error}", path.display()).into())
+        }
+    }
+}
+
+/// Remove everything in a folder this bench owns, keeping the locked lock file in place.
+fn empty_owned(dir: &Path) -> io::Result<()> {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_name() == LOCK {
+            continue;
+        }
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            fs::remove_dir_all(&path)?;
+        } else {
+            fs::remove_file(&path)?;
+        }
+    }
     Ok(())
 }
 
-/// Write the ownership marker, unless the folder already carries it.
-fn own(dir: &Path) -> io::Result<()> {
-    match fs::read_to_string(dir.join(OWNER)) {
-        Ok(text) if text == OWNER_TEXT => Ok(()),
-        _ => fs::write(dir.join(OWNER), OWNER_TEXT),
-    }
+/// Create the ownership marker exclusively: a folder that already has one is not claimed again.
+fn create_owner(dir: &Path) -> io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dir.join(OWNER))?;
+    file.write_all(OWNER_TEXT.as_bytes())?;
+    file.sync_all()
 }
 
 /// Write every folder and file, spreading the work over a few threads.
@@ -533,92 +638,139 @@ fn parse_marker(text: &str) -> Option<Marker> {
     })
 }
 
-/// Check that a reused tree still holds the inventory its marker describes: every leaf and package
-/// folder exists, the sampled ones hold exactly the files the generator would write, and the one
-/// big folder holds all of its entries. A folder emptied behind the bench's back would otherwise
-/// measure a tree that is not there.
-fn validate_inventory(dir: &Path, shape: &Shape) -> Result<(), Box<dyn std::error::Error>> {
-    for path in [".git/HEAD", ".gitignore", "README.md"] {
-        require_file(&dir.join(path))?;
+/// Walk the tree once and check that every expected file is a regular file with the name the
+/// generator would write: every leaf folder and every installed package file by file, and the big
+/// folder in full. A folder emptied or edited behind the bench's back is caught here, and any
+/// symlink where a folder or file should be is refused.
+///
+/// Returns how many fixture files were checked.
+fn validate_inventory(dir: &Path, shape: &Shape) -> Result<usize, Box<dyn std::error::Error>> {
+    // The root: no symlinks among its entries, the markers are regular files, and the three
+    // folder trees are real folders.
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_symlink() {
+            return Err(format!(
+                "{} is a symlink inside the bench tree",
+                entry.path().display()
+            )
+            .into());
+        }
     }
-    let big = dir.join(shape.big_dir());
-    require_dir(&big)?;
-    let big_entries = count_entries(&big)?;
-    if big_entries != shape.big_files {
+    for relative in [
+        ".gitignore",
+        "README.md",
+        ".git/HEAD",
+        ".git/config",
+        ".git/info/exclude",
+        MARKER,
+        OWNER,
+    ] {
+        require_real(dir, relative, false)?;
+    }
+    if !carries_owner(dir)? {
+        return Err(format!("{} carries no ownership marker", dir.display()).into());
+    }
+    for relative in ["crates", "apps"] {
+        require_real(dir, relative, true)?;
+    }
+    if shape.packages > 0 {
+        require_real(dir, "node_modules", true)?;
+    }
+
+    let mut checked = 0;
+    for leaf in 0..shape.leaves {
+        let relative = shape.leaf_dir(leaf);
+        require_real(dir, &relative, true)?;
+        let count = shape.leaf_files(leaf);
+        let expected: Vec<String> = (0..count)
+            .map(|file| file_name(leaf + file, file, count))
+            .collect();
+        check_files(&dir.join(relative), &expected)?;
+        checked += count;
+    }
+    for package in 0..shape.packages {
+        let relative = format!("node_modules/pkg_{package:05}/lib");
+        require_real(dir, &relative, true)?;
+        let count = shape.package_files(package);
+        let expected: Vec<String> = (0..count)
+            .map(|file| format!("module_{file:02}.js"))
+            .collect();
+        check_files(&dir.join(relative), &expected)?;
+        checked += count;
+    }
+    let big = shape.big_dir();
+    require_real(dir, big, true)?;
+    let expected: Vec<String> = (0..shape.big_files)
+        .map(|file| format!("asset_{file:05}.txt"))
+        .collect();
+    check_files(&dir.join(big), &expected)?;
+    checked += shape.big_files;
+
+    if checked != shape.files {
         return Err(format!(
-            "{} holds {big_entries} entries, not {}",
-            big.display(),
-            shape.big_files
+            "the tree holds {checked} fixture files, not {}",
+            shape.files
         )
         .into());
     }
-    for leaf in 0..shape.leaves {
-        require_dir(&dir.join(shape.leaf_dir(leaf)))?;
-    }
-    for package in 0..shape.packages {
-        require_dir(&package_dir(dir, package))?;
-    }
-    for leaf in sample(shape.leaves, LEAF_SAMPLES) {
-        let folder = dir.join(shape.leaf_dir(leaf));
-        let count = shape.leaf_files(leaf);
-        let entries = count_entries(&folder)?;
-        if entries != count {
-            return Err(format!("{} holds {entries} files, not {count}", folder.display()).into());
+    Ok(checked)
+}
+
+/// Check one folder's files against the names the generator would write, exactly: no missing
+/// file, no extra file, and nothing that is not a regular file.
+fn check_files(folder: &Path, expected: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut wanted: HashSet<&str> = expected.iter().map(String::as_str).collect();
+    let mut seen = 0;
+    for entry in fs::read_dir(folder)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            return Err(format!("{} is not a regular file", entry.path().display()).into());
         }
-        let last = file_name(leaf + count - 1, count - 1, count);
-        require_file(&folder.join(last))?;
-    }
-    for package in sample(shape.packages, PACKAGE_SAMPLES) {
-        let folder = package_dir(dir, package);
-        let count = shape.package_files(package);
-        let entries = count_entries(&folder)?;
-        if entries != count {
-            return Err(format!("{} holds {entries} files, not {count}", folder.display()).into());
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Err(format!("{} holds a name that is not UTF-8", folder.display()).into());
+        };
+        if !wanted.remove(name) {
+            return Err(format!("{} holds an unexpected file {name}", folder.display()).into());
         }
-        require_file(&folder.join(format!("module_{:02}.js", count - 1)))?;
+        seen += 1;
+    }
+    if seen != expected.len() || !wanted.is_empty() {
+        let missing = wanted.iter().next().copied().unwrap_or("?");
+        return Err(format!(
+            "{} holds {seen} files, not {} (missing {missing})",
+            folder.display(),
+            expected.len()
+        )
+        .into());
     }
     Ok(())
 }
 
-/// One installed package's library folder.
-fn package_dir(dir: &Path, package: usize) -> PathBuf {
-    dir.join(format!("node_modules/pkg_{package:05}/lib"))
-}
-
-/// Up to `wanted` indices spread over `total`, so a sample covers the whole tree.
-fn sample(total: usize, wanted: usize) -> Vec<usize> {
-    if total <= wanted {
-        return (0..total).collect();
-    }
-    (0..wanted).map(|index| index * total / wanted).collect()
-}
-
-/// How many entries one folder holds.
-fn count_entries(dir: &Path) -> io::Result<usize> {
-    let mut count = 0;
-    for entry in fs::read_dir(dir)? {
-        entry?;
-        count += 1;
-    }
-    Ok(count)
-}
-
-/// A folder the tree should hold: a real folder, never a symlink pointing somewhere else.
-fn require_dir(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("{} is missing: {error}", path.display()))?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(format!("{} is not a real folder", path.display()).into());
-    }
-    Ok(())
-}
-
-/// A file the tree should hold: a real file, never a symlink pointing somewhere else.
-fn require_file(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("{} is missing: {error}", path.display()))?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(format!("{} is not a real file", path.display()).into());
+/// Require a root-relative path whose every component is a real folder, ending in a real folder
+/// or a regular file, never a symlink.
+fn require_real(
+    dir: &Path,
+    relative: &str,
+    folder: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut path = dir.to_path_buf();
+    let mut parts = relative.split('/').peekable();
+    while let Some(part) = parts.next() {
+        path.push(part);
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("{} is missing: {error}", path.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!("{} is a symlink", path.display()).into());
+        }
+        let last = parts.peek().is_none();
+        if last && !folder && !metadata.is_file() {
+            return Err(format!("{} is not a regular file", path.display()).into());
+        }
+        if (!last || folder) && !metadata.is_dir() {
+            return Err(format!("{} is not a real folder", path.display()).into());
+        }
     }
     Ok(())
 }
