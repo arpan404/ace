@@ -1,7 +1,7 @@
 import { posix, win32 } from "node:path";
 import { z } from "zod";
-import { quote, taskXml, xml } from "./plan.ts";
-import { homeServiceName } from "./service-name.ts";
+import { quote, taskXml, unquote, unxml, xml } from "./plan.ts";
+import { homeServiceTag, taggedName } from "./service-name.ts";
 
 /**
  * Spade's per-user service (ADR 0123), registered beside the daemon's and never under it. The
@@ -31,10 +31,10 @@ export interface SpadeAccount {
   /** Windows: `%SystemRoot%`. */
   systemRoot?: string;
   /**
-   * The home the Spade service under the default name runs, when one is registered (the I/O
-   * shell reads it). A home registered there before ADR 0185 keeps that name.
+   * The tag of this home's service names, chosen by the I/O shell (`chooseServiceIdentity`):
+   * empty for the default names. When absent, it follows from the paths alone.
    */
-  sharedNameHome?: string | undefined;
+  serviceTag?: string | undefined;
 }
 
 interface PlanBase {
@@ -152,14 +152,6 @@ export function spadeRegistrationKind(
   return undefined;
 }
 
-const unxml = (value: string) =>
-  value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&amp;", "&");
-
 /**
  * The ace home a Spade registration runs, when it names one: the plist's or unit's
  * `SPADE_ACE_HOME`, or on Windows the home of the launcher the loaded task (`schtasks /Query
@@ -172,7 +164,7 @@ export function registeredSpadeHome(platform: SpadePlatform, content: string): s
   }
   if (platform === "linux") {
     const found = /"SPADE_ACE_HOME=((?:[^"\\]|\\.)*)"/.exec(content)?.[1];
-    return found?.replace(/\\(.)/g, "$1").replaceAll("%%", "%");
+    return found === undefined ? undefined : unquote(found);
   }
   const args = /<Arguments>([^<]*)<\/Arguments>/.exec(content)?.[1];
   const launcher = args === undefined ? undefined : /@ "([^"]+)"\s*$/.exec(unxml(args))?.[1];
@@ -197,10 +189,10 @@ function render(
   const program = posix.join(root, "releases", "spade", "current", binary);
   const logFile = posix.join(root, "logs", "spade.log");
   const environment = spadeEnvironment(root, platform);
-  const owner = { userHome, sharedNameHome: account.sharedNameHome };
+  const tag = account.serviceTag ?? homeServiceTag(root, userHome, platform);
   if (platform === "darwin") {
     const uid = Uid.parse(account.uid);
-    const label = homeServiceName(spadeLabel, ".", root, owner, platform);
+    const label = taggedName(spadeLabel, ".", tag);
     const variables = environment
       .map(([key, value]) => `<key>${key}</key><string>${xml(value)}</string>`)
       .join("");
@@ -224,7 +216,7 @@ function render(
     };
   }
   const unitEnvironment = environment.map(([key, value]) => quote(`${key}=${value}`)).join(" ");
-  const unit = `${homeServiceName(spadeUnitBase, "-", root, owner, platform)}.service`;
+  const unit = `${taggedName(spadeUnitBase, "-", tag)}.service`;
   return {
     platform,
     home: root,
@@ -257,7 +249,7 @@ function windowsPlan(
     content: taskXml({ description: "Spade, ace's assistant", user, program, args }),
     command: [launcher],
     logFile: win32.join(home, "logs", "spade.log"),
-    name: `\\${homeServiceName(spadeTaskName, "-", home, { userHome: text.parse(account.userHome), sharedNameHome: account.sharedNameHome }, "win32")}`,
+    name: `\\${taggedName(spadeTaskName, "-", account.serviceTag ?? homeServiceTag(home, text.parse(account.userHome), "win32"))}`,
     program,
     arguments: args,
     user,

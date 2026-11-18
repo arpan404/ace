@@ -14,6 +14,21 @@ $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
 $port = 8443
+$home_ = Join-Path $Work 'home'
+
+# The temporary home's own login task (ADR 0185), named by ace's own code before anything is
+# installed: only that task is checked and cleaned up, never another home's.
+$namer = Join-Path $Work 'task-name.mjs'
+$serviceSource = Join-Path $repo 'packages\service\src'
+[System.IO.File]::WriteAllText($namer, @"
+import { homedir } from "node:os";
+import { canonicalPath } from "$(([System.Uri](Join-Path $serviceSource 'canonical-path.ts')).AbsoluteUri)";
+import { homeServiceTag, taggedName } from "$(([System.Uri](Join-Path $serviceSource 'service-name.ts')).AbsoluteUri)";
+const tag = homeServiceTag(canonicalPath(process.argv[2]), canonicalPath(homedir()), "win32");
+console.log("\\" + taggedName("ace-next-daemon", "-", tag));
+"@)
+$task = (& node $namer $home_ | Select-Object -Last 1).Trim()
+if ($LASTEXITCODE -ne 0 -or $task -notmatch '^\\ace-next-daemon-[0-9a-f]{10}$') { throw "The temporary home's task name is not its own: $task" }
 
 & node (Join-Path $repo 'tools\release\src\smoke.ts') (Join-Path $Dist $Target) --unsigned-archive
 if ($LASTEXITCODE -ne 0) { throw 'Unsigned archive smoke failed' }
@@ -58,13 +73,8 @@ $originalKind = if ($null -ne $originalPath) { $environment.GetValueKind('Path')
 $seed = '%USERPROFILE%\ace-install-check'
 $environment.SetValue('Path', $(if ($originalPath) { "$originalPath;$seed" } else { $seed }), [Microsoft.Win32.RegistryValueKind]::ExpandString)
 
-$home_ = Join-Path $Work 'home'
 $ace = Join-Path $home_ 'bin\ace.cmd'
 $failed = $null
-$task = $null
-function AceTasks {
-  & schtasks.exe /Query /FO CSV /NH | Where-Object { $_ -match '^"\\ace-next-daemon(-[0-9a-f]{10})?"' } | ForEach-Object { ($_ -split '","')[0].Trim('"') }
-}
 try {
   Start-Sleep -Seconds 2
   $env:ACE_HOME = $home_
@@ -85,11 +95,8 @@ try {
   if (-not $status) { throw 'The installed daemon never answered ace status' }
   Write-Host "ace status: $status"
 
-  # A home other than %USERPROFILE%\.ace registers its own task, ace-next-daemon-<hash> (ADR 0185).
-  $tasks = @(AceTasks)
-  if ($tasks.Count -ne 1) { throw "Expected one ace login task, found: $($tasks -join ', ')" }
-  $task = $tasks[0]
-  if ($task -eq '\ace-next-daemon') { throw 'A temporary ACE_HOME registered the default home''s task name' }
+  & schtasks.exe /Query /TN $task *> $null
+  if ($LASTEXITCODE -ne 0) { throw "The temporary home's login task $task is not registered" }
 
   $service = & $ace service status --json
   if ("$service" -notmatch '"active":true') { throw "Service not active: $service" }
@@ -116,10 +123,8 @@ try {
     Write-Host "--- $($_.Name)"; Get-Content $_.FullName -Tail 50
   }
 } finally {
-  foreach ($left in $(if ($task) { @($task) } else { @(AceTasks) })) {
-    & schtasks.exe /End /TN $left *> $null
-    & schtasks.exe /Delete /TN $left /F *> $null
-  }
+  & schtasks.exe /End /TN $task *> $null
+  & schtasks.exe /Delete /TN $task /F *> $null
   Stop-Process -Id $serving.Id -Force -ErrorAction SilentlyContinue
   if ($null -ne $originalPath) { $environment.SetValue('Path', $originalPath, $originalKind) } else { $environment.DeleteValue('Path', $false) }
   $environment.Close()

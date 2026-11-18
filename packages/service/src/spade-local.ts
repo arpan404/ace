@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
-import { posix, win32 } from "node:path";
+import { canonicalPath } from "./canonical-path.ts";
 import { runProcess } from "./process.ts";
 import { currentUserSid } from "./windows-user.ts";
-import { sameHomePath } from "./service-name.ts";
+import { chooseServiceIdentity, homeServiceTag, taggedName } from "./service-name.ts";
 import {
   registeredSpadeHome,
   spadeServicePlan,
@@ -13,35 +13,51 @@ import {
 } from "./spade-plan.ts";
 import { readOwnFile } from "./spade-registration.ts";
 
-/** The Windows task registered under the default name, `\ace-next-spade`. */
-export const sharedSpadeTask = `\\${spadeTaskName}`;
+/** What finding a home's Spade service reads, injected so tests can stand in for both. */
+export interface SpadeIdentityIo {
+  /** Links resolved and names spelled as stored (`canonicalPath`). */
+  canonical(path: string): string;
+  /** Windows: the task `name` as `schtasks /Query /XML` prints it, undefined when there is none. */
+  loadedTask(name: string): string | undefined;
+}
+
+/** The service manager's name for `plan`'s service. */
+export const spadeServiceName = (plan: SpadeServicePlan) =>
+  plan.platform === "linux" ? plan.unit : plan.platform === "darwin" ? plan.domain : plan.name;
 
 /**
- * Spade's service plan for `home`, given what is registered under the default name: on Windows
- * `sharedTask` is that task as `schtasks /Query /XML` printed it (undefined when there is none);
- * elsewhere the default plist or unit is read here. A home already registered under the default
- * name, by a build from before ADR 0185, keeps that name; every other home gets its own.
+ * Spade's service plan for `home` (ADR 0185): the default home's names for the default home and
+ * for a home registered under them by an earlier build, its own hashed names for any other. The
+ * plist or unit is read here; a registration that may be this home's but can't be read as ace's
+ * is refused, never stepped around.
  */
-export function spadePlanBesideShared(
+export function spadePlanFor(
   home: string,
   platform: SpadePlatform,
   account: SpadeAccount,
-  sharedTask: string | undefined,
+  io: SpadeIdentityIo,
 ): SpadeServicePlan {
-  const path = platform === "win32" ? win32 : posix;
-  const shared = path.join(account.userHome, ".ace");
-  if (sameHomePath(home, shared, platform)) return spadeServicePlan(home, platform, account);
-  let sharedNameHome: string | undefined;
-  try {
-    const registration =
-      platform === "win32"
-        ? sharedTask
-        : readOwnFile(spadeServicePlan(shared, platform, account).file);
-    if (registration !== undefined) sharedNameHome = registeredSpadeHome(platform, registration);
-  } catch {
-    // An unreadable registration isn't this home's: its own name is used, and checked as usual.
-  }
-  return spadeServicePlan(home, platform, { ...account, sharedNameHome });
+  const planWith = (spelling: string, tag: string) =>
+    spadeServicePlan(spelling, platform, { ...account, serviceTag: tag });
+  const identity = chooseServiceIdentity({
+    platform,
+    home,
+    userHome: account.userHome,
+    canonical: io.canonical,
+    registration: (tag) => {
+      const plan = planWith(home, tag);
+      return plan.platform === "win32" ? io.loadedTask(plan.name) : readOwnFile(plan.file);
+    },
+    homeOf: (content) => registeredSpadeHome(platform, content),
+    sharedName: spadeServiceName(planWith(home, "")),
+  });
+  return planWith(identity.home, identity.tag);
+}
+
+/** The two task names `home`'s Spade can have on Windows: the default one and its own. */
+export function spadeTaskNames(home: string, userHome: string): string[] {
+  const own = homeServiceTag(canonicalPath(home), canonicalPath(userHome), "win32");
+  return [...new Set([`\\${spadeTaskName}`, `\\${taggedName(spadeTaskName, "-", own)}`])];
 }
 
 /**
@@ -60,10 +76,14 @@ export async function localSpadePlan(home: string): Promise<SpadeServicePlan> {
       ? { sid: await currentUserSid(), systemRoot: process.env.SystemRoot ?? "C:\\Windows" }
       : {}),
   };
-  let sharedTask: string | undefined;
-  if (target === "win32") {
-    const query = await runProcess("schtasks.exe", ["/Query", "/TN", sharedSpadeTask, "/XML"]);
-    if (query.code === 0) sharedTask = query.stdout;
-  }
-  return spadePlanBesideShared(home, target, account, sharedTask);
+  const tasks = new Map<string, string>();
+  if (target === "win32")
+    for (const name of spadeTaskNames(home, account.userHome)) {
+      const query = await runProcess("schtasks.exe", ["/Query", "/TN", name, "/XML"]);
+      if (query.code === 0) tasks.set(name, query.stdout);
+    }
+  return spadePlanFor(home, target, account, {
+    canonical: canonicalPath,
+    loadedTask: (name) => tasks.get(name),
+  });
 }

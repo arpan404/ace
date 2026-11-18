@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ServicePlan } from "./plan.ts";
+import { unquote, unxml, type ServicePlan } from "./plan.ts";
 import type { TaskPlan } from "./plan.ts";
 
 const variables = new Set([
@@ -58,18 +58,21 @@ export function incompatibleService(plan: ServicePlan, cause?: unknown): Error {
   );
 }
 /**
- * The ace home a daemon registration (plist or unit) runs, its `ACE_HOME`; undefined when the
- * content isn't one ace could have written.
+ * The ace home a daemon registration (plist or unit) runs: its `ACE_HOME`, decoded from the
+ * plist's XML or the unit's quoting and `%` specifiers; undefined when the content isn't one
+ * ace could have written.
  */
 export function registeredServiceHome(
   platform: ServicePlan["platform"],
   content: string,
 ): string | undefined {
+  let home: string;
   try {
-    return environment(platform, content).home;
+    home = environment(platform, content).home;
   } catch {
     return undefined;
   }
+  return platform === "darwin" ? unxml(home) : unquote(home);
 }
 
 /** The service under this home's name runs a different home (ADR 0185). */
@@ -93,7 +96,12 @@ export function assertRegistration(plan: ServicePlan, content: string): void {
   } catch (cause) {
     throw incompatibleService(plan, cause);
   }
-  if (actual.home !== expected.home) throw serviceOfAnotherHome(plan, actual.home, expected.home);
+  if (actual.home !== expected.home)
+    throw serviceOfAnotherHome(
+      plan,
+      registeredServiceHome(plan.platform, content) ?? actual.home,
+      registeredServiceHome(plan.platform, plan.content) ?? expected.home,
+    );
   if (actual.program !== expected.program)
     throw incompatibleService(plan, new Error("Unrecognized service program"));
 }
@@ -207,7 +215,7 @@ export function incompatibleTask(plan: Pick<TaskPlan, "name">, cause?: unknown):
  */
 export function taskServiceHome(output: string): string | undefined {
   try {
-    const args = decode(only(only(only(output, "Actions"), "Exec"), "Arguments").trim());
+    const args = unxml(only(only(only(output, "Actions"), "Exec"), "Arguments").trim());
     const launcher = /@ "([^"]+)" supervise$/.exec(args)?.[1];
     const suffix = "\\bin\\ace.cmd";
     return launcher?.toLowerCase().endsWith(suffix) ? launcher.slice(0, -suffix.length) : undefined;
@@ -221,14 +229,6 @@ export function assertTaskRegistration(plan: TaskPlan, content: string): void {
   if (content !== plan.content)
     throw incompatibleTask(plan, new Error("Unrecognized task registration"));
 }
-
-const decode = (value: string) =>
-  value
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&amp;", "&");
 
 function only(xml: string, tag: string): string {
   const found = [...xml.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>(.*?)</${tag}>`, "gs"))];
@@ -250,8 +250,8 @@ export function assertLoadedTask(plan: LoadedTaskPlan, output: string): void {
     const exec = only(actions, "Exec");
     if (/<WorkingDirectory\b/.test(exec)) throw new Error("Unrecognized task working directory");
     if (
-      decode(only(exec, "Command").trim()).toLowerCase() !== plan.program.toLowerCase() ||
-      decode(only(exec, "Arguments").trim()) !== plan.arguments
+      unxml(only(exec, "Command").trim()).toLowerCase() !== plan.program.toLowerCase() ||
+      unxml(only(exec, "Arguments").trim()) !== plan.arguments
     )
       throw new Error("Loaded task program mismatch");
     const triggers = only(output, "Triggers");
@@ -259,7 +259,7 @@ export function assertLoadedTask(plan: LoadedTaskPlan, output: string): void {
       throw new Error("Unrecognized task triggers");
     const principal = only(only(output, "Principals"), "Principal");
     if (
-      decode(only(principal, "UserId").trim()).toLowerCase() !== plan.user.toLowerCase() ||
+      unxml(only(principal, "UserId").trim()).toLowerCase() !== plan.user.toLowerCase() ||
       only(principal, "LogonType").trim() !== "InteractiveToken"
     )
       throw new Error("Loaded task principal mismatch");

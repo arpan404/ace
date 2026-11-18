@@ -9,7 +9,8 @@ import {
   spadeRegistrationKind,
   type SpadeServicePlan,
 } from "./spade-plan.ts";
-import { sharedSpadeTask, spadePlanBesideShared } from "./spade-local.ts";
+import { canonicalPath } from "./canonical-path.ts";
+import { spadePlanFor, spadeTaskNames } from "./spade-local.ts";
 import { readOwnFile } from "./spade-registration.ts";
 import { sidFromWhoami } from "./windows-user.ts";
 
@@ -155,17 +156,18 @@ export const localFreshStartSpade: FreshStartSpade = freshStartSpade((root) => {
         }
       : {}),
   };
-  return spadePlanBesideShared(
-    root,
-    platform,
-    account,
-    platform === "win32" ? sharedTask() : undefined,
-  );
+  return spadePlanFor(root, platform, account, {
+    canonical: canonicalPath,
+    loadedTask: (name) =>
+      platform === "win32" && spadeTaskNames(root, account.userHome).includes(name)
+        ? loadedTask(name)
+        : undefined,
+  });
 });
 
-/** The task under the default name as `schtasks /Query /XML` prints it, if there is one. */
-function sharedTask(): string | undefined {
-  const query = spawnSync("schtasks.exe", ["/Query", "/TN", sharedSpadeTask, "/XML"], {
+/** The task `name` as `schtasks /Query /XML` prints it, if there is one. */
+function loadedTask(name: string): string | undefined {
+  const query = spawnSync("schtasks.exe", ["/Query", "/TN", name, "/XML"], {
     encoding: "utf8",
     timeout: 60_000,
     windowsHide: true,
