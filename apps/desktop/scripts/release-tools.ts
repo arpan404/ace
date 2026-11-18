@@ -61,6 +61,25 @@ export function releaseExists(version: string): boolean {
   return capture("gh", ["release", "view", releaseTag(version), "--repo", releaseRepository]).ok;
 }
 
+/**
+ * Whether `tag`'s release is published. A draft doesn't count: the release pipeline (ADR 0186)
+ * creates the draft before its hosts build into it.
+ */
+export function releasePublished(tag: string): boolean {
+  const view = capture("gh", [
+    "release",
+    "view",
+    tag,
+    "--repo",
+    releaseRepository,
+    "--json",
+    "isDraft",
+    "--jq",
+    ".isDraft",
+  ]);
+  return view.ok && view.out === "false";
+}
+
 /** The Developer ID the build will sign with: CSC_NAME when set, else the keychain's only one. */
 export type SigningIdentity = { ok: true; name: string } | { ok: false; problem: string };
 

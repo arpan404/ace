@@ -7,6 +7,7 @@ import { betaTitle, parseBetaTag } from "@ace/service/release-line";
 import {
   betaHostProblem,
   planBeta,
+  planBetaTag,
   remoteTagNames,
   stagedBeta,
 } from "../src/packaging/beta-plan.ts";
@@ -16,7 +17,11 @@ import {
   missingUpdatePackages,
   releaseRepository,
 } from "../src/packaging/release-plan.ts";
-import { notaryCredentials } from "../src/packaging/release-signing.ts";
+import {
+  notaryCredentials,
+  windowsSigning,
+  windowsSigningConfigured,
+} from "../src/packaging/release-signing.ts";
 import { appVersion, desktop, dist, repo } from "./common.ts";
 import { checkPackagedLaunch } from "./launch-check.ts";
 import { readStaged, run, say, shippedSpade, stageRelease, verifyMac } from "./release-stage.ts";
@@ -24,30 +29,34 @@ import {
   capture,
   githubReady,
   headCommit,
+  releasePublished,
   signingIdentity,
   untrackedFiles,
   worktreeClean,
 } from "./release-tools.ts";
 
 /**
- * Beta releases of the desktop app (ADR 0177): a signed, notarized macOS arm64 build of a commit
- * on `origin/main`, published as a GitHub prerelease tagged `ace-<X.Y.Z>-beta-<N>` and
- * never marked latest. Installed apps on the Beta line pick it up.
+ * Beta releases of the desktop app (ADR 0177): a build of a commit on `origin/main` for each
+ * release target (signed and notarized on macOS arm64; Linux x64 and arm64 and Windows x64 too,
+ * ADR 0186), published as a GitHub prerelease tagged `ace-<X.Y.Z>-beta-<N>` and never marked
+ * latest. Installed apps on the Beta line pick it up.
  *
- *   bun run release:beta build [--version 0.1.0]
+ *   bun run release:beta build [--version 0.1.0 | --tag ace-0.1.0-beta-2]
  *   bun run release:beta publish [<tag>] [--notes-file notes.md]
  *
  * A beta previews the next version: the patch after `apps/desktop/package.json`, or a later
  * `--version`. `build` works out the tag and the app's version (`X.Y.Z-beta.<N>`), sets that
  * version for this build only (package.json is never edited), packages and verifies the app,
  * and stages the dmg, zip, `latest-mac.yml`, `ace-data.json` and their hashes under
- * `dist/releases/<tag>`. `publish` checks the staged hashes and that the commit is on
+ * `dist/releases/<tag>`. `--tag` builds a beta whose tag already exists, as the release
+ * pipeline does after the owner pushes it (ADR 0186); the tag is checked by the same rules.
+ * `publish` (one Mac's build, by hand) checks the staged hashes and that the commit is on
  * `origin/main`, uploads a draft prerelease, then publishes it, so no app sees a half-uploaded
  * beta. There is no unsigned beta: Squirrel.Mac installs only what the running app's
  * Developer ID signed.
  */
 const usage = `Usage:
-  bun run release:beta build [--version <X.Y.Z>]
+  bun run release:beta build [--version <X.Y.Z> | --tag <ace-X.Y.Z-beta-N>]
   bun run release:beta publish [<tag>] [--notes-file <path>]`;
 
 const [command, ...rest] = process.argv.slice(2);
@@ -58,8 +67,11 @@ const option = (name: string) => {
 const releases = join(repo, "dist/releases");
 
 try {
-  if (command === "build" && (rest.length === 0 || (rest.length === 2 && option("--version"))))
-    await build(option("--version"));
+  if (command === "build" && rest.length === 0) await build({});
+  else if (command === "build" && rest.length === 2 && option("--version"))
+    await build({ version: option("--version") });
+  else if (command === "build" && rest.length === 2 && option("--tag"))
+    await build({ tag: option("--tag") });
   else if (command === "publish") await publish(rest[0]?.startsWith("--") ? undefined : rest[0]);
   else {
     console.error(usage);
@@ -80,7 +92,7 @@ function tagExists(tag: string): boolean {
   return capture("gh", ["release", "view", tag, "--repo", releaseRepository]).ok;
 }
 
-async function build(version: string | undefined): Promise<void> {
+async function build(wanted: { version?: string; tag?: string }): Promise<void> {
   const host = betaHostProblem(process.platform, process.arch);
   if (host) throw new Error(host);
   if (!worktreeClean()) throw new Error("Commit your changes first: a beta is built from main.");
@@ -92,37 +104,42 @@ async function build(version: string | undefined): Promise<void> {
   const commit = headCommit();
   if (!onMain(commit))
     throw new Error(`${commit.slice(0, 12)} is not on origin/main; betas are built from main.`);
-  const identity = signingIdentity(process.env);
-  if (!identity.ok) throw new Error(`${identity.problem}. A beta is always signed.`);
-  const notary = notaryCredentials(process.env);
-  if (notary.kind === "none" || notary.kind === "incomplete")
-    throw new Error("No notarization credentials: run bun run release:doctor for what to set.");
+  const mac = process.platform === "darwin";
+  if (mac) {
+    const identity = signingIdentity(process.env);
+    if (!identity.ok) throw new Error(`${identity.problem}. A macOS beta is always signed.`);
+    const notary = notaryCredentials(process.env);
+    if (notary.kind === "none" || notary.kind === "incomplete")
+      throw new Error("No notarization credentials: run bun run release:doctor for what to set.");
+    say(`signing as ${identity.name}, notarizing with ${notary.kind}`);
+  }
   const tags = capture("git", ["ls-remote", "--tags", "origin"]);
   if (!tags.ok) throw new Error(`Couldn't list GitHub's tags: ${tags.out}`);
-  const plan = planBeta({
-    stable: appVersion(),
-    version,
-    tags: remoteTagNames(tags.out),
-  });
-  if (githubReady() && tagExists(plan.tag))
+  const facts = { stable: appVersion(), tags: remoteTagNames(tags.out) };
+  const plan = wanted.tag
+    ? planBetaTag({ ...facts, tag: wanted.tag })
+    : planBeta({ ...facts, version: wanted.version });
+  // A pushed tag's draft release may exist already: the pipeline builds into it.
+  if (githubReady() && (wanted.tag ? releasePublished(plan.tag) : tagExists(plan.tag)))
     throw new Error(`${plan.tag} already exists on GitHub.`);
   say(`${plan.title} as ${plan.version} from ${commit.slice(0, 12)}`);
-  say(`signing as ${identity.name}, notarizing with ${notary.kind}`);
 
   run(process.execPath, [join(desktop, "scripts/package.ts"), "--full"], {
     ...process.env,
     ACE_VERSION: plan.version,
   });
   const output = join(dist, "release");
-  const app = verifyMac(output, true);
-  say("launching the packaged app with an empty data home");
-  await checkPackagedLaunch(app);
-  say("packaged app started its daemon and checked for updates");
+  if (mac) {
+    const app = verifyMac(output, true);
+    say("launching the packaged app with an empty data home");
+    await checkPackagedLaunch(app);
+    say("packaged app started its daemon and checked for updates");
+  }
 
   const files = desktopAssets(await readdir(output), plan.version);
   const missing = missingUpdatePackages(files);
-  if (!files.includes("latest-mac.yml")) missing.push("latest-mac.yml");
-  if (!files.some((name) => name.endsWith(".dmg"))) missing.push("dmg");
+  if (mac && !files.includes("latest-mac.yml")) missing.push("latest-mac.yml");
+  if (mac && !files.some((name) => name.endsWith(".dmg"))) missing.push("dmg");
   if (missing.length) throw new Error(`The build made no ${missing.join(", ")}`);
   await stageRelease({
     target: join(releases, plan.tag),
@@ -133,8 +150,10 @@ async function build(version: string | undefined): Promise<void> {
       tag: plan.tag,
       commit,
       dirty: false,
-      signed: true,
-      notarized: true,
+      signed:
+        mac ||
+        (process.platform === "win32" && windowsSigningConfigured(windowsSigning(process.env))),
+      notarized: mac,
     },
   });
   say(`next: bun run release:beta publish ${plan.tag}`);

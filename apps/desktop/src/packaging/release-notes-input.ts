@@ -155,6 +155,36 @@ export function notesAgentCommand(config: NotesConfig): { command: string; args:
   };
 }
 
+const agentVariables = [
+  "HOME",
+  "PATH",
+  "USER",
+  "LOGNAME",
+  "LANG",
+  "LC_ALL",
+  "TMPDIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "XDG_RUNTIME_DIR",
+];
+
+/**
+ * The environment the agent runs with: only what the CLI needs to find its own login. The job's
+ * GitHub token and the runner's own variables never reach it.
+ */
+export function agentEnvironment(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const name of agentVariables) {
+    const value = env[name];
+    if (value !== undefined) kept[name] = value;
+  }
+  return kept;
+}
+
 /** The notes from the agent's reply: without a code fence it may have wrapped them in. */
 export function notesFromReply(reply: string): string {
   const fenced = /^\s*```(?:markdown|md)?\n([\s\S]*?)\n```\s*$/.exec(reply);

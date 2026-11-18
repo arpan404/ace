@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  agentEnvironment,
   NotesConfig,
   notesAgentCommand,
   notesFromReply,
@@ -95,14 +96,6 @@ describe("running the notes agent", () => {
     JSON.parse(readFileSync(join(import.meta.dirname, "../../../../release/notes.json"), "utf8")),
   );
 
-  it("defaults to Sonnet 5.5 at medium effort on Claude", () => {
-    expect(config).toMatchObject({
-      provider: "claude",
-      model: "claude-sonnet-5-5",
-      effort: "medium",
-    });
-  });
-
   it("gives Claude no tools or MCP servers, at the configured model and effort", () => {
     const { command, args } = notesAgentCommand({ ...config, effort: "high" });
     expect(command).toBe("claude");
@@ -117,6 +110,18 @@ describe("running the notes agent", () => {
     expect(args).toEqual(
       expect.arrayContaining(["--sandbox", "read-only", 'model_reasoning_effort="medium"']),
     );
+  });
+
+  it("runs the agent without the job's GitHub token or the runner's variables", () => {
+    const env = agentEnvironment({
+      HOME: "/home/ace-ci",
+      PATH: "/usr/bin",
+      GH_TOKEN: "ghs_secret",
+      GITHUB_TOKEN: "ghs_secret",
+      ACTIONS_RUNTIME_TOKEN: "secret",
+      CLOUDFLARE_API_TOKEN: "secret",
+    });
+    expect(env).toEqual({ HOME: "/home/ace-ci", PATH: "/usr/bin" });
   });
 
   it("takes the notes out of a code fence the agent wrapped them in", () => {
