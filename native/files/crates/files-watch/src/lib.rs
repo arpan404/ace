@@ -10,14 +10,12 @@
 //! ```no_run
 //! use files_safe::Root;
 //! use files_watch::{Batch, WatchOptions, Watcher};
-//! use std::time::Duration;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let root = Root::open(std::path::Path::new("."))?;
 //! let options = WatchOptions {
-//!     debounce: Duration::from_millis(75),
 //!     exclude: vec!["**/node_modules/*/**".to_owned()],
-//!     max_batch: 5_000,
+//!     ..WatchOptions::default()
 //! };
 //! let watcher = Watcher::start(root, options, Box::new(|batch: Batch| drop(batch)))?;
 //! # drop(watcher);
@@ -25,6 +23,7 @@
 //! # }
 //! ```
 
+mod adopt;
 mod backend;
 mod batch;
 mod coalesce;

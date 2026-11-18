@@ -1,42 +1,63 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Turns one backend event into changes inside the root.
+//! Turns one backend event into notices about paths inside the root.
 
 use std::path::Path;
 
 use files_safe::Root;
 use notify::Event;
-use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind, RenameMode};
+use notify::event::{EventKind, ModifyKind, RemoveKind, RenameMode};
 
 use crate::batch::{Change, ChangeKind};
 use crate::exclude::Excluder;
 
+/// One event about one path, with what the backend and the filesystem said about it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Notice {
+    pub(crate) change: Change,
+    /// The backend described this as a rename.
+    pub(crate) rename: bool,
+    /// Whether the path existed when the event was translated, and if so whether it is a
+    /// directory. A symbolic link is not a directory.
+    pub(crate) present: Option<bool>,
+}
+
 /// What one backend event means for the tree.
 #[derive(Debug, Default)]
 pub(crate) struct Translation {
-    /// Changes for paths inside the root and outside the excludes.
-    pub(crate) changes: Vec<Change>,
-    /// The backend dropped events: the tree must be listed again.
-    pub(crate) rescan: bool,
+    pub(crate) notices: Vec<Notice>,
+    /// `Some` when the backend lost events: the innermost `Some` is the folder it named,
+    /// `None` when it named none (inotify's queue overflow, or FSEvents without a path).
+    pub(crate) rescan: Option<Option<String>>,
 }
 
-/// Answers whether an absolute path exists, and whether it is a directory.
-pub(crate) fn look(path: &Path) -> Option<bool> {
-    std::fs::metadata(path).ok().map(|meta| meta.is_dir())
+/// Whether `path` exists, and whether it is a directory; a symbolic link is never one.
+///
+/// The leaf is opened through the root's handle without following it, so a link is reported
+/// as the link itself and never as the tree it points at.
+pub(crate) fn look(root: &Root, path: &str) -> Option<bool> {
+    let (folder, name) = root.open_parent(path).ok()?;
+    let metadata = folder.symlink_metadata(&name).ok()?;
+    Some(metadata.is_dir())
 }
 
-/// Translates one backend event, asking `look` about paths whose kind is ambiguous.
+/// Translates one backend event, asking `look` what is on disk.
 pub(crate) fn translate(
     event: Event,
     root: &Root,
     excluder: &Excluder,
-    look: &dyn Fn(&Path) -> Option<bool>,
+    look: &dyn Fn(&str) -> Option<bool>,
 ) -> Translation {
     let mut translation = Translation {
-        changes: Vec::new(),
-        rescan: event.need_rescan(),
+        notices: Vec::new(),
+        rescan: None,
     };
-    if translation.rescan {
+    if event.need_rescan() {
+        let folder = event
+            .paths
+            .first()
+            .and_then(|path| inside(root, excluder, path));
+        translation.rescan = Some(folder);
         return translation;
     }
     if let EventKind::Modify(ModifyKind::Name(RenameMode::Both)) = event.kind
@@ -46,87 +67,100 @@ pub(crate) fn translate(
             &mut translation,
             root,
             excluder,
+            look,
             from,
             ChangeKind::Deleted,
-            false,
+            true,
         );
         push(
             &mut translation,
             root,
             excluder,
+            look,
             to,
             ChangeKind::Created,
-            is_dir(look, to),
+            true,
         );
         return translation;
     }
-    for path in &event.paths {
-        if let Some((kind, directory)) = classify(&event.kind, path, look) {
-            push(&mut translation, root, excluder, path, kind, directory);
+    for absolute in &event.paths {
+        let Some(path) = inside(root, excluder, absolute) else {
+            continue;
+        };
+        let present = look(&path);
+        if let Some((kind, rename)) = classify(&event.kind, present) {
+            let directory = match kind {
+                ChangeKind::Deleted => matches!(event.kind, EventKind::Remove(RemoveKind::Folder)),
+                _ => present.unwrap_or(false),
+            };
+            translation.notices.push(Notice {
+                change: Change {
+                    path,
+                    kind,
+                    directory,
+                },
+                rename,
+                present,
+            });
         }
     }
     translation
 }
 
-fn classify(
-    kind: &EventKind,
-    path: &Path,
-    look: &dyn Fn(&Path) -> Option<bool>,
-) -> Option<(ChangeKind, bool)> {
+fn classify(kind: &EventKind, present: Option<bool>) -> Option<(ChangeKind, bool)> {
     let change = match kind {
-        EventKind::Create(create) => (
-            ChangeKind::Created,
-            match create {
-                CreateKind::File => false,
-                CreateKind::Folder => true,
-                _ => is_dir(look, path),
-            },
-        ),
-        EventKind::Remove(remove) => (
-            ChangeKind::Deleted,
-            match remove {
-                RemoveKind::File => false,
-                RemoveKind::Folder => true,
-                _ => is_dir(look, path),
-            },
-        ),
-        EventKind::Modify(ModifyKind::Name(mode)) => match mode {
-            RenameMode::Any => match look(path) {
-                Some(directory) => (ChangeKind::Created, directory),
-                None => (ChangeKind::Deleted, false),
-            },
-            RenameMode::From => (ChangeKind::Deleted, false),
-            RenameMode::To => (ChangeKind::Created, is_dir(look, path)),
-            _ => (ChangeKind::Modified, is_dir(look, path)),
-        },
-        EventKind::Modify(_) | EventKind::Any => (ChangeKind::Modified, is_dir(look, path)),
+        EventKind::Create(_) => (ChangeKind::Created, false),
+        EventKind::Remove(_) => (ChangeKind::Deleted, false),
+        EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
+            if present.is_some() {
+                (ChangeKind::Created, true)
+            } else {
+                (ChangeKind::Deleted, true)
+            }
+        }
+        EventKind::Modify(ModifyKind::Name(RenameMode::From)) => (ChangeKind::Deleted, true),
+        EventKind::Modify(ModifyKind::Name(RenameMode::To)) => (ChangeKind::Created, true),
+        EventKind::Modify(ModifyKind::Name(_)) => (ChangeKind::Modified, true),
+        EventKind::Modify(_) | EventKind::Any => (ChangeKind::Modified, false),
         EventKind::Access(_) | EventKind::Other => return None,
     };
     Some(change)
 }
 
-fn is_dir(look: &dyn Fn(&Path) -> Option<bool>, path: &Path) -> bool {
-    matches!(look(path), Some(true))
+/// The relative form of `absolute` if it is inside the root and not excluded.
+fn inside(root: &Root, excluder: &Excluder, absolute: &Path) -> Option<String> {
+    let path = root.relative(absolute)?;
+    if path.is_empty() || excluder.is_excluded(&path) {
+        return None;
+    }
+    Some(path)
 }
 
 fn push(
     translation: &mut Translation,
     root: &Root,
     excluder: &Excluder,
+    look: &dyn Fn(&str) -> Option<bool>,
     absolute: &Path,
     kind: ChangeKind,
-    directory: bool,
+    rename: bool,
 ) {
-    let Some(path) = root.relative(absolute) else {
+    let Some(path) = inside(root, excluder, absolute) else {
         return;
     };
-    if path.is_empty() || excluder.is_excluded(&path) {
-        return;
-    }
-    translation.changes.push(Change {
-        path,
-        kind,
-        directory,
+    let present = look(&path);
+    let directory = match kind {
+        ChangeKind::Deleted => false,
+        _ => present.unwrap_or(false),
+    };
+    translation.notices.push(Notice {
+        change: Change {
+            path,
+            kind,
+            directory,
+        },
+        rename,
+        present,
     });
 }
 
@@ -137,9 +171,9 @@ mod tests {
     use crate::exclude::Excluder;
     use files_safe::Root;
     use notify::Event;
-    use notify::event::{CreateKind, EventKind, ModifyKind, RemoveKind, RenameMode};
+    use notify::event::{AccessKind, EventKind, ModifyKind, RemoveKind, RenameMode};
     use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     struct Fixture {
         _dir: tempfile::TempDir,
@@ -157,18 +191,29 @@ mod tests {
             self.root.path().join(rel)
         }
 
-        fn translate(&self, event: Event, exclude: &[&str], look: &[(&str, bool)]) -> Vec<Change> {
+        fn translate(
+            &self,
+            event: Event,
+            exclude: &[&str],
+            present: &[(&str, bool)],
+        ) -> (Vec<Change>, bool) {
             let patterns: Vec<String> = exclude
                 .iter()
                 .map(|pattern| (*pattern).to_owned())
                 .collect();
             let excluder = Excluder::new(&patterns).unwrap();
-            let table: HashMap<PathBuf, bool> = look
+            let table: HashMap<String, bool> = present
                 .iter()
-                .map(|(rel, is_dir)| (self.path(rel), *is_dir))
+                .map(|(rel, is_dir)| ((*rel).to_owned(), *is_dir))
                 .collect();
-            let look = move |path: &Path| table.get(path).copied();
-            translate(event, &self.root, &excluder, &look).changes
+            let look = move |path: &str| table.get(path).copied();
+            let translation = translate(event, &self.root, &excluder, &look);
+            let changes = translation
+                .notices
+                .into_iter()
+                .map(|notice| notice.change)
+                .collect();
+            (changes, translation.rescan.is_some())
         }
     }
 
@@ -179,13 +224,13 @@ mod tests {
     #[test]
     fn a_created_file_is_a_creation() {
         let fixture = Fixture::new();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(
-                EventKind::Create(CreateKind::File),
+                EventKind::Create(notify::event::CreateKind::File),
                 fixture.path("src/new.rs"),
             ),
             &[],
-            &[],
+            &[("src/new.rs", false)],
         );
         assert_eq!(
             changes,
@@ -200,7 +245,7 @@ mod tests {
     #[test]
     fn a_removed_folder_is_a_deletion_of_a_directory() {
         let fixture = Fixture::new();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(EventKind::Remove(RemoveKind::Folder), fixture.path("old")),
             &[],
             &[],
@@ -211,9 +256,24 @@ mod tests {
     }
 
     #[test]
+    fn a_symbolic_link_is_never_a_directory() {
+        let fixture = Fixture::new();
+        let (changes, _) = fixture.translate(
+            event(
+                EventKind::Create(notify::event::CreateKind::Any),
+                fixture.path("link"),
+            ),
+            &[],
+            &[],
+        );
+        assert_eq!(changes.len(), 1);
+        assert!(!changes[0].directory, "a link is not the tree it points at");
+    }
+
+    #[test]
     fn rename_any_is_a_creation_when_the_path_exists() {
         let fixture = Fixture::new();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(
                 EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
                 fixture.path("new.txt"),
@@ -228,7 +288,7 @@ mod tests {
     #[test]
     fn rename_any_is_a_deletion_when_the_path_is_gone() {
         let fixture = Fixture::new();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(
                 EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
                 fixture.path("old.txt"),
@@ -246,7 +306,7 @@ mod tests {
         let event = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
             .add_path(fixture.path("old.txt"))
             .add_path(fixture.path("new.txt"));
-        let changes = fixture.translate(event, &[], &[("new.txt", false)]);
+        let (changes, _) = fixture.translate(event, &[], &[("new.txt", false)]);
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[0].path, "old.txt");
         assert_eq!(changes[0].kind, ChangeKind::Deleted);
@@ -257,9 +317,9 @@ mod tests {
     #[test]
     fn paths_outside_the_root_are_dropped() {
         let fixture = Fixture::new();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(
-                EventKind::Create(CreateKind::File),
+                EventKind::Create(notify::event::CreateKind::File),
                 PathBuf::from("/elsewhere/target.txt"),
             ),
             &[],
@@ -272,7 +332,7 @@ mod tests {
     fn events_about_the_root_itself_are_dropped() {
         let fixture = Fixture::new();
         let path = fixture.root.path().to_path_buf();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(
                 EventKind::Modify(ModifyKind::Metadata(notify::event::MetadataKind::Any)),
                 path,
@@ -286,9 +346,9 @@ mod tests {
     #[test]
     fn excluded_paths_are_dropped() {
         let fixture = Fixture::new();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(
-                EventKind::Create(CreateKind::File),
+                EventKind::Create(notify::event::CreateKind::File),
                 fixture.path("node_modules/react/index.js"),
             ),
             &["**/node_modules/*/**"],
@@ -298,23 +358,42 @@ mod tests {
     }
 
     #[test]
-    fn a_rescan_flag_is_an_overflow_signal() {
+    fn a_rescan_flag_names_its_folder() {
         let fixture = Fixture::new();
-        let mut event = Event::new(EventKind::Other);
+        let mut event = Event::new(EventKind::Other).add_path(fixture.path("src/generated"));
         event = event.set_flag(notify::event::Flag::Rescan);
-        let patterns: Vec<String> = Vec::new();
-        let excluder = Excluder::new(&patterns).unwrap();
-        let translation = translate(event, &fixture.root, &excluder, &|_| None);
-        assert!(translation.rescan);
-        assert!(translation.changes.is_empty());
+        let (changes, rescan) = fixture.translate(event, &[], &[("src/generated", true)]);
+        assert!(changes.is_empty());
+        assert!(rescan);
+    }
+
+    #[test]
+    fn an_excluded_folder_is_never_the_folder_a_rescan_names() {
+        let fixture = Fixture::new();
+        let outside = Excluder::new(&["**/node_modules/*/**".to_owned()]).unwrap();
+        let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
+        event = event.set_flag(notify::event::Flag::Rescan);
+        assert_eq!(
+            translate(event, &fixture.root, &outside, &|_| None).rescan,
+            Some(Some("node_modules/pkg".to_owned())),
+            "a package folder is listed, so it can be rescanned"
+        );
+        let inside = Excluder::new(&["**/node_modules".to_owned()]).unwrap();
+        let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
+        event = event.set_flag(notify::event::Flag::Rescan);
+        assert_eq!(
+            translate(event, &fixture.root, &inside, &|_| None).rescan,
+            Some(None),
+            "an excluded folder's overflow names the root instead"
+        );
     }
 
     #[test]
     fn access_events_are_ignored() {
         let fixture = Fixture::new();
-        let changes = fixture.translate(
+        let (changes, _) = fixture.translate(
             event(
-                EventKind::Access(notify::event::AccessKind::Read),
+                EventKind::Access(AccessKind::Read),
                 fixture.path("README.md"),
             ),
             &[],

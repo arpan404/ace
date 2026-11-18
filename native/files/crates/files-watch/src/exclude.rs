@@ -8,8 +8,10 @@ use crate::error::Error;
 
 /// Compiled exclude patterns.
 ///
-/// A pattern that ends in `/**` also excludes the folder itself, so a newly created
-/// `node_modules` is never watched either.
+/// A pattern that ends in `/**` also excludes the folder itself when that folder is named by
+/// a literal last segment: `**/.git/objects/**` excludes `.git/objects`, while
+/// `**/node_modules/*/**` leaves `node_modules/lodash` itself visible (its children are still
+/// excluded), because the pattern's own folder is a wildcard.
 #[derive(Clone, Debug)]
 pub(crate) struct Excluder {
     set: GlobSet,
@@ -21,7 +23,7 @@ impl Excluder {
         let mut builder = GlobSetBuilder::new();
         for pattern in patterns {
             builder.add(build(pattern)?);
-            if let Some(folder) = pattern.strip_suffix("/**") {
+            if let Some(folder) = folder_pattern(pattern) {
                 builder.add(build(folder)?);
             }
         }
@@ -47,6 +49,13 @@ impl Excluder {
             }
         }
     }
+}
+
+/// The folder a `/**` pattern names, when its last segment is literal.
+fn folder_pattern(pattern: &str) -> Option<&str> {
+    let rest = pattern.strip_suffix("/**")?;
+    let last = rest.rsplit('/').next()?;
+    (!last.contains(['*', '?', '[', ']'])).then_some(rest)
 }
 
 fn build(pattern: &str) -> Result<Glob, Error> {
@@ -83,6 +92,10 @@ mod tests {
         let excluder = excluder(&["**/node_modules/*/**"]);
         assert!(excluder.is_excluded("node_modules/react/index.js"));
         assert!(!excluder.is_excluded("node_modules"));
+        assert!(
+            !excluder.is_excluded("node_modules/lodash"),
+            "a wildcard folder in the pattern is not stripped, so the package itself is listed"
+        );
     }
 
     #[test]
