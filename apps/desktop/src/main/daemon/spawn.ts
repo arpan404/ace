@@ -47,6 +47,11 @@ export interface SpawnOptions {
   resources: DaemonResources;
   /** The login-shell PATH, so provider CLIs and git resolve as in a terminal. */
   path: string;
+  /**
+   * Set when `path` is last session's saved PATH: the login shell's, which the daemon gets on
+   * its stdin and waits for before it reads provider CLIs (`spawn-path.ts`).
+   */
+  loginPath?: Promise<string> | undefined;
   version: string;
   env: NodeJS.ProcessEnv;
   /** One line of the daemon's output, without its newline. */
@@ -65,22 +70,29 @@ function daemonVersion(appVersion: string): string {
   return DaemonHealth.shape.version.safeParse(appVersion).success ? appVersion : "development";
 }
 
+/** Tells the daemon its login-shell PATH follows on stdin (the daemon's `login-path-handoff.ts`). */
+const loginPathPending = "ACE_LOGIN_PATH_PENDING";
+
+/** The daemon's PATH: the bundled tools' folder first, then `path`. */
+export function daemonPath(resources: DaemonResources, path: string): string {
+  return resources.binDirectory ? [resources.binDirectory, path].join(delimiter) : path;
+}
+
 /** Environment for the daemon child, run by `program`. */
 export function daemonEnvironment(
   options: Omit<SpawnOptions, "onOutput">,
   program: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const { resources } = options;
-  const path = resources.binDirectory
-    ? [resources.binDirectory, options.path].join(delimiter)
-    : options.path;
   const env: NodeJS.ProcessEnv = {
     ...options.env,
     ...program,
     ACE_HOME: options.home,
     ACE_VERSION: daemonVersion(options.version),
-    PATH: path,
+    PATH: daemonPath(resources, options.path),
   };
+  if (options.loginPath) env[loginPathPending] = "1";
+  else delete env[loginPathPending];
   // Electron-only switches must not leak into the Node child.
   if (!program.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_ENABLE_LOGGING;
@@ -111,9 +123,18 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   const child = spawn(launch.command, launch.args, {
     cwd: dirname(options.resources.entry),
     env: daemonEnvironment(options, program.env),
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
+  // A daemon that exited first closed its end; nothing is left to tell it.
+  child.stdin.on("error", () => {});
+  // Ending without a line lets the daemon go on with the PATH it started on.
+  if (!options.loginPath) child.stdin.end();
+  else
+    void options.loginPath.then(
+      (path) => child.stdin.end(`${daemonPath(options.resources, path)}\n`),
+      () => child.stdin.end(),
+    );
   for (const [name, stream] of [
     ["stdout", child.stdout],
     ["stderr", child.stderr],

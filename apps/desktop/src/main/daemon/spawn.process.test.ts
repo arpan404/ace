@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { daemonLaunchPolicy, systemLaunchPort } from "./launch-priority.ts";
 import { spawnDaemon } from "./spawn.ts";
@@ -97,3 +97,37 @@ it.runIf(process.platform === "darwin")(
     expect(await exit).toEqual([null, "SIGTERM"]);
   },
 );
+
+it("a daemon spawned on a saved PATH gets the login shell's PATH on stdin, bundled tools first", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-spawn-"));
+  roots.push(root);
+  const entry = join(root, "ace.mjs");
+  // The daemon stand-in reports the PATH it started on, then the line the app sends it.
+  await writeFile(
+    entry,
+    [
+      'console.log("started " + process.env.ACE_LOGIN_PATH_PENDING + " " + process.env.PATH);',
+      'let text = "";',
+      'process.stdin.setEncoding("utf8").on("data", (chunk) => (text += chunk));',
+      'process.stdin.on("end", () => console.log("login " + text.trim()));',
+    ].join("\n"),
+  );
+  const login = Promise.withResolvers<string>();
+  const output: string[] = [];
+  const child = spawnDaemon({
+    home: root,
+    resources: { entry, node: process.execPath, packaged: false, binDirectory: "/bundled" },
+    path: "/saved/bin",
+    loginPath: login.promise,
+    version: "0.0.0",
+    env: {},
+    onOutput: (line) => output.push(line),
+  });
+  const exit = new Promise<unknown[]>((resolve) => child.onExit((...args) => resolve(args)));
+  await vi.waitFor(() => expect(output).toContain(`started 1 /bundled${delimiter}/saved/bin`));
+  login.resolve(`/login/bin${delimiter}/saved/bin`);
+  expect(await exit).toEqual([0, null]);
+  await vi.waitFor(() =>
+    expect(output).toContain(`login /bundled${delimiter}/login/bin${delimiter}/saved/bin`),
+  );
+});

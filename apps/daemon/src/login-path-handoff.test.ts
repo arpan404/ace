@@ -41,10 +41,13 @@ test("an app that quits before its shell answers leaves the starting PATH", asyn
 
 test("a shell that never answers stops holding providers back at the timeout", async () => {
   const env: NodeJS.ProcessEnv = { PATH: "/saved/bin", ACE_LOGIN_PATH_PENDING: "1" };
-  let expire = () => {};
-  const timeout = new Promise<void>((settle) => (expire = settle));
-  const changed = receiveLoginPath({ env, read: () => new Promise(() => {}), timeout });
-  expire();
+  const timeout = Promise.withResolvers<void>();
+  const changed = receiveLoginPath({
+    env,
+    read: () => new Promise(() => {}),
+    timeout: timeout.promise,
+  });
+  timeout.resolve();
   expect(await changed).toBe(false);
   expect(env.PATH).toBe("/saved/bin");
 });
