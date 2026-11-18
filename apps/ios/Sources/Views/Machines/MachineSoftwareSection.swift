@@ -30,7 +30,8 @@ struct MachineSoftwareData: Decodable, Equatable {
 }
 
 /// A machine page's Software, as web's: the version line, progress while an update runs, then
-/// Update when idle, Update now (asked first, naming the agents it stops), Cancel or Check.
+/// Update when idle beside Update now (asked first, naming the agents it stops), Cancel or Check,
+/// as one row of buttons.
 struct MachineSoftwareSection: View {
     let model: ClientModel
     let name: String
@@ -78,14 +79,7 @@ struct MachineSoftwareSection: View {
                 .smoothChange(data)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("machine.software")
-                ForEach(data.actions) { entry in
-                    Button(entry.label) {
-                        if entry.action == "now" { confirming = true } else { act(entry.action) }
-                    }
-                    .buttonStyle(.textAction(entry.id == data.actions.first?.id ? .prominent : .plain))
-                        .frame(minHeight: AceDesign.Size.tap)
-                        .accessibilityIdentifier("machine.software.\(entry.action)")
-                }
+                if !data.actions.isEmpty { actions(data.actions) }
                 if let link = data.link, let url = URL(string: link.url), url.scheme == "https" {
                     Link(link.words, destination: url)
                 }
@@ -93,7 +87,10 @@ struct MachineSoftwareSection: View {
                 Text(model.connection == "ready" ? "Reading its version…" : "Its version shows when it's back online.")
                     .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             }
-            ServiceProblem(message: software.problem ?? data?.problem)
+            if let problem = software.problem ?? data?.problem {
+                Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
+                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("service.problem")
+            }
         } header: { InsetHeader("Software") }
         .insetRowBackground()
         .disabled(acting)
@@ -104,6 +101,29 @@ struct MachineSoftwareSection: View {
         } message: { confirm in Text(confirm.body) }
         // Read when connected, and while an update runs follow it to its result (`MachineSoftwareFollow`).
         .readWhenConnected(model, id: "\(name)/\(round)") { await software.follow() }
+    }
+
+    /// The offered actions as one row of buttons, side by side: the first (Update when idle, or
+    /// Check) is the way forward, the rest sit beside it. They stack when they don't fit.
+    private func actions(_ entries: [MachineSoftwareData.Action]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: AceDesign.Space.related) { actionButtons(entries) }
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) { actionButtons(entries) }
+        }
+        .padding(.vertical, AceDesign.Space.tight)
+    }
+
+    @ViewBuilder private func actionButtons(_ entries: [MachineSoftwareData.Action]) -> some View {
+        ForEach(entries) { entry in
+            let button = Button(entry.label) {
+                if entry.action == "now" { confirming = true } else { act(entry.action) }
+            }
+            Group {
+                if entry.id == entries.first?.id { button.buttonStyle(.primaryAction) } else { button.buttonStyle(.secondaryAction) }
+            }
+            .fixedSize()
+            .accessibilityIdentifier("machine.software.\(entry.action)")
+        }
     }
 
     private func act(_ action: String, agents: Int? = nil) {

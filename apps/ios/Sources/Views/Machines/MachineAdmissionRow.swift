@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// "Pause new work" on a machine's page, the desktop tray's control: one tap pauses or resumes.
+/// "Pause new work" on a machine's page, the desktop tray's control: a row action in the
+/// Connection group, where one tap pauses or resumes.
 /// Paused, running work finishes and new threads and messages wait; the quiet line says so.
 /// Words come from `bridge/machine-admission.ts`.
 struct MachineAdmissionRow: View {
@@ -15,15 +16,11 @@ struct MachineAdmissionRow: View {
                 if model.canOperate {
                     Button { set(!admission.paused) } label: {
                         HStack {
-                            Text(admission.action).font(AceDesign.Typeface.body)
-                                .foregroundStyle(admission.canChange ? AceDesign.Ink.primary : AceDesign.Ink.muted)
-                            Spacer(minLength: AceDesign.Space.related)
+                            Text(admission.action)
                             if working { WorkingMark().transition(.opacity) }
                         }
-                        .frame(minHeight: AceDesign.Size.tap)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.rowAction)
                     .disabled(working || !admission.canChange || model.connection != "ready")
                     .accessibilityIdentifier("machine.admission")
                 }
@@ -38,7 +35,10 @@ struct MachineAdmissionRow: View {
                         .foregroundStyle(AceDesign.Ink.muted)
                         .accessibilityIdentifier("machine.startup")
                 }
-                ServiceProblem(message: problem)
+                if let problem {
+                    Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .smoothChange(admission)
             .smoothChange(working)
