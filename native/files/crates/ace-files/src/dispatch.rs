@@ -2,9 +2,11 @@
 
 //! The message loop: the handshake, the fan-out to one task per request, cancel, and body frames.
 //!
-//! The loop itself never blocks. Reading requests is the reader thread's job, writing answers is
-//! the writer thread's job, and every op leaves for a task that does its filesystem work on a
-//! blocking thread. That is what keeps one huge folder from stalling every other request.
+//! The loop itself does no filesystem work: reading requests is the reader thread's job, writing
+//! answers is the writer thread's job, and every op leaves for a task that does its work on a
+//! blocking thread. That is what keeps one huge folder from stalling every other request. When the
+//! daemon stops reading stdout the loop waits with everything else, which is the point: a slow
+//! daemon must slow this process down rather than let its memory grow.
 
 use std::path::Path;
 use std::sync::Arc;

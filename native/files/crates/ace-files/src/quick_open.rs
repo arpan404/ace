@@ -58,6 +58,10 @@ pub(crate) struct IndexBook {
     failure: Option<String>,
 }
 
+/// Changes that arrive while a walk is running wait for it, up to this many. Past it the batch is
+/// folded into "walk the tree again", which costs one more walk instead of unbounded memory.
+const PENDING_LIMIT: usize = 50_000;
+
 impl RootEntry {
     /// Build the quick-open index in the background, right after the root opens.
     ///
@@ -109,11 +113,22 @@ impl RootEntry {
             let changes = {
                 let mut book = guard::lock(&self.book)?;
                 if book.pending.is_empty() {
+                    let swapped = match guard::write(&self.index) {
+                        Ok(mut slot) => {
+                            *slot = Some(Arc::new(index));
+                            true
+                        }
+                        Err(_) => false,
+                    };
                     book.building = false;
                     book.failure = None;
                     let again = std::mem::take(&mut book.again);
-                    *guard::write(&self.index)? = Some(Arc::new(index));
                     drop(book);
+                    if !swapped {
+                        return Err(Error::System(std::io::Error::other(
+                            "the index lock was poisoned",
+                        )));
+                    }
                     note_publish();
                     rebuild_on_purpose(self);
                     if again {
@@ -206,6 +221,11 @@ impl RootEntry {
             Err(_) => return,
         };
         if book.building {
+            if book.pending.len() + changes.len() > PENDING_LIMIT {
+                book.pending.clear();
+                book.again = true;
+                return;
+            }
             book.pending.extend_from_slice(changes);
             return;
         }

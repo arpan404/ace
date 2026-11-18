@@ -32,10 +32,6 @@ enum Item {
 
 /// The handle every task writes through. Frames reach stdout in the order they were sent, which is
 /// what makes a `read` response and its body arrive in order.
-///
-/// The queue is bounded, so a daemon that stops reading slows the work that produces frames
-/// instead of letting the process grow: async tasks wait in [`Out::send`], and the sinks that run
-/// on their own threads (the watcher's and a search's) block in [`Out::send_blocking`].
 #[derive(Clone)]
 pub struct Out {
     sender: Sender<Item>,
