@@ -72,6 +72,20 @@ export const spadeCommands: readonly CommandSpec[] = [
     output: "spade.bot.show",
   },
   {
+    id: "spade.move",
+    words: ["spade", "move"],
+    summary: "Move a bot to another of your machines, with everything it knows",
+    description:
+      "The bot keeps its id, history, notes, files and routines (they arrive paused). Endpoint keys stay on each machine: add them there. Spade's main bot can move too; the machine it moves to becomes where Spade lives.",
+    group: "spade-market",
+    mutates: true,
+    args: [botArg],
+    flags: [{ name: "to", value: "MACHINE", summary: "The machine: its name or host id" }],
+    output: "spade.move",
+    exits: [{ code: 3, when: "the move hadn't ended within --timeout (it carries on)" }],
+    examples: [{ command: "ace spade move research --to studio", summary: "Move Research" }],
+  },
+  {
     id: "spade.chat",
     words: ["spade", "chat"],
     summary: "Talk with a bot (Spade's main bot by default)",

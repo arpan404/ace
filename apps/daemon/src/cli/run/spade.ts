@@ -119,7 +119,39 @@ async function bots(context: CommandContext, one: boolean): Promise<void> {
   });
 }
 
+async function move(context: CommandContext): Promise<void> {
+  const { listBots, findBot } = await import("../spade-bots.ts");
+  const { findMachine, moveBot } = await import("../spade-move.ts");
+  const { option, timeoutMs } = await import("../args.ts");
+  const { usageFailure } = await import("../output.ts");
+  const { emit } = await import("../io.ts");
+  const to = option(context.args, "to");
+  if (!to) throw usageFailure("Say where with --to MACHINE.", { argument: "--to" });
+  const limit = option(context.args, "timeout") === undefined ? 1_800_000 : timeoutMs(context.args);
+  await withSession(context, context.args, async ({ client, signal }) => {
+    const call = await spadeCaller(client, signal);
+    const bot = findBot(await listBots(call), context.args.words[0]);
+    const listed = await client.request(
+      { type: "spade.machines", requestId: crypto.randomUUID() },
+      { signal },
+    );
+    const { SpadeMachinesResult } = await import("@ace/protocol");
+    const machine = findMachine(SpadeMachinesResult.parse(listed).machines, to);
+    const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+    const moved = await moveBot(call, bot, machine, limit, wait);
+    await emit(context.args, moved, {
+      human: (value) => [
+        value.state === "done"
+          ? `${value.bot.name} moved to ${value.to.name}. Its routines are paused there until you resume them.`
+          : `${value.bot.name} stays here.`,
+      ],
+      quiet: (value) => [value.bot.id],
+    });
+  });
+}
+
 export const spadeHandlers: Handlers = {
+  "spade.move": move,
   "spade.status": status,
   "spade.on": (context) => switchSpade(context, true),
   "spade.off": (context) => switchSpade(context, false),
