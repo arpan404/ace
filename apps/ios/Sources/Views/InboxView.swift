@@ -79,10 +79,7 @@ struct InboxView: View {
             // machines are read or while the app is locked waits until it can open.
             .onOpenURL { url in links.add(url) }
             .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)) {
-                // Taking them changes this task's id, which cancels it: they open in their own task.
-                let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)
-                guard !urls.isEmpty else { return }
-                Task { for url in urls { await openLink(url) } }
+                openReadyLinks()
             }
             .environment(\.threadOrganizer, organizer)
             .environment(\.threadKeysBox, threadKeysBox)
@@ -92,24 +89,33 @@ struct InboxView: View {
                 if let key = InboxRoute.threads(chatsPath).first, deleted.contains(key) { chatsPath = [] }
             }
             .aceNotifications(inbox: inbox) { key in openThread(key) }
-            .task(id: scenePhase) {
-                // Foreground reconciliation: renew every live activity's `staleDate` while
-                // the inbox is mounted, including its thread destinations. Cancelled on
-                // background or unmount; rows stay truthful and nothing ends here — `update`
-                // only finishes a canonical done row while online.
-                guard scenePhase == .active else { return }
-                while !Task.isCancelled {
-                    for session in inbox.sessions {
-                        session.client.liveActivity.update(row: { session.client.inbox[$0] }, hostId: session.hostId, online: session.client.connection == "ready")
-                    }
-                    try? await Task.sleep(for: .seconds(30))
-                }
-            }
+            .task(id: scenePhase) { await renewLiveActivities() }
             .alert("Request needs attention", isPresented: Binding(get: { failing != nil }, set: { if !$0 { failing?.client.error = nil } })) {
                 Button("Dismiss") { failing?.client.error = nil }
             } message: {
                 if let failing { Text(inbox.showsMachineNames ? "\(inbox.name(failing.hostId)): \(failing.client.error ?? "")" : failing.client.error ?? "") }
             }
+    }
+
+    /// Taking the links changes the link task's id, which cancels it: they open in their own task.
+    private func openReadyLinks() {
+        let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)
+        guard !urls.isEmpty else { return }
+        Task { for url in urls { await openLink(url) } }
+    }
+
+    /// Foreground reconciliation: renew every live activity's `staleDate` while the inbox is
+    /// mounted, including its thread destinations. Cancelled on background or unmount; rows stay
+    /// truthful and nothing ends here — `update` only finishes a canonical done row while online.
+    private func renewLiveActivities() async {
+        guard scenePhase == .active else { return }
+        while !Task.isCancelled {
+            for session in inbox.sessions {
+                let client = session.client
+                client.liveActivity.update(row: { client.inbox[$0] }, hostId: session.hostId, online: client.connection == "ready")
+            }
+            try? await Task.sleep(for: .seconds(30))
+        }
     }
 
     /// The detached tab on iOS 27 (compose); before it, Search's own role takes the detached slot.
