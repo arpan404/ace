@@ -62,7 +62,62 @@ export const MarketGrantClaims = GrantClaims.extend({
 export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
 /** The market grant's issuer, `cloud.acehq.dev`, unless a deployment configures its own. */
 export const MARKET_GRANT_ISSUER = "cloud.acehq.dev";
-const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims, MarketGrantClaims]);
+
+/**
+ * Who asked for a device grant (ADR 0189): `person`, a session the person signed in to in a
+ * browser and that only the client they signed in on holds; `machine`, anything a machine keeps
+ * (a daemon's machine credential, or a session that was ever written to a machine's disk).
+ */
+export const GrantStanding = z.enum(["person", "machine"]);
+export type GrantStanding = z.infer<typeof GrantStanding>;
+/**
+ * A standing grant (ADR 0189): format 2, beside a device's format 1 grant. It says whose
+ * session asked for the device grant, so a daemon can tell the person from a process that read a
+ * machine's files. Format 1 parsers (older daemons, the relay) refuse it, and this parser refuses
+ * format 1, so neither stands in for the other.
+ */
+export const StandingGrantClaims = z.strictObject({
+  v: z.literal(2),
+  kid: KeyId,
+  kind: z.literal("device"),
+  standing: GrantStanding,
+  account: GrantClaims.shape.account,
+  subject: GrantClaims.shape.subject,
+  iat: GrantClaims.shape.iat,
+  exp: GrantClaims.shape.exp,
+});
+export type StandingGrantClaims = z.infer<typeof StandingGrantClaims>;
+
+export function signStandingGrant(
+  claims: Omit<StandingGrantClaims, "v" | "kid" | "kind">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    StandingGrantClaims.parse({ ...claims, v: 2, kid: key.id, kind: "device" }),
+    key,
+  );
+}
+
+/** Verify a standing grant's signature and lifetime. Throws `GrantError` on any failure. */
+export function verifyStandingGrant(
+  token: string,
+  keys: GrantKeySet,
+  now: number,
+): StandingGrantClaims {
+  return verifySigned(token, keys, now, "device", StandingGrantClaims);
+}
+
+const AnyGrantClaims = z.union([
+  GrantClaims,
+  CloudGrantClaims,
+  MarketGrantClaims,
+  StandingGrantClaims,
+]);
+
+function signClaims(claims: object, key: GrantSigningKey): string {
+  const body = new TextEncoder().encode(JSON.stringify(claims));
+  return `${encodeBase64url(body)}.${encodeBase64url(ed25519.sign(body, key.privateKey))}`;
+}
 
 export function signMarketGrant(
   claims: Omit<GrantClaims, "v" | "kid"> &
@@ -172,7 +227,7 @@ export function verifyMarketGrant(
   return claims;
 }
 
-function verifySigned<Claims extends GrantClaims>(
+function verifySigned<Claims extends Pick<GrantClaims, "kid" | "kind" | "iat" | "exp">>(
   token: string,
   keys: GrantKeySet,
   now: number,

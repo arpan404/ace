@@ -6,11 +6,13 @@ import {
   signGrant,
   signCloudGrant,
   signMarketGrant,
+  signStandingGrant,
   grantLifetimeMs,
   grantSignInAge,
   verifyCloudGrant,
   verifyGrant,
   verifyMarketGrant,
+  verifyStandingGrant,
 } from "./index.ts";
 
 const key = { id: "k1", privateKey: crypto.getRandomValues(new Uint8Array(32)) };
@@ -49,6 +51,29 @@ it("a grant is refused when signed by an unpublished key, altered, or issued for
   const long = signGrant({ ...claims, exp: claims.iat + GRANT_LIFETIME_MS + 1 }, key);
   expect(() => verifyGrant(long, keys, 2_000, "device")).toThrow("lifetime");
   expect(() => verifyGrant("not a grant", keys, 2_000, "device")).toThrow("Malformed");
+});
+
+it("a standing grant says whose session asked, and neither grant format passes for the other", () => {
+  const { kind: _kind, ...rest } = claims;
+  const person = signStandingGrant({ ...rest, standing: "person" }, key);
+  expect(verifyStandingGrant(person, keys, 2_000)).toMatchObject({
+    v: 2,
+    kind: "device",
+    standing: "person",
+    account: "user_1",
+    subject: "phone",
+  });
+  const machine = signStandingGrant({ ...rest, standing: "machine" }, key);
+  expect(verifyStandingGrant(machine, keys, 2_000).standing).toBe("machine");
+  // An older daemon's strict format 1 parser refuses a standing grant; a format 1 device grant
+  // is no standing grant either.
+  expect(() => verifyGrant(person, keys, 2_000, "device")).toThrow("Malformed");
+  expect(() => verifyStandingGrant(signGrant(claims, key), keys, 2_000)).toThrow("Malformed");
+  expect(() => verifyStandingGrant(person, { keys: [grantPublicKey(other)] }, 2_000)).toThrow(
+    "Unknown",
+  );
+  expect(() => verifyStandingGrant(person, keys, claims.exp)).toThrow("expired");
+  expect(grantLifetimeMs(person)).toBe(GRANT_LIFETIME_MS);
 });
 
 it("the grant offered among WebSocket subprotocols is found by its prefix", () => {
