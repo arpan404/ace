@@ -92,6 +92,8 @@ export async function connectHostToRelay(options: {
    * older daemon, and the client falls back to XX.
    */
   nk?: NkHost;
+  /** This app's `ace-client` name (ADR 0189), sent on every upgrade this host makes. */
+  aceClient?: string;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -142,6 +144,8 @@ export async function connectHostToRelay(options: {
         signal,
         clock,
         limits.handshakeTimeoutMs,
+        [],
+        options.aceClient,
       );
       watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
       sockets.add(socket);
@@ -246,6 +250,8 @@ export async function connectHostToRelay(options: {
         controller.signal,
         clock,
         limits.handshakeTimeoutMs,
+        [],
+        options.aceClient,
       );
       sockets.add(socket);
       socket.once("close", () => sockets.delete(socket));
@@ -299,6 +305,7 @@ export async function connectHostToRelay(options: {
           clock,
           limits.handshakeTimeoutMs,
           grant ? [GRANT_SUBPROTOCOL_PREFIX + grant] : [],
+          options.aceClient,
         );
         socket = connection.socket;
         watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);

@@ -1,4 +1,6 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
+import type { AceClient } from "@ace/protocol/ace-client";
+import { namedUpgradeUrl } from "./ace-client.ts";
 import {
   CREDIT_FLAG,
   FlowCredit,
@@ -74,6 +76,8 @@ export interface PortableRelayOptions {
   purpose?: "media" | undefined;
   /** A device grant for ace's hosted relay (ADR 0111), offered as `ace.grant.<token>`. */
   grant?: string | undefined;
+  /** This app's `ace-client` name (ADR 0189), carried on the upgrade's URL. */
+  aceClient?: AceClient | undefined;
   keys(): Pick<HandshakeOptions, "staticKey" | "ephemeralKey">;
   schedule(callback: () => void, delayMs: number): () => void;
   signal?: AbortSignal;
@@ -122,6 +126,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     [RELAY_EARLY.query]: "1",
   }).toString();
   url.hash = "";
+  namedUpgradeUrl(url, options.aceClient);
   const nk = options.nk;
   const { nkState, xxState, nkFirst, xxFirst, nkFits, protocols } = handshakeStates(options);
   /** Erases both handshake states: every way out of the dial before the stream is up. */

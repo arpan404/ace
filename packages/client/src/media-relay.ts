@@ -1,4 +1,5 @@
 import { ClientMessage, mediaCloseCodes } from "@ace/protocol";
+import type { AceClient } from "@ace/protocol/ace-client";
 import type { OpenMediaRelay } from "./media-connection.ts";
 import type { PortableRelay, PortableRelayOptions } from "./portable-relay.ts";
 import { relayGrant, type Credential } from "./credentials.ts";
@@ -14,6 +15,8 @@ import { RelayClosedError } from "./relay-closed.ts";
 
 export interface MediaRelayOptions {
   relayUrl: string;
+  /** This app's `ace-client` name (ADR 0189), for the relay's upgrade. */
+  aceClient?: AceClient | undefined;
   /** The daemon's relay host key, which its welcome must name. */
   pinnedFingerprint: string;
   deviceId: string;
@@ -48,6 +51,7 @@ export function relayMediaStreams(options: MediaRelayOptions): OpenMediaRelay {
       const opened = await connect({
         relayUrl: options.relayUrl,
         pinnedFingerprint: options.pinnedFingerprint,
+        aceClient: options.aceClient,
         purpose: "media",
         socket: options.socket,
         grant: relayGrant(credential),
