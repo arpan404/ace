@@ -227,7 +227,11 @@ Spade checked it.`) and the bot looks again, so the gate decides on where it act
   the person) and again right before every input it sends; on `screen_*` the name must still
   find that app, and the helper sends every step of the batch, conditions included, to its id.
   A mismatch fails the step with `place_changed` and nothing more is done. The field is
-  optional: ace's other callers leave it out.
+  optional: ace's other callers leave it out. The reviewer alone may let a step that sends input
+  to a tab or an app (`browser_act`, `_evaluate`, `_history`, `_measure`, `screen_act`,
+  `_state`) run only where ace's tool takes it: against an older ace the step goes to the person,
+  with a line saying an update lets Spade act there with only its review, and right before it
+  runs a step the reviewer alone let run doesn't run if ace can't hold it after all.
 - **A dialog's answer acts where the dialog is.** ace sends an answer to the tab that raised
   the dialog, whichever tab the call names, so Spade places it in that tab (the one whose
   `pending_dialog` has the call's `dialogId`); a dialog no tab shows asks.
@@ -240,8 +244,7 @@ Spade checked it.`) and the bot looks again, so the gate decides on where it act
   members page; a social site; a web browser driven through the screen (Spade can't see the
   site); or a place Spade can't name. The list is `spade_core::effect::drive`: app words and
   names, hosts and their parent domains, parts of a host (`bank`, `pay`, `login`) and of a path
-  (`/checkout`, `/settings`), of a `#/route` or of a route in the query (`?view=settings`; what
-  someone searched for, `?q=`, doesn't count). An address is read as a browser reads it (WHATWG
+  (`/checkout`, `/settings`), of a `#/route` or of a route in the query (`?view=settings`; a search key's plain text, `?q=cheap flights`, doesn't count, but a value there that reads as a route, `?q=/settings` or `?s=checkout`, does). An address is read as a browser reads it (WHATWG
   parsing with IDNA mapping, so `%70aypal.com` and full-width letters are `paypal.com`, and
   escapes in a path are decoded). The apps are one table: each word comes with the full names it
   is found in, and a part of any of them (`cord` for Discord, `ail` for Mail) counts as that
@@ -271,8 +274,8 @@ Spade checked it.`) and the bot looks again, so the gate decides on where it act
   know them shows the usual request, with no always.
 - **What is left.** ace checks the place before each input it sends, not inside the browser's
   own dispatch of it, so a navigation that starts in the same instant can still take an input.
-  Against an ace whose tools don't take `expect`, Spade's own check right before handing the
-  step over is the last one. Device input asks each step until ace reports which app is in a
+  A step the person allows, or allows always, against an ace whose tools don't take `expect`
+  runs with Spade's own check right before handing it over as the last one. Device input asks each step until ace reports which app is in a
   device's foreground.
 
 Tested in `spade_core::effect` (each place to its route, a granted app, a sensitive one, an
