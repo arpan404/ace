@@ -95,6 +95,10 @@ export function bootFake(): {
     worktreeCreationSlow:
       (globalThis as { aceFakeWorktree?: string }).aceFakeWorktree === "slow" ||
       new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorktree") === "slow",
+    // `?fakeLine=beta`: a daemon on the beta release line, so the rail shows the beta mark.
+    ...(new URLSearchParams(globalThis.location?.search ?? "").get("fakeLine") === "beta" && {
+      releaseLine: "beta",
+    }),
   });
   // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
   // threads and no projects: the first run. `?fakeWorld=showcase` is the small, tidy world the

@@ -38,6 +38,7 @@ export const CallMethod = z.enum([
   "readInteraction",
   "networkOnline",
   "reconnectNow",
+  "wake",
   "request",
 ]);
 export type CallMethod = z.infer<typeof CallMethod>;

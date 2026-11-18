@@ -9,7 +9,7 @@ import { useProfileName } from "@/lib/profile.ts";
 import { NavButtons } from "./app-header.tsx";
 import { panelCanvasClass } from "./canvas.ts";
 import { useViewFrame } from "./sidebar-frame.tsx";
-import { ReleaseLineWord } from "./release-line-word.tsx";
+import { BetaPeel, useBetaName } from "./beta-peel.tsx";
 import { UpdateButton } from "./update-button.tsx";
 import { PanelHeader } from "./view-frame.tsx";
 
@@ -49,6 +49,7 @@ function NoMachineRail() {
   const [profileName] = useProfileName();
   const { session } = useAceAccount();
   const name = session?.account.name || profileName;
+  const beta = useBetaName();
   return (
     <nav
       aria-label="App"
@@ -70,7 +71,6 @@ function NoMachineRail() {
           </Link>
         </Tip>
         <span className="flex-1" />
-        <ReleaseLineWord />
         <UpdateButton />
         <Tip label="Settings" shortcut="settings">
           <Link
@@ -84,16 +84,19 @@ function NoMachineRail() {
             <Icon icon={GearSixIcon} size={20} active={settings && !profile} />
           </Link>
         </Tip>
-        <Tip label={name.trim() || "Profile"}>
+        <Tip label={beta ? `${name.trim() || "Profile"}, ${beta}` : name.trim() || "Profile"}>
           <Link
             to="/settings/profile"
-            aria-label="Profile"
+            aria-label={beta ? `Profile, ${beta}` : "Profile"}
             aria-current={profile ? "page" : undefined}
             data-state={profile ? "active" : undefined}
             data-part="rail-item"
             className={railPlaceClass}
           >
-            <ProfileAvatar name={name} className="size-7 text-2xs" iconSize={14} />
+            <span className="relative size-7">
+              <ProfileAvatar name={name} className="size-7 text-2xs" iconSize={14} />
+              {beta && <BetaPeel />}
+            </span>
           </Link>
         </Tip>
       </TooltipSide>

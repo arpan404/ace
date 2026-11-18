@@ -9,6 +9,7 @@ import { Icon } from "@/components/icon.tsx";
 import { ProfileAvatar } from "@/components/profile-avatar.tsx";
 import { railPlaceClass } from "@/components/rail-place.ts";
 import { connectionDot, connectionLabels } from "./connection-labels.ts";
+import { BetaPeel } from "./beta-peel.tsx";
 import { SidebarMenu } from "./sidebar-menu.tsx";
 
 const AccountMenuContent = deferredComponent(() =>
@@ -19,9 +20,10 @@ const AccountMenuContent = deferredComponent(() =>
  * on a neutral disc (their ace account's name, else the name they gave in Settings › Profile; a silhouette until either). Connection trouble is a quiet dot on the disc
  * (the screen says it in words once); a healthy connection adds none. The connection is part of
  * the button's name rather than a live region, so a flapping connection isn't read out each
- * time. Its menu is the only way to Usage.
+ * time. Its menu is the only way to Usage. On a beta build the disc wears the beta's peel, and
+ * the build's name joins the button's name and tip.
  */
-export function AccountMenu() {
+export function AccountMenu(props: { beta?: string | undefined }) {
   const state = useConnectionState();
   const [profileName] = useProfileName();
   const { session } = useAceAccount();
@@ -29,13 +31,14 @@ export function AccountMenu() {
   const name = session?.account.name || profileName;
   const letters = initials(name);
   const shown = name.trim() || "You";
-  const label =
+  const connection =
     state === "ready"
       ? `${shown}, account`
       : `${shown}, account, ace ${connectionLabels[state].toLowerCase()}`;
+  const label = props.beta ? `${connection}, ${props.beta}` : connection;
   return (
     <SidebarMenu
-      tip={shown}
+      tip={props.beta ? `${shown}, ${props.beta}` : shown}
       trigger={
         <button type="button" aria-label={label} data-part="rail-item" className={railPlaceClass}>
           <span className="relative grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]">
@@ -51,6 +54,7 @@ export function AccountMenu() {
             ) : (
               <Icon icon={UserIcon} size={14} />
             )}
+            {props.beta && <BetaPeel />}
             {state !== "ready" && (
               <span
                 aria-hidden

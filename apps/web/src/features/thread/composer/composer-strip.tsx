@@ -4,6 +4,7 @@ import { ThreadId, type QueuedMessage, type ThreadStatus } from "@ace/protocol";
 import { Suspense, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useUpdateClosing } from "@/boot/desktop-updates.ts";
+import { useDaemonStartWords } from "@/boot/desktop-daemon-start.ts";
 import { useClaimConnectionNotice } from "@/features/shell/index.ts";
 import {
   ThreadAutomationStrip,
@@ -103,6 +104,8 @@ export function ComposerStrip(props: {
   const closing = useUpdateClosing();
   const offline = !closing && connection === "offline";
   const reconnecting = !closing && connection === "reconnecting";
+  // A cold start opened on what the window kept: the desktop's step, not "Reconnecting".
+  const starting = useDaemonStartWords();
   // Reconnecting and offline are said here, so the header stays quiet; anything else (a
   // fatal error) is the header's.
   useClaimConnectionNotice(offline || reconnecting);
@@ -268,6 +271,7 @@ export function ComposerStrip(props: {
           <ConnectionStrip
             offline={offline}
             mismatch={client.error?.code === "version_mismatch"}
+            starting={starting}
             onRetry={() => (offline ? daemon.retry() : client.reconnectNow())}
             indicators={indicators}
           />
