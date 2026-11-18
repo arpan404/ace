@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { CodeEditor } from "./editor.tsx";
 import type { CodeEditorProps, EditorHandle } from "./types.ts";
 
@@ -207,4 +207,21 @@ test("copy joins lines with the document's own line ending", async () => {
     },
   });
   expect(copied.text).toBe("one\r\nthree");
+});
+
+test("reports horizontal overflow so the toolbar can fade its right edge", async () => {
+  const overflow = vi.fn();
+  await openView({ text: "x".repeat(200), readOnly: true, onHorizontalOverflow: overflow });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+
+  Object.defineProperty(scroller, "clientWidth", { configurable: true, value: 200 });
+  Object.defineProperty(scroller, "scrollWidth", { configurable: true, value: 400 });
+  scroller.scrollLeft = 0;
+  fireEvent.scroll(scroller);
+  await waitFor(() => expect(overflow).toHaveBeenLastCalledWith(true));
+
+  scroller.scrollLeft = 200;
+  fireEvent.scroll(scroller);
+  await waitFor(() => expect(overflow).toHaveBeenLastCalledWith(false));
 });

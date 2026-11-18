@@ -6,6 +6,8 @@ import type { Ref } from "react";
 export interface EditorHandle {
   focus(): void;
   text(): string;
+  /** The document's edit count, for a caller that tracks dirtiness without the text. */
+  version(): number;
   selections(): readonly Selection[];
   setSelections(selections: readonly Selection[]): void;
 }

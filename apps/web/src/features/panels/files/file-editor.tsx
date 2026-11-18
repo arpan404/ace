@@ -40,6 +40,7 @@ export function FileEditor(props: {
   const [dirty, setDirty] = useState(props.draft.text !== props.draft.original);
   const [initial] = useState(props.draft.text);
   const closing = useRef(false);
+  const savedVersion = useRef(0);
   const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const keepNow = () => {
@@ -158,7 +159,8 @@ export function FileEditor(props: {
           label={`Editing ${props.path}`}
           focusOnMount
           onEdit={() => {
-            setDirty(true);
+            // Dirtiness is the document's edit count, not a text comparison on every key.
+            setDirty((editor.current?.version() ?? 0) > savedVersion.current);
             scheduleKeep();
           }}
           onBlur={keepNow}

@@ -238,6 +238,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   useImperativeHandle(ref, () => ({
     focus: () => field.current?.focus({ preventScroll: true }),
     text: () => state.doc?.text() ?? props.text,
+    version: () => state.doc?.version() ?? 0,
     selections: () => state.doc?.selections() ?? [],
     setSelections: (selections: readonly Selection[]) => state.select(selections),
   }));
