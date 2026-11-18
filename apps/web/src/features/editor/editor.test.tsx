@@ -69,6 +69,27 @@ test("paste normalises CRLF line endings", async () => {
   expect(ref.current?.text()).toBe("first\nsecond\nthird");
 });
 
+test("copy joins every selection with a newline", async () => {
+  const { ref, box } = await openEditor({ text: "one\ntwo\nthree" });
+
+  act(() =>
+    ref.current?.setSelections([
+      { anchor: { line: 0, column: 0 }, head: { line: 0, column: 3 } },
+      { anchor: { line: 2, column: 0 }, head: { line: 2, column: 5 } },
+    ]),
+  );
+  const copied: { text?: string } = {};
+  fireEvent.copy(box, {
+    clipboardData: {
+      setData: (_type: string, value: string) => {
+        copied.text = value;
+      },
+    },
+  });
+
+  expect(copied.text).toBe("one\nthree");
+});
+
 test("Cmd+D adds the next occurrence of the selected text", async () => {
   const { ref } = await openEditor({ text: "foo foo foo" });
 
