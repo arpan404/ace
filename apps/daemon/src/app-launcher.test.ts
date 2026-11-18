@@ -1,35 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { launcherIsApp, linuxAppLauncher, windowsAppLauncher } from "./app-launcher.ts";
+import { launcherIsApp, windowsAppLauncher } from "./app-launcher.ts";
 
-/** A file system whose paths are all root's and writable by root alone, but for `except`. */
-function rootOwned(except: Record<string, { uid: number; mode: number } | undefined> = {}) {
-  return (path: string) => (path in except ? except[path] : { uid: 0, mode: 0o40755 });
-}
+/** A macOS whose Security framework says the parent is the signed app. */
+const signedParent = { codesign: async () => true };
 
-describe("a Linux launcher counts as the app only as the installed, root-owned app", () => {
-  it("counts the deb's install", () => {
-    expect(linuxAppLauncher("/opt/ace/ace-desktop", rootOwned())).toBe(true);
+describe("app standing on macOS waits for the daemon's code to ship sealed", () => {
+  it("a packaged app whose daemon code sits beside the archive gets none, even from a signed parent", async () => {
+    expect(await launcherIsApp(4242, "darwin", { ...signedParent, sealed: false })).toBe(false);
   });
 
-  it.each([
-    ["an AppImage mounted in the person's own temp", "/tmp/.mount_aceXYZ/ace-desktop"],
-    ["a copy in the person's home", "/home/person/ace/ace-desktop"],
-    ["another program in /opt", "/opt/ace/node"],
-    ["a binary replaced since it started", "/opt/ace/ace-desktop (deleted)"],
-    ["a path that isn't canonical", "/opt/ace/../ace/ace-desktop"],
-    ["no executable at all", undefined],
-  ])("doesn't count %s", (_what, exe) => {
-    expect(linuxAppLauncher(exe, rootOwned())).toBe(false);
+  it("once a build seals the daemon's code, a signed parent counts and an unsigned one doesn't", async () => {
+    expect(await launcherIsApp(4242, "darwin", { ...signedParent, sealed: true })).toBe(true);
+    const unsigned = { sealed: true, codesign: async () => false };
+    expect(await launcherIsApp(4242, "darwin", unsigned)).toBe(false);
   });
+});
 
-  it("doesn't count an install the person could have written: owned by them", () => {
-    const theirs = rootOwned({ "/opt/ace": { uid: 1000, mode: 0o40755 } });
-    expect(linuxAppLauncher("/opt/ace/ace-desktop", theirs)).toBe(false);
-  });
-
-  it("doesn't count an install anyone may change: writable by its group or others", () => {
-    const open = rootOwned({ "/opt/ace/ace-desktop": { uid: 0, mode: 0o100777 } });
-    expect(linuxAppLauncher("/opt/ace/ace-desktop", open)).toBe(false);
+describe("on Linux the app key never grants standing", () => {
+  it("whatever launched the daemon, the genuine installed app included", async () => {
+    const everything = { sealed: true, codesign: async () => true };
+    expect(await launcherIsApp(4242, "linux", everything)).toBe(false);
   });
 });
 

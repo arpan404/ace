@@ -773,20 +773,16 @@ publish". A credential that isn't the person's still does everything else it did
 
 **The person's credentials:**
 
-- **The app's page on a daemon the signed app started.** Each time the app spawns `ace start` it
-  makes 32 random bytes, sets `ACE_APP_KEY=stdin` and writes the key as one hex line on the
-  daemon's stdin, then closes it (`@ace/service/app-key`). The daemon reads at most 128 bytes
-  within 5 seconds, before it listens, and removes the flag from its environment
-  (`app-key-input.ts`). Any launcher can set that flag, so the key counts only when the daemon's
-  parent, read before the key and confirmed unchanged after the check, is the signed ace app
-  (`app-launcher.ts`). Otherwise the key is ignored, as if none came. The supervisor makes the
-  page's proof for its own child only: base64url HMAC-SHA256 of `ace-app/v1\n<port>`, checked
-  against the port the socket reached. It reaches the page with the token in the connection
-  hand-off (`appProof`), and the page sends it in its hello. A crash restart is a new spawn with a
-  new key. The key lives in memory only and dies with the daemon process, so there is nothing to
-  revoke. An app started with `--remote-debugging-port` or `--remote-debugging-pipe` gives its
-  daemon no key (`app-standing.ts`), because another process could then drive its page. The
-  app's fuses already turn off running it as Node, `NODE_OPTIONS` and the inspector.
+- **The app's page on a daemon the signed app started, once its launch can be trusted (not yet;
+  below).** Each time the app spawns `ace start` it makes 32 random bytes, sets
+  `ACE_APP_KEY=stdin` and writes the key as one hex line on the daemon's stdin, then closes it
+  (`@ace/service/app-key`). The daemon reads at most 128 bytes within 5 seconds, before it listens,
+  and removes the flag from its environment (`app-key-input.ts`). Any launcher can set that flag,
+  so the key counts only when the launch passes this OS's check (`app-launcher.ts`). The daemon's
+  parent is read before the key and confirmed unchanged after the check. Otherwise the key is
+  ignored, as if none came. The supervisor makes the page's proof for its own child only: base64url
+  HMAC-SHA256 of `ace-app/v1\n<port>`, checked against the port the socket reached. The page sends
+  it in its hello. The key lives in memory only and dies with the daemon process.
 - **A device paired from a link the person made.** A link carries whether its maker was the
   person: the app's page, or a device that is itself the person's. A link made with the host token
   alone (`ace device pair`, `POST /v1/pairings` with the token) makes a device that, like the token,
@@ -798,26 +794,46 @@ publish". A credential that isn't the person's still does everything else it did
   admitted only by keys fetched from the session's origin is admitted as before, but isn't the
   person.
 
-**How strong the launcher check is, per OS:**
+**Which launches give the app's page the person's standing, per OS.** None yet, outside a
+development build. The key, the proof and the launcher check stay in place, but each OS lacks
+something the check needs before a key may count:
 
-- **macOS.** Apple's `codesign --verify -R=<requirement> <pid>` asks the Security framework to
-  validate the running parent process. The requirement is the app's designated one:
-  `anchor apple generic`, identifier `dev.ace.app`, team `5J88TLUP2J`. The hardened runtime and
-  library validation keep other code out of that process. Strong.
-- **Windows.** The Authenticode signer of the parent's executable must be the pinned publisher,
-  read by `Get-AuthenticodeSignature` with an empty environment. No publisher is pinned yet,
-  because Windows builds ship unsigned, so no launcher counts and the page is the host token
-  alone, as before. Once a certificate exists and its subject is pinned, the check holds as far as
-  Authenticode does.
-- **Linux.** There is no code signature to check. The parent's executable must be named
-  `ace-desktop`, live under `/opt/` or `/usr/`, and it and every directory above it must be owned
-  by root and writable by no one else (the deb installs `/opt/ace/ace-desktop`). The person's
-  processes can't put a binary there or change it. The AppImage and the tarball run from places
-  the person owns, so they don't count. This is weaker than a signature: it trusts whatever root
-  installed.
+- **macOS: not yet.** The daemon's code must ship inside the app's sealed, integrity-checked
+  archive (`ACE_DAEMON_CODE_SEALED`, a build-time constant no build sets), and the Security
+  framework must validate the running parent against the app's designated requirement
+  (`anchor apple generic`, identifier `dev.ace.app`, team `5J88TLUP2J`, checked through Apple's
+  `codesign`). A signed parent alone isn't enough. The daemon runs from
+  `Contents/Resources/daemon/` beside `app.asar`, which asar integrity doesn't cover, and in an
+  install the person can write to, a process of theirs can edit those files to leak the key. The
+  code it would have to guard isn't one file read at start:
+  - the bundle loads split chunks lazily for as long as it runs;
+  - it starts worker bundles;
+  - it loads native addons such as `descriptor.node`.
+
+  The runtime (`bin/node`) and its children carry `disable-library-validation`
+  (`entitlementsInherit`), so a replaced addon loads. And macOS doesn't require the team's
+  signature on `bin/node` at exec: it kills only a binary whose own signature is broken, so one
+  the person's process ad-hoc signs runs. A digest checked when the app starts the daemon
+  wouldn't cover what loads later, or a file swapped after the check. An in-memory start would
+  have to serve every chunk and worker through a loader of its own and re-enable library
+  validation. That is a packaging redesign, so this change takes the fallback: no app standing
+  on macOS until the daemon's code and runtime ship sealed.
+
+- **Linux: not yet.** It needs a launch-integrity boundary. Any process of the person's can start
+  the genuine installed app with `LD_PRELOAD`, or anything else the dynamic loader honours, and
+  read the key it writes. No check of where the parent's executable lives can see that, so there
+  is none, and the key is ignored.
+- **Windows: not yet.** The Authenticode signer of the parent's executable must be the pinned
+  publisher, read by `Get-AuthenticodeSignature` with an empty environment. No publisher is pinned
+  while Windows builds ship unsigned, so no launcher counts.
 - **A development build** accepts any launcher only when its bundler defines
   `ACE_DEVELOPMENT_TRUST` as true. That is a build-time constant: no environment variable sets it,
   and source runs and release bundles leave it undefined.
+
+So in every release the person in the app still meets `reauth` for a person-only action and
+signs in again, which the `reauth` sentence and the web's sign-in button lead them through. An app
+started with `--remote-debugging-port` or `--remote-debugging-pipe` gives its daemon no key at all
+(`app-standing.ts`).
 
 **A fresh sign-in is read only from claims a pinned key signed, for this machine, now.** Every
 freshness decision goes through `MachineAccount.freshSignIn` (`account-access/machine-account.ts`):
@@ -860,11 +876,16 @@ alongside the `ace-account.json` gap below.
 
 Who now acts as the person without a fresh sign-in:
 
-| Daemon                                      | The app's page                                              | Paired devices                       | Account devices                      | CLI, other host-token clients |
-| ------------------------------------------- | ----------------------------------------------------------- | ------------------------------------ | ------------------------------------ | ----------------------------- |
-| Started by the app                          | macOS: yes. Linux: the deb's /opt install only. Windows: no | Those paired from the person's links | Grants a pinned key signed           | No                            |
-| Login service, terminal `ace start`, dev    | No (not yet)                                                | Those paired from the person's links | Grants a pinned key signed           | No                            |
-| Any, started with ACE_ACCOUNT_URL elsewhere | As above                                                    | Those paired from the person's links | Only if that backend's key is pinned | No                            |
+| Daemon                                      | The app's page                                                                   | Paired devices                       | Account devices                      | CLI, other host-token clients |
+| ------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------ | ----------------------------- |
+| Started by the app                          | No on macOS, Linux or Windows (not yet); dev builds with `ACE_DEVELOPMENT_TRUST` | Those paired from the person's links | Grants a pinned key signed           | No                            |
+| Login service, terminal `ace start`, dev    | No (not yet)                                                                     | Those paired from the person's links | Grants a pinned key signed           | No                            |
+| Any, started with ACE_ACCOUNT_URL elsewhere | As above                                                                         | Those paired from the person's links | Only if that backend's key is pinned | No                            |
+
+The app's page is the host token alone in every release, so it still needs a fresh sign-in for
+person-only actions. Pairing from the app therefore makes devices that need one too, until a
+launch can be trusted. Devices paired from a device that is the person's, and devices paired
+before this change, keep their standing.
 
 **Open gap: the machine's own ace session.** When the app hands its ace sign-in to the daemon, the
 session is written to `ACE_HOME/ace-account.json` in the clear (mode 0600, readable by anything of
@@ -902,8 +923,10 @@ Unit tests:
 - `fresh-sign-in.test.ts`: replay of a grant taken at 9m59s, an old sign-in, a clock skew, another
   account, another machine, a device grant, another key, no signature, another issuer, and a
   malformed grant.
-- `app-launcher.test.ts`: Linux install paths, owners and modes; the Windows signer, with nothing
-  counting while no publisher is pinned; the test runner as launcher.
+- `app-launcher.test.ts`: on macOS a signed parent counts only once the daemon's code ships
+  sealed, so a packaged app whose daemon code sits beside the archive gets none; on Linux the key
+  never counts; on Windows nothing counts while no publisher is pinned; the test runner as
+  launcher.
 - `app-key-input.test.ts`: a key from another launcher, and a launcher that leaves while checked.
 - `app-standing.test.ts`: the remote-debugging switches.
 - `pairing-codes.process.test.ts`, `app-key.test.ts`, `supervisor-app-key.test.ts`,

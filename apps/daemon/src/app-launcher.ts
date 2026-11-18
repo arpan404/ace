@@ -1,6 +1,4 @@
 import { execFile } from "node:child_process";
-import { readlinkSync, statSync } from "node:fs";
-import { posix } from "node:path";
 
 /*
  * Whether the process that started this daemon is the signed ace desktop app (ADR 0178 §12.8),
@@ -10,6 +8,13 @@ import { posix } from "node:path";
 
 /** Set only by a development build's bundler (`define`); never by the environment. */
 declare const ACE_DEVELOPMENT_TRUST: boolean | undefined;
+/**
+ * Set only by a build that ships the daemon's code (its bundle, chunks, workers and native
+ * addons, and the runtime that runs them) inside the app's sealed, integrity-checked archive.
+ * None does yet: the daemon runs from files beside the archive that a process of the person's
+ * can change, so a signed app launching it proves nothing about the code that reads the key.
+ */
+declare const ACE_DAEMON_CODE_SEALED: boolean | undefined;
 
 /**
  * A development build trusts any launcher's key: an unsigned app in a checkout has no identity
@@ -17,6 +22,8 @@ declare const ACE_DEVELOPMENT_TRUST: boolean | undefined;
  */
 export const developmentTrust =
   typeof ACE_DEVELOPMENT_TRUST !== "undefined" && ACE_DEVELOPMENT_TRUST === true;
+export const daemonCodeSealed =
+  typeof ACE_DAEMON_CODE_SEALED !== "undefined" && ACE_DAEMON_CODE_SEALED === true;
 
 /** The signed app's identity, per platform. */
 export const appLauncherIdentity = {
@@ -28,35 +35,7 @@ export const appLauncherIdentity = {
    * ship unsigned until a certificate exists, and until it is pinned here no launcher counts.
    */
   windowsPublisher: undefined as string | undefined,
-  /** The deb's install (`/opt/ace/ace-desktop`), or a distribution's under /usr. */
-  linuxNames: ["ace-desktop"] as readonly string[],
-  linuxRoots: ["/opt/", "/usr/"] as readonly string[],
 };
-
-/** What a Linux launcher check reads of one path. */
-export interface PathOwner {
-  readonly uid: number;
-  readonly mode: number;
-}
-
-/**
- * Whether `exe` (the launcher's `/proc/<pid>/exe`) is the installed app: named as the app, under
- * a root-owned prefix, and the file and every directory above it owned by root and writable by
- * no one else, so no process of the person's could have put it there or changed it. Pure.
- */
-export function linuxAppLauncher(
-  exe: string | undefined,
-  owner: (path: string) => PathOwner | undefined,
-): boolean {
-  if (!exe || !posix.isAbsolute(exe) || posix.normalize(exe) !== exe) return false;
-  if (!appLauncherIdentity.linuxNames.includes(posix.basename(exe))) return false;
-  if (!appLauncherIdentity.linuxRoots.some((root) => exe.startsWith(root))) return false;
-  for (let path = exe; ; path = posix.dirname(path)) {
-    const facts = owner(path);
-    if (!facts || facts.uid !== 0 || (facts.mode & 0o022) !== 0) return false;
-    if (path === "/") return true;
-  }
-}
 
 /**
  * Whether PowerShell's `Get-AuthenticodeSignature` answer (`Status`, then the signer's subject,
@@ -81,25 +60,42 @@ function tool(
   });
 }
 
+/** What a launcher check may need beyond the pid; tests substitute them. */
+export interface LauncherChecks {
+  /** The daemon's own code ships sealed with the app (`ACE_DAEMON_CODE_SEALED`). */
+  readonly sealed: boolean;
+  /** macOS: the running process `pid` satisfies the app's designated requirement. */
+  codesign(pid: number): Promise<boolean>;
+}
+
+const systemChecks: LauncherChecks = {
+  sealed: daemonCodeSealed,
+  codesign: async (pid) =>
+    (await tool("/usr/bin/codesign", [
+      "--verify",
+      `-R=${appLauncherIdentity.macRequirement}`,
+      String(pid),
+    ])) !== undefined,
+};
+
 /**
- * The check for this platform: macOS asks the Security framework, through Apple's `codesign`, to
- * validate the running process `pid` against the app's designated requirement; Windows checks
- * the Authenticode signer of the process's executable; Linux checks where the executable lives.
+ * The check for this platform (ADR 0178 §12.8):
+ * - macOS: the daemon's code must ship sealed with the app, and the Security framework, through
+ *   Apple's `codesign`, must validate the running parent against the app's designated
+ *   requirement. No build seals the daemon's code yet, so no launcher counts.
+ * - Windows: the Authenticode signer of the parent's executable must be the pinned publisher.
+ *   None is pinned yet, so no launcher counts.
+ * - Linux and anything else: never. Any process of the person's can start the genuine app with
+ *   `LD_PRELOAD` and read the key it writes; that needs a launch-integrity boundary first.
  */
 export async function launcherIsApp(
   pid: number,
   platform: NodeJS.Platform = process.platform,
+  checks: LauncherChecks = systemChecks,
 ): Promise<boolean> {
   if (developmentTrust) return true;
   if (!Number.isInteger(pid) || pid <= 1) return false;
-  if (platform === "darwin")
-    return (
-      (await tool("/usr/bin/codesign", [
-        "--verify",
-        `-R=${appLauncherIdentity.macRequirement}`,
-        String(pid),
-      ])) !== undefined
-    );
+  if (platform === "darwin") return checks.sealed && (await checks.codesign(pid));
   if (platform === "win32") {
     const publisher = appLauncherIdentity.windowsPublisher;
     if (!publisher) return false;
@@ -112,22 +108,6 @@ export async function launcherIsApp(
       { SystemRoot: root },
     );
     return answer !== undefined && windowsAppLauncher(answer, publisher);
-  }
-  if (platform === "linux") {
-    let exe: string | undefined;
-    try {
-      exe = readlinkSync(`/proc/${pid}/exe`);
-    } catch {
-      return false;
-    }
-    return linuxAppLauncher(exe, (path) => {
-      try {
-        const facts = statSync(path);
-        return { uid: facts.uid, mode: facts.mode };
-      } catch {
-        return undefined;
-      }
-    });
   }
   return false;
 }
