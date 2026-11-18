@@ -373,6 +373,17 @@ pub fn route(call: Call<'_>) -> Route {
     } else {
         call
     };
+    // Nor can such a tool's server write the bot's own folder: what it says is a local write (a
+    // `write_local` declaration, a read-only hint over it) acts on its server, so it is decided
+    // as a write outside the bot, reviewed after the person's own checks.
+    let call = if call.remote && call.effect == Some(Effect::WriteLocal) {
+        Call {
+            effect: Some(Effect::Network),
+            ..call
+        }
+    } else {
+        call
+    };
     // What the person allowed always, as the rule gate saw it (taint still holds it).
     let allowed = call.always && call.rule == Decision::Run;
     // Secrets and the person-only effects come first, wherever the call runs and whatever else
