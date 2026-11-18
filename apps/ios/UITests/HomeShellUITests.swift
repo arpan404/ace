@@ -232,7 +232,7 @@ import XCTest
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap()
-        field.typeText("invoice")
+        field.typeText("composer toolbar")
         let pull = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.pull.")).firstMatch
         XCTAssertTrue(pull.waitForExistence(timeout: 15))
 
