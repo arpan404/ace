@@ -40,7 +40,11 @@ async function checkoutOf(client: ClientApi, workspaceId: string) {
 }
 
 /** Registrations on one machine that may be the same project: bounded pages, in order. */
-async function suggestionsOn(client: ClientApi, facts: ProjectCheckoutFacts) {
+async function suggestionsOn(
+  client: ClientApi,
+  facts: ProjectCheckoutFacts,
+  identityId: string | undefined,
+) {
   const found: ProjectIdentitySuggestion[] = [];
   let after: string | undefined;
   for (let page = 0; page < pagesPerMachine; page++) {
@@ -50,6 +54,8 @@ async function suggestionsOn(client: ClientApi, facts: ProjectCheckoutFacts) {
         op: "workspaces.identitySuggestions",
         remotes: facts.remotes,
         subpath: facts.subpath,
+        // Also folders whose project marker names this one (ADR 0181).
+        ...(identityId ? { identityId } : {}),
         limit: 32,
         ...(after ? { after } : {}),
       },
@@ -106,17 +112,27 @@ export function ProjectIdentityFields(props: {
   const [busy, setBusy] = useState(false);
   const [half, setHalf] = useState<{ plan: LinkPlan; failed: string[] }>();
   const [problem, setProblem] = useState<string>();
+  const [sharing, setSharing] = useState<"conflict" | "written">();
   const group = here ? groupOf(groups, here.id, props.projectId) : undefined;
   const others = (group?.checkouts ?? []).filter(
     (each) => !(each.machineId === here?.id && each.workspaceId === props.projectId),
   );
+  const ownIdentity = group?.checkouts.find(
+    (each) => each.machineId === here?.id && each.workspaceId === props.projectId,
+  )?.identityId;
   const found = useQueries({
     queries: keeping.map((machine) => ({
-      queryKey: ["identitySuggestions", machine.id, facts.data?.remotes, facts.data?.subpath],
-      enabled: searching && Boolean(facts.data?.remotes.length),
+      queryKey: [
+        "identitySuggestions",
+        machine.id,
+        facts.data?.remotes,
+        facts.data?.subpath,
+        ownIdentity,
+      ],
+      enabled: searching && Boolean(facts.data?.remotes.length || ownIdentity),
       staleTime: 30_000,
       queryFn: () =>
-        machine.client && facts.data ? suggestionsOn(machine.client, facts.data) : [],
+        machine.client && facts.data ? suggestionsOn(machine.client, facts.data, ownIdentity) : [],
     })),
   });
   const inGroup = new Set((group?.checkouts ?? []).map((each) => each.key));
@@ -183,6 +199,26 @@ export function ProjectIdentityFields(props: {
       refresh();
     }
   };
+  /** "Share identity with clones" (ADR 0181): write the marker, asking before replacing one. */
+  const share = async (replace: boolean) => {
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      const result = await here.client?.command({
+        type: "workspace.identity.marker.write",
+        workspaceId: WorkspaceId.parse(props.projectId),
+        ...(replace ? { replace: true as const } : {}),
+      });
+      if (result?.error === "marker_conflict") setSharing("conflict");
+      else if (result?.ok) setSharing("written");
+      else setProblem("Couldn't write the project marker. Is the folder read-only?");
+    } catch {
+      setProblem(`${here.name} didn't answer. Try again.`);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
   const canChange = (machineId: string) => keeping.some((each) => each.id === machineId);
   const thisOne = { machineName: here.name, path: props.path };
 
@@ -244,7 +280,7 @@ export function ProjectIdentityFields(props: {
             Link {where(thisOne)} with {where(confirming)}? They show as one project; each keeps its
             own name, settings and threads.
           </p>
-          {!confirming.sameRemotes && (
+          {!confirming.sameRemotes && confirming.shared.length > 0 && (
             <p className="text-meta text-muted-foreground">
               It has other remotes too: it may be a fork of this project.
             </p>
@@ -275,9 +311,16 @@ export function ProjectIdentityFields(props: {
                 <div className="grid min-w-0 flex-1">
                   <span className="truncate text-ui">{where(suggestion)}</span>
                   <span className="text-meta text-subtle-foreground">
-                    {suggestion.sameRemotes
-                      ? `Same repository: ${suggestion.shared[0]}`
-                      : `Fork of ${suggestion.shared[0]}`}
+                    {[
+                      suggestion.shared.length === 0
+                        ? undefined
+                        : suggestion.sameRemotes
+                          ? `Same repository: ${suggestion.shared[0]}`
+                          : `Fork of ${suggestion.shared[0]}`,
+                      suggestion.marker ? "Its project marker names this project" : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </div>
                 <Button
@@ -302,11 +345,38 @@ export function ProjectIdentityFields(props: {
           </p>
         )
       ) : (
-        <div>
+        <div className="flex flex-wrap gap-1">
           <Button size="xs" variant="ghost" onClick={() => setSearching(true)}>
             Find it on your machines
           </Button>
+          {canChange(here.id) && (
+            <Button size="xs" variant="ghost" disabled={busy} onClick={() => void share(false)}>
+              Share identity with clones
+            </Button>
+          )}
         </div>
+      )}
+      {sharing === "conflict" && (
+        <div role="group" aria-label="Replace marker" className="grid gap-2 rounded-md border p-3">
+          <p className="text-ui">
+            This folder already has a project marker naming another project. Replace it with this
+            one?
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setSharing(undefined)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => void share(true)}>
+              Replace
+            </Button>
+          </div>
+        </div>
+      )}
+      {sharing === "written" && (
+        <p role="status" className="text-meta text-muted-foreground">
+          Wrote .ace/project.json. ace never commits it: commit it to share this project with
+          clones.
+        </p>
       )}
       {problem && (
         <p role="alert" className="text-sm text-destructive">

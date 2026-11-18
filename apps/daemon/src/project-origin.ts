@@ -88,17 +88,34 @@ export async function identitySuggestions(
   projects: readonly Candidate[],
   remotes: readonly string[],
   subpath: string,
+  /** Also registrations whose folder's marker names `id` (ADR 0181), read with `read`. */
+  marker?: { id: string; read(path: string): Promise<string | undefined> },
 ): Promise<ProjectIdentitySuggestion[]> {
   const wanted = new Set(remotes);
-  if (!wanted.size) return [];
+  if (!wanted.size && !marker) return [];
   const found: { index: number; suggestion: ProjectIdentitySuggestion }[] = [];
   await each(projects, async (project, index) => {
-    const facts = await git.checkoutFacts(project.path);
-    if (!facts || facts.subpath !== subpath) return false;
-    const shared = facts.remotes.filter((remote) => wanted.has(remote));
-    if (!shared.length) return false;
-    const sameRemotes = shared.length === wanted.size && facts.remotes.length === wanted.size;
-    found.push({ index, suggestion: { workspaceId: project.workspaceId, shared, sameRemotes } });
+    const [facts, named] = await Promise.all([
+      wanted.size ? git.checkoutFacts(project.path) : undefined,
+      marker?.read(project.path).catch(() => undefined),
+    ]);
+    const marked = marker !== undefined && named === marker.id;
+    const shared =
+      facts && facts.subpath === subpath
+        ? facts.remotes.filter((remote) => wanted.has(remote))
+        : [];
+    if (!shared.length && !marked) return false;
+    const sameRemotes =
+      shared.length > 0 && shared.length === wanted.size && facts?.remotes.length === wanted.size;
+    found.push({
+      index,
+      suggestion: {
+        workspaceId: project.workspaceId,
+        shared,
+        sameRemotes,
+        ...(marked ? { marker: true as const } : {}),
+      },
+    });
     return false;
   });
   return found.toSorted((a, b) => a.index - b.index).map((entry) => entry.suggestion);

@@ -301,19 +301,40 @@ export class ProjectStorage {
     this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
     return workspace;
   }
-  /** Put the registration in logical project `identity`; the same one again changes nothing. */
-  link(id: WorkspaceId, identity: ProjectIdentityId): Project {
+  /**
+   * Put the registration in logical project `identity`; the same one again changes nothing.
+   * `marker`: the person confirmed the folder's marker (ADR 0181).
+   */
+  link(
+    id: WorkspaceId,
+    identity: ProjectIdentityId,
+    source: "linked" | "marker" = "linked",
+  ): Project {
     const { workspace, changed } = this.store.atomic((db) => {
       const before = this.get(id);
       // An id merged here into another is that other one here.
       const target = resolveIdentity(db, identity);
       if (before.identity?.id === target) return { workspace: before, changed: false };
-      setIdentity(db, id, target, "linked", this.now());
+      setIdentity(db, id, target, source, this.now());
       return { workspace: this.get(id), changed: true };
     });
     if (changed)
       this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
     return workspace;
+  }
+  /** The registration's logical project id, minting one (`created`) when it has none. */
+  ensureIdentity(id: WorkspaceId): ProjectIdentityId {
+    let minted = false;
+    const identity = this.store.atomic((db) => {
+      const kept = this.get(id).identity?.id;
+      if (kept) return kept;
+      const fresh = ProjectIdentityId.parse(this.newIdentity());
+      setIdentity(db, id, fresh, "created", this.now());
+      minted = true;
+      return fresh;
+    });
+    if (minted) this.announce(id);
+    return identity;
   }
   /** Tell every client a registration changed, after a write elsewhere (a transfer's identity). */
   announce(id: WorkspaceId): void {

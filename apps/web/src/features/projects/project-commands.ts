@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import type { CommandResult, Project, ProjectsResult } from "@ace/protocol";
+import type { CommandResult, Project, ProjectMarker, ProjectsResult } from "@ace/protocol";
 import { projectProblem, type ProjectEdit, type ProjectProblem } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
@@ -56,6 +56,8 @@ export interface Added {
   /** Set when the folder is inside a repository whose root is elsewhere. */
   suggestedRoot: string | undefined;
   gitUnavailable?: "git_quarantined" | undefined;
+  /** The folder's project marker (ADR 0181): a hint the person confirms. */
+  marker?: ProjectMarker | undefined;
 }
 
 function added(result: CommandResult): Added {
@@ -65,6 +67,7 @@ function added(result: CommandResult): Added {
     project: receipt.workspace,
     suggestedRoot: receipt.inspection?.suggestedRepoRoot,
     gitUnavailable: receipt.inspection?.gitUnavailable,
+    ...(receipt.inspection?.marker ? { marker: receipt.inspection.marker } : {}),
   };
 }
 
