@@ -93,6 +93,10 @@ export type CarriedSession = z.infer<typeof CarriedSession>;
 
 /** What a live switch-over adds to the commit (ADR 0190). */
 export const TransferLive = z.object({
+  /** Grows with every handover of the thread; the target's ownership record keeps it. */
+  epoch: z.number().int().positive(),
+  /** The thread on the sending machine, which it owns until the target answers. */
+  sourceThreadId: ThreadId,
   /** What the source left behind, for the continue message there. */
   left: z.object({
     shells: z.array(z.string().max(256)).max(32),
