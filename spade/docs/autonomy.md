@@ -227,8 +227,14 @@ home folder, an absolute path outside it, `..`, a variable, another machine, a U
 web page), that hides what it runs (decoded text run as code, `eval`, a program from a variable,
 an alias or function defined in the command, an option that runs another program such as
 `rg --pre` or `tar --to-command`, a wrapper that injects the person's secrets such as
-`doppler run`, escapes, look-alike or invisible letters, text that can't be read), or that has a
-program, subcommand or flag never seen in a low-risk training command.
+`doppler run`, a variable that makes a program load code such as `PATH` or `PYTHONPATH`, a
+credential written into it, escapes, look-alike or invisible letters, text that can't be read), or
+that has a program, subcommand or flag never seen in a low-risk training command. A command that
+runs git, a Node package manager, cargo or ripgrep settles only when the gate inspected that
+tool's configuration around the folder (the repository's and its worktree's config and what they
+include, the config of `HOME`, which is the bot's folder, hooks, rc files, the variables the
+command runs with) and found no program in it, such as an fsmonitor, a pager, a diff or filter
+driver or a runner (ADR 0172, amendment 2).
 
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
 cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older

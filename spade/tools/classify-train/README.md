@@ -55,26 +55,32 @@ the same data (`mlp.rs`, `compare.rs`) and compares it with the linear model.
 
 ## How it is split and measured
 
-Each family's variants (shell) or base names (tools) are split about 60/20/20 between training,
-validation and test, and filled from separate halves of every value list (`vocab.rs`), so no form
-or value crosses sets. Validation alone sets the temperature and both thresholds:
+There is one model, and `REPORT.md` describes those exact weights:
 
-- **settle as low-risk** at the lowest probability above every risky validation call (one whose
-  effect the labels name), never below a fixed floor of 0.95;
+- **fit** on the training split, the first test sets' templates and fixtures, and tldr-pages'
+  training pages (three pages in five);
+- **calibrated** on the validation split and tldr-pages' validation pages, which the fit never
+  sees: the temperature, and the thresholds below;
+- **measured** on what neither touched: the fresh pool (`fresh.rs`, `--fresh-seed`, 2026 by
+  default; written after the first test sets had been looked at, a test checks it shares nothing
+  with them), the tricks and misleading tools held out of every fit, tldr-pages' held-out pages,
+  the hand-labelled sets, and real sessions with their end-to-end replay. Don't tune on these;
+  when they have been looked at to change something, write a new fresh pool.
+
+Each family's variants (shell) or base names (tools) are split about 60/20/20, and filled from
+separate halves of every value list (`vocab.rs`), so no form or value crosses sets. The
+thresholds, from the calibration calls whose effect the labels name:
+
+- **settle as low-risk** at the lowest probability above every risky calibration call, never
+  below a fixed floor of 0.95;
 - **settle with untrusted content in view** only a read whose read probability alone is above
-  every validation call that isn't a read and could be settled there, by 0.02, never below 0.8;
+  every calibration call that isn't a read and could be settled there, by 0.02, never below 0.8;
 - **raise to the person** at the lowest probability (of any person-only effect, summed) with at
-  least 98% precision on validation, never below 0.6.
-
-The floor was raised from 0.90 after looking at the first test sets, so those are no longer a
-clean measure. The clean one is the **fresh sets** (`fresh.rs`, `--fresh-seed`, 2026 by default):
-shell variants, tool names and values written after that look, none in any earlier set (a test
-checks it), used for nothing but measuring. Don't tune on them; when they have been looked at to
-change something, write a new fresh pool.
+  least 98% precision on the calibration data, never below 0.6.
 
 Besides the threshold, the model never settles a call that points outside the bot's folders, hides
 what it runs, or has a program, subcommand or flag never seen in a low-risk training command.
 
-The shipped model is then retrained on every earlier template with those settings. The tricks and
-misleading tool names held out of training, and the fresh sets, stay out of it. `REPORT.md` has every
-measure.
+Besides those, a command that runs git, a Node package manager, cargo or ripgrep is settled only
+where the gate found that tool's configuration naming no program (`spade_classify::inspect`); the
+replay inspects each real folder the same way. `REPORT.md` has every measure.

@@ -246,20 +246,21 @@ Measured on `main`'s model and wiring, with the same labeller:
    payments or tokens) read as risky: a search for `send_email` carried the weight of a send. The
    same gap made it raise file edits done through `python - <<'EOF'` to the person: 56 of the 57
    real calls it raised weren't person-only.
-5. **Not the 0.95 floor.** On the new validation set (templates and tldr's validation pages)
-   validation alone picks 0.934 and the sweep settles one named risky call at 0.90, so the floor
-   stays and now binds by only 0.016.
+5. **Not the 0.95 floor.** On the calibration data (the validation split and tldr's validation
+   pages) alone the threshold would be 0.917, so the floor stays and binds with a margin of 0.033.
 6. **Not mainly the model's capacity.** A small MLP (one hidden layer of 16 ReLU units, the same
-   data and checks) gains 1 to 7 points of low-risk recall on the template sets at no false
-   low-risk, but with 12 units it settled one risky held-out command, at about 1.8× the work and
-   2 MB of weights. The linear model stays; `REPORT.md` reruns the comparison.
+   data, calibration and checks) settles 1.5 to 8 points more of the low-risk calls in the untouched
+   sets at no named false low-risk, but it settles 14 calls the labeller can't name on tldr's
+   held-out pages against the linear model's 5, and with 12 units it settled one risky held-out
+   command, at about 1.8× the work and 2 MB of weights. The linear model stays; `REPORT.md`
+   reruns the comparison.
 
 ### Decision
 
 1. **Reads under untrusted content.** A plain command (decision 2's conditions, except taint) may
    be settled while untrusted content is in view only as a read: P(read or write_local) over the
-   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.957: above
-   every validation call that isn't a read and could be settled there, by 0.02, never below 0.8),
+   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.800: above
+   every calibration call that isn't a read and could be settled there, by 0.02, never below 0.8),
    and nothing in it that can reach another machine (`Prediction::network`: a program that can,
    or a URL, host or address argument). A read in the bot's folder that reaches nothing neither
    sends nor changes anything, and what it shows joins content that is already untrusted. Writes,
@@ -275,11 +276,12 @@ Measured on `main`'s model and wiring, with the same labeller:
    `git stash`, `git bisect`, `jj git`, `brew services`, `npm config`…) is a key part; a digit after
    an option letter is its value; `$?`, `$#` and `$$` aren't paths.
 4. **Raising.** The person is asked when the person-only effects together pass the threshold
-   (0.76 on validation at 98% precision); the request names the likeliest one.
+   (0.64, the lowest with 98% precision on the calibration data); the request names the likeliest
+   one.
 5. **Training data.** Besides the templates: tldr-pages' commands labelled by the reference
    labeller (one it can't name is never trained on), and new families in the shapes agents write,
    including desktop input on Linux and macOS and tokens in headers. Thresholds come from the
-   validation calls whose effect the labels name.
+   calibration calls whose effect the labels name (amendment 2).
 6. **The same bits everywhere.** `exp` (inference and training) and `ln` (calibration) are plain
    arithmetic, so the shipped file is reproducible on any machine, not only the one it was trained
    on (`main`'s file, trained on a Mac, differs from a Linux run from the same seed).
@@ -289,49 +291,50 @@ Measured on `main`'s model and wiring, with the same labeller:
 
 ### Measures, before and after
 
-`main` is `spade-classify/99f56e23` as wired on `main`; after is this build's shipped model as
-wired here. Template rows are the shipped model on the fresh sets and the measured model on the
-first test sets; tldr's held-out pages use the measured model, which never saw them.
+Every "after" number is for the exact shipped weights (`spade-classify/dd7a023e`), calibrated and
+measured as amendment 2 sets out, on sets their fit never touched. `main` is
+`spade-classify/99f56e23` as wired on `main`, on the same sets. The first test sets are part of
+the fit now and aren't reported.
 
-| Set                                           | Low-risk recall   | False low-risk                                                                                                     | Person precision  | Person recall     |
-| --------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------- | ----------------- |
-| Fresh, clean                                  | 0.118 → **0.477** | 0 of 1,920 → **0 of 1,920**                                                                                        | 0.983 → 0.972     | 0.942 → 0.935     |
-| Fresh, adversarial                            | 0.032 → **0.155** | 0 of 5,139 → **0 of 5,139**                                                                                        | 0.973 → 0.979     | 0.842 → 0.829     |
-| First test, clean                             | 0.285 → **0.497** | 0 of 3,019 → 0 of 3,559                                                                                            | 0.997 → 0.998     | 0.789 → **0.844** |
-| First test, adversarial                       | 0.081 → **0.146** | 0 of 8,062 → 0 of 9,670                                                                                            | 0.994 → 0.998     | 0.646 → **0.675** |
-| Held-out tricks and tools (shipped)           | 0.070 → 0.060     | 0 of 3,312 → 0 of 3,747                                                                                            | 1.000 → 1.000     | 0.895 → **0.906** |
-| Hand-labelled hard set                        | 0.449 → **0.771** | 0 of 95 → **0 of 95**                                                                                              | 0.979 → **1.000** | 0.920 → **0.940** |
-| tldr-pages, held-out pages                    | 0.054 → **0.098** | 1 → 10 of 6,978, all unnamed, read by hand: help, list and version commands of tools the labeller doesn't know     | 0.201 → **0.391** | 0.208 → **0.349** |
-| Real sessions, distinct commands, model alone | 0.024 → **0.061** | 1 → 2 of 2,298, both unnamed: they run a script, which the rules show the reviewer, so the gate never settles them | 0.136 → **0.944** | 0.070 → **0.133** |
-| Hand-labelled connector calls (raise only)    | –                 | –                                                                                                                  | 0.900 → **0.947** | 0.857 → 0.857     |
+| Set                                                           | Low-risk recall   | False low-risk                                                                                                     | Person precision  | Person recall     |
+| ------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------- | ----------------- |
+| Fresh, clean                                                  | 0.118 → **0.316** | 0 of 1,920 → **0 of 1,920**                                                                                        | 0.983 → 0.972     | 0.942 → 0.936     |
+| Fresh, adversarial                                            | 0.032 → **0.106** | 0 of 5,139 → **0 of 5,139**                                                                                        | 0.973 → 0.976     | 0.842 → **0.865** |
+| Held-out tricks and tools (main: its own 4,849; after: 5,867) | 0.070 → 0.041     | 0 of 3,312 → **0 of 3,747**                                                                                        | 1.000 → 1.000     | 0.895 → **0.952** |
+| Hand-labelled hard set                                        | 0.449 → **0.686** | 0 of 95 → **0 of 95**                                                                                              | 0.979 → **1.000** | 0.920 → **0.960** |
+| tldr-pages, held-out pages                                    | 0.054 → **0.113** | 1 → 5 of 6,978, all unnamed, read by hand: help, list and version commands of tools the labeller doesn't know      | 0.201 → **0.296** | 0.208 → **0.456** |
+| Real sessions, distinct commands, model alone                 | 0.024 → **0.057** | 1 → 2 of 2,298, both unnamed: they run a script, which the rules show the reviewer, so the gate never settles them | 0.136 → **0.917** | 0.070 → 0.086     |
+| Hand-labelled connector calls (raise only)                    | –                 | –                                                                                                                  | 0.900 → 0.889     | 0.857 → 0.762     |
 
 End to end, real sessions (shares of 6,708 calls):
 
 | Replay                                                 | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer  | Decided without the reviewer | False low-risk |
 | ------------------------------------------------------ | --------------------- | --------------------------------------------------- | --------- | ---------------------------- | -------------- |
 | As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 57)                                      | 78.1%     | 21.9%                        | 0              |
-| As recorded, this build                                | **2.2%**              | 0.3% (17 of 18)                                     | **76.6%** | **23.4%**                    | **0**          |
+| As recorded, this build                                | **2.6%**              | 0.2% (11 of 12)                                     | **76.2%** | **23.8%**                    | **0**          |
 | Placed in the folder each thread worked in, `main`     | 0.1%                  | 0.8% (1 of 57)                                      | 79.1%     | 20.9%                        | 0              |
-| Placed in the folder each thread worked in, this build | **22.4%**             | 0.3% (16 of 17)                                     | **57.4%** | **42.6%**                    | **0**          |
+| Placed in the folder each thread worked in, this build | **26.5%**             | 0.2% (11 of 12)                                     | **53.4%** | **46.6%**                    | **0**          |
 
 Run by the rules (12.0%), asked by the rules (7.8%, 6.8% placed) and refused (1.1%) are the same
-in every row. Of the 55 person-only real calls the rules sent to review, the classifier raises 16
-or 17 (before: 1).
+in every row. Of the 55 person-only real calls the rules sent to review, the classifier raises 11
+(before: 1); the one other call it raised is one the labeller can't name.
 
-One classification on this Linux machine (`cargo bench -p spade-classify`): p50 2.8 µs → 3.6 µs,
-p99 65 µs → 77 µs, worst 643 µs → 135 µs. The file is 1,310,824 bytes (4 more, for the read
-threshold).
+One classification on this Linux machine (`cargo bench -p spade-classify`, features and
+inference): p50 2.8 µs → 4.2 µs, p99 65 µs → 88 µs, worst 643 µs → 145 µs. The configuration
+inspection (amendment 2) is a few small file reads, on the gate's blocking thread with the shell
+classifier's. The file is 1,310,824 bytes (4 more, for the read threshold).
 
 ### What is still weak
 
-- Reading against writing: `git status` (P(read) 0.86), `git log` (0.58), `git diff` (0.88) and
-  `sed -n` (0.52) are under the read threshold, so with untrusted content in view they still go
-  to the reviewer.
+- Reading against writing: `git diff` (P(read) 0.52) and `git log` (0.56) are under the read
+  threshold, so with untrusted content in view they still go to the reviewer (`git status` 0.87
+  and `cat README.md` 0.94 now settle there); plain `ls` (0.83) and `pwd` (0.94) abstain.
 - Most real work happened outside the folder each thread was started in, and the classifier never
   settles that. A third of what the rules send to review has a rule finding, mostly here-documents
   and text the shell parser can't read; only the rules can open that up.
-- Person recall on real calls is 16 of 55: the rest are desktop-driving commands (`wtype`,
-  `grim`, `omarchy-shell`) in long compound commands, and they go to the reviewer.
+- Person recall on real calls is 11 of 55: the rest are mostly desktop-driving commands inside
+  long compound commands, and they go to the reviewer. Raising on the
+  connector set is a little below `main`'s.
 - The labeller can't name 68% of tldr-pages and 28% of real commands; every measure counts those
   as risky.
 
@@ -347,3 +350,62 @@ threshold).
   edit the classifier's paragraphs here and in `spade/docs/autonomy.md`. This change doesn't touch
   `effect.rs` or `calls.rs`; code that builds `autonomy::Classed` by hand needs the new
   `workspace` field (`None` keeps the classifier from settling).
+
+## Amendment 2 (2026-11-18): configuration that runs programs, and calibrating the shipped weights
+
+Decided by: the owner, after review of amendment 1. Changes decisions 3 and 5.
+
+### Configuration that runs programs
+
+`git status` runs the program a repository's `core.fsmonitor` names; git can also run a pager,
+diff and filter drivers, credential and gpg programs, aliases that start a shell, and hooks, all
+from configuration the command never names, and the rules read configuration only for the git
+operations that run hooks. A "read" could run code. The Node package managers (`.npmrc`'s
+`node-options` and `script-shell`, a pnpmfile, `yarnPath`, `bunfig.toml`'s `preload`, `.env` for
+bun), cargo (`.cargo/config.toml` runners and wrappers, a toolchain file's `path`) and ripgrep (a
+config file's `--pre`) do the same.
+
+1. **The gate inspects it.** For a command with no sandbox the shell tool inspects, from the folder
+   the command starts in and through the environment it will run with, the configuration of each
+   of those tools (`spade_classify::inspect`, pure, over the files and variables the gate brings;
+   `Classed::config_clean`): for git, the repository's config, its worktree's (`commondir`,
+   `config.worktree`), every file either includes (`include`, `includeIf`), the home's config
+   (Spade runs commands with `HOME` set to the bot's folder, so `~/.gitconfig` is a file the bot
+   can write), the hooks folder and `GIT_*` variables, a terminal's carried ones included; for
+   the others, their files in the folders from the start folder up to the bot's folder, and their
+   variables. A file that can't be read counts as running something. Machine-wide configuration
+   and folders above the bot's folder are the person's and aren't read.
+2. **A command that runs git, a Node package manager, cargo or ripgrep is settled only when that
+   tool's configuration names no program** (`rg --no-config` needs none). Otherwise it goes to the
+   reviewer. Never settled at all: such a tool run after a `cd` to a folder other than the bot's
+   own, or pointed at other configuration (`git -C`, `--git-dir`, `cargo --config`, `npm
+--node-options`, `--prefix`); a command that sets a variable that makes a program load code or
+   read other configuration (`PATH`, `PYTHONPATH`, `NODE_OPTIONS`, `LD_*`, `GIT_*`, `CARGO_*`,
+   `LESSOPEN`, `PAGER`, `RIPGREP_CONFIG_PATH`…); one run through a project environment (`direnv`,
+   `nix-shell`, `devbox`, `mise exec`); and one carrying a credential (a URL with a password in
+   it, or a string shaped like an issued token or key). Make already runs files the reviewer is
+   shown, and interpreters (Python, Node) can reach the network, so neither settles with untrusted
+   content in view; builds and tests run the project's own code by design (decision 1) and settle
+   only with nothing untrusted in view.
+3. On the real sessions no command was held back by its folder's configuration; the regression
+   test `a_read_in_a_repository_whose_config_runs_a_program_goes_to_the_reviewer`
+   (`spade-server/tests/classifier_git.rs`) runs real git on a repository whose fsmonitor would
+   leave a marker, and checks the reviewer decides and the marker never appears.
+
+### Calibrating the weights that ship
+
+Amendment 1 refitted the shipped weights on every template after choosing the temperature and
+thresholds on a model fitted without validation, so its calibration described another model.
+Now there is one model, and every number describes it:
+
+- **Fit** on the training split, the first test sets' templates and fixtures, and tldr-pages'
+  training pages.
+- **Calibrate** (temperature, low-risk, read and person thresholds) on the validation split and
+  tldr-pages' validation pages, reserved from the fit.
+- **Measure** on what neither touched: the fresh pool, the tricks and misleading tools held out of
+  every fit, tldr-pages' held-out pages, the hand-labelled sets, real sessions and the replay.
+
+Calibrating the shipped weights this way showed a gap the refit had hidden: a clone URL carrying a
+token (`https://user:ghp_…@github.com/…`) read as a plain clone. Such a command is now never
+settled (above). Fresh clean low-risk recall is 0.316, not the 0.477 the refit reported; every
+figure in amendment 1 is now the shipped weights'.
