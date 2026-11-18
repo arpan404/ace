@@ -81,7 +81,8 @@ fn data(spade: &Spade) -> Result<Vec<String>> {
 
 /// What the person accepts for a move of `bot` from the laptop to the studio.
 fn said(bot: &str, digest: String) -> Value {
-    json!({ "bot": bot, "from": "host-laptop", "to": "host-studio", "digest": digest, "replaces": "bot" })
+    json!({ "bot": bot, "from": "host-laptop", "via": "host-laptop", "to": "host-studio",
+        "digest": digest, "replaces": "bot" })
 }
 
 /// A manifest's hash, as the person accepts it.
@@ -191,7 +192,7 @@ async fn a_machine_of_the_fleet_alone_cant_push_a_bot_in() -> Result {
     // A stamp counts once.
     let once = stamp(
         "move:mv_3",
-        &format!("accept:a_l1:host-laptop:host-studio:{digest}:bot"),
+        &format!("accept:a_l1:host-laptop:host-laptop:host-studio:{digest}:bot"),
     );
     for expected in [200, 403] {
         let answer = studio
@@ -228,11 +229,9 @@ async fn a_machine_of_the_fleet_alone_cant_push_a_bot_in() -> Result {
 }
 
 #[tokio::test]
-async fn a_first_begin_from_another_machine_or_of_another_manifest_is_refused() -> Result {
+async fn a_move_hears_only_from_the_device_the_person_accepted_it_from() -> Result {
     let (fleet, laptop, studio) = pair().await?;
     let (bot, _) = research(&laptop).await?;
-    // The laptop can't reach the studio yet, so another machine speaks first.
-    fleet.unreachable.store(true, Ordering::SeqCst);
     let (status, _) = laptop
         .post(
             &format!("/v1/agents/{bot}/move"),
@@ -241,22 +240,32 @@ async fn a_first_begin_from_another_machine_or_of_another_manifest_is_refused() 
         .await?;
     assert_eq!(status, 202);
     let started = support::fleet::packed(&laptop, &bot).await?;
+    assert_eq!(
+        started["via"], "host-laptop",
+        "how the studio's daemon knows the laptop"
+    );
+    // The laptop can't reach the studio for now, so another machine speaks first.
+    fleet.unreachable.store(true, Ordering::SeqCst);
     let accepted = support::fleet::accepting(&bot, &started, "host-studio");
     assert_eq!(accept(&studio, "mv_1", &accepted, true).await?, 200);
-    // A fabricated history, sent as if from the laptop and as another machine.
-    let mut fake = manifest("mv_1", &bot);
-    fake["parts"] = json!(1);
-    for (sender, from) in [
-        ("host-evil", "host-evil"),
-        ("host-evil", "host-laptop"),
-        ("host-laptop", "host-laptop"),
-    ] {
-        fake["from"] = json!(from);
-        let begin = json!({ "op": "move", "step": "begin", "move": "mv_1", "manifest": fake });
-        let (status, body) = deliver(&studio.base, sender, "Evil", &begin).await?;
-        assert_eq!(status, 403, "{sender} {from}: {body}");
+    // The very manifest the person accepted, byte for byte, sent by another paired machine.
+    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(
+        laptop.dir.path().join("moves/mv_1/out/manifest.json"),
+    )?)?;
+    for step in ["begin", "status", "abort", "commit"] {
+        let request = json!({ "op": "move", "step": step, "move": "mv_1", "manifest": manifest });
+        let (status, body) = deliver(&studio.base, "host-evil", "Evil", &request).await?;
+        assert_eq!(status, 403, "{step}: {body}");
     }
-    // The move the person accepted still goes through, from the laptop.
+    // A made-up history claimed as the laptop's, but from the other device, is refused too.
+    let mut fake = manifest.clone();
+    fake["parts"] = json!(1);
+    let begin = json!({ "op": "move", "step": "begin", "move": "mv_1", "manifest": fake });
+    assert_eq!(
+        deliver(&studio.base, "host-evil", "Evil", &begin).await?.0,
+        403
+    );
+    // The move the person accepted still goes through, from the laptop, whole.
     fleet.unreachable.store(false, Ordering::SeqCst);
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null);
     assert!(listed(&studio, &bot).await?.is_some());

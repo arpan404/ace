@@ -64,18 +64,20 @@ routines and notes, but never its conversation, knowledge, workspace or anything
 5. **Any bot can move, Spade too, to an online machine of the fleet that runs Spade, only with
    the person's say on both machines.** The person starts it from the bot's profile (Move to…, or
    Move Spade to this machine); the CLI has `ace spade move <bot> --to <machine> --target-remote
-<profile>`. The machine the bot is on reserves, freezes and packs it, and says what to accept:
-   the manifest's SHA-256. Then the person accepts exactly that on the machine it goes to, `PUT
-/v1/moves/{move}/accept {bot, from, to, digest, replaces}`: the bot, the machine it comes from
-   and the one it goes to, the manifest by its hash, and whether it replaces Spade (`main`) or
-   nothing (`bot`). It is a change only they may make: that machine's daemon forwards it only from
-   a caller with their standing and stamps it as theirs over all of it (the person stamp of ADR
-   0163 amendment 2, `x-ace-person`, over `move:<move>` and `accept:<bot>:<from>:<to>:<digest>:
-<replaces>`, single use); Spade refuses it unstamped, for another machine, or to replace a
-   Spade in use there. The app does both in one click; until the say arrives the move waits,
-   saying so, for up to half an hour. A machine of the fleet alone can never push a bot in, and
-   one that learns a move's id can't claim it: only the accepted manifest, from the accepted
-   machine, begins it.
+<profile>`. The machine the bot is on reserves, freezes and packs it, asks the other machine
+   which device its daemon knows this one by (`whoami`, the authenticated `x-ace-from-host`), and
+   says what to accept: the manifest's SHA-256 and that device. Then the person accepts exactly
+   that on the machine it goes to, `PUT /v1/moves/{move}/accept {bot, from, via, to, digest,
+replaces}`: the bot, the machine it comes from and the device it speaks as, the machine it goes
+   to, the manifest by its hash, and whether it replaces Spade (`main`) or nothing (`bot`). It is
+   a change only they may make: that machine's daemon forwards it only from a caller with their
+   standing and stamps it as theirs over all of it (the person stamp of ADR 0163 amendment 2,
+   `x-ace-person`, over `move:<move>` and `accept:<bot>:<from>:<via>:<to>:<digest>:<replaces>`,
+   single use); Spade refuses it unstamped, for another machine, or to replace a Spade in use
+   there. The app does both in one click; until the say arrives the move waits, saying so. Every
+   step of the move (`begin`, `part`, `commit`, `status`, `abort`) must come from the accepted
+   device, as the daemon authenticated it: another paired machine that learns the move's id and
+   even its manifest can neither claim, feed, read nor abort it.
 6. **What moves.** The bot and the worker bots it made (ADR 0161), each with its conversation and
    its helpers' hidden conversations (ADR 0152): every event, so its history, goals, plans, wakes
    and decision log come along; its notes, knowledge base and links, episodes and digests;
@@ -98,41 +100,55 @@ routines and notes, but never its conversation, knowledge, workspace or anything
    tool that declares nothing. History still moves, but the target closes each moved conversation
    with an `arrived` event, and the gate counts only answers given after it. What stayed is
    named for the person to give again.
-8. **Copy, check, then commit.** The source reserves the move (the database holds a bot to one
-   open move each way, so a second start is refused before anything is awaited), freezes the bot
-   for that move only (messages to it are refused with "It is moving to Studio", nothing of it
-   starts; only that move lets it go), writes the export as numbered parts with a manifest (format
-   `spade-move`, version 2, Spade's schema version, per table a count and a SHA-256, and the hash
-   and count of an inventory naming every file and image with its size and SHA-256), then sends
-   it to the target Spade through its daemon as inbox requests (`op: "move"`, steps `begin`,
-   `part`, `commit`, `status`, `abort`), one part per request, at most 384 KiB each, so a large
+8. **Copy, check, then commit.** The source reserves the move before anything is awaited: the
+   database holds a bot to one open move each way, and the move claims (`move_claims`) every bot,
+   worker, conversation and club it carries, in one transaction, so two moves never share any of
+   them; an ended move lets go of its claims. It freezes the bot for that move only (messages to
+   it are refused with "It is moving to Studio", nothing of it starts; only that move lets it go),
+   writes the export as numbered parts with a manifest (format `spade-move`, version 2, Spade's
+   schema version, per table a count and a SHA-256, and the hash and count of an inventory naming
+   every file and image with its size and SHA-256), then sends it to the target Spade through its
+   daemon as inbox requests (`op: "move"`), one part per request, at most 448 KiB each, so a large
    workspace streams in bounded pieces and neither daemon holds more than one part.
-9. **The target trusts nothing it is sent.** A move's id and every bot id are plain names
-   (`[a-z0-9][a-z0-9_-]{0,79}`), parsed where they arrive, since they name folders; every folder a
-   move writes in or removes is checked to sit where it should, never through a link. `begin` is
-   taken only for the manifest the person accepted (by hash), from the machine they accepted,
-   replacing only what they accepted, within the hour; it binds the move to the machine that sent
-   it, so no other machine can speak for it. Spade in use on the target is never replaced:
-   checked at the acceptance, at `begin`, and again in the transaction that would replace it.
+9. **The target trusts nothing it is sent, and changes nothing of its own.** A move's id and
+   every bot id are plain names (`[a-z0-9][a-z0-9_-]{0,79}`), parsed where they arrive, since they
+   name folders; every folder a move writes in or removes is checked to sit where it should, never
+   through a link. `begin` is taken only for the manifest the person accepted (by hash), from the
+   device they accepted, replacing only what they accepted, within the hour. An arrival is
+   **insert-only**: before any row of this machine is touched, every row it brings is looked for
+   by its own key (its id, or its conversation and number, …), and any key already taken here
+   refuses the move. Nothing of this machine is ever deleted by an arrival; a failure deletes
+   exactly the rows this move inserted, by their keys, and only as far as its copy got. The one
+   replacement is Spade's own: an incoming main retires this machine's quiet main, intact, in the
+   final cutover transaction, never one in use (checked at the acceptance, at `begin`, and again
+   in that transaction).
 10. **Bounded on both sides (ADR 0170).** A move carries at most 100,000 parts of 448 KiB, 12 GB
     of parts, 250,000 files and images, 8 GB of them, and rows of 64 MB. The source checks every
     file's size before it copies one, and its parts as it writes them. The target refuses a
     manifest that declares more, or more than its free disk holds, before staging anything, and
     counts every part, inventory entry, row piece and file against what was declared before it
-    is written or held; past it the move is given up and its staging removed.
-11. **Checked apart, written in batches.** On `commit` the target joins the staged files and
-    checks them against the inventory (none missing, twice or unexpected, none larger than its
-    entry, each of its hash, each flushed to disk). It writes the rows into a staging database of
-    the move's own, never Spade's connection: each row must have exactly its table's columns with
-    their types and be one of the moving bots' own (its id, its agent, its club, one of its listed
-    settings, never a setting of the machine or of another bot); then every table must hold exactly
-    the bots' rows with the manifest's counts and hashes, and nothing may point at a conversation,
-    knowledge entry or routine that didn't come with it. Only then are the rows copied into Spade's
-    database, 500 at a time, each batch its own short transaction, the bots hidden (`arriving`)
-    meanwhile; summed again a page at a time; and made this machine's in one small transaction
-    with the arrival changes and everything needed to finish (the move reads `placing`). Nothing
-    holds Spade's connection for more than one batch, so the other bots' requests go on. A failure
-    takes out what was copied, a batch at a time; a restart in the middle does the same, and the
+    is written or held; past it the move is given up and its staging removed. At most two moves
+    arrive at once, and together they must fit the free disk. Staging nobody sends to for a day,
+    and an acceptance nobody began within the hour, are removed by the hourly sweep while Spade
+    runs, not only at start. Copies go in batches of 500 rows or 4 MB, whichever comes first.
+11. **Checked apart, written in batches, behind one gate.** On `commit` the target joins the
+    staged files and checks them against the inventory (none missing, twice or unexpected, none
+    larger than its entry, each of its hash, each flushed to disk). It writes the rows into a
+    staging database of the move's own, never Spade's connection: each row must have exactly its
+    table's columns with their types and be one of the moving bots' own (its id, its agent, its
+    club, one of its listed settings, never a setting of the machine or of another bot); then
+    every table must hold exactly the bots' rows with the manifest's counts and hashes, and nothing
+    may point at a conversation, knowledge entry or routine that didn't come with it. The move
+    claims all it carries, then copies the rows into Spade's database a batch per transaction,
+    insert-only, the bots stored as `arriving` and their routines paused. **One durable gate**
+    keeps an arriving bot unreachable until its move makes it this machine's: no lookup by id or
+    by conversation finds it (`arriving` is stored with the bot, and every read and write of a
+    conversation checks `reachable`), so no message, routine, club, club run, file or API request
+    reaches it or acts as it, and a club it leads is no club yet. The gate is rebuilt from the
+    store when Spade opens, before any conversation is resumed. One small transaction makes the
+    rows this machine's with the arrival changes and everything needed to finish (the move reads
+    `placing`). Nothing holds Spade's connection for more than one batch, so the other bots'
+    requests go on. A restart in the middle takes out what was copied, by its keys, and the
     source's next commit writes it afresh. The source reads its rows a page at a time too, and
     removes them in batches once the move took.
 12. **Taken only once it is all there.** The target places the workspace and images, flushes them
@@ -140,11 +156,17 @@ routines and notes, but never its conversation, knowledge, workspace or anything
     fails it answers `503` and stays `placing`; the source asks again, and the bot stays frozen on
     the source until the target confirms. A retried commit of a `placing` move only places; a
     restart finishes placing by itself.
-13. **A failure leaves the bot where it was.** Any refusal or check that fails before the commit
-    undoes the move on both sides: the target drops its staging, the source unfreezes the bot,
-    untouched. An unreachable target is retried with backoff while the person watches; they can
-    cancel up to the commit. Once the commit is sent the source waits for the target's answer (or
-    asks for the move's state), because only the target knows whether it took.
+13. **A failure leaves the bot where it was, and a move never holds a bot forever.** Any refusal
+    or check that fails before the commit undoes the move on both sides: the target drops its
+    staging, the source unfreezes the bot, untouched. Before its commit a move has a stored
+    deadline (two hours, retries and disconnects included): past it the move gives up and the bot
+    carries on where it is. An unreachable target is retried with backoff while the person
+    watches; they can cancel up to the commit. Once the commit is sent only the target knows
+    whether it took, so the source keeps the bot, frozen, and its profile says "Waiting for Studio
+    to finish the move. Research stays here until Studio answers." with **Check again**, which asks
+    at once. The way out if that machine is gone for good: remove it from your machines (ace's
+    Machines); the move then gives up and the bot carries on here. If that machine had taken it,
+    it shows there too when it comes back, and the person deletes the copy they don't want.
 14. **Idempotent and self-healing.** Every step is keyed by the move's id: a part sent twice is
     stored once, a second `begin` (with the same manifest) answers which parts are already there,
     a second `commit` answers the first commit's result. Both sides store the move's state, so a
@@ -170,8 +192,11 @@ routines and notes, but never its conversation, knowledge, workspace or anything
     every hour while Spade runs, never at start, removes at most five expired archives each time.
 19. **Moving the main Spade moves the choice with it.** The commit on the target stores a new host
     record naming the target (one version above the newest either side holds), and the source
-    stores the same record as it finishes, so the old machine's main goes quiet, kept, in the
-    same step. Windows copy the newer record to the rest of the fleet.
+    stores the same record as it finishes, so the old machine's main goes quiet in the same
+    step. Its copy there is archived like any moved bot's and its rows removed, and a new, quiet
+    main takes its place, so Spade can come back later without meeting its old self (an arrival
+    is insert-only). The target's own quiet main stays intact until the cutover transaction, which
+    retires it. Windows copy the newer record to the rest of the fleet.
 
 ### What the person sees
 
@@ -193,6 +218,7 @@ routines and notes, but never its conversation, knowledge, workspace or anything
 - The source keeps an archive of each bot it moved away for 30 days; it is never read again.
 - The person gives a moved bot its grants, Full access, apps and plugins again on the new
   machine: consent is given per machine.
+- A move whose rows would collide with this machine's own is refused, never merged.
 - Moving needs the person stamp of ADR 0163 amendment 2 (PR #2300), which this builds on.
 - The app waits for the source to pack before it can ask the target for the person's say, so a
   very large bot takes a moment to reach "Waiting for your say".
@@ -218,6 +244,11 @@ routines and notes, but never its conversation, knowledge, workspace or anything
   declared: each is refused or waits, and nothing of it is kept.
 - A large bot arriving never holds up the target's other bots' requests; an expired archive goes
   without a restart.
+- Insert-only and the gate: a colliding conversation or club id refuses the move and leaves the
+  target's rows untouched; an arriving bot held mid-copy, and again after a restart mid-copy, is
+  reached by nothing; every step from another device is refused, byte-identical manifest
+  included; a worker never moves apart from its maker; a move past its deadline gives up; Check
+  again asks at once; at most two moves arrive at once; stale staging goes while Spade runs.
 - API keys never leave the machine: no part of a move carries a stored key.
 - The main Spade moved to another machine shows there and goes quiet on the old one; the host
   record is the same on both.

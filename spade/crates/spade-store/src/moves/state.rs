@@ -24,6 +24,11 @@ pub(crate) const SCHEMA: &str = "
     );
     CREATE INDEX moves_by_agent ON moves (agent_id, created_ms);
     CREATE UNIQUE INDEX one_open_move ON moves (agent_id, direction) WHERE open = 1;
+    CREATE TABLE move_claims (
+        thing TEXT PRIMARY KEY,
+        move_id TEXT NOT NULL
+    );
+    CREATE INDEX move_claims_by_move ON move_claims (move_id);
 ";
 
 /// The states a move ends in, either way; every other state is open.
@@ -109,12 +114,48 @@ impl Store {
         }
     }
 
+    /// Moves `id` on to `state`; a move that ends lets go of everything it claimed.
     pub fn set_move(&self, id: &str, state: &str, detail: &str, now_ms: i64) -> Result<()> {
-        self.lock()?.execute(
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        tx.execute(
             "UPDATE moves SET state = ?2, open = ?5, detail = ?3, updated_ms = ?4 WHERE id = ?1",
             params![id, state, detail, now_ms, open_state(state)],
         )?;
+        if !open_state(state) {
+            tx.execute("DELETE FROM move_claims WHERE move_id = ?1", params![id])?;
+        }
+        tx.commit()?;
         Ok(())
+    }
+
+    /// Claims `things` (`agent:<id>`, `conversation:<id>`, `group:<id>`) for move `id`, all or
+    /// none: false when another open move holds any of them, so two moves never carry one bot,
+    /// worker, conversation or club. Claiming what this move holds already is fine.
+    pub fn claim_for_move(&self, id: &str, things: &[String]) -> Result<bool> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        for thing in things {
+            let held: Option<String> = tx
+                .query_row(
+                    "SELECT move_id FROM move_claims WHERE thing = ?1",
+                    params![thing],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            match held {
+                Some(holder) if holder != id => return Ok(false),
+                Some(_) => {}
+                None => {
+                    tx.execute(
+                        "INSERT INTO move_claims (thing, move_id) VALUES (?1, ?2)",
+                        params![thing, id],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(true)
     }
 
     /// Changes who the move is with, once that is known (the start reserves it first).
@@ -230,6 +271,28 @@ mod tests {
         store.set_move("mv_1", "failed", "{}", 2)?;
         assert!(store.insert_move(&entry("mv_2", "reserved"))?);
         assert_eq!(store.open_moves("out")?.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn two_moves_that_share_a_worker_are_never_both_reserved() -> crate::Result<()> {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let store = Store::open(&dir.path().join("spade.sqlite"))?;
+        let one = ["agent:a_1", "agent:w_1", "conversation:c_w_1"].map(String::from);
+        let two = ["agent:a_2", "agent:w_1"].map(String::from);
+        assert!(store.claim_for_move("mv_1", &one)?);
+        assert!(!store.claim_for_move("mv_2", &two)?, "the worker is mv_1's");
+        assert!(
+            store.claim_for_move("mv_1", &one)?,
+            "claiming its own again is fine"
+        );
+        // Nothing of the refused claim was kept: a_2 is free.
+        assert!(store.claim_for_move("mv_3", &["agent:a_2".to_owned()])?);
+        store.set_move("mv_3", "cancelled", "{}", 2)?;
+        // An ended move lets go of everything.
+        store.insert_move(&entry("mv_1", "sending"))?;
+        store.set_move("mv_1", "failed", "{}", 2)?;
+        assert!(store.claim_for_move("mv_2", &two)?);
         Ok(())
     }
 }

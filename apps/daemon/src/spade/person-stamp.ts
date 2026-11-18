@@ -86,7 +86,7 @@ export function personStamp(
 
 /**
  * Accepting a bot moving here (ADR 0187): the whole move as Spade will check it (the bot, the
- * machine it comes from and the one it goes to, the manifest by its hash, and whether it
+ * machine it comes from, the device this daemon knows that machine by, the machine it goes to, the manifest by its hash, and whether it
  * replaces Spade), or nothing to stamp when any part isn't what Spade takes (it then refuses it
  * unstamped).
  */
@@ -103,9 +103,16 @@ function moveAcceptWrite(target: string, body: Buffer | undefined): PersonOnlyWr
     const got: unknown = Reflect.get(value, name);
     return typeof got === "string" ? got : undefined;
   };
-  const [bot, from, to, digest, replaces] = ["bot", "from", "to", "digest", "replaces"].map(field);
-  const plain = [bot, from, to].every((id) => id !== undefined && plainId.test(id));
+  const [bot, from, via, to, digest, replaces] = [
+    "bot",
+    "from",
+    "via",
+    "to",
+    "digest",
+    "replaces",
+  ].map(field);
+  const plain = [bot, from, via, to].every((id) => id !== undefined && plainId.test(id));
   if (!plain || !digest || !/^[0-9a-f]{64}$/.test(digest)) return undefined;
   if (replaces !== "bot" && replaces !== "main") return undefined;
-  return { target, value: `accept:${bot}:${from}:${to}:${digest}:${replaces}` };
+  return { target, value: `accept:${bot}:${from}:${via}:${to}:${digest}:${replaces}` };
 }

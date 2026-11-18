@@ -18,6 +18,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/main/host", put(offer_host))
         .route("/agents/{id}/move", get(read).post(start).delete(cancel))
         .route("/agents/{id}/arrival", delete(dismiss_arrival))
+        .route("/agents/{id}/move/check", axum::routing::post(check))
         .route("/moves/{id}/accept", put(accept))
 }
 
@@ -108,6 +109,14 @@ async fn read(State(state): State<AppState>, Path(id): Path<String>) -> Response
 async fn cancel(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.cancel_move(&id) {
         Ok(shown) => Json(json!({ "move": shown })).into_response(),
+        Err(error) => move_problem(&error),
+    }
+}
+
+/// The person's Check again: a move waiting on the other machine asks it now.
+async fn check(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.check_move(&id) {
+        Ok(waiting) => Json(json!({ "checking": waiting })).into_response(),
         Err(error) => move_problem(&error),
     }
 }

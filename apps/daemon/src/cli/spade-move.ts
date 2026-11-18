@@ -39,6 +39,7 @@ export function newMoveId(uuid: string): string {
 export interface Acceptance {
   bot: string;
   from: string;
+  via: string;
   to: string;
   digest: string;
   replaces: "bot" | "main";

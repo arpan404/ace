@@ -34,7 +34,7 @@ impl Engine {
         if let Some((name, machine)) = self.moving_to(id) {
             return Err(SendError::Moving(name, machine));
         }
-        if self.store.conversation(id)?.is_none() || self.deleting(id) {
+        if !self.reachable(id)? || self.deleting(id) {
             return Err(SendError::NotFound);
         }
         if self.disabled_main(id)? {

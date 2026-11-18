@@ -41,6 +41,14 @@ fn error_of(body: &Value) -> String {
 }
 
 impl Engine {
+    /// The notice that wakes move `id`'s driver.
+    fn wake_of(&self, id: &str) -> Arc<tokio::sync::Notify> {
+        lock(&self.moves.wakes)
+            .entry(id.to_owned())
+            .or_default()
+            .clone()
+    }
+
     /// Starts the driver of move `id`, once.
     pub(super) fn drive_move(self: &Arc<Self>, id: &str) {
         if !lock(&self.moves.driving).insert(id.to_owned()) {
@@ -50,6 +58,7 @@ impl Engine {
         tokio::spawn(async move {
             engine.run_move(&id).await;
             lock(&engine.moves.driving).remove(&id);
+            lock(&engine.moves.wakes).remove(&id);
         });
     }
 
@@ -63,6 +72,13 @@ impl Engine {
                     return;
                 }
             };
+            // Before its commit a move has a deadline, retries and disconnects included: past
+            // it the move gives up and the bot carries on here.
+            let pre_commit = matches!(entry.state.as_str(), PACKING | SENDING);
+            if pre_commit && self.past_deadline(&entry) {
+                let why = format!("it took too long to reach {}", entry.peer_name);
+                return self.give_up(&entry, FAILED, Some(why)).await;
+            }
             let next = match entry.state.as_str() {
                 PACKING => self.step_pack(&entry).await,
                 SENDING => self.step_send(&entry).await,
@@ -98,6 +114,17 @@ impl Engine {
         lock(&self.moves.cancelled).contains(id)
     }
 
+    fn past_deadline(&self, entry: &StoredMove) -> bool {
+        let deadline = self
+            .store
+            .stored_move(&entry.id)
+            .ok()
+            .flatten()
+            .map_or_else(|| detail(entry), |now| detail(&now))["deadline"]
+            .as_i64();
+        deadline.is_some_and(|deadline| self.now_ms() > deadline)
+    }
+
     async fn step_pack(self: &Arc<Self>, entry: &StoredMove) -> Next {
         let (engine, packing) = (self.clone(), entry.clone());
         let packed = tokio::task::spawn_blocking(move || engine.pack(&packing)).await;
@@ -106,9 +133,24 @@ impl Engine {
                 let total = manifest["parts"].as_u64().unwrap_or(0);
                 // What the person accepts on the other machine: this manifest, by its hash.
                 let digest = super::receive::manifest_sha(&manifest);
+                // Which device the other machine knows this one by: what the person's say
+                // binds every step of the move to.
+                let hello = json!({ "op": "whoami" });
+                let via = match self.call_peer(entry, hello, true).await {
+                    Ok((200, body)) => body["sender"].as_str().map(str::to_owned),
+                    Ok(_) => None,
+                    Err(next) => return next,
+                };
+                let Some(via) = via.filter(|via| super::paths::plain_id(via)) else {
+                    return Next::Fail(format!(
+                        "{} didn't say how it knows this machine",
+                        entry.peer_name
+                    ));
+                };
                 self.update(entry, SENDING, |kept| {
                     kept["total"] = json!(total);
                     kept["digest"] = json!(digest);
+                    kept["via"] = json!(via);
                     kept["awaiting"] = json!(true);
                 });
                 if self.cancelled(&entry.id) {
@@ -132,9 +174,16 @@ impl Engine {
     ) -> Result<(u16, Value), Next> {
         let mut wait = FIRST_WAIT;
         let mut waiting = false;
+        let wake = self.wake_of(&entry.id);
         loop {
             if cancellable && self.cancelled(&entry.id) {
                 return Err(Next::Cancel);
+            }
+            if cancellable && self.past_deadline(entry) {
+                return Err(Next::Fail(format!(
+                    "it took too long to reach {}",
+                    entry.peer_name
+                )));
             }
             let answer = match self.remote() {
                 Some(remote) => {
@@ -156,8 +205,11 @@ impl Engine {
                         waiting = true;
                         self.update(entry, &entry.state, |kept| kept["waiting"] = json!(true));
                     }
-                    tokio::time::sleep(wait).await;
-                    wait = (wait * 2).min(LONGEST_WAIT);
+                    // The person's Check again asks now.
+                    tokio::select! {
+                        () = tokio::time::sleep(wait) => wait = (wait * 2).min(LONGEST_WAIT),
+                        () = wake.notified() => wait = FIRST_WAIT,
+                    }
                 }
                 Err(error) => return Err(Next::Fail(error.to_string())),
             }
@@ -315,24 +367,30 @@ impl Engine {
     async fn step_finish(self: &Arc<Self>, entry: &StoredMove) -> Next {
         let kept = detail(entry);
         let conversations = strings(&kept["conversations"]);
-        if entry.main {
-            if let Some(host) = HostRecord::parse(&kept["host"])
-                && let Err(error) = self.offer_host(&host)
-            {
-                tracing::error!(%error, "a moved Spade's host choice could not be stored");
+        // Spade, the main bot: the choice names the other machine first, so this one's main
+        // goes quiet; then its copy is archived like any bot's, and a new, quiet main takes its
+        // place here, so Spade can come back later without meeting its old self.
+        if entry.main
+            && let Some(host) = HostRecord::parse(&kept["host"])
+            && let Err(error) = self.offer_host(&host)
+        {
+            tracing::error!(%error, "a moved Spade's host choice could not be stored");
+        }
+        let (engine, finishing) = (self.clone(), entry.clone());
+        let archived = tokio::task::spawn_blocking(move || engine.archive(&finishing)).await;
+        match archived {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::error!(%error, "a moved bot's copy here could not be archived");
+                tokio::time::sleep(LONGEST_WAIT).await;
+                return Next::Again;
             }
-        } else {
-            let (engine, finishing) = (self.clone(), entry.clone());
-            let archived = tokio::task::spawn_blocking(move || engine.archive(&finishing)).await;
-            match archived {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => {
-                    tracing::error!(%error, "a moved bot's copy here could not be archived");
-                    tokio::time::sleep(LONGEST_WAIT).await;
-                    return Next::Again;
-                }
-                Err(error) => return Next::Fail(error.to_string()),
-            }
+            Err(error) => return Next::Fail(error.to_string()),
+        }
+        if entry.main
+            && let Err(error) = self.ensure_main()
+        {
+            tracing::error!(%error, "a quiet Spade could not be made here");
         }
         self.update(entry, DONE, |_| {});
         self.thaw(&entry.id, &conversations);

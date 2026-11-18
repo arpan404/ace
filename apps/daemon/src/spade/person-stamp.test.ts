@@ -67,11 +67,18 @@ test("the stamp is the one Spade checks, keyed with the shared key", () => {
 test("accepting a bot moving here is the person's, stamped over the whole move as Spade checks it", () => {
   const accept = "/v1/moves/mv_0190ab/accept";
   const digest = "a".repeat(64);
-  const body = { bot: "a_1", from: "host-laptop", to: "host-studio", digest, replaces: "bot" };
+  const body = {
+    bot: "a_1",
+    from: "host-laptop",
+    via: "dev-laptop",
+    to: "host-studio",
+    digest,
+    replaces: "bot",
+  };
   expect(personOnlyRoute("PUT", accept)).toBe("move:mv_0190ab");
   expect(personOnlyWrite("PUT", accept, json(body))).toEqual({
     target: "move:mv_0190ab",
-    value: `accept:a_1:host-laptop:host-studio:${digest}:bot`,
+    value: `accept:a_1:host-laptop:dev-laptop:host-studio:${digest}:bot`,
   });
   expect(personOnlyWrite("PUT", accept, json({ ...body, replaces: "main" }))?.value).toMatch(
     /:main$/,
@@ -80,6 +87,7 @@ test("accepting a bot moving here is the person's, stamped over the whole move a
   for (const odd of [
     { ...body, bot: "../a" },
     { ...body, from: "Host Laptop" },
+    { ...body, via: undefined },
     { ...body, to: undefined },
     { ...body, digest: "abc" },
     { ...body, replaces: "everything" },

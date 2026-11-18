@@ -56,6 +56,18 @@ impl Stage {
         })
     }
 
+    /// The staging database a move left at `path`, as it is (to take its rows out again).
+    pub fn open(path: &Path, agents: &[String], main: bool) -> Result<Self> {
+        Ok(Self {
+            connection: Connection::open_with_flags(
+                path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )?,
+            agents: agents.to_vec(),
+            main,
+        })
+    }
+
     /// Adds one part's rows, each typed and the moving bots' own; the inner `Err` says which
     /// isn't.
     pub fn add(&mut self, name: &str, rows: Vec<Row>) -> Result<std::result::Result<(), String>> {
@@ -145,30 +157,89 @@ impl Stage {
         Ok(Ok(selection))
     }
 
-    /// Up to `limit` staged rows of `table` after `after` (a rowid), as values in column order,
-    /// with the last rowid read.
+    /// Staged rows of `table` after `after` (a rowid), as values in column order: up to `limit`
+    /// rows and about `MOVE_BATCH_BYTES`, whichever comes first; with the last rowid read.
     pub(super) fn page(
         &self,
         table: &tables::MoveTable,
         after: i64,
         limit: usize,
     ) -> Result<(Vec<Vec<Sql>>, i64)> {
+        self.read(table, &table.select_list(), after, limit)
+    }
+
+    /// The natural keys (`MoveTable::pk`) of staged rows of `table` after `after`, as `page`.
+    pub(super) fn keys(
+        &self,
+        table: &tables::MoveTable,
+        after: i64,
+        limit: usize,
+    ) -> Result<(Vec<Vec<Sql>>, i64)> {
+        self.read(table, table.pk, after, limit)
+    }
+
+    /// `keys`, of staged rows no later than `upto` (a rowid).
+    pub(super) fn keys_upto(
+        &self,
+        table: &tables::MoveTable,
+        after: i64,
+        upto: i64,
+        limit: usize,
+    ) -> Result<(Vec<Vec<Sql>>, i64)> {
+        if after >= upto {
+            return Ok((Vec::new(), after));
+        }
+        let (mut keys, last) = self.keys(table, after, limit)?;
+        if last > upto {
+            // Rowids are in order: keep only those up to `upto`.
+            let mut statement = self.connection.prepare(&format!(
+                "SELECT COUNT(*) FROM {} WHERE rowid > ?1 AND rowid <= ?2",
+                table.name
+            ))?;
+            let within: i64 = statement.query_row(params![after, upto], |r| r.get(0))?;
+            keys.truncate(usize::try_from(within).unwrap_or(0));
+            return Ok((keys, upto));
+        }
+        Ok((keys, last))
+    }
+
+    fn read(
+        &self,
+        table: &tables::MoveTable,
+        columns: &str,
+        after: i64,
+        limit: usize,
+    ) -> Result<(Vec<Vec<Sql>>, i64)> {
+        let width = columns.split(", ").count();
         let mut statement = self.connection.prepare(&format!(
-            "SELECT rowid, {} FROM {} WHERE rowid > ?1 ORDER BY rowid LIMIT ?2",
-            table.select_list(),
+            "SELECT rowid, {columns} FROM {} WHERE rowid > ?1 ORDER BY rowid LIMIT ?2",
             table.name
         ))?;
-        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-        let mut rows = statement.query(params![after, limit])?;
-        let (mut out, mut last) = (Vec::new(), after);
+        let most = i64::try_from(limit).unwrap_or(i64::MAX);
+        let mut rows = statement.query(params![after, most])?;
+        let (mut out, mut last, mut bytes) = (Vec::new(), after, 0usize);
         while let Some(row) = rows.next()? {
             last = row.get(0)?;
-            let values = (1..=table.columns.len())
+            let values = (1..=width)
                 .map(|i| row.get::<_, Sql>(i))
                 .collect::<rusqlite::Result<Vec<_>>>()?;
+            bytes += values.iter().map(super::weight).sum::<usize>();
             out.push(values);
+            if bytes >= super::MOVE_BATCH_BYTES {
+                break;
+            }
         }
         Ok((out, last))
+    }
+
+    /// How many of its routines ran where it came from: they arrive paused.
+    pub fn running_routines(&self) -> Result<u64> {
+        let count: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM routines WHERE paused = 0",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(u64::try_from(count).unwrap_or(0))
     }
 
     /// Each moving bot's kind as it came.

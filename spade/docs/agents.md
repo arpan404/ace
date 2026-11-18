@@ -57,16 +57,21 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
 1. **It starts here.** `POST /agents/{id}/move {to, move}` (`to` a host id from the daemon's
    linked machines, online; `move` a plain id the app or CLI makes) answers `202 {move}`. The move
    is reserved first: the `moves` table holds a bot to one open move each way (`one_open_move`),
-   so a second start answers `409` before anything is awaited. Refused too (`409`): a worker (it
+   so a second start answers `409` before anything is awaited, and `move_claims` reserves every
+   bot, worker, conversation and club it carries in the same transaction (two moves never share
+   one; an ended move lets go). Refused too (`409`): a worker (it
    moves with its maker), the main bot where it isn't hosted, and one that (or a worker of which)
    is working, waiting on the person, sleeping or running a service. The bot and its workers are
    frozen for that move: messages answer `409` ("Research is moving to Studio …"), routines don't
-   fire, its `status` reads "Moving to Studio". Once packed, the move's view carries `from`,
-   `digest` (the manifest's SHA-256) and `replaces` (`bot` or `main`), and reads `awaiting`.
-2. **The person accepts it there.** `PUT /moves/{move}/accept {bot, from, to, digest, replaces}`
+   fire, its `status` reads "Moving to Studio". Before its commit a move has a stored deadline
+   (`Limits::move_pre_commit`, two hours): past it the move fails and the bot thaws. Once packed,
+   the source asks the target `{op: "whoami"}`, which answers the device id its daemon
+   authenticated this machine as (`via`); the move's view carries `from`, `via`, `digest` (the
+   manifest's SHA-256) and `replaces` (`bot` or `main`), and reads `awaiting`.
+2. **The person accepts it there.** `PUT /moves/{move}/accept {bot, from, via, to, digest, replaces}`
    on the machine it goes to answers `200` only with the person's stamp over all of it
    (`x-ace-person`, ADR 0163 amendment 2, over `move:<move>` and
-   `accept:<bot>:<from>:<to>:<digest>:<replaces>`; the daemon adds it for a caller with their
+   `accept:<bot>:<from>:<via>:<to>:<digest>:<replaces>`; the daemon adds it for a caller with their
    standing), else `403`; `409` when `to` isn't this machine or it would replace a Spade in use
    here; `400` for anything not plain. It stays good for an hour. The source waits for it (`begin`
    answers `403 {awaiting: true}` until then), for half an hour at most.
@@ -81,32 +86,47 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
    models use, the apps and plugins it used, by name.
 4. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
    machine call): `begin {manifest}` (`403` unless accepted, for that bot), answering `{have,
-host}`; `part {index, part}`; then `commit {host?}`. `begin` binds the move to the sending
-   machine and the manifest's hash: any step from another machine answers `403`, another manifest
-   `409`. Unreachable means wait and try again (`waiting: true`); Cancel works until the commit.
+host}`; `part {index, part}`; then `commit {host?}`. Every step (`begin`, `part`, `commit`,
+   `status`, `abort`) must come from the accepted `via`, as the daemon's `x-ace-from-host` says,
+   else `403` ("this move is another machine's"), the same manifest included; another manifest
+   answers `409`. Unreachable means wait and try again (`waiting: true`); Cancel works until the commit.
 5. **The target** checks `begin` against what the person accepted (the manifest's hash, the
    machine it comes from, what it replaces) and the limits (`budget.rs`: parts, bytes, files, row
-   size, and its free disk), stages parts in `moves/<id>/in/`, counting each against what was
+   size, and its free disk; at most `MOST_ARRIVING` (two) moves at once, `429`, and together they
+   must fit the free disk, `507`), stages parts in `moves/<id>/in/`, counting each against what was
    declared (past it: `413`, staging removed), and on `commit`: joins the files against the
    inventory (none missing, twice, unexpected or larger than its entry, each flushed); writes the
    rows into `in/stage.sqlite`, its own database (typed; each the moving bots' own: its id, its
    agent, its club, or one of `PER_BOT_SETTINGS` for one of them), where every table must hold
    exactly the bots' rows with the manifest's counts and hashes and nothing may point at a
-   conversation, entry or routine that didn't come along; then copies them into Spade's database
-   `MOVE_BATCH` rows per transaction with the bots hidden (`arriving`), sums them again in pages,
+   conversation, entry or routine that didn't come along. Arrival is insert-only: every staged
+   row's natural key (`MoveTable::pk`) is looked up here first, and any taken refuses the move
+   (`422`, "this machine already has …") before a live row is touched. Then it copies them into
+   Spade's database `MOVE_BATCH` rows or `MOVE_BATCH_BYTES` (4 MB) per transaction, whichever
+   comes first, with the bots stored as `arriving`: the gate. No store lookup by id or
+   conversation finds an `arriving` bot, a club it leads isn't listed, and every engine path that
+   takes a conversation checks `reachable`, so nothing (messages, routines, clubs, club runs,
+   files, API) reaches it; `restore_moves` rebuilds the gate and the source's freezes when Spade
+   opens, before any conversation resumes. It sums them again in pages,
    and in one small transaction makes them this machine's and arrives: routines pause and webhooks
    get new secrets; every bot's security settings lose every grant, its toolchains and Full access
    and read `auto_review` (also a bot that brought none); its clubs point here; each moved
    conversation gets an `arrived` event, before which no answer counts here (`since_arrival`);
    Spade's host record is kept (never over a Spade in use here); and the move reads `placing` with
-   all it needs to finish. A failed check answers `422` and takes out what was copied; a restart
-   while `activating` takes it out too, for the next commit. It then places the workspace and
+   all it needs to finish. A failed check answers `422` and takes out what was copied, by its
+   keys and only as far as the copy got (never a row of this machine); a restart while
+   `activating` takes it out too, for the next commit. The only replacement is Spade's own: an
+   incoming main retires this machine's quiet main in the cutover transaction. It then places the workspace and
    images, flushes them, reads `committed` and answers `{committed, arrival}`; a placing that
    fails answers `503` and stays `placing`, and a retried commit or a restart only places. The
    bot's apps start at none.
-6. **Finishing** on the source: the main bot goes quiet as the record now names the target; any
-   other bot is archived (`moved/<id>/parts` and `workspace/`, no secrets), `moved:<id>`
-   remembers where it went, clubs here list it on the target, and its rows go, a batch at a time.
+6. **Finishing** on the source: the record now names the target; the bot, Spade too, is archived (`moved/<id>/parts` and `workspace/`, no secrets), `moved:<id>`
+   remembers where it went, clubs here list it on the target, and its rows go, a batch at a time;
+   for Spade, `ensure_main` then makes a new, quiet main here. Once the commit is sent and no
+   answer came, the bot stays frozen here with `awaiting` set and the view says "Waiting for
+   Studio …"; `POST /agents/{id}/move/check` asks at once. If that machine is removed from the
+   fleet the move fails and the bot carries on here. Staging nobody sent to for a day and
+   acceptances never begun go in the same sweep.
    Archives go 30 days after the move ended: a sweep every `Limits::archive_sweep` (an hour)
    removes at most five each time, never at start.
 

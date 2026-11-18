@@ -64,6 +64,29 @@ const ARRIVED: &str = "arrived";
 
 /// How long the person's acceptance waits for the move to begin.
 const ACCEPT_FOR_MS: i64 = 60 * 60_000;
+/// How many moves may arrive here at once.
+const MOST_ARRIVING: usize = 2;
+/// How long staging nobody sends to, and an acceptance nobody begins, are kept.
+const STALE_STAGING_MS: i64 = 24 * 60 * 60_000;
+const STALE_ACCEPT_MS: i64 = 60 * 60_000;
+
+/// What a move claims: its bots, their conversations and its clubs.
+fn claims(selection: &spade_store::Selection) -> Vec<String> {
+    let mut all: Vec<String> = selection
+        .agents
+        .iter()
+        .map(|id| format!("agent:{id}"))
+        .collect();
+    all.extend(
+        selection
+            .conversations
+            .iter()
+            .map(|id| format!("conversation:{id}")),
+    );
+    all.extend(selection.groups.iter().map(|id| format!("group:{id}")));
+    all
+}
+
 /// How long a moved-away bot's archive is kept.
 const KEEP_ARCHIVE_MS: i64 = 30 * 24 * 60 * 60_000;
 /// Archives one sweep removes at most.
@@ -80,6 +103,14 @@ pub(crate) struct Shared {
     cancelled: Mutex<std::collections::HashSet<String>>,
     /// The archive sweep runs.
     sweeping: std::sync::atomic::AtomicBool,
+    /// Conversations of bots arriving here (ADR 0187): no read or write reaches them until their
+    /// move makes them this machine's. Rebuilt from the store when Spade opens.
+    arriving: Mutex<std::collections::HashSet<String>>,
+    /// Each running move's driver, woken by the person's Check again.
+    wakes: Mutex<HashMap<String, Arc<tokio::sync::Notify>>>,
+    /// Told after each batch an arrival copies (tests hold the copy there).
+    #[cfg(feature = "test-hooks")]
+    pub(crate) after_batch: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -109,6 +140,8 @@ pub enum MoveError {
 pub struct AcceptFor {
     pub bot: String,
     pub from: String,
+    /// The device this machine's daemon knows the source by: what every step must come from.
+    pub via: String,
     pub to: String,
     pub digest: String,
     /// `bot`, or `main` when it replaces this machine's quiet Spade.
@@ -119,14 +152,15 @@ impl AcceptFor {
     /// What the stamp signs as its value.
     fn stamped(&self) -> String {
         format!(
-            "accept:{}:{}:{}:{}:{}",
-            self.bot, self.from, self.to, self.digest, self.replaces
+            "accept:{}:{}:{}:{}:{}:{}",
+            self.bot, self.from, self.via, self.to, self.digest, self.replaces
         )
     }
 
     fn plain(&self) -> bool {
         paths::plain_id(&self.bot)
             && paths::plain_id(&self.from)
+            && paths::plain_id(&self.via)
             && paths::plain_id(&self.to)
             && files::is_sha256(&self.digest)
             && matches!(self.replaces.as_str(), "bot" | "main")
@@ -180,6 +214,49 @@ impl Engine {
     /// Whether a move holds `conversation` frozen.
     pub(crate) fn frozen(&self, conversation: &str) -> bool {
         lock(&self.moves.frozen).contains_key(conversation)
+    }
+
+    /// Whether `conversation` exists here and is no bot's still arriving: the one check every
+    /// read and write of a conversation goes through (ADR 0187).
+    pub(crate) fn reachable(&self, conversation: &str) -> Result<bool, StoreError> {
+        if lock(&self.moves.arriving).contains(conversation) {
+            return Ok(false);
+        }
+        Ok(self.store.conversation(conversation)?.is_some())
+    }
+
+    /// Closes the gate on what an arrival brings: frozen for its move, and unreachable.
+    fn arriving(&self, id: &str, conversations: &[String]) {
+        self.freeze(id, conversations);
+        lock(&self.moves.arriving).extend(conversations.iter().cloned());
+    }
+
+    /// Opens the gate once an arrival is this machine's, or gone.
+    fn arrived(&self, id: &str, conversations: &[String]) {
+        let mut arriving = lock(&self.moves.arriving);
+        for conversation in conversations {
+            arriving.remove(conversation);
+        }
+        drop(arriving);
+        self.thaw(id, conversations);
+    }
+
+    /// Restores every move's hold from the store, before anything else runs at start: bots
+    /// moving away stay frozen; bots arriving (their move's stored selection, and any agent still
+    /// `arriving`) stay frozen and unreachable.
+    pub(crate) fn restore_moves(&self) -> Result<(), StoreError> {
+        for entry in self.store.open_moves(OUT)? {
+            self.freeze(&entry.id, &strings(&detail(&entry)["conversations"]));
+        }
+        for entry in self.store.open_moves(IN)? {
+            let kept = detail(&entry);
+            let mut held = strings(&kept["selection"]["conversations"]);
+            held.extend(strings(&kept["conversations"]));
+            self.arriving(&entry.id, &held);
+        }
+        let left = self.store.arriving_selection()?;
+        self.arriving("arriving", &left.conversations);
+        Ok(())
     }
 
     /// Freezes `conversations` for move `id`; one another move holds stays that move's.
@@ -274,6 +351,7 @@ impl Engine {
             detail: json!({
                 "until": now + ACCEPT_FOR_MS,
                 "from": accept.from,
+                "via": accept.via,
                 "to": accept.to,
                 "digest": accept.digest,
                 "replaces": accept.replaces,
@@ -346,6 +424,8 @@ impl Engine {
         let selection = self.store.move_selection(&agents)?;
         let chosen = connector_choices(connectors, &agents, agent_id, main);
         let now = self.now_ms();
+        let deadline =
+            now + i64::try_from(self.limits.move_pre_commit.as_millis()).unwrap_or(i64::MAX);
         let entry = StoredMove {
             id: id.to_owned(),
             direction: OUT.to_owned(),
@@ -362,15 +442,26 @@ impl Engine {
                 "extras": { "connectors": chosen },
                 "sent": 0,
                 "total": 0,
+                "deadline": deadline,
             })
             .to_string(),
             created_ms: now,
             updated_ms: now,
         };
-        // Reserved before anything is awaited: the database holds the bot to one open move.
+        // Reserved before anything is awaited: the database holds the bot to one open move, and
+        // the move claims every bot, conversation and club it carries, so two moves never share
+        // a worker.
         if !self.store.insert_move(&entry)? {
             return Err(MoveError::Refused(format!(
                 "{} is already moving.",
+                agent.name
+            )));
+        }
+        if !self.store.claim_for_move(id, &claims(&selection))? {
+            self.store
+                .set_move(id, CANCELLED, &entry.detail, self.now_ms())?;
+            return Err(MoveError::Refused(format!(
+                "Part of {} is already moving with another bot.",
                 agent.name
             )));
         }
@@ -455,6 +546,25 @@ impl Engine {
         }
     }
 
+    /// Holds every arrival here after each batch it copies, while `hold` runs.
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_arrivals(&self, hold: Arc<dyn Fn() + Send + Sync>) {
+        *lock(&self.moves.after_batch) = Some(hold);
+    }
+
+    /// The person's Check again: the move's driver asks the other machine now, not after its
+    /// wait. Answers whether a move was waiting.
+    pub fn check_move(&self, agent_id: &str) -> Result<bool, MoveError> {
+        let Some(entry) = self.store.latest_move(agent_id, OUT)? else {
+            return Ok(false);
+        };
+        let wake = lock(&self.moves.wakes).get(&entry.id).cloned();
+        Ok(wake.is_some_and(|wake| {
+            wake.notify_one();
+            true
+        }))
+    }
+
     /// The bot's move from here as its profile shows it, while one is open or ended badly and
     /// not dismissed.
     pub fn move_view(&self, agent_id: &str) -> Option<Value> {
@@ -505,7 +615,6 @@ impl Engine {
                         self.thaw(&entry.id, &conversations);
                         continue;
                     }
-                    self.freeze(&entry.id, &strings(&detail(&entry)["conversations"]));
                     self.drive_move(&entry.id);
                 }
             }
@@ -542,6 +651,18 @@ impl Engine {
     /// Removes the archives and leftovers of at most `most` moves that ended more than
     /// `KEEP_ARCHIVE_MS` ago, oldest first; answers how many it removed.
     pub(crate) fn sweep_archives(&self, most: usize) -> usize {
+        // Staging nobody sends to any more, and acceptances nobody began, go too, a few at a time.
+        let now = self.now_ms();
+        if let Ok(open) = self.store.open_moves(IN) {
+            let stale = open.into_iter().filter(|entry| match entry.state.as_str() {
+                ACCEPTED => now - entry.updated_ms > STALE_ACCEPT_MS,
+                RECEIVING => now - entry.updated_ms > STALE_STAGING_MS,
+                _ => false,
+            });
+            for entry in stale.take(most) {
+                self.drop_staging(&entry, "nothing came for this move for too long");
+            }
+        }
         let Ok(old) = self
             .store
             .moves_to_sweep(self.now_ms() - KEEP_ARCHIVE_MS, most)
@@ -603,6 +724,7 @@ fn move_json(entry: &StoredMove) -> Value {
             state => state,
         },
         "from": kept["from"],
+        "via": kept["via"],
         "digest": kept["digest"],
         "replaces": if entry.main { "main" } else { "bot" },
         "sent": kept["sent"].as_u64().unwrap_or(0),

@@ -17,6 +17,7 @@ import { spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
 import {
   acceptMove,
   cancelMove,
+  checkMove,
   dismissArrival,
   newMoveId,
   readMove,
@@ -98,6 +99,7 @@ function useMoveActions(bot: RosterBot) {
         await acceptMove(target, id, { bot: bot.id, to, ...packed });
       }),
     cancel: () => run(() => cancelMove(client, bot.id)),
+    check: () => run(() => checkMove(client, bot.id)),
     dismissArrival: () => run(() => dismissArrival(client, bot.id)),
   };
 }
@@ -218,6 +220,16 @@ function MoveSentence(props: { bot: RosterBot; move: SpadeMove; actions: Actions
           onClick={() => void actions.cancel()}
         >
           Cancel
+        </Button>
+      )}
+      {move.state === "committing" && move.waiting && (
+        <Button
+          variant="ghost"
+          className={pillButton}
+          disabled={actions.busy}
+          onClick={() => void actions.check()}
+        >
+          Check again
         </Button>
       )}
       {failed && (

@@ -33,6 +33,7 @@ test("Move to… is accepted on the machine picked, then started here, and reads
     expect(others.get("studio")?.acceptances.get(String(started?.move))).toEqual({
       bot: "research",
       from: "this-mac",
+      via: "dev-this-mac",
       to: "studio",
       digest: "a".repeat(64),
       replaces: "bot",
@@ -147,4 +148,30 @@ test("Spade read through another machine offers to move here", async () => {
       expect.objectContaining({ bot: "main", from: "studio", to: "this-mac", replaces: "main" }),
     ]),
   );
+});
+
+test("a move waiting on the other machine after its commit says so, and Check again asks it now", async () => {
+  const { spade } = await spadeApp(
+    "/spade/research?profile=details",
+    (api) => {
+      withResearch(api);
+      const research = api.agents.find((agent) => agent.id === "research");
+      if (research)
+        research.move = {
+          id: "mv_1",
+          to: { host: "studio", name: "Studio Mac" },
+          state: "committing",
+          waiting: true,
+          can_cancel: false,
+        };
+    },
+    { machines: studio },
+  );
+  // In the profile, and as the bot's line in the list.
+  const waiting =
+    "Waiting for Studio Mac to finish the move. Research stays here until Studio Mac answers.";
+  expect(await screen.findAllByText(waiting)).toHaveLength(2);
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(() => expect(spade.sent("POST", "/v1/agents/research/move/check")).toHaveLength(1));
 });

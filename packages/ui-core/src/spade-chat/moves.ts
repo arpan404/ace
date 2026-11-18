@@ -31,7 +31,7 @@ export interface SpadeMove {
    * What the person accepts on the machine it goes to, once it is packed: the machine it comes
    * from, the manifest by its hash, and whether it replaces Spade there.
    */
-  accept: { from: string; digest: string; replaces: "bot" | "main" } | undefined;
+  accept: { from: string; via: string; digest: string; replaces: "bot" | "main" } | undefined;
 }
 
 const moveShape = z.object({
@@ -48,6 +48,7 @@ const moveShape = z.object({
     "cancelled",
   ]),
   from: z.string().nullish().catch(undefined),
+  via: z.string().nullish().catch(undefined),
   digest: z
     .string()
     .regex(/^[0-9a-f]{64}$/)
@@ -75,8 +76,8 @@ export function parseSpadeMove(raw: unknown): SpadeMove | undefined {
     problem: move.problem ?? undefined,
     canCancel: move.can_cancel,
     accept:
-      move.from && move.digest
-        ? { from: move.from, digest: move.digest, replaces: move.replaces }
+      move.from && move.via && move.digest
+        ? { from: move.from, via: move.via, digest: move.digest, replaces: move.replaces }
         : undefined,
   };
 }
@@ -146,7 +147,9 @@ export function spadeMoveLine(move: SpadeMove, name: string): string {
         ? `Copying ${name} to ${to}, ${Math.min(move.sent, move.total)} of ${move.total}.`
         : `Copying ${name} to ${to}.`;
     case "committing":
-      return move.waiting ? `Waiting for ${to} to finish the move.` : `Arriving on ${to}.`;
+      return move.waiting
+        ? `Waiting for ${to} to finish the move. ${name} stays here until ${to} answers.`
+        : `Arriving on ${to}.`;
     case "finishing":
     case "done":
       return `Arriving on ${to}.`;

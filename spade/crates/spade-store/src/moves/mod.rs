@@ -11,8 +11,6 @@ pub use stage::Stage;
 pub use state::{OPEN_MOVE, StoredMove, open_state};
 pub use tables::{EVENTS, MOVE_TABLES, MoveTable, PER_BOT_SETTINGS, move_table};
 
-use std::collections::BTreeMap;
-
 use rusqlite::types::ValueRef;
 use rusqlite::{OptionalExtension, Statement, Transaction, params};
 use serde_json::{Map, Value, json};
@@ -176,6 +174,17 @@ fn selection_in(
 
 /// Rows read or removed at a time, so no one call holds Spade's connection for long.
 pub const MOVE_BATCH: usize = 500;
+/// Bytes one batch carries at most, whatever its row count.
+pub const MOVE_BATCH_BYTES: usize = 4 * 1024 * 1024;
+
+/// About the bytes a value takes.
+fn weight(value: &rusqlite::types::Value) -> usize {
+    match value {
+        rusqlite::types::Value::Text(text) => text.len(),
+        rusqlite::types::Value::Blob(bytes) => bytes.len(),
+        _ => 8,
+    }
+}
 
 /// Removes what the selection holds, `MOVE_BATCH` rows at a time, each batch its own short
 /// transaction (ADR 0170).
@@ -240,31 +249,50 @@ fn page_in(
     }
     let names: Vec<String> = statement.column_names().map(str::to_owned).collect();
     let mut rows = statement.raw_query();
-    let (mut out, mut last) = (Vec::new(), None);
+    let (mut out, mut last, mut bytes, mut full) = (Vec::new(), None, 0usize, false);
     while let Some(row) = rows.next()? {
         let key = (0..keys.len())
             .map(|i| row.get::<_, rusqlite::types::Value>(i))
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let mut values = Row::new();
         for (index, name) in names.iter().enumerate().skip(keys.len()) {
-            values.insert(name.clone(), to_json(row.get_ref(index)?));
+            let value = row.get_ref(index)?;
+            bytes += match value {
+                ValueRef::Text(text) | ValueRef::Blob(text) => text.len(),
+                _ => 8,
+            };
+            values.insert(name.clone(), to_json(value));
         }
         out.push(values);
         last = Some(key);
+        // A page holds `limit` rows or about `MOVE_BATCH_BYTES`, whichever comes first.
+        if bytes >= MOVE_BATCH_BYTES {
+            full = true;
+            break;
+        }
     }
-    let next = if out.len() < limit { None } else { last };
+    let next = if out.len() < limit && !full {
+        None
+    } else {
+        last
+    };
     Ok((out, next))
 }
 
 /// Whether Spade's own main is in use, given a reader of this machine's settings.
 pub type MainActive<'a> = dyn Fn(&dyn Fn(&str) -> Option<String>) -> bool + 'a;
 
+/// How far a copy got: the table it was in (by its place in `MOVE_TABLES`) and the last staged
+/// rowid of it committed.
+pub type Copied = (usize, i64);
+
 /// What arriving needs to be told.
 pub struct Activation<'a> {
     /// What the staged rows say the bots own.
     pub selection: &'a Selection,
-    pub expected: &'a BTreeMap<String, TableSum>,
     pub main: bool,
+    /// Told after each batch is copied (a test holds the copy there).
+    pub after_batch: &'a dyn Fn(),
     /// Whether this machine's own Spade is in use, read from its settings: it is never replaced.
     pub main_active: &'a MainActive<'a>,
     pub arriving: Arriving<'a>,
@@ -278,6 +306,8 @@ pub struct Activation<'a> {
 /// the move, with all it needs to finish, reads `placing`.
 pub struct Arriving<'a> {
     pub move_id: &'a str,
+    /// How many of its routines ran where it came from.
+    pub routines_paused: u64,
     pub placing: &'a str,
     pub now_ms: i64,
     /// The machine it came from, by host id.
@@ -326,21 +356,11 @@ fn arrive_in(
     arriving: &Arriving<'_>,
 ) -> rusqlite::Result<Arrived> {
     let list = json!(written.agents).to_string();
-    let paused: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM routines WHERE paused = 0
-         AND agent_id IN (SELECT value FROM json_each(?1))",
-        params![list],
-        |row| row.get(0),
-    )?;
+    // Its routines were copied in paused: none fires before the person resumes it.
     let mut arrived = Arrived {
-        routines_paused: u64::try_from(paused).unwrap_or(0),
+        routines_paused: arriving.routines_paused,
         ..Arrived::default()
     };
-    tx.execute(
-        "UPDATE routines SET paused = 1, next_due_ms = NULL
-         WHERE agent_id IN (SELECT value FROM json_each(?1))",
-        params![list],
-    )?;
     let hooks: Vec<String> = tx
         .prepare(
             "SELECT id FROM routines WHERE json_extract(trigger, '$.kind') = 'webhook'
@@ -439,39 +459,29 @@ impl Store {
         Ok(page_in(&connection, table, selection, cursor, MOVE_BATCH)?)
     }
 
-    /// Writes a staged, checked move here without holding Spade's connection for more than one
-    /// batch at a time (ADR 0170). Any older copy under the same ids goes; the rows are copied in
-    /// batches with the bots kept out of every list (`arriving`); what landed is summed again in
-    /// pages and must match; then one small transaction makes them this machine's and runs
-    /// `arriving`. Spade's own main is never replaced while it is in use. Anything that fails
-    /// removes what was copied; the inner `Err` says what failed.
+    /// Writes a staged, checked move here, insert-only, never holding Spade's connection for more
+    /// than one batch (ADR 0170). First every row's own key is looked for here: any already taken
+    /// refuses the move before a live row is touched. Then the rows are copied in batches with
+    /// the bots `arriving` (no lookup finds them) and their routines paused; then one small
+    /// transaction makes them this machine's and runs `arriving`, retiring this machine's own
+    /// quiet Spade for an incoming one, never one in use. A failure deletes exactly what this
+    /// move inserted (`move_rollback`); the inner `Err` says what failed.
     pub fn move_activate(
         &self,
         stage: &Stage,
         activation: Activation<'_>,
     ) -> Result<std::result::Result<(Selection, Arrived), String>> {
         let selection = activation.selection;
-        let older = {
-            let connection = self.lock()?;
-            let list = json!(selection.agents).to_string();
-            let mut statement = connection
-                .prepare("SELECT id FROM agents WHERE id IN (SELECT value FROM json_each(?1))")?;
-            let held: Vec<String> = statement
-                .query_map(params![list], |row| row.get(0))?
-                .collect::<rusqlite::Result<_>>()?;
-            selection_in(&connection, &held)?
-        };
-        forget_batched(self, &older)?;
-        forget_batched(self, selection)?;
-        let kinds = stage.kinds()?;
-        let copied = self.copy_staged(stage);
-        let checked = match copied {
-            Ok(Ok(())) => self.check_copied(selection, activation.expected, &kinds),
-            other => other,
-        };
-        if let Err(problem) = checked? {
-            forget_batched(self, selection)?;
+        if let Some(problem) = self.move_collisions(stage)? {
             return Ok(Err(problem));
+        }
+        let kinds = stage.kinds()?;
+        match self.copy_staged(stage, activation.after_batch)? {
+            Ok(()) => {}
+            Err((problem, copied)) => {
+                self.move_rollback(stage, selection, Some(copied))?;
+                return Ok(Err(problem));
+            }
         }
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
@@ -480,11 +490,12 @@ impl Store {
             if (activation.main_active)(&read) {
                 drop(tx);
                 drop(connection);
-                forget_batched(self, selection)?;
+                self.move_rollback(stage, selection, None)?;
                 return Ok(Err(
                     "Spade is in use on this machine; it can't be replaced".to_owned()
                 ));
             }
+            // This machine's own quiet Spade stays, intact, retired.
             tx.execute(
                 "UPDATE agents SET kind = 'retired'
                  WHERE kind = 'main' AND id NOT IN (SELECT value FROM json_each(?1))",
@@ -502,16 +513,56 @@ impl Store {
         Ok(Ok((selection.clone(), arrived)))
     }
 
-    /// Copies the staged rows, a batch per transaction; the bots read `arriving` until the end.
-    fn copy_staged(&self, stage: &Stage) -> Result<std::result::Result<(), String>> {
-        for table in MOVE_TABLES {
+    /// The first staged row whose own key is already taken here, in words; `None` when every
+    /// key is new. Read a batch at a time.
+    fn move_collisions(&self, stage: &Stage) -> Result<Option<String>> {
+        for table in MOVE_TABLES.iter().filter(|t| t.unique) {
+            // One lookup by the table's own key per row, so each is an index probe: the work is
+            // the move's size, never this machine's history (ADR 0170).
+            let sql = format!(
+                "SELECT 1 FROM {} WHERE {} LIMIT 1",
+                table.name,
+                table.by_key()
+            );
+            let mut after = 0;
+            loop {
+                let (keys, last) = stage.keys(table, after, MOVE_BATCH)?;
+                if keys.is_empty() {
+                    break;
+                }
+                after = last;
+                let connection = self.lock()?;
+                let mut statement = connection.prepare_cached(&sql)?;
+                for key in &keys {
+                    if statement.exists(rusqlite::params_from_iter(key.iter()))? {
+                        return Ok(Some(format!(
+                            "this machine already has something it would bring ({})",
+                            table.name
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Copies the staged rows, a batch per transaction (`MOVE_BATCH` rows or
+    /// `MOVE_BATCH_BYTES`); the bots read `arriving` and their routines paused until the end.
+    fn copy_staged(
+        &self,
+        stage: &Stage,
+        after_batch: &dyn Fn(),
+    ) -> Result<std::result::Result<(), (String, Copied)>> {
+        for (index, table) in MOVE_TABLES.iter().enumerate() {
+            let mut committed = 0;
             let sql = format!(
                 "INSERT INTO {} ({}) VALUES ({})",
                 table.name,
                 table.select_list(),
                 vec!["?"; table.columns.len()].join(", ")
             );
-            let kind = table.columns.iter().position(|c| c.name == "kind");
+            let at = |name: &str| table.columns.iter().position(|c| c.name == name);
+            let (kind, paused, due) = (at("kind"), at("paused"), at("next_due_ms"));
             let mut after = 0;
             loop {
                 let (rows, last) = stage.page(table, after, MOVE_BATCH)?;
@@ -519,63 +570,103 @@ impl Store {
                     break;
                 }
                 after = last;
-                let mut connection = self.lock()?;
-                let tx = connection.transaction()?;
-                for mut values in rows {
-                    if table.name == "agents"
-                        && let Some(at) = kind
-                    {
-                        values[at] = rusqlite::types::Value::Text("arriving".to_owned());
+                {
+                    let mut connection = self.lock()?;
+                    let tx = connection.transaction()?;
+                    for mut values in rows {
+                        if table.name == "agents"
+                            && let Some(at) = kind
+                        {
+                            values[at] = rusqlite::types::Value::Text("arriving".to_owned());
+                        }
+                        if table.name == "routines"
+                            && let (Some(paused), Some(due)) = (paused, due)
+                        {
+                            values[paused] = rusqlite::types::Value::Integer(1);
+                            values[due] = rusqlite::types::Value::Null;
+                        }
+                        if let Err(error) =
+                            tx.execute(&sql, rusqlite::params_from_iter(values.iter()))
+                        {
+                            // This batch's transaction goes; what came before stays copied.
+                            let problem = format!("{} couldn't be written: {error}", table.name);
+                            return Ok(Err((problem, (index, committed))));
+                        }
                     }
-                    if let Err(error) = tx.execute(&sql, rusqlite::params_from_iter(values.iter()))
-                    {
-                        return Ok(Err(format!("{} couldn't be written: {error}", table.name)));
-                    }
+                    tx.commit()?;
                 }
-                tx.commit()?;
+                committed = last;
+                after_batch();
             }
         }
         Ok(Ok(()))
     }
 
-    /// Sums what landed for the selection, a page at a time, against what was sent.
-    fn check_copied(
+    /// Deletes exactly what a move with these staged rows inserted here: each row by its own
+    /// key, and rows keyed only by their owner by the move's own new conversations and bots;
+    /// with `copied`, only as far as the copy got. A batch at a time; nothing else here is
+    /// touched. Can run again after a restart.
+    pub fn move_rollback(
         &self,
+        stage: &Stage,
         selection: &Selection,
-        expected: &BTreeMap<String, TableSum>,
-        kinds: &[(String, String)],
-    ) -> Result<std::result::Result<(), String>> {
-        for table in MOVE_TABLES {
-            let mut sums = RowSums::default();
-            let mut cursor = None;
-            loop {
-                let (rows, next) = self.move_page(table, selection, &cursor)?;
-                for mut row in rows {
-                    // Summed as it came: the bots read `arriving` only until they are this
-                    // machine's.
-                    if table.name == "agents"
-                        && let Some((_, kind)) = kinds.iter().find(|(id, _)| row["id"] == **id)
-                    {
-                        row.insert("kind".into(), Value::String(kind.clone()));
+        copied: Option<Copied>,
+    ) -> Result<()> {
+        for (index, table) in MOVE_TABLES.iter().enumerate().rev() {
+            let upto = match copied {
+                Some((at, _)) if index > at => continue,
+                Some((at, rowid)) if index == at => rowid,
+                _ => i64::MAX,
+            };
+            if !table.unique {
+                let sql = format!(
+                    "DELETE FROM {name} WHERE rowid IN
+                       (SELECT rowid FROM {name} WHERE {filter} LIMIT {MOVE_BATCH})",
+                    name = table.name,
+                    filter = table.filter
+                );
+                loop {
+                    let connection = self.lock()?;
+                    let mut statement = connection.prepare(&sql)?;
+                    bind(&mut statement, selection)?;
+                    if statement.raw_execute()? == 0 {
+                        break;
                     }
-                    sums.add(&row);
                 }
-                match next {
-                    Some(next) => cursor = Some(next),
-                    None => break,
-                }
+                continue;
             }
-            let got = sums.finish();
-            if Some(&got) != expected.get(table.name).or(Some(&TableSum::default())) {
-                return Ok(Err(format!(
-                    "{} landed with {} rows where {} were sent",
-                    table.name,
-                    got.rows,
-                    expected.get(table.name).map_or(0, |s| s.rows)
-                )));
+            // By the table's own key, one index probe per row the move inserted.
+            let sql = format!("DELETE FROM {} WHERE {}", table.name, table.by_key());
+            let mut after = 0;
+            loop {
+                let (keys, last) = stage.keys_upto(table, after, upto, MOVE_BATCH)?;
+                if keys.is_empty() {
+                    break;
+                }
+                after = last;
+                let mut connection = self.lock()?;
+                let tx = connection.transaction()?;
+                {
+                    let mut statement = tx.prepare_cached(&sql)?;
+                    for key in &keys {
+                        statement.execute(rusqlite::params_from_iter(key.iter()))?;
+                    }
+                }
+                tx.commit()?;
             }
         }
-        Ok(Ok(()))
+        Ok(())
+    }
+
+    /// The bots still arriving here, by id (kind `arriving`), and what they own: what the gate
+    /// holds closed until their moves end (ADR 0187).
+    pub fn arriving_selection(&self) -> Result<Selection> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare("SELECT id FROM agents WHERE kind = 'arriving'")?;
+        let ids: Vec<String> = statement
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(selection_in(&connection, &ids)?)
     }
 
     /// Removes rows a move took away (the bot's copy is archived in files first), a batch at a

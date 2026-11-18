@@ -51,7 +51,7 @@ impl Engine {
         if self.frozen(conversation) {
             return Err(RoutineDeliveryError::Disabled);
         }
-        if self.store.conversation(conversation)?.is_none() || self.deleting(conversation) {
+        if !self.reachable(conversation)? || self.deleting(conversation) {
             return Err(RoutineDeliveryError::Gone);
         }
         if self.disabled_main(conversation)? {

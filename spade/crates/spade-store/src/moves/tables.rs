@@ -73,6 +73,12 @@ pub struct MoveTable {
     /// What a row is found by when the table is read or emptied in pages: `rowid`, or the
     /// primary key of a table without one.
     pub(super) key: &'static str,
+    /// The row's own key on every machine: what must not exist where a move arrives, and what
+    /// a failed arrival deletes, row by row. For a table without one, the column naming the
+    /// conversation or bot the row belongs to, new there too.
+    pub(super) pk: &'static str,
+    /// Whether `pk` names one row (checked for collisions), or only its owner.
+    pub(super) unique: bool,
 }
 
 impl MoveTable {
@@ -87,6 +93,16 @@ impl MoveTable {
             .map(|c| format!("\"{}\"", c.name))
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    /// `WHERE` terms matching one row by its own key (`pk`), bound in order: an index probe.
+    pub(super) fn by_key(&self) -> String {
+        self.pk
+            .split(", ")
+            .enumerate()
+            .map(|(i, column)| format!("{column} = ?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(" AND ")
     }
 }
 
@@ -119,6 +135,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Derived,
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: "agents",
@@ -137,6 +155,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Agent,
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: EVENTS,
@@ -149,6 +169,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Derived,
         key: "conversation_id, seq",
+        pk: "conversation_id, seq",
+        unique: true,
     },
     MoveTable {
         name: "spend",
@@ -162,6 +184,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Derived,
         key: "rowid",
+        pk: "conversation_id",
+        unique: false,
     },
     MoveTable {
         name: "seen",
@@ -169,6 +193,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         columns: &[text("conversation_id"), int("seq"), int("at_ms")],
         owner: Owner::Derived,
         key: "conversation_id",
+        pk: "conversation_id",
+        unique: true,
     },
     MoveTable {
         name: "helpers",
@@ -187,6 +213,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Derived,
         key: "rowid",
+        pk: "conversation_id",
+        unique: true,
     },
     MoveTable {
         name: "notes",
@@ -204,6 +232,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: "knowledge",
@@ -226,6 +256,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: "knowledge_links",
@@ -234,6 +266,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         columns: &[text("from_id"), text("to_id"), text("relation")],
         owner: Owner::Derived,
         key: "from_id, to_id",
+        pk: "from_id, to_id",
+        unique: true,
     },
     MoveTable {
         name: "episodes",
@@ -254,6 +288,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: "digests",
@@ -271,6 +307,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
+        pk: "agent_id",
+        unique: false,
     },
     // A webhook's secret never travels: the other machine makes a new one.
     MoveTable {
@@ -293,6 +331,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: "routine_runs",
@@ -310,6 +350,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Derived,
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: "skill_uses",
@@ -317,6 +359,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         columns: &[text("agent_id"), text("name"), int("loads"), int("helpful")],
         owner: Owner::AgentColumn("agent_id"),
         key: "rowid",
+        pk: "agent_id, name",
+        unique: true,
     },
     MoveTable {
         name: "groups",
@@ -332,6 +376,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Lead,
         key: "rowid",
+        pk: "id",
+        unique: true,
     },
     MoveTable {
         name: "group_members",
@@ -346,6 +392,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::Derived,
         key: "group_id, machine, agent_id",
+        pk: "group_id, machine, agent_id",
+        unique: true,
     },
     MoveTable {
         name: "inbox",
@@ -361,6 +409,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         ],
         owner: Owner::AgentColumn("agent_id"),
         key: "from_host, key",
+        pk: "from_host, key",
+        unique: true,
     },
     MoveTable {
         name: "settings",
@@ -369,6 +419,8 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         columns: &[text("key"), text("value")],
         owner: Owner::Setting,
         key: "rowid",
+        pk: "key",
+        unique: true,
     },
 ];
 

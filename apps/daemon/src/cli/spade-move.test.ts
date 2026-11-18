@@ -29,7 +29,13 @@ function spade(reads: unknown[]) {
 }
 
 const sending = { id: "mv_1", to: { host: "host-studio", name: "Studio Mac" }, state: "sending" };
-const packed = { ...sending, state: "awaiting", from: "host-laptop", digest: "b".repeat(64) };
+const packed = {
+  ...sending,
+  state: "awaiting",
+  from: "host-laptop",
+  via: "dev-laptop",
+  digest: "b".repeat(64),
+};
 const never = async () => {
   throw new Error("nothing to accept");
 };
@@ -49,7 +55,14 @@ test("a move is accepted on the other machine once packed, then followed until t
     },
   );
   expect(accepted).toEqual([
-    { bot: "a_1", from: "host-laptop", to: "host-studio", digest: "b".repeat(64), replaces: "bot" },
+    {
+      bot: "a_1",
+      from: "host-laptop",
+      via: "dev-laptop",
+      to: "host-studio",
+      digest: "b".repeat(64),
+      replaces: "bot",
+    },
   ]);
   expect(moved).toEqual({
     bot: { id: "a_1", name: "Research" },

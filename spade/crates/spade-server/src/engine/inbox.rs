@@ -76,6 +76,9 @@ impl Engine {
             Some("answer") => self.inbox_answer(sender, body).await,
             Some("stop") => self.inbox_stop(sender, body),
             Some("move") => self.inbox_move(sender, body, connectors).await,
+            // How this machine's daemon knows the caller (ADR 0187): the device a move from it
+            // is bound to once the person accepts it.
+            Some("whoami") => (200, json!({ "sender": sender.host })),
             _ => refuse(400, "unknown op"),
         }
     }

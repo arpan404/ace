@@ -24,7 +24,7 @@ test("a move reads as one sentence for where it is", () => {
   expect(say({ state: "sending", waiting: true })).toBe("Waiting for Studio to come online.");
   expect(say({ state: "awaiting" })).toBe("Waiting for your say on Studio.");
   expect(say({ state: "committing", waiting: true })).toBe(
-    "Waiting for Studio to finish the move.",
+    "Waiting for Studio to finish the move. Research stays here until Studio answers.",
   );
   expect(say({ state: "failed", problem: "notes arrived with 1 rows where 2 were sent" })).toBe(
     "Couldn't move Research to Studio: notes arrived with 1 rows where 2 were sent. It's still here.",
@@ -34,8 +34,9 @@ test("a move reads as one sentence for where it is", () => {
 test("a packed move says what the person accepts on the machine it goes to", () => {
   const digest = "a".repeat(64);
   expect(
-    move({ state: "awaiting", from: "host-laptop", digest, replaces: "main" })?.accept,
-  ).toEqual({ from: "host-laptop", digest, replaces: "main" });
+    move({ state: "awaiting", from: "host-laptop", via: "dev-1", digest, replaces: "main" })
+      ?.accept,
+  ).toEqual({ from: "host-laptop", via: "dev-1", digest, replaces: "main" });
   expect(move({ state: "packing" })?.accept).toBeUndefined();
   expect(move({ state: "awaiting", from: "h1", digest: "not-a-hash" })?.accept).toBeUndefined();
 });

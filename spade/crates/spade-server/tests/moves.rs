@@ -324,6 +324,13 @@ async fn a_move_interrupted_by_a_restart_carries_on_by_itself() -> Result {
         .await?;
     fleet.unreachable.store(false, Ordering::SeqCst);
     link(&fleet, "host-laptop", &laptop);
+    // The person's say, given once the restarted laptop says what to accept.
+    let started = support::fleet::packed(&laptop, &bot).await?;
+    let accepted = support::fleet::accepting(&bot, &started, "host-studio");
+    assert_eq!(
+        support::fleet::accept(&studio, "mv_4", &accepted, true).await?,
+        200
+    );
     assert_eq!(move_ends(&laptop, &bot).await?, Value::Null, "it finished");
     assert!(listed(&laptop, &bot).await?.is_none());
     assert!(listed(&studio, &bot).await?.is_some());

@@ -342,8 +342,13 @@ impl Engine {
         // Levels Spade no longer has move forward to the auto-review (ADR 0163); then Spade exists
         // from the first answer, whatever setup does later.
         engine.retire_levels()?;
+        // Every move's hold first, before anything of a moving or arriving bot can run.
+        engine.restore_moves()?;
         engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
+            if engine.frozen(&conversation.id) {
+                continue;
+            }
             let events = engine.load(&conversation.id)?;
             let transcript = Transcript::fold(events.iter());
             if let Some(close) = transcript.close_after_restart() {
@@ -592,7 +597,7 @@ impl Engine {
     }
 
     pub fn events(&self, id: &str, after: i64) -> Result<Option<Vec<StoredEvent>>, StoreError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Ok(None);
         }
         Ok(Some(self.store.events(id, after)?))
@@ -748,7 +753,7 @@ impl Engine {
 
     /// Live frames after `after`, with the stored backlog and the open reply's text so far.
     pub fn subscribe(&self, id: &str, after: i64) -> Result<Option<Subscription>, StoreError> {
-        if self.store.conversation(id)?.is_none() {
+        if !self.reachable(id)? {
             return Ok(None);
         }
         let live = self.live(id);

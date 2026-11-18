@@ -435,7 +435,7 @@ mod tests {
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
                  DROP TABLE episodes_search; DROP TABLE episodes;
-                 DROP TABLE moves;",
+                 DROP TABLE moves; DROP TABLE move_claims;",
             )?;
             connection.pragma_update(
                 None,

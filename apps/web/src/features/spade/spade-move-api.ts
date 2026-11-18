@@ -47,6 +47,7 @@ export function newMoveId(uuid: string): string {
 export interface MoveAcceptance {
   bot: string;
   from: string;
+  via: string;
   to: string;
   digest: string;
   replaces: "bot" | "main";
@@ -87,6 +88,11 @@ export async function startMove(
 /** Cancels a move still copying, or dismisses one that failed. */
 export async function cancelMove(target: SpadeTarget, bot: string): Promise<void> {
   await spadeHttp(target, "DELETE", `/v1/agents/${segment(bot)}/move`);
+}
+
+/** The person's Check again: a move waiting on the other machine asks it now. */
+export async function checkMove(target: SpadeTarget, bot: string): Promise<void> {
+  await spadeHttp(target, "POST", `/v1/agents/${segment(bot)}/move/check`, { body: {} });
 }
 
 /** Dismisses what an arrived bot's profile says needs the person. */

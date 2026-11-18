@@ -577,6 +577,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return reply({ move: null });
       }
       if (request.method === "GET") return reply({ move: agent.move ?? null });
+      if (subId === "check") return reply({ checking: true });
       if (agent.state !== "idle")
         return problem(
           409,
@@ -589,6 +590,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         to: { host: to, name: this.machineNames.get(to) ?? to },
         state: "sending",
         from: this.here ?? "this-mac",
+        via: `dev-${this.here ?? "this-mac"}`,
         digest: "a".repeat(64),
         replaces: agent.kind === "main" ? "main" : "bot",
         sent: 3,

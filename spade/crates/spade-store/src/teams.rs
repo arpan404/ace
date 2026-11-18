@@ -53,6 +53,9 @@ pub(crate) const SCHEMA: &str = "
     ) WITHOUT ROWID;
 ";
 
+/// A club led by a bot still arriving from another machine (ADR 0187) is no club here yet.
+const LIVE_GROUP: &str = "lead_id NOT IN (SELECT id FROM agents WHERE kind = 'arriving')";
+
 /// A group member: a bot of this machine (`machine` empty) or of another, by host id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredMember {
@@ -238,7 +241,7 @@ impl Store {
     pub fn groups(&self) -> Result<Vec<StoredGroup>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {GROUP_COLUMNS} FROM groups ORDER BY created_ms"
+            "SELECT {GROUP_COLUMNS} FROM groups WHERE {LIVE_GROUP} ORDER BY created_ms"
         ))?;
         let mut groups = statement
             .query_map([], group_row)?
@@ -253,7 +256,7 @@ impl Store {
         let connection = self.lock()?;
         let group = connection
             .query_row(
-                &format!("SELECT {GROUP_COLUMNS} FROM groups WHERE id = ?1"),
+                &format!("SELECT {GROUP_COLUMNS} FROM groups WHERE id = ?1 AND {LIVE_GROUP}"),
                 params![id],
                 group_row,
             )
@@ -270,7 +273,8 @@ impl Store {
         Ok(self
             .lock()?
             .query_row(
-                "SELECT id FROM groups WHERE conversation_id = ?1",
+                "SELECT id FROM groups WHERE conversation_id = ?1
+                 AND lead_id NOT IN (SELECT id FROM agents WHERE kind = 'arriving')",
                 params![conversation],
                 |row| row.get(0),
             )

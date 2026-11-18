@@ -48,7 +48,7 @@ impl Engine {
     /// failed reply is marked retried in the same write that opens the new one, so a client shows
     /// the new reply in its place and a crash never keeps one without the other.
     pub fn try_again(self: &Arc<Self>, id: &str, reply: &str) -> Result<(), RetryError> {
-        if self.store.conversation(id)?.is_none() || self.deleting(id) {
+        if !self.reachable(id)? || self.deleting(id) {
             return Err(SendError::NotFound.into());
         }
         if self.disabled_main(id)? {

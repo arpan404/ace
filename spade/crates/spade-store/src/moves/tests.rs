@@ -122,11 +122,12 @@ fn import_as(
             &stage,
             Activation {
                 selection: &selection,
-                expected: sums,
                 main,
                 main_active: &active,
+                after_batch: &|| {},
                 arriving: Arriving {
                     move_id: "mv_1",
+                    routines_paused: stage.running_routines().map_err(|e| e.to_string())?,
                     placing: "placing",
                     now_ms: 5,
                     from: "host-laptop",
@@ -326,4 +327,121 @@ fn spade_in_use_here_is_never_replaced_and_nothing_of_the_move_is_kept() {
     let refused = import_as(&to, rows, &sums, true, true);
     assert!(refused.is_err_and(|why| why.contains("in use")));
     untouched(&to);
+}
+
+/// `a_1`'s rows, with every `from` in values that name a conversation or club made `to`.
+fn renamed(rows: Rows, table: &str, column: &str, from: &str, to: &str) -> Rows {
+    rows.into_iter()
+        .map(|(name, list)| {
+            let list = list
+                .into_iter()
+                .map(|mut row| {
+                    if (name == table || table == "*")
+                        && row.get(column).and_then(Value::as_str) == Some(from)
+                    {
+                        row.insert(column.into(), json!(to));
+                    }
+                    row
+                })
+                .collect();
+            (name, list)
+        })
+        .collect()
+}
+
+fn sums_of(rows: &Rows) -> BTreeMap<String, TableSum> {
+    MOVE_TABLES
+        .iter()
+        .map(|table| {
+            let mut sum = RowSums::default();
+            for (_, list) in rows.iter().filter(|(name, _)| name == table.name) {
+                for row in list {
+                    sum.add(row);
+                }
+            }
+            (table.name.to_owned(), sum.finish())
+        })
+        .collect()
+}
+
+#[test]
+fn a_move_bringing_a_conversation_id_this_machine_has_is_refused_and_that_conversation_is_untouched()
+ {
+    let (_a, from) = source();
+    let (rows, _) = export(&from);
+    // The moving bot's conversation carries the id of a conversation the target already has.
+    let rows = renamed(rows, "conversations", "id", "c_a_1", "c_a_9");
+    let rows = renamed(rows, "*", "conversation_id", "c_a_1", "c_a_9");
+    let sums = sums_of(&rows);
+    let (_b, to) = target();
+    let before = to.events("c_a_9", 0).unwrap_or_default();
+    let refused = import(&to, rows, &sums);
+    assert!(refused.is_err_and(|why| why.contains("already has")));
+    untouched(&to);
+    assert_eq!(
+        to.events("c_a_9", 0).unwrap_or_default(),
+        before,
+        "not a row of it went"
+    );
+    assert!(to.agent("a_9").ok().flatten().is_some());
+}
+
+#[test]
+fn a_move_bringing_a_club_id_this_machine_has_is_refused_and_that_club_is_untouched() {
+    let (_a, from) = source();
+    let (mut rows, _) = export(&from);
+    rows.push((
+        "conversations".into(),
+        vec![row(
+            json!({ "id": "c_club", "title": null, "created_ms": 1, "updated_ms": 1 }),
+        )],
+    ));
+    rows.push((
+        "groups".into(),
+        vec![row(
+            json!({ "id": "g_1", "name": "Launch", "lead_id": "a_1",
+            "conversation_id": "c_club", "created_ms": 1, "updated_ms": 1, "pinned_ms": null }),
+        )],
+    ));
+    let sums = sums_of(&rows);
+    let (_b, to) = target();
+    // The target's own club with that id, led by its own bot.
+    to.create_group(&crate::StoredGroup {
+        id: "g_1".into(),
+        name: "Mine".into(),
+        lead_id: "a_9".into(),
+        conversation: "c_mine".into(),
+        members: Vec::new(),
+        created_ms: 1,
+        updated_ms: 1,
+        pinned_ms: None,
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
+    let refused = import(&to, rows, &sums);
+    assert!(refused.is_err_and(|why| why.contains("already has")));
+    untouched(&to);
+    let kept = to.group("g_1").ok().flatten();
+    assert_eq!(
+        kept.map(|g| g.name),
+        Some("Mine".to_owned()),
+        "the target's club stays"
+    );
+}
+
+#[test]
+fn a_page_holds_its_rows_or_its_bytes_whichever_comes_first() {
+    let (_a, from) = source();
+    let big = "x".repeat(3 * 1024 * 1024);
+    let events: Vec<Event> = (0..3).map(|_| Event::user_message(big.clone())).collect();
+    from.append_all("c_a_1", &events, 2)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let selection = from
+        .move_selection(&["a_1".to_owned()])
+        .unwrap_or_else(|e| panic!("{e}"));
+    let table = super::move_table(super::EVENTS).unwrap_or_else(|| panic!("events"));
+    let (first, next) = from
+        .move_page(table, &selection, &None)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(first.len() < 4, "a page of {} rows of 3 MB", first.len());
+    assert!(next.is_some(), "and more to read");
 }

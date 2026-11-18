@@ -54,6 +54,8 @@ pub struct Fleet {
     pub lose_commit_answer: AtomicBool,
     /// Every request body carried, as sent.
     pub carried: Mutex<Vec<String>>,
+    /// Each machine's ace home, by host id, for restarts.
+    pub homes: Mutex<Vec<(String, std::path::PathBuf)>>,
 }
 
 /// One machine's daemon as its Spade sees it.
@@ -216,13 +218,22 @@ pub async fn machine_with(
         },
     )
     .await?;
+    lock(&fleet.homes).push((host.to_owned(), home.clone()));
+    secure(&spade, &home, &key).await?;
+    lock(&fleet.spades).push((host.to_owned(), spade.base.clone(), name.to_owned()));
+    link(fleet, host, &spade);
+    Ok(spade)
+}
+
+/// Runs Spade's security service on `spade`, with the person's key ace's daemon shares.
+async fn secure(spade: &Spade, home: &std::path::Path, key: &std::path::Path) -> Result<()> {
     let bots = EngineHandle::default();
     bots.set(&spade.engine);
     let data = spade.dir.path().to_path_buf();
     let security = Security::start(Setup {
         runner: spade_sandbox::Runner::unavailable("no sandbox in this test"),
         store: Store::open(&spade.database())?,
-        home: home.clone(),
+        home: home.to_path_buf(),
         spade_data: data.clone(),
         ace_data: None,
         workspaces: data.join("workspace"),
@@ -230,12 +241,39 @@ pub async fn machine_with(
         clock: Arc::new(SystemClock),
         ids: Arc::new(CountingIds::default()),
         bots,
-        person_key: Some(key),
+        person_key: Some(key.to_path_buf()),
     })
     .await;
     spade.engine.set_security(security);
-    lock(&fleet.spades).push((host.to_owned(), spade.base.clone(), name.to_owned()));
-    link(fleet, host, &spade);
+    Ok(())
+}
+
+/// Restarts `spade` as the machine `host`, with its ace home and its security service, but not
+/// linked into the fleet yet (`link` does that): until then it hears inbox requests but can
+/// reach no other machine.
+pub async fn restart(fleet: &Arc<Fleet>, host: &str, spade: Spade) -> Result<Spade> {
+    let home = lock(&fleet.homes)
+        .iter()
+        .find(|(h, _)| h == host)
+        .map(|(_, home)| home.clone())
+        .ok_or("no such machine")?;
+    let spade = spade
+        .restart_with(
+            Vec::new(),
+            vec![Script::reply("unused")],
+            Options {
+                ace_home: Some(home.clone()),
+                ids: Some(Arc::new(MachineIds("r", AtomicU64::new(0)))),
+                connectors: true,
+                ..Options::default()
+            },
+        )
+        .await?;
+    let key = home.join(spade_server::security::attest::KEY_FILE);
+    secure(&spade, &home, &key).await?;
+    if let Some(entry) = lock(&fleet.spades).iter_mut().find(|(h, _, _)| h == host) {
+        entry.1 = spade.base.clone();
+    }
     Ok(spade)
 }
 
@@ -256,21 +294,31 @@ pub fn stamp(target: &str, value: &str) -> String {
     spade_server::security::attest::sign(&PERSON_KEY, target, value, now_ms(), &nonce)
 }
 
-/// What the person accepts: `PUT /v1/moves/{move}/accept` with `accept` (`{bot, from, to,
+/// What the person accepts: `PUT /v1/moves/{move}/accept` with `accept` (`{bot, from, via, to,
 /// digest, replaces}`) on `spade`, stamped over all of it unless `stamped` is false.
 pub async fn accept(spade: &Spade, id: &str, accept: &Value, stamped: bool) -> Result<u16> {
+    accept_at(&spade.http, &spade.base, id, accept, stamped).await
+}
+
+async fn accept_at(
+    http: &reqwest::Client,
+    base: &str,
+    id: &str,
+    accept: &Value,
+    stamped: bool,
+) -> Result<u16> {
     let field = |name: &str| accept[name].as_str().unwrap_or_default().to_owned();
     let value = format!(
-        "accept:{}:{}:{}:{}:{}",
+        "accept:{}:{}:{}:{}:{}:{}",
         field("bot"),
         field("from"),
+        field("via"),
         field("to"),
         field("digest"),
         field("replaces")
     );
-    let mut request = spade
-        .http
-        .put(format!("{}/v1/moves/{id}/accept", spade.base))
+    let mut request = http
+        .put(format!("{base}/v1/moves/{id}/accept"))
         .bearer_auth(TOKEN)
         .json(accept);
     if stamped {
@@ -282,16 +330,36 @@ pub async fn accept(spade: &Spade, id: &str, accept: &Value, stamped: bool) -> R
     Ok(request.send().await?.status().as_u16())
 }
 
-/// The move from `spade` once it says what the person accepts (its manifest's hash).
-pub async fn packed(spade: &Spade, bot: &str) -> Result<Value> {
-    for _ in 0..600 {
-        let (_, body) = spade.get(&format!("/v1/agents/{bot}/move")).await?;
-        if body["move"]["digest"].is_string() || body["move"]["state"] == "failed" {
-            return Ok(body["move"].clone());
+async fn packed_at(http: &reqwest::Client, base: &str, bot: &str) -> Option<Value> {
+    loop {
+        let answer = http
+            .get(format!("{base}/v1/agents/{bot}/move"))
+            .bearer_auth(TOKEN)
+            .send()
+            .await
+            .ok()?;
+        let body: Value = answer.json().await.ok()?;
+        let shown = &body["move"];
+        if shown.is_null() || shown["state"] == "failed" {
+            return None;
+        }
+        if shown["digest"].is_string() && shown["via"].is_string() {
+            return Some(shown.clone());
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    Err("the move never said what to accept".into())
+}
+
+/// The move from `spade` once it says what the person accepts (its manifest's hash and the
+/// device it is known by there), or as it ended.
+pub async fn packed(spade: &Spade, bot: &str) -> Result<Value> {
+    let found = tokio::time::timeout(
+        Duration::from_secs(15),
+        packed_at(&spade.http, &spade.base, bot),
+    )
+    .await
+    .map_err(|_| "the move never said what to accept")?;
+    Ok(found.unwrap_or(Value::Null))
 }
 
 /// What the person accepts for `started` (as `packed` read it), to the machine `to`.
@@ -299,14 +367,15 @@ pub fn accepting(bot: &str, started: &Value, to: &str) -> Value {
     serde_json::json!({
         "bot": bot,
         "from": started["from"],
+        "via": started["via"],
         "to": to,
         "digest": started["digest"],
         "replaces": started["replaces"],
     })
 }
 
-/// The app's one click: starts the move on `from`, then, once it is packed, the person accepts
-/// it on `to`. Answers the start.
+/// The app's one click: starts the move on `from`; once it is packed (whenever the other
+/// machine can be reached), the person accepts it on `to`. Answers the start.
 pub async fn move_bot(
     from: &Spade,
     to: &Spade,
@@ -323,14 +392,13 @@ pub async fn move_bot(
     if status != 202 {
         return Ok((status, started));
     }
-    let packed = packed(from, bot).await?;
-    if packed["state"] != "failed" {
-        assert_eq!(
-            accept(to, id, &accepting(bot, &packed, host), true).await?,
-            200,
-            "accepted there"
-        );
-    }
+    let (http, source, target) = (from.http.clone(), from.base.clone(), to.base.clone());
+    let (bot, id, host) = (bot.to_owned(), id.to_owned(), host.to_owned());
+    tokio::spawn(async move {
+        if let Some(packed) = packed_at(&http, &source, &bot).await {
+            let _ = accept_at(&http, &target, &id, &accepting(&bot, &packed, &host), true).await;
+        }
+    });
     Ok((status, started))
 }
 

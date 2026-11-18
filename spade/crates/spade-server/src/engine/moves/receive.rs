@@ -130,10 +130,9 @@ impl Engine {
             Err(error) => return refuse(500, &error.to_string()),
         };
         let kept = detail(&entry);
-        // Once begun, a move hears only from the machine that began it.
-        if let Some(from) = kept["sender"].as_str()
-            && from != sender.host
-        {
+        // Every step comes from the device the person accepted the move from, as this machine's
+        // daemon authenticated it: no other machine can begin, feed, commit, read or abort it.
+        if kept["via"].as_str() != Some(sender.host.as_str()) {
             return refuse(403, "this move is another machine's");
         }
         match body["step"].as_str() {
@@ -201,8 +200,27 @@ impl Engine {
             Ok(declared) => declared,
             Err(problem) => return refuse(413, &problem),
         };
+        // A few moves arrive at once, and together they must fit the disk.
+        let arriving: Vec<StoredMove> = self
+            .store
+            .open_moves(IN)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|other| other.id != entry.id && other.state != ACCEPTED)
+            .collect();
+        if arriving.len() >= super::MOST_ARRIVING {
+            return refuse(
+                429,
+                "other moves are arriving here; try again once they have",
+            );
+        }
+        let reserved: u64 = arriving
+            .iter()
+            .filter_map(|other| budget::declared(&detail(other)["manifest"]).ok())
+            .map(budget::room_needed)
+            .fold(budget::room_needed(declared), u64::saturating_add);
         if let Some(free) = budget::free_bytes(&self.data_dir())
-            && free < budget::room_needed(declared)
+            && free < reserved
         {
             return refuse(507, "this machine hasn't the room for this move");
         }

@@ -161,13 +161,16 @@ impl Store {
         )
     }
 
+    /// The one agent `condition` names. A bot still arriving from another machine (ADR 0187,
+    /// kind `arriving`) is no agent here until its move makes it one: nothing finds it by its id
+    /// or its conversation, so nothing can reach it or act as it.
     fn agent_where(&self, condition: &str, value: &str) -> Result<Option<Agent>> {
         let connection = self.lock()?;
         Ok(connection
             .query_row(
                 &format!(
                     "SELECT {COLUMNS} FROM agents a JOIN conversations c
-                     ON c.id = a.conversation_id WHERE {condition}"
+                     ON c.id = a.conversation_id WHERE ({condition}) AND a.kind != 'arriving'"
                 ),
                 params![value],
                 agent,

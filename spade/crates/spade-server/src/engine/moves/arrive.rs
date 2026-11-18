@@ -324,6 +324,7 @@ impl Engine {
         };
         let arriving = Arriving {
             move_id: &entry.id,
+            routines_paused: 0,
             placing: PLACING,
             now_ms: self.now_ms(),
             from: &entry.peer,
@@ -362,6 +363,16 @@ impl Engine {
             Ok(Err(problem)) => return Err(refuse(problem)),
             Err(error) => return Err(refuse(error.to_string())),
         };
+        // Everything it carries is claimed for this move, so no other move brings any of it.
+        let claimed = self
+            .store
+            .claim_for_move(&entry.id, &super::claims(&selection))
+            .map_err(|e| Failed::Placing(e.to_string()))?;
+        if !claimed {
+            return Err(refuse(
+                "part of this move is already arriving with another".to_owned(),
+            ));
+        }
         let mut activating = kept.clone();
         activating["selection"] = json!({
             "agents": selection.agents,
@@ -376,34 +387,40 @@ impl Engine {
                 self.now_ms(),
             )
             .map_err(|e| Failed::Placing(e.to_string()))?;
-        self.freeze(&entry.id, &selection.conversations);
+        // The gate closes before the first row lands: nothing reaches or acts as it until it is
+        // this machine's.
+        self.arriving(&entry.id, &selection.conversations);
         let here = self.here();
         let main_active =
             |read: &dyn Fn(&str) -> Option<String>| main_active_with(read, here.as_deref());
+        let mut arriving = arriving;
+        arriving.routines_paused = stage
+            .running_routines()
+            .map_err(|e| refuse(e.to_string()))?;
+        let after_batch = || self.after_batch();
         let written = self.store.move_activate(
             &stage,
             Activation {
                 selection: &selection,
-                expected: &expected,
                 main: entry.main,
                 main_active: &main_active,
+                after_batch: &after_batch,
                 arriving,
             },
         );
         let written = match written {
             Ok(Ok((written, _))) => written,
             Ok(Err(problem)) => {
-                self.thaw(&entry.id, &selection.conversations);
+                self.arrived(&entry.id, &selection.conversations);
                 return Err(refuse(problem));
             }
             Err(error) => {
-                self.thaw(&entry.id, &selection.conversations);
-                let _ = self.store.move_forget(&selection);
-                return Err(refuse(error.to_string()));
+                // What was copied is taken out at the next start (the move reads `activating`).
+                return Err(Failed::Placing(error.to_string()));
             }
         };
         // Nothing of it runs until its files are in place; its apps start at none.
-        self.freeze(&entry.id, &written.conversations);
+        self.arriving(&entry.id, &written.conversations);
         if let Some(hub) = connectors {
             for agent in &agents {
                 let none = spade_connect::Access::Only(BTreeSet::new());
@@ -421,8 +438,9 @@ impl Engine {
         self.finish_placing(&placing)
     }
 
-    /// Takes out what a cut-off activation copied in, a batch at a time, so the source's next
-    /// commit writes it afresh.
+    /// Takes out exactly what a cut-off activation copied in, a batch at a time (its staged
+    /// keys say what), so the source's next commit writes it afresh. The gate stays closed on it
+    /// throughout.
     pub(super) fn undo_activation(&self, entry: &StoredMove) {
         let kept = detail(entry);
         let list = |name: &str| super::strings(&kept["selection"][name]);
@@ -431,13 +449,39 @@ impl Engine {
             conversations: list("conversations"),
             groups: list("groups"),
         };
-        if let Err(error) = self.store.move_forget(&selection) {
+        let stage = self
+            .moves_dir(&entry.id)
+            .and_then(|folder| paths::child(&folder, "in"))
+            .map(|staging| staging.join("stage.sqlite"))
+            .and_then(|path| {
+                Stage::open(&path, &selection.agents, entry.main).map_err(|e| e.to_string())
+            });
+        let undone = match stage {
+            Ok(stage) => self
+                .store
+                .move_rollback(&stage, &selection, None)
+                .map_err(|e| e.to_string()),
+            Err(error) => Err(error),
+        };
+        if let Err(error) = undone {
             tracing::error!(%error, "a cut-off move's rows could not be taken out");
             return;
         }
         let _ = self
             .store
             .set_move(&entry.id, RECEIVING, &entry.detail, self.now_ms());
+        self.arrived(&entry.id, &selection.conversations);
+    }
+
+    /// Lets a test hold an arrival between its batches.
+    fn after_batch(&self) {
+        #[cfg(feature = "test-hooks")]
+        {
+            let hold = super::lock(&self.moves.after_batch).clone();
+            if let Some(hold) = hold {
+                hold();
+            }
+        }
     }
 
     /// What the person must add or allow again here that lies outside the rows: endpoints this
@@ -551,7 +595,7 @@ impl Engine {
         if let Err(error) = paths::remove_child(&data.join("moves"), &entry.id) {
             tracing::warn!(%error, "a moved bot's staging could not be removed");
         }
-        self.thaw(&entry.id, &conversations);
+        self.arrived(&entry.id, &conversations);
         Ok(arrival)
     }
 }
