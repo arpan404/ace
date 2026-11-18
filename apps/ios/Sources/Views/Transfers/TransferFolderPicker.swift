@@ -28,8 +28,8 @@ struct TransferFolderPicker: View {
                 EmptyState(systemImage: "desktopcomputer", title: "Can't browse folders", line: "\(machine) doesn't let this phone browse its folders.")
                     .listRowBackground(Color.clear)
             case "failed":
-                EmptyState(icon: nil, title: "Couldn't search folders", line: "Couldn't search the folders on \(machine). Check the connection and try again.", failed: true)
-                    .listRowBackground(Color.clear)
+                ProblemRow("Couldn't search the folders on \(machine).", detail: "Check the connection and try again.",
+                           id: "transfer.folders.problem") { search(query) }
             default:
                 SkeletonRows(count: 3, label: "Reading folders").listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
@@ -41,9 +41,10 @@ struct TransferFolderPicker: View {
         .task(id: query) {
             if !query.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
             guard !Task.isCancelled else { return }
-            client.composeAction(["kind": "folders", "query": query])
+            search(query)
         }
     }
+    private func search(_ text: String) { client.composeAction(["kind": "folders", "query": text]) }
     private func row(_ title: String, subtitle: String, path: String?) -> some View {
         Button { choose(path); dismiss() } label: {
             HStack(spacing: AceTheme.Spacing.md) {
