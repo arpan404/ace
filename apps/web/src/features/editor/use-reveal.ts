@@ -29,7 +29,7 @@ export function caretBox(
     };
   const rows = layout.rowsOf(position.line);
   const at = rowOfColumn(rows, position.column, before);
-  const row = rows[at] ?? rows[0];
+  const row = rows.at(at) ?? rows.at(0);
   return {
     left: gutter + (row ? rowOffset(text, row, position.column) : 0) * cell,
     top: (layout.startOf(position.line) + at) * lineHeight,

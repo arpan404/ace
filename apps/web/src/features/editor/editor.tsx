@@ -311,7 +311,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               const to = Math.min(lineRows.length, lastRow - startRow);
               const drawn = [];
               for (let at = from; at < to; at++) {
-                const row = lineRows[at];
+                const row = lineRows.at(at);
                 if (!row) continue;
                 const index = startRow + at;
                 const end = Math.min(row.end, text.length);

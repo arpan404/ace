@@ -88,7 +88,7 @@ export class ScrollAnchor {
     const line = layout.lineAt(row);
     const rows = layout.rowsOf(line);
     const at = Math.max(0, Math.min(row - layout.startOf(line), rows.length - 1));
-    this.#pending = { line, column: rows[at]?.start ?? 0, pixels: top - row * lineHeight };
+    this.#pending = { line, column: rows.at(at)?.start ?? 0, pixels: top - row * lineHeight };
   }
 
   /** Maps the remembered position through the ranges a transaction replaced. */

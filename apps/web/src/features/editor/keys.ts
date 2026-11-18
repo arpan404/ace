@@ -70,7 +70,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const rowAt = (position: Position, before = false) => {
     const rows = layout?.rowsOf(position.line) ?? [];
     const at = rows.length ? rowOfColumn(rows, position.column, before) : 0;
-    return { rows, at, row: rows[at] };
+    return { rows, at, row: rows.at(at) };
   };
 
   const offsetOf = (position: Position, before = false): number => {
@@ -104,7 +104,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const target = layout.lineAt(row);
     const rows = layout.rowsOf(target);
     const at = Math.max(0, Math.min(row - layout.startOf(target), rows.length - 1));
-    const visual = rows[at];
+    const visual = rows.at(at);
     if (!visual) return { position: { line: target, column: 0 }, before: false };
     const text = line(target);
     const column =
@@ -161,7 +161,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const home = (position: Position, before: boolean): number => {
     const text = line(position.line);
     const { rows, at } = rowAt(position, before);
-    const row = rows[at];
+    const row = rows.at(at);
     if (!row) return smartHome(text, position.column);
     if (at > 0) return position.column > row.start ? row.start : 0;
     return smartHome(text, position.column);
@@ -170,12 +170,12 @@ export function useEditorKeys(options: EditorKeyOptions) {
   const end = (position: Position, before: boolean): number => {
     const text = line(position.line);
     const { rows, at } = rowAt(position, before);
-    const row = rows[at];
+    const row = rows.at(at);
     if (!row) return text.length;
     const rowEnd = Math.min(row.end, text.length);
     // A caret at a row's end steps to the next row's end, then to the line's.
     if (position.column < rowEnd) return rowEnd;
-    const next = rows[at + 1];
+    const next = rows.at(at + 1);
     return next ? Math.min(next.end, text.length) : text.length;
   };
 

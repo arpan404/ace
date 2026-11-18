@@ -60,30 +60,44 @@ export interface Grapheme {
   width: number;
 }
 
-/** A string's grapheme clusters, so an emoji joined from five code points stays one cell pair. */
-export function graphemes(text: string): Grapheme[] {
+/** One grapheme cluster as a reader sees it: its text and the UTF-16 column it starts at. */
+export interface Cluster {
+  text: string;
+  start: number;
+}
+
+/**
+ * A string's grapheme clusters, one at a time. A reader that stops early or only needs the
+ * clusters near a row never builds the array a whole megabyte line would need.
+ */
+export function* clusters(text: string): Generator<Cluster> {
   if (!segmenter) {
     let at = 0;
-    return Array.from(text).map((char) => {
-      const grapheme = { text: char, start: at, end: at + char.length, width: charWidth(char) };
+    for (const char of text) {
+      yield { text: char, start: at };
       at += char.length;
-      return grapheme;
-    });
+    }
+    return;
   }
+  for (const part of segmenter.segment(text)) yield { text: part.segment, start: part.index };
+}
+
+/** A string's grapheme clusters, so an emoji joined from five code points stays one cell pair. */
+export function graphemes(text: string): Grapheme[] {
   const out: Grapheme[] = [];
-  for (const part of segmenter.segment(text)) {
-    const value = part.segment;
+  for (const cluster of clusters(text)) {
     out.push({
-      text: value,
-      start: part.index,
-      end: part.index + value.length,
-      width: clusterWidth(value),
+      text: cluster.text,
+      start: cluster.start,
+      end: cluster.start + cluster.text.length,
+      width: clusterWidth(cluster.text),
     });
   }
   return out;
 }
 
-function clusterWidth(cluster: string): number {
+/** The cells a whole cluster takes: wide as its widest character, one if it has any narrow one. */
+export function clusterWidth(cluster: string): number {
   let width = 0;
   for (const char of cluster) {
     const cells = charWidth(char);
@@ -157,6 +171,15 @@ const plain = /^[\x20-\x7e]*$/;
 /** Whether a line needs no measurement: only printable ASCII, which is one cell each. */
 export function isPlain(text: string): boolean {
   return plain.test(text);
+}
+
+/**
+ * Whether every code unit is ASCII. No grapheme cluster spans two ASCII code units except a
+ * newline's pair, which a line never holds, so such a line is read one code unit at a time.
+ */
+export function isAscii(text: string): boolean {
+  for (let at = 0; at < text.length; at++) if (text.charCodeAt(at) > 0x7f) return false;
+  return true;
 }
 
 /** A line's width from the cell estimate; plain ASCII is exactly one cell per character. */

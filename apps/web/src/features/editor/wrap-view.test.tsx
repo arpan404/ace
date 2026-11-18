@@ -493,7 +493,7 @@ test("typing at the start of the top line keeps the wrapped row under the edge",
   const lines = text.split("\n");
   const line = lines[50] ?? "";
   const wrapped = wrapLine(line, columns);
-  const second = wrapped[1];
+  const second = wrapped.at(1);
   if (!second) throw new Error("Line 50 should wrap");
   const watched = line.slice(second.start, second.end);
   const top = rowStart(lines, 50) + 1;

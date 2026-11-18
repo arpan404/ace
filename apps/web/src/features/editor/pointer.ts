@@ -48,7 +48,7 @@ export function usePointerSelection(options: {
     const line = layout.lineAt(row);
     const rows = layout.rowsOf(line);
     const at = Math.max(0, Math.min(row - layout.startOf(line), rows.length - 1));
-    const current = rows[at];
+    const current = rows.at(at);
     if (!current) return undefined;
     const x = clientX - rect.left - gutter;
     const column = columnOnRow(doc.line(line), current, x, cell);

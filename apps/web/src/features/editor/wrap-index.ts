@@ -16,7 +16,7 @@
  */
 
 import type { LineEdit } from "@ace/editor";
-import { wholeLineRow, wrapLine, type WrapRow } from "./wrap.ts";
+import { wholeLineRow, wrapLine, type WrapRows } from "./wrap.ts";
 
 /** The text the index wraps: the open document, asked one line at a time. */
 export interface WrapText {
@@ -33,7 +33,7 @@ export interface RowLayout {
   /** The line a visual row belongs to. */
   lineAt(row: number): number;
   /** A line's rows; it touches the document's text and is meant for the lines on screen. */
-  rowsOf(line: number): readonly WrapRow[];
+  rowsOf(line: number): WrapRows;
   /** The document's visual rows. */
   total(): number;
 }
@@ -67,7 +67,7 @@ export class WrapIndex implements RowLayout {
   /** The document version every count in the tree was measured from. */
   #version: number;
   /** Measured rows by node, so a line keeps its rows while the lines around it move. */
-  #rows = new Map<number, readonly WrapRow[]>();
+  #rows = new Map<number, WrapRows>();
   /** Nodes still to measure at this width, in the order they were queued. */
   #pending: number[] = [];
   #from = 0;
@@ -202,7 +202,7 @@ export class WrapIndex implements RowLayout {
     return this.#pending.length - this.#from;
   }
 
-  rowsOf(line: number): readonly WrapRow[] {
+  rowsOf(line: number): WrapRows {
     const node = this.#nodeAt(line);
     if (node === 0) return wholeLineRow;
     const known = this.#rows.get(node);
@@ -443,7 +443,7 @@ export class WrapIndex implements RowLayout {
    * Measures one node's line at this width, answering its rows. Nothing is measured while the
    * document's version has moved past the tree's: the count would describe the wrong text.
    */
-  #measure(node: number): readonly WrapRow[] | undefined {
+  #measure(node: number): WrapRows | undefined {
     if (this.#text.version() !== this.#version) return undefined;
     const rows = wrapLine(this.#text.line(this.#rankOf(node)), this.#columns);
     this.#count[node] = rows.length;
@@ -456,7 +456,7 @@ export class WrapIndex implements RowLayout {
     return rows;
   }
 
-  #remember(node: number, rows: readonly WrapRow[]): void {
+  #remember(node: number, rows: WrapRows): void {
     if (this.#rows.size >= cachedRows) this.#rows.clear();
     this.#rows.set(node, rows);
   }
