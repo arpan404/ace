@@ -34,6 +34,8 @@ function mount(overrides: Partial<Parameters<typeof FileEditor>[0]> = {}) {
     threadId: "thread",
     path: "a.ts",
     draft,
+    wrap: false,
+    onToggleWrap: vi.fn(),
     onChange: vi.fn(),
     onClose: vi.fn(),
     onSaved: vi.fn(),

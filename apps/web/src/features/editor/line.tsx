@@ -8,8 +8,6 @@ import type { MatchSegment } from "./find-matches.ts";
 import { lineHeight, tabSize } from "./geometry.ts";
 import type { Token } from "./highlighter.ts";
 
-/** Lines longer than this skip tokenization and are drawn as plain, clipped text. */
-export const longLine = 10_000;
 const clipped = 20_000;
 
 const markBar: Record<LineMark, string> = {
@@ -49,14 +47,39 @@ function marked(text: string, matches: readonly MatchSegment[]) {
   return parts;
 }
 
+/** One line's tokens restricted to `[start, end)`, so a wrapped row colours only its own text. */
+export function sliceTokens(
+  tokens: readonly Token[],
+  start: number,
+  end: number,
+): readonly Token[] | undefined {
+  const parts: Token[] = [];
+  let at = 0;
+  for (const token of tokens) {
+    const from = Math.max(start, at);
+    const to = Math.min(end, at + token.text.length);
+    if (to > from) parts.push({ ...token, text: token.text.slice(from - at, to - at) });
+    at += token.text.length;
+  }
+  return parts.length ? parts : undefined;
+}
+
 /**
- * One editor line: its number and diff mark in the sticky gutter, then its text coloured by
- * the highlighter, with find matches drawn from the line's own segments. Long lines stay plain
- * so a generated file cannot hand the DOM a megabyte-wide span.
+ * One visual row of the editor: the sticky gutter with its number (the line's first row only)
+ * and diff mark, then the row's text coloured by the highlighter, with find matches drawn from
+ * the row's own segments. A line too long to colour stays plain; unwrapped, it is clipped so a
+ * generated file cannot hand the DOM a megabyte-wide span.
  */
 export const EditorLine = memo(function EditorLine(props: {
-  index: number;
+  /** The logical line this row belongs to. */
+  line: number;
+  /** The row's index in the document's visual rows, its identity in the DOM. */
+  row: number;
   text: string;
+  /** The gutter's number on the line's first row; undefined on the rows below it. */
+  number: number | undefined;
+  /** Pixels a continuation row indents its text by. */
+  indent: number;
   tokens: readonly Token[] | undefined;
   gutter: number;
   top: number;
@@ -64,16 +87,20 @@ export const EditorLine = memo(function EditorLine(props: {
   current: boolean;
   matches: readonly MatchSegment[] | undefined;
   query: string;
+  /** The line is past what a highlighter can colour: drawn plain. */
+  long: boolean;
+  /** Unwrapped: clip the row at the DOM's limit. */
+  clip: boolean;
 }) {
-  const long = props.text.length > longLine;
   const text =
-    long && props.text.length > clipped ? `${props.text.slice(0, clipped)}…` : props.text;
+    props.clip && props.text.length > clipped ? `${props.text.slice(0, clipped)}…` : props.text;
   const kept =
-    props.tokens && !long && tokensFit(props.tokens, props.text) ? props.tokens : undefined;
+    props.tokens && !props.long && tokensFit(props.tokens, props.text) ? props.tokens : undefined;
   return (
     <div
-      data-line={props.index}
-      data-long-line={long || undefined}
+      data-line={props.number === undefined ? undefined : props.line}
+      data-row={props.row}
+      data-long-line={props.long || undefined}
       className={cn(
         "absolute left-0 flex w-max min-w-full font-mono text-ui leading-[22px]",
         props.current && "bg-foreground/5",
@@ -84,6 +111,7 @@ export const EditorLine = memo(function EditorLine(props: {
         aria-hidden
         title={props.mark && markWords[props.mark]}
         data-mark={props.mark}
+        data-line-number={props.number}
         style={{ width: props.gutter }}
         className={cn(
           "sticky left-0 z-[1] shrink-0 bg-background pr-4 text-right text-subtle-foreground tabular-nums select-none",
@@ -91,12 +119,13 @@ export const EditorLine = memo(function EditorLine(props: {
           props.mark && markBar[props.mark],
         )}
       >
-        {props.index + 1}
+        {props.number}
       </span>
       <span
-        data-line-text={props.index}
+        data-line-text={props.number === undefined ? undefined : props.line}
+        data-row-text={props.row}
         className="min-w-0 pr-6 whitespace-pre text-foreground"
-        style={{ tabSize: String(tabSize) }}
+        style={{ tabSize: String(tabSize), paddingLeft: props.indent || undefined }}
       >
         {props.query && props.matches?.length ? (
           marked(text, props.matches)

@@ -1,4 +1,10 @@
-import { EditorDocument, lineMarks, type Applied, type Selection } from "@ace/editor";
+import {
+  EditorDocument,
+  lineMarks,
+  type Applied,
+  type LineEdit,
+  type Selection,
+} from "@ace/editor";
 import { fileLanguage, type LineMark } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkitLineHighlighter } from "./highlighter.ts";
@@ -29,8 +35,19 @@ export interface EditorDocumentState {
   replaceText(text: string): void;
   /** Replaces the selections and ends the current typing run. */
   select(next: readonly Selection[]): void;
+  /**
+   * Takes the edits applied since the last call, one batch each. A batch's spans are in the
+   * line coordinates that edit produced, so a caller applies them in order.
+   */
+  takeChanges(): readonly EditBatch[];
   /** Tries the Wasm load again after a failure. */
   retry(): void;
+}
+
+/** One applied edit's changed lines, with the document's line count after it. */
+export interface EditBatch {
+  spans: readonly LineEdit[];
+  lines: number;
 }
 
 export function useEditorDocument(options: {
@@ -63,6 +80,7 @@ export function useEditorDocument(options: {
   const onEdit = useRef(options.onEdit);
   const onTextDispose = useRef(options.onTextDispose);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const changed = useRef<EditBatch[]>([]);
   const commitAfter = options.commitAfter ?? 1_000;
 
   useEffect(() => {
@@ -135,6 +153,7 @@ export function useEditorDocument(options: {
           highlighter?.edit(span.firstLine, span.removedLines, inserted);
         }
       onEdit.current?.();
+      changed.current.push({ spans: applied.spans, lines: doc.lenLines() });
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
@@ -189,6 +208,12 @@ export function useEditorDocument(options: {
     [doc, commit],
   );
 
+  const takeChanges = useCallback((): readonly EditBatch[] => {
+    const batches = changed.current;
+    changed.current = [];
+    return batches;
+  }, []);
+
   useEffect(() => {
     if (!doc || !original) return;
     let cancelled = false;
@@ -227,6 +252,7 @@ export function useEditorDocument(options: {
     edit,
     replaceText,
     select,
+    takeChanges,
     retry: () => {
       setFailed(false);
       setAttempt((value) => value + 1);

@@ -77,13 +77,13 @@ test("a new text file opens for editing and saves the text into the checkout", a
   await create(panel, "New file", "notes.txt");
   await within(panel).findByRole("tab", { name: "notes.txt", selected: true });
   await userEvent.click(await within(panel).findByRole("button", { name: "Edit file" }));
-  await userEvent.type(
-    await within(panel).findByRole("textbox", { name: "Edit notes.txt" }),
-    "My draft",
-  );
+  const editor = await within(panel).findByRole("region", { name: "Editing notes.txt" });
+  const box = await within(editor).findByRole("textbox", { name: "notes.txt" });
+  await userEvent.click(box);
+  await userEvent.keyboard("My draft");
   await userEvent.keyboard("{Control>}s{/Control}");
   await waitFor(() =>
-    expect(within(panel).queryByRole("textbox", { name: "Edit notes.txt" })).toBeNull(),
+    expect(within(panel).queryByRole("region", { name: "Editing notes.txt" })).toBeNull(),
   );
   expect(await bytes(app, "notes.txt")).toBe("My draft");
   expect(await within(panel).findByText("My draft")).toBeTruthy();
@@ -93,10 +93,10 @@ test("saving a changed file preserves both drafts until Replace is chosen", asyn
   const { app, panel } = await openFiles();
   await create(panel, "New file", "notes.txt");
   await userEvent.click(await within(panel).findByRole("button", { name: "Edit file" }));
-  await userEvent.type(
-    await within(panel).findByRole("textbox", { name: "Edit notes.txt" }),
-    "My edits",
-  );
+  const editor = await within(panel).findByRole("region", { name: "Editing notes.txt" });
+  const box = await within(editor).findByRole("textbox", { name: "notes.txt" });
+  await userEvent.click(box);
+  await userEvent.keyboard("My edits");
   const stat = await app.client.request({
     type: "files.request",
     threadId,
@@ -126,8 +126,8 @@ test("saving a changed file preserves both drafts until Replace is chosen", asyn
   ).toBeTruthy();
   expect(await bytes(app, "notes.txt")).toBe("Agent edits");
   expect(
-    (within(panel).getByRole("textbox", { name: "Edit notes.txt" }) as HTMLTextAreaElement).value,
-  ).toBe("My edits");
+    (await within(panel).findByRole("region", { name: "Editing notes.txt" })).textContent,
+  ).toContain("My edits");
   await userEvent.click(within(panel).getByRole("button", { name: "Replace" }));
   await waitFor(async () => expect(await bytes(app, "notes.txt")).toBe("My edits"));
 });
@@ -258,16 +258,16 @@ test("closing a file with edits asks before discarding them", async () => {
   const { app, panel } = await openFiles();
   await create(panel, "New file", "notes.txt");
   await userEvent.click(await within(panel).findByRole("button", { name: "Edit file" }));
-  await userEvent.type(
-    await within(panel).findByRole("textbox", { name: "Edit notes.txt" }),
-    "Unsaved draft",
-  );
+  const editor = await within(panel).findByRole("region", { name: "Editing notes.txt" });
+  const box = await within(editor).findByRole("textbox", { name: "notes.txt" });
+  await userEvent.click(box);
+  await userEvent.keyboard("Unsaved draft");
   await userEvent.click(within(panel).getByRole("button", { name: "Close notes.txt" }));
   const confirmation = await screen.findByRole("dialog", { name: "Discard file edits?" });
   await userEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
   expect(
-    (within(panel).getByRole("textbox", { name: "Edit notes.txt" }) as HTMLTextAreaElement).value,
-  ).toBe("Unsaved draft");
+    (await within(panel).findByRole("region", { name: "Editing notes.txt" })).textContent,
+  ).toContain("Unsaved draft");
   await userEvent.click(within(panel).getByRole("button", { name: "Close notes.txt" }));
   await userEvent.click(
     within(await screen.findByRole("dialog", { name: "Discard file edits?" })).getByRole("button", {

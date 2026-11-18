@@ -25,6 +25,10 @@ export function FileEditor(props: {
   threadId: string;
   path: string;
   draft: FileDraft;
+  /** Long lines wrap at the editor's width, from the Files tab's preference. */
+  wrap: boolean;
+  /** Alt+Z in the editor: the Files tab's wrap preference flips. */
+  onToggleWrap(): void;
   onChange(draft: FileDraft): void;
   onClose(): void;
   onSaved(content: Extract<FileContent, { kind: "text" }>): void;
@@ -156,6 +160,8 @@ export function FileEditor(props: {
           text={initial}
           path={props.path}
           readOnly={busy}
+          wrap={props.wrap}
+          onToggleWrap={props.onToggleWrap}
           label={`Editing ${props.path}`}
           focusOnMount
           onEdit={() => {

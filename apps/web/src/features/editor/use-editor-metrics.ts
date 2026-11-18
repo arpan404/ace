@@ -11,24 +11,12 @@ import {
 
 /* Measurement and screen-reader mirroring: everything that needs the laid-out DOM. */
 
-/** The cell width and the widest visible line, kept from the rendered spans. */
-export function useEditorMetrics(options: {
-  scroller: RefObject<HTMLDivElement | null>;
-  host: RefObject<HTMLDivElement | null>;
-  doc: EditorDocument | undefined;
-  lines: readonly string[];
-  first: number;
-  gutter: number;
-  onOverflow?: ((overflow: boolean) => void) | undefined;
-}): { cell: number; contentWidth: number } {
-  const { scroller, host, doc, lines, first, gutter, onOverflow } = options;
-  /** The text column's right breathing room, so a line's last glyph is never clipped. */
-  const rightPadding = 24;
+/** The text column's right breathing room, so a line's last glyph is never clipped. */
+const rightPadding = 24;
+
+/** The monospace cell of the editor's font, remeasured when a web font or the density changes. */
+export function useCellWidth(scroller: RefObject<HTMLDivElement | null>): number {
   const [cell, setCell] = useState(fallbackCharWidth);
-  const [content, setContent] = useState<{ doc: unknown; width: number }>({
-    doc: undefined,
-    width: 0,
-  });
 
   useLayoutEffect(() => {
     const element = scroller.current;
@@ -36,7 +24,6 @@ export function useEditorMetrics(options: {
     if (element) setCell(charWidthFor(getComputedStyle(element).font));
   }, [scroller]);
 
-  // A web font or a different display density changes the cells; every cached width is stale.
   useEffect(() => {
     const measure = () => {
       clearMeasurements();
@@ -63,7 +50,34 @@ export function useEditorMetrics(options: {
     };
   }, [scroller]);
 
+  return cell;
+}
+
+/**
+ * The width the text column scrolls to: the widest visible line, never narrower than before, so
+ * the scroller does not jump as the view moves through the file. Wrapped lines have no width of
+ * their own, and a line running past the right edge is reported through `onOverflow`.
+ */
+export function useEditorWidth(options: {
+  scroller: RefObject<HTMLDivElement | null>;
+  host: RefObject<HTMLDivElement | null>;
+  doc: EditorDocument | undefined;
+  lines: readonly string[];
+  first: number;
+  cell: number;
+  gutter: number;
+  /** Lines wrap at the editor's width, so nothing is ever wider than it. */
+  wrap: boolean;
+  onOverflow?: ((overflow: boolean) => void) | undefined;
+}): { contentWidth: number } {
+  const { scroller, host, doc, lines, first, cell, gutter, wrap, onOverflow } = options;
+  const [content, setContent] = useState<{ doc: unknown; width: number }>({
+    doc: undefined,
+    width: 0,
+  });
+
   useEffect(() => {
+    if (wrap) return;
     const element = host.current;
     if (!element) return;
     let widest = 0;
@@ -82,15 +96,15 @@ export function useEditorMetrics(options: {
       if (previous.doc === doc && previous.width === next) return previous;
       return { doc, width: next };
     });
-  }, [doc, lines, cell, gutter, first, host]);
+  }, [doc, lines, cell, gutter, first, host, wrap]);
 
-  const contentWidth = content.doc === doc ? content.width : 0;
+  const contentWidth = wrap ? 0 : content.doc === doc ? content.width : 0;
 
   useEffect(() => {
     const element = scroller.current;
     if (!element) return;
     const measure = () =>
-      onOverflow?.(element.scrollLeft + element.clientWidth < element.scrollWidth - 1);
+      onOverflow?.(!wrap && element.scrollLeft + element.clientWidth < element.scrollWidth - 1);
     measure();
     element.addEventListener("scroll", measure, { passive: true });
     const observer =
@@ -100,10 +114,10 @@ export function useEditorMetrics(options: {
       element.removeEventListener("scroll", measure);
       observer?.disconnect();
     };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the ref object is stable; only a resize or a wider line changes this.
-  }, [onOverflow, contentWidth]);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the ref object is stable; only a resize, a wider line or wrap changes this.
+  }, [onOverflow, contentWidth, wrap]);
 
-  return { cell, contentWidth };
+  return { contentWidth };
 }
 
 /**
