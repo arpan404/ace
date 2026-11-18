@@ -6,7 +6,7 @@ import { WrapIndex } from "./wrap-index.ts";
  * the promise that an edit re-measures only the lines it touched.
  */
 
-function source(lines: string[]): { lenLines(): number; line: ReturnType<typeof vi.fn> } {
+function source(lines: string[]) {
   const line = vi.fn((index: number) => lines[index] ?? "");
   return { lenLines: () => lines.length, line };
 }
@@ -42,6 +42,22 @@ test("an edit re-measures only the lines it changed, never the file", () => {
   expect(text.line).toHaveBeenCalledWith(3);
   expect(index.total()).toBe(104);
   expect(index.startOf(4)).toBe(8);
+});
+
+test("a whole-file replacement waits for the background pass instead of measuring in the edit", () => {
+  const lines = Array.from({ length: 50_000 }, () => "short");
+  const text = source(lines);
+  const index = new WrapIndex(text);
+  index.setColumns(20, { first: 0, last: 40 });
+  index.pump(1_000_000);
+  text.line.mockClear();
+
+  index.apply([{ firstLine: 0, removedLines: 50_000, insertedLines: 50_000 }], 50_000);
+
+  expect(text.line).not.toHaveBeenCalled();
+  expect(index.pending()).toBe(50_000);
+  index.pump(50_000);
+  expect(text.line).toHaveBeenCalledTimes(50_000);
 });
 
 test("a width change re-wraps the lines on screen first and the rest as it has time", () => {

@@ -1,4 +1,10 @@
-import { EditorDocument, lineMarks, type Applied, type Selection } from "@ace/editor";
+import {
+  EditorDocument,
+  lineMarks,
+  type Applied,
+  type LineEdit,
+  type Selection,
+} from "@ace/editor";
 import { fileLanguage, type LineMark } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkitLineHighlighter } from "./highlighter.ts";
@@ -29,6 +35,8 @@ export interface EditorDocumentState {
   replaceText(text: string): void;
   /** Replaces the selections and ends the current typing run. */
   select(next: readonly Selection[]): void;
+  /** Takes the lines every edit since the last call changed, in post-edit coordinates. */
+  takeChanges(): readonly LineEdit[];
   /** Tries the Wasm load again after a failure. */
   retry(): void;
 }
@@ -63,6 +71,7 @@ export function useEditorDocument(options: {
   const onEdit = useRef(options.onEdit);
   const onTextDispose = useRef(options.onTextDispose);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const changed = useRef<LineEdit[]>([]);
   const commitAfter = options.commitAfter ?? 1_000;
 
   useEffect(() => {
@@ -135,6 +144,7 @@ export function useEditorDocument(options: {
           highlighter?.edit(span.firstLine, span.removedLines, inserted);
         }
       onEdit.current?.();
+      changed.current.push(...applied.spans);
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
@@ -189,6 +199,12 @@ export function useEditorDocument(options: {
     [doc, commit],
   );
 
+  const takeChanges = useCallback((): readonly LineEdit[] => {
+    const spans = changed.current;
+    changed.current = [];
+    return spans;
+  }, []);
+
   useEffect(() => {
     if (!doc || !original) return;
     let cancelled = false;
@@ -227,6 +243,7 @@ export function useEditorDocument(options: {
     edit,
     replaceText,
     select,
+    takeChanges,
     retry: () => {
       setFailed(false);
       setAttempt((value) => value + 1);

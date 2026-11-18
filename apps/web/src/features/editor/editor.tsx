@@ -1,40 +1,56 @@
-// oxlint-disable react/no-array-index-key -- a line's row key is its number; there is no other identity.
+// oxlint-disable react/no-array-index-key -- a row's key is its line and position; there is no other identity.
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
 import type { Position, Selection } from "@ace/editor";
 import { pathParts } from "@ace/ui-core";
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { EditorFindBar } from "./find-bar.tsx";
-import { segmentsByLine } from "./find-matches.ts";
-import { gutterWidth, lineHeight, visualColumn } from "./geometry.ts";
+import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
+import { gutterWidth, leastRowCells, lineHeight, longLine, visualColumn } from "./geometry.ts";
 import { useEditorKeys } from "./keys.ts";
 import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
-import { EditorLine } from "./line.tsx";
+import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
 import { useEditorDocument } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
-import { useEditorMetrics, useMirrorLine } from "./use-editor-metrics.ts";
+import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
 import { useFindInFile } from "./use-find-in-file.ts";
 import { useFindResults } from "./use-find.ts";
+import { useWrap } from "./use-wrap.ts";
+import { rowOfColumn, rowOffset, wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
 const overscan = 8;
-/** Files up to this many lines mount every row, as the Files viewer always has. */
+/** Documents up to this many visual rows mount every row, as the Files viewer always has. */
 const mountAll = 400;
 const paddingRight = 24;
 const noLines = [""];
 
 /**
- * The Files tab's text editor: virtualized lines with a sticky line-number gutter, selections
- * and carets drawn over them, and one hidden textarea taking every input. The text core, its
- * cursors, undo and find are the Rust document in `@ace/editor`; this file is the surface.
+ * The Files tab's text editor: virtualized visual rows with a sticky line-number gutter,
+ * selections and carets drawn over them, and one hidden textarea taking every input. The text
+ * core, its cursors, undo and find are the Rust document in `@ace/editor`; the wrap layout turns
+ * logical lines into the rows they draw, so the list, the carets, the pointer and the keys all
+ * work in rows. This file is the surface.
  */
 export function CodeEditor({ ref, ...props }: CodeEditorProps) {
+  // Kept out of the compiler: the wrap index's row counts change without the index object
+  // changing, so a memoized read of its rows would keep a height the file has outgrown.
+  "use no memo";
   const readOnly = props.readOnly ?? false;
+  const wrap = props.wrap ?? false;
   const state = useEditorDocument({
     text: props.text,
     path: props.path,
@@ -59,11 +75,54 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const name = pathParts(props.path).name;
   const lineCount = doc?.lenLines() ?? 0;
   const height = Math.max(120, viewport.height);
-  const all = lineCount <= mountAll;
-  const first = all ? 0 : Math.max(0, Math.floor(scroll.top / lineHeight) - overscan);
+  const gutter = gutterWidth(lineCount);
+  const cell = useCellWidth(scroller);
+  const columns = Math.max(
+    leastRowCells,
+    Math.floor((viewport.width - gutter - paddingRight) / cell),
+  );
+  const visible = useRef({ first: 0, last: 200 });
+  const layout = useWrap({
+    doc,
+    wrap,
+    columns,
+    version: state.version,
+    takeChanges: state.takeChanges,
+    visible,
+  });
+
+  // Where the scroll position sits from the counts as they stand, before the visible lines are
+  // measured: an unmeasured line counts as one row, so this is the window to measure.
+  const guessed = layout?.total() ?? 0;
+  const guessFirst =
+    guessed <= mountAll ? 0 : Math.max(0, Math.floor(scroll.top / lineHeight) - overscan);
+  const guessLast =
+    guessed <= mountAll
+      ? guessed
+      : Math.min(guessed, Math.ceil((scroll.top + height) / lineHeight) + overscan);
+  // The lines about to be drawn are measured before the list takes its height from the counts,
+  // so a row count cannot change after the list has read its total.
+  if (layout && guessed > 0)
+    layout.prefer({
+      first: (layout.lineAt(guessFirst) ?? 0) - overscan,
+      last: (layout.lineAt(Math.max(guessFirst, guessLast - 1)) ?? 0) + 1 + overscan,
+    });
+
+  const rows = layout?.total() ?? 0;
+  const all = rows <= mountAll;
+  const firstRow = all ? 0 : Math.max(0, Math.floor(scroll.top / lineHeight) - overscan);
+  const lastRow = all
+    ? rows
+    : Math.min(rows, Math.ceil((scroll.top + height) / lineHeight) + overscan);
+  const first = all ? 0 : (layout?.lineAt(firstRow) ?? 0);
   const last = all
     ? lineCount
-    : Math.min(lineCount, Math.ceil((scroll.top + height) / lineHeight) + overscan);
+    : Math.min(lineCount, (layout?.lineAt(Math.max(firstRow, lastRow - 1)) ?? 0) + 1);
+  // The wrap index prefers the lines on screen when a width change re-wraps the file.
+  useLayoutEffect(() => {
+    if (doc) visible.current = { first, last };
+  });
+
   const [lines, setLines] = useState<string[]>(noLines);
   const linesKey = `${state.version}:${first}:${last}`;
   useEffect(() => {
@@ -71,7 +130,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     setLines(doc ? doc.lines(first, last) : noLines);
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
   }, [linesKey, doc]);
-  const gutter = gutterWidth(lineCount);
   const lineAt = useCallback(
     (line: number): string => {
       if (line >= first && line < first + lines.length) return lines[line - first] ?? "";
@@ -79,6 +137,18 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     },
     [doc, first, lines],
   );
+
+  const { contentWidth } = useEditorWidth({
+    scroller,
+    host,
+    doc,
+    lines,
+    first,
+    cell,
+    gutter,
+    wrap,
+    onOverflow: props.onHorizontalOverflow,
+  });
 
   useEffect(() => {
     const highlighter = state.highlighter;
@@ -88,16 +158,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     highlighter.setText(doc.text());
     return stop;
   }, [state.highlighter, doc]);
-
-  const { cell, contentWidth } = useEditorMetrics({
-    scroller,
-    host,
-    doc,
-    lines,
-    first,
-    gutter,
-    onOverflow: props.onHorizontalOverflow,
-  });
 
   const primary = state.selections[state.primary] ?? state.selections[0];
   const caretLine = primary?.head.line ?? 0;
@@ -121,24 +181,46 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       seq: (previous?.seq ?? 0) + 1,
     }));
 
+  /** The caret's box in the text column, in pixels from the content's top-left corner. */
+  const caretBox = useCallback(
+    (position: Position): { left: number; top: number } => {
+      const text = state.doc?.line(position.line) ?? "";
+      if (!layout)
+        return {
+          left: gutter + visualColumn(text, position.column) * cell,
+          top: position.line * lineHeight,
+        };
+      const lineRows = layout.rowsOf(position.line);
+      const at = rowOfColumn(lineRows, position.column);
+      const row = lineRows[at] ?? lineRows[0];
+      return {
+        left: gutter + (row ? rowOffset(text, row, position.column) : 0) * cell,
+        top: (layout.startOf(position.line) + at) * lineHeight,
+      };
+    },
+    [state.doc, layout, gutter, cell],
+  );
+
   const reveal = useCallback(
     (position: Position) => {
       const element = scroller.current;
       if (!element) return;
-      const top = position.line * lineHeight;
+      const box = caretBox(position);
       const heightNow = element.clientHeight || viewport.height;
-      if (top < element.scrollTop) element.scrollTop = top;
-      else if (top + lineHeight > element.scrollTop + heightNow)
-        element.scrollTop = top + lineHeight - heightNow;
-      const text = state.doc?.line(position.line) ?? "";
-      const x = gutter + visualColumn(text, position.column) * cell;
-      const width = element.clientWidth || viewport.width;
-      if (x < element.scrollLeft + gutter) element.scrollLeft = Math.max(0, x - gutter);
-      else if (x > element.scrollLeft + width - paddingRight)
-        element.scrollLeft = x - width + paddingRight * 2;
+      if (box.top < element.scrollTop) element.scrollTop = box.top;
+      else if (box.top + lineHeight > element.scrollTop + heightNow)
+        element.scrollTop = box.top + lineHeight - heightNow;
+      // Wrapped lines have no right edge to reach: no horizontal scroll, whatever the caret's x.
+      if (!wrap) {
+        const width = element.clientWidth || viewport.width;
+        if (box.left < element.scrollLeft + gutter)
+          element.scrollLeft = Math.max(0, box.left - gutter);
+        else if (box.left > element.scrollLeft + width - paddingRight)
+          element.scrollLeft = box.left - width + paddingRight * 2;
+      }
       setScroll({ top: element.scrollTop, left: element.scrollLeft });
     },
-    [state.doc, gutter, cell, viewport.height, viewport.width, setScroll],
+    [caretBox, gutter, wrap, viewport.height, viewport.width, setScroll],
   );
 
   useEffect(() => {
@@ -196,8 +278,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     readOnly,
     path: props.path,
     rows: Math.max(1, Math.floor(height / lineHeight)),
+    layout,
     onFind: finder.openFind,
     ...(props.onSave ? { onSave: props.onSave } : {}),
+    ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
     onEscape: () => {
       if (!finder.open) return false;
       finder.close();
@@ -230,6 +314,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     state,
     cell,
     gutter,
+    layout,
     element: host,
     focus: () => field.current?.focus({ preventScroll: true }),
     reveal,
@@ -243,8 +328,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     setSelections: (selections: readonly Selection[]) => state.select(selections),
   }));
 
-  const textareaLeft = gutter + visualColumn(lineAt(caretLine), caretColumn) * cell - scroll.left;
-  const textareaTop = caretLine * lineHeight - scroll.top;
+  const caret = caretBox({ line: caretLine, column: caretColumn });
+  const textareaLeft = caret.left - scroll.left;
+  const textareaTop = caret.top - scroll.top;
 
   if (state.failed)
     return (
@@ -288,31 +374,53 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
         <div
           ref={host}
           className="relative min-h-full min-w-full"
-          style={{ height: lineCount * lineHeight, width: contentWidth || "100%" }}
+          style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
         >
           <div aria-hidden>
             {lines.map((text, offset) => {
               const line = first + offset;
-              return (
-                <EditorLine
-                  key={line}
-                  index={line}
-                  text={text}
-                  tokens={tokens[offset]}
-                  gutter={gutter}
-                  top={line * lineHeight}
-                  mark={(props.marks ?? state.marks)?.get(line + 1)}
-                  current={line === caretLine}
-                  matches={activeQuery ? byLine.get(line) : undefined}
-                  query={activeQuery}
-                />
-              );
+              const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
+              const startRow = layout?.startOf(line) ?? line;
+              const long = text.length > longLine;
+              const lineTokens = tokens[offset];
+              const lineMatches = activeQuery ? byLine.get(line) : undefined;
+              return lineRows.map((row, at) => {
+                const index = startRow + at;
+                if (index < firstRow || index >= lastRow) return null;
+                const end = Math.min(row.end, text.length);
+                return (
+                  <EditorLine
+                    key={`${line}:${at}`}
+                    line={line}
+                    row={index}
+                    text={text.slice(row.start, end)}
+                    number={at === 0 ? line + 1 : undefined}
+                    indent={row.indent * cell}
+                    tokens={
+                      lineTokens && !long
+                        ? wrap
+                          ? sliceTokens(lineTokens, row.start, end)
+                          : lineTokens
+                        : undefined
+                    }
+                    gutter={gutter}
+                    top={index * lineHeight}
+                    mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
+                    current={line === caretLine}
+                    matches={lineMatches ? segmentsOnRow(lineMatches, row.start, end) : undefined}
+                    query={activeQuery}
+                    long={long}
+                    clip={!wrap}
+                  />
+                );
+              });
             })}
             <CaretLayers
               selections={state.selections}
               lines={lineAt}
-              first={first}
-              last={last - 1}
+              layout={layout}
+              firstLine={first}
+              lastLine={last - 1}
               gutter={gutter}
               cell={cell}
               composing={

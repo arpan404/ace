@@ -30,7 +30,9 @@ export interface WrapRow {
 }
 
 /** A row that takes the whole line: what a line draws when nothing wraps it. */
-const wholeLineRow: readonly WrapRow[] = [{ start: 0, end: Number.POSITIVE_INFINITY, indent: 0 }];
+export const wholeLineRow: readonly WrapRow[] = [
+  { start: 0, end: Number.POSITIVE_INFINITY, indent: 0 },
+];
 
 /** One row for `text` unchanged, at any width. */
 export function wholeRow(text: string): readonly WrapRow[] {
@@ -62,7 +64,8 @@ export function wrapLine(text: string, columns: number): readonly WrapRow[] {
 /** The row a UTF-16 column falls on: the last row that starts at or before it. */
 export function rowOfColumn(rows: readonly WrapRow[], column: number): number {
   for (let index = rows.length - 1; index > 0; index--) {
-    if (rows[index].start <= column) return index;
+    const row = rows[index];
+    if (row && row.start <= column) return index;
   }
   return 0;
 }
@@ -101,6 +104,7 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
     let resumeAt = -1;
     while (index < parts.length) {
       const part = parts[index];
+      if (!part) break;
       const cell = part.text === "\t" ? tabSize - (cells % tabSize) : part.width;
       if (cells + cell > room && index > at) break;
       cells += cell;
@@ -109,7 +113,7 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
       fitAt = index;
       if (part.text === " " || part.text === "\t") {
         let next = index;
-        while (next < parts.length && isBreak(parts[next].text)) next++;
+        while (next < parts.length && isBreak(parts[next]?.text ?? "")) next++;
         breakAt = part.start;
         resumeAt = next;
       }
@@ -123,15 +127,16 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
       end = breakAt;
       resume = resumeAt;
     } else {
-      end = fit > start ? fit : parts[at].end;
+      end = fit > start ? fit : (parts[at]?.end ?? text.length);
       resume = end === fit ? fitAt : at + 1;
     }
     if (end <= start) {
-      end = parts[at].end;
+      end = parts[at]?.end ?? text.length;
       resume = at + 1;
     }
     rows.push({ start, end, indent: first ? 0 : indent });
-    start = resume < parts.length ? parts[resume].start : text.length;
+    const next = parts[resume];
+    start = next ? next.start : text.length;
     at = resume;
     first = false;
   }

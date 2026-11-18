@@ -11,13 +11,16 @@ import {
   stepBack,
   stepForward,
 } from "./cursor.ts";
-import { columnAtVisual, visualColumn } from "./geometry.ts";
+import { columnAtVisual } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
+import type { RowLayout } from "./wrap-index.ts";
+import { rowOffset, rowOfColumn, rowText } from "./wrap.ts";
 
 /*
  * The editor's keybindings: Cmd on macOS, Ctrl elsewhere. Editing keys go through the document's
  * own commands; movement is computed here and applied with `setSelections`, so every cursor
- * moves together and a jump ends the typing run.
+ * moves together and a jump ends the typing run. Vertical movement and Home/End follow the
+ * visual rows a wrapped line draws, not its logical lines.
  */
 
 /** macOS gets Cmd and Alt; every other platform Ctrl. */
@@ -32,15 +35,19 @@ export interface EditorKeyOptions {
   path: string;
   /** Visible rows, for Page Up and Page Down. */
   rows: number;
+  /** The document's visual rows, so Up and Down move a row and not a line. */
+  layout: RowLayout | undefined;
   onFind?: (() => void) | undefined;
   onSave?: (() => void) | undefined;
   /** Returns true when Escape closed something (find); false collapses the carets. */
   onEscape?: (() => boolean) | undefined;
+  /** Alt+Z: the person asked for wrap to toggle, as VS Code's own shortcut does. */
+  onToggleWrap?: (() => void) | undefined;
   reveal(position: Position): void;
 }
 
 export function useEditorKeys(options: EditorKeyOptions) {
-  const { state, path } = options;
+  const { state, path, layout } = options;
   const mac = isMacPlatform();
   const goal = useRef<number | undefined>(undefined);
 
@@ -51,6 +58,43 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (!doc) return { line: 0, column: 0 };
     const current = doc.selections()[doc.primarySelection()];
     return current?.head ?? { line: 0, column: 0 };
+  };
+
+  /** The row a position is on and its cells from the row's left edge. */
+  const rowAt = (position: Position) => {
+    const rows = layout?.rowsOf(position.line) ?? [];
+    const at = rows.length ? rowOfColumn(rows, position.column) : 0;
+    return { rows, at, row: rows[at] };
+  };
+
+  const offsetOf = (position: Position): number => {
+    const { row } = rowAt(position);
+    if (!row) return 0;
+    return rowOffset(line(position.line), row, position.column);
+  };
+
+  const rowOf = (position: Position): number =>
+    (layout ? layout.startOf(position.line) : position.line) + rowAt(position).at;
+
+  /** The position `offset` cells into a given visual row. */
+  const positionOnRow = (row: number, offset: number): Position => {
+    const doc = state.doc;
+    if (!doc) return { line: 0, column: 0 };
+    if (!layout) {
+      const fallback = Math.max(0, Math.min(lastLine(), row));
+      return { line: fallback, column: columnAtVisual(line(fallback), offset) };
+    }
+    const target = layout.lineAt(row);
+    const rows = layout.rowsOf(target);
+    const at = Math.max(0, Math.min(row - layout.startOf(target), rows.length - 1));
+    const visual = rows[at];
+    if (!visual) return { line: target, column: 0 };
+    const text = line(target);
+    return {
+      line: target,
+      column:
+        visual.start + columnAtVisual(rowText(text, visual), Math.max(0, offset - visual.indent)),
+    };
   };
 
   const commitMove = (next: readonly Selection[]) => {
@@ -65,15 +109,11 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const selections = doc.selections();
     const primary = doc.primarySelection();
     const current = selections[primary]?.head ?? { line: 0, column: 0 };
-    goal.current ??= visualColumn(line(current.line), current.column);
+    goal.current ??= offsetOf(current);
     const keeper = goal.current ?? 0;
     const moved = selections.map((selection) => {
-      const lineIndex = Math.max(0, Math.min(lastLine(), selection.head.line + delta));
-      const visual =
-        selection === selections[primary]
-          ? keeper
-          : visualColumn(line(selection.head.line), selection.head.column);
-      const position = { line: lineIndex, column: columnAtVisual(line(lineIndex), visual) };
+      const keeperHere = selection === selections[primary] ? keeper : offsetOf(selection.head);
+      const position = positionOnRow(rowOf(selection.head) + delta, keeperHere);
       return { anchor: extend ? selection.anchor : position, head: position };
     });
     commitMove(moved);
@@ -92,20 +132,24 @@ export function useEditorKeys(options: EditorKeyOptions) {
     );
   };
 
-  const toColumn = (columnAt: (text: string, column: number) => number, extend: boolean) => {
-    const doc = state.doc;
-    if (!doc) return;
-    goal.current = undefined;
-    commitMove(
-      moveAll(
-        doc.selections(),
-        (position) => ({
-          line: position.line,
-          column: columnAt(line(position.line), position.column),
-        }),
-        extend,
-      ),
-    );
+  /** Home lands on the row's start before the line's; End on the row's end before the line's. */
+  const home = (position: Position): number => {
+    const text = line(position.line);
+    const { rows, at } = rowAt(position);
+    const row = rows[at];
+    if (!row) return smartHome(text, position.column);
+    if (at > 0) return position.column > row.start ? row.start : 0;
+    return smartHome(text, position.column);
+  };
+
+  const end = (position: Position): number => {
+    const text = line(position.line);
+    const { rows, at } = rowAt(position);
+    const row = rows[at];
+    if (!row) return text.length;
+    const rowEnd = Math.min(row.end, text.length);
+    if (at < rows.length - 1) return position.column < rowEnd ? rowEnd : text.length;
+    return text.length;
   };
 
   return (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -117,6 +161,17 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const word = mac ? event.altKey : event.ctrlKey;
     const key = event.key;
 
+    if (
+      event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      (key.toLowerCase() === "z" || event.code === "KeyZ")
+    ) {
+      if (!options.onToggleWrap) return;
+      event.preventDefault();
+      options.onToggleWrap();
+      return;
+    }
     if (!options.readOnly && mod && key.toLowerCase() === "z") {
       event.preventDefault();
       state.edit((target) => (event.shiftKey ? target.redo() : target.undo()));
@@ -130,9 +185,9 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (mod && key.toLowerCase() === "a") {
       event.preventDefault();
       goal.current = undefined;
-      const end = documentEnd(doc.lenLines(), line(lastLine()));
-      state.select([{ anchor: { line: 0, column: 0 }, head: end }]);
-      options.reveal(end);
+      const last = documentEnd(doc.lenLines(), line(lastLine()));
+      state.select([{ anchor: { line: 0, column: 0 }, head: last }]);
+      options.reveal(last);
       return;
     }
     if (mod && key.toLowerCase() === "f") {
@@ -227,7 +282,17 @@ export function useEditorKeys(options: EditorKeyOptions) {
     }
     if (key === "Home" || key === "End") {
       event.preventDefault();
-      toColumn(key === "End" ? (text) => text.length : smartHome, event.shiftKey);
+      goal.current = undefined;
+      commitMove(
+        moveAll(
+          doc.selections(),
+          (position) => ({
+            line: position.line,
+            column: key === "End" ? end(position) : home(position),
+          }),
+          event.shiftKey,
+        ),
+      );
       return;
     }
     if (key === "PageUp" || key === "PageDown") {

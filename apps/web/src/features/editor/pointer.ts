@@ -2,37 +2,46 @@ import type { Position } from "@ace/editor";
 import type { MouseEvent, PointerEvent } from "react";
 import { useRef } from "react";
 import { wordAt } from "./cursor.ts";
-import { columnAtX, lineHeight, tabSize } from "./geometry.ts";
+import { lineHeight, tabSize } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
+import type { RowLayout } from "./wrap-index.ts";
+import { columnOnRow } from "./wrap.ts";
 
 /*
- * Mouse and trackpad selection over the rendered lines: a click places one caret, a drag
+ * Mouse and trackpad selection over the rendered rows: a click places one caret, a drag
  * extends it, Shift+click extends the last one, double-click takes a word, triple-click its line,
  * Alt+click adds a caret and Alt+drag makes a box selection through the document's own command.
+ * A click lands on a visual row and comes back as a (line, column) through the wrap layout.
  */
 
 export function usePointerSelection(options: {
   state: EditorDocumentState;
   cell: number;
   gutter: number;
+  layout: RowLayout | undefined;
   element: { current: HTMLDivElement | null };
   focus(): void;
   reveal(position: Position): void;
 }) {
-  const { state, cell, gutter } = options;
+  const { state, cell, gutter, layout } = options;
   const drag = useRef<{ anchor: Position; box: boolean; moved: boolean } | undefined>(undefined);
 
   const positionAt = (clientX: number, clientY: number): Position | undefined => {
     const element = options.element.current;
     const doc = state.doc;
-    if (!element || !doc) return undefined;
+    if (!element || !doc || !layout) return undefined;
     const rect = element.getBoundingClientRect();
-    const line = Math.max(
+    const row = Math.max(
       0,
-      Math.min(doc.lenLines() - 1, Math.floor((clientY - rect.top) / lineHeight)),
+      Math.min(layout.total() - 1, Math.floor((clientY - rect.top) / lineHeight)),
     );
+    const line = layout.lineAt(row);
+    const rows = layout.rowsOf(line);
+    const at = Math.max(0, Math.min(row - layout.startOf(line), rows.length - 1));
+    const current = rows[at];
+    if (!current) return undefined;
     const x = clientX - rect.left - gutter;
-    return { line, column: columnAtX(doc.line(line), x, cell) };
+    return { line, column: columnOnRow(doc.line(line), current, x, cell) };
   };
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {

@@ -29,6 +29,9 @@ export interface RowLayout {
 /** Rows kept from earlier renders; a long scroll forgets the far end rather than growing. */
 const cachedRows = 4_000;
 
+/** Spans this long wait for the background pass instead of measuring inside a layout effect. */
+const measuredNow = 200;
+
 export class WrapIndex implements RowLayout {
   readonly #text: WrapText;
   #columns = Number.POSITIVE_INFINITY;
@@ -111,9 +114,10 @@ export class WrapIndex implements RowLayout {
     while (bit * 2 <= count) bit *= 2;
     for (; bit > 0; bit = Math.floor(bit / 2)) {
       const next = line + bit;
-      if (next <= count && seen + this.#tree[next] <= target) {
+      const span = this.#tree[next] ?? 0;
+      if (next <= count && seen + span <= target) {
         line = next;
-        seen += this.#tree[next];
+        seen += span;
       }
     }
     return Math.min(line, count - 1);
@@ -139,13 +143,23 @@ export class WrapIndex implements RowLayout {
 
   /**
    * An edit, in post-edit coordinates: the lines each span inserted are measured now (a handful
-   * at most); lines that moved keep their counts.
+   * at most); lines that moved keep their counts. A span as long as the file (a whole-file
+   * replacement) only marks its lines for the background pass, so a layout effect never walks
+   * fifty thousand lines.
    */
   apply(spans: readonly LineEdit[], lineCount: number): void {
     if (lineCount !== this.#counts.length) this.#remap(spans, lineCount);
     for (const span of spans) {
       const from = Math.max(0, span.firstLine);
       const to = Math.min(this.#counts.length, span.firstLine + Math.max(1, span.insertedLines));
+      if (to - from > measuredNow) {
+        for (let line = from; line < to; line++) {
+          this.#rows.delete(line);
+          this.#dirty[line] = 1;
+        }
+        if (this.#columns !== Infinity) this.#queueDirty();
+        continue;
+      }
       for (let line = from; line < to; line++) {
         this.#rows.delete(line);
         this.#measure(line);
@@ -158,7 +172,7 @@ export class WrapIndex implements RowLayout {
     let remaining = limit;
     while (this.#from < this.#pending.length && remaining > 0) {
       const line = this.#pending[this.#from++];
-      if (line >= this.#counts.length) continue;
+      if (line === undefined || line >= this.#counts.length) continue;
       this.#queued[line] = 0;
       if (!this.#dirty[line]) continue;
       this.#measure(line);
@@ -188,18 +202,18 @@ export class WrapIndex implements RowLayout {
   }
 
   #setCount(line: number, count: number): void {
-    const previous = this.#counts[line];
+    const previous = this.#counts[line] ?? 0;
     if (previous === count) return;
     this.#counts[line] = count;
     this.#total += count - previous;
     for (let at = line + 1; at < this.#tree.length; at += at & -at) {
-      this.#tree[at] += count - previous;
+      this.#tree[at] = (this.#tree[at] ?? 0) + count - previous;
     }
   }
 
   #sum(line: number): number {
     let total = 0;
-    for (let at = line; at > 0; at -= at & -at) total += this.#tree[at];
+    for (let at = line; at > 0; at -= at & -at) total += this.#tree[at] ?? 0;
     return total;
   }
 
@@ -208,11 +222,12 @@ export class WrapIndex implements RowLayout {
     this.#total = 0;
     const count = this.#counts.length;
     for (let line = 0; line < count; line++) {
-      const value = this.#counts[line];
+      const value = this.#counts[line] ?? 1;
       this.#total += value;
-      this.#tree[line + 1] += value;
+      this.#tree[line + 1] = (this.#tree[line + 1] ?? 0) + value;
       const parent = line + 1 + ((line + 1) & -(line + 1));
-      if (parent <= count) this.#tree[parent] += this.#tree[line + 1];
+      if (parent <= count)
+        this.#tree[parent] = (this.#tree[parent] ?? 0) + (this.#tree[line + 1] ?? 0);
     }
   }
 
