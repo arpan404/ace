@@ -82,11 +82,13 @@ struct ForgeChecksSection: View {
             open(ForgeRoute(kind: .check, machineId: route.machineId, project: route.project, number: route.number, repository: target.repository, checkId: check.id))
         } label: {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Text(check.name).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                Text(check.word).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(check.tone == "idle" ? AceTheme.Colours.mutedForeground : AceTone(check.tone).text)
+                ForgeTwoSided {
+                    Text(check.name).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                        .foregroundStyle(AceTheme.Colours.foreground)
+                } trailing: {
+                    Text(check.word).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                        .foregroundStyle(check.tone == "idle" ? AceTheme.Colours.mutedForeground : AceTone(check.tone).text)
+                }
                 AceIcon(.caretRight, size: AceDesign.Size.caret, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
             .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())

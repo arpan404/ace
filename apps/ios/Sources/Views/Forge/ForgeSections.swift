@@ -10,24 +10,50 @@ struct ForgeSection<Rows: View>: View {
 }
 
 /// A two-sided row: what, then its value; the value takes its state's colour when it has one
-/// that needs saying (idle values stay muted).
+/// that needs saying (idle values stay muted). At accessibility sizes the value goes under the
+/// title, so neither splits a word.
 struct ForgeLine: View {
     let leading: String
     let trailing: String
     var tone: String?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        ForgeTwoSided {
             Text(leading).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            Spacer(minLength: AceTheme.Spacing.sm)
+                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+        } trailing: {
             Text(trailing).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                 .foregroundStyle(tone.flatMap { $0 == "idle" ? nil : AceTone($0).text } ?? AceTheme.Colours.mutedForeground)
-                .lineLimit(1)
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .frame(minHeight: AceDesign.Size.tap)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A title and its value on one line, or the value under the title at accessibility sizes.
+struct ForgeTwoSided<Leading: View, Trailing: View>: View {
+    @ViewBuilder let leading: () -> Leading
+    @ViewBuilder let trailing: () -> Trailing
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
+                leading().fixedSize(horizontal: false, vertical: true)
+                trailing()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, AceDesign.Space.tight)
+        } else {
+            HStack(spacing: AceTheme.Spacing.sm) {
+                leading()
+                Spacer(minLength: AceTheme.Spacing.sm)
+                trailing()
+            }
+        }
     }
 }
 
@@ -77,10 +103,12 @@ struct ForgeLinkRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: AceTheme.Spacing.sm) {
-                Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                Spacer(minLength: AceTheme.Spacing.sm)
-                if !detail.isEmpty { Text(detail).meta() }
+                ForgeTwoSided {
+                    Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
+                        .foregroundStyle(AceTheme.Colours.foreground)
+                } trailing: {
+                    if !detail.isEmpty { Text(detail).meta() }
+                }
                 AceIcon(.caretRight, size: AceDesign.Size.caret, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
             .padding(.horizontal, AceTheme.Spacing.lg)
