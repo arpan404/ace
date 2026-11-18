@@ -23,6 +23,13 @@ import XCTest
         // The schedule's zone shows when it isn't the phone's.
         XCTAssertTrue(when.label.hasPrefix("Every day at 2:00 AM"), when.label)
         screenshot("detail")
+        // Row actions sit at the pitch of the list's other rows, not in tall padded bands.
+        let pause = app.buttons["automation.toggle"], edit = app.buttons["automation.edit"]
+        reveal(app, edit)
+        XCTAssertTrue(pause.exists && edit.exists)
+        let pitch = edit.frame.midY - pause.frame.midY
+        XCTAssertGreaterThanOrEqual(pitch, 44, "a row action is a full tap tall")
+        XCTAssertLessThanOrEqual(pitch, 54, "a row action is no taller than the list's other rows")
         // The run waiting on an approval says so; it never reads as working or done.
         let asking = element(app, "automation.run.run-nightly-4")
         reveal(app, asking)
