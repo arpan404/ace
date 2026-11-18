@@ -4,14 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach } from "vitest";
 import { AgentId, ThreadId, type MachineMessage, type MachineThreadView } from "@ace/protocol";
-import { Store } from "@ace/daemon";
+import { AdapterRegistry, Engine, Store } from "@ace/daemon";
+import { ManualClock } from "../engine/test-support.ts";
 import { MachineChildren } from "./children.ts";
 import { RequestMirror } from "./mirror.ts";
 import type { ResendAnswer } from "./child-messages.ts";
 
 const homes: string[] = [];
 const stores: Store[] = [];
-afterEach(() => {
+const engines: Engine[] = [];
+afterEach(async () => {
+  for (const engine of engines.splice(0)) await engine.close();
   for (const store of stores.splice(0)) store.close();
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
@@ -51,6 +54,11 @@ export function machine(
     pollMs?: number;
     /** When this daemon starts by the test's clock, e.g. a restart hours after the last run. */
     startAt?: number;
+    /**
+     * A real engine over the same store, holding no state for `parent` (deleted and purged, or
+     * never run here); without it, nothing is shown in any parent.
+     */
+    engine?: boolean;
   } = {},
 ) {
   if (!homes.includes(home)) homes.push(home);
@@ -151,9 +159,19 @@ export function machine(
   };
   /** Local delegation edges, child to parent, as the journal reads them. */
   const edges = new Map<string, ThreadId>();
+  const engine = options.engine
+    ? new Engine(real, {
+        registry: new AdapterRegistry(),
+        clock: new ManualClock(),
+        idleMs: 100000,
+        silenceMs: 100000,
+        onError: () => {},
+      })
+    : undefined;
+  if (engine) engines.push(engine);
   const children = new MachineChildren({
     store,
-    engine: () => undefined,
+    engine: () => engine,
     now: () => clock.now,
     schedule: (ms, run) => {
       const timer = { ms, at: clock.now + ms, run };

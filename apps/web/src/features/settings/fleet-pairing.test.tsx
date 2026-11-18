@@ -84,7 +84,7 @@ test("remote access off explains the missing listener and prevents making an unu
 });
 
 test("turning remote access off changes pairing instructions on the same page", async () => {
-  await harness().open("/settings/remote");
+  await harness().open("/settings/remote/primary");
   await userEvent.click(await screen.findByText("More options"));
   // The button replaces its placeholder once settings load: look it up again after.
   await waitFor(() =>

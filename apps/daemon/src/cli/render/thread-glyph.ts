@@ -2,7 +2,7 @@ import type { RowStatusIconKind, RowStatusTone } from "@ace/ui-core";
 import { formatAge, formatSpan } from "@ace/ui-core/time";
 
 /**
- * One glyph per status, in its state's colour only on a terminal (ADR 0176 §3): `◆` approval,
+ * One glyph per status, in its state's colour only on a terminal (ADR 0178 §3): `◆` approval,
  * `?` question, `✦` model choice (all needs-you amber), `✕` failed, `◌` working with its
  * running time, `◌3` waiting on three agents, `▣` background, `✓` finished unseen, and nothing
  * for idle, just the age. Pure.

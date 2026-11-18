@@ -26,8 +26,16 @@ const offer = (overrides: Record<string, unknown> = {}) =>
  * The desktop's preload bridge: settings as stored, and an updater whose `check` reports what
  * the feed found, as the main process does.
  */
-function desktop(initial: unknown, found: unknown = status({ state: "current" })) {
-  let report: ((value: unknown) => void) | undefined;
+function desktop(
+  initial: unknown,
+  found: unknown = status({ state: "current" }),
+  onLine: (line: string) => unknown = (line) => status({ state: "current", line }),
+) {
+  // Every view of the update listens, as the preload lets it.
+  const listeners = new Set<(value: unknown) => void>();
+  const report = (value: unknown) => {
+    for (const listener of listeners) listener(value);
+  };
   const calls: string[] = [];
   const stored = {
     background: true,
@@ -47,7 +55,7 @@ function desktop(initial: unknown, found: unknown = status({ state: "current" })
       current: async () => initial,
       check: async () => {
         calls.push("check");
-        report?.(found);
+        report(found);
         return found;
       },
       download: async () => {
@@ -59,13 +67,19 @@ function desktop(initial: unknown, found: unknown = status({ state: "current" })
         return initial;
       },
       busy: async () => 0,
+      setLine: async (line: string) => {
+        calls.push(`line ${line}`);
+        const next = onLine(line);
+        report(next);
+        return next;
+      },
       onStatus(listener: (value: unknown) => void) {
-        report = listener;
-        return () => {};
+        listeners.add(listener);
+        return () => listeners.delete(listener);
       },
     },
   });
-  return { calls, report: (value: unknown) => act(() => report?.(value)) };
+  return { calls, report: (value: unknown) => act(() => report(value)) };
 }
 
 afterEach(() => {
@@ -108,4 +122,33 @@ test("a browser shows no Updates row in Settings", async () => {
   await harness().open("/settings/general");
   await screen.findByText("Terminals open in");
   expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
+});
+
+test("the person picks the Beta line in Settings, and it checks that line at once", async () => {
+  const machine = desktop(status({ state: "current" }), undefined, (line) =>
+    offer({ line, version: "1.0.0-beta.1" }),
+  );
+  await harness().open("/settings/general");
+  expect(await screen.findByText("Stable gets each release once it's ready.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Beta" }));
+  expect(machine.calls).toEqual(["line beta"]);
+  expect(await screen.findByText("Beta gets builds of main between stable releases.")).toBeTruthy();
+  expect(screen.getByText("ace 1.0.0-beta.1 is available.")).toBeTruthy();
+});
+
+test("a beta that can't go back to stable says why in one sentence", async () => {
+  const why =
+    "Stable can't read this beta's data yet. You can switch once stable reaches a newer release.";
+  desktop(
+    status({
+      state: "current",
+      currentVersion: "1.0.0-beta.1",
+      buildLine: "beta",
+      line: "stable",
+      blocked: why,
+    }),
+  );
+  await harness().open("/settings/general");
+  expect(await screen.findByText(why)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Stable" }).getAttribute("aria-pressed")).toBe("true");
 });

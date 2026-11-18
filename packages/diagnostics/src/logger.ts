@@ -103,7 +103,8 @@ export function createLogger(options: LoggerOptions) {
     armed = delayMs;
     schedule(() => {
       armed = undefined;
-      void drain();
+      // drain() counts a failed sink write itself, and has no log left to report one to.
+      void drain().catch(() => {});
     }, delayMs);
   }
   function componentLogger(component: string): ComponentLogger {

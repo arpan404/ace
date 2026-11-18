@@ -33,7 +33,8 @@ export async function discoverListedModels(
     maxOutputBytes: 4 * 1024 * 1024,
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // The stops awaited below report a tree that survives one.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   try {
@@ -147,10 +148,13 @@ async function piRequest(
       }
     };
     proc.stdout.on("line", receive);
-    void proc.exited.then(() => {
-      proc.stdout.removeListener("line", receive);
-      reject(new Error("Pi metadata process exited before listing"));
-    });
+    // The promise below settles its own failure; a late exit only rejects it.
+    void proc.exited
+      .then(() => {
+        proc.stdout.removeListener("line", receive);
+        reject(new Error("Pi metadata process exited before listing"));
+      })
+      .catch(() => {});
     proc.stdin.write(JSON.stringify({ type: command, id }) + "\n", (error) => {
       if (error) reject(error);
     });

@@ -63,7 +63,8 @@ export async function addAccount(
     stdout: options.loginOutput ?? "stdout",
   });
   const cancel = () => {
-    void child.stop({ graceMs: options.cancellationGraceMs ?? 500 });
+    // stop() reports its own failures; the aborted login is what the caller hears about.
+    void child.stop({ graceMs: options.cancellationGraceMs ?? 500 }).catch(() => {});
   };
   options.signal?.addEventListener("abort", cancel, { once: true });
   if (options.signal?.aborted) cancel();

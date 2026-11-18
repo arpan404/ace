@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, createDevThread, AdapterRegistry, type CommandHandler } from "@ace/daemon";
+import { expandShortDeltas } from "@ace/projection/short-deltas";
 import {
   AgentId,
   ItemId,
@@ -97,10 +98,12 @@ export class Faults {
           open: events.open,
           close: events.close,
           // The daemon packs several messages into one frame, one per line (hello `framing`);
-          // each is faulted on its own, as if it had come alone.
+          // each is faulted on its own, as if it had come alone. Streamed deltas come in short
+          // form (the client asks for `short-deltas`): read whole here, as the client's codec
+          // does, while the client still gets the text as sent.
           message: (frame) => {
             for (const text of frame.split("\n")) {
-              const message = ServerMessage.parse(JSON.parse(text));
+              const message = ServerMessage.parse(expandShortDeltas(JSON.parse(text)));
               this.messages.push(message);
               for (const watcher of this.watchers.slice())
                 if (watcher.predicate(message)) {

@@ -7,7 +7,7 @@ import { threadRequests } from "./requests.ts";
 
 /**
  * What the interactive views read from the daemon, through `@ace/client`'s own stores (ADR
- * 0176 §9): the thread list (`threads()`), the threads with open requests, the open row's
+ * 0178 §9): the thread list (`threads()`), the threads with open requests, the open row's
  * agents and the attached thread (`thread(id)`). The client owns reconnects and the outbox;
  * this only holds leases and says when something changed.
  */

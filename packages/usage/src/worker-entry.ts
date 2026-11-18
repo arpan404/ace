@@ -41,7 +41,8 @@ port.on("message", ({ id, call }: WorkerRequest) => {
         break;
       case "ingest":
         value = store.ingest(call.batch);
-        void refresh.refresh(store.modelsInUse());
+        // refresh() reports its own failures: the last good prices stay.
+        void refresh.refresh(store.modelsInUse()).catch(() => {});
         break;
       case "sessionTotals":
         value = store.sessionTotalsFor(call.query);
@@ -56,7 +57,8 @@ port.on("message", ({ id, call }: WorkerRequest) => {
         value = store.burn(call.account, call.window, call.now);
         break;
       case "close":
-        void refresh.close();
+        // close() only waits for a refresh that reports its own failures; the worker ends anyway.
+        void refresh.close().catch(() => {});
         store.close();
         value = null;
         break;

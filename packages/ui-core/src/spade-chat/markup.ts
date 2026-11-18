@@ -25,7 +25,7 @@ export type SpadeBlock =
 const fence = /^\s*```\s*([\w+#.-]*)/;
 const closing = /^\s*```\s*$/;
 // A task's box reads as the item: "- [x] Pack" is "Pack".
-const bullet = /^\s*[-*+•]\s+(?:\[[ xX]\]\s+)?(.*)$/;
+const bullet = /^\s*[-*+\u2022]\s+(?:\[[ xX]\]\s+)?(.*)$/;
 const numbered = /^\s*\d+[.)]\s+(.*)$/;
 const heading = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
 const quote = /^\s{0,3}>\s?(.*)$/;

@@ -1,7 +1,7 @@
 import type { HomeRow } from "./home-rows.ts";
 
 /**
- * The home's state (ADR 0176 §9) and what it selects. Pure, and light to load: the first paint
+ * The home's state (ADR 0178 §9) and what it selects. Pure, and light to load: the first paint
  * draws from it before the client and the schemas load.
  */
 export interface HomeState {

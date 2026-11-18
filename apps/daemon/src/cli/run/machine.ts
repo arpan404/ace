@@ -8,7 +8,7 @@ async function runtime(context: CommandContext, words: string[]): Promise<void> 
   return (await import("../runtime.ts")).runtimeCommand(args, await context.config());
 }
 
-/** Whether colour may mark state on stdout (ADR 0176 §3). */
+/** Whether colour may mark state on stdout (ADR 0178 §3). */
 async function color(context: CommandContext): Promise<boolean> {
   const { useColor } = await import("../input-mode.ts");
   return useColor({

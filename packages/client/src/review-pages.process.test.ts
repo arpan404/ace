@@ -189,7 +189,11 @@ test("authoritative text replacement invalidates an active detail read rather th
   const part = item.parts[0];
   if (part?.type !== "text" || !part.source) throw new Error("source");
   const reader = client.text(part.source);
-  expect((await reader.next()).value).toBe("x".repeat(128 * 1024));
+  // The daemon bounds each output read (`outputReadBytes`), so this is a prefix and the read is
+  // still under way when the text is replaced.
+  const first = (await reader.next()).value;
+  expect(typeof first === "string" && first.length > 0 && first.length < 512 * 1024).toBe(true);
+  expect(first).toBe("x".repeat(String(first).length));
   const throughSeq = h.daemon.store.headSeq();
   h.daemon.store.appendEvents(h.thread.id, [
     {

@@ -3,7 +3,7 @@ import { spadeCaller } from "../spade-call.ts";
 import { automationHandlers } from "./automation.ts";
 import { prepareHome, withSession, type CommandContext, type Handlers } from "./context.ts";
 
-/** Spade and its bots, and the Beta switches (ADR 0176 §7). */
+/** Spade and its bots, and the Beta switches (ADR 0178 §7). */
 
 async function color(context: CommandContext): Promise<boolean> {
   const { useColor } = await import("../input-mode.ts");

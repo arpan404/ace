@@ -219,7 +219,9 @@ async function configure(capture: Capture, entry: Encoder, reason: string): Prom
       },
       error: (error) => {
         if (generation !== entry.generation) return;
-        void configure(capture, entry, String(error));
+        void configure(capture, entry, String(error)).catch(() =>
+          emit({ t: "failed", capture: capture.id, encode: entry.spec.key }),
+        );
       },
     });
     encoder.configure(config);
@@ -506,7 +508,9 @@ setInterval(() => {
     }
     for (const entry of capture.encoders.values()) {
       if (entry.watchdog.stalled(at)) {
-        void configure(capture, entry, "The encoder stopped producing output");
+        void configure(capture, entry, "The encoder stopped producing output").catch(() =>
+          emit({ t: "failed", capture: capture.id, encode: entry.spec.key }),
+        );
         continue;
       }
       const last = capture.last;
@@ -641,7 +645,8 @@ Object.assign(globalThis, {
       const capture = captures.get(id);
       if (!capture || capture.track) return;
       capture.waiting = Uint8Array.from(atob(jpeg), (char) => char.charCodeAt(0));
-      if (!capture.decoding) void decodePictures(capture);
+      // A picture that fails to decode is skipped; the next pushed picture tries again.
+      if (!capture.decoding) void decodePictures(capture).catch(() => {});
     },
     /**
      * The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop, and a
@@ -678,7 +683,9 @@ Object.assign(globalThis, {
           generation: 0,
         };
         capture.encoders.set(spec.key, entry);
-        void configure(capture, entry, "No encoder supports this codec here");
+        void configure(capture, entry, "No encoder supports this codec here").catch(() =>
+          emit({ t: "failed", capture: capture.id, encode: entry.spec.key }),
+        );
       }
     },
     /**

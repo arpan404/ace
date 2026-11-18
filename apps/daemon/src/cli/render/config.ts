@@ -2,7 +2,7 @@ import type { CliConfigEntry } from "@ace/protocol/cli-outputs";
 import type { SettingsKey } from "@ace/protocol";
 import { formatConfigValue, resolveConfigKey } from "../config-keys.ts";
 
-/** Words for `ace config` (ADR 0176 §3). Pure: entries → lines. */
+/** Words for `ace config` (ADR 0178 §3). Pure: entries → lines. */
 
 const sourceWords: Readonly<Record<CliConfigEntry["source"], string>> = {
   default: "",

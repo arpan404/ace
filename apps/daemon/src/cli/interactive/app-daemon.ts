@@ -3,7 +3,7 @@ import type { App } from "./app-context.ts";
 import { openLive } from "./live.ts";
 
 /**
- * Reaching the daemon for the interactive shell (ADR 0176 §9): whether it runs, starting it
+ * Reaching the daemon for the interactive shell (ADR 0178 §9): whether it runs, starting it
  * when asked, and opening the connection and the live stores the views read.
  */
 export function isOffline(error: unknown): boolean {

@@ -95,7 +95,8 @@ export class OpenCodeSession implements ProviderSession {
     // A subagent's session is created and prompted before ace hears of it; the gate holds its
     // tools until this sets its environment, and refuses them if it can't (agent-env.ts).
     this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "", (id) => {
-      void this.admitEnvironment(id);
+      // admitEnvironment notes its own failure.
+      void this.admitEnvironment(id).catch(() => {});
     });
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
     if (ctx.aceMcp)
@@ -119,7 +120,8 @@ export class OpenCodeSession implements ProviderSession {
         if (this.closed) return;
         this.recovering = true;
         this.emit("note", "lifecycle", { type: "disconnected" });
-        void this.server.reconcileNow();
+        // Recovery retries on its own; a rejection here has no reporter.
+        void this.server.reconcileNow().catch(() => {});
       },
     });
     this.ancestry = new AncestryProbe({
@@ -145,7 +147,8 @@ export class OpenCodeSession implements ProviderSession {
           type: "disconnected",
           reason: "ancestry verification incomplete",
         });
-        void this.server.reconcileNow();
+        // Recovery retries on its own; a rejection here has no reporter.
+        void this.server.reconcileNow().catch(() => {});
       },
     });
     this.abortListener = () => {
@@ -353,9 +356,12 @@ export class OpenCodeSession implements ProviderSession {
           this.emit("recv", "snapshot.info", { info });
         })
         .catch(() => {
-          void this.server.reconcileNow();
+          // Recovery retries on its own; a rejection here has no reporter.
+          void this.server.reconcileNow().catch(() => {});
         })
-        .finally(() => this.moves.delete(id));
+        .finally(() => this.moves.delete(id))
+        // A failed read already reconciles above.
+        .catch(() => {});
     }
     return accepted;
   }
@@ -410,7 +416,8 @@ export class OpenCodeSession implements ProviderSession {
     if (this.closed) return;
     this.recovering = true;
     this.emit("note", "lifecycle", { type: "disconnected", reason: "location rebuilt" });
-    void this.server.reconcileNow();
+    // Recovery retries on its own; a rejection here has no reporter.
+    void this.server.reconcileNow().catch(() => {});
   }
   private async barrier(): Promise<void> {
     if (this.closed) throw new Error("OpenCode session is closed");

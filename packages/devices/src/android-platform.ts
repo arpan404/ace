@@ -154,7 +154,8 @@ export class AndroidPlatform {
       const current = devices.find((device) => device.id === id);
       if (current?.state !== "booted" || current.serial !== shell.serial) {
         this.inputs.delete(id);
-        void shell.close();
+        // The emulator is gone: its shell ends with it, and a failed close reports nothing new.
+        void shell.close().catch(() => {});
       }
     }
     this.uiHelpers?.prune((id) => {
@@ -521,14 +522,17 @@ export class AndroidPlatform {
       this.emulators.set(device.id, proc);
       this.ownedSerials.set(device.id, `emulator-${port}`);
       const controller = new AbortController();
-      void proc.exited.then(() => {
-        controller.abort();
-        this.ports.delete(port);
-        if (this.emulators.get(device.id) === proc) {
-          this.emulators.delete(device.id);
-          this.ownedSerials.delete(device.id);
-        }
-      });
+      // `exited` reports the emulator's exit and does not reject.
+      void proc.exited
+        .then(() => {
+          controller.abort();
+          this.ports.delete(port);
+          if (this.emulators.get(device.id) === proc) {
+            this.emulators.delete(device.id);
+            this.ownedSerials.delete(device.id);
+          }
+        })
+        .catch(() => {});
       try {
         await Promise.race([
           (async () => {

@@ -1,5 +1,5 @@
 /**
- * Redrawing an inline region below the prompt (ADR 0176 §9): no alternate screen, only the
+ * Redrawing an inline region below the prompt (ADR 0178 §9): no alternate screen, only the
  * lines that changed are rewritten. Pure: given what is on screen and what should be, the
  * escape sequences that turn one into the other, and where the cursor ends up.
  *

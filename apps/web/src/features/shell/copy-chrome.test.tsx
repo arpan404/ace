@@ -21,8 +21,7 @@ test("the connected machine keeps its name in menus, settings and the details ca
   expect(menu.textContent).not.toContain("memory://");
   expect(menu.textContent).not.toMatch(/daemon/i);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Connection settings" }));
-  // Connection settings and Pair a device both land on Fleet.
-  await screen.findByRole("heading", { name: "Fleet", level: 2 });
+  // Connection settings lands on this computer's page in Fleet, where "In this window" is.
   const window = await screen.findByRole("region", { name: "In this window" });
   expect(within(window).getByText("Computer connection")).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "Advanced", current: false }));

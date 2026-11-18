@@ -43,7 +43,8 @@ function publish(): void {
     });
   } finally {
     archive.close();
-    void store.close();
+    // The worker reports its own outcome above; closing the store has no one left to tell.
+    void store.close().catch(() => {});
   }
 }
 if (build === (input.storedTrustBuild ?? undefined)) publish();

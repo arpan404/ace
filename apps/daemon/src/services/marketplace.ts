@@ -112,7 +112,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
       }
       // A publish mints its market grant through this machine's ace account, for this request
       // alone; it never reaches the socket, the disk or a log. An agent's shell names its thread
-      // (ADR 0176 §12.5): its person-only actions become a request there instead.
+      // (ADR 0178 §12.5): its person-only actions become a request there instead.
       // Without a thread the caller says it is the person, which the host token alone can't
       // prove: person-only actions from it need a fresh ace sign-in (`fresh-sign-in.ts`).
       const { operation, thread } = message;
@@ -138,9 +138,20 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
         return true;
       }
-      const task = run().then(reply);
+      const task = run()
+        .then(reply)
+        .catch((error: unknown) => {
+          options.log?.(error);
+          reply({
+            op: "error",
+            code: "failed",
+            message:
+              error instanceof Error ? error.message.slice(0, 2000) : "Marketplace request failed",
+          });
+        });
       tasks.add(task);
-      void task.finally(() => tasks.delete(task));
+      // The task answers its own failure above; this only forgets it.
+      void task.finally(() => tasks.delete(task)).catch(() => {});
       return true;
     },
   };

@@ -209,59 +209,62 @@ export class ThreadOrganizer {
     if (this.pending) return this.pending;
     this.cancel?.();
     this.pending = (async () => {
-      await this.store.writable();
-      // Marks a full disk held back go in before the queue is read, so none waits a second pass.
-      if (!this.held.flush()) {
-        this.retry = true;
-        return;
-      }
-      const ids = this.store.atomic((db) => {
-        db.prepare(
-          "INSERT OR IGNORE INTO thread_organizer_dirty SELECT thread_id FROM thread_settle_due WHERE due<=? ORDER BY due LIMIT 64",
-        ).run(this.now());
-        return db
-          .prepare("SELECT thread_id FROM thread_organizer_dirty LIMIT 64")
-          .all()
-          .map((row) => ThreadId.parse(row.thread_id));
-      });
-      for (const id of ids) {
-        await this.store.writable();
-        if (this.stopped) return;
-        // Remove before reading. An event arriving during the asynchronous read requeues it.
-        this.store.atomic((db) =>
-          db.prepare("DELETE FROM thread_organizer_dirty WHERE thread_id=?").run(id),
-        );
-        try {
-          await this.refresh(id);
-        } catch (error) {
-          this.retry = true;
-          // The requeue may fail for the same reason (a full disk); it is then held, not lost.
-          this.markDirty(id);
-          throw error;
-        }
-      }
-    })().finally(async () => {
       try {
         await this.store.writable();
-        this.pending = undefined;
-        if (!this.stopped) {
-          const dirty = this.store.atomic((db) =>
-            Boolean(db.prepare("SELECT 1 FROM thread_organizer_dirty LIMIT 1").get()),
-          );
-          const due = this.store.atomic(
-            (db) => db.prepare("SELECT MIN(due) AS due FROM thread_settle_due").get()?.due,
-          );
-          const delay =
-            typeof due === "number" ? Math.min(60_000, Math.max(0, due - this.now())) : 60_000;
-          this.arm(this.retry ? 60_000 : dirty ? 0 : delay);
-          this.retry = false;
+        // Marks a full disk held back go in before the queue is read, so none waits a second pass.
+        if (!this.held.flush()) {
+          this.retry = true;
+          return;
         }
-      } catch {
-        this.pending = undefined;
-        this.retry = false;
-        this.arm(1000);
+        const ids = this.store.atomic((db) => {
+          db.prepare(
+            "INSERT OR IGNORE INTO thread_organizer_dirty SELECT thread_id FROM thread_settle_due WHERE due<=? ORDER BY due LIMIT 64",
+          ).run(this.now());
+          return db
+            .prepare("SELECT thread_id FROM thread_organizer_dirty LIMIT 64")
+            .all()
+            .map((row) => ThreadId.parse(row.thread_id));
+        });
+        for (const id of ids) {
+          await this.store.writable();
+          if (this.stopped) return;
+          // Remove before reading. An event arriving during the asynchronous read requeues it.
+          this.store.atomic((db) =>
+            db.prepare("DELETE FROM thread_organizer_dirty WHERE thread_id=?").run(id),
+          );
+          try {
+            await this.refresh(id);
+          } catch (error) {
+            this.retry = true;
+            // The requeue may fail for the same reason (a full disk); it is then held, not lost.
+            this.markDirty(id);
+            throw error;
+          }
+        }
+      } finally {
+        // Awaited before the sweep settles, so a caller sees the next one armed.
+        try {
+          await this.store.writable();
+          this.pending = undefined;
+          if (!this.stopped) {
+            const dirty = this.store.atomic((db) =>
+              Boolean(db.prepare("SELECT 1 FROM thread_organizer_dirty LIMIT 1").get()),
+            );
+            const due = this.store.atomic(
+              (db) => db.prepare("SELECT MIN(due) AS due FROM thread_settle_due").get()?.due,
+            );
+            const delay =
+              typeof due === "number" ? Math.min(60_000, Math.max(0, due - this.now())) : 60_000;
+            this.arm(this.retry ? 60_000 : dirty ? 0 : delay);
+            this.retry = false;
+          }
+        } catch {
+          this.pending = undefined;
+          this.retry = false;
+          this.arm(1000);
+        }
       }
-    });
+    })();
     return this.pending;
   }
   async close(): Promise<void> {

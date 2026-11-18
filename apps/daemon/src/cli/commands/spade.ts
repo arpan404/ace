@@ -1,7 +1,7 @@
 import { grammarRelease as since, idempotencyKey } from "./flags.ts";
 import type { CommandSpec, NounSpec } from "./spec.ts";
 
-/** Spade, Beta switches and automations (ADR 0176 §7). */
+/** Spade, Beta switches and automations (ADR 0178 §7). */
 export const spadeNouns: readonly NounSpec[] = [
   { name: "spade", summary: "Spade, ace's assistant, and its bots", group: "spade-market" },
   { name: "feature", summary: "Beta features", group: "spade-market" },

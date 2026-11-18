@@ -154,7 +154,7 @@ async function connectWithLifetime(home: string, args: Args, duration: number | 
 }
 
 /**
- * A read-only connection to this machine's daemon, for tab completion (ADR 0176 §6): no outbox,
+ * A read-only connection to this machine's daemon, for tab completion (ADR 0178 §6): no outbox,
  * so nothing is written, and given up when `signal` aborts. Throws when a remote picked with
  * `ace remote use` is where commands go, as this daemon's references aren't its.
  */

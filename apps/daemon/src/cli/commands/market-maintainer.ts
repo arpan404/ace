@@ -2,7 +2,7 @@ import { grammarRelease as since } from "./flags.ts";
 import type { ArgSpec, CommandSpec, FlagSpec } from "./spec.ts";
 
 /*
- * The market's maintainer tools (ADR 0168 §6–7, 0174 §10, 0176 §12.6), hidden and kept apart
+ * The market's maintainer tools (ADR 0168 §6–7, 0174 §10, 0178 §12.6), hidden and kept apart
  * (decision 7). `ace market appeal ID --answer …` still reaches the maintainer's appeal during
  * the window: the publisher's `market appeal` sends it on (`run/market.ts`).
  */

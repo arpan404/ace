@@ -94,20 +94,25 @@ export class CursorHost {
     const untrack = options.instanceId
       ? options.slots?.track(options.instanceId, () => this.stop())
       : undefined;
-    void this.process.exited.finally(() => {
-      untrack?.();
-      release?.();
-    });
+    // exited resolves on its own; a slot release that throws must not go unheard.
+    void this.process.exited
+      .finally(() => {
+        untrack?.();
+        release?.();
+      })
+      .catch((error: unknown) =>
+        process.emitWarning(`Cursor SDK host exit cleanup failed: ${String(error)}`),
+      );
     this.rpc = new JsonRpcPeer(this.process, {
       timeoutMs: this.limits.timeoutMs,
       maxMessageBytes: this.limits.maxFrameBytes,
       maxQueuedBytes: this.limits.maxPendingBytes,
       maxPendingRequests: 16,
       onMalformed: () => {
-        void this.fail("Cursor SDK host sent a malformed message");
+        this.fail("Cursor SDK host sent a malformed message");
       },
       onError: (error: unknown) => {
-        void this.fail(
+        this.fail(
           `Cursor SDK host connection failed: ${safeCursorErrorMessage(error, options.env)}`,
         );
       },
@@ -138,7 +143,7 @@ export class CursorHost {
         onLoginUrl(url);
       } else if (method === "frame")
         void receiveFrame(params).catch((error: unknown) => {
-          void this.fail(
+          this.fail(
             `Cursor SDK host frame was rejected: ${safeCursorErrorMessage(error, options.env)}`,
           );
         });
@@ -203,11 +208,11 @@ export class CursorHost {
       });
   }
   /** ace stops the host itself; the reason survives as the stop's detail. */
-  private fail(reason: string): Promise<void> {
+  private fail(reason: string): void {
     this.stopReason ??= reason;
     // Failing is fire-and-forget from RPC callbacks. A Windows tree that outlived its stop still
     // rejects every awaited stop (the slot pool's); here it is reported, not left unhandled.
-    return this.stop().catch((error: unknown) =>
+    void this.stop().catch((error: unknown) =>
       process.emitWarning(`Cursor SDK host did not stop cleanly: ${String(error)}`),
     );
   }

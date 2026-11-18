@@ -1,7 +1,7 @@
 import type { InteractionState } from "@ace/protocol";
 
 /**
- * What the person is told after answering a request (ADR 0176 §9). The daemon admitting the
+ * What the person is told after answering a request (ADR 0178 §9). The daemon admitting the
  * answer isn't the answer landing: the provider takes it, then the daemon closes the request.
  * So the words claim the decision only once the thread's store shows the request resolved,
  * and say plainly when it closed another way or nothing confirmed it in time. Pure.

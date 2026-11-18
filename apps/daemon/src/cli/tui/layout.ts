@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from "node:util";
 
 /**
- * Display width, wrapping and cutting for terminal lines (ADR 0176 §9). Pure. Width counts
+ * Display width, wrapping and cutting for terminal lines (ADR 0178 §9). Pure. Width counts
  * terminal cells: East Asian wide and fullwidth characters and emoji take two, combining marks
  * and joiners none, and colour sequences none.
  */

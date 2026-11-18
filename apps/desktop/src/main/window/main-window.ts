@@ -72,14 +72,15 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   const contents = window.webContents;
   // Nothing opens app windows; a visualization's window comes from `visualization.open`.
   contents.setWindowOpenHandler(({ url }) => {
-    if (isExternalUrl(url)) void shell.openExternal(url);
+    // A browser that will not open the link is nothing this window can do about.
+    if (isExternalUrl(url)) void shell.openExternal(url).catch(() => {});
     return { action: "deny" };
   });
   contents.on("will-navigate", (event, url) => {
     const decision = navigationDecision(url, options.url);
     if (decision === "allow") return;
     event.preventDefault();
-    if (decision === "external") void shell.openExternal(url);
+    if (decision === "external") void shell.openExternal(url).catch(() => {});
   });
   // The page's own blob downloads (attachment previews, the lightbox) arrive here once the
   // guard above lets them through; anything else on this session keeps its default path.

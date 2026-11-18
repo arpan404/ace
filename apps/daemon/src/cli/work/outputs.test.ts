@@ -8,7 +8,7 @@ import { statusJson } from "./status.ts";
 
 /**
  * Golden `--json` values, built by the code the commands print with, checked against the
- * schemas `ace help COMMAND --schema` publishes (ADR 0176 §3).
+ * schemas `ace help COMMAND --schema` publishes (ADR 0178 §3).
  */
 const now = 1_800_000_000_000;
 

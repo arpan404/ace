@@ -24,6 +24,7 @@ export function createProbeRunner(
         command: request.command,
         args: request.args,
         env,
+        ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
         name: "cli-probe",
         maxOutputBytes: request.maxBytes,
       });
@@ -47,18 +48,21 @@ export function createProbeRunner(
     const stderr: Buffer[] = [];
     proc.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     proc.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    void proc.exited.then((exit) => {
-      running.delete(id);
-      reply({
-        type: "exit",
-        id,
-        code: exit.code,
-        signal: exit.signal,
-        reason: proc.signal.reason instanceof OutputLimitError ? "output-limit" : exit.reason,
-        stdout: Buffer.concat(stdout).toString(),
-        stderr: Buffer.concat(stderr).toString(),
-      });
-    });
+    void proc.exited
+      .then((exit) => {
+        running.delete(id);
+        reply({
+          type: "exit",
+          id,
+          code: exit.code,
+          signal: exit.signal,
+          reason: proc.signal.reason instanceof OutputLimitError ? "output-limit" : exit.reason,
+          stdout: Buffer.concat(stdout).toString(),
+          stderr: Buffer.concat(stderr).toString(),
+        });
+      })
+      // exited never rejects; a reply that throws means the main thread is already gone.
+      .catch(() => {});
   };
   return {
     handle(input) {
@@ -66,7 +70,8 @@ export function createProbeRunner(
       if (stop.success) {
         const proc = running.get(stop.data.id);
         // Messages arrive in order, so a stop never precedes its request.
-        if (proc) void proc.stop({ graceMs: 0 });
+        // A surviving tree warns inside stop().
+        if (proc) void proc.stop({ graceMs: 0 }).catch(() => {});
         return;
       }
       const request = ProbeRequest.safeParse(input);

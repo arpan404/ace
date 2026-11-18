@@ -7,6 +7,10 @@ import {
   type SupervisedProcess,
 } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
+import {
+  findInstalledExecutable,
+  VersionManagerToolMissingError,
+} from "@ace/provider-kit/discovery";
 import { openWithSignIn } from "@ace/provider-kit/acp-sign-in";
 import { z } from "zod";
 import { discoverListedModels } from "./list-discovery.ts";
@@ -25,11 +29,31 @@ export type DiscoveryOptions = {
   cursorEnvironment?(instance: ModelInstance): NodeJS.ProcessEnv;
   opencode?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>;
 };
+/**
+ * The instance with the binary listing its models may run. Listing models starts the CLI, and a
+ * version manager's shim can install or update its tool when it starts, so a shim runs as the
+ * installed binary its manager names, and never itself.
+ */
+async function launchable(instance: ModelInstance, signal: AbortSignal): Promise<ModelInstance> {
+  if (instance.provider === "cursor" || instance.provider === "acp") return instance;
+  const found = await findInstalledExecutable(
+    instance.executable,
+    { ...process.env, ...instance.env },
+    // The catalog runs the CLI in the instance's directory: resolve its version there too.
+    { signal, cwd: instance.cwd },
+  );
+  if (!found) return instance;
+  if ("refused" in found) throw found.refused;
+  if ("absent" in found) throw new VersionManagerToolMissingError(found.path);
+  return found.run === found.path ? instance : { ...instance, executable: found.run };
+}
+
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
   const cursorSlots = options.cursorSlots ?? new CursorHostSlots(2);
-  return async (instance, signal, diagnostic): ReturnType<DiscoverModels> => {
+  return async (requested, signal, diagnostic): ReturnType<DiscoverModels> => {
     signal.throwIfAborted();
+    const instance = await launchable(requested, signal);
     if (instance.provider === "cursor") {
       const { createCursorAccountDriver } = await import("@ace/adapter-cursor/auth");
       if (!instance.homeDir) throw new Error("Cursor SDK catalog needs its selected instance home");
@@ -110,7 +134,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       maxOutputBytes: 4 * 1024 * 1024,
     });
     const abort = () => {
-      void proc.stop({ graceMs: 0 });
+      // The stops awaited below report a tree that survives one.
+      void proc.stop({ graceMs: 0 }).catch(() => {});
     };
     signal.addEventListener("abort", abort, { once: true });
     let rpc: JsonRpcPeer | undefined;
@@ -125,7 +150,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           },
           { signal },
         );
-        rpc.notify("initialized");
+        // notify() reports a failed send through the peer's onError.
+        void rpc.notify("initialized").catch(() => {});
         const models: CatalogModel[] = [];
         let cursor: string | undefined;
         const cursors = new Set<string>();

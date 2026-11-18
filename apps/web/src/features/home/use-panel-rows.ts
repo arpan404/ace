@@ -2,6 +2,7 @@ import { panelPage, panelRows, type HomeRow, type ThreadsTab } from "@ace/ui-cor
 import { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import type { HomeList } from "./use-home-threads.ts";
 import { useSettledPaging } from "./settled-paging.ts";
+import type { DeviceScope } from "./device-filter-state.ts";
 
 /** What Snoozed's and Settled's last row does: show a page more. */
 export interface PanelPaging {
@@ -29,7 +30,7 @@ export function usePanelRows(input: {
   list: HomeList;
   tab: ThreadsTab;
   project: string | null;
-  device: string | undefined;
+  device: DeviceScope;
   /**
    * While searching, the settled threads that match, newest first: the list's own and older ones
    * the search found that it hasn't paged in (`useSettledSearch`).

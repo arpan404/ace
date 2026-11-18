@@ -71,9 +71,8 @@ export interface CrashEvents {
 }
 
 /**
- * Charges each fatal error to the service whose code raised it, when that is known. An
- * unhandled rejection reaches here too: the rejection guard rethrows it from a timer, which
- * carries the rejection's context where the runtime keeps it.
+ * Charges each fatal error to the service whose code raised it, when that is known. Only thrown
+ * errors are fatal: an unhandled rejection is logged and the daemon keeps running.
  */
 export function installCrashAttribution(
   events: CrashEvents,

@@ -1,5 +1,5 @@
 /**
- * Attach in a real pseudo-terminal (ADR 0176 §9): a "Worked for" line printed into the
+ * Attach in a real pseudo-terminal (ADR 0178 §9): a "Worked for" line printed into the
  * terminal's scrollback unfolds its steps on Enter. A process test because the inline region,
  * what reaches the scrollback and the keys only exist with a real terminal on the other end;
  * the attach model and the unfolded lines have their own unit tests.

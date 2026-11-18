@@ -146,7 +146,8 @@ export class SpadeGrantDelivery {
     if (this.closed) return;
     this.cancelRetry = this.options.after(5000, () => {
       const connection = this.options.ready();
-      if (connection) void this.deliver(connection);
+      // deliver() reports its own failure through serial().
+      if (connection) void this.deliver(connection).catch(() => {});
     });
   }
   private retry(): void {
@@ -154,7 +155,8 @@ export class SpadeGrantDelivery {
     const delay = retryMs(this.attempt++);
     this.cancelRetry = this.options.after(delay, () => {
       const connection = this.options.ready();
-      if (connection) void this.deliver(connection, true);
+      // deliver() reports its own failure through serial().
+      if (connection) void this.deliver(connection, true).catch(() => {});
     });
   }
   private serial(run: () => Promise<void>): Promise<void> {

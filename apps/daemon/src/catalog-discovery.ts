@@ -30,7 +30,8 @@ export async function discoverCodexExtensions(options: {
     maxLineBytes: 1024 * 1024,
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // Only a head start: the finally block stops the same process again and reports there.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   options.signal.addEventListener("abort", abort, { once: true });
   const rpc = new JsonRpcPeer(proc, { timeoutMs: 5000 });
@@ -43,7 +44,8 @@ export async function discoverCodexExtensions(options: {
       },
       { signal: options.signal },
     );
-    rpc.notify("initialized");
+    // A broken connection fails the read-only queries below, which reaches the caller.
+    void rpc.notify("initialized").catch(() => {});
     const entries: CatalogEntry[] = [];
     for (const method of ["skills/list", "app/list", "mcpServerStatus/list"]) {
       const data: unknown[] = [];

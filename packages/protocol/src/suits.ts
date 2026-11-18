@@ -407,13 +407,26 @@ export type SuitClientMessage = z.infer<typeof SuitClientMessage>;
 export const SuitKeepId = z.string().min(1).max(80);
 
 /**
+ * Asks to hear `suitActive` and `suitCheck` on this socket (ADR 0150). The daemon pushes neither
+ * to a socket that hasn't asked, so a client that doesn't show Suits never gets an unrequested
+ * frame. It answers with the look showing for this device now (`preview` or `none`), then any
+ * keep or undo that waited for it, then each change; asked again, it answers again. The watch ends
+ * with the socket: a client asks on every new one. One-way: the answer is the `suitActive` frame.
+ */
+export const SuitWatchMessage = z.strictObject({
+  type: z.literal("suitWatch"),
+  requestId: SuitClientMessage.shape.requestId,
+});
+export type SuitWatchMessage = z.infer<typeof SuitWatchMessage>;
+
+/**
  * What an agent's `suit_apply` asks of this device (ADR 0150). The setting (`appearance.suit`)
  * lives on each device, so the daemon never stores it: it tells the devices that saw a preview
  * what to show, and each device keeps its own undo.
  *
  * - `preview`: show `suitId` over the device's setting, without storing it.
- * - `none`: no preview; the device's own setting shows. Sent on every new socket too, so a
- *   preview never outlives the daemon run or the socket that showed it.
+ * - `none`: no preview; the device's own setting shows. The answer to each `suitWatch` too, so
+ *   a preview never outlives the daemon run or the socket that showed it.
  * - `keep`: the device's setting becomes `suitId` and any preview ends; remember what it was
  *   under `keepId`.
  * - `restore`: undo `keepId`: put back what the device had before it, if the setting is still
@@ -482,9 +495,12 @@ export const SuitServerMessage = z.discriminatedUnion("type", [
   }),
   /** Pushed to every signed-in socket with read scope, after the library settles. */
   z.strictObject({ type: z.literal("suitsChanged"), suits: SuitsChanged.shape.suits }),
-  /** Pushed to the devices an agent's preview, keep or revert is for (`SuitActive`). */
+  /**
+   * To the watching sockets (`suitWatch`) of the devices an agent's preview, keep or revert is
+   * for (`SuitActive`), and the answer to each `suitWatch`.
+   */
   z.strictObject({ type: z.literal("suitActive"), active: SuitActive }),
-  /** Asks a device that shows `suitId` to run the live check and answer with `suitReport`. */
+  /** Asks a watching device that shows `suitId` to run the live check and answer with `suitReport`. */
   z.strictObject({ type: z.literal("suitCheck"), check: SuitLiveCheck }),
 ]);
 export type SuitServerMessage = z.infer<typeof SuitServerMessage>;

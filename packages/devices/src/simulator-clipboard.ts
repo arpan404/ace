@@ -39,14 +39,16 @@ async function pasteboard(
     bytes += chunk.length;
     if (bytes > readBytes) {
       cut = true;
-      void child.stop({ graceMs: 0 });
+      // The exit below is what the caller reads; a stop that cannot finish adds nothing.
+      void child.stop({ graceMs: 0 }).catch(() => {});
     }
   });
   child.stderr.resume();
   child.stdin.on("error", () => {});
   const cancel = options.after(timeoutMs, () => {
     timedOut = true;
-    void child.stop({ graceMs: 0 });
+    // The exit below is what the caller reads; a stop that cannot finish adds nothing.
+    void child.stop({ graceMs: 0 }).catch(() => {});
   });
   try {
     child.stdin.end(input);

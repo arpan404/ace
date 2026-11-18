@@ -109,7 +109,8 @@ export class UsageScanner {
       try {
         await new Promise<void>((resolve, reject) => {
           reapTimer = setTimeout(() => reject(new Error("storage_usage_cleanup_timeout")), 2000);
-          void exited.promise.then(resolve);
+          // An exit that can't be observed leaves the cleanup deadline above to finish.
+          void exited.promise.then(resolve).catch(() => {});
           try {
             if (worker.exitCode === null && worker.signalCode === null) worker.kill("SIGKILL");
           } catch {

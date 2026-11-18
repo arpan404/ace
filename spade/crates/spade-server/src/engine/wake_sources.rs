@@ -34,6 +34,34 @@ pub(crate) fn stamp(path: &Path) -> String {
     }
 }
 
+/// What a file event means for a wait on `watched`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Heard {
+    /// Something at or under the path changed.
+    Change,
+    /// A folder on the way to the path appeared, went or moved, or events were lost: the watch
+    /// may no longer reach the path.
+    Way,
+}
+
+/// What `event` means for a wait on `watched`, if anything. Reads are not changes.
+fn heard(event: &notify::Event, watched: &Path) -> Option<Heard> {
+    use notify::EventKind;
+    use notify::event::ModifyKind;
+    if matches!(event.kind, EventKind::Access(_)) {
+        return None;
+    }
+    if event.paths.iter().any(|p| p.starts_with(watched)) {
+        return Some(Heard::Change);
+    }
+    let moved = matches!(
+        event.kind,
+        EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
+    );
+    let on_the_way = event.paths.iter().any(|p| watched.starts_with(p));
+    (event.need_rescan() || (moved && on_the_way)).then_some(Heard::Way)
+}
+
 impl Engine {
     /// The full path of `relative` in conversation `id`'s workspace, through its real folder
     /// (the OS reports events at real paths), and that folder.
@@ -60,45 +88,98 @@ impl Engine {
         relative: &str,
         was: Option<&str>,
     ) {
-        let Some((target, root)) = self.workspace_file(id, relative) else {
+        let Some((target, _)) = self.workspace_file(id, relative) else {
             return;
         };
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        // What a change is measured against: how the file was when the wait was set, else now.
+        let was = was.map_or_else(|| stamp(&target), str::to_owned);
+        let Some(watcher) = self.file_watcher(id, wake, relative, &was) else {
             return;
         };
-        let what = format!("{relative} changed");
-        let fire = {
-            let (weak, id, wake, what) = (
-                Arc::downgrade(self),
-                id.to_owned(),
-                wake.to_owned(),
-                what.clone(),
-            );
-            move || {
-                let (weak, id, wake, what) = (weak.clone(), id.clone(), wake.clone(), what.clone());
-                runtime.spawn(async move {
-                    if let Some(engine) = weak.upgrade() {
-                        engine.fire_wake(&id, &wake, Cause::Condition, Some(&what), Vec::new());
-                    }
-                });
-            }
+        lock(&self.wakes.sources).insert(wake.to_owned(), Source::Watcher(watcher));
+        self.fire_if_changed(id, wake, relative, &was);
+    }
+
+    /// Watches `relative` again, from the nearest folder that exists now, while `wake` is still
+    /// armed: a folder on its way appeared, went or moved, or the OS lost track of events.
+    /// Linux's inotify watches a new folder only after reporting it, so a file written into it
+    /// at once is never reported; the file is compared after the new watch is in place, so a
+    /// change is seen by one or the other.
+    fn rewatch_file(self: &Arc<Self>, id: &str, wake: &str, relative: &str, was: &str) {
+        let Some(watcher) = self.file_watcher(id, wake, relative, was) else {
+            return;
         };
-        let watched = target.clone();
-        let on_event = fire.clone();
-        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-            let Ok(event) = event else { return };
-            if matches!(event.kind, notify::EventKind::Access(_)) {
+        let replaced = {
+            let armed = lock(&self.wakes.armed);
+            let still_armed = armed
+                .get(id)
+                .is_some_and(|list| list.iter().any(|a| a.open.wake == wake));
+            if !still_armed {
                 return;
             }
-            if event.paths.iter().any(|p| p.starts_with(&watched)) {
-                on_event();
-            }
-        });
-        let Ok(mut watcher) = watcher else {
-            tracing::warn!("could not watch a workspace file for a wait");
+            lock(&self.wakes.sources).insert(wake.to_owned(), Source::Watcher(watcher))
+        };
+        drop(replaced);
+        self.fire_if_changed(id, wake, relative, was);
+    }
+
+    /// Fires the file wait `wake` when `relative` is no longer as `was` says.
+    fn fire_if_changed(self: &Arc<Self>, id: &str, wake: &str, relative: &str, was: &str) {
+        let Some((target, _)) = self.workspace_file(id, relative) else {
             return;
         };
-        // The file itself when it is a folder; else the nearest folder above it that exists.
+        if stamp(&target) != was {
+            let what = format!("{relative} changed");
+            self.fire_wake(id, wake, Cause::Condition, Some(&what), Vec::new());
+        }
+    }
+
+    /// A watcher for `relative` on the nearest folder of it that exists: an event at or under
+    /// the path fires `wake`; one that changes a folder on its way watches it again.
+    fn file_watcher(
+        self: &Arc<Self>,
+        id: &str,
+        wake: &str,
+        relative: &str,
+        was: &str,
+    ) -> Option<notify::RecommendedWatcher> {
+        let (target, root) = self.workspace_file(id, relative)?;
+        let runtime = tokio::runtime::Handle::try_current().ok()?;
+        let (weak, id, wake, relative, was) = (
+            Arc::downgrade(self),
+            id.to_owned(),
+            wake.to_owned(),
+            relative.to_owned(),
+            was.to_owned(),
+        );
+        let watched = target.clone();
+        let mut watcher =
+            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                let Ok(event) = event else { return };
+                let Some(heard) = heard(&event, &watched) else {
+                    return;
+                };
+                let (weak, id, wake, relative, was) = (
+                    weak.clone(),
+                    id.clone(),
+                    wake.clone(),
+                    relative.clone(),
+                    was.clone(),
+                );
+                runtime.spawn(async move {
+                    let Some(engine) = weak.upgrade() else { return };
+                    match heard {
+                        Heard::Change => {
+                            let what = format!("{relative} changed");
+                            engine.fire_wake(&id, &wake, Cause::Condition, Some(&what), Vec::new());
+                        }
+                        Heard::Way => engine.rewatch_file(&id, &wake, &relative, &was),
+                    }
+                });
+            })
+            .map_err(|error| tracing::warn!(%error, "could not watch a workspace file for a wait"))
+            .ok()?;
+        // The path itself when it is a folder; else the nearest folder above it that exists.
         let (place, mode) = if target.is_dir() {
             (target.clone(), notify::RecursiveMode::Recursive)
         } else {
@@ -112,12 +193,9 @@ impl Engine {
         };
         if let Err(error) = watcher.watch(&place, mode) {
             tracing::warn!(%error, "could not watch a workspace file for a wait");
-            return;
+            return None;
         }
-        lock(&self.wakes.sources).insert(wake.to_owned(), Source::Watcher(watcher));
-        if was.is_some_and(|was| was != stamp(&target)) {
-            fire();
-        }
+        Some(watcher)
     }
 
     /// Polls `url` (loopback only, checked when the wait was set) until it answers below 500.
@@ -293,5 +371,72 @@ mod tests {
     fn terminal_output_reads_as_plain_text() {
         let raw = "\u{1b}[32mok\u{1b}[0m 3/9\r\n\u{1b}]0;title\u{7}next\u{8}";
         assert_eq!(plain_text(raw), "ok 3/9\nnext");
+    }
+
+    fn event(kind: notify::EventKind, path: &str) -> notify::Event {
+        notify::Event::new(kind).add_path(PathBuf::from(path))
+    }
+
+    #[test]
+    fn a_file_event_changes_the_wait_only_at_or_under_its_path() {
+        use notify::EventKind;
+        use notify::event::{AccessKind, CreateKind, DataChange, ModifyKind};
+        let watched = Path::new("/w/out/result.txt");
+        let write = EventKind::Modify(ModifyKind::Data(DataChange::Any));
+        assert_eq!(
+            heard(&event(write, "/w/out/result.txt"), watched),
+            Some(Heard::Change)
+        );
+        assert_eq!(
+            heard(
+                &event(EventKind::Create(CreateKind::File), "/w/out/result.txt"),
+                watched
+            ),
+            Some(Heard::Change)
+        );
+        assert_eq!(heard(&event(write, "/w/out/other.txt"), watched), None);
+        assert_eq!(heard(&event(write, "/w/out/result.txt.tmp"), watched), None);
+        assert_eq!(
+            heard(
+                &event(EventKind::Access(AccessKind::Any), "/w/out/result.txt"),
+                watched
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_folder_appearing_going_or_moving_on_the_way_watches_again() {
+        use notify::EventKind;
+        use notify::event::{CreateKind, MetadataKind, ModifyKind, RemoveKind, RenameMode};
+        let watched = Path::new("/w/out/result.txt");
+        for kind in [
+            EventKind::Create(CreateKind::Folder),
+            EventKind::Remove(RemoveKind::Folder),
+            EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+        ] {
+            assert_eq!(heard(&event(kind, "/w/out"), watched), Some(Heard::Way));
+        }
+        // Only folders on the way: a sibling folder, or the way's own metadata, changes nothing.
+        assert_eq!(
+            heard(
+                &event(EventKind::Create(CreateKind::Folder), "/w/elsewhere"),
+                watched
+            ),
+            None
+        );
+        assert_eq!(
+            heard(
+                &event(
+                    EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+                    "/w/out"
+                ),
+                watched
+            ),
+            None
+        );
+        // Lost events say nothing of where: look again.
+        let rescan = notify::Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan);
+        assert_eq!(heard(&rescan, watched), Some(Heard::Way));
     }
 }

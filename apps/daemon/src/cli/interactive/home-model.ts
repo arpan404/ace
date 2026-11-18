@@ -5,7 +5,7 @@ import type { HomeRow } from "./home-rows.ts";
 import { filtered, selectedRow, type HomeState } from "./home-state.ts";
 
 /**
- * The home's state over key presses (ADR 0176 §9). Pure: rows come from `homeRows`, keys from
+ * The home's state over key presses (ADR 0178 §9). Pure: rows come from `homeRows`, keys from
  * the terminal; what the keys ask for comes back as effects.
  */
 function move(state: HomeState, rows: readonly HomeRow[], by: number): HomeState {

@@ -4,7 +4,7 @@ import type { CommandTable, Route } from "./commands/table.ts";
 import { visibleWords } from "./parse.ts";
 
 /**
- * Tab completion (ADR 0176 §6). The shell scripts call the hidden `ace __complete WORDS… :CUR`,
+ * Tab completion (ADR 0178 §6). The shell scripts call the hidden `ace __complete WORDS… :CUR`,
  * the last word being what's typed so far behind a `:` so it is never empty. The answer is one
  * candidate per line, `value` or `value<TAB>description`; each shell's script shows the
  * description where the shell can. The table answers nouns, verbs, flags and choices; a slot the

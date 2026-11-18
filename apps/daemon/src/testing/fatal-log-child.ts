@@ -17,7 +17,7 @@ const [directory, failure] = z
 const sink = await createFileSink({ directory, totalBytes: 1024 * 1024, context: {} });
 const log = createLogger({ sink, now: () => 1, redact: (line) => line, flushMs: 60_000 });
 installFatalLogFlush(process, log, (error) => sqliteFailureDetails(error, directory));
-installRejectionGuard(process, log, isStoreRetry);
+installRejectionGuard(process, log, isStoreRetry, Date.now);
 log.log("info", "buffered before crash");
 /** A real SQLITE_FULL: the database may not grow past two pages. */
 function fill(): never {

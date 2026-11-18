@@ -34,6 +34,7 @@ import {
   SandboxNotice,
   TerminalCommand,
   UpdateStatus,
+  ReleaseLineName,
   WindowAction,
   WindowState,
 } from "./contract.ts";
@@ -53,7 +54,10 @@ const None = z.undefined();
 const Count = z.number().int().min(0).max(100_000);
 const ExternalUrl = z
   .url()
-  .refine((value) => ["https:", "http:", "mailto:"].includes(new URL(value).protocol));
+  .refine(
+    (value) =>
+      URL.canParse(value) && ["https:", "http:", "mailto:"].includes(new URL(value).protocol),
+  );
 
 /** What the renderer asks of this computer's daemon about its ace account (`daemon.account`). */
 export const MachineAccountRequest = z.discriminatedUnion("op", [
@@ -180,6 +184,8 @@ export const requests = {
   "updates.install": { request: None, result: UpdateStatus },
   /** How many agents Restart would stop; null when the daemon could not say. */
   "updates.busy": { request: None, result: z.number().int().min(0).nullable() },
+  /** Update from the Stable or Beta line (ADR 0177): saves the choice, then checks it. */
+  "updates.setLine": { request: ReleaseLineName, result: UpdateStatus },
   /** Chromium's sandbox setup on a Linux AppImage or tar.gz, for a page that loaded late. */
   "sandbox.current": { request: None, result: SandboxNotice },
   /** Run the one-time setup; resolves once the person answered the password prompt. */

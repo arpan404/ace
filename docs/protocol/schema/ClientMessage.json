@@ -827,6 +827,9 @@
       "$ref": "https://ace.local/protocol/v1/SuitReportMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SuitWatchMessage.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MarketClientMessage.json"
     },
     {

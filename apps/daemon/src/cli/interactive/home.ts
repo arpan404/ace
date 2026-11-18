@@ -9,7 +9,7 @@ import { homeStart } from "./home-state.ts";
 import { homeView } from "./home-view.ts";
 
 /**
- * The interactive home (ADR 0176 §9): bare `ace` on a terminal. The dispatcher only calls this
+ * The interactive home (ADR 0178 §9): bare `ace` on a terminal. The dispatcher only calls this
  * when `args.interactive` is true. Its first frame draws from the small terminal and view
  * modules and the rows the last run kept, before the client, the config and the schemas load,
  * so the home answers Enter at once (the 150 ms budget). Kept rows say "Syncing" until the
@@ -36,7 +36,7 @@ export async function interactiveHome(context: CommandContext): Promise<void> {
   try {
     app = await import("./app.ts");
   } catch {
-    // A broken install still lands the person on the way out (ADR 0176 §13).
+    // A broken install still lands the person on the way out (ADR 0178 §13).
     terminal.close();
     process.stderr.write("Something in ace is broken. Run ace doctor or ace triage.\n");
     return emit(context.args, overview(context.table));

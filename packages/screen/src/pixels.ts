@@ -76,7 +76,8 @@ export class Pixels {
         if (released) return;
         released = true;
         this.leases--;
-        if (!this.stopped && this.leases === 0) void this.set(false);
+        // set() already handles its own drain failure (`task.catch` above).
+        if (!this.stopped && this.leases === 0) void this.set(false).catch(() => {});
       },
     };
   }

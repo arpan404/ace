@@ -98,7 +98,8 @@ export function createExtensionCatalog(
   return {
     start() {
       for (const method of ["skills/list", "app/list", "mcpServerStatus/list"])
-        void refresh(method);
+        // A failed read keeps the last snapshot, which refresh() reports itself.
+        void refresh(method).catch(() => {});
     },
     changed(method: string, params: unknown) {
       if (method === "app/list/updated") {
@@ -118,7 +119,9 @@ export function createExtensionCatalog(
           : method === "mcpServer/updated"
             ? "mcpServerStatus/list"
             : undefined;
-      if (surface) void refresh(surface);
+      if (surface)
+        // A failed read keeps the last snapshot, which refresh() reports itself.
+        void refresh(surface).catch(() => {});
     },
   };
 }

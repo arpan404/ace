@@ -5,7 +5,7 @@ import { flagLabel, groupTitles, usageLine } from "./pages.ts";
 import { globalFlags } from "../commands/globals.ts";
 
 /**
- * `docs/daemon/cli.md`, from the command table (ADR 0176 §5). Pure, so a test can check the
+ * `docs/daemon/cli.md`, from the command table (ADR 0178 §5). Pure, so a test can check the
  * committed page against the table and help can never drift from what runs.
  */
 export function cliMarkdown(table: CommandTable): string {
@@ -14,7 +14,7 @@ export function cliMarkdown(table: CommandTable): string {
     "",
     "<!-- Generated from apps/daemon/src/cli/commands by `bun apps/daemon/scripts/cli-doc.ts`. Don't edit by hand. -->",
     "",
-    "Every command is `ace <noun> <verb> [ARGUMENTS] [FLAGS]` ([ADR 0176](../adr/0176-one-cli-grammar-interactive-home-and-market.md)).",
+    "Every command is `ace <noun> <verb> [ARGUMENTS] [FLAGS]` ([ADR 0178](../adr/0178-one-cli-grammar-interactive-home-and-market.md)).",
     "`ace help COMMAND` prints the same page in a terminal, and `ace help --json` prints all of it as JSON.",
     "",
     "## Global flags",

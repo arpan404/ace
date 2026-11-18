@@ -78,7 +78,8 @@ export class ReviewIsolate {
       const parsed = WorkerOutput.safeParse(input);
       if (!parsed.success) {
         this.fail(new Error("Invalid review worker response"));
-        void this.close();
+        // close() fails every pending request itself; a failed terminate adds nothing to report.
+        void this.close().catch(() => {});
         return;
       }
       const message = parsed.data;

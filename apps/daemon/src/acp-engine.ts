@@ -210,7 +210,7 @@ export function acpEngineOptions(input: {
         onSessionMetadata(metadata) {
           if (signal.aborted) return;
           metadataPending = { value: metadata };
-          void drainMetadata();
+          void drainMetadata().catch((error: unknown) => input.report(error));
         },
       };
     },

@@ -11,7 +11,7 @@ import {
 import type { CommandSpec, NounSpec } from "./spec.ts";
 import { projectCommands, requestCommands } from "./work-requests.ts";
 
-/** Threads, what needs the person, and projects (ADR 0176 §7, Work). */
+/** Threads, what needs the person, and projects (ADR 0178 §7, Work). */
 export const workNouns: readonly NounSpec[] = [
   { name: "thread", summary: "Start, follow, steer and stop agent threads", group: "work" },
   { name: "request", summary: "Approvals, questions and plans waiting for you", group: "work" },

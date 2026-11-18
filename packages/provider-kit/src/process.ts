@@ -20,6 +20,9 @@ import {
   type WindowsJobFactory,
 } from "./process-containment.ts";
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
+import { findInstalledExecutable } from "./discovery/shim-resolver.ts";
+import { probeLaunch } from "./discovery/probe-launch.ts";
+import { VersionManagerToolMissingError } from "./discovery/version-manager-shim.ts";
 export {
   stopOwnedGroups,
   observeProcessGroups,
@@ -372,6 +375,8 @@ export async function probeOutput(
   options: {
     timeoutMs?: number;
     env?: NodeJS.ProcessEnv;
+    /** Where the CLI will run, so a shim resolves for that project. Defaults to the daemon's. */
+    cwd?: string;
     maxBytes?: number;
     signal?: AbortSignal;
     /** Spawns on this thread instead of the probe worker; tests inject a fake process here. */
@@ -382,6 +387,28 @@ export async function probeOutput(
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const maxBytes = byteLimit(options.maxBytes ?? 1_048_576, "maxBytes");
   if (options.signal?.aborted) throw new Error("Probe aborted");
+  // A probe only reads. A version manager's shim can install or update its tool when it runs,
+  // so a shim is probed through the installed binary its manager names, or not at all.
+  const found = await findInstalledExecutable(
+    command,
+    { ...process.env, ...options.env },
+    {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
+  );
+  if (found && "refused" in found) throw found.refused;
+  if (found && "absent" in found) throw new VersionManagerToolMissingError(found.path);
+  // The CLI's own interpreter and anything it starts from PATH must not reach a shim either.
+  const launch = await probeLaunch(
+    found && "run" in found ? found.run : command,
+    args,
+    { ...process.env, ...options.env },
+    {
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
+  );
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {
@@ -390,18 +417,20 @@ export async function probeOutput(
     });
   // A spawn blocks its thread until the child starts, seconds under load: keep it off this one.
   if (!options.spawn)
-    return probeOffThread(command, args, {
+    return probeOffThread(launch.command, launch.args, {
       timeoutMs: options.timeoutMs ?? 30_000,
-      env: options.env ?? {},
+      env: launch.env,
+      cwd: options.cwd,
       maxBytes,
       signal: options.signal,
       schedule,
       thread: options.thread,
     });
   const proc = options.spawn({
-    command,
-    args,
-    env: options.env ?? {},
+    command: launch.command,
+    args: launch.args,
+    env: launch.env,
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     name: "cli-probe",
     maxOutputBytes: maxBytes,
   });
@@ -414,7 +443,8 @@ export async function probeOutput(
   const collect = (target: Buffer[], chunk: unknown) => {
     if (!Buffer.isBuffer(chunk)) {
       failure ??= new Error("Invalid probe output chunk");
-      void proc.stop({ graceMs: 0 });
+      // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+      void proc.stop({ graceMs: 0 }).catch(() => {});
       return;
     }
     target.push(chunk);
@@ -423,13 +453,15 @@ export async function probeOutput(
   proc.stderr.on("data", (chunk: unknown) => collect(stderr, chunk));
   const abort = () => {
     failure ??= new Error("Probe aborted");
-    void proc.stop({ graceMs: 0 });
+    // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
   const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
-    void proc.stop({ graceMs: 0 });
+    // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   }, options.timeoutMs ?? 30_000);
   try {
     const exit = await proc.exited;

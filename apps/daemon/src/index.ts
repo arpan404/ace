@@ -59,6 +59,7 @@ import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { runningBuildId, storedTrustBuild } from "./stored-shape.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
+import { readHomeData } from "./home-data.ts";
 import { spawn } from "node:child_process";
 import { fileRecord } from "./machine-update/record.ts";
 import { machineUpdateConfig } from "./machine-update/updater-process.ts";
@@ -181,7 +182,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   if (prepared.state === "fresh") {
     const followUp = new AbortController();
     resources.own(() => followUp.abort(), "home backup log");
-    void logHomeBackup(prepared, log, new Date(now()), followUp.signal);
+    // logHomeBackup() logs its own outcome, including a failure to describe the backup.
+    void logHomeBackup(prepared, log, new Date(now()), followUp.signal).catch(() => {});
   }
   // Under the lock: the last run's ending tells an expected restart from a crash.
   let run: DaemonRun | undefined;
@@ -197,12 +199,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       sqliteFailureDetails(error, config.dataDir, diskSpace),
     ),
   );
-  // A full disk is entered as a condition and heals on its own, like contention.
+  // A rejection nobody caught is logged and the daemon keeps running. A full disk is entered as
+  // a condition and heals on its own, like contention.
   resources.own(
     installRejectionGuard(
       process,
       log,
       (reason) => storage.observe(reason) || isStoreRetry(reason),
+      now,
     ),
   );
   // A fatal error is charged to the service whose code raised it, for safe mode (ADR 0175).
@@ -558,6 +562,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       maintenance: process.env.ACE_MAINTENANCE === "1",
       maintenanceGate: maintenance,
       version: process.env.ACE_VERSION ?? "development",
+      homeData: () => readHomeData(config.dataDir),
       machineUpdate: machineUpdateConfig({
         dataDir: config.dataDir,
         entry: process.argv[1],

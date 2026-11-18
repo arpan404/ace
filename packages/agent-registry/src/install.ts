@@ -97,7 +97,8 @@ async function runManager(
     name: "acp-install",
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // stop() reports its own failures; the aborted install is what the caller hears about.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   if (signal.aborted) abort();

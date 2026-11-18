@@ -63,7 +63,8 @@ export class AndroidUiHelper {
     const started = Promise.withResolvers<void>();
     const cancelStartup = this.after(options.startupMs ?? 10_000, () => {
       started.reject(failed("Android UI helper did not start"));
-      void this.close();
+      // Startup has already failed; a close that cannot finish reports nothing new.
+      void this.close().catch(() => {});
     });
     this.ready = started.promise.finally(cancelStartup);
     void this.ready.catch(() => {});
@@ -76,12 +77,15 @@ export class AndroidUiHelper {
       this.waiting.shift()?.resolve(line);
     });
     this.process.stderr.on("line", () => {});
-    void this.process.exited.then(() => {
-      this.closed = true;
-      started.reject(failed("Android UI helper exited"));
-      for (const waiter of this.waiting.splice(0))
-        waiter.reject(failed("Android UI helper exited"));
-    });
+    // `exited` reports the helper's exit and does not reject.
+    void this.process.exited
+      .then(() => {
+        this.closed = true;
+        started.reject(failed("Android UI helper exited"));
+        for (const waiter of this.waiting.splice(0))
+          waiter.reject(failed("Android UI helper exited"));
+      })
+      .catch(() => {});
     this.touch();
   }
   get running(): boolean {
@@ -96,7 +100,8 @@ export class AndroidUiHelper {
       const reply = await new Promise<string>((resolve, reject) => {
         const cancel = this.after(timeoutMs, () => {
           reject(failed("Android UI helper timed out"));
-          void this.close();
+          // The request has already failed; a close that cannot finish adds nothing.
+          void this.close().catch(() => {});
         });
         this.waiting.push({
           resolve: (line) => {
@@ -109,7 +114,8 @@ export class AndroidUiHelper {
           },
         });
         this.process.stdin.write("tree\n", (error) => {
-          if (error) void this.close();
+          // The request fails through the helper's exit; a close that cannot finish adds nothing.
+          if (error) void this.close().catch(() => {});
         });
       });
       this.touch();
@@ -198,7 +204,8 @@ export class AndroidUiHelpers {
     for (const [id, helper] of this.helpers)
       if (current(id) !== helper.serial) {
         this.helpers.delete(id);
-        void helper.close();
+        // The helper is going away for good; a close that cannot finish reports nothing new.
+        void helper.close().catch(() => {});
       }
   }
   async close(): Promise<void> {

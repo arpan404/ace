@@ -178,7 +178,7 @@ if (mode === "opencode") {
         if (!entry.value.includes("ace_guide")) throw new Error("Native tool guidance is missing");
         response.writeHead(204).end();
       } else if (path === "/api/session/native/environment" && request.method === "PUT") {
-        // The thread's shell variables (ADR 0176 §10); this double runs no shell.
+        // The thread's shell variables (ADR 0178 §10); this double runs no shell.
         response.writeHead(204).end();
       } else if (path === "/api/rpc/ace.agent.environment/settle") {
         // ace's environment gate hears the session is set; this double runs no tool to hold.

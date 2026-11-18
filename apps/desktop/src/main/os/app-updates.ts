@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { HomeData } from "@ace/protocol";
+import { releaseLineOf, type ReleaseLine } from "@ace/service/release-line";
 import type { UpdateStatus } from "../../shared/contract.ts";
 import { repositoryUrl } from "../links.ts";
 import {
@@ -36,6 +38,14 @@ export interface AppUpdatesOptions {
   /** `spadeMode`: how Spade's swap after the restart treats its running work (ADR 0123). */
   prepareQuit(spadeMode: "idle" | "now"): Promise<void>;
   quit(): void;
+  /** The line the person chose, or null to follow this build's own (ADR 0177). */
+  chosenLine(): ReleaseLine | null;
+  /** Saves the person's line. */
+  saveLine(line: ReleaseLine): Promise<void>;
+  /** What the home holds, as the daemon last said; undefined until it has. */
+  homeData(): HomeData | undefined;
+  /** What the home holds now, asked of the daemon; undefined when it can't say. */
+  freshHomeData(): Promise<HomeData | undefined>;
   log(level: "info" | "warn", message: string): void;
 }
 
@@ -49,6 +59,8 @@ export interface AppUpdates {
   remote(instruction: RemoteInstruction): Promise<UpdateStatus>;
   /** How many agents Restart would stop; undefined when the daemon could not say. */
   busy(): Promise<number | undefined>;
+  /** Update from another line: saved, then checked at once (ADR 0177). */
+  setLine(line: ReleaseLine): Promise<UpdateStatus>;
   /** Background checks, for a build that has a feed. */
   start(): void;
   /** The app's window opened or was focused, or the computer woke: check now after a gap. */
@@ -67,11 +79,21 @@ const unconfigured: UpdateEngine = {
  * the first check runs (the updater and its YAML parser stay out of startup).
  */
 export function appUpdates(options: AppUpdatesOptions): AppUpdates {
+  const buildLine = releaseLineOf(options.version);
+  const line = () => options.chosenLine() ?? buildLine;
+  // The first build to run picks the line for good (ADR 0177): a beta install stays on Beta
+  // after it updates to a stable release, instead of following that build's line.
+  if (options.chosenLine() === null)
+    void options
+      .saveLine(buildLine)
+      .catch((error: unknown) =>
+        options.log("warn", `Saving the release line failed: ${String(error)}`),
+      );
   let loading: Promise<UpdateEngine> | undefined;
   let loaded: UpdateEngine | undefined;
   const load = () =>
     (loading ??= import("./updates.ts")
-      .then(({ electronUpdateEngine }) => electronUpdateEngine(options))
+      .then(({ electronUpdateEngine }) => electronUpdateEngine({ ...options, line }))
       .then((engine) => (loaded = engine ?? unconfigured)));
   const engine: UpdateEngine = {
     get canInstall() {
@@ -87,6 +109,8 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     engine,
     version: options.version,
     enabled,
+    line,
+    buildLine,
     releaseUrl: (version) => `${repositoryUrl}/releases/tag/v${version}`,
     drain: (waiting) => options.drain(updateDrainMs, waiting),
     busy: options.busy,
@@ -106,6 +130,10 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
       // A build without the feed has nothing to install.
       enabled ? controller.remote(instruction) : Promise.resolve(controller.current()),
     busy: () => controller.busy(),
+    async setLine(next) {
+      if (next !== line()) await options.saveLine(next);
+      return controller.lineChanged();
+    },
     start() {
       if (enabled && !schedule)
         schedule = scheduleChecks(controller, {

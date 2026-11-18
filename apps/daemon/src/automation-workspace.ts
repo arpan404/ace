@@ -82,7 +82,8 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           hooks?.onError?.(error);
         });
       pending.add(opening);
-      void opening.finally(() => pending.delete(opening));
+      // The open reports its own failure above; this only forgets it.
+      void opening.finally(() => pending.delete(opening)).catch(() => {});
       return () => {
         if (closed) return;
         closed = true;
@@ -92,10 +93,13 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
             context.log.log("error", "Automation watcher shutdown", logError(error)),
           );
         pending.add(disposing);
-        void disposing.finally(() => {
-          pending.delete(disposing);
-          subscriptions--;
-        });
+        // The dispose reports its own failure above; this only forgets it.
+        void disposing
+          .finally(() => {
+            pending.delete(disposing);
+            subscriptions--;
+          })
+          .catch(() => {});
       };
     },
   };

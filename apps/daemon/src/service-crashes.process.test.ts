@@ -30,7 +30,7 @@ const [file, how] = process.argv.slice(2);
 const scope = new ServiceScope();
 const crashes = crashRecord(attemptFile(file));
 installCrashAttribution(process, () => scope.current(), (service) => crashes.record(service, Date.now()));
-installRejectionGuard(process, { log() {} }, () => false);
+installRejectionGuard(process, { log() {} }, () => false, Date.now);
 // Command discovery, still running after the daemon listens, fails nobody catches.
 scope.run("commands", () =>
   setTimeout(() => {
@@ -38,36 +38,42 @@ scope.run("commands", () =>
     void Promise.reject(new Error("discovery failed"));
   }, 5),
 );
-setTimeout(() => {}, 1_000);
+setTimeout(() => {}, 300);
 `,
   );
   return script;
 }
 
-async function crashTwice(runtime: string, how: "throw" | "reject") {
+async function runTwice(runtime: string, how: "throw" | "reject") {
   const root = await mkdtemp(join(tmpdir(), "ace-service-crash-"));
   roots.push(root);
   const script = await crashingProcess(root);
   const file = join(root, "service-crashes.json");
-  for (let run = 0; run < 2; run++) {
-    const child = spawnSync(runtime, [script, file, how], { encoding: "utf8", timeout: 20_000 });
-    expect(child.status).not.toBe(0);
-  }
-  return safeModeSkips(
+  const statuses: (number | null)[] = [];
+  for (let run = 0; run < 2; run++)
+    statuses.push(
+      spawnSync(runtime, [script, file, how], { encoding: "utf8", timeout: 20_000 }).status,
+    );
+  const skips = safeModeSkips(
     [],
     serviceOrder,
     repeatedCrashes(crashRecord(attemptFile(file)).previous, Date.now()),
   );
+  return { statuses, skips };
 }
 
 test("a service whose background work throws after listening, twice, is left off by the next safe-mode start", async () => {
   // Bun is the runtime releases ship the daemon on.
-  expect(await crashTwice(bunBinary(), "throw")).toEqual(["commands"]);
+  const { statuses, skips } = await runTwice(bunBinary(), "throw");
+  expect(statuses.every((status) => status !== 0)).toBe(true);
+  expect(skips).toEqual(["commands"]);
 });
 
-test("on Node, a service whose background work rejects unhandled, twice, is left off too", async () => {
-  // Bun gives an unhandledRejection listener no async context, so there it goes unattributed.
-  const node = realNode();
-  if (!node) throw new Error("Node must be on PATH for this test");
-  expect(await crashTwice(node, "reject")).toEqual(["commands"]);
+test("a service whose background work rejects unhandled keeps the daemon running and is never left off", async () => {
+  for (const runtime of [bunBinary(), realNode()]) {
+    if (!runtime) throw new Error("Node must be on PATH for this test");
+    const { statuses, skips } = await runTwice(runtime, "reject");
+    expect(statuses).toEqual([0, 0]);
+    expect(skips).toEqual([]);
+  }
 });

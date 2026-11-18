@@ -29,9 +29,15 @@ export interface SuitChannel {
    * Returns the unsubscribe.
    */
   watch(push: (payload: unknown, socket: number) => void, failed: () => void): () => void;
-  /** Hears `suitActive` pushes (an agent's `suit_apply`). Returns the unsubscribe. */
+  /**
+   * Hears `suitActive` pushes (an agent's `suit_apply`): asks for them with `suitWatch` on every
+   * new socket while anyone listens. Returns the unsubscribe.
+   */
   watchActive(push: (payload: unknown) => void): () => void;
-  /** Hears `suitCheck`: the daemon asks for a live check. Returns the unsubscribe. */
+  /**
+   * Hears `suitCheck`: the daemon asks for a live check. Asks with `suitWatch` like
+   * `watchActive`. Returns the unsubscribe.
+   */
   watchChecks(push: (payload: unknown) => void): () => void;
   /** Sends a live check's `suitReport`; false when the socket is down. */
   report(report: SuitLiveReport): boolean;
@@ -144,6 +150,7 @@ export function daemonSuitChannel(
   client: Pick<ClientApi, "request" | "onMessage" | "connectionGeneration" | "send">,
   origin: string | undefined,
 ): SuitChannel {
+  const watching = sharedSuitWatch(client);
   return {
     async request(request, signal) {
       const reply = await client.request(
@@ -191,14 +198,24 @@ export function daemonSuitChannel(
       };
     },
     watchActive(push) {
-      return client.onMessage((message) => {
+      const stopMessages = client.onMessage((message) => {
         if (message.type === "suitActive") push(message.active);
       });
+      const stopWatching = watching();
+      return () => {
+        stopMessages();
+        stopWatching();
+      };
     },
     watchChecks(push) {
-      return client.onMessage((message) => {
+      const stopMessages = client.onMessage((message) => {
         if (message.type === "suitCheck") push(message.check);
       });
+      const stopWatching = watching();
+      return () => {
+        stopMessages();
+        stopWatching();
+      };
     },
     report(report) {
       try {
@@ -212,5 +229,57 @@ export function daemonSuitChannel(
       if (!origin || !path.startsWith("/v1/suits/")) return undefined;
       return new URL(path, origin).href;
     },
+  };
+}
+
+/** How often, and how many times, a `suitWatch` the client couldn't send yet is tried again. */
+const watchRetryMs = 250;
+const watchRetries = 20;
+
+/**
+ * Sends `suitWatch` on every new socket while at least one listener holds it; returns `hold`,
+ * whose result lets go. The daemon pushes the looks only to sockets that asked, and the watch
+ * ends with the socket. A send the client refuses (its service schemas still loading) is tried
+ * again shortly; offline, the next socket asks.
+ */
+function sharedSuitWatch(
+  client: Pick<ClientApi, "connectionGeneration" | "send">,
+): () => () => void {
+  let holders = 0;
+  let release: (() => void) | undefined;
+  let sequence = 0;
+  const start = () => {
+    const generation = client.connectionGeneration();
+    let asked: number | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const ask = (attempt = 0) => {
+      clearTimeout(retry);
+      const socket = generation.getSnapshot();
+      if (socket === undefined || socket === asked) return;
+      try {
+        client.send({ type: "suitWatch", requestId: `suit-watch-${++sequence}` });
+        asked = socket;
+      } catch {
+        if (attempt < watchRetries) retry = setTimeout(() => ask(attempt + 1), watchRetryMs);
+      }
+    };
+    const stopGeneration = generation.subscribe(() => ask());
+    ask();
+    return () => {
+      clearTimeout(retry);
+      stopGeneration();
+    };
+  };
+  return () => {
+    if (holders++ === 0) release = start();
+    let held = true;
+    return () => {
+      if (!held) return;
+      held = false;
+      if (--holders === 0) {
+        release?.();
+        release = undefined;
+      }
+    };
   };
 }

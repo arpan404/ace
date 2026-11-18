@@ -56,7 +56,8 @@ export async function openAppServer(
       },
       { signal: options.signal, timeoutMs: options.startupTimeoutMs ?? 5_000 },
     );
-    rpc.notify("initialized");
+    // notify() reports a failed send through the peer's onError.
+    void rpc.notify("initialized").catch(() => {});
     return { rpc, close };
   } catch (error) {
     await close();

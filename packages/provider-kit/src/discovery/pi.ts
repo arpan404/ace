@@ -1,4 +1,4 @@
-import { findExecutable } from "./executable.ts";
+import { findInstalledExecutable } from "./shim-resolver.ts";
 import { probeOutput } from "../process.ts";
 import { checkCli } from "../cli-requirements.ts";
 import type { DiscoveryResult } from "./types.ts";
@@ -8,7 +8,9 @@ export async function discoverPi(
   options: Omit<DiscoveryOptions, "overrides"> & { executable?: string } = {},
 ): Promise<DiscoveryResult> {
   const env = { ...process.env, ...options.env };
-  const path = await findExecutable(options.executable ?? "pi", env);
+  const found = await findInstalledExecutable(options.executable ?? "pi", env);
+  // A shim whose manager reports no installed Pi is not an installed Pi.
+  const path = found && !("absent" in found) ? found.path : undefined;
   const result: DiscoveryResult = {
     installed: !!path,
     auth: "unknown",

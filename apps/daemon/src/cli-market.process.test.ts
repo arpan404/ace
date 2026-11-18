@@ -6,7 +6,7 @@ import { invoke } from "./cli-test-support.ts";
 
 /*
  * The old spellings `ace marketplace check` and `ace market keygen` through the real CLI
- * (ADR 0168 §6, §7; ADR 0176 §8): they keep working during the deprecation window.
+ * (ADR 0168 §6, §7; ADR 0178 §8): they keep working during the deprecation window.
  */
 
 let root: string;

@@ -111,7 +111,7 @@ export function projectNames(projects: readonly Project[]): Map<string, string> 
 }
 
 /**
- * A project by id, name or path (ADR 0176 §1 rule 5). A path is resolved from `cwd`; a name
+ * A project by id, name or path (ADR 0178 §1 rule 5). A path is resolved from `cwd`; a name
  * matches whole, ignoring case; two projects with that name fail naming both. Pure.
  */
 export function findProject(projects: readonly Project[], ref: string, cwd: string): Project {

@@ -1,7 +1,7 @@
 import type { MarketOperation } from "@ace/protocol/marketplace";
 
 /*
- * Which market requests an agent may make itself (ADR 0176 §12.5, owner decision 1). An
+ * Which market requests an agent may make itself (ADR 0178 §12.5, owner decision 1). An
  * allowlist: reads, local checks, the draft-and-publish flow, its status and versions. Every
  * other operation, including any added later, is the person's: ace opens a request in the
  * asking thread's strip, which only a person answers. With "Ask me before agents publish" on,

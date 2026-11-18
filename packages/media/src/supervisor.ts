@@ -278,12 +278,17 @@ export class MediaSupervisor {
       this.#onFrame(run, frame, "normal"),
     );
     child.stderr.onData((chunk) => run.stderr.push(chunk));
-    void child.exited.then((exit) => {
-      // A process dying on its own closes its lanes just before it exits: it crashed.
-      const killed = exit.code === null && (exit.signal === "SIGKILL" || exit.signal === "SIGTERM");
-      const own = run.cause === "lane-closed" && !killed;
-      this.#afterExit(run, { cause: own ? "crashed" : (run.cause ?? "crashed"), ...exit });
-    });
+    void child.exited
+      .then((exit) => {
+        // A process dying on its own closes its lanes just before it exits: it crashed.
+        const killed =
+          exit.code === null && (exit.signal === "SIGKILL" || exit.signal === "SIGTERM");
+        const own = run.cause === "lane-closed" && !killed;
+        this.#afterExit(run, { cause: own ? "crashed" : (run.cause ?? "crashed"), ...exit });
+      })
+      .catch((error: unknown) =>
+        log("error", "ace-media exit could not be read", { error: String(error) }),
+      );
     this.#timer(run, supervisionTimings.readyMs, () => {
       if (!run.up) this.#kill(run, "ready-timeout");
     });
@@ -322,7 +327,10 @@ export class MediaSupervisor {
           });
           return this.#kill(run, "version-mismatch");
         }
-        void this.#openLanes(run, message.control.socket);
+        // #openLanes reports a failed lane itself; only its own reporting could reject.
+        void this.#openLanes(run, message.control.socket).catch((error: unknown) =>
+          this.#options.log("error", "ace-media lanes failed", { error: String(error) }),
+        );
         return;
       case "capabilities.changed":
         if (!run.ready) return this.#kill(run, "protocol");

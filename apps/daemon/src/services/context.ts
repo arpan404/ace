@@ -104,11 +104,13 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
             log.log("error", "Deleted thread attachment cleanup failed", logError(error)),
           );
         deletions.add(cleanup);
-        void cleanup.finally(() => deletions.delete(cleanup));
+        // The cleanup reports its own failure above; this only forgets it.
+        void cleanup.finally(() => deletions.delete(cleanup)).catch(() => {});
       }
     }),
   );
-  void warmup(runtime, "context", () => context.uploads.ready);
+  // The warmup logs its own failure and reports the status.
+  void warmup(runtime, "context", () => context.uploads.ready).catch(() => {});
   let pending: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const maintain = () => {
@@ -200,7 +202,8 @@ export function createContextSession(context: SocketContext): SocketService {
             });
           tail = task;
           tasks.add(task);
-          void task.finally(() => tasks.delete(task));
+          // The task answers its own failure above; this only forgets it.
+          void task.finally(() => tasks.delete(task)).catch(() => {});
           return true;
         }
       }

@@ -1,5 +1,5 @@
 /**
- * The environment gate's RPC (ADR 0176 §10), on OpenCode's public Promise plugin interface. ace
+ * The environment gate's RPC (ADR 0178 §10), on OpenCode's public Promise plugin interface. ace
  * says, per session, whether that session's shell environment is set; the plugin holds each
  * tool until ace has said so. No credentials and no variables cross it: only a session id and
  * the outcome.

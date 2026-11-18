@@ -9,7 +9,7 @@ import { threadRequests } from "./requests.ts";
 import { foldedWork, titleLine, unfoldedLines } from "./transcript.ts";
 
 /**
- * Attach's actions (ADR 0176 §9): opening a thread (or a fresh one), sending to it, its slash
+ * Attach's actions (ADR 0178 §9): opening a thread (or a fresh one), sending to it, its slash
  * commands, and unfolding a "Worked for" line.
  */
 export function enterAttach(app: App, id: string | undefined, fresh?: NewThread): void {

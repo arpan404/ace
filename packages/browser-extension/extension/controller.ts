@@ -338,7 +338,8 @@ export class Controller {
               : "revoked",
       },
     });
-    void this.publish();
+    // publish() only shows the state; a browser that refuses it changes nothing else.
+    void this.publish().catch(() => {});
   }
   private removed(tabId: number): void {
     const shared = this.shared.delete(tabId);
@@ -350,7 +351,7 @@ export class Controller {
         type: "user_browser.event",
         event: { kind: "detached", tabId, reason: "closed" },
       });
-    if (known) void this.publish();
+    if (known) void this.publish().catch(() => {});
   }
   private async updated(
     tabId: number,
@@ -388,7 +389,10 @@ export class Controller {
   private async publish(): Promise<void> {
     const tabs = await this.tabs();
     const controlled = tabs.filter((tab) => tab.attached).length;
-    void this.chrome.action.setBadgeText({ text: controlled ? String(controlled) : "" });
+    // The badge is cosmetic: a browser that refuses it changes nothing else.
+    void this.chrome.action
+      .setBadgeText({ text: controlled ? String(controlled) : "" })
+      .catch(() => {});
     if (this.linkState === "connected")
       this.post({ type: "user_browser.event", event: { kind: "tabs", tabs } });
     this.changed();

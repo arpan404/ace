@@ -48,7 +48,8 @@ export async function* recentThreadEvents(
         pending = { resolve, reject };
         cancel = runtime.schedule(() => {
           reject(new Error("Thread export timed out"));
-          void worker.terminate();
+          // The timeout is already reported through the rejection; terminate is cleanup.
+          void worker.terminate().catch(() => {});
         }, runtime.deadlineMs);
         worker.postMessage("next", []);
       }).finally(() => cancel());

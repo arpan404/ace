@@ -2,7 +2,7 @@ import type { MarketReview, MarketReviewItem } from "@ace/protocol/marketplace";
 import { findingSentence } from "@ace/marketplace/signer";
 
 /*
- * An install's review as sentences (ADR 0176 §11), the same facts the app's review shows: what
+ * An install's review as sentences (ADR 0178 §11), the same facts the app's review shows: what
  * it is, who published it, signed or not, ace's review mark, what it can run and reach, what the
  * device's scan found, what it needs and, for an update, what changed. Pure.
  */
