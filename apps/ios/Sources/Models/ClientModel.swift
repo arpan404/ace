@@ -60,12 +60,11 @@ import QuartzCore
     @ObservationIgnored let liveActivity: ThreadLiveActivity
     let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
-    var connection = "connecting" {
-        didSet { if connection == "ready", oldValue != "ready" { readyCount &+= 1 } }
-    }
-    /// How many times the connection has become ready. What was read on an earlier connection
-    /// (a reconnect may follow a restart or another route) is out of date on this one.
-    private(set) var readyCount = 0
+    var connection = "connecting"
+    /// The daemon socket while ready, as the bridge names it: it changes with every reconnect,
+    /// even one whose drop and recovery reached the phone as a single "ready". What was read on
+    /// another socket is out of date.
+    private(set) var socket: Int?
     /// Each change of the runtime's connection state, after it applies; the machine list uses
     /// it to move a machine between its routes (`MachineRoutePlan`).
     @ObservationIgnored var onConnection: ((String) -> Void)?
@@ -508,10 +507,11 @@ import QuartzCore
                 if revision != historyRevision { historyRevision = revision }
             case .chatSections(let layout): if chatLayout != layout { chatLayout = layout }
             case .connectionEvent(let text): LaunchTrace.mark("connection.event", text)
-            case .connection(let state, let generation):
+            case .connection(let state, let generation, let socket):
                 let changed = state != connection
                 if changed { LaunchTrace.mark("connection", state) }
                 connection = state
+                self.socket = state == "ready" ? socket : nil
                 // An admitted connection needs no code, whatever an earlier attempt was asked.
                 if state == "ready" { machineCodeAsk = nil; machineCodeLockedUntil = nil }
                 if changed { onConnection?(state) }

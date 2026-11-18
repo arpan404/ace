@@ -5,16 +5,36 @@ import SwiftUI
 struct FoundPull: Identifiable, Equatable {
     let route: ForgeRoute
     let row: ForgePullRow
-    /// The machine's connection it was read on (`ClientModel.readyCount`).
-    let connection: Int
+    /// The connection it was read on: which client, and which of its daemon sockets.
+    let connection: ConnectionStamp
     var id: String { row.key }
+}
+
+/// One connection to a machine: the client model (a machine paired again gets a new one, whose
+/// socket numbers start again) and the daemon socket it was ready on (`ClientModel.socket`).
+/// The client is held weakly, so a freed model never matches a new one at the same address.
+struct ConnectionStamp: Equatable {
+    private weak var client: ClientModel?
+    private let socket: Int
+
+    /// `client`'s connection now, or nil while it isn't ready on a socket the bridge named.
+    @MainActor init?(_ client: ClientModel) {
+        guard client.connection == "ready", let socket = client.socket else { return nil }
+        self.client = client
+        self.socket = socket
+    }
+
+    static func == (a: ConnectionStamp, b: ConnectionStamp) -> Bool {
+        a.client != nil && a.client === b.client && a.socket == b.socket
+    }
 }
 
 /// Pull requests matching a query in the project Pull requests opens on (the one chosen there
 /// last, else the machine's first), read from the machine's forge search. The last answer stays
 /// until the next one arrives; a newer query cancels the older read. A read that fails says so
 /// above the rows it last found, and can be asked again. Rows belong to the connection they were
-/// read on: once their machine drops, they never show again, even after it reconnects.
+/// read on: once their machine drops, they never show again, even after it reconnects or is
+/// paired again.
 @MainActor @Observable final class SearchPulls {
     /// One machine's pull requests matching a query: the project it searched and the rows, or
     /// nil when it has no project to search. The app reads the machine's forge (`forge`).
@@ -51,7 +71,7 @@ struct FoundPull: Identifiable, Equatable {
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled, current == generation,
               let session = inbox.sessions.first(where: { $0.client.connection == "ready" }) else { return }
-        let connection = session.client.readyCount
+        guard let connection = ConnectionStamp(session.client) else { return }
         do {
             guard let answer = try await read(session.client, text) else {
                 // No project to search: not a failure, just nothing to offer.
@@ -83,8 +103,7 @@ struct FoundPull: Identifiable, Equatable {
     }
 
     private static func current(_ found: FoundPull, _ inbox: MachineInbox) -> Bool {
-        guard let client = inbox.client(found.route.machineId) else { return false }
-        return client.connection == "ready" && client.readyCount == found.connection
+        inbox.client(found.route.machineId).flatMap(ConnectionStamp.init) == found.connection
     }
 
     /// The machine's forge search, in the project Pull requests opens on (the one chosen there

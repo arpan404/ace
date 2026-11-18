@@ -19,7 +19,7 @@ import Testing
         await search.run(inbox, query: "codex")
         #expect(search.visible(inbox).map(\.route.machineId) == ["desk"])
 
-        desk.connection = "reconnecting"
+        drop(desk)
         // Before the search runs again, the rows of a machine that's gone already don't show.
         #expect(search.visible(inbox).isEmpty)
         await search.run(inbox, query: "codex")
@@ -30,45 +30,54 @@ import Testing
         #expect(search.problem != nil)
     }
 
-    /// Rows read before a machine dropped belong to that connection. Back on a new one, they
-    /// stay gone with no search having run meanwhile (the list was on Messages), and a read
-    /// that then times out leaves Try again alone, not the old rows beside it.
+    /// Rows read before a machine dropped belong to that socket. Back on a new one, they stay
+    /// gone with no search having run meanwhile (the list was on Messages), even when the drop
+    /// and the recovery reached the phone as one "ready"; a read that then times out leaves Try
+    /// again alone, not the old rows beside it.
     @Test func aMachinesPullsFromBeforeItReconnectedDontComeBack() async throws {
         let (inbox, desk, laptop) = try twoReadyMachines()
-        laptop.connection = "reconnecting"
-        var reads = 0
-        let pulls = SearchPulls { _, _ in
-            reads += 1
-            if reads == 1 { return (project: "ace", rows: [try row(212, "Bump Codex app-server")]) }
-            throw ServiceFailure(message: "Timed out", transport: true)
-        }
+        drop(laptop)
+        let pulls = SearchPulls(read: answerOnceThenTimeOut())
         await pulls.run(inbox, query: "codex")
         #expect(pulls.visible(inbox).map(\.route.machineId) == ["desk"])
 
-        desk.connection = "reconnecting"
-        desk.connection = "ready"
+        ready(desk, socket: 2)
+        #expect(desk.connection == "ready")
         #expect(pulls.visible(inbox).isEmpty)
         await pulls.run(inbox, query: "codex")
-        #expect(reads == 2)
         #expect(pulls.found.isEmpty)
         #expect(pulls.visible(inbox).isEmpty)
         #expect(pulls.problem != nil)
+    }
+
+    /// A machine paired again gets a new client whose sockets count from the start: the old
+    /// client's rows don't pass for the new one's, though the socket numbers match.
+    @Test func aReplacedClientsFirstConnectionDoesntRevivePullsFromTheOldOne() async throws {
+        let (inbox, desk, laptop) = try twoReadyMachines()
+        drop(laptop)
+        let pulls = SearchPulls(read: answerOnceThenTimeOut())
+        await pulls.run(inbox, query: "codex")
+        #expect(pulls.visible(inbox).map(\.route.machineId) == ["desk"])
+
+        let replacement = ClientModel(now: { 0 })
+        ready(replacement, socket: 1)
+        inbox.attach("desk", name: "Desk", client: replacement)
+        #expect(pulls.visible(inbox).isEmpty)
+        await pulls.run(inbox, query: "codex")
+        #expect(pulls.found.isEmpty)
+        #expect(pulls.problem != nil)
+        // The old client is still alive, so only its identity tells the rows apart.
+        #expect(desk.connection == "ready")
     }
 
     /// Only the machine that went away loses its rows: a ready machine's stay over its own
     /// failed read, as they do with one machine.
     @Test func aReadyMachinesPullsStayWhileAnotherMachineDisconnects() async throws {
         let (inbox, _, laptop) = try twoReadyMachines()
-        var reads = 0
-        let pulls = SearchPulls { _, _ in
-            reads += 1
-            if reads == 1 { return (project: "ace", rows: [try row(212, "Bump Codex app-server")]) }
-            throw ServiceFailure(message: "Timed out", transport: true)
-        }
+        let pulls = SearchPulls(read: answerOnceThenTimeOut())
         await pulls.run(inbox, query: "codex")
-        laptop.connection = "reconnecting"
+        drop(laptop)
         await pulls.run(inbox, query: "codex")
-        #expect(reads == 2)
         #expect(pulls.visible(inbox).map(\.route.machineId) == ["desk"])
         #expect(pulls.problem != nil)
     }
@@ -78,11 +87,29 @@ import Testing
     private func twoReadyMachines() throws -> (MachineInbox, ClientModel, ClientModel) {
         let inbox = MachineInbox(defaults: try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")), now: { 0 })
         let desk = ClientModel(now: { 0 }), laptop = ClientModel(now: { 0 })
-        desk.connection = "ready"
-        laptop.connection = "ready"
+        ready(desk, socket: 1)
+        ready(laptop, socket: 1)
         inbox.attach("desk", name: "Desk", client: desk)
         inbox.attach("laptop", name: "Laptop", client: laptop)
         return (inbox, desk, laptop)
+    }
+
+    /// The bridge's connection patch: ready on a daemon socket, or reconnecting with none.
+    private func ready(_ client: ClientModel, socket: Int) {
+        _ = client.hold([.connection("ready", nil, socket: socket)], bytes: 0)
+    }
+    private func drop(_ client: ClientModel) {
+        _ = client.hold([.connection("reconnecting", nil, socket: nil)], bytes: 0)
+    }
+
+    /// The first read finds #212; every later one times out.
+    private func answerOnceThenTimeOut() -> SearchPulls.Read {
+        var reads = 0
+        return { _, _ in
+            reads += 1
+            if reads == 1 { return (project: "ace", rows: [try row(212, "Bump Codex app-server")]) }
+            throw ServiceFailure(message: "Timed out", transport: true)
+        }
     }
 
     private func row(_ number: Int, _ title: String) throws -> ForgePullRow {
