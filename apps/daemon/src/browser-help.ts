@@ -39,6 +39,7 @@ const Pending = z.object({
   summary: z.string(),
 });
 type Pending = z.infer<typeof Pending>;
+const PendingThread = z.object({ thread_id: z.string() });
 type Outcome = "done" | "skipped";
 /** How often open requests are checked for a tab that closed with nothing else happening. */
 const sweepMs = 15_000;
@@ -186,8 +187,7 @@ export class BrowserHelp {
       const threads = this.deps.store.atomic((db) =>
         db.prepare("SELECT DISTINCT thread_id FROM browser_help_pending").all(),
       );
-      for (const row of threads)
-        this.sweep(ThreadId.parse(z.object({ thread_id: z.string() }).parse(row).thread_id));
+      for (const row of threads) this.sweep(ThreadId.parse(PendingThread.parse(row).thread_id));
       if (threads.length > 0) this.watch();
     }, sweepMs);
   }
