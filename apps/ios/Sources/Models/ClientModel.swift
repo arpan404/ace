@@ -60,11 +60,19 @@ import QuartzCore
     @ObservationIgnored let liveActivity: ThreadLiveActivity
     let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
-    var connection = "connecting"
-    /// The daemon socket while ready, as the bridge names it: it changes with every reconnect,
-    /// even one whose drop and recovery reached the phone as a single "ready". What was read on
-    /// another socket is out of date.
-    private(set) var socket: Int?
+    var connection = "connecting" {
+        didSet { if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 } }
+    }
+    /// The daemon socket while ready, as the bridge names it. It changes with every reconnect,
+    /// even one whose drop and recovery reached the phone as a single "ready".
+    @ObservationIgnored private var socket: Int? {
+        didSet { if let oldValue, socket != oldValue { connectionEpoch &+= 1 } }
+    }
+    /// Which connection this is: it moves whenever the connection leaves ready, the daemon
+    /// socket changes while ready, or the runtime is replaced or ended (a switch between direct
+    /// and relay starts a new runtime whose sockets count from 1 again). What was read on an
+    /// earlier connection is out of date. Each `ClientModel` counts from zero.
+    private(set) var connectionEpoch = 0
     /// Each change of the runtime's connection state, after it applies; the machine list uses
     /// it to move a machine between its routes (`MachineRoutePlan`).
     @ObservationIgnored var onConnection: ((String) -> Void)?
@@ -186,7 +194,8 @@ import QuartzCore
     @ObservationIgnored private var shelf = ThreadShelf()
     @ObservationIgnored private var runtime: (any ClientSession)?
     @ObservationIgnored private let makeRuntime: ClientSessionFactory
-    @ObservationIgnored private var connectionEpoch = 0
+    /// Which runtime is current: a retired one's late callbacks see a newer value and drop.
+    @ObservationIgnored private var runtimeEpoch = 0
     @ObservationIgnored private var shutdown: Task<Void, Never>?
     @ObservationIgnored private var frames = BridgeFrames()
     /// Frames held to apply together on the next flush.
@@ -217,8 +226,9 @@ import QuartzCore
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
     }) { self.now = now; self.frameTiming = frameTiming; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
     func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
-        connectionEpoch += 1
-        let epoch = connectionEpoch
+        runtimeEpoch += 1
+        connectionEpoch &+= 1
+        let epoch = runtimeEpoch
         let closing = retireRuntime()
         // Another route to the same machine (direct to relay and back, Wi-Fi to cellular) keeps
         // the open thread on screen and the shelf's copies: the new runtime has never sent them,
@@ -247,23 +257,23 @@ import QuartzCore
         let restored = await checkpoints(database)
         restoring.end()
         // A newer connection began meanwhile: it restores its own copy.
-        guard connectionEpoch == epoch else { return }
+        guard runtimeEpoch == epoch else { return }
         apply(restored)
         await closing?.value
-        guard connectionEpoch == epoch, !Task.isCancelled else { return }
+        guard runtimeEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
         // Frames are decoded off both the main thread and the script's; the main thread applies them.
         let decoder = FrameDecoder()
         let runtime = makeRuntime(target, database, { [weak self] data in
             decoder.decode(data) { patches in
                 Task { @MainActor in
-                    guard let self, self.connectionEpoch == epoch else { return }
+                    guard let self, self.runtimeEpoch == epoch else { return }
                     let accepted = self.hold(patches, bytes: data.count)
                     self.runtime?.acknowledge(accepted: accepted)
                 }
             }
         }, { [weak self] message in Task { @MainActor in
-            guard let self, self.connectionEpoch == epoch else { return }
+            guard let self, self.runtimeEpoch == epoch else { return }
             self.error = message
         } })
         self.runtime = runtime
@@ -922,12 +932,13 @@ import QuartzCore
         return true
     }
     func disconnectAndWait() async {
-        connectionEpoch += 1
-        let epoch = connectionEpoch
+        runtimeEpoch += 1
+        connectionEpoch &+= 1
+        let epoch = runtimeEpoch
         await retireRuntime()?.value
-        if connectionEpoch == epoch { shutdown = nil }
+        if runtimeEpoch == epoch { shutdown = nil }
     }
-    func disconnect() { connectionEpoch += 1; _ = retireRuntime() }
+    func disconnect() { runtimeEpoch += 1; connectionEpoch &+= 1; _ = retireRuntime() }
     /// Drop held confirmations when leaving ready: a cached done row stays cached, but never
     /// confirmed, until its sidebar snapshot returns. Only a fresh inbox row may set it again.
     private func invalidateConfirmations() {

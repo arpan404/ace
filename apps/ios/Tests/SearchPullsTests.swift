@@ -70,6 +70,36 @@ import Testing
         #expect(desk.connection == "ready")
     }
 
+    /// A switch between direct and relay keeps the client but starts a new runtime, whose
+    /// sockets count from 1 again: rows read on the old runtime's socket 1 stay gone.
+    @Test func aRuntimeSwapThatRestartsTheSocketDoesntRevivePulls() async throws {
+        let inbox = MachineInbox(defaults: try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")), now: { 0 })
+        let sessions = FakeMachineSessions()
+        let desk = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        inbox.attach("desk", name: "Desk", client: desk)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        await desk.connect(target: try target("ws://192.168.1.20:9443"), directory: directory)
+        let direct = try #require(sessions.started.last)
+        direct.emit(#"[{"type":"connection","state":"ready","socket":1}]"#)
+        await settle { desk.connection == "ready" }
+        let pulls = SearchPulls(read: answerOnceThenTimeOut())
+        await pulls.run(inbox, query: "codex")
+        #expect(pulls.visible(inbox).map(\.route.machineId) == ["desk"])
+
+        direct.finishShutdownWhenStopped()
+        await desk.connect(target: try target("wss://relay.example/desk"), directory: directory)
+        let relay = try #require(sessions.started.last)
+        #expect(relay !== direct)
+        relay.emit(#"[{"type":"connection","state":"ready","socket":1}]"#)
+        await settle { desk.connection == "ready" }
+        #expect(desk.connection == "ready")
+        #expect(pulls.visible(inbox).isEmpty)
+        await pulls.run(inbox, query: "codex")
+        #expect(pulls.found.isEmpty)
+        #expect(pulls.problem != nil)
+        desk.disconnect()
+    }
+
     /// Only the machine that went away loses its rows: a ready machine's stay over its own
     /// failed read, as they do with one machine.
     @Test func aReadyMachinesPullsStayWhileAnotherMachineDisconnects() async throws {
@@ -100,6 +130,14 @@ import Testing
     }
     private func drop(_ client: ClientModel) {
         _ = client.hold([.connection("reconnecting", nil, socket: nil)], bytes: 0)
+    }
+
+    private func target(_ endpoint: String) throws -> ConnectionTarget {
+        ConnectionTarget(endpoint: try #require(URL(string: endpoint)), hostId: "desk", deviceId: "phone", pin: nil, credential: { "{}" })
+    }
+    /// Frames decode off the main actor before they apply: wait, briefly, for `done`.
+    private func settle(_ done: () -> Bool) async {
+        for _ in 0..<200 where !done() { try? await Task.sleep(for: .milliseconds(5)) }
     }
 
     /// The first read finds #212; every later one times out.

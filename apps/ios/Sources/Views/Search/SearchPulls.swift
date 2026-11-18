@@ -10,22 +10,23 @@ struct FoundPull: Identifiable, Equatable {
     var id: String { row.key }
 }
 
-/// One connection to a machine: the client model (a machine paired again gets a new one, whose
-/// socket numbers start again) and the daemon socket it was ready on (`ClientModel.socket`).
-/// The client is held weakly, so a freed model never matches a new one at the same address.
+/// One connection to a machine: the client model and its `connectionEpoch`, which moves on
+/// every drop, socket change and runtime swap. Each model counts from zero, so the client
+/// (held weakly: a freed model never matches a new one at its address) tells a machine paired
+/// again apart.
 struct ConnectionStamp: Equatable {
     private weak var client: ClientModel?
-    private let socket: Int
+    private let epoch: Int
 
-    /// `client`'s connection now, or nil while it isn't ready on a socket the bridge named.
+    /// `client`'s connection now, or nil while it isn't ready.
     @MainActor init?(_ client: ClientModel) {
-        guard client.connection == "ready", let socket = client.socket else { return nil }
+        guard client.connection == "ready" else { return nil }
         self.client = client
-        self.socket = socket
+        self.epoch = client.connectionEpoch
     }
 
     static func == (a: ConnectionStamp, b: ConnectionStamp) -> Bool {
-        a.client != nil && a.client === b.client && a.socket == b.socket
+        a.client != nil && a.client === b.client && a.epoch == b.epoch
     }
 }
 
