@@ -75,7 +75,8 @@ pub struct ToolOutput {
     pub files: Box<[String]>,
     /// What the tool showed the person, already stored (ADR 0134). Recorded as a `shared` event
     /// beside the result; the model is not shown it.
-    pub shared: Shared,
+    /// Boxed: few results carry any, and it keeps every result small.
+    pub shared: Box<Shared>,
     /// The call failed for a while (the network, a rate limit, a `5xx`), so trying it again later
     /// may work: a background job that ends so is parked and run again (ADR 0160).
     pub transient: bool,
@@ -132,7 +133,7 @@ impl ToolOutput {
             images: Vec::new(),
             untrusted: false,
             files: Box::default(),
-            shared: Shared::default(),
+            shared: Box::default(),
             transient: false,
             command: None,
         }
@@ -160,7 +161,7 @@ impl ToolOutput {
             images: Vec::new(),
             untrusted: false,
             files: Box::default(),
-            shared: Shared::default(),
+            shared: Box::default(),
             transient: false,
             command: None,
         }

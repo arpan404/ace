@@ -181,7 +181,7 @@ impl Tool for ShareFile {
                 }
             }
             ToolOutput {
-                shared,
+                shared: Box::new(shared),
                 ..ToolOutput::ok(format!("Shown to the person: {name}."))
             }
         })
@@ -275,7 +275,7 @@ impl Tool for ImageGenerate {
             }
             let count = shared.images.len();
             ToolOutput {
-                shared,
+                shared: Box::new(shared),
                 ..ToolOutput::ok(format!(
                     "Shown to the person: {count} image{} made by {model}.",
                     if count == 1 { "" } else { "s" }
