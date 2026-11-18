@@ -163,8 +163,8 @@ struct SettingsSheet: View {
                     InsetRow("About", systemImage: "info.circle", value: "\(app.version) (\(app.build))")
                         .accessibilityElement(children: .combine)
                     link(.licences, "Licences", "doc.text", id: "settings.licences")
-                    legalLink(AceLegal.policies[0], id: "settings.legal.terms")
-                    legalLink(AceLegal.policies[1], id: "settings.legal.privacy")
+                    legalLink(AceLegal.terms, id: "settings.legal.terms")
+                    legalLink(AceLegal.privacy, id: "settings.legal.privacy")
                     legalLink(AceLegal.support, id: "settings.support")
                     ShareLink(item: report.json, preview: SharePreview("ace diagnostics")) {
                         InsetRow("Send diagnostics", systemImage: "square.and.arrow.up")
