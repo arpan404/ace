@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { EditorFindBar } from "./find-bar.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
-import { gutterWidth, leastRowCells, lineHeight, longLine, visualColumn } from "./geometry.ts";
+import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
 import { useEditorKeys } from "./keys.ts";
 import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
@@ -26,10 +26,11 @@ import { useEditorDocument } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
 import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
+import { useReveal } from "./use-reveal.ts";
 import { useFindInFile } from "./use-find-in-file.ts";
 import { useFindResults } from "./use-find.ts";
 import { useWrap } from "./use-wrap.ts";
-import { rowOfColumn, rowOffset, wholeLineRow } from "./wrap.ts";
+import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
 const overscan = 8;
@@ -181,47 +182,16 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       seq: (previous?.seq ?? 0) + 1,
     }));
 
-  /** The caret's box in the text column, in pixels from the content's top-left corner. */
-  const caretBox = useCallback(
-    (position: Position): { left: number; top: number } => {
-      const text = state.doc?.line(position.line) ?? "";
-      if (!layout)
-        return {
-          left: gutter + visualColumn(text, position.column) * cell,
-          top: position.line * lineHeight,
-        };
-      const lineRows = layout.rowsOf(position.line);
-      const at = rowOfColumn(lineRows, position.column);
-      const row = lineRows[at] ?? lineRows[0];
-      return {
-        left: gutter + (row ? rowOffset(text, row, position.column) : 0) * cell,
-        top: (layout.startOf(position.line) + at) * lineHeight,
-      };
-    },
-    [state.doc, layout, gutter, cell],
-  );
-
-  const reveal = useCallback(
-    (position: Position) => {
-      const element = scroller.current;
-      if (!element) return;
-      const box = caretBox(position);
-      const heightNow = element.clientHeight || viewport.height;
-      if (box.top < element.scrollTop) element.scrollTop = box.top;
-      else if (box.top + lineHeight > element.scrollTop + heightNow)
-        element.scrollTop = box.top + lineHeight - heightNow;
-      // Wrapped lines have no right edge to reach: no horizontal scroll, whatever the caret's x.
-      if (!wrap) {
-        const width = element.clientWidth || viewport.width;
-        if (box.left < element.scrollLeft + gutter)
-          element.scrollLeft = Math.max(0, box.left - gutter);
-        else if (box.left > element.scrollLeft + width - paddingRight)
-          element.scrollLeft = box.left - width + paddingRight * 2;
-      }
-      setScroll({ top: element.scrollTop, left: element.scrollLeft });
-    },
-    [caretBox, gutter, wrap, viewport.height, viewport.width, setScroll],
-  );
+  const { caretBox, reveal } = useReveal({
+    doc: state.doc,
+    layout,
+    scroller,
+    gutter,
+    cell,
+    wrap,
+    viewport,
+    onScroll: setScroll,
+  });
 
   useEffect(() => {
     if (!props.line || props.line <= 0) return;
