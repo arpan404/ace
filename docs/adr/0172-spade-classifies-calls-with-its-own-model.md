@@ -526,9 +526,12 @@ simple to prove, after corners kept turning up (a second `gawk -e` program with 
    but `/dev/null` and its kin — has no hard form. `git` reads, `rg` and `grep` stay, with the
    content and program options refused; the audited plain reads stay. The audit table in
    `spade/docs/autonomy.md` is the kept set.
-2. **With writes gone, the symlink question falls away.** No settled command writes, so there is
-   no destination to resolve and no launch-time re-check for a swapped symlink: a settled command
-   can create or follow nothing.
+2. **Writes being gone removes the write-destination symlink.** No settled command writes, so
+   there is no destination to resolve and no launch-time re-check for a swapped write target. This
+   does *not* resolve reads through a symlink: a settled `cat README.md` where `README.md` links to
+   a secret outside the folder, a `grep -r`/`rg`/`find` through a symlinked directory, or `git`
+   following a `.git` `gitdir:` file still read outside, and a lexical path check races a swap
+   between decision and launch. Amendment 7 contains those reads in the kernel, not in a path check.
 3. **A settled command launches with a clean, fixed environment built by Spade**
    (`Shell::settled_environment`, `Job::clean`): `PATH` the system folders, `HOME` and `TMPDIR`
    the bot's folder, the locale, shell and terminal fixed, plus the hardening overrides. Nothing
@@ -553,9 +556,13 @@ case. None of this changes what settles; it changes what the numbers mean.
    main's own model (`99f56e23`) run with main's own decision logic, reproduced in a pinned
    `origin/main` worktree by `tools/classify-train/main-baseline.sh` (vendored
    `baseline/baseline.rs`, built against main's crates, using no API this PR added), on the same
-   held-out sets. The shipped build exports its deduped public evaluation sets so both measure
-   identical calls. This reconciled the end-to-end row: main raises **1 of 55** person-only real
-   calls and settles **0.1%**, not the 9 the mislabelled row showed.
+   held-out sets. The shipped build exports its deduped public evaluation sets, and the exact ids
+   of the real-session calls it retained after the fit hold-out (`real::identity`, an FNV hash of
+   command and workspace — an opaque number, never command text), so both evaluators measure the
+   identical calls; without the shared ids the baseline kept its own distinct set and counted 2,310
+   risky real calls where the shipped build counts 2,309. This reconciled the end-to-end row: main
+   raises **1 of 55** person-only real calls and settles **0.1%**, not the 9 the mislabelled row
+   showed.
 2. **Fit and the held-out sets are disjoint.** Two calls the classifier folds to the same features
    are the same call to it, so a disguised tool clone or a `pwd` that recurs verbatim in fit is not
    held out. An evaluation call is kept now only when its folded signature
@@ -575,3 +582,38 @@ case. None of this changes what settles; it changes what the numbers mean.
 
 Tests: `classify-train` the labeller's short-option cases, the overlap build-failing assert (any
 leftover overlap panics the run); `main-baseline.sh` reproduces the baseline table.
+
+## Amendment 7 (2026-11-18): a settled command runs in a read-only OS sandbox
+
+Decided by: the owner, after the sixth review found that dropping writes (amendment 5) left reads
+free to follow a symlink or a `.git` `gitdir:` file out of the bot's folder, and that a lexical
+path check races a swap between the gate's decision and the launch. Changes amendment 5's decision
+2. Containment moves from path checks to the kernel.
+
+1. **Every settled command runs inside a read-only OS sandbox confined to the bot's folder.** Spade
+   already sandboxes work on all three platforms (ADR 0167: Linux Landlock + seccomp, macOS
+   Seatbelt, Windows AppContainer/LPAC). A settled command now launches through a read-only profile
+   built from an empty `Facts` (`spade-server` `security/confine.rs`, `spade-sandbox`
+   `wrap_read_only`): read access to the bot's folder and the system paths a program needs to start,
+   no consented folders, no writes except `/dev/null`-like sinks, and no network. The kernel refuses
+   a read that resolves outside the folder — a symlink, a recursive walk through a symlinked
+   directory, a `gitdir:` file — regardless of what the path looked like when the gate decided, so
+   the resolution race is gone too.
+2. **If the sandbox can't be applied on this machine, nothing settles.** The gate carries whether a
+   read-only sandbox is available (`Classed::sandboxable`, from `Confine::read_only_available()`);
+   when it isn't, a would-be low-risk settle is sent to the reviewer instead
+   (`engine/classify.rs`). Containment is fail-closed: a command settles only where it can also be
+   confined, for both one-shot runs and persistent terminals.
+3. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
+   behind the gate's own refusals, not a replacement for them; the classifier still never lowers a
+   deterministic decision (decision 2 of the original ADR). It closes the gap that a *settled* read
+   — one the gate already judged low-risk — could still reach a byte outside the folder.
+
+Tests: `spade-sandbox` `read_only.rs`, against real Linux objects — a settled `cat` of a
+symlink to a file outside the folder reads nothing and errors; `grep -r`/`find` through a symlinked
+directory out of the folder see nothing outside; a credential symlinked in is denied; a write is
+refused; `git rev-parse` with a `.git` file pointing at a repository outside the folder cannot read
+it. `spade-server` `classifier.rs`
+`with_no_read_only_sandbox_a_plain_read_goes_to_the_reviewer` (the fail-closed gate) and
+`classifier_git.rs` (a settled read launches confined). These ran on Linux here; the macOS Seatbelt
+and Windows profiles build the same read-only policy but were not exercised on this machine.

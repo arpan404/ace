@@ -59,7 +59,7 @@ const ROOT_LINKS: &[&str] = &[
 const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/random", "/dev/urandom"];
 
 /// The profile for `policy`.
-pub fn profile(policy: &Policy) -> String {
+pub fn profile(policy: &Policy, read_only: bool) -> String {
     let mut out = String::from("(version 1)\n(deny default)\n");
     out.push_str(
         "(allow process-exec process-fork)\n\
@@ -92,12 +92,15 @@ pub fn profile(policy: &Policy) -> String {
         "allow file-read-metadata",
         ancestors(policy).iter().map(|p| literal(p)),
     );
-    // Writes: granted folders (the workspace comes after the deny-list).
-    rule(
-        &mut out,
-        "allow file-write*",
-        policy.write.iter().map(|p| subpath(p)),
-    );
+    // Writes: granted folders (the workspace comes after the deny-list). A read-only run
+    // (ADR 0172, amendment 7) writes nowhere.
+    if !read_only {
+        rule(
+            &mut out,
+            "allow file-write*",
+            policy.write.iter().map(|p| subpath(p)),
+        );
+    }
     // The deny-list, closed whatever came before.
     rule(
         &mut out,
@@ -118,10 +121,15 @@ pub fn profile(policy: &Policy) -> String {
             policy.secrets.iter().map(|p| subpath(p)),
         );
     }
-    // The workspace and its temporary folder, inside Spade's data folder, opened again.
+    // The workspace and its temporary folder, inside Spade's data folder, opened again:
+    // read-write normally, read-only for a settled command.
     rule(
         &mut out,
-        "allow file-read* file-write*",
+        if read_only {
+            "allow file-read*"
+        } else {
+            "allow file-read* file-write*"
+        },
         std::iter::once(subpath(&policy.workspace))
             .chain(policy.scratch.iter().map(|p| subpath(p))),
     );
@@ -233,7 +241,7 @@ mod tests {
 
     #[test]
     fn the_deny_list_comes_after_every_grant_and_the_workspace_after_the_deny_list() {
-        let text = profile(&policy());
+        let text = profile(&policy(), false);
         let open = position(&text, "(allow file-read*\n  (literal \"/\")");
         let deny = position(
             &text,
@@ -249,7 +257,7 @@ mod tests {
 
     #[test]
     fn reads_are_the_systems_folders_and_what_the_policy_opens_never_everything() {
-        let text = profile(&policy());
+        let text = profile(&policy(), false);
         assert!(!text.contains("(allow file-read*)"));
         for opened in [
             "/System",
@@ -275,19 +283,22 @@ mod tests {
 
     #[test]
     fn only_the_proxy_port_is_reachable() {
-        let text = profile(&policy());
+        let text = profile(&policy(), false);
         assert!(text.contains("(allow network-outbound (remote ip \"localhost:4100\"))"));
         assert_eq!(text.matches("network-outbound").count(), 1);
-        let offline = profile(&Policy {
-            proxy_port: None,
-            ..policy()
-        });
+        let offline = profile(
+            &Policy {
+                proxy_port: None,
+                ..policy()
+            },
+            false,
+        );
         assert!(!offline.contains("network-outbound"));
     }
 
     #[test]
     fn nothing_starts_apps_sends_apple_events_or_reads_the_keychain() {
-        let text = profile(&policy());
+        let text = profile(&policy(), false);
         for absent in [
             "launchservices",
             "appleevent",
@@ -300,17 +311,20 @@ mod tests {
 
     #[test]
     fn a_quote_in_a_path_cannot_end_its_string() {
-        let text = profile(&Policy {
-            write: vec!["/Users/p/a\") (allow default) (\"".into()],
-            ..policy()
-        });
+        let text = profile(
+            &Policy {
+                write: vec!["/Users/p/a\") (allow default) (\"".into()],
+                ..policy()
+            },
+            false,
+        );
         assert!(!text.contains("(allow default)\")"));
         assert!(text.contains("a\\\") (allow default) (\\\""));
     }
 
     #[test]
     fn the_folders_above_a_grant_can_be_looked_up_but_not_listed() {
-        let text = profile(&policy());
+        let text = profile(&policy(), false);
         assert!(text.contains("(allow file-read-metadata"));
         assert!(text.contains("(literal \"/Users/p/code\")"));
         assert!(text.contains("(literal \"/Users\")"));

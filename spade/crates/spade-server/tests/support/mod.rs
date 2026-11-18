@@ -48,6 +48,8 @@ pub struct FakeTool {
     /// A fake `shell` whose command starts outside the bot's folder, or in one Spade can't
     /// resolve: the classifier can't place its paths.
     pub unplaced: bool,
+    /// A fake `shell` on a machine with no read-only sandbox: the classifier settles nothing.
+    pub no_sandbox: bool,
 }
 
 impl FakeTool {
@@ -71,7 +73,14 @@ impl FakeTool {
             app: None,
             declared: None,
             unplaced: false,
+            no_sandbox: false,
         }
+    }
+
+    /// A fake `shell` on a machine with no read-only sandbox.
+    pub fn no_sandbox(mut self) -> Self {
+        self.no_sandbox = true;
+        self
     }
 
     /// A fake `shell` whose command starts where Spade can't place it against the bot's folder.
@@ -149,6 +158,9 @@ impl Tool for FakeTool {
                 workspace: (!self.unplaced).then(|| "/workspace".to_owned()),
                 // As if the folder's configuration had been inspected and runs nothing.
                 config_clean: spade_core::autonomy::ConfigTools::ALL,
+                // As if the machine could hold a settled read in a read-only sandbox: the fake
+                // shell doesn't launch through one, so this only exercises the gate.
+                sandboxable: !self.no_sandbox,
                 ..classed
             }
         } else {

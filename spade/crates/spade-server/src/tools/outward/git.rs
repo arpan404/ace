@@ -285,6 +285,7 @@ impl Stage for SandboxStage {
                         // Spade's own internal command: always expected to be containable.
                         may_run_uncontained: false,
                         clean: false,
+                        read_only: false,
                     },
                 )
                 .await?;

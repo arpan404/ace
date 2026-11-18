@@ -160,6 +160,9 @@ pub struct Classed {
     /// names no program they would run (ADR 0172, amendment 2). The classifier never settles a
     /// command that runs a tool not in it.
     pub config_clean: ConfigTools,
+    /// Whether this machine can hold the command in a read-only sandbox confined to the bot's
+    /// folder (ADR 0172, amendment 7); the classifier settles a read only when it can.
+    pub sandboxable: bool,
 }
 
 /// Tools that read configuration from the project or its surroundings that can make them run a
@@ -245,6 +248,7 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         credentials,
         workspace: None,
         config_clean: ConfigTools::default(),
+        sandboxable: false,
     }
 }
 

@@ -151,10 +151,15 @@ pub struct Plan {
     pub sockets: PathBuf,
 }
 
-/// The plan for `policy`. Pure: what is opened, and around what, is decided by the launcher.
-pub fn plan(policy: &Policy, network: Network, processes: Processes) -> Plan {
+/// The plan for `policy`. Pure: what is opened, and around what, is decided by the launcher. When
+/// `read_only` (ADR 0172, amendment 7) every root is opened read-only and there is no egress, so
+/// a settled command can read only the folder and the system paths it needs to start and can
+/// write or connect nowhere — a symlink or recursive read out of the folder is refused by the
+/// kernel.
+pub fn plan(policy: &Policy, network: Network, processes: Processes, read_only: bool) -> Plan {
     let mut roots = Vec::new();
     let mut add = |paths: &mut dyn Iterator<Item = PathBuf>, write: bool, deny: &[PathBuf]| {
+        let write = write && !read_only;
         for path in paths {
             roots.push(Root {
                 path,
@@ -194,6 +199,8 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes) -> Plan {
     let mut add = |paths: &mut dyn Iterator<Item = PathBuf>| {
         roots.extend(paths.map(|path| Root {
             path,
+            // The device sinks (`/dev/null`, `/dev/zero`…) stay writable even read-only: a read
+            // command's `2>/dev/null` must work, and they lead nowhere.
             write: true,
             deny: Vec::new(),
         }));
@@ -201,7 +208,8 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes) -> Plan {
     add(&mut DEVICES.iter().map(PathBuf::from));
     Plan {
         roots,
-        proxy_port: policy.proxy_port,
+        // No egress for a read-only run.
+        proxy_port: if read_only { None } else { policy.proxy_port },
         network,
         processes,
         sockets: policy.workspace.clone(),
@@ -262,7 +270,7 @@ mod tests {
             scratch: vec!["/h/spade/terminal/b1".into()],
             proxy_port: Some(4100),
         };
-        let plan = plan(&policy, Network::Filtered, Processes::Private);
+        let plan = plan(&policy, Network::Filtered, Processes::Private, false);
         let written: Vec<&Path> = plan
             .roots
             .iter()
@@ -310,7 +318,7 @@ mod tests {
             ..Default::default()
         });
         let read = |processes| -> Vec<PathBuf> {
-            plan(&policy, Network::Filtered, processes)
+            plan(&policy, Network::Filtered, processes, false)
                 .roots
                 .into_iter()
                 .filter(|r| r.path.starts_with("/proc"))

@@ -242,6 +242,15 @@ settle (git's reads that run no diff, filter or merge driver; never `git status`
 writes, builds, installs, interpreters or script languages). The gate records the form with the
 verdict, and the launch checks it, applies it and runs the command in the clean environment.
 
+A settled command runs inside a read-only OS sandbox confined to the bot's folder (ADR 0172,
+amendment 7; ADR 0167's Landlock, Seatbelt or AppContainer): it may read the folder and the system
+paths a program needs to start, and nothing else — a symlink, a recursive walk or a `.git`
+`gitdir:` file that resolves outside the folder is refused by the kernel, not by a path check, so a
+read can't follow a link out and there is no decision-to-launch race to lose. The sandbox is a
+second wall behind the gate's refusals, never a substitute for them. If a read-only sandbox can't be
+built on this machine the command doesn't settle; it goes to the reviewer, so a call settles only
+where it can also be confined.
+
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
 cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older
 file kept): when, the conversation, the call's id and tool name, the class, its confidence, the

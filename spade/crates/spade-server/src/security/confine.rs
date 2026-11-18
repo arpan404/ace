@@ -163,6 +163,65 @@ impl Confine for Security {
         self.bot_containment(&bot).0
     }
 
+    fn read_only_available(&self) -> bool {
+        self.runner.status().usable()
+    }
+
+    fn read_only(&self, home: &Path) -> Result<Confined, String> {
+        if self.bot_of(home).is_none() {
+            return Err("this conversation has no bot".to_owned());
+        }
+        if !self.runner.status().usable() {
+            return Err("this machine has no sandbox".to_owned());
+        }
+        // A read-only policy: the workspace and the system paths readable, nothing writable, no
+        // network (ADR 0172, amendment 7). No consented folders, no proxy ticket, no scratch.
+        let policy = Policy::build(&Facts {
+            home: self.home.clone(),
+            spade_data: self.spade_data.clone(),
+            ace_data: self.ace_data.clone(),
+            workspace: home.to_path_buf(),
+            folders: Vec::new(),
+            // A settled command runs with Spade's clean environment (PATH = system folders), so a
+            // bot's own toolchains are neither on the path nor opened.
+            toolchains: Vec::new(),
+            also_read: Vec::new(),
+            scratch: Vec::new(),
+            proxy_port: None,
+        });
+        // The temporary folder must exist so the command's `TMPDIR` resolves.
+        std::fs::create_dir_all(&policy.temp).map_err(|error| {
+            format!("the sandbox's temporary folder could not be made: {error}")
+        })?;
+        // Read-only sandboxing of a settled command is Unix-only for now; Windows reviews it.
+        #[cfg(windows)]
+        {
+            let _ = policy;
+            return Err("Spade has no read-only sandbox for Windows yet".to_owned());
+        }
+        #[cfg(not(windows))]
+        {
+            let env = vec![(
+                "TMPDIR".to_owned(),
+                policy.temp.to_string_lossy().into_owned(),
+            )];
+            let path_first = Vec::new();
+            let runner = self.runner.clone();
+            let launch: crate::workspace::shell::Launcher = Box::new(move |program, args| {
+                runner
+                    .wrap_read_only(&policy, program, args)
+                    .map(|launch| (launch.program, launch.args))
+                    .map_err(|error| format!("the sandbox could not start: {error}"))
+            });
+            Ok(Confined {
+                launch,
+                env,
+                path_first,
+                hold: Box::new(()),
+            })
+        }
+    }
+
     fn review(&self, home: &Path, kind: &Kind) -> Option<String> {
         let bot = self.bot_of(home)?;
         if !self.runner.status().usable() {

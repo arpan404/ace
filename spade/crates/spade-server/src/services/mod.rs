@@ -138,6 +138,7 @@ impl Services {
                             // not started unconfined.
                             may_run_uncontained: false,
                             clean: false,
+                            read_only: false,
                         },
                     )
                     .await;

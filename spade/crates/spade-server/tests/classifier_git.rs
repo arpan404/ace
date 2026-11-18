@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use spade_server::tools::{EngineHandle, Tool};
-use spade_server::workspace::shell::Shell;
+use spade_server::workspace::shell::{Confine, Confined, Confinement, Kind, Shell};
 use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_testkit::Script;
 use support::{Options, Result, Spade};
@@ -31,12 +31,38 @@ struct Setup {
     _dir: tempfile::TempDir,
 }
 
+/// A read-only sandbox is available, and confines each command to a pass-through (no kernel
+/// sandbox in this harness). The real containment is `spade-sandbox/tests/read_only.rs`.
+struct ReadOnlyHere;
+
+impl Confine for ReadOnlyHere {
+    fn confine(&self, _home: &Path, _kind: &Kind) -> std::result::Result<Confinement, String> {
+        Ok(Confinement::None)
+    }
+    fn contains(&self, _home: &Path) -> bool {
+        false
+    }
+    fn read_only_available(&self) -> bool {
+        true
+    }
+    fn read_only(&self, _home: &Path) -> std::result::Result<Confined, String> {
+        Ok(Confined {
+            launch: Box::new(|program: &Path, args: &[std::ffi::OsString]| {
+                Ok((program.to_path_buf(), args.to_vec()))
+            }),
+            env: Vec::new(),
+            path_first: Vec::new(),
+            hold: Box::new(()),
+        })
+    }
+}
+
 async fn start(scripts: Vec<Script>) -> Result<Setup> {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path().join("workspace"));
     let bots = EngineHandle::default();
-    let tools: Vec<Arc<dyn Tool>> =
-        workspace_tools(workspaces.clone(), bots.clone(), Shell::system());
+    let shell = Shell::system().confined(Arc::new(ReadOnlyHere));
+    let tools: Vec<Arc<dyn Tool>> = workspace_tools(workspaces.clone(), bots.clone(), shell);
     let spade = Spade::start_with(
         scripts,
         tools,

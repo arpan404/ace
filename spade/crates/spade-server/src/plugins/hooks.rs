@@ -133,6 +133,7 @@ impl Plugins {
                     // sandbox (above) runs it plainly.
                     may_run_uncontained: false,
                     clean: false,
+                    read_only: false,
                 })
                 .await;
             let result = match ran {

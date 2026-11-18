@@ -59,6 +59,11 @@ pub struct Job<'a> {
     /// Spade, never one inherited from the daemon or carried from an earlier terminal command
     /// (ADR 0172, amendment 4). `job.env` (the hardening overrides) still go on top.
     pub clean: bool,
+    /// A command Spade's classifier settled runs in a read-only OS sandbox confined to the bot's
+    /// folder, whatever the bot's sandbox setting (ADR 0172, amendment 7): its reads are held by
+    /// the kernel, so a symlink or recursive read out of the folder is refused. If the sandbox
+    /// can't be built it does not run.
+    pub read_only: bool,
 }
 
 /// Whose a sandboxed run is (ADR 0167): its network policy and what else it may read follow.
@@ -152,6 +157,20 @@ pub trait Confine: Send + Sync {
 
     /// Whether a bot command with home `home` runs contained (files and network) on this machine.
     fn contains(&self, home: &Path) -> bool;
+
+    /// Whether this machine can run a command in a read-only sandbox confined to the bot's folder
+    /// (ADR 0172, amendment 7), so Spade's classifier may settle a read. `false` where there is no
+    /// usable sandbox; then nothing settles.
+    fn read_only_available(&self) -> bool {
+        false
+    }
+
+    /// A read-only confinement of a command whose home is `home`: the folder and the system paths
+    /// readable, no writes, no network (ADR 0172, amendment 7). `Err` when it can't be built, so a
+    /// settled command never runs unconfined.
+    fn read_only(&self, _home: &Path) -> Result<Confined, String> {
+        Err("this machine has no read-only sandbox".to_owned())
+    }
 
     /// Whether the bot whose workspace is `home` runs its commands outside the sandbox (its own
     /// setting, else the machine's; ADR 0171).
@@ -296,6 +315,13 @@ impl Shell {
         }
     }
 
+    /// Whether a settled command can be held in a read-only sandbox here (ADR 0172, amendment 7).
+    pub fn read_only_available(&self) -> bool {
+        self.confine
+            .as_ref()
+            .is_some_and(|confine| confine.read_only_available())
+    }
+
     /// Whether a bot command with home `home` runs contained (files and network) here.
     pub fn contains(&self, home: &Path) -> bool {
         self.confine
@@ -398,6 +424,7 @@ impl Shell {
             // Spade's own internal command: always expected to be containable.
             may_run_uncontained: false,
             clean: false,
+            read_only: false,
         })
         .await
     }
@@ -415,6 +442,10 @@ impl Shell {
         // Before it starts, so everything of its group started after this.
         let spawned_us = platform::now_us();
         let confined: Option<Confined> = match &self.confine {
+            // A settled command (ADR 0172, amendment 7): a read-only sandbox confined to the
+            // folder, whatever the bot's setting. It never runs unconfined; a sandbox that can't
+            // be built fails the command closed.
+            Some(confine) if job.read_only => Some(confine.read_only(home)?),
             // Outside the sandbox: no checkpoint, no proxy, the person's machine as it is.
             Some(_) if job.outside => None,
             Some(confine) => {

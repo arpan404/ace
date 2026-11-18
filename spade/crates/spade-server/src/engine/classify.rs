@@ -94,8 +94,19 @@ pub fn decide(
     subject: &Subject<'_>,
     reviewing: Reviewing,
     config_clean: spade_classify::ConfigTools,
+    sandboxable: bool,
 ) -> Decision {
-    model.decide(subject, reviewing, config_clean)
+    let decision = model.decide(subject, reviewing, config_clean);
+    // A settled command's reads are contained by a read-only OS sandbox (ADR 0172, amendment 7).
+    // Where the machine has none, nothing settles: the reviewer decides.
+    if !sandboxable && decision.screen == Screen::LowRisk {
+        return Decision {
+            screen: Screen::Abstain,
+            hardening: None,
+            ..decision
+        };
+    }
+    decision
 }
 
 /// Whether the call's stored verdict is this classifier's.
@@ -163,7 +174,13 @@ impl Engine {
             prediction,
             screen,
             hardening,
-        } = decide(model, &subject, s.reviewing, s.classed.config_clean);
+        } = decide(
+            model,
+            &subject,
+            s.reviewing,
+            s.classed.config_clean,
+            s.classed.sandboxable,
+        );
         let (top, confidence) = prediction.top();
         self.decisions.append(&Logged {
             at: self.clock.now_ms(),

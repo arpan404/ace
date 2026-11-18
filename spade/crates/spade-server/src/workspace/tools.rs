@@ -527,9 +527,14 @@ impl Tool for ShellTool {
             }
             _ => spade_core::autonomy::ConfigTools::default(),
         };
+        let sandboxable = match &self.shell {
+            Commands::OneShot(shell) => shell.read_only_available(),
+            Commands::Terminal(terminals) => terminals.read_only_available(),
+        };
         let classed = spade_core::autonomy::Classed {
             workspace: folder.map(|root| root.to_string_lossy().into_owned()),
             config_clean,
+            sandboxable,
             ..classed
         };
         // Asking to run outside: what it would run there is read now, so the request is bound
@@ -642,6 +647,7 @@ impl Tool for ShellTool {
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
                             clean: form.is_some(),
+                            read_only: form.is_some(),
                         })
                         .await
                 }

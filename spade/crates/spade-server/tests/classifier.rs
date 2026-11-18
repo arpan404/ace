@@ -344,3 +344,36 @@ async fn a_command_it_cant_place_against_the_bots_folder_goes_to_the_reviewer() 
     assert_eq!(decisions(&spade)[0]["decision"], "abstain");
     Ok(())
 }
+
+/// On a machine with no read-only sandbox, the classifier settles nothing: a plain read goes to
+/// the reviewer, because a settled command's reads must be contained by the OS (ADR 0172,
+/// amendment 7).
+#[tokio::test]
+async fn with_no_read_only_sandbox_a_plain_read_goes_to_the_reviewer() -> Result {
+    let shell = FakeTool::new("shell", Risk::Write, "ok").no_sandbox();
+    let commands = shell.calls();
+    let spade = start(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": "grep -rn TODO src" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Found them."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(shell) as Arc<dyn Tool>],
+    )
+    .await?;
+    let conversation = conversation(&spade).await?;
+    spade.say(&conversation, "Find the TODOs").await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    until_ran(&commands, 1).await;
+    let reviewed = verdict(&events, "c1").ok_or("no verdict")?;
+    assert!(
+        !reviewed["model"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("spade-classify/"),
+        "the reviewer should decide without a sandbox: {reviewed}"
+    );
+    assert_eq!(decisions(&spade)[0]["decision"], "abstain");
+    Ok(())
+}

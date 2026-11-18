@@ -136,6 +136,11 @@ impl Terminals {
         self.shell.outside(home)
     }
 
+    /// Whether a settled command can run in a read-only sandbox here (ADR 0172, amendment 7).
+    pub fn read_only_available(&self) -> bool {
+        self.shell.read_only_available()
+    }
+
     /// Who hears that a terminal started, ended or ran something.
     pub fn on_change(&self, changed: Changed) {
         *lock(&self.changed) = Some(changed);
@@ -877,6 +882,7 @@ impl Terminal {
                     // here, so a reviewed terminal command runs as the gate decided.
                     may_run_uncontained: true,
                     clean: settled,
+                    read_only: settled,
                 },
             )
             .await;
