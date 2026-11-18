@@ -111,7 +111,7 @@ fn an_edited_gitignore_walks_again_so_quick_open_follows_it() {
 
 #[test]
 fn a_failed_walk_still_starts_the_walk_a_batch_asked_for() {
-    let checkout = checkout(&[("a.txt", "")]);
+    let checkout = checkout(&[("a.txt", ""), (".gitignore", "# nothing is ignored\n")]);
     let mut client = Client::launch(
         &[
             ("ACE_FILES_HOLD_INDEX_MS", "600"),
@@ -126,16 +126,49 @@ fn a_failed_walk_still_starts_the_walk_a_batch_asked_for() {
     client.await_index_published(1);
     let subscription = watch(&mut client, root);
 
-    // The scheduled rebuild is walking and held now, so the change below asks for a walk that
-    // has to follow the running one.
+    // The scheduled rebuild is walking and held now. An ignore-rule edit asks for a walk of the
+    // folders it governs, which has to follow the running one.
     std::thread::sleep(Duration::from_millis(250));
+    write_file(checkout.path(), ".gitignore", "ignored/\n");
+    await_reported(&mut client, checkout.path(), subscription, ".gitignore");
+
+    // That rebuild then fails on purpose. Its failure says nothing about the walk the rule
+    // change asked for, which must still run and publish.
+    client.await_index_published(2);
+}
+
+#[test]
+fn an_ordinary_edit_during_a_walk_is_replayed_without_another_walk() {
+    let checkout = checkout(&[("a.txt", "")]);
+    let mut client = Client::launch(
+        &[
+            ("ACE_FILES_HOLD_INDEX_MS", "400"),
+            ("ACE_FILES_REBUILD_AFTER_MS", "50"),
+            ("ACE_FILES_INDEX_EVENTS", "1"),
+        ],
+        true,
+    );
+    client.hello();
+    let root = client.open_root(checkout.path());
+    client.await_index_published(1);
+    let subscription = watch(&mut client, root);
+
+    // The scheduled rebuild is walking and held; this edit waits in the pending queue and is
+    // replayed onto the new index when it publishes.
+    std::thread::sleep(Duration::from_millis(150));
     write_file(checkout.path(), "late.txt", "found me\n");
     await_reported(&mut client, checkout.path(), subscription, "late.txt");
-
-    // That rebuild then fails on purpose. Its failure says nothing about the walk the batch
-    // asked for, which must still run and publish an index that has the file.
     client.await_index_published(2);
     await_hits(&mut client, root, "late", "late.txt", true);
+
+    // Only a lost-event rescan or a rule change asks for a follow-up walk; an ordinary edit
+    // must not, or a busy checkout would walk itself on every save.
+    std::thread::sleep(Duration::from_millis(900));
+    assert_eq!(
+        client.index_publishes(),
+        2,
+        "an ordinary edit during a walk must not start another walk"
+    );
 }
 
 #[test]

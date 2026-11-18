@@ -70,17 +70,6 @@ impl Walk {
             }
         }
     }
-
-    /// Whether a change in `folder` can make this walk's result stale: the folder it walks or one
-    /// below it, or, for a folder that changed itself, a folder above it that may have moved it.
-    fn touches(&self, folder: &str, directory: bool) -> bool {
-        match self {
-            Walk::Tree => true,
-            Walk::Folder(walk) => {
-                folder == walk || under(folder, walk) || (directory && under(walk, folder))
-            }
-        }
-    }
 }
 
 /// Whether `path` sits inside `folder`, with the root as the empty folder.
@@ -411,42 +400,6 @@ impl RootEntry {
         #[cfg(feature = "test-hooks")]
         panic_after_hold_on_purpose();
         self.publish(rebuilt)
-    }
-
-    /// Fold a watcher batch into the index, and under the same book lock note whether a walk
-    /// running over a folder the batch touched is now one generation behind. Doing both in one
-    /// critical section means a walk cannot publish between the edit and the note, so the note
-    /// is never lost against a walk that has already finished.
-    pub fn apply_batch(self: &Arc<Self>, changes: &[IndexChange], touched: &[(&str, bool)]) {
-        let Ok(mut book) = guard::lock(&self.book) else {
-            return;
-        };
-        if !book.building {
-            drop(book);
-            self.apply_changes(changes);
-            return;
-        }
-        if book.pending.len() + changes.len() > PENDING_LIMIT {
-            book.pending.clear();
-            book.again = Some(match book.again.take() {
-                Some(queued) => queued.merge(Walk::Tree),
-                None => Walk::Tree,
-            });
-        } else {
-            book.pending.extend_from_slice(changes);
-        }
-        let Some(walking) = book.walking.clone() else {
-            return;
-        };
-        if touched
-            .iter()
-            .any(|(folder, directory)| walking.touches(folder, *directory))
-        {
-            book.again = Some(match book.again.take() {
-                Some(queued) => queued.merge(walking),
-                None => walking,
-            });
-        }
     }
 
     /// Fold a watcher batch into the index.
