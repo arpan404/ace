@@ -20,6 +20,7 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         granted: Granted::No,
         checkpointed: false,
         target: None,
+        drive: Drive::default(),
     }
 }
 
@@ -404,6 +405,7 @@ fn stored_requests_fold_with_or_without_an_ask_this_build_knows() {
     let cases = [
         (json!("outside_sandbox"), Some(Ask::OutsideSandbox)),
         (json!("undeclared"), Some(Ask::Undeclared)),
+        (json!("drive"), Some(Ask::Drive)),
         (json!("something_later"), None),
         (serde_json::Value::Null, None),
     ];
@@ -437,6 +439,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             reviewer_reason: None,
             ask: Some(Ask::Undeclared),
             tool_key: Some(key.into()),
+            app: None,
             helper: None,
         })
     };
@@ -542,12 +545,42 @@ fn an_ace_tool_declared_as_publishing_is_reviewed_and_a_declared_read_stays_a_re
     );
 }
 
+/// A driving step in `target`, sensitive or granted as given.
+fn step<'a>(target: Option<&'a str>, sensitive: Option<&'static str>, granted: bool) -> Call<'a> {
+    Call {
+        drive: Drive {
+            target,
+            sensitive,
+            granted,
+        },
+        ..call("screen_act", Some(Effect::Drive))
+    }
+}
+
+fn reviewed_with(route: Route, words: &[&str]) {
+    let Route::Review(Some(concern)) = &route else {
+        panic!("not reviewed with a concern: {route:?}");
+    };
+    for word in words {
+        assert!(concern.contains(word), "{word:?} not in {concern:?}");
+    }
+}
+
+fn asked_about_driving(route: &Route) -> &str {
+    match route {
+        Route::Ask {
+            line,
+            ask: Some(Ask::Drive),
+        } => line,
+        other => panic!("not asked as a driving step: {other:?}"),
+    }
+}
+
 #[test]
-fn a_driving_call_that_can_act_goes_to_the_person_and_no_grant_covers_it() {
+fn ace_tools_that_can_act_in_a_page_or_app_drive_and_reads_stay_reads() {
     for (name, arguments) in [
         ("browser_act", json!({"click": "e42"})),
-        ("browser_act", json!({"click": "Place order"})),
-        ("screen_act", json!({"type": "hello"})),
+        ("screen_act", json!({"app": "TextEdit", "actions": []})),
         ("sim_act", json!({"key": "return"})),
     ] {
         assert_eq!(
@@ -556,22 +589,109 @@ fn a_driving_call_that_can_act_goes_to_the_person_and_no_grant_covers_it() {
             "{name}"
         );
     }
-    assert_eq!(
-        ace("browser_snapshot", Risk::Read, None, &json!({})),
-        Effect::Read
-    );
-    let drive = call("browser_act", Some(Effect::Drive));
-    for granted in [Granted::No, Granted::Tool, Granted::Typed] {
-        let call = Call { granted, ..drive };
-        assert_eq!(route(call), asks(DRIVES), "{granted:?}");
+    for name in [
+        "browser_snapshot",
+        "screen_apps",
+        "screen_display",
+        "sim_ui",
+    ] {
+        assert_eq!(
+            ace(name, Risk::Read, None, &json!({})),
+            Effect::Read,
+            "{name}"
+        );
     }
+}
+
+#[test]
+fn a_click_in_textedit_goes_to_the_reviewer_not_the_person() {
+    let route = route(step(Some("TextEdit"), None, false));
+    reviewed_with(route, &["TextEdit", "as the person", "sends, pays"]);
+}
+
+#[test]
+fn typing_in_mail_asks_the_person() {
+    let mail = drive::Target::App {
+        given: "Mail".into(),
+        resolved: None,
+    };
+    let why = drive::sensitive(&mail);
+    assert!(why.is_some());
+    let route = route(step(Some("Mail"), why, false));
+    let line = asked_about_driving(&route);
+    assert!(
+        line.starts_with("It acts in Mail, mail or messages"),
+        "{line}"
+    );
+}
+
+#[test]
+fn a_granted_app_runs_reviewed_without_asking() {
+    reviewed_with(
+        route(step(Some("TextEdit"), None, true)),
+        &["allowed driving TextEdit", "escalate only"],
+    );
+    // Under untrusted content the review is the strict one, grant or not.
+    let tainted = Call {
+        tainted: true,
+        ..step(Some("TextEdit"), None, true)
+    };
+    reviewed_with(
+        route(tainted),
+        &["untrusted content", "serves the person's request"],
+    );
+    let tainted = Call {
+        tainted: true,
+        ..step(Some("TextEdit"), None, false)
+    };
+    reviewed_with(
+        route(tainted),
+        &["untrusted content", "serves the person's request"],
+    );
+}
+
+#[test]
+fn a_sensitive_place_asks_even_when_granted_or_allowed_always() {
     let always = Call {
         always: true,
         rule: Decision::Run,
-        ..drive
+        ..step(Some("paypal.com"), Some("a bank"), true)
+    };
+    asked_about_driving(&route(always));
+}
+
+#[test]
+fn a_step_spade_cant_place_asks_the_person() {
+    assert_eq!(
+        asked_about_driving(&route(step(None, None, false))),
+        DRIVES_SOMEWHERE
+    );
+    assert_eq!(
+        asked_about_driving(&route(step(None, None, true))),
+        DRIVES_SOMEWHERE
+    );
+}
+
+#[test]
+fn a_drive_step_runs_on_always_allow_and_no_tool_grant_covers_it() {
+    let always = Call {
+        always: true,
+        rule: Decision::Run,
+        ..step(Some("TextEdit"), None, false)
     };
     assert_eq!(route(always), Route::Run);
+    // A tool grant for browser_act would cover every site: refused, and ignored at the gate.
     assert!(never_granted(Some(Effect::Drive)).is_some());
+    let tool_grant = Call {
+        granted: Granted::Tool,
+        ..step(Some("TextEdit"), None, false)
+    };
+    assert!(matches!(route(tool_grant), Route::Review(Some(_))));
+    let too_long = Call {
+        fits: false,
+        ..step(Some("TextEdit"), None, true)
+    };
+    assert_eq!(asked_about_driving(&route(too_long)), TOO_LONG);
 }
 
 #[test]

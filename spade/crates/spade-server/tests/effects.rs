@@ -564,4 +564,107 @@ mod sandboxed {
         );
         Ok(())
     }
+
+    #[tokio::test]
+    async fn driving_textedit_is_reviewed_mail_asks_and_allowing_textedit_stops_the_asking()
+    -> Result {
+        let act = FakeTool::new(
+            "screen_act",
+            Risk::Write,
+            "TextEdit (com.apple.TextEdit), frontmost\nWindow: \"Untitled\"",
+        )
+        .declares(spade_core::effect::Effect::Drive);
+        let acts = act.calls();
+        let click = |id: &str, app: &str| {
+            Script::reply("").call(
+                id,
+                "screen_act",
+                json!({ "app": app, "actions": [{ "type": "click", "id": 3 }] }),
+            )
+        };
+        let unreadable = "I can't tell.";
+        let w = reviewed_world(false, vec![Arc::new(act)], |_| {
+            vec![
+                click("c1", "TextEdit"),
+                Script::reply("").plain(APPROVE),
+                Script::reply("Clicked."),
+                Script::reply("").plain(TITLE),
+                Script::reply("").call(
+                    "c2",
+                    "screen_act",
+                    json!({ "app": "Mail", "actions": [{ "type": "type", "text": "hi" }] }),
+                ),
+                Script::reply("Left it."),
+                click("c3", "TextEdit"),
+                // The reviewer can't decide, so it is left to the person.
+                Script::reply("").plain(unreadable),
+                Script::reply("").plain(unreadable),
+                Script::reply("Clicked again."),
+                click("c4", "TextEdit"),
+                Script::reply("").plain(APPROVE),
+                Script::reply("Done."),
+            ]
+        })
+        .await?;
+        // A click in TextEdit goes to the reviewer, not the person.
+        w.spade.say(&w.conversation, "Click in TextEdit").await?;
+        w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        assert_eq!(ran(&acts), 1);
+        // Typing in Mail asks the person, and offers no way to allow Mail for the bot.
+        w.spade.say(&w.conversation, "Type in Mail").await?;
+        let events = w
+            .spade
+            .wait_for(&w.conversation, "approval_requested")
+            .await?;
+        let asked = requests(&events);
+        assert_eq!(asked[0]["call_id"], "c2");
+        assert_eq!(asked[0]["ask"], "drive");
+        assert!(asked[0].get("app").is_none(), "{:?}", asked[0]);
+        let line = asked[0]["reviewer_reason"].as_str().unwrap_or_default();
+        assert!(line.starts_with("It acts in Mail"), "{line}");
+        answer(&w.spade, &w.conversation, "c2", json!({ "allowed": false })).await?;
+        w.spade
+            .wait_for_count(&w.conversation, "reply_finished", 2)
+            .await?;
+        // Left to the person in TextEdit, the request offers TextEdit, as ace named it.
+        w.spade.say(&w.conversation, "Click again").await?;
+        let events = w
+            .spade
+            .wait_for_count(&w.conversation, "approval_requested", 2)
+            .await?;
+        let asked = requests(&events);
+        assert_eq!(asked[1]["ask"], "drive");
+        assert_eq!(asked[1]["app"], "com.apple.TextEdit");
+        answer(
+            &w.spade,
+            &w.conversation,
+            "c3",
+            json!({ "allowed": true, "always": true }),
+        )
+        .await?;
+        w.spade
+            .wait_for_count(&w.conversation, "reply_finished", 3)
+            .await?;
+        assert_eq!(ran(&acts), 2);
+        let (_, grants) = w.spade.get(&format!("/v1/agents/{}/grants", w.bot)).await?;
+        assert!(
+            grants.to_string().contains(r#""app":"com.apple.TextEdit""#),
+            "{grants}"
+        );
+        // The next step there is reviewed as allowed, without asking.
+        w.spade.say(&w.conversation, "Once more").await?;
+        let events = w
+            .spade
+            .wait_for_count(&w.conversation, "reply_finished", 4)
+            .await?;
+        assert_eq!(ran(&acts), 3);
+        assert_eq!(requests(&events).len(), 2, "not asked again");
+        let reviewed = w.spade.fake.seen();
+        let told = reviewed
+            .iter()
+            .rev()
+            .find(|seen| seen.body.to_string().contains("allowed driving TextEdit"));
+        assert!(told.is_some(), "the reviewer is told the person allowed it");
+        Ok(())
+    }
 }

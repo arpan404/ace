@@ -239,6 +239,17 @@ pub(super) async fn handle_calls(
                         })
                     });
                     let target = spade_core::outward::target(&name, &arguments);
+                    // A driving step: where it acts, whether that place is the person's alone,
+                    // and whether they allowed it for the bot (ADR 0171, amendment 3).
+                    let driven = (declared == Some(effect::Effect::Drive))
+                        .then(|| effect::drive::target(&name, &arguments, events));
+                    let drive = driven
+                        .as_ref()
+                        .map_or_else(effect::Drive::default, |place| effect::Drive {
+                            target: place.shown(),
+                            sensitive: effect::drive::sensitive(place),
+                            granted: engine.drive_granted(id, place),
+                        });
                     let route = effect::route(effect::Call {
                         tool: &name,
                         rule,
@@ -259,6 +270,7 @@ pub(super) async fn handle_calls(
                         granted: engine.granted(id, &name, &arguments, declared),
                         checkpointed: held && classed.runs == Runs::Host,
                         target: target.as_deref(),
+                        drive,
                     });
                     let mut ask = None;
                     let mut reviewer_reason = None;
@@ -432,6 +444,19 @@ pub(super) async fn handle_calls(
                         }
                         Decision::Ask => {
                             waiting = true;
+                            // A driving step asked for any reason (its place, the reviewer, the
+                            // classifier) offers to allow its app or site, where that may be.
+                            let app = match &driven {
+                                Some(place) => {
+                                    ask = Some(effect::Ask::Drive);
+                                    place
+                                        .key()
+                                        .filter(|_| drive.sensitive.is_none())
+                                        .filter(|key| effect::drive::grantable(key).is_ok())
+                                        .map(str::to_owned)
+                                }
+                                None => None,
+                            };
                             let asked = Event::Known(Known::ApprovalRequested {
                                 reply: reply.to_owned(),
                                 call_id: pending.call.id.clone(),
@@ -443,6 +468,7 @@ pub(super) async fn handle_calls(
                                 tool_key: (ask == Some(effect::Ask::Undeclared))
                                     .then_some(tool_key)
                                     .flatten(),
+                                app,
                                 helper: None,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.

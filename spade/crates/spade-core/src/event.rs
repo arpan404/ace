@@ -192,6 +192,11 @@ pub enum Known {
         /// the tool's server and version, its own name and its schema (ADR 0171, amendment 1).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_key: Option<String>,
+        /// For a driving step (`ask: drive`), the app or site its "always" allows for the bot
+        /// (ADR 0171, amendment 3). Absent where it can't be allowed: a sensitive place, one
+        /// Spade can't name, or any other request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
         /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]

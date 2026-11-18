@@ -513,6 +513,7 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
                 helper: None,
             }),
         ];
@@ -536,6 +537,7 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
                 helper: None,
             }),
             Event::Known(Known::StopRequested {
@@ -569,6 +571,7 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
                 helper: None,
             }),
             Event::Known(Known::ApprovalAnswered {
@@ -878,6 +881,7 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
                 helper: Some(Box::new(crate::event::HelperAsk {
                     job: "j1".into(),
                     conversation: "h1".into(),

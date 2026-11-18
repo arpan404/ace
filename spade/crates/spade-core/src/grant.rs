@@ -33,6 +33,10 @@ pub enum Scope {
         #[serde(default)]
         arguments: BTreeMap<String, String>,
     },
+    /// Driving one app or site (ADR 0171, amendment 3): its steps are reviewed without asking
+    /// the person. `app` is the app as a call names it (`TextEdit`, `com.apple.TextEdit`) or a
+    /// site's host (`github.com`), matched without regard to case. Never a sensitive one.
+    Drive { app: String },
 }
 
 /// A grant as stored.
@@ -62,10 +66,26 @@ fn on_host(pattern: &str) -> String {
 /// `repo` is canonical, `host/owner/name` (`outward::canonical_repo`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action<'a> {
-    GitPush { repo: &'a str, branch: &'a str },
-    PrComment { repo: &'a str, own: bool },
-    Folder { path: &'a str, write: bool },
-    Tool { tool: &'a str, arguments: &'a Value },
+    GitPush {
+        repo: &'a str,
+        branch: &'a str,
+    },
+    PrComment {
+        repo: &'a str,
+        own: bool,
+    },
+    Folder {
+        path: &'a str,
+        write: bool,
+    },
+    Tool {
+        tool: &'a str,
+        arguments: &'a Value,
+    },
+    /// A driving step, by each name its app or site is known by.
+    Drive {
+        names: &'a [&'a str],
+    },
 }
 
 /// Whether `scope` allows `action`.
@@ -95,8 +115,18 @@ pub fn covers(scope: &Scope, action: &Action<'_>) -> bool {
                         .is_some_and(|value| glob(pattern, value))
                 })
         }
+        (Scope::Drive { app }, Action::Drive { names }) => {
+            // A grant for a sensitive place covers nothing, however it was stored.
+            crate::effect::drive::grantable(app).is_ok()
+                && names.iter().any(|name| same_place(app, name))
+        }
         _ => false,
     }
+}
+
+/// Two names of an app or site, compared without case or surrounding space.
+fn same_place(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim())
 }
 
 /// Whether any of `grants` allows `action`.
@@ -143,6 +173,7 @@ pub fn within(child: &Scope, parent: &Scope) -> bool {
                         .is_some_and(|mine| narrower(mine, pattern))
                 })
         }
+        (Scope::Drive { app }, Scope::Drive { app: pa }) => same_place(app, pa),
         _ => false,
     }
 }
@@ -196,14 +227,23 @@ pub fn check(scope: &Scope, never: &dyn Fn(&str) -> Option<&'static str>) -> Res
         Scope::Tool { tool, arguments } => {
             pattern("tool", tool)?;
             if let Some(why) = never(tool) {
-                return Err(format!(
-                    "{tool} can't be granted: {why} That always goes to the person."
-                ));
+                return Err(format!("{tool} can't be granted: {why}"));
             }
             for value in arguments.values() {
                 pattern("argument", value)?;
             }
             Ok(())
+        }
+        Scope::Drive { app } => {
+            if app.trim().is_empty() {
+                return Err("app is empty".to_owned());
+            }
+            crate::effect::drive::grantable(app).map_err(|why| {
+                format!(
+                    "{app} can't be allowed for a bot: it is {why}. Each step there goes to \
+                     the person."
+                )
+            })
         }
     }
 }
@@ -423,7 +463,10 @@ mod tests {
 
     #[test]
     fn grants_that_could_reach_everything_or_always_go_to_the_person_are_refused() {
-        let never = |tool: &str| (tool == "stripe_pay").then_some("It could spend money.");
+        let never = |tool: &str| {
+            (tool == "stripe_pay")
+                .then_some("It could spend money. That always goes to the person.")
+        };
         assert!(check(&push("a/b", "*"), &never).is_err());
         assert!(check(&push("a/b", "spade/*"), &never).is_ok());
         for path in ["relative/path", "/", "/p/../etc"] {
@@ -439,6 +482,43 @@ mod tests {
         };
         let refused = check(&pay, &never).err().unwrap_or_default();
         assert!(refused.contains("always goes to the person"), "{refused}");
+    }
+
+    #[test]
+    fn a_drive_grant_covers_its_one_app_or_site_and_a_sensitive_one_cant_be_made() {
+        let none = |_: &str| None;
+        let textedit = Scope::Drive {
+            app: "com.apple.TextEdit".to_owned(),
+        };
+        assert!(check(&textedit, &none).is_ok());
+        let can = |scope: &Scope, names: &[&str]| covers(scope, &Action::Drive { names });
+        assert!(can(
+            &textedit,
+            &["TextEdit", "TextEdit", "com.apple.textedit"]
+        ));
+        assert!(!can(&textedit, &["Notes", "Notes", "com.apple.Notes"]));
+        let site = Scope::Drive {
+            app: "github.com".to_owned(),
+        };
+        assert!(can(&site, &["GitHub.com"]));
+        assert!(!can(&site, &["gist.github.com"]));
+        for app in [
+            "Mail",
+            "com.apple.MobileSMS",
+            "paypal.com",
+            "System Settings",
+            " ",
+        ] {
+            let scope = Scope::Drive {
+                app: app.to_owned(),
+            };
+            assert!(check(&scope, &none).is_err(), "{app}");
+            // Stored by an older build or by hand, it still covers nothing.
+            assert!(!can(&scope, &[app]), "{app}");
+        }
+        // A worker's is within its parent's only for the same place.
+        assert!(within(&textedit, &textedit));
+        assert!(!within(&textedit, &site));
     }
 
     #[test]
