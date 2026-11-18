@@ -56,3 +56,29 @@ export function findQuery(input: {
     wholeWord: input.wholeWord,
   };
 }
+
+/** Every match clipped to the visible lines, by line, with the find bar's current one marked. */
+export function segmentsByLine(
+  ranges: readonly Range[],
+  first: number,
+  last: number,
+  current: number,
+): Map<number, MatchSegment[]> {
+  const byLine = new Map<number, MatchSegment[]>();
+  ranges.forEach((range) => {
+    if (range.end.line < first || range.start.line > last) return;
+    const isCurrent = ranges[current] === range;
+    for (
+      let line = Math.max(first, range.start.line);
+      line <= Math.min(last, range.end.line);
+      line++
+    ) {
+      const start = line === range.start.line ? range.start.column : 0;
+      const end = line === range.end.line ? range.end.column : Number.MAX_SAFE_INTEGER;
+      const list = byLine.get(line) ?? [];
+      list.push({ start, end, current: isCurrent });
+      byLine.set(line, list);
+    }
+  });
+  return byLine;
+}

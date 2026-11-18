@@ -3,5 +3,6 @@
  * carets); everything else — geometry, cursors, the highlighter adapter — stays inside.
  */
 
-export { CodeEditor, type CodeEditorProps, type EditorHandle } from "./editor.tsx";
+export { CodeEditor } from "./editor.tsx";
+export type { CodeEditorProps, EditorHandle } from "./types.ts";
 export type { LineHighlighter, Token } from "./highlighter.ts";

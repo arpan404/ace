@@ -1,33 +1,14 @@
 // oxlint-disable react/no-array-index-key -- a line's row key is its number; there is no other identity.
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
 import type { Position, Selection } from "@ace/editor";
-import { pathParts, type LineMark } from "@ace/ui-core";
-import {
-  useCallback,
-  useEffect,
-  useImperativeHandle,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type Ref,
-} from "react";
+import { pathParts } from "@ace/ui-core";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { EditorFindBar } from "./find-bar.tsx";
-import type { MatchSegment } from "./find-matches.ts";
-import {
-  charWidthFor,
-  clearMeasurements,
-  fallbackCharWidth,
-  gutterWidth,
-  isPlain,
-  lineHeight,
-  lineWidth,
-  measureElement,
-  visualColumn,
-} from "./geometry.ts";
+import { segmentsByLine } from "./find-matches.ts";
+import { gutterWidth, lineHeight, visualColumn } from "./geometry.ts";
 import { useEditorKeys } from "./keys.ts";
 import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
@@ -36,53 +17,16 @@ import { usePointerSelection } from "./pointer.ts";
 import { useEditorDocument } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
+import { useEditorMetrics, useMirrorLine } from "./use-editor-metrics.ts";
 import { useFindInFile } from "./use-find-in-file.ts";
 import { useFindResults } from "./use-find.ts";
+import type { CodeEditorProps } from "./types.ts";
 
 const overscan = 8;
 /** Files up to this many lines mount every row, as the Files viewer always has. */
 const mountAll = 400;
 const paddingRight = 24;
 const noLines = [""];
-
-/** What the editor exposes to code that needs to place a caret or read the text. */
-export interface EditorHandle {
-  focus(): void;
-  text(): string;
-  selections(): readonly Selection[];
-  setSelections(selections: readonly Selection[]): void;
-}
-
-export interface CodeEditorProps {
-  /** The text when the editor opens; later edits live in the document, not this prop. */
-  text: string;
-  /** The file's path: its language, its comment token and the name the textarea announces. */
-  path: string;
-  readOnly?: boolean;
-  /** Gutter marks from the checkout's diff; unset, the editor diffs against its own opening. */
-  marks?: ReadonlyMap<number, LineMark> | undefined;
-  /** A 1-based line to bring into view once. */
-  line?: number | undefined;
-  /** Find from the Files toolbar (read-only mode): highlight this query and reveal its hit. */
-  find?: { query: string; hit?: { line: number; column: number } | undefined } | undefined;
-  /** The line area's region name for assistive tech. */
-  label: string;
-  /** Called after each edit; read the text through the handle when it is actually needed. */
-  onEdit?: (() => void) | undefined;
-  onBlur?: (() => void) | undefined;
-  /** The text once, as the editor unmounts, for a caller that keeps a draft. */
-  onTextDispose?: ((text: string) => void) | undefined;
-  onSave?: (() => void) | undefined;
-  /** Whether lines run past the editor's right edge, for the toolbar's fade. */
-  onHorizontalOverflow?: ((overflow: boolean) => void) | undefined;
-  /** Idle time that ends a typing run, as one undo step. */
-  commitAfter?: number;
-  /** How long typing settles before colours are rebuilt; tests stretch it. */
-  highlightDelay?: number;
-  focusOnMount?: boolean;
-  className?: string;
-  ref?: Ref<EditorHandle>;
-}
 
 /**
  * The Files tab's text editor: virtualized lines with a sticky line-number gutter, selections
@@ -107,11 +51,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
-  const [content, setContent] = useState<{ doc: unknown; width: number }>({
-    doc: undefined,
-    width: 0,
-  });
-  const [cell, setCell] = useState(fallbackCharWidth);
   const [paint, setPaint] = useState(0);
   const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>();
   const viewport = useElementSize(scroller);
@@ -141,37 +80,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     [doc, first, lines],
   );
 
-  useLayoutEffect(() => {
-    const element = scroller.current;
-    if (element) setCell(charWidthFor(getComputedStyle(element).font));
-  }, []);
-
-  useEffect(() => {
-    const measure = () => {
-      clearMeasurements();
-      const element = scroller.current;
-      if (element) setCell(charWidthFor(getComputedStyle(element).font));
-    };
-    document.fonts?.addEventListener("loadingdone", measure);
-    let density: MediaQueryList | undefined;
-    if (typeof matchMedia !== "function")
-      return () => document.fonts?.removeEventListener("loadingdone", measure);
-    const watchDensity = () => {
-      density?.removeEventListener("change", changed);
-      density = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
-      density.addEventListener("change", changed);
-    };
-    const changed = () => {
-      measure();
-      watchDensity();
-    };
-    watchDensity();
-    return () => {
-      document.fonts?.removeEventListener("loadingdone", measure);
-      density?.removeEventListener("change", changed);
-    };
-  }, []);
-
   useEffect(() => {
     const highlighter = state.highlighter;
     if (!highlighter || !doc) return;
@@ -181,69 +89,31 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     return stop;
   }, [state.highlighter, doc]);
 
-  useEffect(() => {
-    const element = host.current;
-    if (!element) return;
-    let widest = 0;
-    lines.forEach((text, offset) => {
-      const rendered = element.querySelector<HTMLElement>(`[data-line-text="${first + offset}"]`);
-      const width = isPlain(text)
-        ? lineWidth(text, cell)
-        : measureElement(rendered ?? element) || lineWidth(text, cell);
-      widest = Math.max(widest, width);
-    });
-    const width = gutter + widest + paddingRight;
-    setContent((previous) => {
-      const base = previous.doc === doc ? previous.width : 0;
-      const next = Math.max(base, width);
-      if (previous.doc === doc && previous.width === next) return previous;
-      return { doc, width: next };
-    });
-  }, [doc, lines, cell, gutter, first]);
-  const contentWidth = content.doc === doc ? content.width : 0;
-  const onOverflow = props.onHorizontalOverflow;
-
-  useEffect(() => {
-    const element = scroller.current;
-    if (!element) return;
-    const measure = () =>
-      onOverflow?.(element.scrollLeft + element.clientWidth < element.scrollWidth - 1);
-    measure();
-    element.addEventListener("scroll", measure, { passive: true });
-    const observer =
-      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
-    observer?.observe(element);
-    return () => {
-      element.removeEventListener("scroll", measure);
-      observer?.disconnect();
-    };
-  }, [onOverflow, contentWidth, state.version]);
+  const { cell, contentWidth } = useEditorMetrics({
+    scroller,
+    host,
+    doc,
+    lines,
+    first,
+    gutter,
+    onOverflow: props.onHorizontalOverflow,
+  });
 
   const primary = state.selections[state.primary] ?? state.selections[0];
   const caretLine = primary?.head.line ?? 0;
   const caretColumn = primary?.head.column ?? 0;
   const selected = selectedLineSpan(state.selections);
 
-  /** Screen readers get the current line, not an empty text box, while the caret moves. */
-  const mirror = useCallback(() => {
-    const element = field.current;
-    if (!element || document.activeElement !== element || input.composingText !== undefined) return;
-    const text = lineAt(caretLine);
-    if (element.value !== text) element.value = text;
-    const selection = state.selections[state.primary];
-    const anchor = selection
-      ? selection.anchor.line === caretLine
-        ? selection.anchor.column
-        : selection.anchor.line < caretLine
-          ? 0
-          : text.length
-      : caretColumn;
-    const from = Math.max(0, Math.min(anchor, caretColumn, text.length));
-    const to = Math.max(0, Math.min(Math.max(anchor, caretColumn), text.length));
-    element.setSelectionRange(from, to);
-  }, [lineAt, caretLine, caretColumn, state.selections, state.primary, input.composingText]);
-
-  useEffect(() => mirror(), [mirror, state.version]);
+  const mirror = useMirrorLine({
+    field,
+    lineAt,
+    caretLine,
+    caretColumn,
+    selections: state.selections,
+    primary: state.primary,
+    composing: input.composingText !== undefined,
+    version: state.version,
+  });
 
   const announce = (position: Position) =>
     setAnnouncement((previous) => ({
@@ -343,25 +213,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     navigationKeys(event);
   };
 
-  const byLine = useMemo(() => {
-    const found = new Map<number, MatchSegment[]>();
-    matches.forEach((range) => {
-      if (range.end.line < first || range.start.line > last - 1) return;
-      const currentMatch = matches[currentIndex] === range;
-      for (
-        let line = Math.max(first, range.start.line);
-        line <= Math.min(last - 1, range.end.line);
-        line++
-      ) {
-        const start = line === range.start.line ? range.start.column : 0;
-        const end = line === range.end.line ? range.end.column : Number.MAX_SAFE_INTEGER;
-        const list = found.get(line) ?? [];
-        list.push({ start, end, current: currentMatch });
-        found.set(line, list);
-      }
-    });
-    return found;
-  }, [matches, first, last, currentIndex]);
+  const byLine = useMemo(
+    () => segmentsByLine(matches, first, last - 1, currentIndex),
+    [matches, first, last, currentIndex],
+  );
 
   const [tokens, setTokens] = useState<Token[][]>([]);
   const tokenKey = `${paint}:${first}:${last}`;

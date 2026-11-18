@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { beforeEach, expect, test } from "vitest";
-import { CodeEditor, type CodeEditorProps, type EditorHandle } from "./editor.tsx";
+import { CodeEditor } from "./editor.tsx";
+import type { CodeEditorProps, EditorHandle } from "./types.ts";
 
 /*
  * What the editor draws: colours, the gutter diff, very long lines, virtualization and the

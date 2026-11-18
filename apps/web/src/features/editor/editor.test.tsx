@@ -2,7 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { beforeEach, expect, test } from "vitest";
-import { CodeEditor, type CodeEditorProps, type EditorHandle } from "./editor.tsx";
+import { CodeEditor } from "./editor.tsx";
+import type { CodeEditorProps, EditorHandle } from "./types.ts";
 
 /*
  * The editing keys and input paths, driven through the hidden textarea the way a keyboard and
