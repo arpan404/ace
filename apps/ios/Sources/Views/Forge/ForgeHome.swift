@@ -90,7 +90,7 @@ struct ForgeHome: View {
     var body: some View {
         content
             // The chips pinned under the title, in the navigation bar's own region.
-            .pinnedTopBar { chips }
+            .pinnedTopBar(resetOn: "\(session?.hostId ?? "")|\(chosen ?? "")|\(kind)") { chips }
             // The system's large title (Pulls, Issues or Inbox), the project under it and the
             // machine and project pickers in its menu.
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,

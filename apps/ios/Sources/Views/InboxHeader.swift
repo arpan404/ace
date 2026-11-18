@@ -112,7 +112,13 @@ extension View {
     /// away under the title and the bar together and nothing prints through; iOS 18 gives it the
     /// page colour.
     func pinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-        modifier(PinnedTopBar(bar: bar()))
+        modifier(PinnedTopBar(bar: bar(), list: nil))
+    }
+
+    /// `pinnedTopBar` over content that swaps one list for another: each new `list` starts at the
+    /// top, so the edge hides again.
+    func pinnedTopBar<Bar: View>(resetOn list: some Hashable, @ViewBuilder _ bar: () -> Bar) -> some View {
+        modifier(PinnedTopBar(bar: bar(), list: AnyHashable(list)))
     }
 }
 
@@ -122,6 +128,8 @@ extension View {
 /// flip it every frame, and only while the person scrolls (`ScrollEdgeHold`).
 private struct PinnedTopBar<Bar: View>: ViewModifier {
     let bar: Bar
+    /// The list showing, where the content swaps lists; nil where it never does.
+    let list: AnyHashable?
     @State private var hold = ScrollEdgeHold()
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
@@ -132,6 +140,7 @@ private struct PinnedTopBar<Bar: View>: ViewModifier {
                 .onScrollPhaseChange { _, phase, context in
                     change { $0.phase(scrolling: phase != .idle, offset: Self.offset(context.geometry)) }
                 }
+                .onChange(of: list) { change { $0.reset() } }
                 .scrollEdgeEffectStyle(.hard, for: .top)
                 .scrollEdgeEffectHidden(!hold.shown, for: .top)
                 .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none) { bar }
@@ -171,6 +180,9 @@ struct ScrollEdgeHold: Equatable {
         self.scrolling = scrolling
         follow(offset)
     }
+
+    /// Another list took the page, at its top.
+    mutating func reset() { shown = false }
 
     private mutating func follow(_ offset: CGFloat) {
         if shown { if offset < Self.off { shown = false } } else if offset > Self.on { shown = true }

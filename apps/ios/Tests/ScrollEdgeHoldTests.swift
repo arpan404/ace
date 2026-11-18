@@ -53,4 +53,13 @@ struct ScrollEdgeHoldTests {
         hold.moved(to: 0)
         #expect(hold.shown)
     }
+
+    @Test func anotherListStartsWithTheEdgeHiddenAndLayoutLeavesItSo() {
+        var hold = scrolling()
+        hold.phase(scrolling: false, offset: 140)
+        hold.reset()
+        #expect(!hold.shown)
+        hold.moved(to: 140)
+        #expect(!hold.shown)
+    }
 }
