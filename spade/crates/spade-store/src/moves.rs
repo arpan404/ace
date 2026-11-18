@@ -578,7 +578,7 @@ impl Store {
             )?;
         }
         let mut columns: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-        while let Some(part) = import.parts.next() {
+        for part in &mut *import.parts {
             let (name, rows) = match part {
                 Ok(part) => part,
                 Err(problem) => return Ok(Err(problem)),

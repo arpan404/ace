@@ -434,12 +434,13 @@ mod tests {
                  DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
-                 DROP TABLE episodes_search; DROP TABLE episodes;",
+                 DROP TABLE episodes_search; DROP TABLE episodes;
+                 DROP TABLE moves;",
             )?;
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 9,
+                crate::schema::current_version() as i64 - 10,
             )?;
         }
         let store = Store::open(&path)?;

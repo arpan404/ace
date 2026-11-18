@@ -175,12 +175,13 @@ impl Engine {
             .map(|list| list.iter().filter_map(Value::as_u64).collect())
             .unwrap_or_default();
         let total = manifest["parts"].as_u64().unwrap_or(0);
-        let mut sent = have.len() as u64;
+        let sent = have.len() as u64;
         self.update(entry, SENDING, |kept| {
             kept["sent"] = json!(sent);
             kept["peer_host"] = held;
         });
-        for index in (0..total).filter(|i| !have.contains(i)) {
+        let missing = (0..total).filter(|i| !have.contains(i));
+        for (done, index) in (sent + 1..).zip(missing) {
             let part = match self.packed_part(&entry.id, index) {
                 Ok(part) => part,
                 Err(problem) => return Next::Fail(problem),
@@ -198,8 +199,7 @@ impl Engine {
                 404 => return Next::Again,
                 _ => return Next::Fail(error_of(&body)),
             }
-            sent += 1;
-            self.update(entry, SENDING, |kept| kept["sent"] = json!(sent));
+            self.update(entry, SENDING, |kept| kept["sent"] = json!(done));
         }
         if self.cancelled(&entry.id) {
             return Next::Cancel;
