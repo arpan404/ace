@@ -11,6 +11,10 @@ struct ForgeMergeCommitSheet: View {
     let title: String
     var current = true
     @State private var discarding = false
+    /// GitHub's text as it was when the sheet opened. A later prefill (the head moved) must not
+    /// turn untouched text into a draft that would then replace the new default.
+    @State private var opening: ForgePullPage.MergeCommit?
+    @State private var opened = false
     /// Keeps the commit for the next opening, or forgets the draft when nil.
     let keep: (ForgePullPage.MergeCommit?) -> Void
     let confirm: (ForgeWriteTarget) -> Void
@@ -23,7 +27,7 @@ struct ForgeMergeCommitSheet: View {
         Binding(get: { target.commit?.message ?? "" }, set: { target.commit?.message = $0 })
     }
 
-    private var edited: Bool { target.commit != prefill }
+    private var edited: Bool { target.commit != (opened ? opening : prefill) }
 
     var body: some View {
         NavigationStack {
@@ -58,6 +62,7 @@ struct ForgeMergeCommitSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if edited && current { discarding = true } else { dismiss() } } } }
         }
         .interactiveDismissDisabled(edited && current)
+        .onAppear { if !opened { opening = prefill; opened = true } }
         .onDisappear { if edited && !current { keep(target.commit) } }
         .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
             Button("Discard", role: .destructive) { keep(nil); dismiss() }
