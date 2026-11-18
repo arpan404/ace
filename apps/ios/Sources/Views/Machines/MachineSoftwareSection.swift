@@ -104,8 +104,11 @@ struct MachineSoftwareSection: View {
     /// Check) is the way forward, the rest sit beside it. They stack when they don't fit.
     private func actions(_ entries: [MachineSoftwareData.Action]) -> some View {
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: AceDesign.Space.related) { actionButtons(entries) }
-            VStack(alignment: .leading, spacing: AceDesign.Space.tight) { actionButtons(entries) }
+            HStack(spacing: AceDesign.Space.related) { actionButtons(entries).fixedSize() }
+            // Stacked, a button keeps the row's width and its words wrap rather than run off it.
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                actionButtons(entries).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.vertical, AceDesign.Space.tight)
     }
@@ -118,7 +121,6 @@ struct MachineSoftwareSection: View {
             Group {
                 if entry.id == entries.first?.id { button.buttonStyle(.primaryAction) } else { button.buttonStyle(.secondaryAction) }
             }
-            .fixedSize()
             .accessibilityIdentifier("machine.software.\(entry.action)")
         }
     }

@@ -72,6 +72,7 @@ struct ProviderRow: View {
             let under = [left ? window.left : nil, window.resets].compactMap { $0 }.joined(separator: " · ")
             if !under.isEmpty {
                 Text(under).aceFont(AceDesign.TextRole.time).monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
