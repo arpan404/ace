@@ -92,9 +92,13 @@ decide once for this bot." or "It asks to run outside the sandbox, so you decide
 
 ### Driving a page or app
 
-[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendment 3. A `drive` step acts in
-the app its `app` names, the page its `url` names, or the page ace last reported for its tab
-(`spade_core::effect::drive::target`). It goes to the person in mail, messages or chat, a bank,
+[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendment 3. Right before the gate
+decides, Spade asks ace where a `drive` step acts (`spade_core::effect::drive::lookup`): the tab
+it runs in (its `tabId`, else ace's current tab) from `browser_tabs list`, or every app ace could
+open for its `app` from `screen_apps`. A step that opens an address acts there. A tab that is
+loading, missing or private, a name that matches several apps, and input on a simulator or device
+have no place, and go to the person. Right before the step runs, Spade asks again; if the place
+changed, the step isn't run and the bot looks again. It goes to the person in mail, messages or chat, a bank,
 wallet, payment, checkout or cart, a password manager, the system's settings, a sign-in, account,
 security, settings, keys or members page, a social site, a web browser driven through the screen,
 or a place Spade can't name (`drive::sensitive`). Elsewhere the reviewer is told it acts there
@@ -102,7 +106,8 @@ as the person and to escalate a send, a payment, a purchase, an access change or
 under untrusted content, to check the step serves the person's request.
 
 A request for a step outside those places offers "Allow \<app\> for this bot" (the request's
-`app`). It answers always and adds the grant `drive {app}`: the steps it covers are reviewed,
+`app`). It answers always and adds the grant `drive_app {app}` (the app's id) or
+`drive_site {host}` for the place the request kept (`acts_in`): the steps it covers are reviewed,
 told the person allowed the app, without asking. A drive grant is refused for a sensitive place,
 a `tool` grant never covers a driving tool, and the request never stores an Always allow.
 
