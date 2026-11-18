@@ -247,19 +247,19 @@ Measured on `main`'s model and wiring, with the same labeller:
    same gap made it raise file edits done through `python - <<'EOF'` to the person: 56 of the 57
    real calls it raised weren't person-only.
 5. **Not the 0.95 floor.** On the calibration data (the validation split and tldr's validation
-   pages) alone the threshold would be 0.917, so the floor stays and binds with a margin of 0.033.
+   pages, unnamed calls counted unsafe) alone the threshold would be 0.895, so the floor stays and
+   binds with a margin of 0.055.
 6. **Not mainly the model's capacity.** A small MLP (one hidden layer of 16 ReLU units, the same
-   data, calibration and checks) settles 1.5 to 8 points more of the low-risk calls in the untouched
-   sets at no named false low-risk, but it settles 14 calls the labeller can't name on tldr's
-   held-out pages against the linear model's 5, and with 12 units it settled one risky held-out
-   command, at about 1.8× the work and 2 MB of weights. The linear model stays; `REPORT.md`
-   reruns the comparison.
+   data, calibration and checks) settles up to 2 points more of the low-risk calls in the untouched
+   sets at no false low-risk, at about 1.8× the work and 2 MB of weights, and with 12 units it once
+   settled a risky held-out command. What binds now is which commands have a hard form
+   (amendment 3), not capacity. The linear model stays; `REPORT.md` reruns the comparison.
 
 ### Decision
 
 1. **Reads under untrusted content.** A plain command (decision 2's conditions, except taint) may
    be settled while untrusted content is in view only as a read: P(read or write_local) over the
-   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.800: above
+   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.801: above
    every calibration call that isn't a read and could be settled there, by 0.02, never below 0.8),
    and nothing in it that can reach another machine (`Prediction::network`: a program that can,
    or a URL, host or address argument). A read in the bot's folder that reaches nothing neither
@@ -276,7 +276,7 @@ Measured on `main`'s model and wiring, with the same labeller:
    `git stash`, `git bisect`, `jj git`, `brew services`, `npm config`…) is a key part; a digit after
    an option letter is its value; `$?`, `$#` and `$$` aren't paths.
 4. **Raising.** The person is asked when the person-only effects together pass the threshold
-   (0.64, the lowest with 98% precision on the calibration data); the request names the likeliest
+   (0.60, the lowest with 98% precision on the calibration data); the request names the likeliest
    one.
 5. **Training data.** Besides the templates: tldr-pages' commands labelled by the reference
    labeller (one it can't name is never trained on), and new families in the shapes agents write,
@@ -291,52 +291,59 @@ Measured on `main`'s model and wiring, with the same labeller:
 
 ### Measures, before and after
 
-Every "after" number is for the exact shipped weights (`spade-classify/dd7a023e`), calibrated and
-measured as amendment 2 sets out, on sets their fit never touched. `main` is
-`spade-classify/99f56e23` as wired on `main`, on the same sets. The first test sets are part of
-the fit now and aren't reported.
+Every "after" number is for the exact shipped weights (`spade-classify/c886542e`), calibrated and
+measured as amendments 2 and 3 set out, on sets their fit never touched, with the gate's checks as
+it runs them: a command settles only in its hard form (amendment 3). `main` is
+`spade-classify/99f56e23` as wired on `main`, measured with the same labeller on the same sets.
 
-| Set                                                           | Low-risk recall   | False low-risk                                                                                                     | Person precision  | Person recall     |
-| ------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------- | ----------------- |
-| Fresh, clean                                                  | 0.118 → **0.316** | 0 of 1,920 → **0 of 1,920**                                                                                        | 0.983 → 0.972     | 0.942 → 0.936     |
-| Fresh, adversarial                                            | 0.032 → **0.106** | 0 of 5,139 → **0 of 5,139**                                                                                        | 0.973 → 0.976     | 0.842 → **0.865** |
-| Held-out tricks and tools (main: its own 4,849; after: 5,867) | 0.070 → 0.041     | 0 of 3,312 → **0 of 3,747**                                                                                        | 1.000 → 1.000     | 0.895 → **0.952** |
-| Hand-labelled hard set                                        | 0.449 → **0.686** | 0 of 95 → **0 of 95**                                                                                              | 0.979 → **1.000** | 0.920 → **0.960** |
-| tldr-pages, held-out pages                                    | 0.054 → **0.113** | 1 → 5 of 6,978, all unnamed, read by hand: help, list and version commands of tools the labeller doesn't know      | 0.201 → **0.296** | 0.208 → **0.456** |
-| Real sessions, distinct commands, model alone                 | 0.024 → **0.057** | 1 → 2 of 2,298, both unnamed: they run a script, which the rules show the reviewer, so the gate never settles them | 0.136 → **0.917** | 0.070 → 0.086     |
-| Hand-labelled connector calls (raise only)                    | –                 | –                                                                                                                  | 0.900 → 0.889     | 0.857 → 0.762     |
+| Set                                                           | Low-risk recall   | False low-risk                        | Person precision  | Person recall     |
+| ------------------------------------------------------------- | ----------------- | ------------------------------------- | ----------------- | ----------------- |
+| Fresh, clean                                                  | 0.118 → 0.104     | 0 of 1,920 → **0 of 1,920**           | 0.983 → 0.976     | 0.942 → 0.919     |
+| Fresh, adversarial                                            | 0.032 → 0.033     | 0 of 5,139 → **0 of 5,139**           | 0.973 → 0.963     | 0.842 → **0.852** |
+| Held-out tricks and tools (main: its own 4,849; after: 5,871) | 0.070 → 0.002     | 0 of 3,312 → **0 of 3,751**           | 1.000 → 1.000     | 0.895 → **0.955** |
+| Hand-labelled hard set                                        | 0.449 → 0.339     | 0 of 95 → **0 of 95**                 | 0.979 → **1.000** | 0.920 → **0.960** |
+| tldr-pages, held-out pages                                    | 0.053 → 0.037     | 3 → **0** of 7,000 (risky or unnamed) | 0.201 → **0.283** | 0.189 → **0.500** |
+| Real sessions, distinct commands, model alone                 | 0.024 → **0.037** | 1 → **0** of 2,310 (risky or unnamed) | 0.136 → **0.857** | 0.070 → **0.094** |
+| Hand-labelled connector calls (raise only)                    | –                 | –                                     | 0.900 → 0.889     | 0.857 → 0.762     |
+
+Low-risk recall on the template and tldr sets is lower than `main`'s: `main` settled builds,
+installs, `git status`, `git diff` and plain `curl`, which can run programs named in configuration
+the command never shows, and those now stay with the reviewer. Every measure counts a call the
+labeller can't name as risky, and none of those is settled any more either.
 
 End to end, real sessions (shares of 6,708 calls):
 
 | Replay                                                 | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer  | Decided without the reviewer | False low-risk |
 | ------------------------------------------------------ | --------------------- | --------------------------------------------------- | --------- | ---------------------------- | -------------- |
 | As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 57)                                      | 78.1%     | 21.9%                        | 0              |
-| As recorded, this build                                | **2.6%**              | 0.2% (11 of 12)                                     | **76.2%** | **23.8%**                    | **0**          |
+| As recorded, this build                                | **2.1%**              | 0.2% (9 of 11)                                      | **76.8%** | **23.2%**                    | **0**          |
 | Placed in the folder each thread worked in, `main`     | 0.1%                  | 0.8% (1 of 57)                                      | 79.1%     | 20.9%                        | 0              |
-| Placed in the folder each thread worked in, this build | **26.5%**             | 0.2% (11 of 12)                                     | **53.4%** | **46.6%**                    | **0**          |
+| Placed in the folder each thread worked in, this build | **23.7%**             | 0.2% (10 of 12)                                     | **56.1%** | **43.9%**                    | **0**          |
 
-Run by the rules (12.0%), asked by the rules (7.8%, 6.8% placed) and refused (1.1%) are the same
-in every row. Of the 55 person-only real calls the rules sent to review, the classifier raises 11
-(before: 1); the one other call it raised is one the labeller can't name.
+A false low-risk here is a settled call the labeller doesn't name as low-risk, or, with untrusted
+content in view, one it doesn't name as a read. Run by the rules (12.0%), asked by the rules (7.8%,
+6.8% placed) and refused (1.1%) are the same in every row. Of the 55 person-only real calls the
+rules sent to review, the classifier raises 9 or 10 (before: 1); the other calls it raised are ones
+the labeller can't name.
 
-One classification on this Linux machine (`cargo bench -p spade-classify`, features and
-inference): p50 2.8 µs → 4.2 µs, p99 65 µs → 88 µs, worst 643 µs → 145 µs. The configuration
-inspection (amendment 2) is a few small file reads, on the gate's blocking thread with the shell
-classifier's. The file is 1,310,824 bytes (4 more, for the read threshold).
+One classification on this Linux machine (`cargo bench -p spade-classify`, features, inference and
+the hard-form check): p50 2.8 µs → 5.2 µs, p99 65 µs → 125 µs, worst 643 µs → 160 µs. The
+configuration inspection is a few small file reads on the gate's blocking thread. The file is
+1,310,824 bytes.
 
 ### What is still weak
 
-- Reading against writing: `git diff` (P(read) 0.52) and `git log` (0.56) are under the read
-  threshold, so with untrusted content in view they still go to the reviewer (`git status` 0.87
-  and `cat README.md` 0.94 now settle there); plain `ls` (0.83) and `pwd` (0.94) abstain.
+- Builds, tests, package installs, `git status`, `git diff` and `git show` never settle: no
+  override covers what they can run (diff and filter drivers by name, package and cargo config).
+- Reading against writing: `git log` (P(read) 0.50) is under the read threshold, so with untrusted
+  content in view it still goes to the reviewer; plain `ls` (0.86) and `pwd` (0.95) abstain.
 - Most real work happened outside the folder each thread was started in, and the classifier never
   settles that. A third of what the rules send to review has a rule finding, mostly here-documents
   and text the shell parser can't read; only the rules can open that up.
-- Person recall on real calls is 11 of 55: the rest are mostly desktop-driving commands inside
-  long compound commands, and they go to the reviewer. Raising on the
-  connector set is a little below `main`'s.
-- The labeller can't name 68% of tldr-pages and 28% of real commands; every measure counts those
-  as risky.
+- Person recall on real calls is 9 or 10 of 55; raising on the connector set is a little below
+  `main`'s.
+- The labeller can't name 67% of tldr-pages' held-out pages and 29% of real commands; every
+  measure counts those as risky.
 
 ### Follow-ups outside the classifier
 
@@ -376,8 +383,9 @@ config file's `--pre`) do the same.
    variables. A file that can't be read counts as running something. Machine-wide configuration
    and folders above the bot's folder are the person's and aren't read.
 2. **A command that runs git, a Node package manager, cargo or ripgrep is settled only when that
-   tool's configuration names no program** (`rg --no-config` needs none). Otherwise it goes to the
-   reviewer. Never settled at all: such a tool run after a `cd` to a folder other than the bot's
+   tool's configuration names no program** (`rg --no-config` needs none), and since amendment 3
+   only in its hard form; the inspection is then one more reason to abstain. Otherwise it goes to
+   the reviewer. Never settled at all: such a tool run after a `cd` to a folder other than the bot's
    own, or pointed at other configuration (`git -C`, `--git-dir`, `cargo --config`, `npm
 --node-options`, `--prefix`); a command that sets a variable that makes a program load code or
    read other configuration (`PATH`, `PYTHONPATH`, `NODE_OPTIONS`, `LD_*`, `GIT_*`, `CARGO_*`,
@@ -409,3 +417,66 @@ Calibrating the shipped weights this way showed a gap the refit had hidden: a cl
 token (`https://user:ghp_…@github.com/…`) read as a plain clone. Such a command is now never
 settled (above). Fresh clean low-risk recall is 0.316, not the 0.477 the refit reported; every
 figure in amendment 1 is now the shipped weights'.
+
+## Amendment 3 (2026-11-18): settled commands run in a hard form
+
+Decided by: the owner, after the second review of amendment 2. Changes amendment 2's decision.
+
+### Context
+
+Amendment 2 inspected configuration when the gate decided and kept only the answer. A file changed
+or a symlink pointed elsewhere between that decision and the launch (by a background job, or by
+the call before it in the same step) could still make git run a program, and the inspection itself
+misread a quoted include path containing `#`. A settled command can't depend on parsing
+configuration right or on it staying the same.
+
+### Decision
+
+1. **A settled command runs in a form that ignores configuration that could run a program,
+   whatever the files say at launch** (`spade_classify::hardening`). Spade sets, on the command:
+   `GIT_CONFIG_COUNT` entries, which git reads as command-line configuration over every file
+   (`core.fsmonitor=false`, `core.hooksPath=/dev/null`, `core.pager=cat`, editors and askpass
+   `false`, `core.sshCommand=false`, `credential.helper=` (reset), `protocol.allow=never`, every
+   `gpg` program `false`, `log.showSignature=false`); `GIT_CONFIG_NOSYSTEM=1`,
+   `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_PARAMETERS=`, `GIT_PAGER=cat` (over every
+   `pager.*`), `GIT_NO_LAZY_FETCH=1` and kin; and `RIPGREP_CONFIG_PATH=`, `GREP_OPTIONS=`,
+   `LESSOPEN=`, `LESSKEYIN=/dev/null`, `TAR_OPTIONS=`, `ZIPOPT=`, `UNZIP=`, `AWKPATH=`, `PAGER=cat`.
+2. **Only what that form covers settles.** Every program in the command must either read no such
+   configuration (an explicit list: `cat`, `ls`, `find` without `-exec`, `sort` without
+   `--compress-program`…) or be covered above, and only for the uses where it covers everything:
+   git's reads that never run a diff, filter or merge driver (`log` and its kin without patch,
+   stat or pickaxe options, `ls-files` without `-m`/`-o`, `rev-parse`, branch and tag listings,
+   `config --get`, `cat-file` without filters); awk programs with no `system`, pipe, redirect,
+   `getline` or program file; sed scripts that only select, print, delete or substitute; `less`
+   with no `+` command but a line number. `git status`, `diff`, `show`, `blame` and every git
+   write, the Node package managers, cargo, interpreters, `curl` and anything else stay with the
+   reviewer: no override covers what they can run (diff and filter drivers are named in the
+   repository's own files). `xargs` and `parallel`, which run a program on operands read at run
+   time, never settle.
+3. **Recorded, applied, checked.** The gate records the form with the settled verdict (its name in
+   the verdict's reason) and hands it to the launch; the shell tool derives it again from the
+   command, refuses to run if it differs, and applies it, one-shot or in the bot's terminal, which
+   never carries it to the next command. After a restart a stored classifier verdict runs only in
+   the form derived again and matched against its record; otherwise the person decides. With no
+   form (Windows, where `/dev/null` names nothing), nothing settles.
+4. **The inspection stays as a reason to abstain**, and reads git config by git's rules (quoted
+   values, the escapes git knows, `#` and `;` comments only outside quotes, continuations,
+   both header forms), failing closed on anything else.
+5. **Calibration** chooses the low-risk and read thresholds on every calibration call, those the
+   labeller can't name counted as unsafe, with the run-time checks (the hard form included)
+   applied; the temperature and person threshold still fit the named calls. **The replay** counts
+   a settled call with untrusted content in view as right only if it is labelled a read. **The
+   labeller** no longer calls reads what writes or runs something (`sort -o`, `uniq in out`, sed's
+   `w`, `e`, `r` and flags, awk's `system`, pipes and redirects, `find -fprintf`, `git --output`,
+   `gh browse`, `less +!cmd`, `date -s`, `dd of=` outside the folder, `trap`, `xargs`).
+
+### Tests
+
+`spade-server/tests/classifier_git.rs` runs real git with the real shell tool:
+`a_settled_read_ignores_a_config_file_replaced_after_the_decision` and
+`a_settled_read_ignores_a_symlinked_config_pointed_elsewhere_after_the_decision` decide
+`git ls-files` while the config is clean, swap in a config whose fsmonitor would leave a marker
+before it launches, and check the marker never appears. Both fail with the overrides taken out.
+`ambient.rs` `config_is_read_by_gits_own_quoting_and_what_it_cant_read_counts` covers the quoted
+`#` include. `harden.rs` and `decide.rs` cover which commands have a form and that a settled
+decision carries it.

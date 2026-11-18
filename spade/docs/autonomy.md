@@ -234,7 +234,11 @@ runs git, a Node package manager, cargo or ripgrep settles only when the gate in
 tool's configuration around the folder (the repository's and its worktree's config and what they
 include, the config of `HOME`, which is the bot's folder, hooks, rc files, the variables the
 command runs with) and found no program in it, such as an fsmonitor, a pager, a diff or filter
-driver or a runner (ADR 0172, amendment 2).
+driver or a runner (ADR 0172, amendment 2). And it settles only in a hard form: Spade runs it with
+overrides that make git, ripgrep, less, tar, zip and awk ignore any such configuration whatever
+the files say at launch, so only commands those cover settle (git's reads that run no diff,
+filter or merge driver; never `git status`, `git diff`, builds, installs or interpreters); the
+gate records the form with the verdict and the launch checks and applies it (amendment 3).
 
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
 cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older
