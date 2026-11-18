@@ -74,6 +74,8 @@ const where = (checkout: { machineName: string; path: string }) =>
  */
 export function ProjectIdentityFields(props: {
   projectId: string;
+  /** This checkout's folder, named in the link confirmation. */
+  path: string;
   /** New logical project ids; `crypto.randomUUID` unless a test injects one. */
   newId?: () => string;
 }) {
@@ -182,13 +184,7 @@ export function ProjectIdentityFields(props: {
     }
   };
   const canChange = (machineId: string) => keeping.some((each) => each.id === machineId);
-  const thisOne = {
-    machineName: here.name,
-    path:
-      group?.checkouts.find(
-        (each) => each.machineId === here.id && each.workspaceId === props.projectId,
-      )?.path ?? "",
-  };
+  const thisOne = { machineName: here.name, path: props.path };
 
   return (
     <div role="group" aria-label="Same project elsewhere" className="grid gap-1.5">

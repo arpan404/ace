@@ -29,9 +29,19 @@ const Kept = z.object({
     .optional(),
   openedAt: z.number().nonnegative().optional(),
 });
+const KeptList = z.object({ at: z.number(), projects: z.array(Kept).max(keptProjects) });
+/** Each machine's list on its own: one that no longer reads is dropped, the others kept. */
 const KeptLists = z
-  .record(z.string(), z.object({ at: z.number(), projects: z.array(Kept).max(keptProjects) }))
-  .catch({});
+  .record(z.string(), z.unknown())
+  .catch({})
+  .transform((lists) =>
+    Object.fromEntries(
+      Object.entries(lists).flatMap(([id, list]) => {
+        const parsed = KeptList.safeParse(list);
+        return parsed.success ? [[id, parsed.data] as const] : [];
+      }),
+    ),
+  );
 type KeptLists = z.infer<typeof KeptLists>;
 
 const keep = (project: Project) => ({

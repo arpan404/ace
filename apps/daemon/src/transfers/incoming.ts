@@ -11,7 +11,7 @@ import {
   type TransferCommit,
 } from "@ace/protocol";
 import { TargetRefusal } from "../machines/target-refusal.ts";
-import { sameOriginProject } from "../project-origin.ts";
+import { OriginCache, sameOriginProject } from "../project-origin.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
 import {
   appendAt,
@@ -49,6 +49,8 @@ export interface IncomingDeps {
 }
 
 const retentionMs = 24 * 60 * 60 * 1000;
+/** The most registrations, most recently used first, a begin reads origins of. */
+const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
 
 /** Git failures a person can act on, in their words; the rest are `import_failed`. */
@@ -106,9 +108,12 @@ export class IncomingTransfers {
   private closed = false;
   private writes = new Map<string, Promise<unknown>>();
   private held = new Set<string>();
+  /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
+  private origins: OriginCache;
   constructor(deps: IncomingDeps) {
     this.deps = deps;
     this.rows = new IncomingRows(deps.store);
+    this.origins = new OriginCache(deps.git, () => deps.now());
   }
   /** After a restart: imports that were running start again from the file that is still here. */
   async recover(): Promise<void> {
@@ -247,17 +252,29 @@ export class IncomingTransfers {
           continue;
         }
         const checkout = await this.deps.git.sourceCheckout(holder.path);
-        if ((checkout.kind === "checkout") === (record.method === "bundle"))
-          return holder.workspaceId;
+        // A bundle lands only at a repository's top, never in a folder inside another one.
+        const fits =
+          record.method === "bundle"
+            ? checkout.kind === "checkout" && checkout.root === holder.path
+            : checkout.kind === "folder";
+        if (fits) return holder.workspaceId;
       } catch {
         /* One that can't be read is not a landing. */
       }
     }
     return undefined;
   }
-  /** A project here whose origin is the same repository. */
+  /**
+   * A project here whose origin is the same repository: the most recently used of the first
+   * `originBudget` registrations, read through a short-lived cache, so a begin answers well
+   * within the sender's wait however many projects there are.
+   */
   private sameOrigin(normalized: string): Promise<WorkspaceId | undefined> {
-    return sameOriginProject(this.deps.git, this.deps.projects.list(), normalized);
+    return sameOriginProject(
+      this.origins,
+      this.deps.projects.list().slice(0, originBudget),
+      normalized,
+    );
   }
   /** One piece of the upload at `offset`; out of order answers what is held, unchanged. */
   async chunk(

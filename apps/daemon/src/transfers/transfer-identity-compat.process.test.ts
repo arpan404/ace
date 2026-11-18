@@ -65,3 +65,30 @@ it("a repository without a remote lands in the registration linked to it, if tha
   });
   expect(await git(repo, "log", "--format=%s", "main")).toBe("one");
 });
+
+it("a linked folder inside another repository is never where a bundle lands", async () => {
+  const m = await transferMachines();
+  const path = join(m.sourceRoot, "local");
+  await mkdir(path);
+  await git(path, "init", "-b", "main");
+  await writeFile(join(path, "a.txt"), "a\n");
+  await git(path, "add", "-A");
+  await git(path, "commit", "-m", "one");
+  const workspaceId = await m.addProject(m.source, path);
+  const id = identityOn(m.source, workspaceId)?.id ?? "";
+  // There: a monorepo whose `tools` folder was linked to it.
+  const mono = join(m.targetRoot, "mono");
+  await mkdir(join(mono, "tools"), { recursive: true });
+  await git(mono, "init", "-b", "main");
+  const tools = await m.addProject(m.target, join(mono, "tools"));
+  await commandOn(m.target, {
+    type: "workspace.identity.link",
+    workspaceId: tools,
+    identityId: id,
+  });
+  const done = await send(m, workspaceId);
+  expect(done).toMatchObject({ phase: "completed", method: "bundle" });
+  expect(done.result?.workspaceId).not.toBe(tools);
+  // The monorepo got no branch from it.
+  expect(await git(mono, "branch", "--list")).toBe("");
+});

@@ -62,6 +62,10 @@ async function daemon(name = "daemon") {
       return current.store.createWorkspace(join(root, folder), folder);
     },
     get: (id: string) => current.projects.catalog.get(id as WorkspaceId),
+    /** Spade's hidden project (ADR 0121). */
+    spade(folder: string): WorkspaceId {
+      return current.projects.catalog.registerSpade(join(root, folder));
+    },
     command: (payload: CommandPayload, id = `command-${++sequence}`, allowed = () => true) =>
       current.projects.execute(Command.parse({ id, deviceId: "owner", payload }), allowed),
     thread(id: string, workspaceId: WorkspaceId) {
@@ -265,4 +269,47 @@ test("starting work in a project makes it the most recently used one there", asy
   const b = d.legacy("b");
   d.thread("thread-b", b);
   expect(d.get(b).openedAt).toBeGreaterThan(started ?? Infinity);
+});
+
+test("merging an id that was merged here already keeps its whole group together", async () => {
+  const d = await daemon();
+  const p = d.legacy("p");
+  const r = d.legacy("r");
+  await d.command({ type: "workspace.identity.link", workspaceId: p, identityId: P });
+  await d.command({ type: "workspace.identity.link", workspaceId: r, identityId: R });
+  await d.command({ type: "workspace.identity.merge", from: Q, into: P });
+  // Q went into P here; merging Q into R takes P (and so Q) along.
+  await d.command({ type: "workspace.identity.merge", from: Q, into: R });
+  expect(d.get(p).identity?.id).toBe(R);
+  expect(new Set(d.get(r).identity?.aliases)).toEqual(new Set([P, Q]));
+});
+
+test("linking to an id merged here into another links to that other one", async () => {
+  const d = await daemon();
+  const a = d.legacy("a");
+  await d.command({ type: "workspace.identity.merge", from: Q, into: P });
+  await d.command({ type: "workspace.identity.link", workspaceId: a, identityId: Q });
+  expect(d.get(a).identity).toMatchObject({ id: P, aliases: [Q] });
+});
+
+test("without authority a link is refused the same for a project that exists and one that doesn't", async () => {
+  const d = await daemon();
+  const a = d.legacy("a");
+  const missing = { type: "workspace.identity.unlink", workspaceId: "no-such-project" } as const;
+  const present = { type: "workspace.identity.unlink", workspaceId: a } as const;
+  const [one, two] = [
+    await d.command(missing, undefined, refused),
+    await d.command(present, undefined, refused),
+  ];
+  expect(one.error).toBe(two.error);
+});
+
+test("Spade's hidden project can't be linked or unlinked", async () => {
+  const d = await daemon();
+  const spade = d.spade("spade");
+  for (const payload of [
+    { type: "workspace.identity.link", workspaceId: spade, identityId: P },
+    { type: "workspace.identity.unlink", workspaceId: spade },
+  ] as const)
+    expect(await d.command(payload)).toMatchObject({ ok: false });
 });

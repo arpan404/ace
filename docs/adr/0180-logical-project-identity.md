@@ -4,7 +4,7 @@ Date: 2026-11-17. Status: accepted. Decided by: the owner, after a technical rev
 ([docs/plans/project-identity-review.md](../plans/project-identity-review.md)). Builds on
 [ADR 0063](0063-client-project-management.md), [ADR 0101](0101-work-on-another-machine.md) and
 [ADR 0102](0102-work-on-another-machine-in-this-window.md). The opt-in project marker is
-[ADR 0181](0181-project-marker.md).
+ADR 0181, in a pull request of its own.
 
 ## Context
 
@@ -40,8 +40,11 @@ generator) when a project is added, cloned or created, when an unlink splits one
 a sender carries one that has none.
 
 Aliases are stored flat: merging Q into P re-points every alias that named Q to P, drops a
-self-alias a merge back would leave, and records Q→P, all in one transaction. A registration
-reports at most the 32 most recent aliases of its identity.
+self-alias a merge back would leave, and records Q→P, all in one transaction. Either side of a
+merge, a link's id and a transfer's id first resolve through an alias kept here, so an id merged
+here already stands for the one it went into and a group never splits. A paired machine's
+aliases are kept pointing at what its id stands for here, never for an id a registration here
+still holds. A registration reports at most the 32 most recent aliases of its identity.
 
 ### Wire
 
@@ -116,9 +119,16 @@ aliases}` in `commit`, minting one (`created`) when its registration has none.
 
 `workspaces.match` reads every registration, most recently used first, with bounded
 concurrency and a TTL cache. It returns the first at the asked subpath, else the most recently
-used match. The transfer target's same-origin reuse uses the same order.
+used match. A transfer target's same-origin reuse uses the same order, through its own short
+cache, over the 256 most recently used registrations, so a begin answers within the sender's
+wait however many projects a machine has. A bundle lands by identity only at a repository's
+top, never in a folder inside another repository.
 
 ## Consequences
+
+- Unlinking the last registration here that held P leaves the aliases into P kept but no longer
+  reported from this machine; a machine still on an old id then joins only through another
+  machine that received the merge.
 
 - A person sees one project per repository folder across their machines once they link it,
   and nothing changes for anyone who never does.

@@ -4,6 +4,7 @@ import {
   inGroup,
   keepAliases,
   registrationsOf,
+  resolveIdentity,
   setIdentity,
   type CarriedIdentity,
 } from "../project-identity.ts";
@@ -77,8 +78,10 @@ export function transferIdentities(
             : { changed: false, conflict: ProjectIdentityId.parse(kept) };
         }
         keepAliases(db, identity, now());
-        if (kept === identity.id) return { changed: false };
-        setIdentity(db, workspaceId, identity.id, "transfer", now());
+        // An id merged here into another is that other one here.
+        const id = resolveIdentity(db, identity.id);
+        if (kept === id) return { changed: false };
+        setIdentity(db, workspaceId, id, "transfer", now());
         return { changed: true };
       });
       if (outcome.changed) announce(workspaceId);

@@ -82,6 +82,21 @@ export function identityOf(db: DatabaseSync, workspaceId: WorkspaceId): string |
   return typeof row?.identity_id === "string" ? row.identity_id : undefined;
 }
 
+/**
+ * The id `identityId` stands for here: the one it was merged into, else itself. Aliases are
+ * kept flat, so one step reaches the end.
+ */
+export function resolveIdentity(
+  db: DatabaseSync,
+  identityId: ProjectIdentityId,
+): ProjectIdentityId {
+  const target = db
+    .prepare("SELECT to_id FROM identity_alias WHERE from_id=?")
+    .get(identityId)?.to_id;
+  const parsed = ProjectIdentityId.safeParse(target);
+  return parsed.success ? parsed.data : identityId;
+}
+
 /** Registrations here whose identity is `identityId`. */
 function holders(db: DatabaseSync, identityId: string): WorkspaceId[] {
   return db
@@ -104,10 +119,10 @@ export function mergeIdentity(
   into: ProjectIdentityId,
   at: number,
 ): WorkspaceId[] {
-  // `into` merged on into another here already: that one is where `from` goes too.
-  const target = db.prepare("SELECT to_id FROM identity_alias WHERE from_id=?").get(into)?.to_id;
-  if (typeof target === "string" && ProjectIdentityId.safeParse(target).success)
-    into = ProjectIdentityId.parse(target);
+  // Either side merged on into another here already: that one is what merges. Merging Q, which
+  // went into P here, merges P and keeps Q pointing at the result, so P's group stays whole.
+  from = resolveIdentity(db, from);
+  into = resolveIdentity(db, into);
   if (from === into) return [];
   db.prepare(
     "UPDATE workspace_identity SET identity_id=?,source='linked',linked_at=? WHERE identity_id=?",
@@ -171,13 +186,19 @@ export function inGroup(db: DatabaseSync, identityId: string, identity: CarriedI
   );
 }
 
-/** Keep a paired machine's aliases of `into` here, without changing any alias already kept. */
+/**
+ * Keep a paired machine's aliases of its identity here, pointing at what that identity stands
+ * for here, so aliases stay flat. An alias already kept stays as it is, and one that a
+ * registration here still holds as its own id is not kept: that would merge it silently.
+ */
 export function keepAliases(db: DatabaseSync, identity: CarriedIdentity, at: number): void {
+  const into = resolveIdentity(db, identity.id);
+  const live = db.prepare("SELECT 1 FROM workspace_identity WHERE identity_id=? LIMIT 1");
   for (const alias of identity.aliases)
-    if (alias !== identity.id)
+    if (alias !== into && !live.get(alias))
       db.prepare("INSERT INTO identity_alias VALUES (?,?,?) ON CONFLICT(from_id) DO NOTHING").run(
         alias,
-        identity.id,
+        into,
         at,
       );
 }

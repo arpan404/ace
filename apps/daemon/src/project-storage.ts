@@ -22,6 +22,7 @@ import {
   identityOf,
   mergeIdentity,
   migrateProjectIdentity,
+  resolveIdentity,
   setIdentity,
 } from "./project-identity.ts";
 
@@ -303,8 +304,10 @@ export class ProjectStorage {
   link(id: WorkspaceId, identity: ProjectIdentityId): Project {
     const { workspace, changed } = this.store.atomic((db) => {
       const before = this.get(id);
-      if (before.identity?.id === identity) return { workspace: before, changed: false };
-      setIdentity(db, id, identity, "linked", this.now());
+      // An id merged here into another is that other one here.
+      const target = resolveIdentity(db, identity);
+      if (before.identity?.id === target) return { workspace: before, changed: false };
+      setIdentity(db, id, target, "linked", this.now());
       return { workspace: this.get(id), changed: true };
     });
     if (changed)

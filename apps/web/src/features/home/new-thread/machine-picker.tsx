@@ -93,21 +93,27 @@ function MachineMenu(props: {
     (group?.checkouts ?? [])
       .filter((each) => each.machineId === machineId && each.online)
       .toSorted(checkoutOrder);
+  // What the resolver reads of the group: it is made again only when that changes, not on every
+  // push from any machine, so asks it kept stay kept.
+  const linked = useMemo(
+    () =>
+      new Map(
+        machines.map((machine) => [
+          machine.id,
+          (group?.checkouts ?? [])
+            .filter((each) => each.machineId === machine.id && each.online)
+            .toSorted(checkoutOrder)[0]?.workspaceId,
+        ]),
+      ),
+    [group, machines],
+  );
+  const linkedKey = [...linked].map(([id, project]) => `${id}=${project ?? ""}`).join("\n");
   // Where the project lands on each machine, asked as the menu opens so a pick moves at once.
   const moves = useMemo(
-    () =>
-      moveResolver(
-        storage,
-        props.project,
-        home,
-        (next) =>
-          (group?.checkouts ?? [])
-            .filter((each) => each.machineId === next.id && each.online)
-            .toSorted(checkoutOrder)[0]?.workspaceId,
-      ),
+    () => moveResolver(storage, props.project, home, (next) => linked.get(next.id)),
     // A new client for the machine it is on (a reconnect), or a link made, asks again.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `home` is read through its id and client.
-    [storage, props.project, home?.id, home?.client, group],
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `home` by its id and client, `linked` by its key.
+    [storage, props.project, home?.id, home?.client, linkedKey],
   );
   const askAhead = () => {
     for (const machine of machines)

@@ -38,7 +38,7 @@ import { makeFolders, planFolders, type MadeFolders } from "./project-folders.ts
 import { ProjectPaths, ProjectError, assertProjectPath } from "./project-policy.ts";
 import { applyNoteEdits } from "./project-notes.ts";
 import { ProjectRoots } from "./project-roots.ts";
-import { ProjectStorage } from "./project-storage.ts";
+import { ProjectStorage, isSpadeProject } from "./project-storage.ts";
 import { browseProjects } from "./project-browse.ts";
 import { ChatProjects } from "./chat-projects.ts";
 import type { Store } from "./store.ts";
@@ -456,9 +456,13 @@ export class Projects {
           return { ok: true };
         }
         if (p.type === "workspace.identity.link" || p.type === "workspace.identity.unlink") {
+          // Authority first, so a refused device learns nothing of which projects exist.
+          this.check(allowed);
+          // Spade's hidden project is never a project anyone links (ADR 0121).
+          if (isSpadeProject(this.store, p.workspaceId))
+            throw new ProjectError("workspace_not_found");
           const project = this.catalog.get(p.workspaceId);
           if (project.kind === "chat") throw new ProjectError("chat_project");
-          this.check(allowed);
           return {
             ok: true,
             workspace:

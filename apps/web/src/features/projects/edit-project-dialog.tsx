@@ -111,7 +111,9 @@ export function EditProjectDialog(props: {
                   onLeave={() => props.onOpenChange(false)}
                 />
               )}
-              {project.kind !== "chat" && <ProjectIdentityFields projectId={project.id} />}
+              {project.kind !== "chat" && (
+                <ProjectIdentityFields projectId={project.id} path={project.path} />
+              )}
               <ProjectDefaultsFields
                 projectId={project.id}
                 value={defaults ?? project.defaults ?? {}}
