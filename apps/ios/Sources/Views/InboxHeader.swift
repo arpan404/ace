@@ -112,23 +112,35 @@ extension View {
     /// away under the title and the bar together and nothing prints through; iOS 18 gives it the
     /// page colour.
     func pinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-        modifier(PinnedTopBar(bar: bar()))
+        modifier(PinnedTopBar(bar: bar(), list: nil))
+    }
+
+    /// `pinnedTopBar` over content that swaps one list for another: each new `list` starts at the
+    /// top, so the edge hides again.
+    func pinnedTopBar<Bar: View>(resetOn list: some Hashable, @ViewBuilder _ bar: () -> Bar) -> some View {
+        modifier(PinnedTopBar(bar: bar(), list: AnyHashable(list)))
     }
 }
 
 /// `pinnedTopBar`. The edge shows once rows pass under the bar: at rest it would blur the large
 /// title above it. It turns on only after the large title has handed over to the small one and
 /// off only back near the top, so the wobble of the scroll position during that hand-over can't
-/// flip it every frame (`ScrollEdgeHold`).
+/// flip it every frame, and only while the person scrolls (`ScrollEdgeHold`).
 private struct PinnedTopBar<Bar: View>: ViewModifier {
     let bar: Bar
+    /// The list showing, where the content swaps lists; nil where it never does.
+    let list: AnyHashable?
     @State private var hold = ScrollEdgeHold()
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
             content
-                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
-                    hold.update(offset)
+                .onScrollGeometryChange(for: CGFloat.self) { Self.offset($0) } action: { _, offset in
+                    change { $0.moved(to: offset) }
                 }
+                .onScrollPhaseChange { _, phase, context in
+                    change { $0.phase(scrolling: phase != .idle, offset: Self.offset(context.geometry)) }
+                }
+                .onChange(of: list) { change { $0.reset() } }
                 .scrollEdgeEffectStyle(.hard, for: .top)
                 .scrollEdgeEffectHidden(!hold.shown, for: .top)
                 .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none) { bar }
@@ -136,15 +148,43 @@ private struct PinnedTopBar<Bar: View>: ViewModifier {
             content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar.background(AceTheme.Colours.background) }
         }
     }
+
+    private static func offset(_ geometry: ScrollGeometry) -> CGFloat { geometry.contentOffset.y + geometry.contentInsets.top }
+
+    /// Writes the hold only when it changes: every write lays the page out again.
+    private func change(_ step: (inout ScrollEdgeHold) -> Void) {
+        var next = hold
+        step(&next)
+        if next != hold { hold = next }
+    }
 }
 
 /// Whether a pinned bar's scroll edge shows, from how far the list has scrolled: on past `on`
-/// (about a large title's height, so the title has collapsed), off again only under `off`. Pure.
+/// (about a large title's height, so the title has collapsed), off again only under `off`. The
+/// offset moves it only while the person scrolls, and where a scroll comes to rest: layout moves
+/// the list too (a large title settling over a short list nudges it back and forth), and
+/// following those would lay the page out again on every pass, without end. Pure.
 struct ScrollEdgeHold: Equatable {
     static let on: CGFloat = 52
     static let off: CGFloat = 8
     private(set) var shown = false
-    mutating func update(_ offset: CGFloat) {
+    private(set) var scrolling = false
+
+    /// The list moved, by the person or by layout.
+    mutating func moved(to offset: CGFloat) {
+        if scrolling { follow(offset) }
+    }
+
+    /// The person started or stopped scrolling, with the list at `offset`.
+    mutating func phase(scrolling: Bool, offset: CGFloat) {
+        self.scrolling = scrolling
+        follow(offset)
+    }
+
+    /// Another list took the page, at its top.
+    mutating func reset() { shown = false }
+
+    private mutating func follow(_ offset: CGFloat) {
         if shown { if offset < Self.off { shown = false } } else if offset > Self.on { shown = true }
     }
 }
