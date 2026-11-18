@@ -74,12 +74,12 @@ import Testing
 
 private extension MachineSoftwareData {
     static func updating(_ progress: String, reachable: Bool = true) -> MachineSoftwareData {
-        MachineSoftwareData(line: "ace 0.0.18. 0.0.19 is available.", progress: progress, progressTone: "off",
+        MachineSoftwareData(line: "ace 0.0.18 · Update available · 0.0.19", progress: progress, progressTone: "off",
                             actions: reachable ? [Action(action: "cancel", label: "Cancel update")] : [],
                             link: nil, note: nil, confirm: nil, updating: true, reachable: reachable, problem: nil)
     }
     static var updated: MachineSoftwareData {
-        MachineSoftwareData(line: "ace 0.0.19. Up to date.", progress: "Updated to 0.0.19", progressTone: "on",
+        MachineSoftwareData(line: "ace 0.0.19 · Up to date", progress: "Updated to 0.0.19", progressTone: "on",
                             actions: [Action(action: "check", label: "Check for updates")],
                             link: nil, note: nil, confirm: nil, updating: false, reachable: true, problem: nil)
     }
