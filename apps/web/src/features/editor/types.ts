@@ -26,6 +26,10 @@ export interface CodeEditorProps {
   find?: { query: string; hit?: { line: number; column: number } | undefined } | undefined;
   /** The line area's region name for assistive tech. */
   label: string;
+  /** Wrap long lines at the editor's width, as the Files tab's preference asks. */
+  wrap?: boolean;
+  /** Alt+Z: the person asked for wrap to toggle. */
+  onToggleWrap?: (() => void) | undefined;
   /** Called after each edit; read the text through the handle when it is actually needed. */
   onEdit?: (() => void) | undefined;
   onBlur?: (() => void) | undefined;

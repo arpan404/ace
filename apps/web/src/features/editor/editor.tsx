@@ -1,40 +1,47 @@
-// oxlint-disable react/no-array-index-key -- a line's row key is its number; there is no other identity.
+// oxlint-disable react/no-array-index-key -- a row's key is its line and position; there is no other identity.
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
-import type { Position, Selection } from "@ace/editor";
+import type { Selection } from "@ace/editor";
 import { pathParts } from "@ace/ui-core";
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { EditorFindBar } from "./find-bar.tsx";
-import { segmentsByLine } from "./find-matches.ts";
-import { gutterWidth, lineHeight, visualColumn } from "./geometry.ts";
+import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
+import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
 import { useEditorKeys } from "./keys.ts";
 import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
-import { EditorLine } from "./line.tsx";
+import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
 import { useEditorDocument } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
-import { useEditorMetrics, useMirrorLine } from "./use-editor-metrics.ts";
-import { useFindInFile } from "./use-find-in-file.ts";
-import { useFindResults } from "./use-find.ts";
+import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
+import { useAnnouncement, useReveal, useRevealJump } from "./use-reveal.ts";
+import { useEditorFind } from "./use-editor-find.ts";
+import { editorWindow } from "./row-window.ts";
+import { ScrollAnchor } from "./use-anchor.ts";
+import { useVisibleLines } from "./use-visible-lines.ts";
+import { useWrap } from "./use-wrap.ts";
+import { wholeLineRow } from "./wrap.ts";
 import type { CodeEditorProps } from "./types.ts";
 
-const overscan = 8;
-/** Files up to this many lines mount every row, as the Files viewer always has. */
-const mountAll = 400;
 const paddingRight = 24;
-const noLines = [""];
 
 /**
- * The Files tab's text editor: virtualized lines with a sticky line-number gutter, selections
- * and carets drawn over them, and one hidden textarea taking every input. The text core, its
- * cursors, undo and find are the Rust document in `@ace/editor`; this file is the surface.
+ * The Files tab's text editor: virtualized visual rows with a sticky line-number gutter,
+ * selections and carets drawn over them, and one hidden textarea taking every input. The text
+ * core, its cursors, undo and find are the Rust document in `@ace/editor`; the wrap layout turns
+ * logical lines into the rows they draw, so the list, the carets, the pointer and the keys all
+ * work in rows. This file is the surface.
  */
 export function CodeEditor({ ref, ...props }: CodeEditorProps) {
+  // Kept out of the compiler: the wrap index's row counts change without the index object
+  // changing, so a memoized read of its rows would keep a height the file has outgrown.
+  "use no memo";
   const readOnly = props.readOnly ?? false;
+  const wrap = props.wrap ?? false;
   const state = useEditorDocument({
     text: props.text,
     path: props.path,
@@ -51,34 +58,55 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
+  /** The primary caret stays at the end of the row before a hard break, as VS Code keeps it. */
+  const [before, setBefore] = useState(false);
   const [paint, setPaint] = useState(0);
-  const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>();
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
 
   const name = pathParts(props.path).name;
   const lineCount = doc?.lenLines() ?? 0;
   const height = Math.max(120, viewport.height);
-  const all = lineCount <= mountAll;
-  const first = all ? 0 : Math.max(0, Math.floor(scroll.top / lineHeight) - overscan);
-  const last = all
-    ? lineCount
-    : Math.min(lineCount, Math.ceil((scroll.top + height) / lineHeight) + overscan);
-  const [lines, setLines] = useState<string[]>(noLines);
-  const linesKey = `${state.version}:${first}:${last}`;
-  useEffect(() => {
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- the document is an external store; its lines change under React.
-    setLines(doc ? doc.lines(first, last) : noLines);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
-  }, [linesKey, doc]);
   const gutter = gutterWidth(lineCount);
-  const lineAt = useCallback(
-    (line: number): string => {
-      if (line >= first && line < first + lines.length) return lines[line - first] ?? "";
-      return doc?.line(line) ?? "";
-    },
-    [doc, first, lines],
+  const cell = useCellWidth(scroller);
+  const columns = Math.max(
+    leastRowCells,
+    Math.floor((viewport.width - gutter - paddingRight) / cell),
   );
+  const visible = useRef({ first: 0, last: 200 });
+  const anchor = useMemo(() => new ScrollAnchor(scroller, setScroll), [scroller, setScroll]);
+  const layout = useWrap({
+    doc,
+    wrap,
+    columns,
+    version: state.version,
+    takeChanges: state.takeChanges,
+    visible,
+    anchor,
+  });
+
+  const view = editorWindow({ layout, lineCount, scrollTop: scroll.top, height });
+  const { rows, firstRow, lastRow } = view;
+  const first = view.firstLine;
+  const last = view.lastLine;
+  // The wrap index prefers the lines on screen when a width change re-wraps the file.
+  useLayoutEffect(() => {
+    if (doc) visible.current = { first, last };
+  });
+
+  const { lines, lineAt } = useVisibleLines({ doc, version: state.version, first, last });
+
+  const { contentWidth } = useEditorWidth({
+    scroller,
+    host,
+    doc,
+    lines,
+    first,
+    cell,
+    gutter,
+    wrap,
+    onOverflow: props.onHorizontalOverflow,
+  });
 
   useEffect(() => {
     const highlighter = state.highlighter;
@@ -88,16 +116,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     highlighter.setText(doc.text());
     return stop;
   }, [state.highlighter, doc]);
-
-  const { cell, contentWidth } = useEditorMetrics({
-    scroller,
-    host,
-    doc,
-    lines,
-    first,
-    gutter,
-    onOverflow: props.onHorizontalOverflow,
-  });
 
   const primary = state.selections[state.primary] ?? state.selections[0];
   const caretLine = primary?.head.line ?? 0;
@@ -115,49 +133,21 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     version: state.version,
   });
 
-  const announce = (position: Position) =>
-    setAnnouncement((previous) => ({
-      text: `Line ${position.line + 1}, column ${position.column + 1}`,
-      seq: (previous?.seq ?? 0) + 1,
-    }));
+  const { announcement, announce } = useAnnouncement();
 
-  const reveal = useCallback(
-    (position: Position) => {
-      const element = scroller.current;
-      if (!element) return;
-      const top = position.line * lineHeight;
-      const heightNow = element.clientHeight || viewport.height;
-      if (top < element.scrollTop) element.scrollTop = top;
-      else if (top + lineHeight > element.scrollTop + heightNow)
-        element.scrollTop = top + lineHeight - heightNow;
-      const text = state.doc?.line(position.line) ?? "";
-      const x = gutter + visualColumn(text, position.column) * cell;
-      const width = element.clientWidth || viewport.width;
-      if (x < element.scrollLeft + gutter) element.scrollLeft = Math.max(0, x - gutter);
-      else if (x > element.scrollLeft + width - paddingRight)
-        element.scrollLeft = x - width + paddingRight * 2;
-      setScroll({ top: element.scrollTop, left: element.scrollLeft });
-    },
-    [state.doc, gutter, cell, viewport.height, viewport.width, setScroll],
-  );
+  const { caretBox, reveal } = useReveal({
+    doc: state.doc,
+    layout,
+    scroller,
+    gutter,
+    cell,
+    wrap,
+    before,
+    viewport,
+    onScroll: setScroll,
+  });
 
-  useEffect(() => {
-    if (!props.line || props.line <= 0) return;
-    const position = { line: props.line - 1, column: 0 };
-    reveal(position);
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- a go-to-line is an explicit jump, announced once.
-    announce(position);
-  }, [props.line, reveal]);
-
-  const hitLine = props.find?.hit?.line;
-  const hitColumn = props.find?.hit?.column;
-  useEffect(() => {
-    if (hitLine === undefined || hitColumn === undefined) return;
-    const position = { line: hitLine, column: hitColumn };
-    reveal(position);
-    // oxlint-disable-next-line react-compiler/set-state-in-effect -- a find hit is an explicit jump, announced once.
-    announce(position);
-  }, [hitLine, hitColumn, reveal]);
+  useRevealJump({ line: props.line, hit: props.find?.hit, reveal, announce });
 
   useEffect(() => {
     if (props.text === seenText.current) return;
@@ -165,39 +155,37 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     if (state.doc && state.doc.text() !== props.text) state.replaceText(props.text);
   }, [props.text, state]);
 
-  const finder = useFindInFile({
+  const {
+    finder,
+    matches,
+    query: activeQuery,
+    current: currentIndex,
+  } = useEditorFind({
     doc,
     version: state.version,
-    select: (range) => state.select([{ anchor: range.start, head: range.end }]),
+    find: props.find,
+    select: (range) => {
+      setBefore(false);
+      state.select([{ anchor: range.start, head: range.end }]);
+    },
     reveal: (position) => {
       reveal(position);
       announce(position);
     },
     focusEditor: () => field.current?.focus({ preventScroll: true }),
   });
-  const external = useFindResults(doc, state.version, {
-    active: !finder.open && !!props.find?.query,
-    query: finder.open ? "" : (props.find?.query ?? ""),
-    caseSensitive: false,
-  });
-  const matches = finder.open ? finder.matches : external.matches;
-  const activeQuery = finder.open ? finder.query : (props.find?.query ?? "");
-  const externalIndex = useMemo(() => {
-    const hit = props.find?.hit;
-    if (!hit) return -1;
-    return matches.findIndex(
-      (range) => range.start.line === hit.line && range.start.column === hit.column,
-    );
-  }, [matches, props.find?.hit]);
-  const currentIndex = finder.open ? finder.index : externalIndex;
 
   const navigationKeys = useEditorKeys({
     state,
     readOnly,
     path: props.path,
     rows: Math.max(1, Math.floor(height / lineHeight)),
+    layout,
+    before,
+    onBefore: setBefore,
     onFind: finder.openFind,
     ...(props.onSave ? { onSave: props.onSave } : {}),
+    ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
     onEscape: () => {
       if (!finder.open) return false;
       finder.close();
@@ -230,9 +218,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     state,
     cell,
     gutter,
+    layout,
     element: host,
     focus: () => field.current?.focus({ preventScroll: true }),
     reveal,
+    onBefore: setBefore,
   });
 
   useImperativeHandle(ref, () => ({
@@ -240,11 +230,15 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     text: () => state.doc?.text() ?? props.text,
     version: () => state.doc?.version() ?? 0,
     selections: () => state.doc?.selections() ?? [],
-    setSelections: (selections: readonly Selection[]) => state.select(selections),
+    setSelections: (selections: readonly Selection[]) => {
+      setBefore(false);
+      state.select(selections);
+    },
   }));
 
-  const textareaLeft = gutter + visualColumn(lineAt(caretLine), caretColumn) * cell - scroll.left;
-  const textareaTop = caretLine * lineHeight - scroll.top;
+  const caret = caretBox({ line: caretLine, column: caretColumn });
+  const textareaLeft = caret.left - scroll.left;
+  const textareaTop = caret.top - scroll.top;
 
   if (state.failed)
     return (
@@ -288,33 +282,57 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
         <div
           ref={host}
           className="relative min-h-full min-w-full"
-          style={{ height: lineCount * lineHeight, width: contentWidth || "100%" }}
+          style={{ height: rows * lineHeight, width: contentWidth || "100%" }}
         >
           <div aria-hidden>
             {lines.map((text, offset) => {
               const line = first + offset;
-              return (
-                <EditorLine
-                  key={line}
-                  index={line}
-                  text={text}
-                  tokens={tokens[offset]}
-                  gutter={gutter}
-                  top={line * lineHeight}
-                  mark={(props.marks ?? state.marks)?.get(line + 1)}
-                  current={line === caretLine}
-                  matches={activeQuery ? byLine.get(line) : undefined}
-                  query={activeQuery}
-                />
-              );
+              const lineRows = layout?.rowsOf(line) ?? wholeLineRow;
+              const startRow = layout?.startOf(line) ?? line;
+              const long = text.length > longLine;
+              const lineTokens = tokens[offset];
+              const lineMatches = activeQuery ? byLine.get(line) : undefined;
+              return lineRows.map((row, at) => {
+                const index = startRow + at;
+                if (index < firstRow || index >= lastRow) return null;
+                const end = Math.min(row.end, text.length);
+                return (
+                  <EditorLine
+                    key={`${line}:${at}`}
+                    line={line}
+                    row={index}
+                    text={text.slice(row.start, end)}
+                    number={at === 0 ? line + 1 : undefined}
+                    indent={row.indent * cell}
+                    tokens={
+                      lineTokens && !long
+                        ? wrap
+                          ? sliceTokens(lineTokens, row.start, end)
+                          : lineTokens
+                        : undefined
+                    }
+                    gutter={gutter}
+                    top={index * lineHeight}
+                    mark={at === 0 ? (props.marks ?? state.marks)?.get(line + 1) : undefined}
+                    current={line === caretLine}
+                    matches={lineMatches ? segmentsOnRow(lineMatches, row.start, end) : undefined}
+                    query={activeQuery}
+                    long={long}
+                    clip={!wrap}
+                  />
+                );
+              });
             })}
             <CaretLayers
               selections={state.selections}
               lines={lineAt}
-              first={first}
-              last={last - 1}
+              layout={layout}
+              firstLine={first}
+              lastLine={last - 1}
               gutter={gutter}
               cell={cell}
+              before={before}
+              primary={state.primary}
               composing={
                 input.composingText === undefined ? undefined : { text: input.composingText }
               }

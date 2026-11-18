@@ -61,6 +61,11 @@ pub fn deliver(
         Batch::Changes(changes) => {
             invalidate(entry, &changes);
             entry.apply_changes(&index_changes(&changes));
+            // A walk running over a folder this batch touched may have passed it before the
+            // batch landed, so it runs once more when it publishes.
+            for change in &changes {
+                entry.note_touch(folder_of(change), change.directory);
+            }
             // An ignore-rule edit changes which paths belong in the index without changing those
             // files, so the folders it governs are walked again in the background.
             for folder in crate::rules::changed(entry.root(), &changes) {
@@ -78,7 +83,7 @@ pub fn deliver(
             match dir.as_deref() {
                 Some(dir) => {
                     entry.lister().invalidate(&[dir]);
-                    entry.apply_changes(&subtree(dir));
+                    entry.rescan_folder(dir.to_owned());
                 }
                 None => {
                     entry.lister().invalidate(&[""]);
@@ -108,21 +113,16 @@ pub fn deliver(
     }
 }
 
-/// A folder the watcher could not describe change by change: forget everything indexed under it,
-/// then walk it again, so quick open sees exactly what survived.
-fn subtree(dir: &str) -> Vec<IndexChange> {
-    vec![
-        IndexChange {
-            path: dir.to_owned(),
-            deleted: true,
-            directory: true,
-        },
-        IndexChange {
-            path: dir.to_owned(),
-            deleted: false,
-            directory: true,
-        },
-    ]
+/// The folder a change touched: the path itself when it is a folder, its parent otherwise.
+fn folder_of(change: &Change) -> &str {
+    if change.directory {
+        &change.path
+    } else {
+        match change.path.rsplit_once('/') {
+            Some((parent, _)) => parent,
+            None => "",
+        }
+    }
 }
 
 /// Drop the cached listings a batch makes stale: the folder each path sits in, and the path
@@ -197,6 +197,18 @@ mod tests {
         }
     }
 
+    /// Wait until the background walk a rescan started has published its index.
+    async fn settled(wanted: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if wanted() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the rescan's walk never published");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_rescan_of_one_folder_replaces_that_folder_and_nothing_else() {
         let checkout = tempfile::tempdir().expect("a temp dir");
@@ -223,12 +235,8 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            paths(&entry, "old"),
-            Vec::<String>::new(),
-            "the rescan drops the paths that vanished"
-        );
-        assert_eq!(paths(&entry, "new"), ["gone/new.txt"]);
+        settled(|| paths(&entry, "old").is_empty() && paths(&entry, "new") == ["gone/new.txt"])
+            .await;
         assert_eq!(
             paths(&entry, "still"),
             ["keep/still.txt"],

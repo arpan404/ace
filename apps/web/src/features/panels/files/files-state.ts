@@ -38,11 +38,13 @@ export function fileTabData(tab: WorkspaceTab): FileTabData {
 
 const Prefs = z.object({
   treeWidth: z.catch(z.number(), 240),
+  /** Long lines wrap at the editor's width; VS Code's own default is off, and so is this one. */
+  wrap: z.catch(z.boolean(), false),
 });
 export type FilePrefs = z.infer<typeof Prefs>;
 
 const prefsKey = "ace.files.prefs";
-const defaultPrefs: FilePrefs = { treeWidth: 240 };
+const defaultPrefs: FilePrefs = { treeWidth: 240, wrap: false };
 
 /** Narrower than this the source is too cramped beside the tree, which then steps aside. */
 export const leastViewer = 420;

@@ -135,6 +135,10 @@ export function FileViewer(props: {
   content: FileContent | undefined;
   error: Error | null;
   source: boolean;
+  /** Long lines wrap at the editor's width. */
+  wrap: boolean;
+  /** Alt+Z in the source view: the Files tab's wrap preference flips. */
+  onToggleWrap(): void;
   find: { query: string; hit: FindHit | undefined } | undefined;
   line: number | undefined;
   /** Lines changed since the last commit. */
@@ -240,6 +244,8 @@ export function FileViewer(props: {
           text={content.text}
           path={props.path}
           readOnly
+          wrap={props.wrap}
+          onToggleWrap={props.onToggleWrap}
           find={props.find}
           line={props.line}
           marks={props.marks}

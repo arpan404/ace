@@ -188,7 +188,9 @@ pub(crate) fn replace(dir: &Dir, from: &str, to: &str) -> Result<(), Error> {
 /// Makes the folder's own entries durable, so a rename that returned is not lost in a crash.
 #[cfg(unix)]
 pub(crate) fn sync(dir: &Dir) -> Result<(), Error> {
-    rustix::fs::fsync(dir).map_err(io_error)?;
+    // cap-std holds a folder as an `O_PATH` descriptor on Linux, which `fsync` rejects with
+    // `EBADF`; reopening it for reading gives a descriptor that can be synced everywhere.
+    dir.open(".")?.sync_all()?;
     Ok(())
 }
 

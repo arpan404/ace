@@ -57,8 +57,23 @@ export function findQuery(input: {
   };
 }
 
-/** Every match clipped to the visible lines, by line, with the find bar's current one marked. */
-export function segmentsByLine(
+/** The part of each of a line's matches that lies on one visual row, in the row's own columns. */
+export function segmentsOnRow(
+  matches: readonly MatchSegment[],
+  from: number,
+  to: number,
+): MatchSegment[] | undefined {
+  let parts: MatchSegment[] | undefined;
+  for (const match of matches) {
+    const start = Math.max(match.start, from);
+    const end = Math.min(match.end, to);
+    if (end <= start) continue;
+    (parts ??= []).push({ start: start - from, end: end - from, current: match.current });
+  }
+  return parts;
+}
+
+/** Every match clipped to the visible lines, by line, with the find bar's current one marked. */ export function segmentsByLine(
   ranges: readonly Range[],
   first: number,
   last: number,

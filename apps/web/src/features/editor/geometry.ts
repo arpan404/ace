@@ -12,6 +12,10 @@ export const lineHeight = 22;
 export const tabSize = 2;
 /** Used where nothing can be measured (tests, a detached element, an early first frame). */
 export const fallbackCharWidth = 7.8;
+/** The fewest cells a wrapped row keeps for text, however deep the line's indentation. */
+export const leastRowCells = 8;
+/** Lines longer than this draw plain and wrap by code unit: no per-character measurement. */
+export const longLine = 10_000;
 
 const widths = new Map<string, number>();
 

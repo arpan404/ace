@@ -11,13 +11,16 @@ import {
   stepBack,
   stepForward,
 } from "./cursor.ts";
-import { columnAtVisual, visualColumn } from "./geometry.ts";
+import { columnAtVisual } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
+import type { RowLayout } from "./wrap-index.ts";
+import { atHardBreak, rowOffset, rowOfColumn, rowText } from "./wrap.ts";
 
 /*
  * The editor's keybindings: Cmd on macOS, Ctrl elsewhere. Editing keys go through the document's
  * own commands; movement is computed here and applied with `setSelections`, so every cursor
- * moves together and a jump ends the typing run.
+ * moves together and a jump ends the typing run. Vertical movement and Home/End follow the
+ * visual rows a wrapped line draws, not its logical lines.
  */
 
 /** macOS gets Cmd and Alt; every other platform Ctrl. */
@@ -32,15 +35,23 @@ export interface EditorKeyOptions {
   path: string;
   /** Visible rows, for Page Up and Page Down. */
   rows: number;
+  /** The document's visual rows, so Up and Down move a row and not a line. */
+  layout: RowLayout | undefined;
   onFind?: (() => void) | undefined;
   onSave?: (() => void) | undefined;
   /** Returns true when Escape closed something (find); false collapses the carets. */
   onEscape?: (() => boolean) | undefined;
+  /** Alt+Z: the person asked for wrap to toggle, as VS Code's own shortcut does. */
+  onToggleWrap?: (() => void) | undefined;
+  /** True while the caret sits at a row's end where the next row begins (VS Code's Before). */
+  before: boolean;
+  /** Records the caret's side of a hard break after a move. */
+  onBefore(before: boolean): void;
   reveal(position: Position): void;
 }
 
 export function useEditorKeys(options: EditorKeyOptions) {
-  const { state, path } = options;
+  const { state, path, layout } = options;
   const mac = isMacPlatform();
   const goal = useRef<number | undefined>(undefined);
 
@@ -53,7 +64,55 @@ export function useEditorKeys(options: EditorKeyOptions) {
     return current?.head ?? { line: 0, column: 0 };
   };
 
-  const commitMove = (next: readonly Selection[]) => {
+  /** The row a position is on and its cells from the row's left edge. */
+  const rowAt = (position: Position, before = false) => {
+    const rows = layout?.rowsOf(position.line) ?? [];
+    const at = rows.length ? rowOfColumn(rows, position.column, before) : 0;
+    return { rows, at, row: rows[at] };
+  };
+
+  const offsetOf = (position: Position, before = false): number => {
+    const { row } = rowAt(position, before);
+    if (!row) return 0;
+    return rowOffset(line(position.line), row, position.column);
+  };
+
+  const rowOf = (position: Position, before = false): number =>
+    (layout ? layout.startOf(position.line) : position.line) + rowAt(position, before).at;
+
+  /** Whether a caret at `position` is at the end of a row that the next row begins. */
+  const beforeAt = (position: Position): boolean => {
+    if (!layout) return false;
+    const rows = layout.rowsOf(position.line);
+    const at = rowOfColumn(rows, position.column, true);
+    return atHardBreak(rows, at, position.column);
+  };
+
+  /** The position `offset` cells into a given visual row, and the caret's side of its edge. */
+  const positionOnRow = (row: number, offset: number): { position: Position; before: boolean } => {
+    const doc = state.doc;
+    if (!doc) return { position: { line: 0, column: 0 }, before: false };
+    if (!layout) {
+      const fallback = Math.max(0, Math.min(lastLine(), row));
+      return {
+        position: { line: fallback, column: columnAtVisual(line(fallback), offset) },
+        before: false,
+      };
+    }
+    const target = layout.lineAt(row);
+    const rows = layout.rowsOf(target);
+    const at = Math.max(0, Math.min(row - layout.startOf(target), rows.length - 1));
+    const visual = rows[at];
+    if (!visual) return { position: { line: target, column: 0 }, before: false };
+    const text = line(target);
+    const column =
+      visual.start + columnAtVisual(rowText(text, visual), Math.max(0, offset - visual.indent));
+    // Only a goal past the row's own text lands at its end; a row's start is just its start.
+    return { position: { line: target, column }, before: atHardBreak(rows, at, column) };
+  };
+
+  const commitMove = (next: readonly Selection[], before = false) => {
+    options.onBefore(before);
     state.select(next);
     const doc = state.doc;
     if (doc) options.reveal(doc.selections()[doc.primarySelection()]?.head ?? head());
@@ -65,18 +124,18 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const selections = doc.selections();
     const primary = doc.primarySelection();
     const current = selections[primary]?.head ?? { line: 0, column: 0 };
-    goal.current ??= visualColumn(line(current.line), current.column);
+    goal.current ??= offsetOf(current, options.before);
     const keeper = goal.current ?? 0;
+    let nextBefore = false;
     const moved = selections.map((selection) => {
-      const lineIndex = Math.max(0, Math.min(lastLine(), selection.head.line + delta));
-      const visual =
-        selection === selections[primary]
-          ? keeper
-          : visualColumn(line(selection.head.line), selection.head.column);
-      const position = { line: lineIndex, column: columnAtVisual(line(lineIndex), visual) };
-      return { anchor: extend ? selection.anchor : position, head: position };
+      const primaryHere = selection === selections[primary];
+      const keeperHere = primaryHere ? keeper : offsetOf(selection.head);
+      const row = rowOf(selection.head, primaryHere && options.before);
+      const landed = positionOnRow(row + delta, keeperHere);
+      if (primaryHere) nextBefore = landed.before;
+      return { anchor: extend ? selection.anchor : landed.position, head: landed.position };
     });
-    commitMove(moved);
+    commitMove(moved, nextBefore);
   };
 
   const horizontal = (step: (text: string, column: number) => number, extend: boolean) => {
@@ -92,20 +151,26 @@ export function useEditorKeys(options: EditorKeyOptions) {
     );
   };
 
-  const toColumn = (columnAt: (text: string, column: number) => number, extend: boolean) => {
-    const doc = state.doc;
-    if (!doc) return;
-    goal.current = undefined;
-    commitMove(
-      moveAll(
-        doc.selections(),
-        (position) => ({
-          line: position.line,
-          column: columnAt(line(position.line), position.column),
-        }),
-        extend,
-      ),
-    );
+  /** Home lands on the row's start before the line's; End on the row's end before the line's. */
+  const home = (position: Position, before: boolean): number => {
+    const text = line(position.line);
+    const { rows, at } = rowAt(position, before);
+    const row = rows[at];
+    if (!row) return smartHome(text, position.column);
+    if (at > 0) return position.column > row.start ? row.start : 0;
+    return smartHome(text, position.column);
+  };
+
+  const end = (position: Position, before: boolean): number => {
+    const text = line(position.line);
+    const { rows, at } = rowAt(position, before);
+    const row = rows[at];
+    if (!row) return text.length;
+    const rowEnd = Math.min(row.end, text.length);
+    // A caret at a row's end steps to the next row's end, then to the line's.
+    if (position.column < rowEnd) return rowEnd;
+    const next = rows[at + 1];
+    return next ? Math.min(next.end, text.length) : text.length;
   };
 
   return (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -117,6 +182,14 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const word = mac ? event.altKey : event.ctrlKey;
     const key = event.key;
 
+    // Alt+Z: macOS reports the Option key's character, every other platform the letter.
+    const togglesWrap = mac ? event.code === "KeyZ" : key.toLowerCase() === "z";
+    if (event.altKey && !event.metaKey && !event.ctrlKey && togglesWrap) {
+      if (!options.onToggleWrap) return;
+      event.preventDefault();
+      options.onToggleWrap();
+      return;
+    }
     if (!options.readOnly && mod && key.toLowerCase() === "z") {
       event.preventDefault();
       state.edit((target) => (event.shiftKey ? target.redo() : target.undo()));
@@ -130,9 +203,10 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (mod && key.toLowerCase() === "a") {
       event.preventDefault();
       goal.current = undefined;
-      const end = documentEnd(doc.lenLines(), line(lastLine()));
-      state.select([{ anchor: { line: 0, column: 0 }, head: end }]);
-      options.reveal(end);
+      const last = documentEnd(doc.lenLines(), line(lastLine()));
+      options.onBefore(false);
+      state.select([{ anchor: { line: 0, column: 0 }, head: last }]);
+      options.reveal(last);
       return;
     }
     if (mod && key.toLowerCase() === "f") {
@@ -157,7 +231,10 @@ export function useEditorKeys(options: EditorKeyOptions) {
     // Shift+mod+D is ace's Changes shortcut: leave it for the page.
     if (!options.readOnly && mod && !event.shiftKey && key.toLowerCase() === "d") {
       event.preventDefault();
-      if (doc.selectNextOccurrence()) state.select(doc.selections());
+      if (doc.selectNextOccurrence()) {
+        options.onBefore(false);
+        state.select(doc.selections());
+      }
       return;
     }
     if (!options.readOnly && key === "Tab") {
@@ -191,6 +268,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       if (options.onEscape?.()) return;
       const position = head();
       goal.current = undefined;
+      options.onBefore(false);
       state.select([caret(position.line, position.column)]);
       options.reveal(position);
       return;
@@ -227,7 +305,17 @@ export function useEditorKeys(options: EditorKeyOptions) {
     }
     if (key === "Home" || key === "End") {
       event.preventDefault();
-      toColumn(key === "End" ? (text) => text.length : smartHome, event.shiftKey);
+      goal.current = undefined;
+      const primary = doc.primarySelection();
+      const moved = doc.selections().map((selection, index) => {
+        const before = index === primary && options.before;
+        const column = key === "End" ? end(selection.head, before) : home(selection.head, before);
+        const position = { line: selection.head.line, column };
+        return { anchor: event.shiftKey ? selection.anchor : position, head: position };
+      });
+      const landed = moved[primary]?.head;
+      // Home stops at a row's start; End stops at its end, which can begin the next row.
+      commitMove(moved, key === "End" && landed ? beforeAt(landed) : false);
       return;
     }
     if (key === "PageUp" || key === "PageDown") {

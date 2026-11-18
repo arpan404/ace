@@ -2,10 +2,9 @@
 
 //! The OS watcher, plus the polling one used when the OS cannot watch the root.
 //!
-// Windows: `notify` ignores `ReadDirectoryChangesW`'s overflow, so the `ERROR_NOTIFY_ENUM_DIR`
-//! status never reaches this crate as `Event::need_rescan()`. A burst bigger than the kernel
-//! buffer is therefore reported as the events that did arrive, without the rescan the plan asks
-//! for; fixing it needs a backend that surfaces that status, which is wave 3 work.
+//! Linux watches one folder at a time with inotify so excluded folders never take a watch.
+//! Windows has its own `ReadDirectoryChangesW` backend, because `notify` hides the status that
+//! says the kernel lost events. Everywhere else `notify` provides the recursive watch.
 
 use std::time::Duration;
 
@@ -19,6 +18,8 @@ use crate::watch::Events;
 
 #[cfg(target_os = "linux")]
 pub(crate) use crate::linux::Folders as Native;
+#[cfg(windows)]
+pub(crate) use crate::windows::Watch as Native;
 
 fn unsupported(error: notify::Error) -> Error {
     Error::Unsupported(error.to_string())
@@ -81,13 +82,13 @@ pub(crate) fn poll(root: &Root, events: Events) -> Result<PollWatcher, Error> {
     Ok(watcher)
 }
 
-/// One recursive OS watch: FSEvents on macOS, ReadDirectoryChangesW on Windows.
-#[cfg(not(target_os = "linux"))]
+/// One recursive OS watch: FSEvents on macOS, kqueue on the BSDs.
+#[cfg(all(not(target_os = "linux"), not(windows)))]
 pub(crate) struct Native {
     watcher: notify::RecommendedWatcher,
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(windows)))]
 impl Native {
     pub(crate) fn start(
         root: &Root,
