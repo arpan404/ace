@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// A list row whose actions are kept off it, as iOS lists do (ADR 0184): its title and a muted
-/// line, then a ⋯ menu holding the actions, which a swipe to the left also offers. Used where a
-/// row has one or two things to do (Revoke, Cancel link) that shouldn't read as words beside it.
+/// line, then a ⋯ menu holding the actions, which a swipe to the left also uncovers but never
+/// runs. Used where a row has one or two things to do (Revoke, Cancel link) that shouldn't read
+/// as words beside it.
 struct RowWithActions<Actions: View>: View {
     let title: String
     let detail: String?
@@ -34,7 +35,9 @@ struct RowWithActions<Actions: View>: View {
             }
         }
         .padding(.vertical, AceDesign.Space.tight)
-        .swipeActions(edge: .trailing) { if canOperate { actions() } }
+        // No full swipe: Revoke, Cancel link and Unlink take effect or ask at once, so a long
+        // swipe only uncovers them and a tap does the rest.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) { if canOperate { actions() } }
     }
 }
 

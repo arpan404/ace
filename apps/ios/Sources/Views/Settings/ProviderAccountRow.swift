@@ -34,7 +34,8 @@ struct ProviderAccountRow: View {
             }
         }
         .padding(.vertical, AceDesign.Space.tight)
-        .swipeActions(edge: .trailing) {
+        // Remove is destructive: a long swipe uncovers it, a tap asks.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canOperate {
                 if account.removable { Button("Remove", role: .destructive, action: remove) }
                 Button("Edit", action: edit).tint(AceDesign.Ink.action)
