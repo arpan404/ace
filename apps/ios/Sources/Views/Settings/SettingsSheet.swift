@@ -85,7 +85,7 @@ struct SettingsSheet: View {
         .environment(\.settingsScope, scope)
         .environment(\.settingsPush) { path.append($0) }
         .escapeCloses { dismiss() }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .toggleStyle(.systemSwitch)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onChange(of: path) { old, new in navigated(from: old, to: new) }

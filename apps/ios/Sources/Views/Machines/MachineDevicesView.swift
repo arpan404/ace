@@ -56,7 +56,7 @@ struct MachineDevicesView: View {
         .sheet(isPresented: $pairing, onDismiss: { Task { await read() } }) {
             if let choices = overview?.choices {
                 NavigationStack { PairDeviceView(model: model, machine: machine, choices: choices) { pairing = false } }
-                    .tint(AceDesign.Ink.accent)
+                    .tint(AceDesign.Ink.action)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
         }

@@ -55,7 +55,7 @@ struct ProjectRepositoriesView: View {
                         }
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
                             if model.canOperate, row.canMakePrimary {
-                                Button("Make primary") { change("primary", row) }.tint(AceDesign.Ink.accent)
+                                Button("Make primary") { change("primary", row) }.tint(AceDesign.Ink.action)
                             }
                         }
                 }

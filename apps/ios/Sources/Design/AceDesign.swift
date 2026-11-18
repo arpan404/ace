@@ -138,6 +138,14 @@ import UIKit
         static var faint: Color { AceTheme.Colours.faintForeground }
         /// The one accent: the primary action (send, approve, the selected tab's fill).
         static var accent: Color { AceTheme.Colours.foreground }
+        /// What can be tapped: a row action, a button's fill or words, a stack's tint. Never the
+        /// body ink (ADR 0184), so the theme's accent when it has a hue, else the system blue.
+        static var action: Color { Color(pair: actionPair) }
+        static var actionPair: NativePalette.Pair {
+            let accent = NativePaletteBridge.pair(for: "accent", light: 0x222222, dark: 0xDEDEDE)
+            return NativePalette.Pair(light: hued(accent.light) ? accent.light : 0x007AFF,
+                                      dark: hued(accent.dark) ? accent.dark : 0x0A84FF)
+        }
         /// Provider marks in lists keep their colours at this strength.
         static let markOpacity: Double = 0.8
         /// A project's tint under its initials or glyph, as the web's `bg-(--tint)/12`.
@@ -402,6 +410,12 @@ extension AceDesign.Surface {
 }
 
 extension AceDesign.Ink {
+    /// A colour reads as a hue, not as ink, when its channels spread this far apart.
+    nonisolated private static let hueSpread: UInt32 = 0x30
+    nonisolated private static func hued(_ rgb: UInt32) -> Bool {
+        let channels = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255]
+        return (channels.max() ?? 0) - (channels.min() ?? 0) >= hueSpread
+    }
     /// A row's branch: the faint tier on the dark page, the subtle one on the light page.
     static func branch(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? AceTheme.Colours.faintForeground : AceTheme.Colours.subtleForeground
@@ -559,4 +573,16 @@ extension AceDesign.Size {
 extension AceDesign.Motion {
     static let inkHold: Double = 0.6
     static let inkFade: Double = 0.25
+}
+
+extension Color {
+    /// A light and dark pair as one colour that follows the appearance, on any render thread.
+    init(pair: NativePalette.Pair) {
+        let light = pair.light, dark = pair.dark
+        self.init(uiColor: UIColor { @Sendable traits in
+            let value = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255,
+                           blue: CGFloat(value & 255) / 255, alpha: 1)
+        })
+    }
 }

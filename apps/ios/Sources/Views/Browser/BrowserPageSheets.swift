@@ -80,7 +80,7 @@ struct BrowserSourceSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onAppear { model.browser.problem = nil; model.browserSource(open: true) }
         .onDisappear { model.browserSource(open: false) }
@@ -192,7 +192,7 @@ struct BrowserSizesSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: chosen)
         .onAppear { model.browser.sizes = nil }
@@ -294,7 +294,7 @@ struct BrowserExtensionsSheet: View {
             .navigationTitle("Extensions").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: inBar)
         .onAppear { model.browser.problem = nil; model.browserExtensions() }

@@ -83,6 +83,23 @@ import Testing
         #expect(NativePaletteBridge.pair(for: "card", light: 0xFFFFFF, dark: 0x1A1A1D) == NativePalette.Pair(light: 0xFFFFFF, dark: 0x1A1A1D))
     }
 
+    @Test func actionsKeepAColouredAccentAndTurnSystemBlueWhenTheAccentIsInk() throws {
+        let model = NativePaletteModel(defaults: try suite())
+        NativePaletteBridge.model = model
+        defer { NativePaletteBridge.model = nil }
+        let systemBlue = NativePalette.Pair(light: 0x007AFF, dark: 0x0A84FF)
+
+        // The default accent is the body ink, so an action would read as a label.
+        #expect(AceDesign.Ink.actionPair == systemBlue)
+        model.choose(accent: "orange")
+        #expect(AceDesign.Ink.actionPair == NativePalette.Pair(light: 0xB83E0B, dark: 0xF5925A))
+        model.choose(accent: "ink")
+        #expect(AceDesign.Ink.actionPair == systemBlue)
+        // A theme's own near-black ink is still ink.
+        model.choose(theme: "paper")
+        #expect(AceDesign.Ink.actionPair == systemBlue)
+    }
+
     private func suite() throws -> UserDefaults {
         try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)"))
     }
