@@ -109,6 +109,8 @@ export interface ThreadState {
   /** The engine queue is paused by a Stop: its input waits for the person's Resume. */
   queueStopped?: true;
   hasRun: boolean;
+  /** Its work moved to another machine and goes on there (ADR 0190). */
+  movedTo?: Extract<ThreadStatus, { state: "moved" }>["to"];
   status: ThreadStatus;
 }
 

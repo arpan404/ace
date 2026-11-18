@@ -316,8 +316,19 @@ export function deriveAgentStatus(state: ThreadState, key: Key, now: number): Ag
   return statusResolver(state, now)(key);
 }
 
-/** Agent statuses must have been derived for the current fact before calling this. */
+/**
+ * Agent statuses must have been derived for the current fact before calling this. A thread whose
+ * work moved to another machine (ADR 0190) reads moved once nothing runs here; work that still
+ * runs here always shows as it is.
+ */
 export function deriveThreadStatus(state: ThreadState): ThreadStatus {
+  const status = liveThreadStatus(state);
+  if (state.movedTo && ["done", "new", "failed"].includes(status.state))
+    return { state: "moved", to: state.movedTo };
+  return status;
+}
+
+function liveThreadStatus(state: ThreadState): ThreadStatus {
   const records = Object.values(state.agents);
   const statuses = records.map((record) => record.agent.status);
   const byId = new Map(records.map((record) => [record.agent.id, record.agent.status]));

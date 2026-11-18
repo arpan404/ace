@@ -64,11 +64,11 @@ The agent keeps its full history when its provider allows it. One small interfac
 - `place(home, files, sourceCwd, targetCwd)` writes them into the target account's home, with
   the folder paths rewritten to the landed checkout, and says how the session continues there.
 
-| Provider | Carried | What is rewritten | How it continues |
-| --- | --- | --- | --- |
-| Claude Code | `projects/<folder>/<id>.jsonl` and its `subagents/` | the `cwd` of every record; the file moves under the target folder's `projects/` name | resume by id |
-| Codex | the rollout and the rollouts it forks from (`sessions/…/rollout-…-<id>.jsonl`) | `session_meta.payload.cwd` and `turn_context.payload.cwd` | fork from the end, as an account copy does (ADR 0018) |
-| OpenCode, Pi, Cursor, ACP agents | nothing | | the handoff summary |
+| Provider                         | Carried                                                                        | What is rewritten                                                                    | How it continues                                      |
+| -------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| Claude Code                      | `projects/<folder>/<id>.jsonl` and its `subagents/`                            | the `cwd` of every record; the file moves under the target folder's `projects/` name | resume by id                                          |
+| Codex                            | the rollout and the rollouts it forks from (`sessions/…/rollout-…-<id>.jsonl`) | `session_meta.payload.cwd` and `turn_context.payload.cwd`                            | fork from the end, as an account copy does (ADR 0018) |
+| OpenCode, Pi, Cursor, ACP agents | nothing                                                                        |                                                                                      | the handoff summary                                   |
 
 The lineage rules are `@ace/accounts`' account-copy plans (`claudePlan`, `codexPlan`), shared,
 not repeated. Lines are decoded leniently: a line that isn't JSON, or a record of a type the
@@ -117,12 +117,12 @@ settled; its row and Open lead to the new thread. A moved thread refuses new tur
 `thread_ownership` (`transfers/ownership.ts`) holds one row per thread whose owner isn't simply
 this machine:
 
-| state | on | meaning |
-| --- | --- | --- |
-| `stopping` | source | finding a safe point; new turns refused; may still resume here |
-| `handing` | source | the commit may have reached the target; never resumes here on its own |
-| `moved` | source | the target owns it |
-| `owned` | target | this machine owns it, moved here from `peer` |
+| state      | on     | meaning                                                               |
+| ---------- | ------ | --------------------------------------------------------------------- |
+| `stopping` | source | finding a safe point; new turns refused; may still resume here        |
+| `handing`  | source | the commit may have reached the target; never resumes here on its own |
+| `moved`    | source | the target owns it                                                    |
+| `owned`    | target | this machine owns it, moved here from `peer`                          |
 
 Each row has the transfer id, the peer machine and thread, an `epoch` that grows with every
 handover of the thread, and when it changed. No row means this machine owns its thread. The lid-

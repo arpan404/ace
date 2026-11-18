@@ -25,7 +25,14 @@ export function threadStatusLabel(status: ThreadStatus): { label: string; tone: 
       return { label: "Done", tone: "done" };
     case "new":
       return { label: "New", tone: "idle" };
+    case "moved":
+      return { label: movedWords(status), tone: "idle" };
   }
+}
+
+/** "Moved to Studio" (ADR 0190): the work goes on there; this thread runs nothing more. */
+export function movedWords(status: Extract<ThreadStatus, { state: "moved" }>): string {
+  return `Moved to ${status.to.name}`;
 }
 
 export function agentStatusLabel(status: AgentStatus): { label: string; tone: Tone } {
@@ -127,5 +134,8 @@ export function taskPill(
       return input.unread ? { label: "Done", tone: "done", icon: "done" } : undefined;
     case "new":
       return undefined;
+    // Not done and not settled: the row says where the work went.
+    case "moved":
+      return { label: movedWords(status), tone: "idle", icon: "background" };
   }
 }
