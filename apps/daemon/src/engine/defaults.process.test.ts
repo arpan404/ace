@@ -4,6 +4,7 @@ import { ModelCatalog, normalizeCodex } from "@ace/models";
 import type { ProviderConfigurations } from "@ace/protocol";
 import { ModelInstance } from "@ace/models";
 import { commandContext } from "../commands.ts";
+import { purgeTranscript } from "../storage/transcript.ts";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 const native = (model: string, isDefault: boolean) => ({
@@ -284,6 +285,58 @@ test("cold legacy rows clear their display sentinel and discover a concrete mode
     await engine.flush();
     expect(h.contexts[1]?.model).toBe("gpt-6.1-sol");
     expect(cold.getThread(id)?.execution?.model).toBe("gpt-6.1-sol");
+  } finally {
+    await engine?.close();
+    cold?.close();
+    await h.close();
+    await m.catalog.close();
+  }
+});
+
+test("a purged thread's leftover default selection neither stops engine start nor others migrating", async () => {
+  const m = models();
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ],
+    frames,
+  );
+  let cold: Store | undefined;
+  let engine: Engine | undefined;
+  try {
+    const purged = await h.create("purged");
+    await h.create("kept");
+    const kept = h.store.listThreads().find((thread) => thread.id !== purged)?.id;
+    if (!kept) throw new Error("second thread missing");
+    await h.engine.close();
+    for (const id of [purged, kept]) {
+      h.store.atomic((db) => {
+        db.prepare("UPDATE engine_sessions SET model='default' WHERE thread_id=?").run(id);
+        db.prepare(
+          "UPDATE engine_transitions SET value=json_set(value, '$.selection.model', 'default') WHERE thread_id=?",
+        ).run(id);
+      });
+      h.store.appendEvents(
+        id,
+        [
+          {
+            type: "thread.updated",
+            execution: { provider: "codex", model: "default", options: {} },
+          },
+        ],
+        1001,
+      );
+    }
+    // Deleted and purged: the tombstone and its session row stay, its engine state does not.
+    h.store.appendEvents(purged, [{ type: "thread.client.updated", changes: { deletedAt: 1002 } }]);
+    h.store.atomic((db) => purgeTranscript(db, purged));
+    cold = new Store(h.path);
+    engine = new Engine(cold, { registry: h.registry, models: m.catalog, clock: h.clock });
+    await engine.ready();
+    expect(cold.getThread(kept)?.execution?.model).toBeUndefined();
+    expect(cold.getThread(purged)?.deletedAt).toBe(1002);
   } finally {
     await engine?.close();
     cold?.close();

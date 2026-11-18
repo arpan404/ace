@@ -9,6 +9,7 @@ import {
   type ThreadContinuedOn,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
+import { threadGone } from "../thread-gone.ts";
 import type { ServiceContext } from "../services/types.ts";
 import type { TargetProjects, TargetThreadStarter } from "./landing.ts";
 import type { SourceThreads } from "./outgoing.ts";
@@ -197,7 +198,12 @@ export function targetThreads(context: ServiceContext): TargetThreadStarter {
       // One transaction: the handoff, the link back and the caller's completion all land or none.
       store.atomic(() => {
         const thread = store.getThread(input.threadId);
-        if (thread && !thread.details?.continuedFrom) {
+        // A thread deleted (or purged) before it was set up is left as it is.
+        if (
+          thread &&
+          !thread.details?.continuedFrom &&
+          !threadGone((id) => store.getThread(id), engine, input.threadId)
+        ) {
           engine.adoptMachineHandoff(input.threadId, {
             handoff: input.thread.handoff,
             commandId: `transfer:${input.threadId}`,

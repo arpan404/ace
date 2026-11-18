@@ -8,6 +8,7 @@ import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "
 import type { Store } from "../store.ts";
 import { DelegationOrigins, type OriginOwner } from "./delegation-origins.ts";
 import { hasStoppedAncestor } from "./ancestor-stop.ts";
+import { skippableAtStartup } from "../engine/startup-skip.ts";
 
 export const DelegationReservation = z.object({
   record: DelegationRecord,
@@ -30,9 +31,13 @@ export class DelegationJournal {
   private statements = new Map<string, StatementSync>();
   /** The parent turn each delegation generation came from. */
   readonly origins: DelegationOrigins;
-  constructor(store: Store, capacity = 10000) {
+  /** Hears once about each stored row this build can't read; the row is kept and skipped. */
+  private unreadable: ((error: unknown) => void) | undefined;
+  private reported = new Set<string>();
+  constructor(store: Store, capacity = 10000, unreadable?: (error: unknown) => void) {
     this.capacity = z.number().int().min(1).max(10000).parse(capacity);
     this.store = store;
+    this.unreadable = unreadable;
     this.origins = new DelegationOrigins(store);
     store.atomic((db) =>
       db.exec(`
@@ -206,9 +211,24 @@ export class DelegationJournal {
   }
   /** In-flight preparations only; each is released or committed when its owner finishes. */
   reservations() {
-    return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id")
+    return this.sql("SELECT child_id,reservation FROM delegation_reservations ORDER BY child_id")
       .all()
-      .map((row) => this.decodeReservation(row.reservation));
+      .flatMap((row) => {
+        try {
+          return [this.decodeReservation(row.reservation)];
+        } catch (error) {
+          // One row another build wrote never stops agent control: kept, reported, skipped.
+          if (!skippableAtStartup(error)) throw error;
+          const child = String(row.child_id);
+          if (!this.reported.has(child)) {
+            this.reported.add(child);
+            this.unreadable?.(
+              new Error(`Delegation reservation ${child} not read`, { cause: error }),
+            );
+          }
+          return [];
+        }
+      });
   }
   reserve(reservation: DelegationReservation) {
     this.assertCapacity();

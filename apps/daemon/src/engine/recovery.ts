@@ -1,3 +1,4 @@
+import { isStoreRetry } from "../store-busy.ts";
 import { restatesSelection } from "./input-delivery.ts";
 import { handleQueue } from "./queue-commands.ts";
 import { lostWorkLines } from "./lost-work.ts";
@@ -45,6 +46,11 @@ export interface RecoveryPorts {
 }
 /** A deadline pass that could not commit (the store is busy, say) runs again after this. */
 const deadlineRetryMs = 1_000;
+const deadlineDeferralMaxMs = 10 * 60_000;
+/** The next wait for a deadline that keeps failing: doubling from a second, capped. */
+export function deadlineDeferral(previous: number | undefined): number {
+  return Math.min(deadlineDeferralMaxMs, previous === undefined ? deadlineRetryMs : previous * 2);
+}
 /** Durable holds and one deadline timer, independent of actor/session residency. */
 export class Recovery {
   private repo: EngineRepository;
@@ -54,6 +60,11 @@ export class Recovery {
   private wake: (id: ThreadId) => void;
   private cancel: (() => void) | undefined;
   private closed = false;
+  /**
+   * Threads whose deadline keeps failing: the deadline (and hold) it was put off to, and how long
+   * that deferral was.
+   */
+  private deferrals = new Map<ThreadId, { deadline: string; delay: number }>();
   private pendingPolicy = new Map<ThreadId, Promise<void>>();
   /** Loads past the concurrent bound, by hold token: each starts as a running one finishes. */
   private waitingPolicy = new Map<ThreadId, number>();
@@ -579,6 +590,7 @@ export class Recovery {
   schedule(): void {
     this.cancel?.();
     this.cancel = undefined;
+    this.pruneDeferrals();
     // No deadline runs while maintenance holds new work; reopening schedules again.
     if (this.closed || this.ports.admits?.() === false) return;
     const at = this.repo.queue.nextDeadline();
@@ -589,23 +601,17 @@ export class Recovery {
   private fire(): void {
     try {
       if (this.repo.store.isHistoryWriting()) throw new Error("History publication in progress");
-      this.repo.store.atomic(() => {
-        for (const id of this.repo.queue.due(this.clock.now())) {
-          const queue = this.repo.queue.get(id);
-          if (queue.timerAction === "snooze")
-            this.repo.queue.set(
-              id,
-              { resumeAt: null, timerAction: null, reason: "manual" },
-              this.clock.now(),
-            );
-          else if (queue.timerAction === "clear") this.clearLimit(id);
-          else {
-            // Clear the deadline first, retaining a manual hold on capacity refusal.
-            this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
-            this.automatic(id, queue.timerAction === "migrate" ? "migrate_now" : undefined);
-          }
+      this.pruneDeferrals();
+      for (const id of this.repo.queue.due(this.clock.now())) {
+        try {
+          this.repo.store.atomic(() => this.fireOne(id));
+          this.deferrals.delete(id);
+        } catch (error) {
+          // Contention: the whole pass is tried again shortly.
+          if (isStoreRetry(error)) throw error;
+          this.deferDeadline(id, error);
         }
-      });
+      }
       this.schedule();
     } catch (error) {
       // The pass rolled back, so its deadlines are still due; try them again shortly.
@@ -620,6 +626,56 @@ export class Recovery {
         : this.clock.setTimer(() => this.fire(), deadlineRetryMs);
       return;
     }
+  }
+  private fireOne(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    if (queue.timerAction === "snooze")
+      this.repo.queue.set(
+        id,
+        { resumeAt: null, timerAction: null, reason: "manual" },
+        this.clock.now(),
+      );
+    else if (queue.timerAction === "clear") this.clearLimit(id);
+    else {
+      // Clear the deadline first, retaining a manual hold on capacity refusal.
+      this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
+      this.automatic(id, queue.timerAction === "migrate" ? "migrate_now" : undefined);
+    }
+  }
+  /**
+   * One thread's deadline could not be acted on (a record this build can't read, say). Its
+   * deadline moves back with doubling, bounded delays, so it neither spins nor holds up the
+   * deadlines after it; it is acted on once it can be.
+   */
+  private deferDeadline(id: ThreadId, error: unknown): void {
+    const previous = this.deferrals.get(id);
+    // Only the deadline it put off carries its backoff; a new hold starts over.
+    const delay = deadlineDeferral(
+      previous && previous.deadline === this.repo.queue.deadlineKey(id)
+        ? previous.delay
+        : undefined,
+    );
+    try {
+      (this.ports.onError ?? console.error)(
+        new Error(`Thread ${id}'s deadline failed; tried again in ${delay} ms`, { cause: error }),
+      );
+    } catch {
+      /* Reporting cannot disable retries. */
+    }
+    const deadline = this.repo.store.atomic(() => {
+      this.repo.queue.defer(id, this.clock.now() + delay);
+      return this.repo.queue.deadlineKey(id);
+    });
+    if (deadline === undefined) this.deferrals.delete(id);
+    else this.deferrals.set(id, { deadline, delay });
+  }
+  /**
+   * Forgets backoff whose deadline is gone: resumed, cancelled, replaced by a new hold, or its
+   * thread's state purged. Only deadlines still put off are kept, so the map never outgrows them.
+   */
+  private pruneDeferrals(): void {
+    for (const [id, deferral] of this.deferrals)
+      if (this.repo.queue.deadlineKey(id) !== deferral.deadline) this.deferrals.delete(id);
   }
   moveTarget(id: ThreadId, requested?: string): string {
     if (!this.ports.moveTarget) throw new Error("Account migration is unavailable");

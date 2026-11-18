@@ -166,6 +166,13 @@ export class AgentTransfers {
     const agent = record.request.agent;
     if (!agent || record.delivered) return;
     const { transfer } = record;
+    const thread = this.deps.store.getThread(agent.threadId);
+    if (!thread || thread.deletedAt !== undefined) {
+      // Its thread is gone, its state possibly purged: there is no one to tell and no hold to
+      // end, so the result is done with instead of tried again on every start.
+      this.deps.outgoing.markDelivered(transfer.transferId);
+      return;
+    }
     try {
       this.deps.deliver(
         agent.threadId,

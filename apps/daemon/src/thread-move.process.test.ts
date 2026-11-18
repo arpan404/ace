@@ -201,7 +201,7 @@ test("missing and removed destinations and isolated bindings refuse a move witho
       error: "workspace_not_found",
     });
     const projects = new ProjectStorage(f.store, f.clock.now);
-    projects.remove(f.target, false, () => false);
+    projects.remove(f.target, false, () => false, undefined);
     expect(await move(f.target)).toMatchObject({ ok: false, error: "workspace_not_found" });
     projects.register(f.targetPath, "Destination");
     await f.engine.changeWorkspace(f.id, "isolate", async () => ({

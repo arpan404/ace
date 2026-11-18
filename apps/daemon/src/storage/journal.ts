@@ -32,6 +32,7 @@ export class StorageJournal {
         state TEXT NOT NULL, expires INTEGER NOT NULL, document TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS storage_plan_recovery ON storage_plans(state,id);
       CREATE TABLE IF NOT EXISTS storage_purged(thread_id TEXT PRIMARY KEY,at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS thread_purges(thread_id TEXT PRIMARY KEY,started_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS storage_compactions(id TEXT PRIMARY KEY, state TEXT NOT NULL,
         document TEXT NOT NULL);
     `),

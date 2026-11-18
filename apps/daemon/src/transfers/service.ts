@@ -17,6 +17,7 @@ import { IncomingTransfers } from "./incoming.ts";
 import { transferIdentities } from "./identity.ts";
 import { OutgoingTransfers } from "./outgoing.ts";
 import { TransferError } from "./ports.ts";
+import { threadGone } from "../thread-gone.ts";
 import { sourceThreads, targetProjects, targetThreads } from "./service-adapters.ts";
 
 export interface DaemonTransfers {
@@ -153,8 +154,11 @@ export function startTransfers(context: ServiceContext): void {
         rows.find((row) => String(row["name"]).toLowerCase() === name.toLowerCase());
       return found ? WorkspaceId.parse(found["id"]) : undefined;
     },
-    hold: (threadId, agentId, transferId, change) =>
-      services.engine?.transferHold(threadId, agentId, transferId, change),
+    // A thread that is gone holds nothing: its transfer's hold went with it.
+    hold: (threadId, agentId, transferId, change) => {
+      if (threadGone((id) => store.getThread(id), services.engine, threadId)) return;
+      services.engine?.transferHold(threadId, agentId, transferId, change);
+    },
     deliver: (threadId, key, text) => {
       const parent = store.getThread(threadId);
       if (!parent || parent.deletedAt !== undefined) return;

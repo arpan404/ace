@@ -287,3 +287,71 @@ test("revoked handoff cleanup preserves a user commit made in its pending worktr
     await f.daemon.close();
   }
 });
+
+test("a handoff whose cleanup keeps refusing after a restart never blocks the next handoff", async () => {
+  const created = Promise.withResolvers<string>(),
+    ready = Promise.withResolvers<void>();
+  let first = true;
+  const f = await daemonFixture({
+    policy: { maxConcurrent: 2 },
+    handoffGit: () => {
+      const git = new GitService();
+      return {
+        listWorktrees: git.listWorktrees.bind(git),
+        removeWorktree: git.removeWorktree.bind(git),
+        deleteBranch: git.deleteBranch.bind(git),
+        resolveCommit: git.resolveCommit.bind(git),
+        worktreeMetadata: git.worktreeMetadata.bind(git),
+        close: git.close.bind(git),
+        async createWorktree(options) {
+          const result = await git.createWorktree(options);
+          if (first) {
+            first = false;
+            created.resolve(result.path);
+            await ready.promise;
+          }
+          return result;
+        },
+      };
+    },
+  });
+  const controller = new AbortController();
+  try {
+    await initialize(f.h.home);
+    const pending = f.controls.port.execute(
+      f.caller,
+      { op: "thread.handoff", threadId: f.caller.threadId, requestId: "kept", branch: "ace-kept" },
+      controller.signal,
+    );
+    const rejection = pending.catch((error: unknown) => error);
+    const path = await created.promise;
+    // The person commits in the pending worktree, so ace may never remove it.
+    await writeFile(join(path, "README.md"), "user changed this worktree\n");
+    await runGit(
+      "git",
+      ["-c", "user.name=ace", "-c", "user.email=ace@example.invalid", "commit", "-am", "user work"],
+      { cwd: path },
+    );
+    controller.abort();
+    ready.resolve();
+    await rejection;
+    const restarted = await f.restart();
+    try {
+      const next = await f.call({
+        op: "thread.handoff",
+        threadId: f.caller.threadId,
+        requestId: "next",
+        branch: "ace-next",
+      });
+      expect(next.ok).toBe(true);
+      // The refused worktree and its commit are still there.
+      expect(
+        (await runGit("git", ["branch", "--list", "ace-kept"], { cwd: f.h.home })).stdout,
+      ).toContain("ace-kept");
+    } finally {
+      await restarted.close();
+    }
+  } finally {
+    ready.resolve();
+  }
+});
