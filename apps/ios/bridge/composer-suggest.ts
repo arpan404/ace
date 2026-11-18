@@ -100,6 +100,8 @@ export interface SuggestPorts {
 const pause = 120;
 const fresh = 30_000;
 const quiet = { timeoutMs: 15_000 };
+/** How long `@` keeps asking a checkout whose index is still building, and how often. */
+const buildingWait = { deadlineMs: 5_000, retryMs: 250 };
 
 export class ComposerSuggest {
   readonly #ports: SuggestPorts;
@@ -286,19 +288,39 @@ export class ComposerSuggest {
     const early = rows([], []);
     put(early.length ? "ready" : "loading", early);
     const tabs = threadId ? this.#browserTabs(threadId) : Promise.resolve([]);
+    const started = this.#ports.now();
     let completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
-    // A checkout whose index is still building answers empty with `ready: false`: keep the
-    // loading state and ask again while this query is current.
-    for (let attempt = 0; completion?.ready === false && attempt < 20; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      if (seq !== this.#seq) return;
+    // A checkout whose index is still building answers empty with `ready: false`: ask again,
+    // unless the query moved on or its deadline passed.
+    while (
+      completion?.ready === false &&
+      this.#ports.now() - started < buildingWait.deadlineMs
+    ) {
+      if (!(await this.#pause(buildingWait.retryMs, seq))) return;
       completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
     }
     if (seq !== this.#seq) return;
     const all = rows(completion?.paths ?? [], await tabs);
     if (all.length) put("ready", all);
-    else if (completion?.ready === false) put("loading", early);
+    else if (completion?.ready === false) put("failed", early);
     else put(completion ? "empty" : "failed");
+  }
+
+  /** Wait before asking again; a newer query or `close` ends the wait early. */
+  #pause(ms: number, seq: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      let stop = () => {};
+      const cancel = this.#ports.schedule(ms, () => {
+        if (this.#cancel === stop) this.#cancel = undefined;
+        resolve(seq === this.#seq);
+      });
+      stop = () => {
+        cancel();
+        if (this.#cancel === stop) this.#cancel = undefined;
+        resolve(false);
+      };
+      this.#cancel = stop;
+    });
   }
 
   async #complete(

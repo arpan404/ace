@@ -35,6 +35,19 @@ const threadReference = (thread: ThreadListEntry) => ({
   title: thread.title,
   workspaceId: thread.workspaceId,
 });
+/** A building index is asked for about this long before the list offers Try again. */
+export const buildingWaitMs = 12_000;
+/**
+ * Whether the answer is still an index being built, not a list of matches. `updatedAt` is when the
+ * answer arrived: past the wait it is not a list that will fill in, so the caller can say so.
+ */
+export function indexStillBuilding(
+  answer: { ready?: boolean | undefined } | undefined,
+  updatedAt: number,
+  now = Date.now(),
+): boolean {
+  return answer?.ready === false && now - updatedAt < buildingWaitMs;
+}
 const sameThread = (a: ReturnType<typeof threadReference>, b: ReturnType<typeof threadReference>) =>
   a.id === b.id && a.title === b.title && a.workspaceId === b.workspaceId;
 export function useSuggestions(
@@ -83,7 +96,8 @@ export function useSuggestions(
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
     enabled: ready && scoped && trigger?.kind === "mention",
     staleTime: 10_000,
-    refetchInterval: (query) => (query.state.data?.ready === false ? 300 : false),
+    refetchInterval: (query) =>
+      indexStillBuilding(query.state.data, query.state.dataUpdatedAt) ? 300 : false,
   });
   const known =
     catalog && catalog.reference === reference && !catalog.failed ? catalog.entries : undefined;
@@ -92,7 +106,8 @@ export function useSuggestions(
   if (!scoped || !ready) return { state: "loading", kind, query };
   let items: Suggestion[];
   if (kind === "mention") {
-    const building = mentions.data?.ready === false;
+    const building = indexStillBuilding(mentions.data, mentions.dataUpdatedAt);
+    const failing = mentions.isError || mentions.isRefetchError;
     items = mentionSuggestions({
       query,
       recent: query ? [] : recent(),
@@ -104,8 +119,11 @@ export function useSuggestions(
     }).map((item) =>
       Object.assign(item, { kind, insert: item.path ? `@${item.path}` : `@${item.label}` }),
     );
+    // A failed read is retryable even while a cached answer still says the index is building.
+    if (!items.length && failing)
+      return { state: "failed", kind, query, retry: () => void mentions.refetch() };
     if (!items.length && (mentions.isPending || building)) return { state: "loading", kind, query };
-    if (!items.length && mentions.isError)
+    if (!items.length && mentions.data?.ready === false)
       return { state: "failed", kind, query, retry: () => void mentions.refetch() };
   } else {
     if (!catalog || catalog.reference !== reference) return { state: "loading", kind, query };
