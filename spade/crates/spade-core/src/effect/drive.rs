@@ -1,81 +1,91 @@
-//! Where a driving step acts, and whether that place is the person's alone (ADR 0171,
-//! amendment 3). A `browser_*`, `screen_*` or `sim_*` call ace doesn't mark read-only goes to the
-//! reviewer; it goes to the person when it acts in mail, messages or chat, a bank, a payment or
-//! checkout page, a password manager, the system's settings, a sign-in or account page, or a
-//! place Spade can't name. The place comes from the call's arguments (`app`, `url`) or, for a
-//! step in a page already open, from what ace reported last in the session. Pure.
+//! Where a driving step acts, resolved right before it, and whether that place is the person's
+//! alone (ADR 0171, amendment 3). A `browser_*`, `screen_*` or `sim_*` call ace doesn't mark
+//! read-only goes to the reviewer; to the person in mail, chat, money, passwords, settings,
+//! sign-in pages, social sites or a browser driven through the screen, and wherever Spade can't
+//! tell where it acts. The place is never inferred from earlier answers: a page is the tab the
+//! step runs in as ace lists it now, an app is every app ace could open for the name given.
+//! The engine asks ace ([`lookup`]) and this module reads the answer ([`read`]). Pure.
 
-use serde_json::Value;
+pub mod address;
+pub mod sensitive;
 
-use crate::event::{Event, Known};
-use crate::tools::{CALL_TOOL, unwrap_call_tool};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
 
-/// What a driving step acts in.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Target {
-    /// An app, as the call names it, and what ace resolved that name to earlier in the session.
-    App {
-        given: String,
-        resolved: Option<Resolved>,
+/// Where a step acts, as resolved right before it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Place {
+    /// An app on the computer, by its id as ace lists it.
+    App { id: String, name: String },
+    /// A web page.
+    Site {
+        host: String,
+        path: String,
+        #[serde(default)]
+        fragment: String,
     },
-    /// A page, by its address.
-    Site { host: String, path: String },
-    /// Spade can't tell.
-    Unknown,
+    /// An app a device is told to open (`sim_act open_app`).
+    DeviceApp { device: String, app: String },
+    /// A device itself (start, stop, install, record, posture).
+    Device { device: String },
 }
 
-/// An app as ace reported it: `TextEdit (com.apple.TextEdit)`.
+impl Place {
+    /// How the request names it.
+    pub fn shown(&self) -> &str {
+        match self {
+            Self::App { name, id } if name.is_empty() => id,
+            Self::App { name, .. } => name,
+            Self::Site { host, .. } => host,
+            Self::DeviceApp { app, .. } => app,
+            Self::Device { device } => device,
+        }
+    }
+
+    /// The grant a "for this bot" answer would make: an app or a site, never a device.
+    pub fn grant(&self) -> Option<crate::grant::Scope> {
+        use crate::grant::Scope;
+        match self {
+            Self::App { id, .. } => Some(Scope::DriveApp { app: id.clone() }),
+            Self::Site { host, .. } => Some(Scope::DriveSite { host: host.clone() }),
+            Self::DeviceApp { .. } | Self::Device { .. } => None,
+        }
+    }
+}
+
+/// A step's place, or why Spade can't tell, and why it is the person's when it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Resolved {
-    pub name: String,
-    pub id: String,
+pub struct Step {
+    pub place: Result<Place, &'static str>,
+    pub sensitive: Option<&'static str>,
 }
 
-impl Target {
-    /// How the request names it: the app's name, or the site's host.
-    pub fn shown(&self) -> Option<&str> {
-        match self {
-            Self::App {
-                resolved: Some(resolved),
-                ..
-            } if !resolved.name.is_empty() => Some(&resolved.name),
-            Self::App { given, .. } => Some(given),
-            Self::Site { host, .. } => Some(host),
-            Self::Unknown => None,
+impl Step {
+    fn at(place: Place) -> Self {
+        let sensitive = sensitive(&place);
+        Self {
+            place: Ok(place),
+            sensitive,
         }
     }
 
-    /// The names a drive grant may match it by: the app as named and as ace resolved it, or
-    /// the site's host.
-    pub fn names(&self) -> Vec<&str> {
-        match self {
-            Self::App { given, resolved } => {
-                let mut names = vec![given.as_str()];
-                if let Some(resolved) = resolved {
-                    names.extend([resolved.name.as_str(), resolved.id.as_str()]);
-                }
-                names.retain(|name| !name.trim().is_empty());
-                names
-            }
-            Self::Site { host, .. } => vec![host],
-            Self::Unknown => Vec::new(),
-        }
-    }
-
-    /// What a drive grant for it stores: the app's id as ace reported it, else the app as the
-    /// call names it; or the host.
-    pub fn key(&self) -> Option<&str> {
-        match self {
-            Self::App {
-                resolved: Some(resolved),
-                ..
-            } => Some(&resolved.id),
-            Self::App { given, .. } => Some(given.trim()),
-            Self::Site { host, .. } => Some(host),
-            Self::Unknown => None,
+    fn nowhere(why: &'static str) -> Self {
+        Self {
+            place: Err(why),
+            sensitive: None,
         }
     }
 }
+
+pub const NO_TAB: &str = "It acts in a browser tab Spade can't find right now, so you decide.";
+pub const LOADING: &str = "It acts in a page that is still loading, so you decide.";
+pub const NOT_WEB: &str = "It acts in a page that isn't a web address, so you decide.";
+pub const NO_APP: &str = "It acts in an app Spade can't tell apart from others, so you decide.";
+pub const DEVICE_INPUT: &str =
+    "It acts on a device and Spade can't tell which app is open there, so you decide.";
+pub const UNPLACED: &str =
+    "It acts in a page or app as you and Spade can't tell which, so you decide.";
 
 /// Whether a tool is one of ace's driving families.
 pub fn drives(name: &str) -> bool {
@@ -84,38 +94,103 @@ pub fn drives(name: &str) -> bool {
         .any(|prefix| name.starts_with(prefix))
 }
 
-/// Where the step `tool` with `arguments` acts: its `app` or `url`, else (a step in a page
-/// already open) the page ace last reported for that tab in `events`.
-pub fn target(tool: &str, arguments: &Value, events: &[Event]) -> Target {
+/// How to find where a step acts.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Lookup {
+    /// The step names its place itself.
+    Named(Step),
+    /// Ask ace with `tool` and `arguments` now, then [`read`] its answer.
+    Ask {
+        tool: &'static str,
+        arguments: Value,
+    },
+}
+
+/// What to ask ace, right before the step, to know where it acts.
+pub fn lookup(tool: &str, arguments: &Value) -> Lookup {
     let text = |key: &str| arguments.get(key).and_then(Value::as_str);
-    if let Some(url) = text("url") {
-        return site(url).unwrap_or(Target::Unknown);
-    }
-    if tool.starts_with("screen_") {
-        return match text("app") {
-            Some(app) if !app.trim().is_empty() => Target::App {
-                given: app.trim().to_owned(),
-                resolved: resolved(app, events),
-            },
-            _ => Target::Unknown,
-        };
-    }
+    // Where the call runs: another machine, or the person's own Chrome.
+    let routed = |mut asked: Map<String, Value>| {
+        for key in ["machine", "browser"] {
+            if let Some(value) = arguments.get(key) {
+                asked.insert(key.to_owned(), value.clone());
+            }
+        }
+        Value::Object(asked)
+    };
     if tool.starts_with("sim_") {
-        // A simulator runs test builds, not the person's accounts: the app it opens, else the
-        // simulator itself.
-        let app = text("appId").filter(|app| !app.trim().is_empty());
-        return Target::App {
-            given: app.unwrap_or("Simulator").trim().to_owned(),
-            resolved: None,
-        };
+        return Lookup::Named(device(tool, arguments));
     }
     if tool.starts_with("browser_") {
-        let tab = arguments.get("tabId").map(scalar);
-        return last_page(events, tab.as_deref())
-            .and_then(|url| site(&url))
-            .unwrap_or(Target::Unknown);
+        // Opening an address: the page is the one it opens. Anything else acts in a tab as it
+        // is now.
+        if let Some(url) = text("url") {
+            return Lookup::Named(site(url));
+        }
+        let mut asked = Map::new();
+        asked.insert("action".to_owned(), json!("list"));
+        return Lookup::Ask {
+            tool: "browser_tabs",
+            arguments: routed(asked),
+        };
     }
-    Target::Unknown
+    if tool.starts_with("screen_") {
+        return match text("app").map(str::trim).filter(|app| !app.is_empty()) {
+            Some(app) => {
+                let mut asked = Map::new();
+                asked.insert("query".to_owned(), json!(app));
+                Lookup::Ask {
+                    tool: "screen_apps",
+                    arguments: routed(asked),
+                }
+            }
+            None => Lookup::Named(Step::nowhere(UNPLACED)),
+        };
+    }
+    Lookup::Named(Step::nowhere(UNPLACED))
+}
+
+/// Where the step acts, from ace's `answer` to [`lookup`]'s question (`None`: ace couldn't
+/// answer). A [`Lookup::Named`] step reads the same as it was named.
+pub fn read(tool: &str, arguments: &Value, answer: Option<&str>) -> Step {
+    let ask = match lookup(tool, arguments) {
+        Lookup::Named(step) => return step,
+        Lookup::Ask { tool: asked, .. } => asked,
+    };
+    let given = arguments.get("app").and_then(Value::as_str).unwrap_or("");
+    match (ask, answer) {
+        ("browser_tabs", Some(answer)) => tab(answer, arguments.get("tabId")),
+        ("browser_tabs", None) => Step::nowhere(NO_TAB),
+        ("screen_apps", answer) => app(given, answer),
+        _ => Step::nowhere(UNPLACED),
+    }
+}
+
+/// The page of the tab a step runs in: its `tabId`, else the caller's current tab, as ace
+/// lists them now. A tab that is loading, private or missing has no place yet.
+fn tab(answer: &str, wanted: Option<&Value>) -> Step {
+    let Ok(listed) = serde_json::from_str::<Value>(answer) else {
+        return Step::nowhere(NO_TAB);
+    };
+    let tabs = listed.get("tabs").and_then(Value::as_array);
+    let found = tabs.into_iter().flatten().find(|tab| match wanted {
+        Some(wanted) => tab.get("tabId").map(scalar) == Some(scalar(wanted)),
+        None => tab.get("current").and_then(Value::as_bool) == Some(true),
+    });
+    let Some(found) = found else {
+        return Step::nowhere(NO_TAB);
+    };
+    let flag = |key: &str| found.get(key).and_then(Value::as_bool) == Some(true);
+    if flag("loading") {
+        return Step::nowhere(LOADING);
+    }
+    if flag("private") {
+        return Step::nowhere(NO_TAB);
+    }
+    match found.get("url").and_then(Value::as_str) {
+        Some(url) => site(url),
+        None => Step::nowhere(NO_TAB),
+    }
 }
 
 /// A string or number as text: a tab id is either.
@@ -126,458 +201,143 @@ fn scalar(value: &Value) -> String {
     }
 }
 
-/// A page's host and path, when `url` is a web address.
-pub fn site(url: &str) -> Option<Target> {
-    let url = url.trim();
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))?;
-    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..end];
-    let host = authority.rsplit('@').next().unwrap_or(authority);
-    let host = match host.strip_prefix('[') {
-        Some(v6) => v6.split(']').next().unwrap_or(v6),
-        None => host.split(':').next().unwrap_or(host),
-    };
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    let host = host.strip_prefix("www.").unwrap_or(&host).to_owned();
-    if host.is_empty() {
-        return None;
+/// A page by its address.
+pub fn site(url: &str) -> Step {
+    match address::parse(url) {
+        Some(found) => Step::at(Place::Site {
+            host: found.host,
+            path: found.path,
+            fragment: found.fragment,
+        }),
+        None => Step::nowhere(NOT_WEB),
     }
-    let path = rest[end..]
-        .split(['?', '#'])
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    Some(Target::Site { host, path })
 }
 
-/// The browser tools whose answers ace words itself, page address first. Never `browser_evaluate`
-/// (its answer is whatever the page's script returns) or a history or log.
-const REPORTS_PAGE: &[&str] = &[
-    "browser_open",
-    "browser_act",
-    "browser_tabs",
-    "browser_snapshot",
-    "browser_find",
-];
-
-/// The `screen_*` tools whose answers start with the app ace opened.
-const REPORTS_APP: &[&str] = &["screen_state", "screen_act"];
-
-/// The page ace last reported for `tab` (or for any tab, when the call names none): a browser
-/// tool's `"url"` (with its `"tabId"`), or a snapshot's `Page: <url> [tab=<id>]` line.
-fn last_page(events: &[Event], tab: Option<&str>) -> Option<String> {
-    events.iter().rev().find_map(|event| match event {
-        Event::Known(Known::ToolFinished {
-            name,
-            content,
-            is_error: false,
-            ..
-        }) if REPORTS_PAGE.contains(&name.as_str()) => reported_page(content, tab),
+/// The apps ace could open for the name `given`, from its list of apps (`Name (id)` rows): every
+/// one whose name or id holds the name. Sensitive if the name or any of them is; placed only
+/// when it is one app (an exact name or id, or the only match).
+fn app(given: &str, answer: Option<&str>) -> Step {
+    let named = sensitive::app_given(given);
+    let wanted = given.trim().to_lowercase();
+    let rows: Vec<(String, String)> = answer
+        .into_iter()
+        .flat_map(str::lines)
+        .filter_map(row)
+        .collect();
+    let matching: Vec<&(String, String)> = rows
+        .iter()
+        .filter(|(name, id)| {
+            name.to_lowercase().contains(&wanted) || id.to_lowercase().contains(&wanted)
+        })
+        .collect();
+    let sensitive = named.or_else(|| {
+        matching.iter().find_map(|(name, id)| {
+            sensitive::app_by_name(name).or_else(|| sensitive::app_by_name(id))
+        })
+    });
+    let exact: Vec<&(String, String)> = matching
+        .iter()
+        .copied()
+        .filter(|(name, id)| name.to_lowercase() == wanted || id.to_lowercase() == wanted)
+        .collect();
+    let one = match (exact.as_slice(), matching.as_slice()) {
+        ([one], _) => Some(*one),
+        ([], [one]) => Some(*one),
         _ => None,
-    })
-}
-
-fn reported_page(content: &str, tab: Option<&str>) -> Option<String> {
-    let matches = |reported: Option<String>| match (tab, reported) {
-        (None, _) => true,
-        (Some(wanted), Some(reported)) => wanted == reported,
-        (Some(_), None) => false,
     };
-    if let Ok(value) = serde_json::from_str::<Value>(content)
-        && let Some(url) = value.get("url").and_then(Value::as_str)
-    {
-        return matches(value.get("tabId").map(scalar)).then(|| url.to_owned());
-    }
-    let line = content.lines().next()?.strip_prefix("Page: ")?;
-    let (url, reported) = match line.split_once(" [tab=") {
-        Some((url, rest)) => (url, Some(rest.trim_end_matches(']').to_owned())),
-        None => (line, None),
+    let place = match one {
+        Some((name, id)) => Ok(Place::App {
+            id: id.clone(),
+            name: name.clone(),
+        }),
+        None => Err(NO_APP),
     };
-    matches(reported).then(|| url.trim().to_owned())
+    Step { place, sensitive }
 }
 
-/// What ace resolved the app name `given` to, from the latest `screen_*` result for a call that
-/// named it: its first line reads `Name (id), frontmost`.
-fn resolved(given: &str, events: &[Event]) -> Option<Resolved> {
-    let given = given.trim();
-    events.iter().rev().find_map(|event| {
-        let Event::Known(Known::ToolFinished {
-            call_id,
-            name,
-            content,
-            is_error: false,
-            ..
-        }) = event
-        else {
-            return None;
-        };
-        if !REPORTS_APP.contains(&name.as_str()) {
-            return None;
-        }
-        let named = called_app(events, call_id)?;
-        if !named.trim().eq_ignore_ascii_case(given) {
-            return None;
-        }
-        header(content.lines().next()?)
-    })
-}
-
-/// The `app` a stored call named, unwrapping `call_tool`.
-fn called_app(events: &[Event], call_id: &str) -> Option<String> {
-    events.iter().rev().find_map(|event| match event {
-        Event::Known(Known::StepFinished { calls, .. }) => {
-            let call = calls.iter().find(|call| call.id == call_id)?;
-            let arguments = if call.name == CALL_TOOL {
-                unwrap_call_tool(&call.arguments)?.1
-            } else {
-                call.arguments.clone()
-            };
-            arguments.get("app")?.as_str().map(str::to_owned)
-        }
-        _ => None,
-    })
-}
-
-/// `Name (id), …` read into its name and id.
-fn header(line: &str) -> Option<Resolved> {
-    let end = match line.find("), ") {
-        Some(at) => at + 1,
-        None if line.ends_with(')') => line.len(),
-        None => return None,
-    };
-    let head = &line[..end];
+/// `Name (id)` or `Name (id), frontmost`.
+fn row(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    let line = line.strip_suffix(", frontmost").unwrap_or(line);
+    let head = line.strip_suffix(')')?;
     let open = head.rfind(" (")?;
-    let id = head[open + 2..head.len() - 1].trim();
+    let id = head[open + 2..].trim();
     let name = head[..open].trim();
-    (!id.is_empty()).then(|| Resolved {
-        name: name.to_owned(),
-        id: id.to_owned(),
-    })
+    (!id.is_empty()).then(|| (name.to_owned(), id.to_owned()))
 }
 
-/// Why the step's place is the person's alone, as the request words it ("mail, where it can
-/// send in your name"); `None` for an app or site the reviewer may decide on.
-pub fn sensitive(target: &Target) -> Option<&'static str> {
-    match target {
-        Target::App { given, resolved } => {
-            let mut found = app_words(given);
-            if let Some(resolved) = resolved {
-                found = found
-                    .or_else(|| app_words(&resolved.name))
-                    .or_else(|| app_words(&resolved.id));
-            } else {
-                // ace finds an app by part of its name, so a fragment of a sensitive one is
-                // read as that app until ace reports which it opened.
-                found = found.or_else(|| fragment(given));
-            }
-            found
+/// A simulator or device step. ace reports no app in the foreground of a device, so input
+/// (a tap, typing, a key, the clipboard) has no place; opening an app or address is placed by
+/// what it opens, and the device's own operations by the device.
+fn device(tool: &str, arguments: &Value) -> Step {
+    let text = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let device = || Place::Device {
+        device: text("simId").unwrap_or("the device").to_owned(),
+    };
+    match (tool, text("action")) {
+        ("sim_start" | "sim_stop", _) => Step::at(device()),
+        ("sim_act", Some("open_app")) => match text("appId") {
+            Some(app) => Step::at(Place::DeviceApp {
+                device: text("simId").unwrap_or("").to_owned(),
+                app: app.to_owned(),
+            }),
+            None => Step::nowhere(DEVICE_INPUT),
+        },
+        ("sim_act", Some("open_url")) => match text("url") {
+            Some(url) => site(url),
+            None => Step::nowhere(NOT_WEB),
+        },
+        ("sim_act", Some("install" | "record_start" | "record_stop" | "posture")) => {
+            Step::at(device())
         }
-        Target::Site { host, path } => site_words(host, path),
-        Target::Unknown => None,
+        _ => Step::nowhere(DEVICE_INPUT),
     }
 }
 
-/// Whether a drive grant for `place` (an app or a host) may be made: never for a sensitive one.
-pub fn grantable(place: &str) -> Result<(), &'static str> {
-    let place = place.trim();
-    let app = Target::App {
-        given: place.to_owned(),
-        resolved: None,
-    };
-    let as_site = site(&format!("https://{place}")).and_then(|site| sensitive(&site));
-    match sensitive(&app).or(as_site) {
+/// Why a place is the person's alone, as the request words it ("mail or messages, where it can
+/// send in your name"); `None` where the reviewer may decide.
+pub fn sensitive(place: &Place) -> Option<&'static str> {
+    match place {
+        Place::App { id, name } => sensitive::app_by_name(name)
+            .or_else(|| sensitive::app_by_name(id))
+            .or_else(|| sensitive::app_given(id)),
+        Place::Site {
+            host,
+            path,
+            fragment,
+        } => sensitive::site(host, path, fragment),
+        Place::DeviceApp { app, .. } => sensitive::app_given(app),
+        Place::Device { .. } => None,
+    }
+}
+
+/// Whether a drive grant for the app id `app` may be made: never for a sensitive one.
+pub fn grantable_app(app: &str) -> Result<(), &'static str> {
+    if app.trim().is_empty() {
+        return Err(UNPLACED);
+    }
+    match sensitive::app_given(app) {
         Some(why) => Err(why),
         None => Ok(()),
     }
 }
 
-const MAIL: &str = "mail or messages, where it can send in your name";
-const MONEY: &str = "a bank, payment or checkout, where it can spend money";
-const PASSWORDS: &str = "a password manager, where it can read or change sign-ins";
-const SETTINGS: &str = "the system's settings, where it can change privacy, security or access";
-const SIGN_IN: &str = "a sign-in or account page, where it can enter or change sign-ins";
-const SOCIAL: &str = "a social site, where it can post in your name";
-const BROWSER: &str = "a web browser, where Spade can't see which site it acts in";
-
-/// Words in an app's name or id that make it sensitive, each with why.
-const APP_WORDS: &[(&str, &str)] = &[
-    ("mail", MAIL),
-    ("outlook", MAIL),
-    ("thunderbird", MAIL),
-    ("evolution", MAIL),
-    ("geary", MAIL),
-    ("kmail", MAIL),
-    ("olk", MAIL),
-    ("spark", MAIL),
-    ("message", MAIL),
-    ("mobilesms", MAIL),
-    ("ichat", MAIL),
-    ("facetime", MAIL),
-    ("chat", MAIL),
-    ("slack", MAIL),
-    ("discord", MAIL),
-    ("telegram", MAIL),
-    ("whatsapp", MAIL),
-    ("signal", MAIL),
-    ("teams", MAIL),
-    ("skype", MAIL),
-    ("element", MAIL),
-    ("wechat", MAIL),
-    ("zoom", MAIL),
-    ("bank", MONEY),
-    ("wallet", MONEY),
-    ("paypal", MONEY),
-    ("venmo", MONEY),
-    ("cash app", MONEY),
-    ("coinbase", MONEY),
-    ("stripe", MONEY),
-    ("crypto", MONEY),
-    ("password", PASSWORDS),
-    ("keychain", PASSWORDS),
-    ("1password", PASSWORDS),
-    ("bitwarden", PASSWORDS),
-    ("keepass", PASSWORDS),
-    ("lastpass", PASSWORDS),
-    ("dashlane", PASSWORDS),
-    ("seahorse", PASSWORDS),
-    ("authenticator", PASSWORDS),
-    ("settings", SETTINGS),
-    ("preferences", SETTINGS),
-    ("systempreferences", SETTINGS),
-    ("control-center", SETTINGS),
-    ("control panel", SETTINGS),
-    ("ms-settings", SETTINGS),
-    ("safari", BROWSER),
-    ("chrome", BROWSER),
-    ("chromium", BROWSER),
-    ("firefox", BROWSER),
-    ("edge", BROWSER),
-    ("brave", BROWSER),
-    ("opera", BROWSER),
-    ("vivaldi", BROWSER),
-    ("arc", BROWSER),
-    ("browser", BROWSER),
-];
-
-fn app_words(name: &str) -> Option<&'static str> {
-    let name = name.trim().to_ascii_lowercase();
-    let parts: Vec<&str> = name
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
-        .filter(|part| !part.is_empty())
-        .collect();
-    APP_WORDS.iter().find_map(|(word, why)| {
-        // A short word counts only as a whole part (`arc`, not `archive`); a longer one where a
-        // part starts with it (`mailspring`) or anywhere in the name (`1password`).
-        let hit = match word.len() {
-            0..=3 => parts.contains(word),
-            4 => parts.iter().any(|part| part.starts_with(word)),
-            _ => name.contains(word),
-        };
-        hit.then_some(*why)
-    })
-}
-
-/// Sensitive apps by full name: a name ace would match by part (`ail` finds Mail).
-const APP_NAMES: &[(&str, &str)] = &[
-    ("mail", MAIL),
-    ("messages", MAIL),
-    ("facetime", MAIL),
-    ("microsoft outlook", MAIL),
-    ("microsoft teams", MAIL),
-    ("thunderbird", MAIL),
-    ("keychain access", PASSWORDS),
-    ("passwords", PASSWORDS),
-    ("wallet", MONEY),
-    ("system settings", SETTINGS),
-    ("system preferences", SETTINGS),
-    ("safari", BROWSER),
-    ("google chrome", BROWSER),
-    ("firefox", BROWSER),
-];
-
-fn fragment(given: &str) -> Option<&'static str> {
-    let given = given.trim().to_ascii_lowercase();
-    APP_NAMES
-        .iter()
-        .find_map(|(name, why)| name.contains(given.as_str()).then_some(*why))
-}
-
-/// Hosts that are sensitive whatever the page, by the host or a parent domain.
-const HOSTS: &[(&str, &str)] = &[
-    ("mail.google.com", MAIL),
-    ("gmail.com", MAIL),
-    ("outlook.live.com", MAIL),
-    ("outlook.office.com", MAIL),
-    ("outlook.office365.com", MAIL),
-    ("mail.yahoo.com", MAIL),
-    ("proton.me", MAIL),
-    ("protonmail.com", MAIL),
-    ("fastmail.com", MAIL),
-    ("icloud.com", MAIL),
-    ("hey.com", MAIL),
-    ("web.whatsapp.com", MAIL),
-    ("whatsapp.com", MAIL),
-    ("web.telegram.org", MAIL),
-    ("discord.com", MAIL),
-    ("slack.com", MAIL),
-    ("app.slack.com", MAIL),
-    ("messenger.com", MAIL),
-    ("teams.microsoft.com", MAIL),
-    ("teams.live.com", MAIL),
-    ("chat.google.com", MAIL),
-    ("messages.google.com", MAIL),
-    ("app.element.io", MAIL),
-    ("x.com", SOCIAL),
-    ("twitter.com", SOCIAL),
-    ("facebook.com", SOCIAL),
-    ("instagram.com", SOCIAL),
-    ("linkedin.com", SOCIAL),
-    ("threads.net", SOCIAL),
-    ("bsky.app", SOCIAL),
-    ("reddit.com", SOCIAL),
-    ("paypal.com", MONEY),
-    ("venmo.com", MONEY),
-    ("cash.app", MONEY),
-    ("wise.com", MONEY),
-    ("revolut.com", MONEY),
-    ("stripe.com", MONEY),
-    ("dashboard.stripe.com", MONEY),
-    ("pay.google.com", MONEY),
-    ("coinbase.com", MONEY),
-    ("binance.com", MONEY),
-    ("kraken.com", MONEY),
-    ("robinhood.com", MONEY),
-    ("chase.com", MONEY),
-    ("wellsfargo.com", MONEY),
-    ("citi.com", MONEY),
-    ("capitalone.com", MONEY),
-    ("americanexpress.com", MONEY),
-    ("schwab.com", MONEY),
-    ("fidelity.com", MONEY),
-    ("vanguard.com", MONEY),
-    ("1password.com", PASSWORDS),
-    ("bitwarden.com", PASSWORDS),
-    ("lastpass.com", PASSWORDS),
-    ("dashlane.com", PASSWORDS),
-    ("passwords.google.com", PASSWORDS),
-    ("accounts.google.com", SIGN_IN),
-    ("myaccount.google.com", SIGN_IN),
-    ("login.microsoftonline.com", SIGN_IN),
-    ("login.live.com", SIGN_IN),
-    ("account.microsoft.com", SIGN_IN),
-    ("appleid.apple.com", SIGN_IN),
-    ("account.apple.com", SIGN_IN),
-    ("id.atlassian.com", SIGN_IN),
-    ("signin.aws.amazon.com", SIGN_IN),
-    ("console.aws.amazon.com", SIGN_IN),
-    ("console.cloud.google.com", SIGN_IN),
-    ("portal.azure.com", SIGN_IN),
-];
-
-/// Parts of a host that make it sensitive (`mybank.example`, `pay.example`, `login.example`).
-const HOST_PARTS: &[(&str, &str)] = &[
-    ("bank", MONEY),
-    ("wallet", MONEY),
-    ("checkout", MONEY),
-    ("billing", MONEY),
-    ("pay", MONEY),
-    ("mail", MAIL),
-    ("webmail", MAIL),
-    ("login", SIGN_IN),
-    ("signin", SIGN_IN),
-    ("auth", SIGN_IN),
-    ("sso", SIGN_IN),
-    ("accounts", SIGN_IN),
-    ("account", SIGN_IN),
-    ("password", PASSWORDS),
-    ("vault", PASSWORDS),
-];
-
-/// Path parts that make a page sensitive on any public site (`/checkout`, `/settings/keys`).
-const PATH_PARTS: &[(&str, &str)] = &[
-    ("checkout", MONEY),
-    ("cart", MONEY),
-    ("basket", MONEY),
-    ("payment", MONEY),
-    ("payments", MONEY),
-    ("billing", MONEY),
-    ("pay", MONEY),
-    ("purchase", MONEY),
-    ("buy", MONEY),
-    ("donate", MONEY),
-    ("subscribe", MONEY),
-    ("wallet", MONEY),
-    ("login", SIGN_IN),
-    ("signin", SIGN_IN),
-    ("sign-in", SIGN_IN),
-    ("sign_in", SIGN_IN),
-    ("logon", SIGN_IN),
-    ("signup", SIGN_IN),
-    ("sign-up", SIGN_IN),
-    ("register", SIGN_IN),
-    ("auth", SIGN_IN),
-    ("oauth", SIGN_IN),
-    ("authorize", SIGN_IN),
-    ("sso", SIGN_IN),
-    ("account", SIGN_IN),
-    ("accounts", SIGN_IN),
-    ("password", SIGN_IN),
-    ("security", SIGN_IN),
-    ("2fa", SIGN_IN),
-    ("mfa", SIGN_IN),
-    ("settings", SIGN_IN),
-    ("admin", SIGN_IN),
-    ("tokens", SIGN_IN),
-    ("keys", SIGN_IN),
-    ("access", SIGN_IN),
-    ("members", SIGN_IN),
-    ("collaborators", SIGN_IN),
-    ("invite", SIGN_IN),
-    ("inbox", MAIL),
-    ("compose", MAIL),
-    ("messages", MAIL),
-];
-
-fn site_words(host: &str, path: &str) -> Option<&'static str> {
-    let listed = HOSTS.iter().find_map(|(listed, why)| {
-        let under = host == *listed
-            || host
-                .strip_suffix(listed)
-                .is_some_and(|sub| sub.ends_with('.'));
-        under.then_some(*why)
-    });
-    if listed.is_some() {
-        return listed;
+/// Whether a drive grant for the site `host` may be made: never for a sensitive one, and only
+/// for a host as a browser reads it.
+pub fn grantable_site(host: &str) -> Result<(), &'static str> {
+    match address::parse(&format!("https://{}/", host.trim())) {
+        Some(found) if found.host == host.trim() => match sensitive::site(&found.host, "", "") {
+            Some(why) => Err(why),
+            None => Ok(()),
+        },
+        _ => Err(NOT_WEB),
     }
-    // The person's own dev server (`localhost:3000/login`) is no one's account.
-    if loopback(host) {
-        return None;
-    }
-    let labels: Vec<&str> = host.split(['.', '-']).collect();
-    let by_host = HOST_PARTS.iter().find_map(|(part, why)| {
-        labels
-            .iter()
-            .any(|label| label.starts_with(part) || label.ends_with(part))
-            .then_some(*why)
-    });
-    by_host.or_else(|| {
-        let parts: Vec<&str> = path.split(['/', '.']).filter(|p| !p.is_empty()).collect();
-        PATH_PARTS
-            .iter()
-            .find_map(|(word, why)| parts.contains(word).then_some(*why))
-    })
-}
-
-fn loopback(host: &str) -> bool {
-    host == "localhost"
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host.ends_with(".test")
-        || host == "::1"
-        || host.starts_with("127.")
-        || host == "0.0.0.0"
 }
 
 #[cfg(test)]

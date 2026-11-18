@@ -192,9 +192,9 @@ impl Engine {
         if awaited
             && allowed
             && always
-            && let Some(app) = asked_app(&events, call_id)
+            && let Some(place) = offered_place(&events, call_id)
         {
-            self.allow_driving(id, &app);
+            self.allow_driving(id, &place);
         }
         // A request Spade asked for a reason of its own (outside the sandbox, a tool that
         // declares nothing) is answered for this call only: its "always" is kept elsewhere (the
@@ -238,15 +238,17 @@ fn asked_for_a_reason(events: &[Event], call_id: &str) -> bool {
     })
 }
 
-/// The app or site a driving step's request offered to allow for the bot.
-fn asked_app(events: &[Event], call_id: &str) -> Option<String> {
+/// The app or site a driving step's request offered to allow for the bot: only one it named
+/// (`app`), as it found the step acts.
+fn offered_place(events: &[Event], call_id: &str) -> Option<spade_core::effect::drive::Place> {
     events.iter().rev().find_map(|event| match event {
         Event::Known(Known::ApprovalRequested {
             call_id: c,
             ask: Some(spade_core::effect::Ask::Drive),
-            app: Some(app),
+            app: Some(_),
+            acts_in: Some(place),
             ..
-        }) if c == call_id => Some(app.clone()),
+        }) if c == call_id => Some((**place).clone()),
         _ => None,
     })
 }

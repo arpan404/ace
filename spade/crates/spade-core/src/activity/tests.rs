@@ -135,6 +135,7 @@ fn day() -> Vec<Event> {
             ask: None,
             tool_key: None,
             app: None,
+            acts_in: None,
             helper: None,
         }),
         k(Known::ApprovalAnswered {

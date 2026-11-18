@@ -575,6 +575,12 @@ mod sandboxed {
         )
         .declares(spade_core::effect::Effect::Drive);
         let acts = act.calls();
+        // ace's list of apps, asked right before each step.
+        let apps = FakeTool::new(
+            "screen_apps",
+            Risk::Read,
+            "Running:\nTextEdit (com.apple.TextEdit), frontmost\nMail (com.apple.mail)",
+        );
         let click = |id: &str, app: &str| {
             Script::reply("").call(
                 id,
@@ -583,7 +589,7 @@ mod sandboxed {
             )
         };
         let unreadable = "I can't tell.";
-        let w = reviewed_world(false, vec![Arc::new(act)], |_| {
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(apps)], |_| {
             vec![
                 click("c1", "TextEdit"),
                 Script::reply("").plain(APPROVE),
@@ -626,7 +632,7 @@ mod sandboxed {
         w.spade
             .wait_for_count(&w.conversation, "reply_finished", 2)
             .await?;
-        // Left to the person in TextEdit, the request offers TextEdit, as ace named it.
+        // Left to the person in TextEdit, the request offers TextEdit, as ace lists it.
         w.spade.say(&w.conversation, "Click again").await?;
         let events = w
             .spade
@@ -634,7 +640,8 @@ mod sandboxed {
             .await?;
         let asked = requests(&events);
         assert_eq!(asked[1]["ask"], "drive");
-        assert_eq!(asked[1]["app"], "com.apple.TextEdit");
+        assert_eq!(asked[1]["app"], "TextEdit");
+        assert_eq!(asked[1]["acts_in"]["id"], "com.apple.TextEdit");
         answer(
             &w.spade,
             &w.conversation,
@@ -647,8 +654,10 @@ mod sandboxed {
             .await?;
         assert_eq!(ran(&acts), 2);
         let (_, grants) = w.spade.get(&format!("/v1/agents/{}/grants", w.bot)).await?;
+        let drive_grant = grants.to_string();
         assert!(
-            grants.to_string().contains(r#""app":"com.apple.TextEdit""#),
+            drive_grant.contains(r#""kind":"drive_app""#)
+                && drive_grant.contains(r#""app":"com.apple.TextEdit""#),
             "{grants}"
         );
         // The next step there is reviewed as allowed, without asking.
@@ -665,6 +674,53 @@ mod sandboxed {
             .rev()
             .find(|seen| seen.body.to_string().contains("allowed driving TextEdit"));
         assert!(told.is_some(), "the reviewer is told the person allowed it");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_step_whose_page_changed_after_its_review_does_not_run() -> Result {
+        let act = FakeTool::new("browser_act", Risk::Write, r#"{"ok":true}"#)
+            .declares(spade_core::effect::Effect::Drive);
+        let acts = act.calls();
+        let page = |url: &str| {
+            json!({ "tabs": [
+                { "tabId": "t1", "url": url, "title": "", "current": true },
+                { "tabId": "t2", "url": "https://docs.rs/serde", "title": "" },
+            ] })
+            .to_string()
+        };
+        // Reviewed on docs.rs; by the time it would run, the tab has gone to Gmail.
+        let (docs, gmail) = (
+            page("https://docs.rs/tokio"),
+            page("https://mail.google.com/mail/u/0"),
+        );
+        let tabs = FakeTool::new("browser_tabs", Risk::Write, "")
+            .then_answers(&[docs.as_str(), gmail.as_str()]);
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(tabs)], |_| {
+            vec![
+                Script::reply("").call(
+                    "c1",
+                    "browser_act",
+                    json!({ "action": "click", "ref": "e1" }),
+                ),
+                Script::reply("").plain(APPROVE),
+                Script::reply("It moved; I'll look again."),
+            ]
+        })
+        .await?;
+        w.spade.say(&w.conversation, "Click the docs link").await?;
+        let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        assert_eq!(ran(&acts), 0, "it never ran on Gmail");
+        let told = events
+            .iter()
+            .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c1")
+            .and_then(|e| e["content"].as_str())
+            .unwrap_or_default();
+        assert!(told.contains("changed since Spade checked"), "{told}");
+        assert!(
+            requests(&events).is_empty(),
+            "reviewed, not asked, on docs.rs"
+        );
         Ok(())
     }
 }

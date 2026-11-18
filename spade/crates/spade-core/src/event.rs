@@ -197,6 +197,10 @@ pub enum Known {
         /// Spade can't name, or any other request.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         app: Option<String>,
+        /// For a driving step, where Spade found it acts when it asked: the step runs only if
+        /// it still acts there (ADR 0171, amendment 3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
         /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]

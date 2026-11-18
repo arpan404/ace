@@ -243,16 +243,27 @@ pub enum Granted {
     Typed,
 }
 
-/// Where a driving step acts, for [`Effect::Drive`] (ADR 0171, amendment 3).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Where a driving step acts, for [`Effect::Drive`] (ADR 0171, amendment 3), as resolved right
+/// before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Drive<'a> {
-    /// The app or site, as the request names it (`TextEdit`, `github.com`); `None` when Spade
-    /// can't tell.
-    pub target: Option<&'a str>,
+    /// The app or site, as the request names it (`TextEdit`, `github.com`); else the line that
+    /// says why Spade can't tell.
+    pub target: Result<&'a str, &'static str>,
     /// Why that place is the person's alone ([`drive::sensitive`]).
     pub sensitive: Option<&'static str>,
     /// A drive grant of the person's covers that app or site for this bot.
     pub granted: bool,
+}
+
+impl Default for Drive<'_> {
+    fn default() -> Self {
+        Self {
+            target: Err(drive::UNPLACED),
+            sensitive: None,
+            granted: false,
+        }
+    }
 }
 
 /// What the gate knows about one call.
@@ -469,12 +480,16 @@ fn drive(call: Call<'_>, allowed: bool) -> Route {
         line,
         ask: Some(Ask::Drive),
     };
-    let Some(target) = call.drive.target else {
-        return ask(DRIVES_SOMEWHERE.to_owned());
-    };
+    // A sensitive place first: a name that may be Mail asks even when Spade can't tell which
+    // app ace would open for it.
     if let Some(why) = call.drive.sensitive {
-        return ask(format!("It acts in {target}, {why}, so you decide."));
+        let place = call.drive.target.unwrap_or("a place");
+        return ask(format!("It acts in {place}, {why}, so you decide."));
     }
+    let target = match call.drive.target {
+        Ok(target) => target,
+        Err(why) => return ask(why.to_owned()),
+    };
     if allowed {
         return Route::Run;
     }
@@ -592,8 +607,6 @@ pub const UNDECLARED: &str = "It doesn't say what it does, so you decide once fo
 pub const UNDECLARED_TAINTED: &str =
     "It doesn't say what it does and untrusted content is in view, so you decide.";
 pub const DRIVES: &str = "It acts in a page or app as you, so you decide.";
-pub const DRIVES_SOMEWHERE: &str =
-    "It acts in a page or app as you and Spade can't tell which, so you decide.";
 pub const UNKNOWN: &str = "It declares something Spade doesn't know yet, so you decide.";
 pub const NO_CHECKPOINT: &str = "Spade couldn't take the checkpoint that would undo it.";
 pub const OUTSIDE: &str = "It asks to run outside the sandbox, so you decide.";

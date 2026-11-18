@@ -358,6 +358,7 @@ mod tests {
             ask: None,
             tool_key: None,
             app: None,
+            acts_in: None,
             helper: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
@@ -370,6 +371,7 @@ mod tests {
             ask: None,
             tool_key: None,
             app: None,
+            acts_in: None,
             helper: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {

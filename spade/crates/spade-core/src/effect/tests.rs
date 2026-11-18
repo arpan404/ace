@@ -440,6 +440,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             ask: Some(Ask::Undeclared),
             tool_key: Some(key.into()),
             app: None,
+            acts_in: None,
             helper: None,
         })
     };
@@ -546,7 +547,11 @@ fn an_ace_tool_declared_as_publishing_is_reviewed_and_a_declared_read_stays_a_re
 }
 
 /// A driving step in `target`, sensitive or granted as given.
-fn step<'a>(target: Option<&'a str>, sensitive: Option<&'static str>, granted: bool) -> Call<'a> {
+fn step<'a>(
+    target: Result<&'a str, &'static str>,
+    sensitive: Option<&'static str>,
+    granted: bool,
+) -> Call<'a> {
     Call {
         drive: Drive {
             target,
@@ -605,36 +610,46 @@ fn ace_tools_that_can_act_in_a_page_or_app_drive_and_reads_stay_reads() {
 
 #[test]
 fn a_click_in_textedit_goes_to_the_reviewer_not_the_person() {
-    let route = route(step(Some("TextEdit"), None, false));
+    let route = route(step(Ok("TextEdit"), None, false));
     reviewed_with(route, &["TextEdit", "as the person", "sends, pays"]);
 }
 
 #[test]
 fn typing_in_mail_asks_the_person() {
-    let mail = drive::Target::App {
-        given: "Mail".into(),
-        resolved: None,
+    let mail = drive::Place::App {
+        id: "com.apple.mail".into(),
+        name: "Mail".into(),
     };
     let why = drive::sensitive(&mail);
     assert!(why.is_some());
-    let route = route(step(Some("Mail"), why, false));
+    let route = route(step(Ok("Mail"), why, false));
     let line = asked_about_driving(&route);
     assert!(
         line.starts_with("It acts in Mail, mail or messages"),
         "{line}"
     );
+    // A name that may be Mail asks even when Spade can't tell which app ace would open.
+    let unplaced = route_of(step(Err(drive::NO_APP), why, false));
+    assert!(
+        unplaced.starts_with("It acts in a place, mail"),
+        "{unplaced}"
+    );
+}
+
+fn route_of(call: Call<'_>) -> String {
+    asked_about_driving(&route(call)).to_owned()
 }
 
 #[test]
 fn a_granted_app_runs_reviewed_without_asking() {
     reviewed_with(
-        route(step(Some("TextEdit"), None, true)),
+        route(step(Ok("TextEdit"), None, true)),
         &["allowed driving TextEdit", "escalate only"],
     );
     // Under untrusted content the review is the strict one, grant or not.
     let tainted = Call {
         tainted: true,
-        ..step(Some("TextEdit"), None, true)
+        ..step(Ok("TextEdit"), None, true)
     };
     reviewed_with(
         route(tainted),
@@ -642,7 +657,7 @@ fn a_granted_app_runs_reviewed_without_asking() {
     );
     let tainted = Call {
         tainted: true,
-        ..step(Some("TextEdit"), None, false)
+        ..step(Ok("TextEdit"), None, false)
     };
     reviewed_with(
         route(tainted),
@@ -655,21 +670,28 @@ fn a_sensitive_place_asks_even_when_granted_or_allowed_always() {
     let always = Call {
         always: true,
         rule: Decision::Run,
-        ..step(Some("paypal.com"), Some("a bank"), true)
+        ..step(Ok("paypal.com"), Some("a bank"), true)
     };
     asked_about_driving(&route(always));
 }
 
 #[test]
-fn a_step_spade_cant_place_asks_the_person() {
-    assert_eq!(
-        asked_about_driving(&route(step(None, None, false))),
-        DRIVES_SOMEWHERE
-    );
-    assert_eq!(
-        asked_about_driving(&route(step(None, None, true))),
-        DRIVES_SOMEWHERE
-    );
+fn a_step_spade_cant_place_asks_the_person_even_in_a_granted_app() {
+    for why in [
+        drive::UNPLACED,
+        drive::NO_TAB,
+        drive::LOADING,
+        drive::DEVICE_INPUT,
+    ] {
+        assert_eq!(route_of(step(Err(why), None, false)), why);
+        assert_eq!(route_of(step(Err(why), None, true)), why);
+        let always = Call {
+            always: true,
+            rule: Decision::Run,
+            ..step(Err(why), None, false)
+        };
+        assert_eq!(route_of(always), why, "Always allow doesn't place it");
+    }
 }
 
 #[test]
@@ -677,19 +699,19 @@ fn a_drive_step_runs_on_always_allow_and_no_tool_grant_covers_it() {
     let always = Call {
         always: true,
         rule: Decision::Run,
-        ..step(Some("TextEdit"), None, false)
+        ..step(Ok("TextEdit"), None, false)
     };
     assert_eq!(route(always), Route::Run);
     // A tool grant for browser_act would cover every site: refused, and ignored at the gate.
     assert!(never_granted(Some(Effect::Drive)).is_some());
     let tool_grant = Call {
         granted: Granted::Tool,
-        ..step(Some("TextEdit"), None, false)
+        ..step(Ok("TextEdit"), None, false)
     };
     assert!(matches!(route(tool_grant), Route::Review(Some(_))));
     let too_long = Call {
         fits: false,
-        ..step(Some("TextEdit"), None, true)
+        ..step(Ok("TextEdit"), None, true)
     };
     assert_eq!(asked_about_driving(&route(too_long)), TOO_LONG);
 }

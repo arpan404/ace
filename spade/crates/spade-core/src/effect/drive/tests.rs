@@ -1,256 +1,304 @@
 use serde_json::json;
 
 use super::*;
-use crate::event::Call;
 
-fn app(given: &str) -> Target {
-    Target::App {
-        given: given.to_owned(),
-        resolved: None,
+/// ace's answer to `browser_tabs list`: (tab, url, current, loading).
+fn tabs(listed: &[(&str, &str, bool, bool)]) -> String {
+    let tabs: Vec<Value> = listed
+        .iter()
+        .map(|(tab, url, current, loading)| {
+            let mut entry = json!({"tabId": tab, "url": url, "title": ""});
+            if *current {
+                entry["current"] = json!(true);
+            }
+            if *loading {
+                entry["loading"] = json!(true);
+            }
+            entry
+        })
+        .collect();
+    json!({ "tabs": tabs }).to_string()
+}
+
+fn in_tab(arguments: Value, answer: &str) -> Step {
+    read("browser_act", &arguments, Some(answer))
+}
+
+fn host(step: &Step) -> Option<&str> {
+    match &step.place {
+        Ok(Place::Site { host, .. }) => Some(host),
+        _ => None,
     }
 }
 
-fn finished(call_id: &str, name: &str, content: &str) -> Event {
-    Event::Known(Known::ToolFinished {
-        reply: "r".into(),
-        call_id: call_id.into(),
-        name: name.into(),
-        content: content.into(),
-        is_error: false,
-        uncertain: false,
-        images: Vec::new(),
-        untrusted: false,
-    })
+/// `screen_apps`' answer listing these apps.
+fn apps(rows: &[&str]) -> String {
+    format!("Running:\n{}", rows.join("\n"))
 }
 
-fn called(call_id: &str, name: &str, arguments: Value) -> Event {
-    Event::Known(Known::StepFinished {
-        reply: "r".into(),
-        text: String::new(),
-        calls: vec![Call {
-            id: call_id.into(),
-            name: name.into(),
-            arguments,
-        }],
-        thoughts: Vec::new(),
-        usage: Default::default(),
-        cost_micros: 0,
-        seen: None,
-    })
+fn screen(app: &str, answer: &str) -> Step {
+    read("screen_act", &json!({"app": app}), Some(answer))
 }
 
 #[test]
-fn everyday_apps_are_left_to_the_reviewer() {
-    for name in [
-        "TextEdit",
-        "com.apple.TextEdit",
-        "Calculator",
-        "Notes",
-        "Pages",
-        "Xcode",
-        "Archive Utility",
-        "org.gnome.TextEditor",
-        "notepad.exe",
-        "Figma",
-        "Simulator",
-    ] {
-        assert_eq!(sensitive(&app(name)), None, "{name}");
-    }
-}
-
-#[test]
-fn mail_chat_money_passwords_settings_and_browsers_are_the_persons() {
-    for name in [
-        "Mail",
-        "com.apple.mail",
-        "Messages",
-        "com.apple.MobileSMS",
-        "Slack",
-        "WhatsApp",
-        "org.whispersystems.signal-desktop",
-        "Microsoft Outlook",
-        "olk.exe",
-        "Thunderbird",
-        "org.gnome.Evolution",
-        "1Password 7",
-        "Bitwarden",
-        "Keychain Access",
-        "com.apple.keychainaccess",
-        "Wallet",
-        "System Settings",
-        "com.apple.systempreferences",
-        "gnome-control-center",
-        "SystemSettings.exe",
-        "Safari",
-        "Google Chrome",
-        "Arc",
-        "Microsoft Edge",
-    ] {
-        assert!(sensitive(&app(name)).is_some(), "{name}");
-    }
-}
-
-#[test]
-fn part_of_a_sensitive_apps_name_counts_as_that_app_until_ace_says_which_it_opened() {
-    // ace opens the one app whose name holds the words given, so `ail` may be Mail.
-    assert!(sensitive(&app("ail")).is_some());
-    assert!(
-        sensitive(&app("Word")).is_some(),
-        "Word is part of Passwords"
+fn a_step_without_a_tab_acts_in_the_current_tab_ace_lists_not_the_last_one_reported() {
+    // Gmail is current; the bot last read an ordinary site in another tab.
+    let answer = tabs(&[
+        ("t1", "https://mail.google.com/mail/u/0", true, false),
+        ("t2", "https://docs.rs/serde", false, false),
+    ]);
+    let step = in_tab(json!({"action": "click", "ref": "e1"}), &answer);
+    assert_eq!(host(&step), Some("mail.google.com"));
+    assert!(step.sensitive.is_some());
+    let named = in_tab(
+        json!({"action": "click", "ref": "e1", "tabId": "t2"}),
+        &answer,
     );
-    let resolved = Target::App {
-        given: "Word".into(),
-        resolved: Some(Resolved {
-            name: "Microsoft Word".into(),
-            id: "com.microsoft.Word".into(),
-        }),
-    };
-    assert_eq!(sensitive(&resolved), None);
-    // What ace reports can only add a reason, never clear the name the call gave.
-    let mail = Target::App {
-        given: "Mail".into(),
-        resolved: Some(Resolved {
-            name: "TextEdit".into(),
-            id: "com.apple.TextEdit".into(),
-        }),
-    };
-    assert!(sensitive(&mail).is_some());
-}
-
-#[test]
-fn sites_are_sensitive_by_host_by_a_part_of_it_or_by_the_page() {
-    let cases = [
-        ("https://github.com/acme/app/pulls", false),
-        ("https://docs.rs/serde", false),
-        ("https://www.example.com/blog/how-to-buy-a-car", false),
-        ("http://localhost:3000/login", false),
-        ("http://127.0.0.1:5173/checkout", false),
-        ("https://mail.google.com/mail/u/0", true),
-        ("https://app.slack.com/client/T1", true),
-        ("https://x.com/home", true),
-        ("https://www.paypal.com/myaccount", true),
-        ("https://online.mybank.example/overview", true),
-        ("https://pay.example.com/", true),
-        ("https://accounts.google.com/signin", true),
-        ("https://login.example.org/", true),
-        ("https://shop.example.com/checkout", true),
-        ("https://shop.example.com/cart?x=1", true),
-        ("https://github.com/settings/tokens", true),
-        ("https://github.com/acme/app/settings/access", true),
-        ("https://user:pw@evil.example@paypal.com/", true),
-    ];
-    for (url, expected) in cases {
-        let found = site(url).map(|target| sensitive(&target).is_some());
-        assert_eq!(found, Some(expected), "{url}");
-    }
-    assert_eq!(site("about:blank"), None);
-    assert_eq!(site("chrome://settings"), None);
-}
-
-#[test]
-fn a_step_names_its_app_or_page_or_the_session_says_which_page_is_open() {
-    let none: Vec<Event> = Vec::new();
+    assert_eq!(host(&named), Some("docs.rs"));
+    assert_eq!(named.sensitive, None);
+    // A tab ace doesn't list, or no current tab: Spade can't tell.
+    let gone = in_tab(json!({"action": "click", "tabId": "t9"}), &answer);
+    assert_eq!(gone.place, Err(NO_TAB));
+    let none_current = tabs(&[("t2", "https://docs.rs/serde", false, false)]);
+    assert_eq!(in_tab(json!({}), &none_current).place, Err(NO_TAB));
     assert_eq!(
-        target("screen_act", &json!({"app": " TextEdit "}), &none),
-        app("TextEdit")
+        read("browser_act", &json!({}), None).place,
+        Err(NO_TAB),
+        "ace couldn't answer"
     );
+}
+
+#[test]
+fn back_navigation_and_redirects_are_read_from_the_tab_as_it_is_now() {
+    // After Back from an ordinary page, the tab is on Gmail again.
+    let back = tabs(&[("t1", "https://mail.google.com/mail/u/0", true, false)]);
+    let step = read(
+        "browser_history",
+        &json!({"direction": "back"}),
+        Some(&back),
+    );
+    assert!(step.sensitive.is_some());
+    assert!(in_tab(json!({"action": "type"}), &back).sensitive.is_some());
+    // A redirect still loading has no place yet.
+    let redirecting = tabs(&[("t1", "https://shop.example.com/", true, true)]);
+    assert_eq!(in_tab(json!({}), &redirecting).place, Err(LOADING));
+    // A step's place changes when the tab does: the gate's and the run's readings differ.
+    let before = in_tab(json!({}), &tabs(&[("t1", "https://docs.rs/", true, false)]));
+    let after = in_tab(json!({}), &back);
+    assert_ne!(before.place, after.place);
+    // Opening an address is placed by where it goes, and a page that isn't web has no place.
+    let opened = read(
+        "browser_open",
+        &json!({"url": "https://www.paypal.com/"}),
+        None,
+    );
+    assert_eq!(host(&opened), Some("paypal.com"));
+    let blank = tabs(&[("t1", "about:blank", true, false)]);
+    assert_eq!(in_tab(json!({}), &blank).place, Err(NOT_WEB));
+    // The lookup carries the call's routing, so it lists the same browser.
     assert_eq!(
-        target(
-            "browser_open",
-            &json!({"url": "https://Example.com/A?q"}),
-            &none
+        lookup(
+            "browser_act",
+            &json!({"machine": "mini", "browser": "user"})
         ),
-        Target::Site {
-            host: "example.com".into(),
-            path: "/a".into()
+        Lookup::Ask {
+            tool: "browser_tabs",
+            arguments: json!({"action": "list", "machine": "mini", "browser": "user"}),
         }
     );
-    assert_eq!(
-        target("browser_act", &json!({"ref": "e1"}), &none),
-        Target::Unknown
+}
+
+#[test]
+fn device_input_has_no_place_and_opening_a_sensitive_app_is_the_persons() {
+    for action in [
+        "tap",
+        "type",
+        "key",
+        "swipe",
+        "ui",
+        "clipboard_get",
+        "long_press",
+    ] {
+        let step = read("sim_act", &json!({"simId": "s1", "action": action}), None);
+        assert_eq!(step.place, Err(DEVICE_INPUT), "{action}");
+    }
+    // After opening Mail, or switching from TextEdit to Settings, a tap is still unplaced.
+    for app in [
+        "com.apple.mobilemail",
+        "com.apple.Preferences",
+        "com.apple.mobilesafari",
+        "com.google.android.gm",
+    ] {
+        let opened = read(
+            "sim_act",
+            &json!({"simId": "s1", "action": "open_app", "appId": app}),
+            None,
+        );
+        assert!(opened.sensitive.is_some(), "{app}");
+    }
+    let calculator = read(
+        "sim_act",
+        &json!({"simId": "s1", "action": "open_app", "appId": "com.apple.calculator"}),
+        None,
     );
-    let events = [
-        finished(
-            "a",
-            "browser_open",
-            r#"{"tabId":"t1","url":"https://shop.example.com/","title":"Shop"}"#,
-        ),
-        finished(
-            "b",
-            "browser_snapshot",
-            "Page: https://mail.google.com/mail [tab=t2]\n- button \"Send\" [ref=e1]",
-        ),
-    ];
-    // The latest page, unless the step names its tab.
+    assert_eq!(calculator.sensitive, None);
+    // No device place is ever granted: a grant for "Simulator" would cover every app on it.
+    let Ok(place) = calculator.place else {
+        panic!("open_app is placed by the app");
+    };
+    assert_eq!(place.grant(), None);
+    let started = read("sim_start", &json!({"simId": "s1"}), None);
+    assert_eq!(started.place.ok().and_then(|place| place.grant()), None);
+}
+
+#[test]
+fn part_of_a_sensitive_apps_name_is_that_app() {
+    for given in [
+        "cord", "Discord", "lack", "Slack", "ail", "Mail", "chain", "Word",
+    ] {
+        assert!(
+            sensitive::app_given(given).is_some(),
+            "{given} may open a sensitive app"
+        );
+    }
+    for given in ["TextEdit", "Calculator", "Notes", "Pages", "Figma", "Xcode"] {
+        assert_eq!(sensitive::app_given(given), None, "{given}");
+    }
+}
+
+#[test]
+fn every_sensitive_word_has_a_name_that_holds_it() {
+    for entry in sensitive::APPS {
+        assert!(!entry.names.is_empty(), "{}", entry.word);
+        assert!(
+            entry
+                .names
+                .iter()
+                .any(|name| name.to_lowercase().contains(entry.word)),
+            "{} has no name holding it",
+            entry.word
+        );
+    }
+}
+
+#[test]
+fn an_app_is_every_app_ace_could_open_for_the_name() {
+    let listed = apps(&[
+        "Discord (com.hnc.Discord)",
+        "TextEdit (com.apple.TextEdit), frontmost",
+        "Notes (com.apple.Notes)",
+        "Notion (notion.id)",
+        "Acme Bank (com.acme.money)",
+    ]);
+    let edit = screen("TextEdit", &listed);
     assert_eq!(
-        target("browser_act", &json!({"ref": "e1"}), &events)
-            .shown()
-            .map(str::to_owned),
-        Some("mail.google.com".to_owned())
+        edit.place,
+        Ok(Place::App {
+            id: "com.apple.TextEdit".into(),
+            name: "TextEdit".into()
+        })
     );
-    assert_eq!(
-        target("browser_act", &json!({"ref": "e1", "tabId": "t1"}), &events)
-            .shown()
-            .map(str::to_owned),
-        Some("shop.example.com".to_owned())
-    );
-    assert_eq!(
-        target("browser_act", &json!({"ref": "e1", "tabId": "t9"}), &events),
-        Target::Unknown
-    );
-    // A script's answer is the page's words, not ace's: it never says where the tab is.
-    let mut evaluated = events.to_vec();
-    evaluated.push(finished(
-        "c",
-        "browser_evaluate",
-        r#"{"url":"https://harmless.example/"}"#,
-    ));
-    assert_eq!(
-        target("browser_act", &json!({"ref": "e1"}), &evaluated).shown(),
-        Some("mail.google.com")
+    assert_eq!(edit.sensitive, None);
+    // `acme` names no sensitive app, but ace could open Acme Bank for it.
+    assert_eq!(sensitive::app_given("acme"), None);
+    assert!(screen("acme", &listed).sensitive.is_some());
+    // Two apps hold `no` and neither is named so: no place, so the person decides.
+    assert_eq!(screen("no", &listed).place, Err(NO_APP));
+    // No answer from ace: the name alone decides, and there is no place.
+    let unanswered = read("screen_act", &json!({"app": "TextEdit"}), None);
+    assert_eq!(unanswered.place, Err(NO_APP));
+    assert!(
+        read("screen_act", &json!({"app": "Mail"}), None)
+            .sensitive
+            .is_some()
     );
 }
 
 #[test]
-fn an_app_is_known_by_what_ace_reported_for_the_same_name() {
-    let events = [
-        called("a", "screen_state", json!({"app": "word"})),
-        finished(
-            "a",
-            "screen_state",
-            "Microsoft Word (com.microsoft.Word), in the background\nWindow: \"Doc\"",
-        ),
-        called(
-            "b",
-            CALL_TOOL,
-            json!({"name": "screen_state", "arguments": {"app": "Notes"}}),
-        ),
-        finished("b", "screen_state", "Notes (com.apple.Notes), frontmost"),
-    ];
-    let word = target("screen_act", &json!({"app": "Word"}), &events);
-    assert_eq!(word.shown(), Some("Microsoft Word"));
-    assert_eq!(sensitive(&word), None);
-    assert_eq!(
-        word.names(),
-        ["Word", "Microsoft Word", "com.microsoft.Word"]
-    );
-    let notes = target("screen_act", &json!({"app": "notes"}), &events);
-    assert_eq!(notes.names(), ["notes", "Notes", "com.apple.Notes"]);
+fn hosts_are_read_as_a_browser_reads_them() {
+    for url in [
+        "https://%70aypal.com/",
+        "https://ｐａｙｐａｌ.com/",
+        "https://PAYPAL.com./",
+        "https://www.paypal.com:443/",
+        "https://user:pw@evil.example@paypal.com/",
+        "https://example.com/#/settings",
+        "https://example.com/app#!/account/security",
+        "https://example.com/%73ettings/tokens",
+        "https://example.com/%2573ettings",
+    ] {
+        assert!(site(url).sensitive.is_some(), "{url}");
+    }
+    for url in [
+        "https://github.com/acme/app/pulls",
+        "https://docs.rs/serde",
+        "https://www.example.com/blog/how-to-buy-a-car",
+        "http://localhost:3000/login",
+        "http://127.0.0.1:5173/checkout",
+        "https://example.com/#intro",
+    ] {
+        let step = site(url);
+        assert!(step.place.is_ok() && step.sensitive.is_none(), "{url}");
+    }
+    for url in [
+        "about:blank",
+        "chrome://settings",
+        "javascript:alert(1)",
+        "x",
+    ] {
+        assert_eq!(site(url).place, Err(NOT_WEB), "{url}");
+    }
+}
+
+#[test]
+fn everyday_apps_are_left_to_the_reviewer_and_sensitive_ones_are_not() {
+    for (name, id) in [
+        ("TextEdit", "com.apple.TextEdit"),
+        ("Calculator", "com.apple.calculator"),
+        ("Archive Utility", "com.apple.archiveutility"),
+        ("Text Editor", "org.gnome.TextEditor"),
+        ("Figma", "com.figma.Desktop"),
+    ] {
+        let place = Place::App {
+            id: id.into(),
+            name: name.into(),
+        };
+        assert_eq!(sensitive(&place), None, "{name}");
+    }
+    for (name, id) in [
+        ("Mail", "com.apple.mail"),
+        ("Messages", "com.apple.MobileSMS"),
+        ("Slack", "com.tinyspeck.slackmacgap"),
+        ("Signal", "org.whispersystems.signal-desktop"),
+        ("1Password 7", "com.agilebits.onepassword7"),
+        ("Keychain Access", "com.apple.keychainaccess"),
+        ("System Settings", "com.apple.systempreferences"),
+        ("Settings", "gnome-control-center"),
+        ("Safari", "com.apple.Safari"),
+        ("Arc", "company.thebrowser.Browser"),
+    ] {
+        let place = Place::App {
+            id: id.into(),
+            name: name.into(),
+        };
+        assert!(sensitive(&place).is_some(), "{name}");
+    }
 }
 
 #[test]
 fn a_sensitive_app_or_site_cant_be_granted() {
-    for place in [
-        "Mail",
-        "com.apple.mail",
-        "mail.google.com",
+    for app in ["com.apple.mail", "Mail", "cord", ""] {
+        assert!(grantable_app(app).is_err(), "{app}");
+    }
+    assert_eq!(grantable_app("com.apple.TextEdit"), Ok(()));
+    for host in [
         "paypal.com",
-        "ail",
+        "%70aypal.com",
+        "ｐａｙｐａｌ.com",
+        "mail.google.com",
         "",
     ] {
-        assert!(grantable(place).is_err(), "{place}");
+        assert!(grantable_site(host).is_err(), "{host}");
     }
-    for place in ["TextEdit", "Figma", "github.com", "Simulator"] {
-        assert_eq!(grantable(place), Ok(()), "{place}");
-    }
+    assert_eq!(grantable_site("github.com"), Ok(()));
 }

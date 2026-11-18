@@ -85,34 +85,6 @@ impl Engine {
         }
     }
 
-    /// Whether the person allowed driving `place` for the bot that owns `conversation` (ADR 0171,
-    /// amendment 3): a drive grant matching any name the app or site is known by.
-    pub(super) fn drive_granted(&self, conversation: &str, place: &effect::drive::Target) -> bool {
-        let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
-            return false;
-        };
-        let names = place.names();
-        spade_core::grant::allowed(
-            &security.effective_grants(&agent),
-            &Action::Drive { names: &names },
-        )
-    }
-
-    /// Allows driving `app` for the bot that owns `conversation`, as the person answered a
-    /// driving step's request. Refused (and logged) for a sensitive place or one a worker's
-    /// parent lacks.
-    pub(super) fn allow_driving(&self, conversation: &str, app: &str) {
-        let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
-            return;
-        };
-        let scope = spade_core::grant::Scope::Drive {
-            app: app.to_owned(),
-        };
-        if let Err(error) = security.add_grant(&agent, scope, spade_core::grant::BY_PERSON) {
-            tracing::warn!(%error, %agent, "driving the app was not allowed for the bot");
-        }
-    }
-
     /// Records what the gate authorized for the call `key`, for its launch.
     pub(super) fn mark_launch(&self, key: &str, launch: Launch) {
         self.launches

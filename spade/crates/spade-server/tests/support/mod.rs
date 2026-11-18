@@ -45,6 +45,8 @@ pub struct FakeTool {
     pub app: Option<bool>,
     /// What it declares it does (ADR 0171), over what its name or annotations would say.
     pub declared: Option<spade_core::effect::Effect>,
+    /// Answers given in turn before `answer`, the last of them again and again.
+    pub answers: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeTool {
@@ -67,7 +69,16 @@ impl FakeTool {
             calls: Arc::default(),
             app: None,
             declared: None,
+            answers: Arc::default(),
         }
+    }
+
+    /// Answers `answers` in turn, then the last of them on every later call.
+    pub fn then_answers(mut self, answers: &[&str]) -> Self {
+        // Kept last first, so each call pops the next and the last stays.
+        let queued: Vec<String> = answers.iter().rev().map(|a| (*a).to_owned()).collect();
+        self.answers = Arc::new(Mutex::new(queued));
+        self
     }
 
     /// Declares what it does, as a catalogue entry or manifest would.
@@ -163,7 +174,18 @@ impl Tool for FakeTool {
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let calls = self.calls.clone();
-        let answer = self.answer.clone();
+        let answer = self
+            .answers
+            .lock()
+            .ok()
+            .and_then(|mut queued| {
+                if queued.len() > 1 {
+                    queued.pop()
+                } else {
+                    queued.last().cloned()
+                }
+            })
+            .unwrap_or_else(|| self.answer.clone());
         let images = self.images.clone();
         let delay = self.delay;
         Box::pin(async move {

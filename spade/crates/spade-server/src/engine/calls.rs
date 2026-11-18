@@ -239,17 +239,33 @@ pub(super) async fn handle_calls(
                         })
                     });
                     let target = spade_core::outward::target(&name, &arguments);
-                    // A driving step: where it acts, whether that place is the person's alone,
-                    // and whether they allowed it for the bot (ADR 0171, amendment 3).
-                    let driven = (declared == Some(effect::Effect::Drive))
-                        .then(|| effect::drive::target(&name, &arguments, events));
-                    let drive = driven
+                    // A driving step: where it acts, asked of ace now, whether that place is the
+                    // person's alone, and whether they allowed it for the bot (ADR 0171,
+                    // amendment 3).
+                    let driven = match declared {
+                        Some(effect::Effect::Drive) => {
+                            Some(engine.drive_step(id, &key, &name, &arguments).await)
+                        }
+                        _ => None,
+                    };
+                    let drive =
+                        driven
+                            .as_ref()
+                            .map_or_else(effect::Drive::default, |step| effect::Drive {
+                                target: step
+                                    .place
+                                    .as_ref()
+                                    .map(effect::drive::Place::shown)
+                                    .map_err(|why| *why),
+                                sensitive: step.sensitive,
+                                granted: step
+                                    .place
+                                    .as_ref()
+                                    .is_ok_and(|place| engine.drive_granted(id, place)),
+                            });
+                    let acts_in = driven
                         .as_ref()
-                        .map_or_else(effect::Drive::default, |place| effect::Drive {
-                            target: place.shown(),
-                            sensitive: effect::drive::sensitive(place),
-                            granted: engine.drive_granted(id, place),
-                        });
+                        .and_then(|step| step.place.as_ref().ok().cloned());
                     let route = effect::route(effect::Call {
                         tool: &name,
                         rule,
@@ -440,23 +456,28 @@ pub(super) async fn handle_calls(
                             // What the gate decided, carried to the launch unchanged: a call it
                             // decided in the sandbox's light may only launch contained.
                             engine.mark_launch(&key, launch_for(classed.runs));
+                            // A driving step runs only where it was decided on.
+                            if let Some(place) = acts_in {
+                                engine.decide_place(&key, place);
+                            }
                             runnable.push((pending.call, name, arguments));
                         }
                         Decision::Ask => {
                             waiting = true;
                             // A driving step asked for any reason (its place, the reviewer, the
                             // classifier) offers to allow its app or site, where that may be.
-                            let app = match &driven {
-                                Some(place) => {
-                                    ask = Some(effect::Ask::Drive);
-                                    place
-                                        .key()
-                                        .filter(|_| drive.sensitive.is_none())
-                                        .filter(|key| effect::drive::grantable(key).is_ok())
-                                        .map(str::to_owned)
-                                }
-                                None => None,
-                            };
+                            if driven.is_some() {
+                                ask = Some(effect::Ask::Drive);
+                            }
+                            let app = acts_in
+                                .as_ref()
+                                .filter(|_| drive.sensitive.is_none())
+                                .filter(|place| {
+                                    place.grant().is_some_and(|scope| {
+                                        spade_core::grant::check(&scope, &|_| None).is_ok()
+                                    })
+                                })
+                                .map(|place| place.shown().to_owned());
                             let asked = Event::Known(Known::ApprovalRequested {
                                 reply: reply.to_owned(),
                                 call_id: pending.call.id.clone(),
@@ -469,6 +490,7 @@ pub(super) async fn handle_calls(
                                     .then_some(tool_key)
                                     .flatten(),
                                 app,
+                                acts_in: acts_in.map(Box::new),
                                 helper: None,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
@@ -504,6 +526,10 @@ pub(super) async fn handle_calls(
                     launch_for(now.runs)
                 };
                 engine.mark_launch(&key, launch);
+                // A driving step runs only where the person was told it acts.
+                if let Some(place) = asked_place(events, &pending.call.id) {
+                    engine.decide_place(&key, place);
+                }
                 // A command allowed outside the sandbox runs only while the files it runs are
                 // as they were when the person was asked.
                 if asked_outside(events, &pending.call.id) {
@@ -623,6 +649,18 @@ fn asked_scope(events: &[Event], call_id: &str) -> Option<String> {
     })
 }
 
+/// Where the person was told the driving step `call_id` acts, when Spade could tell.
+fn asked_place(events: &[Event], call_id: &str) -> Option<effect::drive::Place> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c,
+            acts_in,
+            ..
+        }) if c == call_id => acts_in.as_deref().cloned(),
+        _ => None,
+    })
+}
+
 /// Whether the call `call_id` was asked about as a command to run outside the sandbox.
 fn asked_outside(events: &[Event], call_id: &str) -> bool {
     events.iter().any(|event| {
@@ -686,6 +724,13 @@ async fn run_tools(
                     finished.push_back((call, name, changed));
                     continue;
                 }
+            }
+            // A driving step whose page or app changed since it was decided on doesn't run: the
+            // bot looks again and the gate decides on where it acts then (ADR 0171, amendment 3).
+            let key = format!("{id}.{}", call.id);
+            if !engine.still_there(id, &key, &name, &arguments).await {
+                finished.push_back((call, name, ToolOutput::ok(super::drive::MOVED.to_owned())));
+                continue;
             }
             // A tool runs only once its start is stored, so a restart can never mistake a call
             // that ran for one that did not.
