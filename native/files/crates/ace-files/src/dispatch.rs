@@ -201,16 +201,19 @@ fn start(shared: &Shared, id: u64, op: Op) {
 }
 
 /// Run one blocking op on a blocking thread and answer it.
+///
+/// The cancel flag is checked before the work starts, never after: once a mutation has happened,
+/// its answer is the success it earned, so a cancel that raced the work cannot report `ABORTED`
+/// for a file that was in fact renamed, written or removed.
 fn perform(shared: &Shared, id: u64, cancel: Cancel, op: Op) {
     let job = shared.clone();
     tokio::spawn(async move {
         let inner = job.clone();
         let work = tokio::task::spawn_blocking(move || {
-            let reply = ops::perform(&inner, op)?;
             if cancel.cancelled() {
                 return Err(Error::Aborted);
             }
-            Ok(reply)
+            ops::perform(&inner, op)
         });
         job.respond(id, joined(work.await));
     });
