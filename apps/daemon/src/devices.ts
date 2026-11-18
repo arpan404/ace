@@ -1,4 +1,3 @@
-import { AppKeys } from "./app-keys.ts";
 import { generateSecret, type CredentialRuntime } from "./credential-runtime.ts";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync, StatementSync, SQLOutputValue } from "node:sqlite";
@@ -54,8 +53,9 @@ export type SessionActor = Device & {
   revocable: boolean;
   generation?: string | undefined;
   /**
-   * The credential is the person's for §12.7's checks: the app's page (by its proof), a device
-   * whose link the person made, an account device. Absent: it needs a fresh sign-in.
+   * The credential is the person's for §12.7's checks: the app's page by the key the app gave
+   * the daemon it started, a device whose link the person made, an account device. Absent: it
+   * needs a fresh sign-in.
    */
   person?: boolean | undefined;
 };
@@ -101,11 +101,8 @@ export class Devices {
   private unfold: StatementSync;
   private folded: StatementSync;
   private linkAccount: StatementSync;
-  /** The desktop app's keys for a daemon it didn't start, listed as device records here. */
-  readonly appKeys: AppKeys;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.runtime = runtime;
-    this.appKeys = new AppKeys(db, this);
     const live = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
     this.byInstall = db.prepare(
       `SELECT * FROM devices WHERE install_id = ? AND merged_into IS NULL AND ${live} ORDER BY last_seen_at DESC, id LIMIT 1`,

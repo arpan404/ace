@@ -1,16 +1,17 @@
-import { appKeyPair, appSocketSignature } from "@ace/service/app-signature";
 import { afterEach, expect, test } from "vitest";
 import { z } from "zod";
+import { startFakeAccountBackend } from "./account-backend-test-support.ts";
+import { accessRequest } from "./client-access.ts";
 import { hostConnection } from "./cli/connection.ts";
 import { hostSocket } from "./host-socket-test-support.ts";
 import { marketWorld } from "./market-world-test-support.ts";
 
 /*
  * Who acts as the person on a real daemon (ADR 0178 §12.7, §12.8): the desktop app's page, by
- * the key it gave the daemon it started or the key it registered with one it didn't, and devices
- * whose pairing link the person made. A process holding only what ACE_HOME holds still needs a
- * fresh sign-in. A real daemon and real sockets: the proof is checked against the port each
- * socket reached, which only a listening daemon has.
+ * the key it gave the daemon it started, and devices whose pairing link the person made. A
+ * process holding only what ACE_HOME holds still needs a fresh sign-in, and can't fake one. A
+ * real daemon and real sockets: the proof is checked against the port each socket reached,
+ * which only a listening daemon has, and freshness against a real account backend's keys.
  */
 
 const cleanup: (() => Promise<unknown>)[] = [];
@@ -27,18 +28,6 @@ const install = {
   choices: { bots: [], needs: {}, startRoutines: false },
 };
 const reauth = { op: "error", code: "reauth" };
-
-/** What the app's main process asks a daemon it didn't start: the status and the run id. */
-async function registerAppKey(home: string, publicKey: string) {
-  const { origin, token } = hostConnection(home);
-  const response = await fetch(new URL("/v1/app-key", origin), {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ publicKey }),
-  });
-  const body: unknown = await response.json();
-  return { status: response.status, body };
-}
 
 test("the desktop app's page installs, answers and changes the ask without a fresh sign-in; the host token alone can't", async () => {
   // The key the app gave its daemon on stdin, which no file holds.
@@ -70,43 +59,6 @@ test("the desktop app's page installs, answers and changes the ask without a fre
   await expect.poll(() => market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(true);
 });
 
-test("on a daemon the app didn't start, the key it registered with a fresh sign-in makes its page the person's", async () => {
-  let signedIn = Date.now();
-  const { home } = await world({ signedInAt: () => signedIn });
-  const app = appKeyPair(new Uint8Array(32).fill(1));
-  // An agent's own key pair: it can ask too, with the host token it read.
-  const agent = appKeyPair(new Uint8Array(32).fill(2));
-
-  const registered = await registerAppKey(home, app.x);
-  expect(registered.status).toBe(200);
-  const run = z.object({ run: z.string() }).parse(registered.body).run;
-  // One sign-in registers one key: the same sign-in can't register the agent's after it.
-  expect((await registerAppKey(home, agent.x)).status).toBe(401);
-
-  // Ten minutes on, the sign-in is stale; the registered key still holds.
-  signedIn = elevenMinutesAgo();
-  expect((await registerAppKey(home, agent.x)).status).toBe(401);
-  const page = await hostSocket(home, "desktop-page", cleanup, {
-    proof: (port) => appSocketSignature(app, port, run),
-  });
-  expect(await page.market("by-page", install)).not.toMatchObject({ code: "reauth" });
-
-  const token = await hostSocket(home, "ace-cli", cleanup);
-  const unregistered = await hostSocket(home, "ace-cli", cleanup, {
-    proof: (port) => appSocketSignature(agent, port, run),
-  });
-  // A signature collected for another run of this daemon.
-  const earlierRun = await hostSocket(home, "ace-cli", cleanup, {
-    proof: (port) => appSocketSignature(app, port, "an-earlier-run"),
-  });
-  // A signature collected by a listener at another port.
-  const otherPort = await hostSocket(home, "ace-cli", cleanup, {
-    proof: (port) => appSocketSignature(app, port + 1, run),
-  });
-  for (const [name, socket] of Object.entries({ token, unregistered, earlierRun, otherPort }))
-    expect(await socket.market(name, install), name).toMatchObject(reauth);
-});
-
 test("a device whose pairing link the host token alone made needs a fresh sign-in; one the person's link made doesn't", async () => {
   const { f, home } = await world({ signedInAt: elevenMinutesAgo });
   const { origin } = hostConnection(home);
@@ -130,4 +82,56 @@ test("a device whose pairing link the host token alone made needs a fresh sign-i
   const byPerson = await connect("Paired from the app", true);
   expect(await byToken.market("by-token", install)).toMatchObject(reauth);
   expect(await byPerson.market("by-person", install)).not.toMatchObject({ code: "reauth" });
+});
+
+test("a session pointing at a backend a host-token holder runs never makes a sign-in fresh", async () => {
+  const { home } = await world();
+  const { origin, token } = hostConnection(home);
+  const socket = await hostSocket(home, "ace-cli", cleanup);
+  // Signed in just now at the backend this daemon was started with: the install runs.
+  expect(await socket.market("trusted", install)).not.toMatchObject({ code: "reauth" });
+
+  // A process holding the host token hands the daemon a session at a backend of its own, which
+  // mints market grants saying "signed in just now", signed with its own key.
+  const forged = await startFakeAccountBackend(() => Date.now());
+  cleanup.push(() => forged.close());
+  await accessRequest(origin, "/v1/ace-account", {
+    method: "PUT",
+    token,
+    body: { origin: forged.origin, token: forged.token },
+  });
+  expect(await socket.market("forged", install)).toMatchObject(reauth);
+});
+
+/** A device grant from `backend`'s session, as an ace account device would hold one. */
+async function deviceGrant(backend: { origin: string; token: string }, deviceId: string) {
+  const response = await fetch(new URL("/v1/grants", backend.origin), {
+    method: "POST",
+    headers: { authorization: `Bearer ${backend.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ kind: "device", subject: deviceId }),
+  });
+  return z.object({ token: z.string() }).parse(await response.json()).token;
+}
+
+test("an account device counts as the person only by a grant from the backend this daemon trusts", async () => {
+  const { home, backend } = await world({ signedInAt: elevenMinutesAgo });
+  const { origin, token } = hostConnection(home);
+  const trusted = await hostSocket(home, "phone-1", cleanup, {
+    hello: { token: undefined, grant: await deviceGrant(backend, "phone-1") },
+  });
+  expect(await trusted.market("trusted", install)).not.toMatchObject({ code: "reauth" });
+
+  // A host-token holder points the daemon at a backend of its own, which mints device grants
+  // the daemon checks with that backend's own keys: admitted, but not the person.
+  const forged = await startFakeAccountBackend(() => Date.now());
+  cleanup.push(() => forged.close());
+  await accessRequest(origin, "/v1/ace-account", {
+    method: "PUT",
+    token,
+    body: { origin: forged.origin, token: forged.token },
+  });
+  const impostor = await hostSocket(home, "phone-2", cleanup, {
+    hello: { token: undefined, grant: await deviceGrant(forged, "phone-2") },
+  });
+  expect(await impostor.market("forged", install)).toMatchObject(reauth);
 });

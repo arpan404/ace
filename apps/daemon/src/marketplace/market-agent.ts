@@ -5,9 +5,7 @@ import type { SettingsService } from "@ace/settings";
 import type { MachineAccount } from "../account-access/machine-account.ts";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
-import { grantSignedInAt, grantSignInAge } from "@ace/account-grant";
 import { agentMarketRequest } from "./agent-requests.ts";
-import { signedInRecently } from "./fresh-sign-in.ts";
 import { MarketPersonRequests } from "./person-requests.ts";
 import type { MarketplaceService } from "./service.ts";
 
@@ -70,25 +68,13 @@ export class MarketAgent {
 
   /**
    * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
-   * read from the `authAt` of a market grant taken for the check. False when signed out or
-   * the account service can't be reached.
+   * from a market grant verified against the account backend this daemon was started with
+   * (`MachineAccount.freshSignIn`, ADR 0178 §12.8). False when signed out, unreachable, or
+   * when the grant doesn't verify.
    */
   async freshSignIn(): Promise<boolean> {
-    return (await this.freshSignInAt()) !== undefined;
-  }
-
-  /** When this machine's ace account signed in, if that was in the last ten minutes. */
-  async freshSignInAt(): Promise<number | undefined> {
     const bound = this.account;
-    if (!bound) return undefined;
-    try {
-      const grant = await bound.account.marketGrant(bound.hostId);
-      return grant !== undefined && signedInRecently(grantSignInAge(grant))
-        ? grantSignedInAt(grant)
-        : undefined;
-    } catch {
-      return undefined;
-    }
+    return bound ? bound.account.freshSignIn(bound.hostId) : false;
   }
 
   asPerson(operation: MarketOperation): Promise<MarketResult> {

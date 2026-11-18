@@ -46,7 +46,6 @@ import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { appSocketProven } from "@ace/service/app-key";
-import { appSignatureProven } from "@ace/service/app-signature";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
 import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
@@ -95,9 +94,6 @@ export async function startServer(options: ServerOptions): Promise<{
   };
   const hostId = HostId.parse(options.hostId);
   if (!/^[0-9a-f]{64}$/.test(options.token)) throw new Error("Invalid server token");
-  // New on every start: the app's page signs it for a daemon it didn't start (ADR 0178 §12.8),
-  // so a signature collected during one run is worthless in the next.
-  const run = runtime.id();
   const auth = new RemoteAuth(
     options.store.devices,
     options.token,
@@ -182,17 +178,6 @@ export async function startServer(options: ServerOptions): Promise<{
       ...(options.machineAccount ? { account: options.machineAccount.status() } : {}),
     }),
     account: () => options.machineAccount,
-    appKey: {
-      register: async (publicKey: string) => {
-        const keys = options.store.devices.appKeys;
-        if (keys.registered(publicKey)) return { run };
-        // One fresh sign-in registers one key (`app-keys.ts`); without one, the app's page stays
-        // a host-token socket as before.
-        const authAt = await options.marketAgent?.freshSignInAt();
-        if (authAt === undefined) return undefined;
-        return keys.register(publicKey, authAt, auth.now()) ? { run } : undefined;
-      },
-    },
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     // A failed settings read falls back to this computer's own link rather than failing pairing.
     // Both pairing paths call this before they read the address, so a Tailscale certificate
@@ -402,15 +387,13 @@ export async function startServer(options: ServerOptions): Promise<{
       });
     };
     const stillAdmitted = () => accountAdmitted?.() !== false;
-    // The desktop app's page (ADR 0178 §12.8), for the port this socket dialled, so a proof made
-    // for any other address doesn't verify here: by the key the app gave this daemon at its
-    // start, or by a signature from the key the app registered with a daemon it didn't start.
+    // The desktop app's page, by the key the app gave this daemon at its start, for the port
+    // this socket dialled: a proof made for any other address doesn't verify here (ADR 0178
+    // §12.8). The key lives as long as this daemon process, so a proof can't outlive it.
     const appKey = options.appKey;
     const dialled = request?.socket.localPort;
     const appProven = (proof: string) =>
-      dialled !== undefined &&
-      ((appKey !== undefined && appSocketProven(appKey, dialled, proof)) ||
-        appSignatureProven(options.store.devices.appKeys.keys(), dialled, run, proof));
+      appKey !== undefined && dialled !== undefined && appSocketProven(appKey, dialled, proof);
     // A paired device's authority is its credential's: once that credential is replaced or
     // revoked, nothing it opened authorizes anything (ADR 0115).
     const holds = (actor: SessionActor | undefined, scope: import("@ace/protocol").DeviceScope) => {
@@ -424,9 +407,10 @@ export async function startServer(options: ServerOptions): Promise<{
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
-    // Whether this socket's credential is the person's for §12.7's checks: the app's page by its
-    // proof, a device whose link the person made, an account device (ADR 0178 §12.8). The host
-    // token alone, which any process able to read it has, is not; nor is a device it paired.
+    // Whether this socket's credential is the person's for §12.7's checks: the app's page by the
+    // key the app gave this daemon, a device whose link the person made, an account device (ADR
+    // 0178 §12.8). The host token alone, which any process able to read it has, is not; nor is
+    // a device it paired.
     const personProven = () => authenticated.get(socket)?.person === true;
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
@@ -655,7 +639,7 @@ export async function startServer(options: ServerOptions): Promise<{
             return;
           }
           auth.accountDeviceSeen(message.deviceId, message.link);
-          actor = accountDeviceActor(message.deviceId, auth.now());
+          actor = accountDeviceActor(message.deviceId, auth.now(), admitted.person === true);
           accountAdmitted = admitted.stillAdmitted;
           accountId = admitted.account;
           // Dedicated channels end with their main connection's access; the main socket refreshes.

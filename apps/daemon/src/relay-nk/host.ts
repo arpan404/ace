@@ -79,7 +79,12 @@ export function nkHost(options: NkHostOptions): NkHost {
     if (!verdict.admitted) return undefined;
     const { account, expiresAt } = verdict;
     const stillAdmitted = () => machine.stillAdmitted(early.deviceId, account);
-    const actor = mainActor({ id: early.deviceId }, stillAdmitted, options);
+    const actor = mainActor(
+      { id: early.deviceId },
+      stillAdmitted,
+      options,
+      verdict.person === true,
+    );
     if (!actor) return undefined;
     return { actor, stillAdmitted, account, grantExpiresAt: expiresAt };
   }

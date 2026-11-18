@@ -1,3 +1,4 @@
+import { verifyMarketGrant, type GrantKeySet } from "@ace/account-grant";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 
 /*
@@ -49,6 +50,24 @@ export function needsFreshSignIn(operation: MarketOperation): boolean {
  */
 export function signedInRecently(age: number | undefined): boolean {
   return age !== undefined && age <= freshSignInMs && age >= -60_000;
+}
+
+/**
+ * Whether market grant `grant` says the session behind it signed in within ten minutes, read
+ * only from claims whose signature verifies against `keys` with `issuer`: the keys and issuer
+ * of the account backend this daemon was started with, never ones a caller can name. A grant
+ * that doesn't verify (unsigned, signed by another key, expired, another issuer) is not fresh.
+ */
+export function verifiedSignInFresh(
+  grant: string,
+  trust: { readonly keys: GrantKeySet; readonly issuer: string; readonly now: number },
+): boolean {
+  try {
+    const claims = verifyMarketGrant(grant, trust.keys, trust.now, trust.issuer);
+    return signedInRecently(claims.iat - claims.authAt);
+  } catch {
+    return false;
+  }
 }
 
 /**

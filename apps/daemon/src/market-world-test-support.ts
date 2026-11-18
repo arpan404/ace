@@ -76,6 +76,9 @@ export async function marketWorld(
     ACE_ACCOUNT_URL: backend.origin,
   });
   cleanup.push(() => f.daemon.close());
+  // The account backend signs grants on the wall clock and the daemon verifies them on its own
+  // (ADR 0178 §12.8), so the two agree here, as on a real machine.
+  f.h.clock.time = Date.now();
   await f.daemon.settings.set("beta.marketplace", true, { kind: "global" });
   // Signing in starts ace's relay registration, which this fake account doesn't serve; remote
   // access isn't what these tests are about, and left on it holds the daemon's shutdown.
@@ -101,5 +104,5 @@ export async function marketWorld(
   const cli = (args: string[], env: NodeJS.ProcessEnv = {}) =>
     // The person's own shell unless a test says otherwise: nothing from an agent session.
     invoke(home, args, "", { HOME: emptyHome, ACE_THREAD_ID: "", ACE_NO_INPUT: "", ...env });
-  return { f, market, skill, cli, home };
+  return { f, market, skill, cli, home, backend };
 }

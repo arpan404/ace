@@ -1,10 +1,18 @@
+import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import {
+  encodeBase64url,
+  grantPublicKey,
+  MARKET_GRANT_ISSUER,
+  signMarketGrant,
+} from "@ace/account-grant";
 import type { MarketOperation } from "@ace/protocol/marketplace";
 import {
   freshSignInMs,
   hostMarketRefusal,
   needsFreshSignIn,
   signedInRecently,
+  verifiedSignInFresh,
 } from "./fresh-sign-in.ts";
 
 const entry = { type: "suit", name: "dusk-harbor" } as const;
@@ -99,5 +107,59 @@ describe("a person-only market action from the host token, with no thread", () =
         fresh: fresh(false),
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("a sign-in counts as fresh only from a grant the trusted backend signed", () => {
+  const trusted = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
+  // A backend a host-token holder runs, publishing a key under the same id.
+  const forger = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
+  const now = 1_000_000_000;
+  const trust = { keys: { keys: [grantPublicKey(trusted)] }, issuer: MARKET_GRANT_ISSUER, now };
+  const grant = (
+    key: typeof trusted,
+    claims: { authAt?: number; iss?: string; exp?: number } = {},
+  ) =>
+    signMarketGrant(
+      {
+        kind: "machine",
+        account: "user_1",
+        subject: "host",
+        iat: now,
+        exp: claims.exp ?? now + 60_000,
+        iss: claims.iss ?? MARKET_GRANT_ISSUER,
+        emailVerified: true,
+        authAt: claims.authAt ?? now - 1_000,
+      },
+      key,
+    );
+
+  it("is fresh for a recent sign-in in a grant the trusted backend signed", () => {
+    expect(verifiedSignInFresh(grant(trusted), trust)).toBe(true);
+  });
+
+  it("isn't fresh for an old sign-in, however well signed", () => {
+    expect(verifiedSignInFresh(grant(trusted, { authAt: now - 11 * 60_000 }), trust)).toBe(false);
+  });
+
+  it.each([
+    ["signed by another backend's key", () => grant(forger)],
+    [
+      "carrying no valid signature",
+      () => `${grant(trusted).split(".")[0]}.${encodeBase64url(new Uint8Array(64))}`,
+    ],
+    [
+      "with its claims rewritten after signing",
+      () => {
+        const [, signature] = grant(trusted, { authAt: now - 11 * 60_000 }).split(".");
+        const body = grant(trusted).split(".")[0];
+        return `${body}.${signature}`;
+      },
+    ],
+    ["from another issuer", () => grant(trusted, { iss: "evil.example" })],
+    ["expired", () => grant(trusted, { exp: now - 1 })],
+    ["not a grant at all", () => "not-a-grant"],
+  ])("isn't fresh for a recent-looking sign-in %s", (_what, make) => {
+    expect(verifiedSignInFresh(make(), trust)).toBe(false);
   });
 });

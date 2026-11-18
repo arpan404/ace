@@ -5,14 +5,20 @@ import { AccessError } from "../remote-auth.ts";
 import { accountBackend } from "./backend.ts";
 import { deviceGrantVerdict } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
-import type { GrantKeySet } from "@ace/account-grant";
+import { MARKET_GRANT_ISSUER, type GrantKeySet } from "@ace/account-grant";
+import { verifiedSignInFresh } from "../marketplace/fresh-sign-in.ts";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
 import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machine-codes.ts";
 import { readSession, writeSession, type StoredSession } from "./session-file.ts";
 
 export type DeviceAdmission =
-  /** `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then. */
-  | { admitted: true; account: string; expiresAt: number }
+  /**
+   * `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then.
+   * `person`: the grant also verifies against the account backend this daemon was started with,
+   * so the device counts as the person (ADR 0178 §12.8). A grant that verifies only against keys
+   * from the session's origin, which a host-token holder can set, admits but never counts.
+   */
+  | { admitted: true; account: string; expiresAt: number; person?: boolean }
   | { admitted: false; code: "unauthorized" | MachineCodeRefusal; message: string };
 
 const refusals: Record<MachineCodeRefusal, string> = {
@@ -79,6 +85,16 @@ export function machineAccount(options: {
       if (!session) return Promise.reject(new Error("Signed out"));
       return backend.keys(session.origin, request());
     },
+  });
+  // The keys a sign-in's freshness is checked with (ADR 0178 §12.8): the account backend this
+  // daemon was started with, never the session's origin, which the host token can set.
+  const trusted = options.defaultOrigin;
+  const trustedKeys = grantKeyCache({
+    now: options.now,
+    fetchKeys: () =>
+      trusted
+        ? backend.keys(trusted, request())
+        : Promise.reject(new Error("No trusted account backend")),
   });
   const active = () => (session && session.expiresAt > options.now() ? session : undefined);
   const notify = () => {
@@ -189,6 +205,7 @@ export function machineAccount(options: {
   async function admitWith(
     published: GrantKeySet,
     hello: { grant: string; deviceId: string; machineCode?: string | undefined },
+    trustedKeySet: GrantKeySet | undefined,
   ): Promise<DeviceAdmission> {
     const verdict = deviceGrantVerdict(hello.grant, {
       keys: published,
@@ -199,6 +216,14 @@ export function machineAccount(options: {
     if (!verdict.accepted) return unauthorized();
     const account = verdict.claims.account;
     const expiresAt = verdict.claims.exp;
+    const person =
+      trustedKeySet !== undefined &&
+      deviceGrantVerdict(hello.grant, {
+        keys: trustedKeySet,
+        now: options.now(),
+        account,
+        deviceId: hello.deviceId,
+      }).accepted;
     // One code check at a time, so concurrent wrong codes all count toward the lock.
     const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
       const code = options.codes.current();
@@ -209,10 +234,10 @@ export function machineAccount(options: {
         lock: options.codes.lock(),
         now: options.now(),
       });
-      if (step.kind === "admit") return { admitted: true, account, expiresAt };
+      if (step.kind === "admit") return { admitted: true, account, expiresAt, person };
       if (step.kind === "refuse")
         return { admitted: false, code: step.reason, message: refusals[step.reason] };
-      if (!code) return { admitted: true, account, expiresAt };
+      if (!code) return { admitted: true, account, expiresAt, person };
       const correct = await machineCodeMatches(step.code, code.hash);
       // The code changed while it was checked: the device enters the new one.
       if (options.codes.current()?.version !== code.version)
@@ -226,10 +251,24 @@ export function machineAccount(options: {
       if (next.step.kind === "refuse")
         return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
       options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
-      return { admitted: true, account, expiresAt };
+      return { admitted: true, account, expiresAt, person };
     });
     codeChecks = run.catch(() => {});
     return run;
+  }
+  /**
+   * A market grant for one publishing request (ADR 0174 §2), or undefined when no ace account
+   * is signed in here. The caller holds it for that request only.
+   */
+  async function marketGrant(hostId: string, signal?: AbortSignal): Promise<string | undefined> {
+    if (!active()) return undefined;
+    try {
+      return await obtainGrant(hostId, "market-publish", signal);
+    } catch (error) {
+      // The backend ended the session: this machine is signed out now.
+      if (error instanceof AceAccountError && error.status === 401) return undefined;
+      throw error;
+    }
   }
   return {
     /** Reads the stored session, then keeps it renewed while the daemon runs. */
@@ -396,14 +435,26 @@ export function machineAccount(options: {
      * A market grant for one publishing request (ADR 0174 §2), or undefined when no ace account
      * is signed in here. The caller holds it for that request only.
      */
-    async marketGrant(hostId: string, signal?: AbortSignal): Promise<string | undefined> {
-      if (!active()) return undefined;
+    marketGrant,
+    /**
+     * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
+     * from a market grant taken for the check, whose signature and issuer verify against the
+     * account backend this daemon was started with (ADR 0178 §12.8). False when signed out,
+     * unreachable, or when the grant doesn't verify: a session a host-token holder handed in,
+     * pointing at a backend of its own, never makes a sign-in fresh.
+     */
+    async freshSignIn(hostId: string): Promise<boolean> {
       try {
-        return await obtainGrant(hostId, "market-publish", signal);
-      } catch (error) {
-        // The backend ended the session: this machine is signed out now.
-        if (error instanceof AceAccountError && error.status === 401) return undefined;
-        throw error;
+        const grant = await marketGrant(hostId);
+        if (grant === undefined) return false;
+        const published = await trustedKeys.forGrant(grant);
+        return verifiedSignInFresh(grant, {
+          keys: published,
+          issuer: MARKET_GRANT_ISSUER,
+          now: options.now(),
+        });
+      } catch {
+        return false;
       }
     },
     /** Admit a hello's device grant, asking for the machine code when one is set. */
@@ -420,7 +471,8 @@ export function machineAccount(options: {
       } catch {
         return unauthorized("Couldn't check this device's ace account. Try again.");
       }
-      return admitWith(published, hello);
+      const trustedKeySet = await trustedKeys.forGrant(hello.grant).catch(() => undefined);
+      return admitWith(published, hello, trustedKeySet);
     },
     /**
      * `admitDevice` that never waits on the network (an NK first message, ADR 0155): a grant
@@ -429,7 +481,9 @@ export function machineAccount(options: {
     async admitDeviceCached(hello: { grant: string; deviceId: string }): Promise<DeviceAdmission> {
       if (!active()) return unauthorized();
       const published = keys.cached(hello.grant);
-      return published ? admitWith(published, hello) : unauthorized();
+      return published
+        ? admitWith(published, hello, trustedKeys.cached(hello.grant))
+        : unauthorized();
     },
     /** Whether an admitted account device keeps access: same account, current code passed. */
     stillAdmitted(deviceId: string, account: string): boolean {

@@ -16,9 +16,8 @@ export interface LocalDaemon {
    */
   hostId?: string;
   /**
-   * The page's proof that it is the app's (ADR 0178 §12.8): for the daemon the app spawned, made
-   * with the key it gave that daemon on stdin (`supervisor.ts`); for one it adopted, signed with
-   * the key it registered there (`adopted-proof.ts`). Absent otherwise.
+   * Set by the supervisor for the daemon it spawned, and only that one: the page's proof that
+   * it is the app's (ADR 0178 §12.8), made with the key the app gave that daemon on stdin.
    */
   appProof?: string;
 }
@@ -213,28 +212,4 @@ export async function withdrawAppUpdate(daemon: LocalDaemon): Promise<void> {
 export async function maintenanceStatus(daemon: LocalDaemon) {
   const { MaintenanceStatus } = await protocol();
   return MaintenanceStatus.parse(await request(daemon, "/v1/maintenance"));
-}
-
-const AppKeyRun = z.object({ run: z.string().min(1).max(200) });
-
-/**
- * Registers the app's public key with a daemon it didn't start (ADR 0178 §12.8): that daemon's
- * run id once the key is registered there, undefined when it asks for a fresh ace sign-in first.
- */
-export async function registerAppKey(
-  daemon: LocalDaemon,
-  publicKey: string,
-): Promise<string | undefined> {
-  const response = await fetch(new URL("/v1/app-key", daemon.origin), {
-    method: "POST",
-    headers: { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" },
-    body: JSON.stringify({ publicKey }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (response.status === 401) {
-    await response.body?.cancel();
-    return undefined;
-  }
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return AppKeyRun.parse(await response.json()).run;
 }
