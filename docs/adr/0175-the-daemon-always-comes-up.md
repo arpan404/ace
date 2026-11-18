@@ -106,8 +106,11 @@ after five fast failures in a row. Each start failed the same way.
     registration, which gives up only after 15 s (a signed-in account adds ace's relay even with
     `remote.relay` off). The daemon now binds its local port and writes its endpoint first;
     the LAN and Tailscale listener and every relay start in the background, the direct listener
-    first. Each network shows `waiting` in `/v1/status` until it serves or fails, as it already
-    did on a reconnect. A stop while they start gives up what waits on the network, as before.
+    first. Every network the start brings up shows `waiting` in `/v1/status` until it serves or
+    fails, including one the sequential start hasn't reached yet. The settings and account
+    watchers are installed before the first start, so a sign-out or settings change while it
+    waits on the network is applied once it ends. A stop while they start gives up what waits on
+    the network, as before.
     Callers that name a remote address read it live: a pairing link waits for remote access
     still starting, at most 15 s (the direct listener, then, with no direct address, the
     relays); `ace start` waits up to 5 s for the direct listener before it prints its `Remote:`
@@ -135,8 +138,9 @@ after five fast failures in a row. Each start failed the same way.
   (`@ace/provider-kit/unscoped`), so a crash there is never charged to whoever first started it.
 - The supervisor only asks for safe mode after fast failures (under 60 s). A service that
   crashes the daemon later in each run is recorded, but nothing leaves it off yet.
-- Saved remote settings that can't be read no longer stop the daemon's start; remote access
-  stays off and the failure is logged (decision 10).
+- Saved remote settings that can't be read no longer stop the daemon's start. Remote access
+  stays off, `/v1/status` says why, and it comes up when a read succeeds: on the retry timer
+  (1 s doubling to 30 s) or when the settings change (decision 10).
 - A client can connect before the LAN listener or a relay serves; the endpoint file no longer
   means remote access is up. Code that needs it settled waits on `remoteStarted`.
 
@@ -166,6 +170,9 @@ after five fast failures in a row. Each start failed the same way.
   safe mode starts, when it ends, and what the person reads.
 - `apps/daemon/src/remote-runtime.server.process.test.ts`: a signed-in daemon listens, reports
   ace's relay as waiting and pairs over the LAN while that relay never answers, and a stop then
-  ends within remote access's close budget (decision 10).
+  ends within remote access's close budget; a sign-out while ace's relay registers leaves no
+  registration; unreadable settings show in status and come into force once read; a network
+  whose start is pending reads `waiting` (decision 10).
+- `apps/daemon/src/remote-status.test.ts`: which networks read `waiting` during a start.
 - `apps/daemon/src/services/startup-timing.test.ts`: each startup phase logs one line naming
   every service and how long its own start took.
