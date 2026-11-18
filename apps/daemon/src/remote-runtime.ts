@@ -13,6 +13,8 @@ import { startRelayTransport } from "./services/transports.ts";
 import { remoteNetworksStatus } from "./remote-status.ts";
 import type { ReachFacts } from "./external-mcp/reach.ts";
 import { shutdownDeadline } from "./shutdown.ts";
+import { logFields } from "@ace/diagnostics";
+import type { DirectNetwork } from "./remote-direct-policy.ts";
 import {
   addedDirect,
   remotePlan,
@@ -25,6 +27,11 @@ import {
 const keys = [...remotePreferenceKeys, "remote.transport"] as const;
 /** How long making a pairing link waits on a Tailscale certificate fetched again for it. */
 const pairingCertificateWaitMs = 15_000;
+/**
+ * How long making a pairing link waits on remote access still starting: the direct listener, then,
+ * with no direct address, the person's own relay. Past it the link names what serves by then.
+ */
+export const pairingStartWaitMs = 15_000;
 /** How often the address remote access listens on is checked against the network's. */
 export const addressCheckMs = 30_000;
 /**
@@ -56,6 +63,22 @@ export function remoteRuntime(
   options.relay = undefined;
   const delay = options.runtime?.delay ?? systemDeliveryRuntime.delay;
   const every = options.runtime?.every ?? systemDeliveryRuntime.every;
+  const now = options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now;
+  // The first pass, which the daemon no longer waits for before it listens: the direct
+  // listener's part, and every network's. Both settle, never reject, and settle on close.
+  const directStarted = Promise.withResolvers<void>();
+  const networksStarted = Promise.withResolvers<void>();
+  let firstPass = true;
+  const startedLine = (network: string, state: string, durationMs: number, error?: string) =>
+    options.info?.(
+      "Remote access started",
+      logFields([
+        ["network", network],
+        ["state", state],
+        ["durationMs", Math.round(durationMs)],
+        ...(error ? [["error", error] as const] : []),
+      ]),
+    );
   let stopWatch: (() => void) | undefined;
   let retry: (() => void) | undefined;
   let retryMs = 1000;
@@ -98,6 +121,17 @@ export function remoteRuntime(
     clearPending: () => {
       if (!direct.open()) clearPending();
     },
+    now,
+    // Each network's first start says how long it took, so a slow start explains itself.
+    onSettled: (relay, durationMs) => {
+      if (firstPass)
+        startedLine(
+          relay.plan.hosted ? "ace relay" : "own relay",
+          relay.state,
+          durationMs,
+          relay.error,
+        );
+    },
   });
   const accountId = () => options.machineAccount?.account()?.id;
   const plan = (next: Preferences): RemotePlan | undefined => {
@@ -125,6 +159,7 @@ export function remoteRuntime(
     if (closed) return;
     const wanted = plan(next);
     if (!wanted) return;
+    const began = now();
     const resolution = await direct.resolve(wanted.direct);
     if (refuseFrom) {
       const before = plan(refuseFrom);
@@ -137,6 +172,18 @@ export function remoteRuntime(
     if (closed) return;
     preferences = next;
     await direct.commit(resolution);
+    if (firstPass && !refuseFrom) {
+      const errors = direct.errors();
+      for (const network of ["lan", "tailscale"] as const satisfies DirectNetwork[])
+        if (wanted.direct[network])
+          startedLine(
+            network,
+            errors[network] ? "failed" : direct.serving()[network] ? "on" : "off",
+            now() - began,
+            errors[network],
+          );
+      directStarted.resolve();
+    }
     if (closed) return;
     await relays.apply(wanted.relays, retryRefused);
     if (refuseFrom) {
@@ -186,6 +233,9 @@ export function remoteRuntime(
   const begin = async () => {
     preferences = await read(preferences);
     await serialize(() => apply(preferences)).catch(recover);
+    firstPass = false;
+    directStarted.resolve();
+    networksStarted.resolve();
     const reconcile = () => {
       dirty = true;
       if (reconciling || closed) return;
@@ -238,6 +288,9 @@ export function remoteRuntime(
   const close = (): Promise<void> =>
     (closing ??= (async () => {
       closed = true;
+      firstPass = false;
+      directStarted.resolve();
+      networksStarted.resolve();
       stopAccount?.();
       stopWatch?.();
       stopWatch = undefined;
@@ -258,8 +311,26 @@ export function remoteRuntime(
      * What a pairing link names: the direct address while LAN or Tailscale serves, else the
      * person's own relay (ADR 0070). ace's relay admits account devices only, which never pair.
      */
-    /** Fetches a failed Tailscale certificate again before a link is made (`refreshCertificate`). */
-    beforePairing: () => direct.refreshCertificate(pairingCertificateWaitMs),
+    /**
+     * Before a link is made: waits for remote access still starting (the direct listener, then,
+     * with no direct address, the relays), at most `pairingStartWaitMs`, then fetches a failed
+     * Tailscale certificate again (`refreshCertificate`).
+     */
+    beforePairing: async () => {
+      const deadline = Promise.withResolvers<void>();
+      const cancel = delay(() => deadline.resolve(), pairingStartWaitMs);
+      try {
+        await Promise.race([directStarted.promise, deadline.promise]);
+        if (!direct.open()) await Promise.race([networksStarted.promise, deadline.promise]);
+      } finally {
+        cancel();
+      }
+      await direct.refreshCertificate(pairingCertificateWaitMs);
+    },
+    /** Settles once the direct listener's first start ended, or remote access closed. */
+    directStarted: directStarted.promise,
+    /** Settles once every network's first start ended, or remote access closed. */
+    started: networksStarted.promise,
     pairing: () => {
       const own = relays.selfHosted() && options.relay ? relayPairing(options.relay) : undefined;
       const address = direct.connection();
@@ -287,15 +358,18 @@ export function remoteRuntime(
       };
     },
     async start() {
-      if (!options.remoteConfig) return;
       // A stop while starting closes now: what waits on the network is given up, not awaited.
       const lifetime = options.lifetime;
       lifetime?.addEventListener("abort", giveUp, { once: true });
       try {
         if (lifetime?.aborted) await close();
-        else await begin();
+        else if (options.remoteConfig) await begin();
       } finally {
         lifetime?.removeEventListener("abort", giveUp);
+        // A start that failed (the saved settings unreadable) leaves nothing to wait for.
+        firstPass = false;
+        directStarted.resolve();
+        networksStarted.resolve();
       }
     },
     get relayHostId() {

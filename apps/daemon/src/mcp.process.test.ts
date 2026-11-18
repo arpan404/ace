@@ -133,6 +133,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   expect(existsSync(endpointPath)).toBe(false);
   const reopened = await startDaemon({ config: config, engine: noProviderDiscovery });
   cleanups.push(() => reopened.close());
+  await reopened.remoteStarted.direct;
   expect(reopened.store.devices.get(paired.device.id)).toMatchObject({
     name: "Integration device",
   });

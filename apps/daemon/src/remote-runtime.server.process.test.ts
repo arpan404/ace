@@ -48,6 +48,11 @@ async function runtime(
     home?: string;
     /** The daemon's lifetime (`ServerOptions.lifetime`). */
     lifetime?: AbortSignal;
+    /**
+     * Return once the daemon listens, with remote access still starting. By default the helper
+     * waits for every network's first start, as most tests here assert on a settled state.
+     */
+    listeningOnly?: boolean;
   } = {},
 ) {
   const home = overrides.home ?? (await mkdtemp(join(tmpdir(), "ace-remote-runtime-")));
@@ -124,6 +129,7 @@ async function runtime(
     },
     makeAccount ? (store, root) => ({ machineAccount: makeAccount(store, root) }) : undefined,
   );
+  if (!overrides.listeningOnly) await f.server.remoteStarted.networks;
   const client = await f.connect();
   await client.next();
   let id = 0;
@@ -1011,7 +1017,7 @@ test("a signed-in daemon whose relay never answers its registration stops within
   }
 });
 
-test("a stop while a signed-in daemon starts on a relay that never answers ends the wait at once", async () => {
+test("a signed-in daemon listens and pairs over the LAN while ace's relay never answers, and a stop then ends the wait at once", async () => {
   const silent = await silentRelay();
   const backend = await startFakeAccountBackend(Date.now);
   const accounts = await lastingAccount();
@@ -1021,23 +1027,39 @@ test("a stop while a signed-in daemon starts on a relay that never answers ends 
     const signedIn = accounts.open();
     await signedIn.load();
     const lifetime = new AbortController();
-    const starting = runtime({
+    const f = await runtime({
       enabled: true,
       hostedRelayUrl: silent.url,
       account: () => signedIn,
       lifetime: lifetime.signal,
+      listeningOnly: true,
     });
-    // Startup waits on ace's relay, which took the connection and never confirms it.
-    await expect.poll(() => silent.connections()).toBeGreaterThan(0);
-
-    const stopped = performance.now();
-    lifetime.abort();
-    const f = await starting;
+    let closed = false;
     try {
+      // The daemon answers while ace's relay took the connection and never confirms it.
+      await f.server.remoteStarted.direct;
+      await expect.poll(() => silent.connections()).toBeGreaterThan(0);
+      expect(RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks).toMatchObject({
+        lan: { state: "on" },
+        account: { state: "waiting", address: silent.url },
+      });
+      // A pairing link names the LAN address without waiting on the relay.
+      const asked = performance.now();
+      const pairing = PairingResponse.parse(await f.local("/v1/pairings", {}));
+      expect(new URL(pairing.url).hostname).toBe("127.0.0.1");
+      expect(performance.now() - asked).toBeLessThan(remoteCloseWaitMs);
+
+      const stopped = performance.now();
+      lifetime.abort();
+      await f.close();
+      closed = true;
       expect(performance.now() - stopped).toBeLessThan(remoteCloseWaitMs);
       await expect.poll(() => silent.open()).toBe(0);
+      const logged = f.logs.map(String).join("\n");
+      expect(logged).not.toContain("shutdown deadline exceeded");
+      expect(logged).not.toContain("Couldn't reach the relay");
     } finally {
-      await f.close();
+      if (!closed) await f.close();
     }
   } finally {
     await accounts.close();

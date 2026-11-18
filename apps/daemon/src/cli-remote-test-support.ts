@@ -29,6 +29,7 @@ export async function remoteCliFixture() {
     }),
   );
   const paired = await redeemPairing(pairing.url, "CLI regression");
+  await f.daemon.remoteStarted.direct;
   const upstreamUrl = f.daemon.remoteUrl;
   if (!upstreamUrl) throw new Error("Remote listener missing");
   const identity = loadIdentity(home);

@@ -24,6 +24,7 @@ it.runIf(process.platform === "win32")(
     });
     const first = await startDaemon({ config, engine: noProviderDiscovery });
     cleanups.push(() => first.close());
+    await first.remoteStarted.direct;
     const credential = readFileSync(first.tokenPath, "utf8");
     const origin = readFileSync(join(home, "daemon-endpoint"), "utf8");
     if (!first.remoteUrl || !first.fingerprint) throw new Error("Remote listener missing");
@@ -35,6 +36,7 @@ it.runIf(process.platform === "win32")(
 
     const second = await startDaemon({ config, engine: noProviderDiscovery });
     cleanups.push(() => second.close());
+    await second.remoteStarted.direct;
     if (!second.remoteUrl || !second.fingerprint) throw new Error("Remote listener missing");
     expect(second.fingerprint).toBe(first.fingerprint);
     const remote = second.remoteUrl.replace("wss:", "https:");

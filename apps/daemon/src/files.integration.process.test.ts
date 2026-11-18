@@ -86,6 +86,8 @@ async function setup(relayUrl?: string, files?: DaemonOptions["files"]) {
     },
   });
   cleanup.push(() => daemon.close());
+  // Remote access starts after the daemon listens.
+  await daemon.remoteStarted.networks;
   const connect = async (paired?: { device: { id: string }; token: string }) => {
     const client = new Client(daemon.url);
     cleanup.push(() => client.close());
