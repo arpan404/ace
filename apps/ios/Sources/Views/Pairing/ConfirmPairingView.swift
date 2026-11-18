@@ -61,7 +61,7 @@ struct ConfirmPairingView: View {
             }
         }
         .insetGroupedList()
-        .overlay(alignment: .bottomTrailing) { PairingAttemptsProbe(count: machines.pairAttempts) }
+        .overlay(alignment: .bottomTrailing) { attemptsProbe }
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: Binding(get: { settingUp != nil }, set: { if !$0 { settingUp = nil } })) {
@@ -70,6 +70,13 @@ struct ConfirmPairingView: View {
             }
         }
         .onDisappear { submission?.cancel(); submission = nil }
+    }
+
+    /// Fixture builds only: the count of pairing links sent, for UI tests.
+    @ViewBuilder private var attemptsProbe: some View {
+        #if ACE_FIXTURE
+        PairingAttemptsProbe(count: machines.pairAttempts)
+        #endif
     }
 
     private func pair() async {
