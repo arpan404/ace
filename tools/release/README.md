@@ -87,7 +87,7 @@ Windows installs through `install.ps1`, for the current user and without adminis
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-Like install.sh, the script pins both Windows archive hashes, then the bundled Node verifies the manifest signature before anything from the archive runs. It installs into `%ACE_HOME%` (default `%USERPROFILE%\.ace`), adds `<home>\bin` to the user PATH once (the value keeps its registry type, so `REG_EXPAND_SZ` entries stay expandable), and registers the login task `\ace-next-daemon`, which runs `bin\ace.cmd supervise` without a console window from logon to sign-out. `ace service uninstall` removes the task, the releases and the launcher, and takes `<home>\bin` back off PATH unless the desktop app's `ace` command is there; every other PATH entry stays as written.
+Like install.sh, the script pins both Windows archive hashes, then the bundled Node verifies the manifest signature before anything from the archive runs. It installs into `%ACE_HOME%` (default `%USERPROFILE%\.ace`), adds `<home>\bin` to the user PATH once (the value keeps its registry type, so `REG_EXPAND_SZ` entries stay expandable), and registers the login task `\ace-next-daemon` (`\ace-next-daemon-<hash>` for a home other than `%USERPROFILE%\.ace`, ADR 0185), which runs `bin\ace.cmd supervise` without a console window from logon to sign-out. `ace service uninstall` removes the task, the releases and the launcher, and takes `<home>\bin` back off PATH unless the desktop app's `ace` command is there; every other PATH entry stays as written.
 
 ## Verification
 

@@ -2,7 +2,8 @@ import { betaOnAtRest } from "@ace/settings/beta";
 import { basename, dirname } from "node:path";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { runProcess, type Runner } from "./process.ts";
-import { spadeRegistrationKind, type SpadeServicePlan } from "./spade-plan.ts";
+import { sameHomePath } from "./service-name.ts";
+import { registeredSpadeHome, spadeRegistrationKind, type SpadeServicePlan } from "./spade-plan.ts";
 
 /** Whether Spade's service is registered and whether its program runs (ADR 0123). */
 export type SpadeServiceState = "absent" | "stopped" | "running";
@@ -28,6 +29,35 @@ export function incompatibleSpadeService(file: string, cause?: unknown): Error {
   );
 }
 
+/**
+ * The service under this home's name runs a different home (ADR 0185): never replaced, started
+ * or removed from here. The message says how to remove it by hand when that home is gone.
+ */
+export function spadeServiceOfAnotherHome(plan: SpadeServicePlan, other: string): Error {
+  const removal =
+    plan.platform === "linux"
+      ? `systemctl --user disable --now ${plan.unit}, then delete ${plan.file} and run systemctl --user daemon-reload`
+      : plan.platform === "darwin"
+        ? `launchctl bootout ${plan.domain}, then delete ${plan.file}`
+        : `schtasks /Delete /TN ${plan.name} /F`;
+  return new Error(
+    `Spade's service ${plan.platform === "linux" ? plan.unit : plan.platform === "darwin" ? plan.domain : plan.name} runs another ace home, ${other}, not ${plan.home}. Refusing to replace, start or remove it. If that home is no longer used, remove its service yourself (${removal}) and turn Spade on again.`,
+  );
+}
+
+/** Refuses `content`, which isn't `plan`'s, naming the home it runs when it names one. */
+export function refuseSpadeRegistration(
+  plan: SpadeServicePlan,
+  file: string,
+  content: string,
+  cause: unknown,
+): Error {
+  const other = registeredSpadeHome(plan.platform, content);
+  if (other !== undefined && !sameHomePath(other, plan.home, plan.platform))
+    return spadeServiceOfAnotherHome(plan, other);
+  return incompatibleSpadeService(file, cause);
+}
+
 /** A bounded, no-follow read of a file ace wrote; undefined when it isn't there. */
 export function readOwnFile(file: string): string | undefined {
   let directory: PinnedDirectory | undefined;
@@ -50,7 +80,7 @@ export function readOwnFile(file: string): string | undefined {
 export function assertSpadeRegistration(plan: SpadeServicePlan): string | undefined {
   const content = readOwnFile(plan.file);
   if (content !== undefined && spadeRegistrationKind(plan, content) === undefined)
-    throw incompatibleSpadeService(plan.file, new Error("Unrecognized registration"));
+    throw refuseSpadeRegistration(plan, plan.file, content, new Error("Unrecognized registration"));
   if (plan.platform === "win32") {
     const launcher = readOwnFile(plan.launcher.file);
     if (

@@ -7,9 +7,10 @@ import {
   spadeBinaryName,
   spadeProcessFilter,
   spadeRegistrationKind,
-  spadeServicePlan,
   type SpadeServicePlan,
 } from "./spade-plan.ts";
+import { canonicalPath } from "./canonical-path.ts";
+import { spadePlanFor, spadeTaskNames } from "./spade-local.ts";
 import { readOwnFile } from "./spade-registration.ts";
 import { sidFromWhoami } from "./windows-user.ts";
 
@@ -145,7 +146,7 @@ export const localFreshStartSpade: FreshStartSpade = freshStartSpade((root) => {
   const platform = process.platform;
   if (platform !== "darwin" && platform !== "linux" && platform !== "win32")
     throw new Error(`Spade's service is not available on ${platform}`);
-  return spadeServicePlan(root, platform, {
+  const account = {
     userHome: homedir(),
     uid: process.getuid?.() ?? 0,
     ...(platform === "win32"
@@ -154,8 +155,25 @@ export const localFreshStartSpade: FreshStartSpade = freshStartSpade((root) => {
           systemRoot: process.env.SystemRoot ?? "C:\\Windows",
         }
       : {}),
+  };
+  return spadePlanFor(root, platform, account, {
+    canonical: canonicalPath,
+    loadedTask: (name) =>
+      platform === "win32" && spadeTaskNames(root, account.userHome).includes(name)
+        ? loadedTask(name)
+        : undefined,
   });
 });
+
+/** The task `name` as `schtasks /Query /XML` prints it, if there is one. */
+function loadedTask(name: string): string | undefined {
+  const query = spawnSync("schtasks.exe", ["/Query", "/TN", name, "/XML"], {
+    encoding: "utf8",
+    timeout: 60_000,
+    windowsHide: true,
+  });
+  return query.status === 0 ? query.stdout : undefined;
+}
 
 function windowsSid(): string {
   return sidFromWhoami(
