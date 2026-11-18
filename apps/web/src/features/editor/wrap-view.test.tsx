@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { CodeEditor } from "./editor.tsx";
 import { fallbackCharWidth, gutterWidth } from "./geometry.ts";
 import type { CodeEditorProps, EditorHandle } from "./types.ts";
@@ -93,6 +93,39 @@ test("caret up and down across a line break follow the rows around it", async ()
   await userEvent.keyboard("{ArrowDown}");
   expect(ref.current?.selections()[0]?.head.line).toBe(1);
   expect(ref.current?.selections()[0]?.head.column).toBe(4);
+});
+
+test("two carets at hard breaks are each drawn on the row before the break", async () => {
+  const text = `${"中".repeat(240)}\n${"中".repeat(240)}`;
+  const { ref } = await openView({ text, wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0), caret(1, 0)]));
+
+  await userEvent.keyboard("{End}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow), caret(1, cjkRow)]);
+  // The primary sits at the end of line 0's first row; the secondary at line 1's first row,
+  // one row before where the same column would land without its own side of the break.
+  const tops = [...document.querySelectorAll<HTMLElement>("[data-caret]")].map(
+    (box) => box.style.top,
+  );
+  expect(tops).toEqual(["0px", `${4 * 22}px`]);
+});
+
+test("revealing a caret at a hard break scrolls to the side the move asked for", async () => {
+  const { ref } = await openView({ text: "中".repeat(240), wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+  // The second row is at the top edge, so the caret's own side decides whether to scroll at all.
+  scroller.scrollTop = 22;
+  fireEvent.scroll(scroller);
+
+  const scrollTo = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(() => undefined);
+  try {
+    await userEvent.keyboard("{End}");
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, left: 0 });
+  } finally {
+    scrollTo.mockRestore();
+  }
 });
 
 test("a click on a continuation row places the caret at the column under the pointer", async () => {

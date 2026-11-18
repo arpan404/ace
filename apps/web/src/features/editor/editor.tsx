@@ -6,6 +6,7 @@ import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useSt
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
+import { isBefore, noAffinity, type Affinity } from "./affinity.ts";
 import { EditorFindBar } from "./find-bar.tsx";
 import { segmentsByLine, segmentsOnRow } from "./find-matches.ts";
 import { gutterWidth, leastRowCells, lineHeight, longLine } from "./geometry.ts";
@@ -62,8 +63,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
-  /** The primary caret stays at the end of the row before a hard break, as VS Code keeps it. */
-  const [before, setBefore] = useState(false);
+  /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
+  const [affinity, setAffinity] = useState<Affinity>(noAffinity);
   const [paint, setPaint] = useState(0);
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
@@ -145,7 +146,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     gutter,
     cell,
     wrap,
-    before,
+    before: isBefore(affinity, state.primary),
     viewport,
     onScroll: setScroll,
   });
@@ -168,7 +169,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     version: state.version,
     find: props.find,
     select: (range) => {
-      setBefore(false);
+      setAffinity(noAffinity);
       state.select([{ anchor: range.start, head: range.end }]);
     },
     reveal: (position) => {
@@ -184,8 +185,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     path: props.path,
     rows: Math.max(1, Math.floor(height / lineHeight)),
     layout,
-    before,
-    onBefore: setBefore,
+    affinity,
+    onBefore: setAffinity,
     onFind: finder.openFind,
     ...(props.onSave ? { onSave: props.onSave } : {}),
     ...(props.onToggleWrap ? { onToggleWrap: props.onToggleWrap } : {}),
@@ -225,7 +226,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     element: host,
     focus: () => field.current?.focus({ preventScroll: true }),
     reveal,
-    onBefore: setBefore,
+    onBefore: setAffinity,
   });
 
   useImperativeHandle(ref, () => ({
@@ -234,7 +235,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     version: () => state.doc?.version() ?? 0,
     selections: () => state.doc?.selections() ?? [],
     setSelections: (selections: readonly Selection[]) => {
-      setBefore(false);
+      setAffinity(noAffinity);
       state.select(selections);
     },
   }));
@@ -334,7 +335,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               lastLine={last - 1}
               gutter={gutter}
               cell={cell}
-              before={before}
+              affinity={affinity}
               primary={state.primary}
               composing={
                 input.composingText === undefined ? undefined : { text: input.composingText }

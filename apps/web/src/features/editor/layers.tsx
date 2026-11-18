@@ -1,4 +1,5 @@
 import type { Position, Selection } from "@ace/editor";
+import { isBefore, type Affinity } from "./affinity.ts";
 import { ordered } from "./cursor.ts";
 import { lineHeight } from "./geometry.ts";
 import type { RowLayout } from "./wrap-index.ts";
@@ -44,14 +45,14 @@ function boxes(
   lastLine: number,
   gutter: number,
   cell: number,
-  before: boolean,
+  affinity: Affinity,
   primary: number,
 ): { selections: Box[]; carets: Box[] } {
   const rects: Box[] = [];
   const carets: Box[] = [];
   selections.forEach((selection, index) => {
     const primaryHere = index === primary;
-    const headBefore = primaryHere && before;
+    const headBefore = isBefore(affinity, index);
     const { start, end } = ordered(selection);
     if (start.line !== end.line || start.column !== end.column) {
       for (
@@ -106,8 +107,8 @@ export function CaretLayers(props: {
   lastLine: number;
   gutter: number;
   cell: number;
-  /** The primary caret sits at the end of the row before a hard break. */
-  before: boolean;
+  /** Each caret's side of a hard break, so secondary carets draw on their own row. */
+  affinity: Affinity;
   primary: number;
   composing: Composing | undefined;
 }) {
@@ -123,7 +124,7 @@ export function CaretLayers(props: {
     props.lastLine,
     props.gutter,
     props.cell,
-    props.before,
+    props.affinity,
     props.primary,
   );
   const compose = props.composing;
@@ -153,7 +154,7 @@ export function CaretLayers(props: {
               selection.head,
               props.gutter,
               props.cell,
-              index === props.primary && props.before,
+              isBefore(props.affinity, index),
             );
             return (
               <div
