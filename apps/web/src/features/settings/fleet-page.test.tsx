@@ -57,7 +57,7 @@ test("the overview lists every machine and device with its state, and a machine'
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
 }, 30_000);
 
-test("Link all links every machine with every other, both ways", async () => {
+test("Link all links every machine with every other, both ways, each taking the other's projects", async () => {
   const { app, remote } = withBuildServer();
   await app.open("/settings/remote");
   const machines = await region("Machines");
@@ -67,6 +67,9 @@ test("Link all links every machine with every other, both ways", async () => {
     expect(linkedHosts(app.daemon.services.fleet.links())).toEqual(["build"]);
     expect(linkedHosts(remote.services.fleet.links())).toEqual(["this-mac"]);
   });
+  // Each machine's link to the other may act there and take work there ("Continue on…").
+  for (const daemon of [app.daemon, remote])
+    expect(daemon.services.fleet.links()).toMatchObject([{ access: "operate", projects: true }]);
   await waitFor(() =>
     expect(within(machines).queryByRole("button", { name: "Link all machines" })).toBeNull(),
   );

@@ -147,9 +147,13 @@ export function fleetRefusal(code: string, machine: string): string {
 /** What agents on a linked machine may do on the machine it reaches. */
 export type LinkAccess = "read" | "operate";
 
-/** The scopes the reached machine's pairing grants a link: never administrator. */
+/**
+ * The scopes the reached machine's pairing grants a link: never administrator. A link that acts
+ * there also takes the person's work there ("Continue on…", ADR 0101), so Projects comes with
+ * operate; the reached machine's Settings › Fleet can stop allowing it.
+ */
 export function linkScopes(access: LinkAccess): PairingScope[] {
-  return access === "operate" ? ["read", "operate"] : ["read"];
+  return access === "operate" ? ["read", "operate", "projects"] : ["read"];
 }
 
 /** Why `to` couldn't make a pairing link for a link, in words the person acts on. */

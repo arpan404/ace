@@ -71,6 +71,10 @@ export class FakeFleet {
             operation.name,
             this.entries.map((entry) => entry.profile),
           );
+        // What the other machine's link grants rides in its fragment, as the real one's does.
+        const granted = (
+          new URLSearchParams(new URL(operation.pairingUrl).hash.slice(1)).get("scopes") ?? ""
+        ).split(",");
         const link = FleetLink.parse({
           hostId: operation.hostId,
           profile,
@@ -78,7 +82,8 @@ export class FakeFleet {
           origin: `https://${profile}.local:5870/`,
           deviceId: `fleet-device-${++this.linked}`,
           status: "online",
-          access: "operate",
+          access: granted.includes("operate") ? "operate" : "read",
+          projects: granted.includes("projects"),
         });
         this.entries = [...this.entries.filter((entry) => entry !== previous), link];
         return { kind: "linked", link };
