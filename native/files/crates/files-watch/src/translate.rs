@@ -31,14 +31,43 @@ pub(crate) struct Translation {
     pub(crate) rescan: Option<Option<String>>,
 }
 
-/// Whether `path` exists, and whether it is a directory; a symbolic link is never one.
+/// What the filesystem said about a path when an event was translated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Presence {
+    /// The path is there, and whether it is a directory; a symbolic link is never one.
+    Here(bool),
+    /// The path is not there.
+    Gone,
+    /// The path could not be looked up: files-safe found the folder changed under the lookup,
+    /// so the events are all this crate knows about it.
+    Unknown,
+}
+
+/// What is at `path`, asked through the root's handle.
 ///
 /// The leaf is opened through the root's handle without following it, so a link is reported
 /// as the link itself and never as the tree it points at.
-pub(crate) fn look(root: &Root, path: &str) -> Option<bool> {
-    let (folder, name) = root.open_parent(path).ok()?;
-    let metadata = folder.symlink_metadata(&name).ok()?;
-    Some(metadata.is_dir())
+pub(crate) fn look(root: &Root, path: &str) -> Presence {
+    let (folder, name) = match root.open_parent(path) {
+        Ok(found) => found,
+        Err(files_safe::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Presence::Gone;
+        }
+        Err(_) => return Presence::Unknown,
+    };
+    match folder.symlink_metadata(&name) {
+        Ok(metadata) => Presence::Here(metadata.is_dir()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Presence::Gone,
+        Err(_) => Presence::Unknown,
+    }
+}
+
+/// The `Notice` form of a presence: only a path seen on disk says anything.
+fn noticed(present: Presence) -> Option<bool> {
+    match present {
+        Presence::Here(directory) => Some(directory),
+        Presence::Gone | Presence::Unknown => None,
+    }
 }
 
 /// Translates one backend event, asking `look` what is on disk.
@@ -46,7 +75,7 @@ pub(crate) fn translate(
     event: Event,
     root: &Root,
     excluder: &Excluder,
-    look: &dyn Fn(&str) -> Option<bool>,
+    look: &dyn Fn(&str) -> Presence,
 ) -> Translation {
     let mut translation = Translation {
         notices: Vec::new(),
@@ -91,7 +120,7 @@ pub(crate) fn translate(
         if let Some((kind, rename)) = classify(&event.kind, present) {
             let directory = match kind {
                 ChangeKind::Deleted => matches!(event.kind, EventKind::Remove(RemoveKind::Folder)),
-                _ => present.unwrap_or(false),
+                _ => present == Presence::Here(true),
             };
             translation.notices.push(Notice {
                 change: Change {
@@ -100,22 +129,22 @@ pub(crate) fn translate(
                     directory,
                 },
                 rename,
-                present,
+                present: noticed(present),
             });
         }
     }
     translation
 }
 
-fn classify(kind: &EventKind, present: Option<bool>) -> Option<(ChangeKind, bool)> {
+fn classify(kind: &EventKind, present: Presence) -> Option<(ChangeKind, bool)> {
     let change = match kind {
         EventKind::Create(_) => (ChangeKind::Created, false),
         EventKind::Remove(_) => (ChangeKind::Deleted, false),
         EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => {
-            if present.is_some() {
-                (ChangeKind::Created, true)
-            } else {
+            if present == Presence::Gone {
                 (ChangeKind::Deleted, true)
+            } else {
+                (ChangeKind::Created, true)
             }
         }
         EventKind::Modify(ModifyKind::Name(RenameMode::From)) => (ChangeKind::Deleted, true),
@@ -140,7 +169,7 @@ fn push(
     translation: &mut Translation,
     root: &Root,
     excluder: &Excluder,
-    look: &dyn Fn(&str) -> Option<bool>,
+    look: &dyn Fn(&str) -> Presence,
     absolute: &Path,
     kind: ChangeKind,
     rename: bool,
@@ -151,7 +180,7 @@ fn push(
     let present = look(&path);
     let directory = match kind {
         ChangeKind::Deleted => false,
-        _ => present.unwrap_or(false),
+        _ => present == Presence::Here(true),
     };
     translation.notices.push(Notice {
         change: Change {
@@ -160,13 +189,13 @@ fn push(
             directory,
         },
         rename,
-        present,
+        present: noticed(present),
     });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::translate;
+    use super::{Presence, translate};
     use crate::batch::{Change, ChangeKind};
     use crate::exclude::Excluder;
     use files_safe::Root;
@@ -206,7 +235,10 @@ mod tests {
                 .iter()
                 .map(|(rel, is_dir)| ((*rel).to_owned(), *is_dir))
                 .collect();
-            let look = move |path: &str| table.get(path).copied();
+            let look = move |path: &str| match table.get(path) {
+                Some(directory) => Presence::Here(*directory),
+                None => Presence::Gone,
+            };
             let translation = translate(event, &self.root, &excluder, &look);
             let changes = translation
                 .notices
@@ -374,7 +406,7 @@ mod tests {
         let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
         event = event.set_flag(notify::event::Flag::Rescan);
         assert_eq!(
-            translate(event, &fixture.root, &outside, &|_| None).rescan,
+            translate(event, &fixture.root, &outside, &|_| Presence::Gone).rescan,
             Some(Some("node_modules/pkg".to_owned())),
             "a package folder is listed, so it can be rescanned"
         );
@@ -382,7 +414,7 @@ mod tests {
         let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
         event = event.set_flag(notify::event::Flag::Rescan);
         assert_eq!(
-            translate(event, &fixture.root, &inside, &|_| None).rescan,
+            translate(event, &fixture.root, &inside, &|_| Presence::Gone).rescan,
             Some(None),
             "an excluded folder's overflow names the root instead"
         );
