@@ -47,10 +47,11 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
 ]);
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
-type Outcome = { ok: true } | { ok: false; title: string; message: string; at?: number };
+type Refusal = { ok: false; title: string; message: string; at?: number };
+type Outcome = { ok: true } | Refusal;
 
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
-const refused = (title: string, error: unknown): Outcome => ({
+const refused = (title: string, error: unknown): Refusal => ({
   ok: false,
   title,
   message: (error instanceof Error && error.message) || "Try again.",
