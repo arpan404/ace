@@ -140,12 +140,16 @@ export class CheckoutTrees {
         this.#scheduleWatch(tree);
         return;
       }
-      case "files.tree.more":
-        this.#list(tree, folderKey(action.path), "more");
+      case "files.tree.more": {
+        const folder = folderKey(action.path);
+        if (tree.open.has(folder)) this.#list(tree, folder, "more");
         return;
-      case "files.tree.retry":
-        this.#list(tree, folderKey(action.path), "first");
+      }
+      case "files.tree.retry": {
+        const folder = folderKey(action.path);
+        if (tree.open.has(folder)) this.#list(tree, folder, "first");
         return;
+      }
       case "files.tree.refresh":
         this.#show(tree);
         return;
