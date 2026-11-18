@@ -15,10 +15,16 @@ import { isNewer } from "@ace/service/version";
  * (`scripts/release-beta.ts`) is the I/O around them.
  */
 
-/** Why this machine can't build a beta, or undefined when it can: macOS on Apple silicon only. */
+/**
+ * The hosts a beta is built on, one per release target (ADR 0186): macOS on Apple silicon,
+ * Linux x64 and arm64 (each in its own Debian 12 container), and Windows x64.
+ */
+const betaHosts = new Set(["darwin-arm64", "linux-x64", "linux-arm64", "win32-x64"]);
+
+/** Why this machine can't build a beta, or undefined when it can. */
 export function betaHostProblem(platform: string, arch: string): string | undefined {
-  if (platform === "darwin" && arch === "arm64") return undefined;
-  return `Betas are built for macOS on Apple silicon only, not ${platform}-${arch}.`;
+  if (betaHosts.has(`${platform}-${arch}`)) return undefined;
+  return `Betas are built for ${[...betaHosts].join(", ")}, not ${platform}-${arch}.`;
 }
 
 /** Tag names from `git ls-remote --tags`, without the peeled `^{}` duplicates. */
@@ -61,6 +67,31 @@ export function planBeta(input: {
     throw new Error(`--version ${version} must be later than ${input.stable}, the last stable`);
   const name = { version, build: nextBetaBuild(input.tags, version) };
   return { name, tag: betaTag(name), version: betaVersion(name), title: betaTitle(name) };
+}
+
+/**
+ * The beta a pushed tag names, checked against the rules `planBeta` applies to a new one (ADR
+ * 0177): its version must be a later X.Y.Z than `stable`, and its build number must be the one
+ * `planBeta` would pick from the tags GitHub had before it. Tags of later builds of that version
+ * are left out, so rerunning an older beta's release still checks out.
+ */
+export function planBetaTag(input: {
+  stable: string;
+  tag: string;
+  tags: readonly string[];
+}): BetaPlan {
+  const named = parseBetaTag(input.tag);
+  if (!named) throw new Error(`${input.tag} is not a beta tag: ace-<X.Y.Z>-beta-<N>`);
+  const earlier = input.tags.filter((tag) => {
+    const other = parseBetaTag(tag);
+    return !other || other.version !== named.version || other.build < named.build;
+  });
+  const plan = planBeta({ stable: input.stable, version: named.version, tags: earlier });
+  if (plan.tag !== input.tag)
+    throw new Error(
+      `${input.tag} skips a build number: the next beta of ${named.version} is ${plan.tag}`,
+    );
+  return plan;
 }
 
 /**
