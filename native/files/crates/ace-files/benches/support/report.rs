@@ -110,7 +110,7 @@ impl Report {
 /// A value with the precision its unit deserves.
 fn format_value(value: f64, unit: &str) -> String {
     match unit {
-        "ms" | "MB" | "s" | "MB/s" => format!("{value:.1} {unit}"),
+        "ms" | "MB" | "MiB" | "s" | "MB/s" => format!("{value:.1} {unit}"),
         _ => format!("{value:.0} {unit}"),
     }
 }
