@@ -41,30 +41,37 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         case text(String)
         case picks([String], other: String)
         case confirm(Bool?)
+        /// A date's text.
         case field(String)
+        /// A number as typed, with the language of the keyboard it was typed on
+        /// (`UITextInputMode.primaryLanguage`, nil when not known).
+        case number(String, language: String?)
 
         static func empty(for question: Question) -> Draft {
             switch question.kind {
             case "choice", "choices": .picks([], other: "")
             case "confirm": .confirm(nil)
-            case "number", "date": .field("")
+            case "number": .number("", language: nil)
+            case "date": .field("")
             default: .text("")
             }
         }
 
-        /// What the card sends for `question`: a number as Spade reads one, whatever the
-        /// keyboard's locale typed (`1,5` from a decimal-comma keypad is `1.5`).
-        func payload(for question: Question, in locale: Locale = .current) -> [String: Any] {
-            guard question.kind == "number", case let .field(typed) = self else { return payload }
-            return Draft.field(SpadeQuestionCard.numberText(typed, in: locale)).payload
-        }
-
-        private var payload: [String: Any] {
+        /// What the card sends for it. A number goes as Spade reads one (`1,5` from a German
+        /// keyboard is `1.5`); one that isn't a plain number in its keyboard's locale goes as
+        /// typed and `unread`, so the shared rules ask again rather than guess.
+        var payload: [String: Any] {
             switch self {
             case let .text(text): ["kind": "text", "text": text]
             case let .picks(picked, other): ["kind": "picks", "picked": picked, "other": other]
             case let .confirm(value): value.map { ["kind": "confirm", "value": $0] } ?? ["kind": "confirm"]
             case let .field(text): ["kind": "field", "text": text]
+            case let .number(typed, language):
+                if let text = SpadeQuestionCard.numberText(typed, language: language, fallback: .current) {
+                    ["kind": "field", "text": text]
+                } else {
+                    ["kind": "field", "text": typed, "unread": true]
+                }
             }
         }
 
@@ -88,16 +95,27 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         }
     }
 
-    /// A number typed in `locale` with a point for its decimal mark, as Spade reads numbers.
-    /// Text that isn't a number in that locale goes as typed, so the shared rules say why.
-    static func numberText(_ typed: String, in locale: Locale) -> String {
-        let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        let reader = NumberFormatter()
-        reader.locale = locale
-        reader.numberStyle = .decimal
-        reader.generatesDecimalNumbers = true
-        guard !text.isEmpty, let number = reader.number(from: text) as? NSDecimalNumber else { return text }
-        return number.stringValue
+    /// A number typed on a keyboard of `language` (else in `fallback`), with a point for its
+    /// decimal mark as Spade reads numbers, or nil when it isn't a plain number there: a grouping
+    /// mark (`1,500`, `1.500`) could mean either, so it is never read.
+    static func numberText(_ typed: String, language: String?, fallback: Locale) -> String? {
+        let keyboard = language.flatMap { ["emoji", "dictation"].contains($0) ? nil : Locale(identifier: $0) }
+        let mark = (keyboard ?? fallback).decimalSeparator ?? "."
+        var text = ""
+        var marked = false
+        for (at, each) in typed.trimmingCharacters(in: .whitespacesAndNewlines).enumerated() {
+            if at == 0, each == "-" || each == "\u{2212}" {
+                text.append("-")
+            } else if let digit = each.wholeNumberValue, each.unicodeScalars.first?.properties.numericType == .decimal {
+                text.append(String(digit))
+            } else if String(each) == mark, !marked {
+                text.append(".")
+                marked = true
+            } else {
+                return nil
+            }
+        }
+        return text.contains(where: \.isNumber) && text.last != "." ? text : nil
     }
 
     /// A date question's answer read back, for the picker to show what the card will send.

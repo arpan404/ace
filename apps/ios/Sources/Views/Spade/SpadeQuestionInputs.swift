@@ -26,8 +26,11 @@ struct SpadeQuestionInputs: View {
         Binding(get: { if case let .text(text) = draft { text } else { "" } }, set: { draft = .text($0) })
     }
 
-    private var fieldBinding: Binding<String> {
-        Binding(get: { if case let .field(text) = draft { text } else { "" } }, set: { draft = .field($0) })
+    /// Typed into, a number keeps the keyboard's language too, so it is read the way that
+    /// keyboard writes numbers, not the app's locale.
+    private var numberBinding: Binding<String> {
+        Binding(get: { if case let .number(text, _) = draft { text } else { "" } },
+                set: { draft = .number($0, language: KeyboardLanguage.typing()) })
     }
 
     private func field(_ prompt: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
@@ -95,7 +98,7 @@ struct SpadeQuestionInputs: View {
 
     private var number: some View {
         HStack(spacing: AceDesign.Space.related) {
-            field("Number", text: fieldBinding, lines: 1...1)
+            field("Number", text: numberBinding, lines: 1...1)
                 // The decimal pad has no minus key.
                 .keyboardType(question.signed ? .numbersAndPunctuation : .decimalPad)
                 .focused($typingNumber)
@@ -161,5 +164,25 @@ private struct SpadeDateInput: View {
     private func commit() {
         if let choosing { draft = .field(SpadeQuestionCard.dateText(choosing, time: time)) }
         choosing = nil
+    }
+}
+
+/// The language of the keyboard being typed on: the first responder's text input mode.
+@MainActor private enum KeyboardLanguage {
+    static func typing() -> String? {
+        let finder = FirstResponderFinder()
+        UIApplication.shared.sendAction(#selector(UIResponder.aceReportFirstResponder(_:)), to: nil, from: finder, for: nil)
+        return finder.found?.textInputMode?.primaryLanguage
+    }
+}
+
+private final class FirstResponderFinder: NSObject {
+    weak var found: UIResponder?
+}
+
+extension UIResponder {
+    /// Sent to the first responder (`sendAction` with no target), which reports itself.
+    @objc fileprivate func aceReportFirstResponder(_ sender: Any?) {
+        (sender as? FirstResponderFinder)?.found = self
     }
 }

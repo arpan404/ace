@@ -196,7 +196,7 @@ private struct SpadeOpenQuestionCard: View {
 
     private func answer(_ these: [SpadeQuestionCard.Draft]) {
         let all = these.count == count ? these : card.questions.map(SpadeQuestionCard.Draft.empty)
-        send(["drafts": zip(card.questions, all).map { question, draft in draft.payload(for: question) }])
+        send(["drafts": all.map(\.payload)])
     }
 
     /// Out to the bridge, which checks the drafts first: a card that needs more turns to the

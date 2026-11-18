@@ -105,7 +105,11 @@ export const SpadeDraftWire = z.discriminatedUnion("kind", [
     other: z.string().max(20_000),
   }),
   z.object({ kind: z.literal("confirm"), value: z.boolean().optional() }),
-  z.object({ kind: z.literal("field"), text: z.string().max(200) }),
+  /**
+   * `unread`: a number the phone couldn't read in its keyboard's locale (`1.500` on a German
+   * keyboard is 1500 or 1.5), so it is asked for again, never guessed at.
+   */
+  z.object({ kind: z.literal("field"), text: z.string().max(200), unread: z.boolean().optional() }),
 ]);
 
 /** The card's open questions, by its call, from what the conversation shows now. */
@@ -128,7 +132,9 @@ export function spadeCardReply(
     card.questions.map((question, at): SpadeDraft => {
       const draft = drafts[at];
       if (!draft) return spadeEmptyDraft(question);
-      return draft.kind === "confirm" ? { kind: "confirm", value: draft.value } : draft;
+      if (draft.kind === "confirm") return { kind: "confirm", value: draft.value };
+      if (draft.kind === "field") return { kind: "field", text: draft.unread ? "" : draft.text };
+      return draft;
     }),
   );
   return "missing" in read ? { missing: `${read.missing}.`, at: read.at } : read;

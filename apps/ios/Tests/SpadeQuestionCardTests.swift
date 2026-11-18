@@ -34,14 +34,34 @@ import Testing
         #expect(SpadeQuestionCard.dateText(date, time: true, in: east) == "2026-11-17T21:15:00+05:45")
     }
 
-    @Test func aNumberTypedOnADecimalCommaKeypadIsSentWithAPoint() {
-        let nights = SpadeQuestionCard.Question(prompt: "How many nights?", kind: "number", placeholder: nil, options: [],
-                                                other: false, most: nil, unit: "nights", signed: false, time: false)
-        let german = Locale(identifier: "de_DE")
-        #expect(SpadeQuestionCard.Draft.field("1,5").payload(for: nights, in: german)["text"] as? String == "1.5")
-        #expect(SpadeQuestionCard.Draft.field("1.5").payload(for: nights, in: Locale(identifier: "en_US"))["text"] as? String == "1.5")
-        // Not a number in that locale: sent as typed, so the shared rules say why.
-        #expect(SpadeQuestionCard.Draft.field("lots").payload(for: nights, in: german)["text"] as? String == "lots")
+    @Test(arguments: [
+        ("1,5", "de-DE", "1.5"),
+        ("-2,25", "de-DE", "-2.25"),
+        ("1.5", "en-US", "1.5"),
+        ("\u{2212}20", "en-US", "-20"),
+        // A comma isn't en_US's decimal mark, and a grouping mark never changes the value:
+        // sent unread, so the shared rules ask again.
+        ("1,5", "en-US", nil),
+        ("1,500", "en-US", nil),
+        ("1.500", "de-DE", nil),
+        ("lots", "de-DE", nil),
+    ] as [(String, String, String?)])
+    func aNumberIsSentInTheKeyboardsLocaleWithAPoint(typed: String, language: String, sent: String?) {
+        let payload = SpadeQuestionCard.Draft.number(typed, language: language).payload
+        #expect(payload["kind"] as? String == "field")
+        if let sent {
+            #expect(payload["text"] as? String == sent)
+            #expect(payload["unread"] == nil)
+        } else {
+            #expect(payload["text"] as? String == typed)
+            #expect(payload["unread"] as? Bool == true)
+        }
+    }
+
+    @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {
+        #expect(SpadeQuestionCard.numberText("1,5", language: nil, fallback: Locale(identifier: "de_DE")) == "1.5")
+        #expect(SpadeQuestionCard.numberText("1,5", language: "emoji", fallback: Locale(identifier: "de_DE")) == "1.5")
+        #expect(SpadeQuestionCard.numberText("1,5", language: "dictation", fallback: Locale(identifier: "en_US")) == nil)
     }
 
     @Test func aPickedDateReadsBackFromTheDraftAsTheSameDay() throws {

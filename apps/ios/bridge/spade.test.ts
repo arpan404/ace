@@ -359,6 +359,21 @@ test("a card missing an answer never reaches Spade and names the question that n
   ).toMatchObject({ ok: false, at: 1 });
 });
 
+test("a number the phone couldn't read in its keyboard's locale is asked for again, never guessed at", async () => {
+  const { reply, posted } = await asked(trip);
+
+  // `1.500` on a German keyboard: 1500 or 1.5, so the phone sends it unread.
+  expect(
+    await reply({
+      drafts: [
+        { kind: "picks", picked: ["Lisbon"], other: "" },
+        { kind: "field", text: "1.500", unread: true },
+      ],
+    }),
+  ).toEqual({ ok: false, title: "", message: "Enter a number.", at: 1 });
+  expect(posted()).toEqual([]);
+});
+
 test("a malformed pick count still reaches the phone as a whole count it can read", async () => {
   const { card } = await asked([
     { prompt: "Which two?", kind: "choices", options: ["A", "B", "C"], max: 2.5 },
