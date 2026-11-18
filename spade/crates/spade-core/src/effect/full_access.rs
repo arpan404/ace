@@ -1,7 +1,8 @@
 //! Where a call goes for a bot in Full access (ADR 0163, amendment 2), once [`super::route`] has
 //! applied the hard stops every mode keeps: a secret refused; a payment, a send in the person's
-//! name, an access change and an effect Spade doesn't know asking the person. Nothing here sends a
-//! call to the reviewer, and untrusted content in view adds no ask. What still asks:
+//! name, an access change and an effect Spade doesn't know asking the person. Ordinary work runs
+//! with no reviewer, and untrusted content in view adds no ask, except for an app's tool. What
+//! still asks:
 //!
 //! - a driving step in a place where a step could send, pay or change access (mail and chat, money,
 //!   passwords, sign-in and account pages, settings, social sites, a browser driven through the
@@ -10,12 +11,17 @@
 //! - a command outside the sandbox the shell classifier reads as a payment, a send or an access
 //!   change;
 //! - a command asking to leave the sandbox this once: Full access never widens the sandbox;
-//! - an undeclared tool the person declined for the bot stays declined.
+//! - a tool that declares nothing, outside the sandbox: the person decides once for the bot, as on
+//!   the auto-review (its "yes" lets it run, never a send or payment the classifier raises);
+//!
+//! And what still goes to the reviewer: a connector's or plugin's tool that writes (it runs on a
+//! server with the person's sign-in, where no sandbox holds it) while untrusted content is in view,
+//! or while Spade's classifier, which may raise it to the person, is off or can't be loaded.
 //!
 //! Pure.
 
 use super::{
-    Ask, CHANGES_ACCESS, Call, DECLINED_TOOL, Effect, OUTSIDE, Place, Route, SENDS_AS_YOU, SPENDS,
+    Ask, CHANGES_ACCESS, Call, Effect, OUTSIDE, Place, Route, SENDS_AS_YOU, SPENDS, TAINTED_OUTWARD,
 };
 use crate::autonomy::{Class, Sensitive};
 
@@ -43,11 +49,29 @@ pub(super) fn route(call: Call<'_>) -> Route {
         }
         _ => {}
     }
-    if call.effect.is_none() && call.place != Place::Sandbox && call.remembered == Some(false) {
-        return Route::Refuse(DECLINED_TOOL.to_owned());
+    // A tool that declares nothing asks once, as on the auto-review; the person's "yes" lets it
+    // run below like a declared write, never past the classifier.
+    if call.effect.is_none() {
+        let route = super::undeclared(call);
+        if route != Route::Run {
+            return route;
+        }
+    }
+    // An app's tool that writes runs on a server outside any sandbox, often as the person.
+    if call.remote && call.place != Place::Sandbox && call.effect != Some(Effect::Read) {
+        if call.tainted {
+            return super::review(call, Some(TAINTED_OUTWARD));
+        }
+        if !call.classifier {
+            return super::review(call, Some(NO_CLASSIFIER));
+        }
     }
     Route::Run
 }
+
+/// What the reviewer is told about an app's write it sees because the classifier can't screen it.
+pub const NO_CLASSIFIER: &str = "It writes in one of the person's apps, and Spade's classifier, which would catch a send or a \
+     payment, is off.";
 
 /// What the shell classifier reads in a command outside the sandbox that stays the person's.
 fn hard_stop(kind: Sensitive) -> Option<&'static str> {

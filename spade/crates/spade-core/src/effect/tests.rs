@@ -22,6 +22,8 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         target: None,
         drive: Drive::default(),
         mode: crate::autonomy::Mode::AutoReview,
+        remote: false,
+        classifier: true,
     }
 }
 

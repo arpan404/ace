@@ -303,6 +303,12 @@ pub struct Call<'a> {
     pub drive: Drive<'a>,
     /// How the bot decides (ADR 0163, amendment 2).
     pub mode: Mode,
+    /// A connector's or plugin's MCP tool: it runs on a server outside Spade, often with the
+    /// person's sign-in.
+    pub remote: bool,
+    /// Spade's classifier (ADR 0172) is on and loaded, so a call the gate lets run can still be
+    /// raised to the person.
+    pub classifier: bool,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -379,20 +385,7 @@ pub fn route(call: Call<'_>) -> Route {
         return unsandboxed(call, class);
     }
     let Some(effect) = call.effect else {
-        if call.place == Place::Sandbox {
-            return Route::Run;
-        }
-        return match call.remembered {
-            // Allowed for the bot, but untrusted content could be steering this call: the
-            // person decides it, as they would an always-allowed write (ADR 0130).
-            Some(true) if call.tainted => Route::ask(UNDECLARED_TAINTED),
-            Some(true) => Route::Run,
-            Some(false) => Route::Refuse(DECLINED_TOOL.to_owned()),
-            None => Route::Ask {
-                line: UNDECLARED.to_owned(),
-                ask: Some(Ask::Undeclared),
-            },
-        };
+        return undeclared(call);
     };
     match call.place {
         Place::Sandbox => return Route::Run,
@@ -445,6 +438,24 @@ pub fn route(call: Call<'_>) -> Route {
         | Effect::ChangeAccess
         | Effect::Unknown
         | Effect::Credential => Route::ask(UNKNOWN),
+    }
+}
+
+/// Where a tool that declares nothing goes: inside the sandbox it runs; elsewhere the person
+/// decides once for the bot, and their answer is kept, except that untrusted content in view
+/// brings an allowed one back to them (ADR 0130). Every mode: nothing says it doesn't send or pay.
+fn undeclared(call: Call<'_>) -> Route {
+    if call.place == Place::Sandbox {
+        return Route::Run;
+    }
+    match call.remembered {
+        Some(true) if call.tainted => Route::ask(UNDECLARED_TAINTED),
+        Some(true) => Route::Run,
+        Some(false) => Route::Refuse(DECLINED_TOOL.to_owned()),
+        None => Route::Ask {
+            line: UNDECLARED.to_owned(),
+            ask: Some(Ask::Undeclared),
+        },
     }
 }
 

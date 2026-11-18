@@ -135,6 +135,12 @@ impl Engine {
         self.oversight().map_or(true, |global| global.classifier)
     }
 
+    /// Whether Spade's classifier can screen calls now: on, and its model built into this binary
+    /// loads. In Full access an app's write runs only then (ADR 0163, amendment 2).
+    pub(crate) fn classifier_ready(&self) -> bool {
+        self.classifier_on() && Model::embedded().is_some()
+    }
+
     /// Runs the classifier on a call the gate sent to review, storing what it settled or raised
     /// as the call's verdict, so a restart reaches the same answer without asking it again.
     pub(super) fn screen(

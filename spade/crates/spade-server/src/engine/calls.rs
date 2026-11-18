@@ -295,6 +295,12 @@ pub(super) async fn handle_calls(
                         target: target.as_deref(),
                         drive,
                         mode,
+                        // A connector's or plugin's tool: its server says what it is.
+                        remote: engine
+                            .tools
+                            .get_for(id, &name)
+                            .is_some_and(|tool| tool.hints().is_some()),
+                        classifier: engine.classifier_ready(),
                     });
                     let screening = |concern: bool| super::classify::Screening {
                         call: &pending.call,

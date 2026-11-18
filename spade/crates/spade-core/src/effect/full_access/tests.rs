@@ -1,9 +1,11 @@
 use serde_json::json;
 
+use super::NO_CLASSIFIER;
 use crate::autonomy::{CREDENTIALS_REFUSED, Class, Mode, Sensitive};
 use crate::effect::{
     Ask, CHANGES_ACCESS, Call, DECLINED_TOOL, Drive, Effect, GIT_PUSH, Granted, OUTSIDE, PUSHES,
-    Place, Route, SENDS_AS_YOU, SPENDS, UNKNOWN, drive, route,
+    Place, Route, SENDS_AS_YOU, SPENDS, TAINTED_OUTWARD, UNDECLARED, UNDECLARED_TAINTED, UNKNOWN,
+    drive, route,
 };
 use crate::gate::Decision;
 use crate::tools::Risk;
@@ -27,6 +29,16 @@ fn full(tool: &str, effect: Option<Effect>) -> Call<'_> {
         target: None,
         drive: Drive::default(),
         mode: Mode::FullAccess,
+        remote: false,
+        classifier: true,
+    }
+}
+
+/// A connector's or plugin's tool, run on its server outside the sandbox.
+fn app_tool(tool: &str, effect: Option<Effect>) -> Call<'_> {
+    Call {
+        remote: true,
+        ..full(tool, effect)
     }
 }
 
@@ -117,8 +129,6 @@ fn in_full_access_a_write_outside_the_sandbox_runs_without_review() {
         },
         full("workspace_write", Some(Effect::WriteLocal)),
         full("market_publish", Some(Effect::Publish)),
-        // A tool that declares nothing: no first-call ask.
-        full("plugin__tool", None),
     ];
     for case in cases {
         // The auto-review would have held each one.
@@ -362,6 +372,100 @@ fn in_full_access_the_sandbox_is_never_widened() {
             ask: Some(Ask::OutsideSandbox)
         }
     );
+}
+
+#[test]
+fn in_full_access_an_app_tool_that_declares_nothing_asks_on_its_first_call_even_with_the_classifier_off()
+ {
+    // An app's sending tool with no trusted declaration: Spade can't know it sends.
+    let send = app_tool("mail__send_email", None);
+    for call in [
+        send,
+        Call {
+            classifier: false,
+            ..send
+        },
+        Call {
+            tainted: true,
+            classifier: false,
+            ..send
+        },
+    ] {
+        assert_eq!(
+            route(call),
+            Route::Ask {
+                line: UNDECLARED.to_owned(),
+                ask: Some(Ask::Undeclared)
+            },
+            "{call:?}"
+        );
+    }
+    // The person's "yes" for the bot lets it run, still past the classifier and never under
+    // untrusted content.
+    let allowed = Call {
+        remembered: Some(true),
+        ..send
+    };
+    assert_eq!(route(allowed), Route::Run);
+    let blind = Call {
+        classifier: false,
+        ..allowed
+    };
+    assert!(is_review(&route(blind)), "{:?}", route(blind));
+    let steered = Call {
+        tainted: true,
+        ..allowed
+    };
+    assert_eq!(route(steered), asks(UNDECLARED_TAINTED));
+}
+
+#[test]
+fn in_full_access_an_app_write_goes_to_the_reviewer_when_the_classifier_is_off_or_content_is_untrusted()
+ {
+    // Declared only `network`, though it sends: the classifier is what would catch that.
+    let send = app_tool("mail__send_email", Some(Effect::Network));
+    assert_eq!(route(send), Route::Run, "the classifier screens it next");
+    let off = Call {
+        classifier: false,
+        ..send
+    };
+    assert_eq!(route(off), Route::Review(Some(NO_CLASSIFIER.to_owned())));
+    let tainted = Call {
+        tainted: true,
+        ..send
+    };
+    assert_eq!(
+        route(tainted),
+        Route::Review(Some(TAINTED_OUTWARD.to_owned()))
+    );
+    let both = Call {
+        tainted: true,
+        classifier: false,
+        ..send
+    };
+    assert!(is_review(&route(both)));
+    // Too long to review whole: the person.
+    let long = Call { fits: false, ..off };
+    assert!(matches!(route(long), Route::Ask { .. }));
+    // An app's read, and an app's server held in the sandbox, run as before.
+    let read = Call {
+        tainted: true,
+        classifier: false,
+        ..app_tool("mail__list", Some(Effect::Read))
+    };
+    assert_eq!(route(read), Route::Run);
+    let sandboxed = Call {
+        place: Place::Sandbox,
+        ..both
+    };
+    assert_eq!(route(sandboxed), Route::Run);
+    // Spade's and ace's own writes aren't an app's: they keep running.
+    let own = Call {
+        tainted: true,
+        classifier: false,
+        ..full("bot_message", Some(Effect::Network))
+    };
+    assert_eq!(route(own), Route::Run);
 }
 
 #[test]

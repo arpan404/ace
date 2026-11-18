@@ -903,6 +903,26 @@ impl Spade {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
+    /// `PUT` with extra headers, as ace's daemon sends a stamped change.
+    pub async fn put_with(
+        &self,
+        path: &str,
+        body: Value,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value)> {
+        let mut request = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
     /// Stores `key` for `endpoint` in the mock keychain behind Spade's back, as another app
     /// would: Spade learns of it only by reading.
     pub fn store_key_directly(&self, endpoint: &str, key: &str) -> Result {
