@@ -400,3 +400,49 @@ describe("reducer reliability", () => {
     expect(Object.values(h.view.runs)[0]?.state).toBe("completed");
   });
 });
+
+describe("browser help across turn ends", () => {
+  /** The host's browser-help request, as the daemon opens it for `agent`'s tool call. */
+  const help = (agent: string) => ({
+    type: "interaction.opened",
+    agent,
+    interaction: "help",
+    blocking: true,
+    request: { kind: "browser_help", tabId: "tab-1", reason: "login", message: "Sign in" },
+    raw: [{ type: "ace.browser_help", data: { key: "help", tabId: "tab-1" } }],
+  });
+
+  it("a subagent's browser help stays open after its turn ends while the main agent runs", () => {
+    const h = harness();
+    h.see();
+    h.start();
+    h.see("worker", "root");
+    h.start("worker");
+    h.send(help("worker"));
+    h.end("worker");
+    // The person can still answer it; their Done reaches the thread as its next message.
+    expect(h.interaction("help")?.state).toBe("pending");
+  });
+
+  it("the main agent's browser help stays open after its turn ends", () => {
+    const h = harness();
+    h.see();
+    h.start();
+    h.send(help("root"));
+    h.end();
+    expect(h.interaction("help")?.state).toBe("pending");
+  });
+
+  it("an interrupted turn still cancels its browser help, and a question still closes at turn end", () => {
+    const h = harness();
+    h.see();
+    h.start();
+    h.send(help("root"));
+    h.end("root", "interrupted");
+    expect(h.interaction("help")?.state).toBe("cancelled");
+    h.start("root", "second");
+    h.question();
+    h.end();
+    expect(h.interaction("question")?.state).toBe("cancelled");
+  });
+});

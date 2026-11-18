@@ -4,7 +4,7 @@ import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
 import { dictionary } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, announceAgentBranch } from "./tree.ts";
-import { cancelOpenWork } from "./cleanup.ts";
+import { cancelOpenWork, outlivingTurn } from "./cleanup.ts";
 
 type Started = Extract<Fact, { type: "turn.started" }>;
 type Ended = Extract<Fact, { type: "turn.ended" }>;
@@ -143,6 +143,6 @@ export function endTurn(
     record.agent.id,
     ctx.now,
     events,
-    fact.outcome === "interrupted" ? undefined : ctx.resolvingInteractions,
+    fact.outcome === "interrupted" ? undefined : outlivingTurn(state, ctx.resolvingInteractions),
   );
 }
