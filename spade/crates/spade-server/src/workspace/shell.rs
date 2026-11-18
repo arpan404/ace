@@ -55,6 +55,10 @@ pub struct Job<'a> {
     /// run outside), not because the gate skipped its review expecting containment. When a bot run
     /// turns out to need review and this is `false`, it is refused rather than run plainly.
     pub may_run_uncontained: bool,
+    /// A command Spade's classifier settled: it runs with a clean, fixed environment built by
+    /// Spade, never one inherited from the daemon or carried from an earlier terminal command
+    /// (ADR 0172, amendment 4). `job.env` (the hardening overrides) still go on top.
+    pub clean: bool,
 }
 
 /// Whose a sandboxed run is (ADR 0167): its network policy and what else it may read follow.
@@ -354,6 +358,31 @@ impl Shell {
         vars
     }
 
+    /// The clean, fixed environment a settled command runs with (ADR 0172, amendment 4): an
+    /// allowlist built entirely by Spade, nothing read from the process or carried from an earlier
+    /// command. `PATH` is the system folders, `HOME` and `TMPDIR` are the bot's folder, and the
+    /// locale, shell and terminal are fixed. The hardening overrides are layered on by `run_from`.
+    pub fn settled_environment(&self, dir: &Path) -> Vec<(String, String)> {
+        let home = dir.to_string_lossy().into_owned();
+        let mut vars = vec![
+            ("PATH".to_owned(), platform::trusted_path(&self.env)),
+            ("SHELL".to_owned(), "/bin/sh".to_owned()),
+            ("LANG".to_owned(), "C.UTF-8".to_owned()),
+            ("LC_ALL".to_owned(), "C.UTF-8".to_owned()),
+            ("TERM".to_owned(), "dumb".to_owned()),
+            ("TMPDIR".to_owned(), home.clone()),
+        ];
+        if cfg!(windows) {
+            vars.push(("USERPROFILE".to_owned(), home.clone()));
+            vars.push((
+                "NoDefaultCurrentDirectoryInExePath".to_owned(),
+                "1".to_owned(),
+            ));
+        }
+        vars.push(("HOME".to_owned(), home));
+        vars
+    }
+
     /// Runs `command` in `dir` for at most `timeout`.
     pub async fn run(&self, dir: &Path, command: &str, timeout: Duration) -> Result<Ran, String> {
         self.run_job(Job {
@@ -368,6 +397,7 @@ impl Shell {
             outside: false,
             // Spade's own internal command: always expected to be containable.
             may_run_uncontained: false,
+            clean: false,
         })
         .await
     }
@@ -414,7 +444,11 @@ impl Shell {
             }
             None => None,
         };
-        let mut environment = self.environment(home);
+        let mut environment = if job.clean {
+            self.settled_environment(home)
+        } else {
+            self.environment(home)
+        };
         let mut shell = match &confined {
             None => platform::command(&self.env, command),
             Some(confined) => {

@@ -641,6 +641,7 @@ impl Tool for ShellTool {
                             // Only a call reviewed or approved without relying on the sandbox
                             // may run uncontained; one cleared as contained must not.
                             may_run_uncontained: plan.may_run_uncontained,
+                            clean: form.is_some(),
                         })
                         .await
                 }
@@ -735,6 +736,7 @@ async fn in_terminal(
             expected.as_deref(),
             outside,
             overrides,
+            !overrides.is_empty(),
         )
         .await
 }

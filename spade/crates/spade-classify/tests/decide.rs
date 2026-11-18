@@ -63,8 +63,15 @@ fn with_untrusted_content_in_view_only_a_plain_read_that_reaches_nothing_settles
             "{kept}"
         );
     }
-    // A write in the folder settles when nothing untrusted is in view.
+    // A read settles when nothing untrusted is in view; a write never settles, however plain
+    // (ADR 0172, amendment 4).
     assert_eq!(
+        model
+            .decide(&shell("git log --oneline -5"), PLAIN, ConfigTools::ALL)
+            .screen,
+        Screen::LowRisk
+    );
+    assert_ne!(
         model
             .decide(&shell("cp README.md docs/"), PLAIN, ConfigTools::ALL)
             .screen,
@@ -302,13 +309,18 @@ fn a_command_settles_only_with_the_form_it_runs_in() {
     );
     assert_eq!(Some(form), spade_classify::hardening("git ls-files"));
     // Commands no override covers never settle, however plain: git's that run diff or filter
-    // drivers, and the package managers and cargo.
+    // drivers, the package managers and cargo, writes, and script languages (amendment 4).
     for command in [
         "git status --short",
         "git diff",
         "cargo build",
         "npm ci",
         "git log -p -1",
+        "cp a.txt b.txt",
+        "touch new.rs",
+        "echo hi > out.txt",
+        "awk '{print}' x",
+        "sed -n '1,5p' x",
     ] {
         let decision = model.decide(&shell(command), PLAIN, ConfigTools::ALL);
         assert_ne!(decision.screen, Screen::LowRisk, "{command}");

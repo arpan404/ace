@@ -124,6 +124,7 @@ impl Terminal {
         _expected: Option<&str>,
         _outside: bool,
         _overrides: &[(String, String)],
+        _settled: bool,
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

@@ -132,6 +132,7 @@ impl Plugins {
                     // refused, never run unconfined. Only the person's allowing it outside the
                     // sandbox (above) runs it plainly.
                     may_run_uncontained: false,
+                    clean: false,
                 })
                 .await;
             let result = match ran {

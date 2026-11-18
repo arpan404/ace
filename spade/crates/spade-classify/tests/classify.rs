@@ -132,18 +132,26 @@ fn plain_person_only_calls_go_to_the_person() {
 }
 
 #[test]
-fn plain_reads_and_writes_in_the_folder_with_a_hard_form_are_low_risk_and_builds_are_not() {
+fn plain_reads_with_a_hard_form_are_low_risk_and_writes_and_builds_are_not() {
     for command in [
         "ls -la src",
         "git log --oneline -5",
         "cat README.md",
         "grep -rn TODO src",
-        "cp README.md docs/",
+        "git ls-files",
     ] {
         assert_eq!(screen(command), Screen::LowRisk, "{command}");
     }
-    // A build or install reads configuration no override covers (ADR 0172, amendment 3).
-    for command in ["cargo test", "npm install", "git status"] {
+    // A build or install reads configuration no override covers; a write has no hard form, and a
+    // script language is never settled (ADR 0172, amendment 4).
+    for command in [
+        "cargo test",
+        "npm install",
+        "git status",
+        "cp README.md docs/",
+        "touch x",
+        "awk '{print}' x",
+    ] {
         assert_ne!(screen(command), Screen::LowRisk, "{command}");
     }
 }

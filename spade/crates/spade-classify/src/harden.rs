@@ -36,7 +36,7 @@ impl Hardening {
 /// `spade/docs/autonomy.md`, "Programs a settled command may run"). Each option that runs, pipes
 /// to or loads a program is refused in [`settleable`].
 const PLAIN: &[&str] = &[
-    // Shell builtins (bash(1) "SHELL BUILTIN COMMANDS"): no configuration.
+    // Shell builtins that only read (bash(1) "SHELL BUILTIN COMMANDS").
     "echo",
     "printf",
     "true",
@@ -52,9 +52,8 @@ const PLAIN: &[&str] = &[
     "return",
     "shift",
     "wait",
-    "umask",
-    // GNU coreutils: their variables set formats and locales only (ls(1) TIME_STYLE, LS_COLORS;
-    // du(1)/df(1) BLOCK_SIZE; sort(1) TMPDIR); none names a program.
+    // GNU coreutils that read and write only standard output; their variables set formats and
+    // locales only (ls(1) TIME_STYLE, LS_COLORS; du(1)/df(1) BLOCK_SIZE).
     "cat",
     "head",
     "tail",
@@ -95,16 +94,6 @@ const PLAIN: &[&str] = &[
     "uname",
     "nproc",
     "printenv",
-    "mkdir",
-    "touch",
-    "cp",
-    "mv",
-    "rm",
-    "rmdir",
-    "ln",
-    "chmod",
-    "tee",
-    "truncate",
     "base32",
     "numfmt",
     "factor",
@@ -122,7 +111,8 @@ const PLAIN: &[&str] = &[
     // procps uptime(1) and free(1).
     "uptime",
     "free",
-    // findutils find(1), fd(1), jq(1) (`~/.jq` is jq code, which can't run a program), file(1).
+    // findutils find(1) and fd(1) (reads only; write and exec actions refused), jq(1) (`~/.jq` is
+    // jq code, which can neither write nor run a program), file(1).
     "find",
     "fd",
     "jq",
@@ -130,9 +120,7 @@ const PLAIN: &[&str] = &[
 ];
 
 /// Programs neutralised by [`ENV`], for the uses [`settleable`] allows.
-const HARDENED: &[&str] = &[
-    "git", "rg", "grep", "egrep", "fgrep", "less", "more", "tar", "awk", "gawk", "mawk", "sed",
-];
+const HARDENED: &[&str] = &["git", "rg", "grep", "egrep", "fgrep"];
 
 /// What every settled command runs with. `GIT_CONFIG_COUNT` entries are command-line scope:
 /// they win over the system, global, repository, worktree and included files.
@@ -186,20 +174,6 @@ const ENV: &[(&str, &str)] = &[
     ("VISUAL", "false"),
     ("RIPGREP_CONFIG_PATH", ""),
     ("GREP_OPTIONS", ""),
-    ("LESS", ""),
-    ("LESSSECURE", "1"),
-    ("LESSOPEN", ""),
-    ("LESSCLOSE", ""),
-    ("LESSKEYIN", "/dev/null"),
-    ("LESSKEY", "/dev/null"),
-    ("LESSKEYIN_SYSTEM", "/dev/null"),
-    ("LESSHISTFILE", "-"),
-    ("MORE", ""),
-    ("MORESECURE", "1"),
-    ("PAGERSECURE", "1"),
-    ("TAR_OPTIONS", ""),
-    ("AWKPATH", ""),
-    ("AWKLIBPATH", ""),
 ];
 
 /// The names [`hardening`] sets: a terminal never carries them to the next command.
@@ -249,9 +223,18 @@ fn base(word: &str) -> &str {
     word.rsplit('/').next().unwrap_or(word)
 }
 
+/// Redirect targets that write nothing real: a settled command may write only to these.
+fn nowhere(target: &str) -> bool {
+    matches!(
+        target,
+        "/dev/null" | "/dev/stdout" | "/dev/stderr" | "/dev/stdin"
+    ) || target.starts_with("/dev/fd/")
+        || target.starts_with('&')
+}
+
 fn settleable(simple: &Simple) -> bool {
     // A variable it sets (`VAR=x cmd`, `env VAR=x cmd`, a bare `VAR=x`) can change what any
-    // program reads (`TAR_OPTIONS`, `LESSOPEN`, `PATH`…): never settled.
+    // program reads (`TAR_OPTIONS`, `LESSOPEN`, `PATH`, `GAWK_PERSIST_FILE`…): never settled.
     if simple.assigns {
         return false;
     }
@@ -266,8 +249,14 @@ fn settleable(simple: &Simple) -> bool {
     {
         return false;
     }
+    // It writes a real file (a redirect `>`/`>>`/`&>`): the destination could be a symlink out of
+    // the folder, so a settled command writes nowhere real (ADR 0172, amendment 4). A read's
+    // `2>/dev/null` and stream dups (`2>&1`) are fine.
+    if simple.writes_to.iter().any(|t| !nowhere(t)) {
+        return false;
+    }
     let Some(first) = simple.words.first() else {
-        // A bare redirect.
+        // A bare redirect to nowhere.
         return true;
     };
     let program = base(first);
@@ -275,12 +264,24 @@ fn settleable(simple: &Simple) -> bool {
     let short = |a: &str, letters: &str| {
         a.starts_with('-') && !a.starts_with("--") && a.chars().skip(1).any(|c| letters.contains(c))
     };
+    let operands = args.iter().filter(|a| !a.starts_with('-')).count();
     if PLAIN.contains(&program) {
         return match program {
-            // find(1) ACTIONS: these run a command.
-            "find" => !args
-                .iter()
-                .any(|a| matches!(a.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir")),
+            // find(1) ACTIONS: these run a command, write a file or delete.
+            "find" => !args.iter().any(|a| {
+                matches!(
+                    a.as_str(),
+                    "-exec"
+                        | "-execdir"
+                        | "-ok"
+                        | "-okdir"
+                        | "-delete"
+                        | "-fprint"
+                        | "-fprint0"
+                        | "-fprintf"
+                        | "-fls"
+                )
+            }),
             // fd(1): -x/--exec and -X/--exec-batch run a command.
             "fd" => !args.iter().any(|a| {
                 a.starts_with("--exec")
@@ -288,8 +289,15 @@ fn settleable(simple: &Simple) -> bool {
                     || a == "-X"
                     || (short(a, "xX") && !a.contains('='))
             }),
-            // sort(1) --compress-program=PROG.
-            "sort" => !args.iter().any(|a| a.starts_with("--compress-program")),
+            // sort(1): -o/--output writes a file; --compress-program=PROG runs a program.
+            "sort" => !args.iter().any(|a| {
+                a == "-o"
+                    || a.starts_with("--output")
+                    || a.starts_with("--compress-program")
+                    || short(a, "o")
+            }),
+            // uniq(1): a second operand is the output file.
+            "uniq" => operands < 2,
             // file(1): -z/-Z run external decompressing programs; -C writes a magic file.
             "file" => !args.iter().any(|a| {
                 a.starts_with("--uncompress") || a.starts_with("--compile") || short(a, "zZC")
@@ -306,8 +314,6 @@ fn settleable(simple: &Simple) -> bool {
     }
     match program {
         "git" => git(args),
-        "awk" | "gawk" | "mawk" => awk(args),
-        "sed" => sed(args),
         // rg(1): --pre=COMMAND and --hostname-bin=COMMAND run a program; -z/--search-zip runs
         // decompressors.
         "rg" => !args.iter().any(|a| {
@@ -316,30 +322,7 @@ fn settleable(simple: &Simple) -> bool {
                 || a.starts_with("--search-zip")
                 || short(a, "z")
         }),
-        // tar(1): --to-command, -I/--use-compress-program, -F/--info-script,
-        // --new-volume-script, --checkpoint-action, --rsh-command and --rmt-command run a
-        // program; an archive name with a colon is on another machine, reached through rsh.
-        "tar" => !args.iter().enumerate().any(|(i, a)| {
-            a.starts_with("--to-command")
-                || a.starts_with("--use-compress-program")
-                || a.starts_with("--checkpoint-action")
-                || a.starts_with("--info-script")
-                || a.starts_with("--new-volume-script")
-                || a.starts_with("--rsh-command")
-                || a.starts_with("--rmt-command")
-                || a.contains(':')
-                || short(a, "FI")
-                // The old style (`tar xFf a.tar`): a first word of option letters.
-                || (i == 0 && !a.starts_with('-') && (a.contains('F') || a.contains('I')))
-        }),
-        // less(1) and more(1): a `+` command can run a shell (`+!cmd`), save to a file or open
-        // an editor, so only a line number is allowed; LESSSECURE and MORESECURE are set too.
-        "less" | "more" => !args.iter().any(|a| {
-            a.starts_with("--lesskey")
-                || a == "-k"
-                || a.starts_with('+') && !a[1..].chars().all(|c| c.is_ascii_digit())
-        }),
-        // grep(1): its variables set colours and locales.
+        // grep(1): its variables set colours and locales only, and it writes only standard output.
         _ => true,
     }
 }
@@ -555,189 +538,6 @@ fn git(args: &[String]) -> bool {
     }
 }
 
-/// An awk program that runs nothing, writes nothing and reads no other file: no `system`, no
-/// pipes or redirections, no `getline`, no `@include`, no program file.
-fn awk(args: &[String]) -> bool {
-    let mut program_seen = false;
-    let mut expect_value = false;
-    for a in args {
-        if expect_value {
-            expect_value = false;
-            continue;
-        }
-        if a == "-f"
-            || a.starts_with("--file")
-            || a == "-i"
-            || a.starts_with("--include")
-            || a == "-l"
-            || a.starts_with("--load")
-            || a == "-E"
-            || a.starts_with("--exec")
-            || a.starts_with("--profile")
-            || a.starts_with("--dump-variables")
-            || a.starts_with("--pretty-print")
-        {
-            return false;
-        }
-        if a == "-F" || a == "-v" {
-            expect_value = true;
-            continue;
-        }
-        if a.starts_with('-') {
-            continue;
-        }
-        if !program_seen {
-            program_seen = true;
-            let p = a.to_ascii_lowercase();
-            if [
-                "system", "|", ">", "getline", "@include", "@load", "close(", "fflush",
-            ]
-            .iter()
-            .any(|bad| p.contains(bad))
-            {
-                return false;
-            }
-        }
-    }
-    program_seen
-}
-
-/// A sed script that only prints or substitutes into its output: no in-place edit, no `w`, `W`,
-/// `r`, `R` or `e` command or `w`/`e` flag, and nothing this reading doesn't know.
-fn sed(args: &[String]) -> bool {
-    let mut scripts = Vec::new();
-    let mut i = 0;
-    let mut has_e = false;
-    while i < args.len() {
-        let a = &args[i];
-        if a.starts_with("-i")
-            || a.starts_with("--in-place")
-            || a == "-f"
-            || a.starts_with("--file")
-        {
-            return false;
-        }
-        if a == "-e" || a == "--expression" {
-            has_e = true;
-            match args.get(i + 1) {
-                Some(s) => scripts.push(s.as_str()),
-                None => return false,
-            }
-            i += 2;
-            continue;
-        }
-        if let Some(s) = a.strip_prefix("--expression=") {
-            has_e = true;
-            scripts.push(s);
-        } else if a.starts_with('-') {
-            // -n, -E, -r, -u, -z, -s: options without values.
-            if !matches!(
-                a.as_str(),
-                "-n" | "-E"
-                    | "-r"
-                    | "-u"
-                    | "-z"
-                    | "-s"
-                    | "--quiet"
-                    | "--silent"
-                    | "--regexp-extended"
-                    | "--null-data"
-                    | "--separate"
-                    | "--posix"
-                    | "--debug"
-            ) && !a.chars().skip(1).all(|c| "nEruzs".contains(c))
-            {
-                return false;
-            }
-        } else if !has_e && scripts.is_empty() {
-            scripts.push(a.as_str());
-        }
-        i += 1;
-    }
-    !scripts.is_empty() && scripts.iter().all(|s| sed_script(s))
-}
-
-/// Whether a sed script is only addresses with `p`, `d`, `q`, `n`, `=`, `l`, braces and `s`/`y`
-/// commands whose flags are `g`, `p`, `i`, `I`, `m`, `M` or a number.
-fn sed_script(script: &str) -> bool {
-    let chars: Vec<char> = script.chars().collect();
-    let mut i = 0;
-    let n = chars.len();
-    while i < n {
-        let c = chars[i];
-        match c {
-            ' ' | '\t' | '\n' | ';' | '{' | '}' | '!' | ',' => i += 1,
-            '0'..='9' | '$' | '~' | '+' => i += 1,
-            '/' | '\\' => {
-                // An address: /re/ or \cREc.
-                let delim = if c == '\\' {
-                    i += 1;
-                    match chars.get(i) {
-                        Some(d) => *d,
-                        None => return false,
-                    }
-                } else {
-                    '/'
-                };
-                i += 1;
-                while i < n && chars[i] != delim {
-                    if chars[i] == '\\' {
-                        i += 1;
-                    }
-                    i += 1;
-                }
-                if i >= n {
-                    return false;
-                }
-                i += 1;
-                // `I` and `M` modifiers after an address.
-                while i < n && matches!(chars[i], 'I' | 'M') {
-                    i += 1;
-                }
-            }
-            'p' | 'P' | 'd' | 'D' | 'q' | 'Q' | 'n' | 'N' | '=' | 'l' | 'g' | 'G' | 'h' | 'H'
-            | 'x' | 'z' | 'F' => i += 1,
-            's' | 'y' => {
-                let Some(&delim) = chars.get(i + 1) else {
-                    return false;
-                };
-                if delim == '\n' || delim == '\\' {
-                    return false;
-                }
-                i += 2;
-                for _ in 0..2 {
-                    while i < n && chars[i] != delim {
-                        if chars[i] == '\\' {
-                            i += 1;
-                        }
-                        i += 1;
-                    }
-                    if i >= n {
-                        return false;
-                    }
-                    i += 1;
-                }
-                if c == 's' {
-                    while i < n
-                        && (matches!(chars[i], 'g' | 'p' | 'i' | 'I' | 'm' | 'M')
-                            || chars[i].is_ascii_digit())
-                    {
-                        i += 1;
-                    }
-                    // `w`, `e` and anything else this reading doesn't know.
-                    if i < n && !matches!(chars[i], ';' | '}' | ' ' | '\t' | '\n') {
-                        return false;
-                    }
-                }
-            }
-            // `a`, `i`, `c` (text), `b`, `t`, `T`, `:` (labels) read on to the line's end in ways
-            // this reading keeps simple: refuse them, with `w`, `W`, `r`, `R`, `e` and `v`.
-            _ => return false,
-        }
-    }
-    true
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -750,6 +550,7 @@ mod tests {
     fn reads_whose_configuration_is_neutralised_or_absent_have_a_form() {
         for command in [
             "ls -la src",
+            "cat README.md",
             "git log --oneline -5",
             "git ls-files | wc -l",
             "git rev-parse --abbrev-ref HEAD",
@@ -759,13 +560,9 @@ mod tests {
             "git --no-pager log -1 --format=%H",
             "rg -n TODO src",
             "grep -rn TODO src | head",
-            "sed -n '1,40p' src/lib.rs",
-            "sed -e 's/a/b/g' -e '/x/d' notes.txt",
-            "awk -F, '{print $2}' data.csv",
-            "tar tzf out.tgz",
-            "less notes.txt",
             "find . -name '*.rs' -newer Cargo.toml",
-            "less +42 notes.txt",
+            "cat notes.txt 2>/dev/null",
+            "wc -l src/*.rs | sort -n",
         ] {
             assert!(settles(command), "{command}");
         }
@@ -810,7 +607,30 @@ mod tests {
             "sed -f script.sed x",
             "rg --pre ./x TODO",
             "find . -exec rm {} ;",
+            "find . -delete",
+            "find . -fprint out",
             "less '+!rm -rf x' notes.txt",
+            // Script languages and archives never settle now (ADR 0172, amendment 4).
+            "awk -F, '{print $2}' data.csv",
+            "sed -n '1,40p' src/lib.rs",
+            r#"gawk -e '{print}' -e 'END{system("id")}' x"#,
+            "tar tzf out.tgz",
+            "less notes.txt",
+            "more notes.txt",
+            // Any write to a real file, by a program or a redirect.
+            "cat a > b",
+            "cat a >> b",
+            "echo hi > out.txt",
+            "grep foo file > out",
+            "cp a b",
+            "mv a b",
+            "mkdir build",
+            "touch x",
+            "tee out.txt",
+            "rm -rf x",
+            "ln -sf a b",
+            "sort -o out in",
+            "uniq in out",
             // Any variable it sets, and text built at run time.
             "TAR_OPTIONS='--checkpoint=1 --checkpoint-action=exec=./evil' tar -tf a.tar",
             "env TAR_OPTIONS=x tar -tf a.tar",
