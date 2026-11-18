@@ -1268,6 +1268,10 @@
           "const": "workspace.identity.link",
           "type": "string"
         },
+        "viaMarker": {
+          "const": true,
+          "type": "boolean"
+        },
         "workspaceId": {
           "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
         }
@@ -1276,6 +1280,26 @@
         "type",
         "workspaceId",
         "identityId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "replace": {
+          "const": true,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "workspace.identity.marker.write",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "type",
+        "workspaceId"
       ],
       "type": "object"
     },

@@ -10,6 +10,7 @@ import {
   ProjectInspection,
   ProjectsResult,
   WorkspaceId,
+  ProjectMarker,
   type ProjectCheckoutFacts,
   type CommandPayload,
   type CommandResult,
@@ -27,6 +28,8 @@ type Directory = {
   modifiedAt: number;
   initialBranch: string;
   remote?: string;
+  /** Its `.ace/project.json` (ADR 0181), as the daemon would read it. */
+  marker?: ProjectMarker;
 };
 /** A folder on the fake host, for `seedFolders`. */
 export interface FolderSeed {
@@ -36,6 +39,8 @@ export interface FolderSeed {
   git?: boolean;
   /** Its `origin` fetch URL, for a repository root. */
   remote?: string;
+  /** A project marker in it (ADR 0181), e.g. one a clone carried. */
+  marker?: ProjectMarker;
   modifiedAt?: number;
 }
 /** Host filesystem fixture and registered catalog, including projects without threads. */
@@ -195,9 +200,15 @@ export class FakeProjects {
     };
   }
   /** `workspaces.identitySuggestions`, as the daemon pages it. */
-  identitySuggestions(remotes: readonly string[], subpath: string, after = "", limit = 32) {
+  identitySuggestions(
+    remotes: readonly string[],
+    subpath: string,
+    after = "",
+    limit = 32,
+    identityId?: string,
+  ) {
     this.seed();
-    if (!remotes.length)
+    if (!remotes.length && !identityId)
       return { kind: "identitySuggestions" as const, suggestions: [], next: null };
     const wanted = new Set(remotes);
     const all = [...this.projects.values()]
@@ -206,11 +217,23 @@ export class FakeProjects {
     const page = all.slice(0, limit);
     const suggestions = page.flatMap((project) => {
       const facts = this.checkout(project.id);
-      if (!facts || facts.subpath !== subpath) return [];
-      const shared = facts.remotes.filter((remote) => wanted.has(remote));
-      if (!shared.length) return [];
-      const sameRemotes = shared.length === wanted.size && facts.remotes.length === wanted.size;
-      return [{ workspaceId: project.id, shared, sameRemotes }];
+      const marked =
+        identityId !== undefined && this.directories.get(project.path)?.marker?.id === identityId;
+      const shared =
+        facts && facts.subpath === subpath
+          ? facts.remotes.filter((remote) => wanted.has(remote))
+          : [];
+      if (!shared.length && !marked) return [];
+      const sameRemotes =
+        shared.length > 0 && shared.length === wanted.size && facts?.remotes.length === wanted.size;
+      return [
+        {
+          workspaceId: project.id,
+          shared,
+          sameRemotes,
+          ...(marked ? { marker: true as const } : {}),
+        },
+      ];
     });
     return {
       kind: "identitySuggestions" as const,
@@ -277,6 +300,7 @@ export class FakeProjects {
       ensure(folder.path, {
         git: folder.git ?? false,
         ...(folder.remote ? { remote: folder.remote } : {}),
+        ...(folder.marker ? { marker: folder.marker } : {}),
         ...(folder.favicon === undefined ? {} : { favicon: folder.favicon }),
         ...(folder.modifiedAt === undefined ? {} : { modifiedAt: folder.modifiedAt }),
       });
@@ -332,9 +356,11 @@ export class FakeProjects {
         ([entry, value]) => value.git && (selected === entry || selected.startsWith(`${entry}/`)),
       )
       .toSorted(([a], [b]) => b.length - a.length)[0];
+    const marker = this.directories.get(selected)?.marker;
     return ProjectInspection.parse({
       path: selected,
       defaultIcon: this.directories.get(selected)?.favicon,
+      ...(marker ? { marker } : {}),
       git: root
         ? {
             root: root[0],
@@ -382,7 +408,13 @@ export class FakeProjects {
   private identityCommand(
     p: Extract<
       ProjectCommand,
-      { type: "workspace.identity.link" | "workspace.identity.unlink" | "workspace.identity.merge" }
+      {
+        type:
+          | "workspace.identity.link"
+          | "workspace.identity.unlink"
+          | "workspace.identity.merge"
+          | "workspace.identity.marker.write";
+      }
     >,
   ): Omit<CommandResult, "commandId"> {
     // An older daemon never answers a command it can't parse; the client asks first.
@@ -395,8 +427,22 @@ export class FakeProjects {
     const project = this.projects.get(p.workspaceId);
     if (!project || this.removed.has(project.id)) throw new Error("workspace_not_found");
     if (project.kind === "chat") throw new Error("chat_project");
+    if (p.type === "workspace.identity.marker.write") {
+      const directory = this.directories.get(project.path);
+      if (!directory) throw new Error("directory_unavailable");
+      this.identities.created(project.id);
+      const id = this.identities.identity(project.id)?.id ?? "";
+      if (directory.marker && directory.marker.id !== id && !p.replace)
+        return { ok: false, error: "marker_conflict" };
+      directory.marker = ProjectMarker.parse({ version: 1, id, name: project.name });
+      this.changed(project.id);
+      return { ok: true, workspace: this.decorate(project) };
+    }
     if (p.type === "workspace.identity.unlink") this.identities.unlink(project.id);
-    if (p.type === "workspace.identity.link" && !this.identities.link(project.id, p.identityId))
+    if (
+      p.type === "workspace.identity.link" &&
+      !this.identities.link(project.id, p.identityId, p.viaMarker ? "marker" : "linked")
+    )
       return { ok: true, workspace: this.decorate(project) };
     this.changed(project.id);
     return { ok: true, workspace: this.decorate(project) };
@@ -495,7 +541,8 @@ export class FakeProjects {
       if (
         p.type === "workspace.identity.link" ||
         p.type === "workspace.identity.unlink" ||
-        p.type === "workspace.identity.merge"
+        p.type === "workspace.identity.merge" ||
+        p.type === "workspace.identity.marker.write"
       )
         return this.identityCommand(p);
       if (p.type === "workspace.root.add") {

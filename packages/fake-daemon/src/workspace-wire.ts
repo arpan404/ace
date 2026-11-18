@@ -442,7 +442,13 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result:
           op.op === "workspaces.identitySuggestions"
-            ? this.projects.identitySuggestions(op.remotes, op.subpath, op.after, op.limit)
+            ? this.projects.identitySuggestions(
+                op.remotes,
+                op.subpath,
+                op.after,
+                op.limit,
+                op.identityId,
+              )
             : checkout
               ? { kind: "checkout", checkout }
               : { kind: "error", code: "workspace_not_found" },

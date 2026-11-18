@@ -39,6 +39,7 @@ import { ProjectPaths, ProjectError, assertProjectPath } from "./project-policy.
 import { applyNoteEdits } from "./project-notes.ts";
 import { ProjectRoots } from "./project-roots.ts";
 import { ProjectStorage, isSpadeProject } from "./project-storage.ts";
+import { readMarker, writeMarker } from "./project-marker.ts";
 import { browseProjects } from "./project-browse.ts";
 import { ChatProjects } from "./chat-projects.ts";
 import type { Store } from "./store.ts";
@@ -254,10 +255,13 @@ export class Projects {
         throw error;
     }
     const defaultIcon = await discoverProjectFavicon(directory.handle);
+    // A hint the person confirms (ADR 0181); anything odd about it reads as none.
+    const marker = await readMarker(directory.handle);
     directory.verify();
     return ProjectInspection.parse({
       path,
       ...(defaultIcon == null ? {} : { defaultIcon }),
+      ...(marker ? { marker } : {}),
       git,
       ...(gitUnavailable ? { gitUnavailable } : {}),
       ...(git && git.root !== path ? { suggestedRepoRoot: git.root } : {}),
@@ -305,6 +309,35 @@ export class Projects {
     } finally {
       if (reserved) this.destinations.delete(reserved);
       await made?.close();
+    }
+  }
+  /**
+   * "Share identity with clones" (ADR 0181): the project's marker, written through its held
+   * folder. Refused as `marker_conflict` when one names another id, unless `replace`.
+   */
+  private async shareIdentity(
+    p: Extract<ProjectCommand, { type: "workspace.identity.marker.write" }>,
+    allowed: () => boolean,
+  ) {
+    const project = this.catalog.get(p.workspaceId);
+    if (project.kind === "chat") throw new ProjectError("chat_project");
+    const directory = await ProjectDirectory.open(this.paths, project.path);
+    try {
+      assertProjectPath(directory.path, await this.paths.roots());
+      this.check(allowed);
+      directory.verify();
+      const id = this.catalog.ensureIdentity(p.workspaceId);
+      const written = await writeMarker(
+        directory.handle,
+        { version: 1, id, ...(project.name ? { name: project.name } : {}) },
+        p.replace === true,
+        (other) => this.catalog.sameIdentity(other, id),
+      );
+      if (written === "marker_conflict" || written === "marker_unreadable")
+        return { ok: false, error: written };
+      return { ok: true, workspace: this.catalog.get(p.workspaceId) };
+    } finally {
+      await directory.close();
     }
   }
   /**
@@ -470,10 +503,12 @@ export class Projects {
             ok: true,
             workspace:
               p.type === "workspace.identity.link"
-                ? this.catalog.link(p.workspaceId, p.identityId)
+                ? this.catalog.link(p.workspaceId, p.identityId, p.viaMarker ? "marker" : "linked")
                 : this.catalog.unlink(p.workspaceId),
           };
         }
+        if (p.type === "workspace.identity.marker.write")
+          return await this.shareIdentity(p, allowed);
         if (p.type === "workspace.publish") {
           if (!this.publications) throw new ProjectError("publication_unavailable");
           const project = this.catalog.get(p.workspaceId);

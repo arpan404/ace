@@ -7,7 +7,7 @@ import { ProviderKind } from "./provider-data.ts";
 import { AccessMode } from "./permissions.ts";
 import { BrowserProfileScope } from "./browser-backend.ts";
 import { ProjectNote, ProjectNoteEdit, maxProjectNotes } from "./project-notes.ts";
-import { ProjectIdentity, ProjectIdentityCommands } from "./project-identity.ts";
+import { ProjectIdentity, ProjectIdentityCommands, ProjectMarker } from "./project-identity.ts";
 
 /*
  * Projects as the core stream carries them: the project commands and the workspace and
@@ -155,6 +155,8 @@ export const ProjectInspection = z.object({
   /** Registration can succeed while uncertain Git cleanup still fences execution. */
   gitUnavailable: z.literal("git_quarantined").optional(),
   suggestedRepoRoot: path.optional(),
+  /** The folder's project marker (ADR 0181): a hint to confirm, never a link on its own. */
+  marker: ProjectMarker.optional(),
 });
 export const ProjectCommands = [
   z.object({

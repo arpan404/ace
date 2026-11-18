@@ -21,6 +21,7 @@ import { readPrConflicts, runPrConflictStep } from "./pr-conflicts.ts";
 import type { ForgePrStatus, ForgeRepository, InstalledEditor } from "@ace/protocol";
 import type { CreationWorkspace } from "./creation-workspace.ts";
 import { decodeProjectRow, isSpadeProject, projectSelect } from "./project-storage.ts";
+import { markerAt } from "./project-marker.ts";
 import {
   OriginCache,
   checkoutOf,
@@ -696,7 +697,7 @@ export class WorkspaceRuntime {
       return wrap({ kind: "checkout", checkout: await checkoutOf(this.origins, root) });
     }
     if (op.op === "workspaces.identitySuggestions") {
-      if (!op.remotes.length)
+      if (!op.remotes.length && !op.identityId)
         return wrap({ kind: "identitySuggestions", suggestions: [], next: null });
       // One bounded page of registrations, in id order; `next` reads the rest.
       const rows = this.store.atomic((db) =>
@@ -712,7 +713,13 @@ export class WorkspaceRuntime {
       const page = rows.slice(0, op.limit);
       return wrap({
         kind: "identitySuggestions",
-        suggestions: await identitySuggestions(this.origins, page, op.remotes, op.subpath),
+        suggestions: await identitySuggestions(
+          this.origins,
+          page,
+          op.remotes,
+          op.subpath,
+          op.identityId ? { id: op.identityId, read: markerAt } : undefined,
+        ),
         next: rows.length > op.limit ? (page.at(-1)?.workspaceId ?? null) : null,
       });
     }

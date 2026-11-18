@@ -1,3 +1,4 @@
+import type { ProjectMarker } from "@ace/protocol";
 import type { DaemonTarget } from "@/boot/connection-settings.ts";
 /** The Add project dialog's tabs. */
 export type AddTab = "sources" | "open" | "create" | "clone" | "github";
@@ -22,4 +23,12 @@ export type ProjectRequest =
   | { kind: "dropped"; file: File }
   | { kind: "publish"; projectId: string }
   | { kind: "edit"; projectId: string }
-  | { kind: "remove"; projectId: string };
+  | { kind: "remove"; projectId: string }
+  /** A folder just added carries a project marker (ADR 0181): ask before linking it. */
+  | {
+      kind: "marker";
+      projectId: string;
+      /** Its machine's id; undefined for this window's own, whose id may change once known. */
+      machineId: string | undefined;
+      marker: ProjectMarker;
+    };

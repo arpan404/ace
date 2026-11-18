@@ -43,16 +43,42 @@ export const ProjectIdentity = z.object({
 });
 export type ProjectIdentity = z.infer<typeof ProjectIdentity>;
 
+/**
+ * The opt-in project marker `.ace/project.json` (ADR 0181): a clone's hint of its logical
+ * project, written only when the person asks and never committed by ace. Nothing else is in
+ * it; anything that doesn't read as exactly this is no marker.
+ */
+export const ProjectMarker = z.strictObject({
+  version: z.literal(1),
+  id: ProjectIdentityId,
+  name: z.string().min(1).max(256).optional(),
+});
+export type ProjectMarker = z.infer<typeof ProjectMarker>;
+
 /*
  * Commands, under the `projects` authority, each idempotent under its command id and each
  * pushing `workspace.changed` for every registration whose identity it changed.
  */
 export const ProjectIdentityCommands = [
-  /** Put one registration in the logical project `identityId`. It records no alias. */
+  /**
+   * Put one registration in the logical project `identityId`. It records no alias.
+   * `viaMarker`: the person confirmed the folder's marker (ADR 0181); its source says so.
+   */
   z.object({
     type: z.literal("workspace.identity.link"),
     workspaceId: WorkspaceId,
     identityId: ProjectIdentityId,
+    viaMarker: z.literal(true).optional(),
+  }),
+  /**
+   * "Share identity with clones" (ADR 0181): write the registration's marker into its folder.
+   * One naming another id is refused as `marker_conflict` unless `replace`, after the person
+   * confirmed. ace never commits it.
+   */
+  z.object({
+    type: z.literal("workspace.identity.marker.write"),
+    workspaceId: WorkspaceId,
+    replace: z.literal(true).optional(),
   }),
   /** Split one registration off into a fresh logical project of its own. Aliases stay. */
   z.object({ type: z.literal("workspace.identity.unlink"), workspaceId: WorkspaceId }),
@@ -92,6 +118,8 @@ export const ProjectIdentityOperations = [
     op: z.literal("workspaces.identitySuggestions"),
     remotes: z.array(normalizedRemote).max(64),
     subpath,
+    /** Also those whose marker names this logical project (ADR 0181), read lazily. */
+    identityId: ProjectIdentityId.optional(),
     after: WorkspaceId.optional(),
     limit: z.number().int().min(1).max(64).default(32),
   }),
@@ -110,6 +138,8 @@ export const ProjectIdentitySuggestion = z.object({
   shared: z.array(normalizedRemote).max(64),
   /** Its remotes are exactly the asked-for set; false reads as "fork of …", never linked alone. */
   sameRemotes: z.boolean(),
+  /** Its folder's marker names the asked logical project: a hint, never a link. */
+  marker: z.literal(true).optional(),
 });
 export type ProjectIdentitySuggestion = z.infer<typeof ProjectIdentitySuggestion>;
 

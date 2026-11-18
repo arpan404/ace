@@ -31,7 +31,7 @@ export class FakeIdentities {
     for (const char of text) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
     this.seed = hash.toString(16).padStart(8, "0");
   }
-  /** A registration ace made now: its own logical project, unless it has one. */
+  /** A registration ace made now (or shared): its own logical project, unless it has one. */
   created(workspaceId: string): void {
     if (this.enabled && !this.rows.has(workspaceId))
       this.rows.set(workspaceId, { id: this.mint(), source: "created" });
@@ -56,9 +56,9 @@ export class FakeIdentities {
     return ProjectIdentity.parse({ id: row.id, aliases, source: row.source });
   }
   /** Link: returns whether anything changed. */
-  link(workspaceId: string, identityId: string): boolean {
+  link(workspaceId: string, identityId: string, source: "linked" | "marker" = "linked"): boolean {
     if (this.rows.get(workspaceId)?.id === identityId) return false;
-    this.rows.set(workspaceId, { id: identityId, source: "linked" });
+    this.rows.set(workspaceId, { id: identityId, source });
     return true;
   }
   unlink(workspaceId: string): void {

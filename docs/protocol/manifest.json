@@ -9,8 +9,8 @@
       "sha256": "cfe94945a5ab6c0ff2c6efd1409361657c88c74f332b71542b5e34d32507e4e0"
     },
     "commands.md": {
-      "bytes": 60995,
-      "sha256": "8ab5d2174fa518df83a734c84d12366018735d0f10bf202f48cef6097138c8cc"
+      "bytes": 60568,
+      "sha256": "d390e523b0ddb5b5dcb82bd16152e2bb4ab1595188459fbe74216652e97d9f96"
     },
     "events.md": {
       "bytes": 22217,
@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 126604,
-      "sha256": "bfae7585da29d425d6108fef7904a59f7c1d555b3e971e15e8a1e65d9e0c6914"
+      "bytes": 125893,
+      "sha256": "0cf6d3dce534f743bcd0ced70802b5d239e4925fe844a4a96f107145aa6e7b75"
     },
     "requests.md": {
-      "bytes": 121938,
-      "sha256": "ef597ce11d6267050cc1c193708dda41de3c690ea5b081fa9ceacb98a5cd0a72"
+      "bytes": 122006,
+      "sha256": "90e2dc9952c0e6252e2e2c95bf04c31812acc916d2817367c93930ba52594572"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -1133,8 +1133,8 @@
       "sha256": "9d81a29a1e885281a89e8c1e208cd8d84e18683844c6a6182d25e21455f7a3d0"
     },
     "schema/CommandPayload.json": {
-      "bytes": 54783,
-      "sha256": "51a0a6e5b69cfce991727588a44ffe410a79355d59bcf00c8e8ac96883d49812"
+      "bytes": 55301,
+      "sha256": "595d76b3b66d8cd0c8547938564749e82829c6696dda2ecf1e72e1ef33e40e8c"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -3981,8 +3981,8 @@
       "sha256": "8d07f91c745360ff9a2bd8c09821524b7f9c861f756ccacb25e05e9d98be455a"
     },
     "schema/ProjectCommand.json": {
-      "bytes": 7935,
-      "sha256": "38d4579b5a49975b5542e1a4e4510f0564ffdaa869d77a4f27612a5e2198d715"
+      "bytes": 8453,
+      "sha256": "e1289fa32c45e0dc9f54ceb8ae6a44386fc58376a026b9e6237c4e7ae8101e5f"
     },
     "schema/ProjectDefaults.json": {
       "bytes": 861,
@@ -4021,16 +4021,20 @@
       "sha256": "445860bd19d05ce6c695596609989ec9b99173f7d488e7bd7bc46ab2b9c382ef"
     },
     "schema/ProjectIdentitySuggestion.json": {
-      "bytes": 563,
-      "sha256": "4b51a4f1740b5b803fb5432a8ca9ce3e66bd8cd7472a46f91ef58e1b62be54ed"
+      "bytes": 631,
+      "sha256": "775d605d85fd260ffb6a7e7da16c4f34032253a32027a8c34494b3825a0ab2a1"
     },
     "schema/ProjectInspection.json": {
-      "bytes": 860,
-      "sha256": "76401dfdea9ca72a2a50cacd4e3773393569612ce780bee40930f9cfbf6c3738"
+      "bytes": 948,
+      "sha256": "1b92f3e32d6cc7aa05ac87f6341241afd7626b58257fee957474e33a0a293108"
     },
     "schema/ProjectKind.json": {
       "bytes": 171,
       "sha256": "d271128051deeec51d3f15ab73a47b24433274fd9efc107af0c517d6e5d48777"
+    },
+    "schema/ProjectMarker.json": {
+      "bytes": 488,
+      "sha256": "637cc4451690b589fcc7f2a2abf48396a42cf4a76deef436113d1d4d56d9b7b1"
     },
     "schema/ProjectName.json": {
       "bytes": 315,
@@ -4069,8 +4073,8 @@
       "sha256": "88de9c3bb50829001f2374de8d27874effbbc503db1bbf647fe3db3970820929"
     },
     "schema/ProjectsResult.json": {
-      "bytes": 9878,
-      "sha256": "321d32b18dd7805e7731fbeeab031cf8dab907f6b7196f8f0804fea5c5f4c385"
+      "bytes": 9990,
+      "sha256": "59fd2ecd6fd3d0b390bf1a1bcaa4189cc725c25e49ddf2071ab3bbe22a571a38"
     },
     "schema/PromptArgument.json": {
       "bytes": 557,
@@ -6061,8 +6065,8 @@
       "sha256": "650d9f04b81d410f5e4592884782f30f77997fb3e628627c93421ce6a68daf85"
     },
     "schema/WorkspaceActionRequest.json": {
-      "bytes": 31844,
-      "sha256": "cb6c1310eaf89c4e1d23c6fe027f891bf7a1160f86de104e5c0cd3717f219cca"
+      "bytes": 31964,
+      "sha256": "d90f7cba20514464879793f68772c1939f1607f3769864026a0a06d38dc026fc"
     },
     "schema/WorkspaceActionResult.json": {
       "bytes": 11090,
@@ -6377,10 +6381,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1294384,
-      "sha256": "a2f75c659ef0dc59783a780556a9a8b4bac198aeb95eb18875016512d10f8ae8"
+      "bytes": 1295290,
+      "sha256": "b2a0af8ebe741390b053c49b19bf3e856c556345cd900feb0ee74c9569d7ad92"
     }
   },
-  "input": "511bdd83478453a249eb7ab9aee8c482dbb84a3218bd91e40d6fd5b8bf478e94",
+  "input": "c4227cc7f9df0d0d55d2db3df5b761a2b72ef689131cd5e6fb7b538abd0792e3",
   "version": 1
 }
