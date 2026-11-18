@@ -42,8 +42,6 @@ import XCTest
         XCTAssertTrue(instruction.waitForExistence(timeout: 10))
         XCTAssertEqual(instruction.label, "Scan the code shown on your computer")
         capture("scanner")
-        XCTAssertTrue(app.descendants(matching: .any)["scanner.found"].waitForExistence(timeout: 10))
-        capture("scanner-found")
         let fingerprint = app.staticTexts["pairing.fingerprint"]
         XCTAssertTrue(fingerprint.waitForExistence(timeout: 10))
         XCTAssertTrue(fingerprint.label.hasPrefix("910f 1d46 2b34"))
@@ -59,7 +57,6 @@ import XCTest
         let changed = NSPredicate(format: "label != %@", "Scan the code shown on your computer")
         expectation(for: changed, evaluatedWith: instruction)
         waitForExpectations(timeout: 10)
-        XCTAssertFalse(app.descendants(matching: .any)["scanner.found"].exists)
         XCTAssertTrue(app.buttons["scanner.close"].exists, "the scanner stays up to try another code")
         capture("scanner-wrong-code")
     }

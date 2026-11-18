@@ -20,6 +20,9 @@ struct QRScannerView: View {
     @State private var rejections = 0
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+
+    private var dark: Bool { model?.showsCamera != false }
 
     var body: some View {
         NavigationStack {
@@ -37,8 +40,11 @@ struct QRScannerView: View {
                 }
             }
             .toolbarBackground(.hidden, for: .navigationBar)
+            // Dark over the camera, the person's own appearance otherwise. Set here, never with
+            // `preferredColorScheme`: that reaches the window and closes the pairing sheet.
+            .toolbarColorScheme(dark ? .dark : nil, for: .navigationBar)
+            .environment(\.colorScheme, dark ? .dark : scheme)
         }
-        .preferredColorScheme(model?.showsCamera == false ? nil : .dark)
         .sensoryFeedback(.success, trigger: model?.phase) { _, phase in if case .found = phase { true } else { false } }
         .sensoryFeedback(.warning, trigger: rejections)
         .task { await start() }
