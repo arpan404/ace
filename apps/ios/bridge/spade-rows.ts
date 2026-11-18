@@ -172,8 +172,6 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
     }
     case "other":
       return { kind: "note", text: `${bubble.agent.name}: ${bubble.text}` };
-    case "group":
-      return { kind: "note", text: `In ${bubble.group}: ${bubble.text}` };
     case "routine":
       return { kind: "note", text: bubble.label || bubble.name };
     case "task-paused":

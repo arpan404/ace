@@ -204,7 +204,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   draft of this contract.
 - `waiting_for`: while `state` is `waiting`, `"question"` when the agent asked the person with
   `ask_user` (see [memory.md](memory.md)), else `"approval"`; `null` otherwise.
-- `status`: a few plain words while not idle (`Thinking`, `Searching the web`, `Reading a page`,
+- `status`: a few plain words while not idle (`Thinking`, `Writing` once a step's words stream,
+  told before them, `Searching the web`, `Reading a page`,
   `Asking Research`, `Waiting for you`, `Working in the background`, `Using <tool>`); never
   arguments; `null` when idle.
 - `problem`: why the agent's latest reply on a subscription failed (signed out, out of quota),
@@ -214,7 +215,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool
   output. `text` is the list's preview: plain text on one line, at most 200 characters, with
   markdown gone (emphasis, headings, quotes, fences, list marks, strike-through) and links and
-  images as their words (`[the plan](…)` → `the plan`). `seq` is its event.
+  images as their words (`[the plan](…)` → `the plan`). `seq` is its event. A group's message and
+  a reply that answers only group messages are the group's ([teams.md](teams.md)), never this.
 - `seen_seq`: the conversation's seen cursor (see Seen), or `null` when never marked.
 - `unseen`: the bot finished and the person hasn't seen it: `state` is `idle` and the bot's own
   `last_message` is past `seen_seq`. Never true while any of its work runs or waits on the person.

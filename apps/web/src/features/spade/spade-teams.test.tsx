@@ -386,23 +386,26 @@ test("a finished group the person hasn't seen is marked seen once they open it a
   await waitFor(() => expect(spade.sent("PUT", "/v1/conversations/c-trips/seen")).toEqual([{}]));
 });
 
-test("a bot's own chat labels a group's message with the group, not as the person", async () => {
+test("a group's turn lives in the group: the bot's own chat shows neither the ask nor the answer", async () => {
   await spadeApp("/spade", (spade) => {
     team(spade);
     const research = spade.agents.find((agent) => agent.id === "research");
     if (!research) return;
+    spade.store(research.conversation, { type: "user_message", text: "Hello" });
+    spade.reply(research, "Hi, what should I look into?");
     spade.store(research.conversation, {
       type: "user_message",
       text: "Find flights",
       from_group: { id: "trips", name: "Trips", run: "u1", ask: "a1", untrusted: false },
     });
+    spade.reply(research, "Two flights under $900.");
   });
   await userEvent.click(await botRow("Research"));
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Research" }));
-  expect((await chat.findByRole("note", { name: "In Trips" })).textContent).toContain(
-    "Find flights",
-  );
-  expect(chat.queryByRole("article", { name: "You" })).toBeNull();
+  await chat.findByText("Hi, what should I look into?");
+  expect(chat.queryByText("Find flights")).toBeNull();
+  expect(chat.queryByText("Two flights under $900.")).toBeNull();
+  expect(chat.queryByRole("note", { name: "In Trips" })).toBeNull();
 });
 
 test("Duplicate copies the bot and opens the copy; Export saves its file under its name", async () => {

@@ -498,6 +498,20 @@ impl Engine {
         self.announce(id);
     }
 
+    /// The open step's words began to stream: a turn that was thinking now writes. Told once
+    /// per step, not per piece; any other status (a tool, a retry) is left as it is.
+    pub(crate) fn writing(&self, id: &str) {
+        {
+            let live = self.live(id);
+            let mut status = live.status.lock().unwrap_or_else(|p| p.into_inner());
+            if status.as_deref() != Some(roster::THINKING) {
+                return;
+            }
+            *status = Some(roster::WRITING.to_owned());
+        }
+        self.announce(id);
+    }
+
     /// Marks a conversation (a bot's or a group's) seen up to `seq`, its last event when `None`,
     /// and tells its live subscribers, so every device drops its "not seen" mark. Answers the
     /// cursor, or `None` for no such conversation.
