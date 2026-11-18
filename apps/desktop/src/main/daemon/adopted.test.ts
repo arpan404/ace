@@ -1,18 +1,21 @@
 import { expect, it } from "vitest";
 import { adoptedProcess, type AdoptedPorts } from "./adopted.ts";
+import { sameRun, type LockOwner } from "./ownership.ts";
 
-/** A process table with one daemon, the home's lock, and a clock the test moves. */
+/** A process table, the home's lock, and a clock the test moves. The adopted run is pid 7, "run-a". */
 function world(options: { windows?: boolean; stopAccepted?: boolean } = {}) {
   let now = 0;
   const timers: { at: number; callback: () => void; cancelled: boolean }[] = [];
-  const state = { alive: true, lockPid: 7 as number | undefined };
+  const state: { pids: Set<number>; lock: LockOwner | undefined } = {
+    pids: new Set([7]),
+    lock: { pid: 7, id: "run-a" },
+  };
   const sent: string[] = [];
   const ports: AdoptedPorts = {
-    alive: () => state.alive,
-    owns: async (pid) => state.lockPid === pid,
-    signal: (_pid, signal) => {
+    sameRun: async () => state.pids.has(7) && sameRun(state.lock, { pid: 7, lockId: "run-a" }),
+    signal: (pid, signal) => {
       sent.push(signal);
-      state.alive = false;
+      state.pids.delete(pid);
     },
     ...(options.windows
       ? {
@@ -44,6 +47,7 @@ function world(options: { windows?: boolean; stopAccepted?: boolean } = {}) {
       next.callback();
     }
     now = until;
+    await new Promise((resolve) => setImmediate(resolve));
   };
   return { ports, state, sent, advance };
 }
@@ -54,20 +58,28 @@ it("an adopted daemon's exit is noticed once its pid is gone", async () => {
   adoptedProcess(7, w.ports).onExit((...exit) => exits.push(exit));
   await w.advance(5_000);
   expect(exits).toEqual([]);
-  w.state.alive = false;
+  w.state.pids.delete(7);
   await w.advance(1_000);
   expect(exits).toEqual([[null, null]]);
 });
 
-it("a pid that no longer holds the home's lock is never signalled", async () => {
+it("a CLI daemon that took the adopted daemon's pid while the app slept counts as that daemon's exit, and is never signalled", async () => {
   const w = world();
   const daemon = adoptedProcess(7, w.ports);
-  w.state.lockPid = 9;
+  const exits: unknown[][] = [];
+  daemon.onExit((...exit) => exits.push(exit));
+  // The adopted daemon exited and a CLI daemon started on the reused pid before any look.
+  w.state.lock = { pid: 7, id: "cli-run" };
   daemon.kill("SIGTERM");
+  daemon.kill("SIGKILL");
   await w.advance(0);
   expect(w.sent).toEqual([]);
-  w.state.lockPid = 7;
-  daemon.kill("SIGTERM");
+  expect(exits).toEqual([[null, null]]);
+});
+
+it("the adopted run, still holding the lock, is signalled", async () => {
+  const w = world();
+  adoptedProcess(7, w.ports).kill("SIGTERM");
   await w.advance(0);
   expect(w.sent).toEqual(["SIGTERM"]);
 });

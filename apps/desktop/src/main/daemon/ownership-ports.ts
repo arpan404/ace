@@ -1,12 +1,12 @@
 import { adoptedProcess } from "./adopted.ts";
-import { foundDaemon, readLockOwner, readOwnership, writeOwnership } from "./ownership.ts";
+import { foundDaemon, readLockOwner, readOwnership, sameRun, writeOwnership } from "./ownership.ts";
 import { requestStop } from "./stop-request.ts";
 import type { SupervisorPorts } from "./supervisor-config.ts";
 
 /** How often an adopted daemon, no longer this process's child, is looked for. */
 const adoptedPollMs = 250;
 
-function alive(pid: number): boolean {
+function exists(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -29,15 +29,15 @@ export function ownershipPorts(input: {
   now: () => number;
 }): Pick<SupervisorPorts, "claimOwned" | "recordOwned"> {
   const { home } = input;
-  const owns = async (pid: number) => (await readLockOwner(home))?.pid === pid;
   return {
     async claimOwned() {
       const [record, lock] = await Promise.all([readOwnership(home), readLockOwner(home)]);
       const found = foundDaemon(record, lock, input.version);
       if (found.kind === "external") return undefined;
+      const run = { pid: found.pid, lockId: found.lockId };
       const process = adoptedProcess(found.pid, {
-        alive,
-        owns,
+        // A crashed run leaves its lock file behind, so the pid must still exist too.
+        sameRun: async () => exists(run.pid) && sameRun(await readLockOwner(home), run),
         signal: (pid, signal) => globalThis.process.kill(pid, signal),
         ...(input.platform === "win32"
           ? { requestStop: (pid: number) => requestStop(home, pid) }

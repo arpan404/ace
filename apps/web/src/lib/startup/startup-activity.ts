@@ -12,6 +12,7 @@ export type DaemonStage =
   | "service"
   | "launching"
   | "lock-wait"
+  | "old-unanswered"
   | "warming"
   | "admission";
 
@@ -20,6 +21,7 @@ const daemonStages: readonly string[] = [
   "service",
   "launching",
   "lock-wait",
+  "old-unanswered",
   "warming",
   "admission",
 ] satisfies DaemonStage[];
@@ -49,6 +51,7 @@ const words: Record<StartupActivity, string> = {
   service: "Starting ace's background service",
   launching: "Starting ace's background service",
   "lock-wait": "Waiting for the previous ace to close",
+  "old-unanswered": "Waiting for the previous ace to answer",
   warming: "Getting your threads ready",
   admission: "Connecting to ace's background service",
   starting: "Starting ace",
@@ -67,6 +70,8 @@ const longWords: Record<StartupActivity, string> = {
   service: "ace's background service is taking longer than usual to start",
   launching: "ace's background service is taking longer than usual to start",
   "lock-wait": "The previous ace is taking a while to close; ace starts as soon as it does",
+  "old-unanswered":
+    "The previous ace is not answering; ace gives its agents up to 5 minutes, then replaces it",
   warming: "Still getting your threads ready; ace's background service is taking longer than usual",
   admission: "ace's background service is slow to answer; ace keeps asking",
   starting: "ace is taking longer than usual to start",

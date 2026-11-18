@@ -1,26 +1,29 @@
 import type { DaemonProcess } from "./child.ts";
 
 export interface AdoptedPorts {
-  /** Whether the process is still there (`process.kill(pid, 0)`). */
-  alive(pid: number): boolean;
-  /** Whether the home's lock still names `pid`: a signal is sent only while it does. */
-  owns(pid: number): Promise<boolean>;
+  /**
+   * Whether the adopted run is still there: its pid exists and the home's lock still names that
+   * pid and that run's id. A pid reused by another daemon (the CLI's, after this app slept
+   * through the adopted one's exit) writes its own run id, so it is never mistaken for it.
+   */
+  sameRun(): Promise<boolean>;
   signal(pid: number, signal: NodeJS.Signals): void;
   /**
    * Windows: asks the daemon to shut down (`POST /v1/stop`), since a signal there ends the
    * process without its own shutdown. False when it was not accepted. Unset elsewhere.
    */
   requestStop?: ((pid: number) => Promise<boolean>) | undefined;
-  /** How often to look whether the process has gone: it is not this app's child any more. */
+  /** How often to look whether the run has gone: it is not this app's child any more. */
   pollMs: number;
   timers: { set(delayMs: number, callback: () => void): () => void };
 }
 
 /**
  * A daemon an earlier launch of this app started and left running (ADR 0186), supervised as
- * the app's own: it stops on the same signals, and its exit is noticed by looking for the pid,
- * since it is no longer this process's child. No exit code reaches a non-parent, so its exit
- * reports neither code nor signal.
+ * the app's own: it stops on the same signals, and its exit is noticed by looking for its run,
+ * since it is no longer this process's child. A run whose lock changed hands has exited, as far
+ * as this app is concerned, and is never signalled. No exit code reaches a non-parent, so its
+ * exit reports neither code nor signal.
  */
 export function adoptedProcess(pid: number, ports: AdoptedPorts): DaemonProcess {
   type Exit = [code: number | null, signal: NodeJS.Signals | null];
@@ -34,30 +37,35 @@ export function adoptedProcess(pid: number, ports: AdoptedPorts): DaemonProcess 
     for (const listener of listeners) listener(...result);
     listeners.clear();
   };
+  /** Looks once; the run gone (or no longer telling) ends it. */
+  const look = async () => {
+    if (result) return false;
+    const same = await ports.sameRun().catch(() => false);
+    if (!same) finish();
+    return same && !result;
+  };
   const watch = () => {
     cancel = ports.timers.set(ports.pollMs, () => {
-      if (ports.alive(pid)) watch();
-      else finish();
+      void look().then((same) => {
+        if (same) watch();
+      });
     });
   };
-  if (ports.alive(pid)) watch();
-  else finish();
+  watch();
   const send = (signal: NodeJS.Signals) => {
     try {
       ports.signal(pid, signal);
     } catch {
-      // Gone between the check and the signal: the next look reports the exit.
+      // Gone between the look and the signal: the next look reports the exit.
     }
   };
   return {
     pid,
     kill(signal) {
-      if (result) return;
-      // A pid can be reused once its daemon is gone: signal it only while it holds the lock.
-      void ports
-        .owns(pid)
-        .then(async (owned) => {
-          if (!owned || result) return;
+      // Every signal is sent only after a look that finds the same run still there.
+      void look()
+        .then(async (same) => {
+          if (!same) return;
           if (signal === "SIGTERM" && ports.requestStop && (await ports.requestStop(pid))) return;
           send(signal);
         })

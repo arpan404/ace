@@ -32,9 +32,11 @@ outlived the app; only the app's own did not.
    app's.
 4. **The next launch adopts it.** Health checks, restart when unresponsive, repair, update drains
    and stops all apply to an adopted daemon as to one this launch spawned. It is not the app's
-   child any more, so its exit is noticed by looking for its pid every 250 ms, and a signal is
-   sent only while the home's lock still names that pid. On Windows a stop is `POST /v1/stop`
-   first, as for a spawned daemon.
+   child any more, so every 250 ms the app looks for its run: the pid must exist and the home's
+   lock must still name that pid and that run id. A run whose lock changed hands has exited as far
+   as the app is concerned, and no signal is ever sent without that look first, so a daemon that
+   reused the pid while the app slept (the CLI's) is never stopped. On Windows a stop is
+   `POST /v1/stop` first, as for a spawned daemon.
 5. **"Quit ace completely"** in the app menu (macOS: the ace menu; Windows and Linux: File) and
    in the tray stops the daemon the app started, adopted or not, with the same SIGTERM, grace and
    SIGKILL as before, then quits.
@@ -42,9 +44,11 @@ outlived the app; only the app's own did not.
    before installing, as before, and so does a quit while a downloaded update waits to install
    on quit. A launch that finds the app's own daemon from another app version (a new app copied
    in while the old daemon ran) closes its admission with the update's hold (ADR 0041), waits for
-   running work up to the update drain's bound (5 minutes), stops it whether or not work remains,
-   and starts the bundled daemon. The startup screen says it is waiting for the previous ace to
-   close. An older daemon never serves a newer app. A CLI or login-service daemon of another
+   running work up to the update drain's bound (5 minutes), and stops it only once nothing runs
+   or that time is up, then starts the bundled daemon. A hold request that fails (a daemon busy
+   with a turn answers late) is asked again each second, never taken as the end of the wait.
+   The startup screen says it is waiting for the previous ace to close, or, while the old daemon
+   does not answer, that it is waiting for it to answer. An older daemon never serves a newer app. A CLI or login-service daemon of another
    version is left as it is, as before: the app uses it.
 
 ## What works with no app open

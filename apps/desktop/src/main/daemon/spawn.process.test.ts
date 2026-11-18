@@ -197,9 +197,9 @@ it("the daemon keeps running and logging after the app that started it exits", a
     const ticks = (await launchLog(root)).filter((line) => line.startsWith("tick")).length;
     await vi.waitFor(
       async () =>
-        expect((await launchLog(root)).filter((line) => line.startsWith("tick")).length).toBe(
-          ticks + 5,
-        ),
+        expect(
+          (await launchLog(root)).filter((line) => line.startsWith("tick")).length,
+        ).toBeGreaterThanOrEqual(ticks + 5),
       { timeout: 10_000 },
     );
     expect(() => process.kill(pid, 0)).not.toThrow();

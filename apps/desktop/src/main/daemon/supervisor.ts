@@ -7,7 +7,7 @@ import {
   type StopPorts,
   type StopReason,
 } from "./child.ts";
-import { drainForUpdate } from "./drain.ts";
+import { drainForReplacement, drainForUpdate } from "./drain.ts";
 import {
   exitDecision,
   incompatibleDataMessage,
@@ -331,23 +331,27 @@ export class DaemonSupervisor {
         version,
       },
     );
-    let drained = false;
-    try {
-      drained = await drainForUpdate(this.ports, daemon, {
-        deadlineMs: this.options.replaceDrainMs,
-        pollMs: 1_000,
-        wasPaused: false,
-        current: () => !this.stale(generation) && !child.done,
-        paused: () => {},
-      });
-    } catch (error) {
-      this.ports.log("warn", "Closing the old daemon's admission failed", { error: String(error) });
-    }
+    const outcome = await drainForReplacement(this.ports, daemon, {
+      deadlineMs: this.options.replaceDrainMs,
+      pollMs: 1_000,
+      current: () => !this.stale(generation) && !child.done,
+      answering: (on) => {
+        if (!on)
+          this.ports.log("warn", "The old daemon does not answer; asking again until the bound", {
+            boundMs: this.options.replaceDrainMs,
+          });
+        this.update({ stage: on ? "lock-wait" : "old-unanswered" });
+      },
+    });
     if (this.stale(generation)) return false;
-    if (!drained && !child.done)
-      this.ports.log("warn", "Work still ran in the old daemon at the bound; stopping it anyway", {
-        boundMs: this.options.replaceDrainMs,
-      });
+    if (outcome === "deadline" && !child.done)
+      this.ports.log(
+        "warn",
+        "Work may still run in the old daemon at the bound; stopping it anyway",
+        {
+          boundMs: this.options.replaceDrainMs,
+        },
+      );
     await this.stopChild();
     return !this.stale(generation);
   }

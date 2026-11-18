@@ -30,9 +30,9 @@ export type FoundDaemon =
   /** Someone else's (the CLI, the login service, another build's app): used, never stopped. */
   | { kind: "external" }
   /** The app's own, from this version: supervised as if this launch had started it. */
-  | { kind: "adopt"; pid: number }
+  | { kind: "adopt"; pid: number; lockId: string }
   /** The app's own, from another version: drained, stopped and replaced by the bundled one. */
-  | { kind: "replace"; pid: number; version: string };
+  | { kind: "replace"; pid: number; lockId: string; version: string };
 
 /**
  * Whether the daemon holding the home's lock is one an ace app started, and what to do with it.
@@ -44,11 +44,11 @@ export function foundDaemon(
   lock: LockOwner | undefined,
   appVersion: string,
 ): FoundDaemon {
-  if (!record || !lock || record.pid !== lock.pid || record.lockId !== lock.id)
-    return { kind: "external" };
+  if (!record || !sameRun(lock, record)) return { kind: "external" };
+  const run = { pid: record.pid, lockId: record.lockId };
   return record.version === appVersion
-    ? { kind: "adopt", pid: record.pid }
-    : { kind: "replace", pid: record.pid, version: record.version };
+    ? { kind: "adopt", ...run }
+    : { kind: "replace", ...run, version: record.version };
 }
 
 async function readJson<T>(path: string, schema: z.ZodType<T>): Promise<T | undefined> {
@@ -58,6 +58,14 @@ async function readJson<T>(path: string, schema: z.ZodType<T>): Promise<T | unde
   } catch {
     return undefined;
   }
+}
+
+/** Whether the home's lock names exactly this run: the same pid and the same run id. */
+export function sameRun(
+  lock: LockOwner | undefined,
+  run: { pid: number; lockId: string },
+): boolean {
+  return lock?.pid === run.pid && lock.id === run.lockId;
 }
 
 /** The pid and run id in the home's `daemon-lock`, when there is a readable one. */

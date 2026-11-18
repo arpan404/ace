@@ -138,6 +138,52 @@ describe("the daemon outlives the app that started it (ADR 0186)", () => {
     expect(c.home.record).toMatchObject({ version: "1.1.0", pid: 101 });
   });
 
+  it("an old daemon whose hold request fails twice keeps its agents until they finish: no stop before drain", async () => {
+    const c = computer();
+    const first = c.launch("1.0.0");
+    await c.startWithOwnDaemon(first);
+    await first.release();
+    c.state.blockers = 1;
+    // Busy with a turn: it answers the status check, but the first two hold requests time out.
+    c.state.holdReplyFails = 2;
+
+    const second = c.launch("1.1.0");
+    const starting = second.start();
+    await c.advance(1_000);
+    expect(second.current()).toMatchObject({ state: "starting", stage: "old-unanswered" });
+    await c.advance(30_000);
+    expect(c.signals).toEqual([]);
+    expect(c.children[0]?.alive).toBe(true);
+    // It answers again, and says work still runs: the screen goes back to waiting for it to close.
+    expect(second.current()).toMatchObject({ stage: "lock-wait" });
+
+    c.state.blockers = 0;
+    await c.advance(1_000);
+    await starting;
+    expect(c.signals).toEqual(["SIGTERM"]);
+    expect(c.children).toHaveLength(2);
+  });
+
+  it("an old daemon that never answers the hold is said to be unanswered and stopped only at the bound", async () => {
+    const c = computer();
+    const first = c.launch("1.0.0");
+    await c.startWithOwnDaemon(first);
+    await first.release();
+    c.ports.setUpdateHold = async () => {
+      throw new Error("The request timed out");
+    };
+
+    const second = c.launch("1.1.0", { replaceDrainMs: 60_000 });
+    const starting = second.start();
+    await c.advance(59_000);
+    expect(second.current()).toMatchObject({ state: "starting", stage: "old-unanswered" });
+    expect(c.children[0]?.alive).toBe(true);
+    await c.advance(2_000);
+    await starting;
+    expect(c.children[0]?.alive).toBe(false);
+    expect(c.children).toHaveLength(2);
+  });
+
   it("an old daemon still busy at the drain's bound is stopped anyway: it never serves a newer app", async () => {
     const c = computer();
     const first = c.launch("1.0.0");
@@ -223,14 +269,14 @@ describe("whose a found daemon is", () => {
       record,
       { pid: 10, id: "run-a" },
       "1.0.0",
-      { kind: "adopt", pid: 10 },
+      { kind: "adopt", pid: 10, lockId: "run-a" },
     ],
     [
       "the app's run, other version",
       record,
       { pid: 10, id: "run-a" },
       "1.1.0",
-      { kind: "replace", pid: 10, version: "1.0.0" },
+      { kind: "replace", pid: 10, lockId: "run-a", version: "1.0.0" },
     ],
   ] as const)("%s", (_name, saved, lock, version, expected) => {
     expect(foundDaemon(saved, lock, version)).toEqual(expected);
