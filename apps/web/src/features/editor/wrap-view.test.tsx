@@ -44,6 +44,10 @@ const scrollerHost = () => document.querySelector<HTMLElement>("[data-editor-scr
 /** The primary caret's drawn row, as its top offset in pixels. */
 const caretTop = () => document.querySelector<HTMLElement>("[data-caret]")?.style.top;
 
+/** Every caret's drawn row, as its top offset in pixels. */
+const caretTops = () =>
+  [...document.querySelectorAll<HTMLElement>("[data-caret]")].map((box) => box.style.top);
+
 /** CJK text is two cells a character, so a hard break comes at this many characters. */
 const cjkRow = Math.floor(columns / 2);
 
@@ -108,6 +112,56 @@ test("two carets at hard breaks are each drawn on the row before the break", asy
     (box) => box.style.top,
   );
   expect(tops).toEqual(["0px", `${4 * 22}px`]);
+});
+
+test("a Shift+click leaves a caret it did not move on its own side of a hard break", async () => {
+  const { ref } = await openView({ text: "中".repeat(240), wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  // A fresh selection has no sides: the caret at the first hard break is drawn on the later row.
+  act(() => ref.current?.setSelections([caret(0, cjkRow), caret(0, 2 * cjkRow)]));
+  expect(caretTops()).toEqual(["22px", `${2 * 22}px`]);
+
+  // Shift+click on the fourth row extends the primary caret; the other caret was not touched.
+  fireEvent.pointerDown(scroller, {
+    button: 0,
+    shiftKey: true,
+    clientX: gutterWidth(1) + 3 * cell,
+    clientY: 3 * 22 + 5,
+  });
+
+  expect(caretTops()).toEqual(["22px", `${3 * 22}px`]);
+});
+
+test("secondary carets keep their own side when moving down from a hard break", async () => {
+  const text = `${"中".repeat(240)}\n${"中".repeat(240)}`;
+  const { ref } = await openView({ text, wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0), caret(1, 0)]));
+
+  await userEvent.keyboard("{End}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow), caret(1, cjkRow)]);
+  expect(caretTops()).toEqual(["0px", `${4 * 22}px`]);
+
+  // Down from a row's end keeps the column at the end of the next row for both carets.
+  await userEvent.keyboard("{ArrowDown}");
+  expect(ref.current?.selections()).toEqual([caret(0, cjkRow * 2), caret(1, cjkRow * 2)]);
+});
+
+test("a side of a hard break does not survive the edit that replaced the selections", async () => {
+  const text = `${"中".repeat(240)}\n${"中".repeat(240)}`;
+  const { ref } = await openView({ text, wrap: true });
+  act(() => ref.current?.setSelections([caret(0, 0), caret(1, 0)]));
+  await userEvent.keyboard("{End}");
+
+  await userEvent.keyboard("x");
+  await userEvent.keyboard("{Meta>}z{/Meta}");
+  await waitFor(() =>
+    expect(ref.current?.selections()).toEqual([caret(0, cjkRow), caret(1, cjkRow)]),
+  );
+
+  // The restored carets are at hard breaks again, but their old sides belonged to the carets the
+  // edit replaced: they draw on the later row until the next move says otherwise.
+  expect(caretTops()).toEqual(["22px", `${5 * 22}px`]);
 });
 
 test("revealing a caret at a hard break scrolls to the side the move asked for", async () => {

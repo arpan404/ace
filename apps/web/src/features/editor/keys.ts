@@ -133,7 +133,9 @@ export function useEditorKeys(options: EditorKeyOptions) {
     const moved: Selection[] = [];
     const affinity: boolean[] = [];
     selections.forEach((selection, index) => {
-      const keeperHere = index === primary ? keeper : offsetOf(selection.head);
+      // A secondary caret keeps its own goal; its side of a hard break is where its row ends.
+      const keeperHere =
+        index === primary ? keeper : offsetOf(selection.head, isBefore(options.affinity, index));
       const row = rowOf(selection.head, isBefore(options.affinity, index));
       const landed = positionOnRow(row + delta, keeperHere);
       affinity.push(landed.before);

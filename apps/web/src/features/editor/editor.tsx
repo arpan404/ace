@@ -45,13 +45,20 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const wrap = props.wrap ?? false;
   /** The wrap index hears each edit as the document applies it, before React renders it. */
   const appliedRef = useRef<WrapEdits | undefined>(undefined);
+  /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
+  const [affinity, setAffinity] = useState<Affinity>(noAffinity);
   const state = useEditorDocument({
     text: props.text,
     path: props.path,
     original: props.marks ? undefined : props.text,
     editable: !readOnly,
     onBeforeEdit: () => appliedRef.current?.before(),
-    onApplied: (batch) => appliedRef.current?.after(batch),
+    onApplied: (batch) => {
+      appliedRef.current?.after(batch);
+      // An edit or an undo replaces the document's selections: a side measured against the old
+      // carets means nothing once their positions and order have changed.
+      setAffinity(noAffinity);
+    },
     ...(props.onEdit ? { onEdit: props.onEdit } : {}),
     ...(props.onTextDispose ? { onTextDispose: props.onTextDispose } : {}),
     ...(props.commitAfter === undefined ? {} : { commitAfter: props.commitAfter }),
@@ -63,8 +70,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
-  /** Each caret's side of a hard break, as VS Code keeps it; secondary carets keep their own. */
-  const [affinity, setAffinity] = useState<Affinity>(noAffinity);
   const [paint, setPaint] = useState(0);
   const viewport = useElementSize(scroller);
   const input = useEditorInput(state, readOnly, field);
@@ -226,6 +231,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     element: host,
     focus: () => field.current?.focus({ preventScroll: true }),
     reveal,
+    affinity,
     onBefore: setAffinity,
   });
 

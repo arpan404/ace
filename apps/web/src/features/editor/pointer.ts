@@ -1,7 +1,7 @@
 import type { Position } from "@ace/editor";
 import type { MouseEvent, PointerEvent } from "react";
 import { useRef } from "react";
-import { noAffinity, sidesAt, type Affinity } from "./affinity.ts";
+import { carrySides, noAffinity, type Affinity } from "./affinity.ts";
 import { wordAt } from "./cursor.ts";
 import { lineHeight, tabSize } from "./geometry.ts";
 import type { EditorDocumentState } from "./use-editor.ts";
@@ -23,11 +23,15 @@ export function usePointerSelection(options: {
   element: { current: HTMLDivElement | null };
   focus(): void;
   reveal(position: Position, before?: boolean): void;
+  /** Each caret's side of a hard break as the last move left it. */
+  affinity: Affinity;
   /** Records every caret's side of a hard break after the click moved them. */
   onBefore(affinity: Affinity): void;
 }) {
   const { state, cell, gutter, layout } = options;
-  const drag = useRef<{ anchor: Position; box: boolean; moved: boolean } | undefined>(undefined);
+  const drag = useRef<
+    { anchor: Position; before: boolean; box: boolean; moved: boolean } | undefined
+  >(undefined);
 
   const positionAt = (
     clientX: number,
@@ -68,15 +72,21 @@ export function usePointerSelection(options: {
           at === doc.primarySelection() ? { anchor: selection.anchor, head: position } : selection,
         ),
       );
-      drag.current = { anchor: current.anchor, box: false, moved: false };
+      drag.current = { anchor: current.anchor, before: target.before, box: false, moved: false };
     } else if (event.altKey) {
-      drag.current = { anchor: position, box: true, moved: false };
+      drag.current = { anchor: position, before: target.before, box: true, moved: false };
       state.select([{ anchor: position, head: position }]);
     } else {
-      drag.current = { anchor: position, box: false, moved: false };
+      drag.current = { anchor: position, before: target.before, box: false, moved: false };
       state.select([{ anchor: position, head: position }]);
     }
-    options.onBefore(sidesAt(layout, doc.selections()));
+    // A Shift+click must leave every caret it did not move on the side it already had.
+    options.onBefore(
+      carrySides(layout, selections, options.affinity, doc.selections(), {
+        position,
+        before: target.before,
+      }),
+    );
     options.reveal(position, target.before);
   };
 
@@ -87,13 +97,19 @@ export function usePointerSelection(options: {
     const doc = state.doc;
     if (!landed || !doc) return;
     target.moved = true;
+    const previous = doc.selections();
     if (target.box) {
       doc.selectColumn(target.anchor, landed.position, tabSize);
       state.select(doc.selections());
     } else {
       state.select([{ anchor: target.anchor, head: landed.position }]);
     }
-    options.onBefore(sidesAt(layout, doc.selections()));
+    options.onBefore(
+      carrySides(layout, previous, options.affinity, doc.selections(), {
+        position: landed.position,
+        before: landed.before,
+      }),
+    );
     options.reveal(landed.position, landed.before);
   };
 
@@ -102,11 +118,17 @@ export function usePointerSelection(options: {
     drag.current = undefined;
     const doc = state.doc;
     if (target?.box && !target.moved && doc) {
-      doc.setSelections([...doc.selections(), { anchor: target.anchor, head: target.anchor }]);
+      const previous = doc.selections();
+      doc.setSelections([...previous, { anchor: target.anchor, head: target.anchor }]);
       state.select(doc.selections());
-      const sides = sidesAt(layout, doc.selections());
-      options.onBefore(sides);
-      options.reveal(target.anchor, sides.at(-1) ?? false);
+      // Alt+click adds a caret: every other caret was not touched by it.
+      options.onBefore(
+        carrySides(layout, previous, options.affinity, doc.selections(), {
+          position: target.anchor,
+          before: target.before,
+        }),
+      );
+      options.reveal(target.anchor, target.before);
     }
   };
 
