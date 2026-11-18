@@ -26,16 +26,21 @@ https and `.git` spellings of one repository match.
   each groups with its own clones.
 - **A folder outside Git, or a repository without a remote,** has no key and groups only
   through its identity, as before.
+- **Remotes on the machine's own disk** (`/srv/git/app.git`, `file://`, a drive or a share) are
+  left out of the key: the same path on two machines is two repositories. A checkout with only
+  those has no key.
 
 ### The daemon reports the key; the client groups
 
 `Project.remoteKey?: {remotes, subpath}` is a new optional field in `workspaces.list` and in
 `workspace.changed`. The daemon keeps it in `workspace_remote_key(workspace_id PK, remotes,
 subpath, read_at, apart)`, made empty at open. Nothing reads Git at open (ADR 0170): when a
-client connects, and when a project is added, a background sweep reads the registrations whose
-key is unread or older than ten minutes, four at a time with a pause between batches, and pushes
-`workspace.changed` for each whose key changed. A remote changed meanwhile is seen on the next
-sweep after its read goes stale.
+client connects, and when a project is added, a background sweep walks the registrations by
+id, 64 per page with a pause between pages. Each page is a range read on the primary key, so no
+step scans or sorts every registration and no index is needed. It reads from Git, four at a
+time, those whose key is unread or older than ten minutes, and pushes `workspace.changed` for
+each whose key changed. A remote changed meanwhile is seen on the next sweep after its read
+goes stale.
 
 `groupProjects` in `@ace/ui-core` stays the only grouping. The remote key is one more kind of
 edge in its union-find, beside identity ids and aliases, so web and iOS group the same way. A
@@ -77,8 +82,10 @@ the project dialogs act on this window's machine. Its row names the machines it 
 - Unlinking a remote-grouped checkout splits that checkout off and keeps it off; there is no
   "regroup by remote" button. Linking it again is the way back.
 - The first sweep on a machine with many projects reads Git for each, in the background, a few
-  at a time; each key that arrives is one `workspace.changed`, which clients put in place
-  without reading the whole list again.
+  at a time; each key that arrives is one `workspace.changed`. Clients put each push in place
+  and keep it for any list read still paging, applying it again when that read lands, so a
+  read never undoes a push and pushes never restart a read. The pool also keeps each push on
+  the device for when that machine goes offline.
 
 ## Rejected
 
@@ -95,6 +102,10 @@ the project dialogs act on this window's machine. Its row names the machines it 
 `packages/ui-core/src/project-groups.test.ts` (clones, remote order, forks, monorepo folders,
 an unlinked checkout, mixed identity and remote edges, stable keys);
 `apps/daemon/src/project-remote-key.test.ts` (reported once read and announced once, stale
-reads, unlink keeps apart even after a link, failed reads, bounded batches);
+reads, unlink keeps apart even after a link, failed reads, bounded reads, the paged walk and
+its query plan, local remotes); `packages/git/src/checkout-facts.test.ts` (folders named
+`..tools`); `apps/web/src/lib/project-pushes.test.ts` and `pool-projects.test.ts` (pushes win
+over reads out, and are kept offline);
 `apps/web/src/features/home/project-scope.test.ts` (rows across the device filter, summed
-counts, choosing covers every machine's checkouts, forks, projects only threads mention).
+counts, choosing covers every machine's checkouts, forks, projects only threads mention, the
+archive across two checkouts here).
