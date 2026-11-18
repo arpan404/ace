@@ -64,6 +64,8 @@ export async function startFilesRelay(
      * out its deadline, and a running one stops as `close` would.
      */
     signal?: AbortSignal | undefined;
+    /** This daemon's `ace-client` name (ADR 0189), sent on each upgrade to ace's own relay. */
+    aceClient?: string | undefined;
   },
 ) {
   const media = options.media;
@@ -175,6 +177,7 @@ export async function startFilesRelay(
       ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),
       ...(options.http ? { http: options.http } : {}),
       ...(nk ? { nk } : {}),
+      ...(options.aceClient ? { aceClient: options.aceClient } : {}),
       ...(media && admitMedia
         ? {
             media: {

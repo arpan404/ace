@@ -1,4 +1,5 @@
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
+import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
 import { forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
@@ -556,7 +557,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const account = machineAccount({
       dataDir: config.dataDir,
       codes: store.machineCodes,
-      fetch: globalThis.fetch,
+      // Every call this makes goes to ace's account backend, so each names the daemon.
+      fetch: namedFetch(globalThis.fetch, config.aceClient),
       now,
       randomBytes,
       delay: (callback, milliseconds) => {

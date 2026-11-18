@@ -81,6 +81,17 @@ describe("reading the catalog", () => {
     }
   });
 
+  it("serves an app the same whatever ace-client it sends, or none", async () => {
+    const plain = await (await market.fetch("/v1/entries/spade-skill/read-skill")).text();
+    for (const client of ["daemon/0.0.24-beta.1", "spade/development", "not a client"]) {
+      const named = await market.fetch("/v1/entries/spade-skill/read-skill", {
+        headers: { "ace-client": client },
+      });
+      expect(named.status, client).toBe(200);
+      expect(await named.text(), client).toBe(plain);
+    }
+  });
+
   it("a download raises only that version's total", async () => {
     // Each caller counts once a minute per hash (ADR 0174 §6), so each fetch is another caller.
     const response = await market.fetch(`/v1/objects/${hashes["1.0.0"]}`, from("192.0.2.1"));

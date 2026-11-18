@@ -1,3 +1,5 @@
+import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
+import type { ServerGate } from "@ace/service/client-features";
 import type { AccountSetup } from "./config.ts";
 import { sealer } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
@@ -130,8 +132,11 @@ export function accountApi(
       await logins.sweep(now());
       await credentials.sweep(now());
     },
-    /** `limited` is the caller's rate-limit verdict for this client address. */
-    async handle(request: Request, limited: boolean): Promise<Response> {
+    /**
+     * `limited` is the caller's rate-limit verdict for this client address; `_gate` says which
+     * gated features the calling app supports (ADR 0189); none is gated yet.
+     */
+    async handle(request: Request, limited: boolean, _gate: ServerGate): Promise<Response> {
       const url = new URL(request.url);
       const login = config.publicOrigins ? hostLogins.get(url.origin) : canonicalLogin;
       if (!login) return secure(fail(403, "origin_denied"), undefined);
@@ -154,7 +159,10 @@ export function accountApi(
       if (request.method === "OPTIONS") {
         const response = new Response(null, { status: 204 });
         response.headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-        response.headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+        response.headers.set(
+          "Access-Control-Allow-Headers",
+          `Authorization, Content-Type, ${ACE_CLIENT_HEADER}`,
+        );
         return secure(response, origin);
       }
       if (request.url.length > 4096) return secure(fail(414, "invalid_request"), origin);

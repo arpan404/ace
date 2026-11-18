@@ -13,6 +13,7 @@
     "./desktop-update": "./src/desktop-update.ts",
     "./desktop-update-argument": "./src/desktop-update-argument.ts",
     "./version": "./src/version.ts",
+    "./client-features": "./src/client-features.ts",
     "./spade": "./src/spade/index.ts",
     "./spade-update-mode": "./src/spade-update-mode.ts",
     "./spade-plan": "./src/spade-plan.ts",

@@ -20,6 +20,8 @@ export async function startRelayTransport(
     onRegistration?: (registered: boolean) => void;
     /** Gives up the registration, answered or not (`startFilesRelay`). */
     signal?: AbortSignal;
+    /** This daemon's `ace-client` name (ADR 0189), for ace's own relay. */
+    aceClient?: string;
   } = {},
 ) {
   if (!relay) return undefined;
@@ -76,6 +78,7 @@ export async function startRelayTransport(
     onRefused: access.onRefused,
     onRegistration: access.onRegistration,
     signal: access.signal,
+    aceClient: access.aceClient,
     devices: options.store.devices,
     hostId: options.hostId,
     headSeq: () => options.store.headSeq(),

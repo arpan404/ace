@@ -81,7 +81,10 @@ Run each command from `apps/market`.
    ```
 
    The custom domain `market.acehq.dev` is attached by the route in `wrangler.jsonc`. Request
-   logs stay off (`observability.enabled: false`).
+   logs stay off (`observability.enabled: false`). After this first deploy, release tags deploy
+   the market with `bun run deploy:workers`, staging (`staging.market.acehq.dev`) first, with a
+   smoke and an automatic rollback ([docs/release/workers.md](../release/workers.md)).
+   `bun run smoke https://market.acehq.dev` checks it by hand without writing anything.
 
 5. **Seed it.** Mint a market grant for ace's own account: `POST https://cloud.acehq.dev/v1/grants`
    with the account's session as the bearer and

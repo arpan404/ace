@@ -13,6 +13,8 @@ export interface RelayAccess {
   onRegistration?: (registered: boolean) => void;
   /** Aborted when the relays close: a registration still waiting on the relay is given up. */
   signal?: AbortSignal;
+  /** This daemon's `ace-client` name (ADR 0189), given to ace's own relay only. */
+  aceClient?: string;
 }
 
 /** A running relay registration: resolved once the relay confirmed it, until `close`. */
@@ -120,10 +122,12 @@ export function remoteRelays(deps: {
             platform: options.platform ?? process.platform,
           })
         : undefined;
+      const aceClient = plan.hosted ? options.remoteConfig?.aceClient : undefined;
       started = await deps.connect(
         { url: plan.url, keys: relayKeys },
         {
           ...(access ? { account: access.account } : {}),
+          ...(aceClient ? { aceClient } : {}),
           onRefused: () => {
             const error = plan.hosted ? relayRefusedMachine : "The relay refused this machine.";
             void deps
