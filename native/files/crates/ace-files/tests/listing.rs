@@ -82,6 +82,31 @@ fn pages_through_a_folder_in_vs_code_order() {
 }
 
 #[test]
+fn refuses_a_page_larger_than_the_contract_allows() {
+    let checkout = checkout(&[("a.txt", "")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let too_big = client.request(Op::List {
+        root,
+        dir: String::new(),
+        limit: 5_001,
+        cursor: None,
+        hide: hide(),
+    });
+    assert_eq!(client.error(too_big).code, "INVALID_ARGUMENT");
+
+    let empty = client.request(Op::List {
+        root,
+        dir: String::new(),
+        limit: 0,
+        cursor: None,
+        hide: hide(),
+    });
+    assert_eq!(client.error(empty).code, "INVALID_ARGUMENT");
+}
+
+#[test]
 fn reports_one_path() {
     let checkout = checkout(&[("src/main.rs", "fn main() {}\n")]);
     let mut client = Client::greeted();

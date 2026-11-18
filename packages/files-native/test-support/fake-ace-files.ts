@@ -7,8 +7,9 @@
  *   answers hello either), `exit` (exits before `hello`), `oversize` (declares a 16 MiB + 1 frame
  *   after `hello`), `answer-exit` (answers a stat, then exits), `corrupt-reply` (answers with a
  *   message the schema rejects), `read-no-body` (a read says a body follows, but none does),
- *   `search-hang` (subscribes, then never reports), `search-hold` (never answers a search) or
- *   `hold-requests` (answers openRoot, never another request).
+ *   `search-hang` (subscribes, then never reports), `search-fails` (subscribes, then reports
+ *   `searchFailed`), `search-hold` (never answers a search) or `hold-requests` (answers openRoot,
+ *   never another request).
  * - `FAKE_FILES_MISSING_ROOT`: a path whose `openRoot` fails with `NOT_FOUND` while
  *   `FAKE_FILES_VANISH_FILE` exists (all generations, when that env is unset).
  * - `FAKE_FILES_SLOW_WATCH_MS`: delays a watch's reply by this many ms.
@@ -186,6 +187,18 @@ function answer(id: number, op: Extract<Message, { type: "request" }>["op"]): vo
       };
       if (behaviour === "search-hang") {
         send(reply);
+        return;
+      }
+      if (behaviour === "search-fails") {
+        sendBundle(reply, {
+          type: "event",
+          subscription,
+          payload: {
+            type: "searchFailed",
+            code: "INVALID_ARGUMENT",
+            message: `the pattern could not be compiled: ${op.pattern}`,
+          },
+        });
         return;
       }
       sendBundle(

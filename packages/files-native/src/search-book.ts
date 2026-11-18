@@ -1,3 +1,4 @@
+import { FilesRequestError } from "./errors.ts";
 import type { EventPayload, FileMatches, Summary } from "./schemas.ts";
 
 export type SearchEntry = {
@@ -35,6 +36,12 @@ export class SearchBook {
       } catch (error) {
         log?.("a search listener failed", { error: String(error) });
       }
+      return;
+    }
+    if (payload.type === "searchFailed") {
+      // The request was answered by its subscription, so a started search that stops reports here.
+      this.remove(subscription);
+      search.reject(new FilesRequestError(payload.code, payload.message));
       return;
     }
     if (payload.type === "searchDone") {

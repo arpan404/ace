@@ -7,6 +7,7 @@ import {
   fakeMessages,
   stopFakeFiles,
   until,
+  type FakeFilesBehaviour,
   type FakeFilesHarness,
 } from "./test-support.ts";
 
@@ -14,6 +15,12 @@ const open: FakeFilesHarness[] = [];
 
 function harness(): { h: FakeFilesHarness; client: FilesClient } {
   const h = fakeFilesHarness();
+  open.push(h);
+  return { h, client: new FilesClient(h.files) };
+}
+
+function harnessWith(behaviour: FakeFilesBehaviour): { h: FakeFilesHarness; client: FilesClient } {
+  const h = fakeFilesHarness(behaviour);
   open.push(h);
   return { h, client: new FilesClient(h.files) };
 }
@@ -82,6 +89,18 @@ describe("FilesClient", () => {
     expect(matches).toHaveLength(1);
     expect(matches[0]?.path).toBe("src/main.ts");
     expect(summary).toMatchObject({ files: 1, matches: 1, limitHit: false });
+  });
+
+  it("rejects a started search with the code its searchFailed event carries", async () => {
+    const { client } = harnessWith("search-fails");
+    await client.start();
+    const root = await client.openRoot("/repo");
+    await expect(
+      client.search(root, query, { onMatches: () => {} }),
+    ).rejects.toMatchObject({
+      code: "INVALID_ARGUMENT",
+      message: "the pattern could not be compiled: cache",
+    });
   });
 
   it("sends createDir, rename, remove, indexQuery and closeRoot, and forgets a closed root", async () => {

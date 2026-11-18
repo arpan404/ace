@@ -55,6 +55,19 @@ pub enum EventPayload {
         /// The file and its matching lines.
         file: FileMatches,
     },
+    /// A search that had already been given a subscription stopped without finishing, and the
+    /// reason is not news about a file: a pattern the searcher could not compile, a worker that
+    /// panicked, or the daemon's own `cancel`.
+    ///
+    /// This is the one way a started search may fail. Its request was answered when the
+    /// subscription was handed out, so the failure travels on the subscription instead of a second
+    /// reply with the same request id.
+    SearchFailed {
+        /// A stable code such as `INVALID_ARGUMENT` or `IO_ERROR`.
+        code: String,
+        /// A sentence for the log or the person.
+        message: String,
+    },
     /// A search finished.
     SearchDone {
         /// What the search covered and whether it stopped at its limit.
