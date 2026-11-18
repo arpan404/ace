@@ -58,7 +58,11 @@ pub(crate) fn refuse_components(folders: &[String], leaf: &str, path: &str) -> R
 
 /// Refuse one name the daemon reserves: git's store and any transfer temporary.
 pub(crate) fn reserved(name: &str) -> bool {
-    name.eq_ignore_ascii_case(GIT) || name.to_ascii_lowercase().starts_with(TEMPORARY)
+    name.eq_ignore_ascii_case(GIT)
+        || name
+            .as_bytes()
+            .get(..TEMPORARY.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(TEMPORARY.as_bytes()))
 }
 
 /// Whether `name` is the generated endpoint a delete parks an entry under.
