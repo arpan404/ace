@@ -27,7 +27,8 @@ struct TransferFolderPicker: View {
             case "forbidden":
                 EmptyState(systemImage: "desktopcomputer", title: "Can't browse folders", line: "\(machine) doesn't let this phone browse its folders.")
                     .listRowBackground(Color.clear)
-            case "failed":
+            case "failed" where folders?.query == query:
+                // A failure for an older query falls through to loading: its newer search is already on the way.
                 ProblemRow("Couldn't search the folders on \(machine).", detail: "Check the connection and try again.",
                            id: "transfer.folders.problem") { search(query) }
             default:
