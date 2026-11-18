@@ -66,55 +66,51 @@ impl Engine {
         }
     }
 
-    /// Keeps where the gate found the step `key` acts, to check again right before it runs.
-    pub(super) fn decide_place(&self, key: &str, place: Place) {
+    /// Keeps where the gate found the step `key` acts, to check again right before it runs;
+    /// `reviewer_only` when no person let it run (it then runs only where ace holds it there).
+    pub(super) fn decide_place(&self, key: &str, place: Place, reviewer_only: bool) {
         self.drive_places
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .insert(key.to_owned(), place);
-    }
-
-    /// Where the gate found the step `key` acts, taken (each call runs once).
-    pub(super) fn take_place(&self, key: &str) -> Option<Place> {
-        self.drive_places
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(key)
+            .insert(key.to_owned(), (place, reviewer_only));
     }
 
     /// The arguments the step `key` runs with, when it still acts where it was decided on: read
-    /// from ace right before it runs, and bound to that place inside ace too (`expect`, where the
+    /// from ace right before it runs, and held to that place inside ace too (`expect`, where the
     /// tool takes it), so ace refuses the step if the page or app moves on while it waits in
-    /// ace's queue. `None` when the place changed. A step decided on with no place (the person
-    /// allowed it so) runs as it is.
+    /// ace's queue. `Err` with why it doesn't run: the place changed, or ace can't hold a step
+    /// only the reviewer let run. A step decided on with no place (the person allowed it so)
+    /// runs as it is.
     pub(super) async fn bind_place(
         &self,
         conversation: &str,
         key: &str,
         name: &str,
         arguments: Value,
-    ) -> Option<Value> {
-        let Some(decided) = self.take_place(key) else {
-            return Some(arguments);
+    ) -> Result<Value, &'static str> {
+        let decided = self
+            .drive_places
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(key);
+        let Some((decided, reviewer_only)) = decided else {
+            return Ok(arguments);
         };
         let now = self.drive_step(conversation, key, name, &arguments).await;
         if now.place.as_ref() != Ok(&decided) {
-            return None;
+            return Err(MOVED);
         }
-        Some(match decided.expect() {
-            Some(expect) if self.takes_expect(conversation, name) => {
-                let mut bound = arguments;
-                if let Some(fields) = bound.as_object_mut() {
-                    fields.insert("expect".to_owned(), expect);
-                }
-                bound
-            }
-            _ => arguments,
-        })
+        drive::bind(
+            name,
+            arguments,
+            &decided,
+            self.takes_expect(conversation, name),
+            reviewer_only,
+        )
     }
 
     /// Whether ace's tool `name` takes `expect` (an ace from before it doesn't).
-    fn takes_expect(&self, conversation: &str, name: &str) -> bool {
+    pub(super) fn takes_expect(&self, conversation: &str, name: &str) -> bool {
         self.tools.get_for(conversation, name).is_some_and(|tool| {
             tool.def()
                 .spec

@@ -557,6 +557,7 @@ fn step<'a>(
             target,
             sensitive,
             granted,
+            bound: true,
         },
         ..call("screen_act", Some(Effect::Drive))
     }
@@ -774,4 +775,34 @@ fn a_push_or_send_request_names_where_it_goes() {
         route(comment),
         asks("It sends something in your name to github.com/acme/app#7, so you decide.")
     );
+}
+
+#[test]
+fn a_step_ace_cant_hold_to_its_place_asks_the_person_instead_of_the_reviewer() {
+    for granted in [false, true] {
+        let unbound = Call {
+            drive: Drive {
+                bound: false,
+                ..step(Ok("docs.rs"), None, granted).drive
+            },
+            ..step(Ok("docs.rs"), None, granted)
+        };
+        let line = route_of(unbound);
+        assert!(
+            line.starts_with("It acts in docs.rs, and this version of ace"),
+            "{line}"
+        );
+        assert!(line.contains("Updating ace"), "{line}");
+    }
+    // The person's own Always allow for the tool still runs it, as before.
+    let always = Call {
+        always: true,
+        rule: Decision::Run,
+        drive: Drive {
+            bound: false,
+            ..step(Ok("docs.rs"), None, false).drive
+        },
+        ..step(Ok("docs.rs"), None, false)
+    };
+    assert_eq!(route(always), Route::Run);
 }

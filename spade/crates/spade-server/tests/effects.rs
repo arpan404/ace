@@ -18,6 +18,11 @@ use support::{FakeTool, Result, Spade};
 const TITLE: &str = r#"{"title":"Work"}"#;
 const APPROVE: &str = r#"{"verdict":"approve","reason":"It serves the task."}"#;
 
+/// The input schema of an ace whose driving tools take `expect`.
+fn holds_place() -> Value {
+    json!({ "type": "object", "properties": { "expect": { "type": "object" } } })
+}
+
 fn ran(calls: &Arc<std::sync::Mutex<Vec<Value>>>) -> usize {
     calls.lock().map(|c| c.len()).unwrap_or(0)
 }
@@ -573,7 +578,8 @@ mod sandboxed {
             Risk::Write,
             "TextEdit (com.apple.TextEdit), frontmost\nWindow: \"Untitled\"",
         )
-        .declares(spade_core::effect::Effect::Drive);
+        .declares(spade_core::effect::Effect::Drive)
+        .schema(holds_place());
         let acts = act.calls();
         // ace's list of apps, asked right before each step.
         let apps = FakeTool::new(
@@ -680,7 +686,8 @@ mod sandboxed {
     #[tokio::test]
     async fn a_step_whose_page_changed_after_its_review_does_not_run() -> Result {
         let act = FakeTool::new("browser_act", Risk::Write, r#"{"ok":true}"#)
-            .declares(spade_core::effect::Effect::Drive);
+            .declares(spade_core::effect::Effect::Drive)
+            .schema(holds_place());
         let acts = act.calls();
         let page = |url: &str| {
             json!({ "tabs": [
@@ -721,6 +728,54 @@ mod sandboxed {
             requests(&events).is_empty(),
             "reviewed, not asked, on docs.rs"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_ace_that_cant_hold_a_step_to_its_page_leaves_the_step_to_the_person() -> Result {
+        // An ace from before `expect`: its schema doesn't take it.
+        let act = FakeTool::new("browser_act", Risk::Write, r#"{"ok":true}"#)
+            .declares(spade_core::effect::Effect::Drive);
+        let acts = act.calls();
+        let listed = json!({ "tabs": [
+            { "tabId": "t1", "url": "https://docs.rs/tokio", "title": "", "current": true },
+        ] })
+        .to_string();
+        let tabs = FakeTool::new("browser_tabs", Risk::Write, &listed);
+        let w = reviewed_world(false, vec![Arc::new(act), Arc::new(tabs)], |_| {
+            vec![
+                Script::reply("").call(
+                    "c1",
+                    "browser_act",
+                    json!({ "action": "press", "key": "Enter" }),
+                ),
+                // Only reached if the reviewer were asked: it would approve.
+                Script::reply("").plain(APPROVE),
+            ]
+        })
+        .await?;
+        w.spade.say(&w.conversation, "Press Enter").await?;
+        let events = w
+            .spade
+            .wait_for(&w.conversation, "approval_requested")
+            .await?;
+        let asked = requests(&events);
+        let line = asked[0]["reviewer_reason"].as_str().unwrap_or_default();
+        assert!(
+            line.starts_with("It acts in docs.rs, and this version of ace"),
+            "{line}"
+        );
+        assert!(line.contains("Updating ace"), "{line}");
+        assert_eq!(asked[0]["ask"], "drive");
+        assert!(
+            asked[0].get("app").is_none(),
+            "allowing docs.rs wouldn't stop the asking"
+        );
+        assert_eq!(ran(&acts), 0);
+        // Allowed by the person, it runs as they allowed it.
+        answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
+        until_ran(&acts, 1).await;
+        assert_eq!(ran(&acts), 1);
         Ok(())
     }
 
@@ -772,6 +827,7 @@ async fn restarted_between_review_and_start(
     let drive = |answer: &str| {
         FakeTool::new("browser_act", Risk::Write, answer)
             .declares(spade_core::effect::Effect::Drive)
+            .schema(holds_place())
     };
     let tools = |act: FakeTool, url: &str| {
         vec![

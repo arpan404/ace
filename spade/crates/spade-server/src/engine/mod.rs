@@ -202,7 +202,7 @@ pub struct Engine {
     launches: Mutex<HashMap<String, crate::workspace::shell::Launch>>,
     /// Where the gate found each driving step about to run acts, by call key (ADR 0171,
     /// amendment 3): checked again right before it runs. Taken once.
-    drive_places: Mutex<HashMap<String, spade_core::effect::drive::Place>>,
+    drive_places: Mutex<HashMap<String, (spade_core::effect::drive::Place, bool)>>,
     /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
     continuations: Mutex<HashMap<String, String>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).

@@ -125,6 +125,57 @@ pub const DEVICE_INPUT: &str =
 pub const UNPLACED: &str =
     "It acts in a page or app as you and Spade can't tell which, so you decide.";
 
+/// ace's tools that send input to a page or an app, which ace holds to the place the gate
+/// checked (`expect`) while the step waits in its queue. The others open, list or set up a tab,
+/// or act on a device, and send no input to a page.
+const INPUT_TOOLS: &[&str] = &[
+    "browser_act",
+    "browser_evaluate",
+    "browser_history",
+    "browser_measure",
+    "screen_act",
+    "screen_state",
+];
+
+/// Whether the step `tool` at `place` must be held to it inside ace before only the reviewer
+/// may let it run: it sends input there, and ace can be told where (`Place::expect`).
+pub fn needs_binding(tool: &str, place: &Place) -> bool {
+    INPUT_TOOLS.contains(&tool) && place.expect().is_some()
+}
+
+pub const UNBOUND: &str = "this version of ace can't hold the step to it while it waits, so you \
+     decide. Updating ace lets Spade act there with only its review.";
+
+/// Why a step held to its place doesn't run: ace can't hold it there (an ace from before
+/// `expect`, or arguments that aren't an object).
+pub const CANT_HOLD: &str = "Not run: ace can't hold this step to the page or app Spade checked, \
+     so only the person may let it run. Ask them, or update ace.";
+
+/// The arguments a step runs with at `place`: `expect` added where ace's tool takes it, so ace
+/// refuses the step if the place moves on while it waits. A step only the reviewer let run
+/// (`reviewer_only`) and that needs holding ([`needs_binding`]) doesn't run unheld.
+pub fn bind(
+    tool: &str,
+    arguments: Value,
+    place: &Place,
+    takes_expect: bool,
+    reviewer_only: bool,
+) -> Result<Value, &'static str> {
+    let must = reviewer_only && needs_binding(tool, place);
+    let (Some(expect), true) = (place.expect(), takes_expect) else {
+        return if must { Err(CANT_HOLD) } else { Ok(arguments) };
+    };
+    let mut bound = arguments;
+    match bound.as_object_mut() {
+        Some(fields) => {
+            fields.insert("expect".to_owned(), expect);
+            Ok(bound)
+        }
+        None if must => Err(CANT_HOLD),
+        None => Ok(bound),
+    }
+}
+
 /// Whether a tool is one of ace's driving families.
 pub fn drives(name: &str) -> bool {
     ["browser_", "screen_", "sim_"]

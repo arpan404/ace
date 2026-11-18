@@ -254,6 +254,9 @@ pub struct Drive<'a> {
     pub sensitive: Option<&'static str>,
     /// A drive grant of the person's covers that app or site for this bot.
     pub granted: bool,
+    /// ace will hold the step to that place while it waits in ace's queue, or the step needs no
+    /// holding ([`drive::needs_binding`]).
+    pub bound: bool,
 }
 
 impl Default for Drive<'_> {
@@ -262,6 +265,7 @@ impl Default for Drive<'_> {
             target: Err(drive::UNPLACED),
             sensitive: None,
             granted: false,
+            bound: false,
         }
     }
 }
@@ -492,6 +496,11 @@ fn drive(call: Call<'_>, allowed: bool) -> Route {
     };
     if allowed {
         return Route::Run;
+    }
+    // The reviewer alone may let a step run only where ace holds it to the place it read: an
+    // ace that can't would let the page move on while the step waits in its queue.
+    if !call.drive.bound {
+        return ask(format!("It acts in {target}, and {}", drive::UNBOUND));
     }
     if !call.fits {
         return ask(TOO_LONG.to_owned());

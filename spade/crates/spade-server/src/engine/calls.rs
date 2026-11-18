@@ -262,6 +262,11 @@ pub(super) async fn handle_calls(
                                     .place
                                     .as_ref()
                                     .is_ok_and(|place| engine.drive_granted(id, place)),
+                                // An ace from before `expect` can't hold the step to its place.
+                                bound: step.place.as_ref().is_ok_and(|place| {
+                                    !effect::drive::needs_binding(&name, place)
+                                        || engine.takes_expect(id, &name)
+                                }),
                             });
                     let acts_in = driven
                         .as_ref()
@@ -459,7 +464,9 @@ pub(super) async fn handle_calls(
                             engine.mark_launch(&key, launch_for(classed.runs));
                             // A driving step runs only where it was decided on.
                             if let Some(place) = acts_in {
-                                engine.decide_place(&key, place);
+                                // Run by the reviewer's word alone, unless an Always allow of
+                                // the person's let it through.
+                                engine.decide_place(&key, place, !rule_ran);
                             }
                             runnable.push((pending.call, name, arguments));
                         }
@@ -470,9 +477,10 @@ pub(super) async fn handle_calls(
                             if driven.is_some() {
                                 ask = Some(effect::Ask::Drive);
                             }
+                            // Allowing the app is offered only where it would stop the asking.
                             let app = acts_in
                                 .as_ref()
-                                .filter(|_| drive.sensitive.is_none())
+                                .filter(|_| drive.sensitive.is_none() && drive.bound)
                                 .filter(|place| {
                                     place.grant().is_some_and(|scope| {
                                         spade_core::grant::check(&scope, &|_| None).is_ok()
@@ -529,7 +537,7 @@ pub(super) async fn handle_calls(
                 engine.mark_launch(&key, launch);
                 // A driving step runs only where the person was told it acts.
                 if let Some(place) = asked_place(events, &pending.call.id) {
-                    engine.decide_place(&key, place);
+                    engine.decide_place(&key, place, false);
                 }
                 // A command allowed outside the sandbox runs only while the files it runs are
                 // as they were when the person was asked.
@@ -729,9 +737,12 @@ async fn run_tools(
             // A driving step whose page or app changed since it was decided on doesn't run: the
             // bot looks again and the gate decides on where it acts then (ADR 0171, amendment 3).
             let key = format!("{id}.{}", call.id);
-            let Some(arguments) = engine.bind_place(id, &key, &name, arguments).await else {
-                finished.push_back((call, name, ToolOutput::ok(super::drive::MOVED.to_owned())));
-                continue;
+            let arguments = match engine.bind_place(id, &key, &name, arguments).await {
+                Ok(arguments) => arguments,
+                Err(why) => {
+                    finished.push_back((call, name, ToolOutput::ok(why.to_owned())));
+                    continue;
+                }
             };
             // A tool runs only once its start is stored, so a restart can never mistake a call
             // that ran for one that did not.
