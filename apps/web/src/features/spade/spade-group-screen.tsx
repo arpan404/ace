@@ -65,7 +65,7 @@ export function SpadeGroupScreen(props: {
             <ConversationSkeleton />
           ) : (
             <p className="text-ui text-muted-foreground">
-              This group isn't here any more.{" "}
+              This club isn't here any more.{" "}
               <Link to="/spade" className="text-foreground underline underline-offset-3">
                 Open Spade
               </Link>
@@ -299,7 +299,7 @@ function GroupStart(props: { members: readonly ShownMember[]; onAdd(): void }) {
         ))}
       </div>
       <p className="text-md text-foreground">
-        {`${list} ${names.length > 1 ? "are" : "is"} in this group.`}
+        {`${list} ${names.length > 1 ? "are" : "is"} in this club.`}
       </p>
       <Button size="sm" variant="ghost" onClick={props.onAdd}>
         Add a member

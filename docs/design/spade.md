@@ -14,7 +14,7 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Rail.** ace's rail, the only one: Threads · Chats · Spade │ Code review · Automations · Skills
   … Settings · account. While a bot needs the person and they are elsewhere, Spade carries the
   8px needs-you dot.
-- **List** (Spade's panel). The main bot's head, then one row per bot or group, then the person at
+- **List** (Spade's panel). The main bot's head, then one row per bot or club, then the person at
   the foot.
 - **Conversation** (the main column). The floating pill, bubbles, raised cards, folded steps, the
   working line and the composer. The top bar carries no title here.
@@ -43,10 +43,10 @@ Spade is one of ace's places. It adds no navigation of its own.
   | Finished, not seen | pleased        | none  | name and line in full ink                |
   | At rest            | still          | none  | the last thing it said, as plain text    |
   | Off                | still          | grey  | "Off on this Mac"                        |
-  | A group            | members' faces | —     | the last speaker named, then their words |
+  | A club             | members' faces | —     | the last speaker named, then their words |
 
 - **Search** opens in place over the rows and finds conversations by their words. **+** holds New
-  bot (⌘N), New group and Import bot.
+  bot (⌘N), New club and Import bot.
 - **Foot.** The person (initials or picture, name) opens About you in Spade's Library; the gear
   beside it opens Settings › Spade.
 - **Empty:** Spade alone and one way on. **Loading:** skeleton rows at row size. **Couldn't
@@ -66,7 +66,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   and Copy, code in 13/20 mono, scrolling sideways. Inline code in the person's bubble sits on
   `--chat-mine-code`.
 - **Runs.** 4px between bubbles of a run, 16px between turns. In a one-to-one chat no face sits
-  beside a bubble: the pill and the working line carry it. In a group, each member's run starts
+  beside a bubble: the pill and the working line carry it. In a club, each member's run starts
   with its face and name.
 - **Time lines.** Only after a 30-minute gap or on a new day, 12/16 subtle, 24px above and 12px
   below. A routine's run names itself in its line. Times follow the person's locale, never 24-hour
@@ -124,7 +124,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   profile (model and machine live there; every bot is on the auto-review, so there is no access
   choice). Import lives once, in +; a failed import is said
   where the bot would have appeared.
-- **Groups:** member runs with face and name, a profile with Members and Library, New group in
+- **Clubs:** member runs with face and name, a profile with Members and Library, New club in
   place, and @ to address a member.
 
 ## 6. Shape and buttons

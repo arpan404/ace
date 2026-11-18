@@ -125,7 +125,7 @@ conversation), `cwd`, and per event `prompt`, `tool_name`, `tool_input`, `tool_r
 | `PreCompact`       | before compacting                             | nothing; it runs for its own effects                      |
 
 Only the person's own messages run `UserPromptSubmit`, not another bot's, a routine's or a
-group's. `matcher` names tools separated by `|`, each matched exactly (none, empty or `*` is
+club's. `matcher` names tools separated by `|`, each matched exactly (none, empty or `*` is
 every tool); it is matched against the tool a call runs, the inner tool of a `call_tool`.
 
 Exit 0 with nothing on stdout changes nothing; exit 0 with stdout adds it (cut at 20,000
