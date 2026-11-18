@@ -309,7 +309,8 @@ export class SessionTabs {
       this.closingIds.delete(tabId);
     }
     this.reconcile();
-    void runtime.close();
+    // The runtime's queue settles its own failures; a closed tab's shutdown needs no report.
+    void runtime.close().catch(() => {});
   }
   /** Whether the tab is gone or on its way out. */
   leaving(tabId: string): boolean {

@@ -51,9 +51,12 @@ export class H264Jpeg {
     });
     this.process.stderr.resume();
     this.process.stdin.on("error", () => {});
-    void this.process.exited.then((exit) => {
-      if (!this.stopped) options.failure(new Error(`JPEG decoder exited: ${exit.reason}`));
-    });
+    // `exited` reports the decoder's exit and does not reject.
+    void this.process.exited
+      .then((exit) => {
+        if (!this.stopped) options.failure(new Error(`JPEG decoder exited: ${exit.reason}`));
+      })
+      .catch(() => {});
   }
   /**
    * Queues one access unit. Returns false when the decoder needs a keyframe before it can use

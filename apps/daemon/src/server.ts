@@ -128,9 +128,11 @@ export async function startServer(options: ServerOptions): Promise<{
       () => options.store.waitingBlockers(),
     );
   let ready = options.ready === undefined;
-  void options.ready?.then(() => {
-    ready = true;
-  });
+  void options.ready
+    ?.then(() => {
+      ready = true;
+    })
+    .catch((error: unknown) => options.log?.(error));
   const updateHold = new UpdateHold(maintenance, runtime);
   // A daemon started in the middle of an update holds until recovery releases it.
   if (options.maintenance || maintenance.held("update")) updateHold.persist();
@@ -234,7 +236,7 @@ export async function startServer(options: ServerOptions): Promise<{
   const closer = createSocketCloser(runtime.delay);
   const stopRevocation = auth.onRevoke((id) => {
     // Preview sessions name the credential that opened them, so the authority decides.
-    void preview?.revalidate();
+    void preview?.revalidate().catch((error: unknown) => options.log?.(error));
     void options.notifications
       ?.revoke?.(DeviceId.parse(id))
       .catch(() => options.log?.(new Error("Notification revocation failed")));
@@ -253,7 +255,7 @@ export async function startServer(options: ServerOptions): Promise<{
   // Its account sockets are not the pairing's and stay.
   const stopReplaced = auth.onCredentialReplaced((id) => {
     // Its preview links, sessions and open streams were the old credential's (ADR 0115).
-    void preview?.revalidate();
+    void preview?.revalidate().catch((error: unknown) => options.log?.(error));
     for (const [socket, device] of authenticated)
       if (
         device.revocable &&

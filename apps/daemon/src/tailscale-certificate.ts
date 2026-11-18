@@ -91,7 +91,8 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
     if (stopped) return;
     cancel = options.delay(() => {
       cancel = undefined;
-      void refresh();
+      // refresh() logs its own failure and schedules the retry.
+      void refresh().catch(() => {});
     }, milliseconds);
   };
   const refresh = () => {

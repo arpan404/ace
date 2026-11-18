@@ -182,7 +182,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
   if (prepared.state === "fresh") {
     const followUp = new AbortController();
     resources.own(() => followUp.abort(), "home backup log");
-    void logHomeBackup(prepared, log, new Date(now()), followUp.signal);
+    // logHomeBackup() logs its own outcome, including a failure to describe the backup.
+    void logHomeBackup(prepared, log, new Date(now()), followUp.signal).catch(() => {});
   }
   // Under the lock: the last run's ending tells an expected restart from a crash.
   let run: DaemonRun | undefined;
@@ -198,12 +199,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       sqliteFailureDetails(error, config.dataDir, diskSpace),
     ),
   );
-  // A full disk is entered as a condition and heals on its own, like contention.
+  // A rejection nobody caught is logged and the daemon keeps running. A full disk is entered as
+  // a condition and heals on its own, like contention.
   resources.own(
     installRejectionGuard(
       process,
       log,
       (reason) => storage.observe(reason) || isStoreRetry(reason),
+      now,
     ),
   );
   // A fatal error is charged to the service whose code raised it, for safe mode (ADR 0175).

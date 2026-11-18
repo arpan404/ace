@@ -252,7 +252,8 @@ export function createFilesSession(context: SocketContext): SocketService {
       if (attachments) {
         const closing = attachments.close().catch(() => {});
         context.tasks.add(closing);
-        void closing.finally(() => context.tasks.delete(closing));
+        // The close drops its own failure above; this only forgets the task.
+        void closing.finally(() => context.tasks.delete(closing)).catch(() => {});
       }
     },
     binary(frame) {

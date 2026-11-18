@@ -98,17 +98,20 @@ export function startFrameEncoder(options: {
       if (!stopped) options.failed(error);
     }
   });
-  void encoder.exited.then(() => {
-    for (const resolve of switching.splice(0)) resolve({ ingest: "off", boundary: null });
-    if (!stopped)
-      options.failed(
-        new DeviceError(
-          "command_failed",
-          "The emulator's encoder stopped",
-          "Start the device view again.",
-        ),
-      );
-  });
+  // `exited` reports the encoder's exit and does not reject.
+  void encoder.exited
+    .then(() => {
+      for (const resolve of switching.splice(0)) resolve({ ingest: "off", boundary: null });
+      if (!stopped)
+        options.failed(
+          new DeviceError(
+            "command_failed",
+            "The emulator's encoder stopped",
+            "Start the device view again.",
+          ),
+        );
+    })
+    .catch(() => {});
   return {
     frame: (note) => command({ op: "frame", ...note }),
     bitrate: (bitrate) => command({ op: "bitrate", bitrate }),

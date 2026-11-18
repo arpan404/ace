@@ -134,7 +134,8 @@ export function createLockedUseSession(
     handle(message) {
       switch (message.type) {
         case "lockedUse.subscribe":
-          void subscribe(message.requestId, message.subscriptionId);
+          // subscribe() answers its own failure with a refused status.
+          void subscribe(message.requestId, message.subscriptionId).catch(() => {});
           return true;
         case "lockedUse.unsubscribe": {
           const subscription = subscriptions.get(message.subscriptionId);
@@ -145,7 +146,8 @@ export function createLockedUseSession(
         case "lockedUse.install":
         case "lockedUse.remove":
         case "lockedUse.repair":
-          void act(message.requestId, actions[message.type]);
+          // act() answers its own failure with a refused result.
+          void act(message.requestId, actions[message.type]).catch(() => {});
           return true;
         default:
           return false;

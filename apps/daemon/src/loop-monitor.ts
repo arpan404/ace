@@ -152,7 +152,8 @@ export function createLoopMonitor({
     reading = false;
     if (closed) return;
     for (const late of batch) classify(late, sleep);
-    void readSleep();
+    // A failed read must never end the monitor, and it reports stalls itself.
+    void readSleep().catch(() => {});
   };
 
   const stop = clock.every(intervalMs, () => {
@@ -166,7 +167,8 @@ export function createLoopMonitor({
       return;
     }
     waiting.push({ tick, from, to: now, gapMs });
-    void readSleep();
+    // A failed read must never end the monitor, and it reports stalls itself.
+    void readSleep().catch(() => {});
   });
   return {
     status: (): LoopStatus => ({ delayMs, maxDelayMs, stalls }),

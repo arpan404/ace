@@ -36,7 +36,8 @@ export async function askClaude<T>(
   let process: SupervisedProcess | undefined;
   const stop = () => {
     controller.abort();
-    if (process) void process.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    if (process) void process.stop({ graceMs: 0 }).catch(() => {});
   };
   input.signal.addEventListener("abort", stop, { once: true });
   let q: Query | undefined;

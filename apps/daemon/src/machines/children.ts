@@ -548,7 +548,8 @@ export class MachineChildren implements RemoteChildren {
       for (const ids of plan.calls) {
         const call = this.ask(machine, children, rows, ids);
         this.running.add(call);
-        void call.finally(() => this.running.delete(call));
+        // The call's failure is awaited with the poll's other calls below.
+        void call.finally(() => this.running.delete(call)).catch(() => {});
         calls.push(call);
       }
     }

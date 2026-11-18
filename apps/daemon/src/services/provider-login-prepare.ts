@@ -122,10 +122,13 @@ export async function prepareProviderLogin(
                   untrack();
                   throw error;
                 }
-                void worker.exited.finally(() => {
-                  untrack();
-                  releaseWorker();
-                });
+                void worker.exited
+                  .finally(() => {
+                    untrack();
+                    releaseWorker();
+                  })
+                  // Exit already happened, so the cleanup below can't hide a failure.
+                  .catch(() => {});
                 return worker;
               } catch (error) {
                 releaseWorker();

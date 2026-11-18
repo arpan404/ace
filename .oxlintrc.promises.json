@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "fixtures",
+    "**/*.gen.ts",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test-helper.ts",
+    "**/*.child.ts",
+    "**/*-child.ts",
+    "**/*.stories.tsx",
+    "**/test-support.ts",
+    "**/*-test-support.ts",
+    "**/test-host.ts",
+    "**/testing/**",
+    "**/bench/**",
+    "**/*.bench.ts",
+    "**/*-test-server.ts",
+    "packages/fake-daemon/**"
+  ],
+  "plugins": ["typescript"],
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "perf": "off",
+    "pedantic": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "rules": {
+    "typescript/no-floating-promises": ["error", { "ignoreVoid": false }],
+    "typescript/no-misused-promises": "error"
+  }
+}

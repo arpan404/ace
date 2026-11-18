@@ -88,7 +88,10 @@ export const pausedResult = "Skipped: new work was paused.";
 export const pausedRefusal = "New work is paused. Resume new work in ace to continue.";
 export const nodeTimer: TimerDriver = {
   arm(delay, callback) {
-    const timer = setTimeout(callback, delay);
+    const timer = setTimeout(() => {
+      // The timed work reports its own failure through whatever scheduled it.
+      void Promise.resolve(callback()).catch(() => {});
+    }, delay);
     timer.unref();
     return () => clearTimeout(timer);
   },

@@ -9,7 +9,12 @@ export const defaultDaemonUrl = "ws://127.0.0.1:4242/";
 export const DaemonUrl = z.string().check(
   z.trim(),
   z.url("Enter a ws:// or wss:// address"),
-  z.refine((value) => /^wss?:$/.test(new URL(value).protocol), "Use a ws:// or wss:// address"),
+  // Zod runs this even when `z.url` already failed: an address that won't parse is refused,
+  // never thrown (a window with no stored address checks "" at startup).
+  z.refine(
+    (value) => URL.canParse(value) && /^wss?:$/.test(new URL(value).protocol),
+    "Use a ws:// or wss:// address",
+  ),
 );
 /** The local token (`~/.ace/daemon-token`) or a paired device token: 64 hex characters. */
 export const DaemonToken = z

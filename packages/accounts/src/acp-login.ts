@@ -55,7 +55,8 @@ export async function loginAcpAccount(
   options.signal?.throwIfAborted();
   const child = (options.spawn ?? spawnInteractive)(parsed);
   const cancel = () => {
-    void child.stop();
+    // stop() reports its own failures; the aborted login is what the caller hears about.
+    void child.stop().catch(() => {});
   };
   options.signal?.addEventListener("abort", cancel, { once: true });
   if (options.signal?.aborted) cancel();

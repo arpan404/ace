@@ -66,7 +66,11 @@ export async function startCommands({
   });
   // Recovery is queued ahead of skill requests and retries in the background; it never blocks
   // the command library from starting.
-  void skillLibrary.start();
+  void skillLibrary
+    .start()
+    .catch((error: unknown) =>
+      log.log("warn", "Skill library recovery failed", logFields([["detail", String(error)]])),
+    );
   services.skillLibrary = skillLibrary;
   resources.own(() => skillLibrary.close(), "skill library");
   // Accounts whose folder hasn't answered startup's check are left out until it does, so nothing

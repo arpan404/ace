@@ -82,6 +82,7 @@ export class AncestryProbe {
       throw error;
     }
     if (queued) return;
+    // The probe reports its own failure through failed().
     void (async () => {
       try {
         const chain = [],
@@ -124,7 +125,7 @@ export class AncestryProbe {
       } finally {
         if (!probe.needsRecovery) this.finish(id, probe);
       }
-    })();
+    })().catch(() => {});
   }
   observePending(observe: (data: unknown, watermark: number) => void): void {
     for (const probe of this.probes.values()) {

@@ -158,7 +158,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       }),
     onEmbeddedRegistered: () => {
       void forget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
-      void projectForget?.flush();
+      void projectForget?.flush().catch((error: unknown) => context.log.log("warn", String(error)));
       options.browser?.onEmbeddedRegistered?.();
     },
     backendLoss:

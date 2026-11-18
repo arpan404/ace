@@ -81,7 +81,8 @@ export function openCodeLoginDriver(
       name: "OpenCode v2 sign-in",
     });
     const abort = () => {
-      void terminal?.stop();
+      // Only a head start: the login closes the same terminal below and reports there.
+      void terminal?.stop().catch(() => {});
     };
     signal.addEventListener("abort", abort, { once: true });
     try {

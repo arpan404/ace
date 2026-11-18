@@ -134,7 +134,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       maxOutputBytes: 4 * 1024 * 1024,
     });
     const abort = () => {
-      void proc.stop({ graceMs: 0 });
+      // The stops awaited below report a tree that survives one.
+      void proc.stop({ graceMs: 0 }).catch(() => {});
     };
     signal.addEventListener("abort", abort, { once: true });
     let rpc: JsonRpcPeer | undefined;
@@ -149,7 +150,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           },
           { signal },
         );
-        rpc.notify("initialized");
+        // notify() reports a failed send through the peer's onError.
+        void rpc.notify("initialized").catch(() => {});
         const models: CatalogModel[] = [];
         let cursor: string | undefined;
         const cursors = new Set<string>();

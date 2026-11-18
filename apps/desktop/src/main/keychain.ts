@@ -32,5 +32,9 @@ export function claimKeychainName(app: NamedApp, platform: NodeJS.Platform): voi
   const name = app.getName();
   app.setPath("userData", app.getPath("userData"));
   app.setName(keychainName);
-  void app.whenReady().then(() => app.setName(name));
+  // whenReady never rejects; the app's own name goes back as soon as it is ready.
+  void app
+    .whenReady()
+    .then(() => app.setName(name))
+    .catch(() => {});
 }

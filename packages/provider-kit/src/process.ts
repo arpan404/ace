@@ -443,7 +443,8 @@ export async function probeOutput(
   const collect = (target: Buffer[], chunk: unknown) => {
     if (!Buffer.isBuffer(chunk)) {
       failure ??= new Error("Invalid probe output chunk");
-      void proc.stop({ graceMs: 0 });
+      // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+      void proc.stop({ graceMs: 0 }).catch(() => {});
       return;
     }
     target.push(chunk);
@@ -452,13 +453,15 @@ export async function probeOutput(
   proc.stderr.on("data", (chunk: unknown) => collect(stderr, chunk));
   const abort = () => {
     failure ??= new Error("Probe aborted");
-    void proc.stop({ graceMs: 0 });
+    // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
   const cancel = schedule(() => {
     failure ??= new Error("Probe timed out");
-    void proc.stop({ graceMs: 0 });
+    // The awaiting caller reports the probe failure; stop() warns a surviving tree itself.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   }, options.timeoutMs ?? 30_000);
   try {
     const exit = await proc.exited;

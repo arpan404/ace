@@ -91,6 +91,16 @@ after five fast failures in a row. Each start failed the same way.
 8. **The home's lock needs no reclaiming.** It is a kernel lock held by an open SQLite
    transaction, so a daemon that crashes, overruns its shutdown or is killed releases it with its
    process.
+9. **A rejection nobody caught never ends the daemon** (amended 2026-11-17). It is logged as
+   "Unhandled rejection; continuing" and every agent keeps running; a storm writes at most 20
+   lines a minute and then a count. By the time a rejection goes unhandled, the code that made it
+   has finished, so nothing is left half-changed; ending the daemon for one missed `.catch` cost
+   the person every running agent (a 0.0.23 daemon died when command discovery's closing
+   cancelled reads nobody awaited). Thrown errors stay fatal and attributed, since one can stop
+   code partway through a change. The type-aware lint `bun run lint:promises`
+   (`no-floating-promises` with `void` not exempt, and `no-misused-promises`) keeps new code
+   from leaving a promise's failure unhandled, in the daemon, the desktop main process and every
+   package.
 
 ## Consequences
 
@@ -104,9 +114,8 @@ after five fast failures in a row. Each start failed the same way.
 - `accounts` stays critical: without it the engine would open sessions on each CLI's own login,
   the wrong account for a thread pinned to another. Its start now only opens the account index
   (local SQLite), so it no longer waits on any home folder (decision 7).
-- Bun, which releases ship, carries the scope into an uncaught exception's monitor but not into
-  an `unhandledRejection` listener. There a rejection nobody caught is not attributed and safe
-  mode can't leave its service off; on Node it is. Thrown errors are attributed on both.
+- An unhandled rejection is no longer fatal (decision 9), so it never charges a service or
+  starts safe mode; only thrown errors do, on both Bun and Node.
 - Work is charged to the service whose start or listener created it. Shared machinery (worker
   threads, idle-worker timers, the probe thread) is made in no service's context, and the probe
   thread handles each reply in the context of the caller that asked

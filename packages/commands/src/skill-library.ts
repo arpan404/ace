@@ -135,9 +135,11 @@ export class SkillLibrary {
   }
   /** Once the folder's stuck call has returned, settle whatever it left half done. */
   private recoverOnceSettled(root: string): void {
-    void commandRootSettled(root).then(() => {
-      if (!this.closed) void this.start();
-    });
+    void commandRootSettled(root)
+      .then(() => {
+        if (!this.closed) void this.start().catch(() => {});
+      })
+      .catch(() => {});
   }
   request(operation: unknown): Promise<SkillResult> {
     const parsed = SkillOperation.safeParse(operation);

@@ -106,11 +106,16 @@ export class SnapshotBinding {
         waited = true;
         giveUp();
       });
-      void persistence.welcomed?.().then(() => {
-        welcomed = true;
-        giveUp();
-      });
-      void tried.then(finish);
+      // A welcome that fails leaves the wait to the deadline above.
+      void persistence
+        .welcomed?.()
+        .then(() => {
+          welcomed = true;
+          giveUp();
+        })
+        .catch(() => {});
+      // The read settles found or not; one that cannot be painted leaves the deadline above.
+      void tried.then(finish).catch(() => {});
     });
   }
 

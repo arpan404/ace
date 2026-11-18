@@ -74,7 +74,7 @@ export async function followDevicesSetting(
     goal = next;
     if (running || stopped) return;
     running = true;
-    void settle();
+    void settle().catch((error: unknown) => log(error));
   };
 
   let heard = false;

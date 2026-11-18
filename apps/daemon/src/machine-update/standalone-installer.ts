@@ -79,7 +79,9 @@ export function standaloneInstaller(options: {
   const schedule = (ms: number) => {
     if (closed) return;
     cancelTimer = clock.delay(() => {
-      void check().finally(() => schedule(standaloneChecks.everyMs));
+      void check()
+        .finally(() => schedule(standaloneChecks.everyMs))
+        .catch((error: unknown) => options.log(error));
     }, ms);
   };
   schedule(standaloneChecks.firstMs);
@@ -120,7 +122,7 @@ export function standaloneInstaller(options: {
         );
       } catch (error) {
         options.log(error);
-        void finish(error);
+        void finish(error).catch((failure: unknown) => options.log(failure));
       }
     },
     close() {
