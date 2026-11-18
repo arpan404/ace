@@ -26,11 +26,6 @@ export interface EditorDocumentState {
   edit(run: (doc: EditorDocument) => Applied | undefined): boolean;
   /** Replaces the selections and ends the current typing run. */
   select(next: readonly Selection[]): void;
-  /** Bumps the frame counter without an edit (a highlight arrived, a selection moved). */
-  refresh(): void;
-  /** Ends the typing run now, so the next edit is its own undo step. */
-  commit(): void;
-  text(): string;
 }
 
 export function useEditorDocument(options: {
@@ -141,13 +136,16 @@ export function useEditorDocument(options: {
     [doc, commit],
   );
 
-  const refresh = useCallback(() => setVersion((value) => value + 1), []);
-
   useEffect(() => {
     if (!doc || !original) return;
     const timer = setTimeout(() => {
+      const current = doc.text();
+      if (current === original) {
+        setMarks(undefined);
+        return;
+      }
       const next = new Map<number, LineMark>();
-      for (const mark of lineMarks(original, doc.text())) next.set(mark.line, mark.kind);
+      for (const mark of lineMarks(original, current)) next.set(mark.line, mark.kind);
       setMarks(next.size ? next : undefined);
     }, 180);
     return () => clearTimeout(timer);
@@ -164,8 +162,5 @@ export function useEditorDocument(options: {
     marks,
     edit,
     select,
-    refresh,
-    commit,
-    text: () => doc?.text() ?? initial,
   };
 }

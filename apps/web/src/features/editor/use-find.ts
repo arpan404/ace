@@ -39,11 +39,14 @@ export function useFindResults(
         const matches = doc.find(findQuery({ query, regex, caseSensitive, wholeWord }), 10_000);
         setResult({ key, found: { matches, status: "ready" } });
       } catch (error) {
-        if (isEditorError(error)) setResult({ key, found: { matches: [], status: "invalid" } });
+        // A rejected pattern is the only failure the core reports; anything else is a bug, but
+        // it must not take the view down: the bar says the search failed.
+        if (!isEditorError(error)) console.warn("find failed", error);
+        setResult({ key, found: { matches: [], status: "invalid" } });
       }
     }, findDelay);
     return () => clearTimeout(timer);
   }, [doc, active, query, regex, caseSensitive, wholeWord, key]);
   if (!active || !query) return idle;
-  return result?.key === key ? result.found : idle;
+  return result?.key === key ? result.found : { matches: [], status: "pending" };
 }
