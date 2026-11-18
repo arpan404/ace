@@ -26,8 +26,9 @@ One-time setup (**Owner**):
       protected environment below.
 - [ ] In GitHub, create an environment named `app-store` (Settings › Environments). Add
       yourself as a required reviewer, so every upload waits for your approval, and limit its
-      deployment branches and tags to `ios-v*` tags and `main`. Add a tag ruleset so only you
-      can create `ios-v*` tags. Then add these secrets to the environment:
+      deployment branches and tags to `ios-v*` tags and `main`. Turn off administrator bypass
+      for it. Add an active tag ruleset for `ios-v*` that lets only you create, update or
+      delete those tags. Then add these secrets to the environment:
   - `ACE_IOS_TEAM_ID`: the Apple Developer team id.
   - `APPLE_API_KEY_P8`: the whole `AuthKey_<id>.p8` file's text.
   - `APPLE_API_KEY_ID`: the key id.
@@ -40,7 +41,9 @@ Each release:
 2. Push a tag such as `ios-v1.0.0`, which sets the version to 1.0.0, or run the `iOS release`
    workflow by hand with an optional version and build number.
 3. The build number defaults to the UTC time as `YYYYMMDD.HHmmss`, so each build is higher
-   than the last, from CI or a Mac. Two builds clash only if they start in the same second.
+   than the last, from CI or a Mac, as long as their clocks are right. Two builds clash if
+   they start in the same second, and a build number you set by hand isn't checked against
+   earlier ones.
 4. Approve the upload job when GitHub asks.
 5. In App Store Connect, answer export compliance for the build if asked, add it to TestFlight
    groups or to a version, and submit.
