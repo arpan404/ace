@@ -8,21 +8,47 @@ const name = z
   .string()
   .regex(/^[a-zA-Z0-9_.-]{1,64}$/)
   .refine((value) => value !== "local");
-export const RemoteProfile = z.object({
-  id: z.uuid(),
-  name,
-  origin: z.url().refine((value) => {
+const directOrigin = z.url().refine((value) => {
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    url.pathname === "/" &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+});
+/**
+ * A machine linked through a relay only (ADR 0182): the relay's address and the machine's relay
+ * host key, pinned from the pairing link the person copied.
+ */
+export const ProfileRelay = z.object({
+  url: z.url().refine((value) => {
     const url = new URL(value);
     return (
-      url.protocol === "https:" &&
-      url.pathname === "/" &&
+      (url.protocol === "wss:" || url.protocol === "ws:") &&
       !url.username &&
       !url.password &&
       !url.search &&
       !url.hash
     );
   }),
-  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  relayHostId: z.string().regex(/^[A-Z2-7]{52}$/),
+});
+export type ProfileRelay = z.infer<typeof ProfileRelay>;
+/** A profile's fields, before the check that it has a route. */
+export const RemoteProfileFields = z.object({
+  id: z.uuid(),
+  name,
+  /** The machine's TLS listener, with `fingerprint`; absent for a relay-only link. */
+  origin: directOrigin.optional(),
+  fingerprint: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  /** The relay the machine was linked through, when it was (ADR 0182). */
+  relay: ProfileRelay.optional(),
   deviceId: DeviceId,
   token: DeviceToken,
   /** The other machine's host id, when the profile was linked from Settings. */
@@ -30,6 +56,12 @@ export const RemoteProfile = z.object({
   /** The other machine's display name when it was linked. */
   label: z.string().min(1).max(256).optional(),
 });
+export const RemoteProfile = RemoteProfileFields.refine(
+  (profile) =>
+    (profile.origin !== undefined) === (profile.fingerprint !== undefined) &&
+    (profile.origin !== undefined || profile.relay !== undefined),
+  "A profile needs a pinned TLS address, a relay, or both",
+);
 export type RemoteProfile = z.infer<typeof RemoteProfile>;
 export class Profiles {
   private db: DatabaseSync;
@@ -43,10 +75,16 @@ export class Profiles {
     );
   }
   list(): RemoteProfile[] {
-    return this.db
-      .prepare("SELECT value FROM profiles ORDER BY name")
-      .all()
-      .map((row) => RemoteProfile.parse(JSON.parse(String(row.value))));
+    return (
+      this.db
+        .prepare("SELECT value FROM profiles ORDER BY name")
+        .all()
+        // A row this build can't read (another build wrote it) is skipped, not fatal for the rest.
+        .flatMap((row) => {
+          const profile = RemoteProfile.safeParse(JSON.parse(String(row.value)));
+          return profile.success ? [profile.data] : [];
+        })
+    );
   }
   selected(): string | null {
     const row = this.db.prepare("SELECT name FROM selection WHERE id=1").get();
@@ -105,6 +143,14 @@ export class Profiles {
   close(): void {
     this.db.close();
   }
+}
+/** The profile's pinned TLS address, or undefined for a machine linked through a relay only. */
+export function directOf(
+  profile: Pick<RemoteProfile, "origin" | "fingerprint" | "token">,
+): { origin: string; fingerprint: string; token: string } | undefined {
+  return profile.origin && profile.fingerprint
+    ? { origin: profile.origin, fingerprint: profile.fingerprint, token: profile.token }
+    : undefined;
 }
 export function profileSummary(profile: RemoteProfile) {
   const { token: _token, ...summary } = profile;

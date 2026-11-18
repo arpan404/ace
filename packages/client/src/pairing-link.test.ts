@@ -76,3 +76,21 @@ it("a relay link that names something other than a relay socket or host key is r
       "doesn't name a valid relay",
     );
 });
+
+it("a direct link can also name the person's own relay as a second way in", () => {
+  const hostId = "A".repeat(52);
+  const url = pairingLinkUrl({
+    daemon: "https://192.168.1.4:7443/",
+    fingerprint: "a".repeat(64),
+    code: "c0de",
+    scopes: ["read", "operate"],
+    alsoRelay: { url: "wss://relay.example.com/", hostId },
+  });
+  const link = parsePairingLink(url);
+  expect(link.daemon).toBe("https://192.168.1.4:7443/");
+  expect(link.alsoRelay).toEqual({ url: "wss://relay.example.com/", hostId });
+  // A malformed second route is dropped; the direct link still pairs.
+  const broken = url.replace(/viaRelayHostId=[^&]+/, "viaRelayHostId=nope");
+  expect(parsePairingLink(broken)).not.toHaveProperty("alsoRelay");
+  expect(parsePairingLink(broken).daemon).toBe("https://192.168.1.4:7443/");
+});

@@ -2087,6 +2087,45 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| op | yes | `"data.send"` |  |
+| to | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","const":"parent"}]} |
+| path | no | string | {"minLength":1,"maxLength":4096} |
+| text | no | string | {"minLength":1,"maxLength":262144} |
+| name | no | [ParcelName.json](schema/ParcelName.json) |  |
+| note | no | string | {"maxLength":2000} |
+
+Example:
+
+```json
+{
+  "name": "dataset.csv",
+  "op": "data.send",
+  "path": "example",
+  "to": "parent"
+}
+```
+
+### Variant 11
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"data.receive"` |  |
+| parcelId | no | [ParcelId.json](schema/ParcelId.json) |  |
+| saveAs | no | string | {"minLength":1,"maxLength":1024} |
+
+Example:
+
+```json
+{
+  "op": "data.receive",
+  "parcelId": "pcl-3a7292ff9-6--e-673dc902e17aa-4b642b2"
+}
+```
+
+### Variant 12
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | op | yes | `"agent.result"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 
@@ -2099,7 +2138,7 @@ Example:
 }
 ```
 
-### Variant 11
+### Variant 13
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2112,12 +2151,12 @@ Example:
 ```json
 {
   "op": "agent.cancel",
-  "requestId": "vKb",
+  "requestId": "XM.TOgm",
   "threadId": "example"
 }
 ```
 
-### Variant 12
+### Variant 14
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2132,13 +2171,13 @@ Example:
 ```json
 {
   "op": "agent.message",
-  "requestId": "JeHWL",
+  "requestId": "-hFQRmIxgg",
   "text": "example",
   "threadId": "example"
 }
 ```
 
-### Variant 13
+### Variant 15
 
 Semantic rule: Either one task (requestId, task, role, provider) or tasks: [{ requestId, task, role, provider }, ...].
 
@@ -2183,7 +2222,7 @@ Example:
 }
 ```
 
-### Variant 14
+### Variant 16
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2204,18 +2243,20 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
+  "accountId": "example",
   "effort": "inherit",
   "installationId": "example",
-  "model": "example",
   "op": "thread.create",
-  "provider": "pi",
-  "requestId": "-hFQRmIxgg",
+  "options": {
+    "serviceTier": "flex"
+  },
+  "provider": "cursor",
+  "requestId": "AjD",
   "title": "example"
 }
 ```
 
-### Variant 15
+### Variant 17
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2229,13 +2270,13 @@ Example:
 ```json
 {
   "op": "thread.launch",
-  "requestId": "m",
+  "requestId": "OR8G1",
   "text": "example",
   "threadId": "example"
 }
 ```
 
-### Variant 16
+### Variant 18
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2250,13 +2291,13 @@ Example:
 ```json
 {
   "op": "thread.message",
-  "requestId": "AjD",
+  "requestId": "2mAC4N5h",
   "text": "example",
   "threadId": "example"
 }
 ```
 
-### Variant 17
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2276,7 +2317,7 @@ Example:
 }
 ```
 
-### Variant 18
+### Variant 20
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2289,12 +2330,14 @@ Example:
 
 ```json
 {
+  "before": 3,
+  "limit": 4,
   "op": "thread.read",
   "threadId": "example"
 }
 ```
 
-### Variant 19
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2308,15 +2351,14 @@ Example:
 
 ```json
 {
-  "limit": 8,
-  "offset": 8,
+  "offset": 4,
   "op": "thread.read_output",
   "streamId": "example",
   "threadId": "example"
 }
 ```
 
-### Variant 20
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2331,14 +2373,13 @@ Example:
 ```json
 {
   "cursor": "example",
-  "limit": 3,
   "op": "thread.search",
   "query": "example",
   "threadId": "example"
 }
 ```
 
-### Variant 21
+### Variant 23
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2351,12 +2392,12 @@ Example:
 ```json
 {
   "op": "thread.interrupt",
-  "requestId": "X5D9B",
+  "requestId": "m8B2IpmEh6",
   "threadId": "example"
 }
 ```
 
-### Variant 22
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2373,15 +2414,15 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "op": "thread.fork",
-  "requestId": "Jx-",
+  "requestId": "-A96Fi3Z",
   "text": "example",
-  "threadId": "example"
+  "threadId": "example",
+  "title": "example"
 }
 ```
 
-### Variant 23
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2396,13 +2437,13 @@ Example:
 ```json
 {
   "op": "thread.merge",
-  "requestId": "m8B2IpmEh6",
+  "requestId": "N_zW",
   "summary": "example",
   "threadId": "example"
 }
 ```
 
-### Variant 24
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2416,15 +2457,15 @@ Example:
 
 ```json
 {
-  "entryId": "27",
+  "entryId": "7ZLvI",
   "op": "queue.edit",
-  "requestId": "-A96Fi3Z",
+  "requestId": "z",
   "text": "example",
   "threadId": "example"
 }
 ```
 
-### Variant 25
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2438,15 +2479,15 @@ Example:
 ```json
 {
   "entryIds": [
-    "C43.b8B"
+    "irWlC094gt"
   ],
   "op": "queue.reorder",
-  "requestId": "N_zW",
+  "requestId": "caxPVPJo",
   "threadId": "example"
 }
 ```
 
-### Variant 26
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2462,7 +2503,7 @@ Example:
 }
 ```
 
-### Variant 27
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2475,14 +2516,14 @@ Example:
 
 ```json
 {
-  "entryId": "irWlC094gt",
+  "entryId": "4Ek9",
   "op": "queue.cancel",
-  "requestId": "caxPVPJo",
+  "requestId": "dVMwbnZMW",
   "threadId": "example"
 }
 ```
 
-### Variant 28
+### Variant 30
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2495,14 +2536,14 @@ Example:
 
 ```json
 {
-  "entryId": "I8e",
+  "entryId": "0qnZV7DOvR",
   "op": "queue.steer",
-  "requestId": "1F5SSJ",
+  "requestId": "2ngA-gD",
   "threadId": "example"
 }
 ```
 
-### Variant 29
+### Variant 31
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2518,17 +2559,17 @@ Example:
 {
   "answer": {
     "answers": {},
-    "dismissed": false,
+    "dismissed": true,
     "kind": "question"
   },
   "interactionId": "example",
   "op": "question.answer",
-  "requestId": "dVMwbnZMW",
+  "requestId": "chS6l6OD",
   "threadId": "example"
 }
 ```
 
-### Variant 30
+### Variant 32
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2547,7 +2588,7 @@ Example:
 }
 ```
 
-### Variant 31
+### Variant 33
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2563,7 +2604,7 @@ Example:
 }
 ```
 
-### Variant 32
+### Variant 34
 
 Semantic rule: Exactly one of url or number is required.
 
@@ -2583,7 +2624,7 @@ Example:
 }
 ```
 
-### Variant 33
+### Variant 35
 
 Semantic rule: Exactly one of url, number, or all: true is required.
 
@@ -2598,12 +2639,12 @@ Example:
 
 ```json
 {
-  "number": 8,
-  "op": "thread.unlink_pr"
+  "op": "thread.unlink_pr",
+  "url": "https://example.invalid/"
 }
 ```
 
-### Variant 34
+### Variant 36
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2617,7 +2658,7 @@ Example:
 }
 ```
 
-### Variant 35
+### Variant 37
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2633,7 +2674,7 @@ Example:
 }
 ```
 
-### Variant 36
+### Variant 38
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2649,7 +2690,7 @@ Example:
 }
 ```
 
-### Variant 37
+### Variant 39
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2665,7 +2706,7 @@ Example:
 }
 ```
 
-### Variant 38
+### Variant 40
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2683,7 +2724,7 @@ Example:
 }
 ```
 
-### Variant 39
+### Variant 41
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2698,14 +2739,12 @@ Example:
   "request": {
     "id": "example",
     "requestId": "example",
-    "source": "thread",
-    "type": "automation.run",
-    "variables": {}
+    "type": "automation.retry"
   }
 }
 ```
 
-### Variant 40
+### Variant 42
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2720,7 +2759,7 @@ Example:
 }
 ```
 
-### Variant 41
+### Variant 43
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2737,7 +2776,7 @@ Example:
 }
 ```
 
-### Variant 42
+### Variant 44
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2752,12 +2791,12 @@ Example:
 {
   "branch": "example",
   "op": "thread.handoff",
-  "requestId": "q8Ogc8rLu",
+  "requestId": "15Qm",
   "threadId": "example"
 }
 ```
 
-### Variant 43
+### Variant 45
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2773,7 +2812,7 @@ Example:
 }
 ```
 
-### Variant 44
+### Variant 46
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -2786,7 +2825,7 @@ Example:
 ```json
 {
   "op": "preview.close",
-  "previewId": "15Qm",
+  "previewId": "z3St2I71LW",
   "threadId": "example"
 }
 ```
@@ -11187,7 +11226,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"hello"` |  |
-| channel | no | ["files","devices","browser","screen","provider_auth","media"] |  |
+| channel | no | ["files","devices","browser","screen","provider_auth","media","machine"] |  |
 | mediaTicket | no | [MediaTicket.json](schema/MediaTicket.json) |  |
 | protocolVersion | yes | `1` |  |
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
@@ -19691,6 +19730,24 @@ Example:
 }
 ```
 
+### Variant 14
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"parcel"` |  |
+| parcel | yes | [ParcelCall.json](schema/ParcelCall.json) |  |
+
+Example:
+
+```json
+{
+  "op": "parcel",
+  "parcel": {
+    "action": "outbox"
+  }
+}
+```
+
 ## MachineCallOrigin
 
 [JSON Schema](schema/MachineCallOrigin.json), input validation.
@@ -19942,6 +19999,7 @@ Example:
 | transfers | no | boolean |  |
 | delegateAccounts | no | boolean |  |
 | accounts | no | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MachineAccount.json"}} |
+| paths | no | [MachinePaths.json](schema/MachinePaths.json) |  |
 
 Example:
 
@@ -20244,6 +20302,82 @@ Example:
 {
   "error": "unauthorized",
   "message": "example"
+}
+```
+
+## MachineRelayAnswer
+
+[JSON Schema](schema/MachineRelayAnswer.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.answer"` |  |
+| id | yes | integer | {"minimum":1,"maximum":9007199254740991} |
+| status | yes | integer | {"minimum":100,"maximum":599} |
+| body | yes | any JSON value |  |
+
+Example:
+
+```json
+{
+  "body": null,
+  "id": 1,
+  "status": 106,
+  "type": "machine.answer"
+}
+```
+
+## MachineRelayCall
+
+[JSON Schema](schema/MachineRelayCall.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.call"` |  |
+| id | yes | integer | {"minimum":1,"maximum":9007199254740991} |
+| request | yes | [MachineCallRequest.json](schema/MachineCallRequest.json) |  |
+| timeoutMs | no | integer | {"minimum":1,"maximum":3600000} |
+
+Example:
+
+```json
+{
+  "id": 9,
+  "request": {
+    "call": {
+      "args": {},
+      "op": "browser",
+      "tool": "browser_frjznm"
+    },
+    "origin": {
+      "agentId": "example",
+      "ceiling": "read",
+      "hostId": "example",
+      "hostName": "example",
+      "threadId": "example",
+      "threadTitle": "example"
+    }
+  },
+  "timeoutMs": 1,
+  "type": "machine.call"
+}
+```
+
+## MachineRelayCancel
+
+[JSON Schema](schema/MachineRelayCancel.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.cancel"` |  |
+| id | yes | integer | {"minimum":1,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "id": 3,
+  "type": "machine.cancel"
 }
 ```
 
@@ -27616,6 +27750,33 @@ Example:
 }
 ```
 
+## OutboxParcel
+
+[JSON Schema](schema/OutboxParcel.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| from | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| to | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| parcel | yes | [ParcelFacts.json](schema/ParcelFacts.json) |  |
+
+Example:
+
+```json
+{
+  "from": "example",
+  "parcel": {
+    "fromTitle": "example",
+    "name": "dataset.csv",
+    "note": "example",
+    "parcelId": "pcl-9ce-e-29347c-8a77c2c6da6475-a52df98a",
+    "sha256": "f11b72763b0f8faba8752ed14de88270a90097a75b06303e800b5986ede81e37",
+    "size": 6
+  },
+  "to": "example"
+}
+```
+
 ## OutputSummary
 
 [JSON Schema](schema/OutputSummary.json), input validation.
@@ -28127,6 +28288,302 @@ Example:
 
 ```json
 "sDBpf8"
+```
+
+## ParcelAnswer
+
+[JSON Schema](schema/ParcelAnswer.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | [ParcelState.json](schema/ParcelState.json) |  |
+| offset | yes | integer | {"minimum":0,"maximum":1073741824} |
+
+Example:
+
+```json
+{
+  "offset": 5,
+  "state": "receiving"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| outbox | yes | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/OutboxParcel.json"}} |
+
+Example:
+
+```json
+{
+  "outbox": []
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| data | yes | string | {"maxLength":262144,"pattern":"^[A-Za-z0-9+/]*={0,2}$"} |
+| offset | yes | integer | {"minimum":0,"maximum":1073741824} |
+
+Example:
+
+```json
+{
+  "data": "H2cPjXH=",
+  "offset": 2
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| acknowledged | yes | `true` |  |
+
+Example:
+
+```json
+{
+  "acknowledged": true
+}
+```
+
+## ParcelCall
+
+[JSON Schema](schema/ParcelCall.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"offer"` |  |
+| to | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| parcel | yes | [ParcelFacts.json](schema/ParcelFacts.json) |  |
+
+Example:
+
+```json
+{
+  "action": "offer",
+  "parcel": {
+    "fromTitle": "example",
+    "name": "dataset.csv",
+    "parcelId": "pcl-71d4027b6e-847cc8-3329a9b-0a1e-fb707",
+    "sha256": "6d4d3f7f5f9a00e512c9c431f075facca3d2efb840b2fe26125b829542e00de8",
+    "size": 9
+  },
+  "to": "example"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"chunk"` |  |
+| parcelId | yes | [ParcelId.json](schema/ParcelId.json) |  |
+| offset | yes | integer | {"minimum":0,"maximum":1073741824} |
+| data | yes | string | {"maxLength":262144,"pattern":"^[A-Za-z0-9+/]*={0,2}$"} |
+
+Example:
+
+```json
+{
+  "action": "chunk",
+  "data": "EZZdttVUm4",
+  "offset": 6,
+  "parcelId": "pcl-3-65f0107dfdc6ac87015d65-af13d-33316"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"commit"` |  |
+| parcelId | yes | [ParcelId.json](schema/ParcelId.json) |  |
+
+Example:
+
+```json
+{
+  "action": "commit",
+  "parcelId": "pcl-d2d3151130fd18fd-e97b140e-2ec1a8cdd9"
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"cancel"` |  |
+| parcelId | yes | [ParcelId.json](schema/ParcelId.json) |  |
+
+Example:
+
+```json
+{
+  "action": "cancel",
+  "parcelId": "pcl---5303c75f52a8dd9c65e5fcc-14ef-b4-e8"
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"outbox"` |  |
+
+Example:
+
+```json
+{
+  "action": "outbox"
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"read"` |  |
+| parcelId | yes | [ParcelId.json](schema/ParcelId.json) |  |
+| offset | yes | integer | {"minimum":0,"maximum":1073741824} |
+| length | yes | integer | {"minimum":1,"maximum":196608} |
+
+Example:
+
+```json
+{
+  "action": "read",
+  "length": 9,
+  "offset": 6,
+  "parcelId": "pcl-0a52277c21-8991d-1b98c84f-48a2a451c-"
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"ack"` |  |
+| parcelId | yes | [ParcelId.json](schema/ParcelId.json) |  |
+| outcome | yes | ["delivered","refused"] |  |
+| reason | no | string | {"maxLength":400} |
+
+Example:
+
+```json
+{
+  "action": "ack",
+  "outcome": "delivered",
+  "parcelId": "pcl-a3cf5b7df4a8da5fb95ed16f397556b9fb-c"
+}
+```
+
+## ParcelFacts
+
+[JSON Schema](schema/ParcelFacts.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| parcelId | yes | [ParcelId.json](schema/ParcelId.json) |  |
+| name | yes | [ParcelName.json](schema/ParcelName.json) |  |
+| size | yes | integer | {"minimum":0,"maximum":1073741824} |
+| sha256 | yes | string | {"pattern":"^[a-f0-9]{64}$"} |
+| note | no | string | {"maxLength":2000} |
+| fromTitle | yes | string | {"maxLength":256} |
+
+Example:
+
+```json
+{
+  "fromTitle": "example",
+  "name": "dataset.csv",
+  "note": "example",
+  "parcelId": "pcl-2-1c-5689a664de8-180b27c2049f9eb3dee",
+  "sha256": "4f7438c896dfdeedc572a8f3f39615c587336884a045393ce3f0eec500bbdc71",
+  "size": 6
+}
+```
+
+## ParcelId
+
+[JSON Schema](schema/ParcelId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"pcl--f861d-24fa79b7852c31a9c1fb1935f534d"
+```
+
+## ParcelName
+
+[JSON Schema](schema/ParcelName.json), input validation.
+
+Semantic rule: One path segment: not . or .., no / or \, no control characters.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"dataset.csv"
+```
+
+## ParcelState
+
+[JSON Schema](schema/ParcelState.json), input validation.
+
+Type: ["receiving","delivered","cancelled"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"receiving"
+```
+
+## ParcelView
+
+[JSON Schema](schema/ParcelView.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| parcelId | yes | [ParcelId.json](schema/ParcelId.json) |  |
+| direction | yes | ["sent","received"] |  |
+| name | yes | [ParcelName.json](schema/ParcelName.json) |  |
+| size | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| sha256 | yes | string | {"pattern":"^[a-f0-9]{64}$"} |
+| state | yes | ["sending","waiting","delivered","failed","cancelled","received"] |  |
+| peer | yes | object | {"properties":{"threadId":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"machine":{"type":"string","maxLength":64}},"required":["threadId"],"additionalProperties":false} |
+| note | no | string | {"maxLength":2000} |
+| path | no | string | {"maxLength":4096} |
+| error | no | string | {"maxLength":400} |
+
+Example:
+
+```json
+{
+  "direction": "sent",
+  "error": "example",
+  "name": "dataset.csv",
+  "parcelId": "pcl-432a6e8cf86fe4a7c47c3e3224a2a-aec4c0",
+  "path": "example",
+  "peer": {
+    "threadId": "example"
+  },
+  "sha256": "65b7b9f007471fc4ece09403c6a896b45eb9a8760f2b45dd45c4ef00e69070e3",
+  "size": 5,
+  "state": "sending"
+}
 ```
 
 ## PendingMcpIntent

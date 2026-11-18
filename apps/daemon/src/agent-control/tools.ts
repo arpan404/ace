@@ -125,6 +125,11 @@ export interface AgentControlExtensions {
     caller: McpAttribution,
     operation: Extract<AgentControlOperation, { op: "transfer" }>,
   ): Promise<AgentControlResult>;
+  /** Data for another agent in this tree, here or on a paired machine (ADR 0182). */
+  parcels?(
+    caller: McpAttribution,
+    operation: Extract<AgentControlOperation, { op: "data.send" | "data.receive" }>,
+  ): Promise<AgentControlResult>;
   /** The person's role settings, for `delegate` tasks with runRole. */
   runRole?: RoleLookup;
 }
@@ -295,6 +300,11 @@ export function createAgentControlPort(
       case "transfer":
         return extensions.transfer
           ? extensions.transfer(caller, operation)
+          : { ok: false, code: "unsupported" };
+      case "data.send":
+      case "data.receive":
+        return extensions.parcels
+          ? extensions.parcels(caller, operation)
           : { ok: false, code: "unsupported" };
       case "delegate_task": {
         const startedAt = service.now();

@@ -1,0 +1,73 @@
+{
+  "$id": "https://ace.local/protocol/v1/ParcelAnswer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "offset": {
+          "maximum": 1073741824,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/ParcelState.json"
+        }
+      },
+      "required": [
+        "state",
+        "offset"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "outbox": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/OutboxParcel.json"
+          },
+          "maxItems": 16,
+          "type": "array"
+        }
+      },
+      "required": [
+        "outbox"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "maxLength": 262144,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "type": "string"
+        },
+        "offset": {
+          "maximum": 1073741824,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "data",
+        "offset"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledged": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "acknowledged"
+      ],
+      "type": "object"
+    }
+  ]
+}

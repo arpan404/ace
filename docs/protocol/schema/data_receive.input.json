@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/data_receive.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "parcelId": {
+      "$ref": "https://ace.local/protocol/v1/ParcelId.json",
+      "description": "From the arrival message or this list."
+    },
+    "saveAs": {
+      "description": "A new file path in your project, relative to its folder.",
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

@@ -484,6 +484,99 @@ Example:
 }
 ```
 
+## data_send
+
+Send a file from your project, or text, to another agent in your tree: a child (from delegate, any machine), your parent ("parent"), or another thread in the same tree here. It is staged, hashed and carried end to end encrypted over the LAN, Tailscale or a relay. Returns parcelId at once; whether it arrived comes as a new turn, so end yours. Never poll.
+
+Required capability: agents. Timeout: 630000 ms.
+
+## data_send.input
+
+[JSON Schema](schema/data_send.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| to | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},{"type":"string","const":"parent"}],"description":"A thread id from delegate or agents_status, or \"parent\"."} |
+| path | no | string | {"description":"A file in your project, relative to its folder. Or pass text.","minLength":1,"maxLength":4096} |
+| text | no | string | {"description":"Text to send instead of a file.","minLength":1,"maxLength":262144} |
+| name | no | [ParcelName.json](schema/ParcelName.json) | {"description":"The name it arrives under. Default: the file's name."} |
+| note | no | string | {"description":"What it is, for the receiver.","maxLength":2000} |
+
+Example:
+
+```json
+{
+  "note": "example",
+  "text": "example",
+  "to": "parent"
+}
+```
+
+## data_send.output
+
+[JSON Schema](schema/data_send.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | object | {"properties":{"parcelId":{"type":"string","pattern":"^pcl-[a-f0-9-]{36}$"}},"required":["parcelId"],"additionalProperties":{}} |
+
+Example:
+
+```json
+{
+  "code": "unavailable",
+  "ok": false
+}
+```
+
+## data_receive
+
+Parcels this thread sent or received, newest first, with each one's state, size and SHA-256; a received one has a read-only path. With parcelId and saveAs, copy that received parcel into your project at saveAs (relative; never replaces a file).
+
+Required capability: agents. Timeout: 630000 ms.
+
+## data_receive.input
+
+[JSON Schema](schema/data_receive.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| parcelId | no | [ParcelId.json](schema/ParcelId.json) | {"description":"From the arrival message or this list."} |
+| saveAs | no | string | {"description":"A new file path in your project, relative to its folder.","minLength":1,"maxLength":1024} |
+
+Example:
+
+```json
+{
+  "parcelId": "pcl-83233a1d276cac0ecb2bed640bb20883764-"
+}
+```
+
+## data_receive.output
+
+[JSON Schema](schema/data_receive.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| hint | no | string | {"maxLength":512} |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "invalid",
+  "data": null,
+  "hint": "example",
+  "ok": true
+}
+```
+
 ## models
 
 Models a child can run on, grouped by provider: each provider's accounts once (login state, availability, the access modes a child may take), its shared efforts and default, and its current models. A model names its accounts only when not every account serves it. Older releases are left out and counted in omitted; with query, the nearest models to a name across all providers and accounts, legacy included, nearest first. Pass a model's id to delegate.
