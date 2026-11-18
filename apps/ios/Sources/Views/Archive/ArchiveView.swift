@@ -100,7 +100,7 @@ private struct ArchiveRows: View {
             else { HStack { Spacer(); ProgressView().accessibilityLabel("Loading older threads"); Spacer() } }
 
         } else if !archive.list.loaded {
-            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.") {
+            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.", failed: true) {
                 Button("Try again") { client.retry(); retry() }
             }
             .padding(.vertical, AceDesign.Space.group)
