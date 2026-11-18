@@ -64,7 +64,14 @@ export function receiveLoginPath(input: {
     settled = { changed };
     if (changed) {
       env.PATH = path;
-      for (const listener of listeners) listener(path);
+      // One environment that fails to take the PATH must not keep the others, or providers,
+      // from it: each failure is reported, and `final` always settles.
+      for (const listener of listeners)
+        try {
+          listener(path);
+        } catch (error) {
+          input.log?.(`An environment could not take the login shell's PATH: ${String(error)}`);
+        }
     }
     final.resolve(changed);
   };
@@ -93,6 +100,7 @@ export function receiveLoginPath(input: {
     final: final.promise,
     onChange(apply) {
       if (!settled) listeners.push(apply);
+      // Registered late: the caller's own call, so its failure is the caller's to see.
       else if (settled.changed) apply(env.PATH ?? "");
     },
   };

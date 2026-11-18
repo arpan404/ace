@@ -111,3 +111,22 @@ test("a PATH with spaces, quotes and a newline in a folder name arrives exactly"
   expect(await loginPath?.final).toBe(true);
   expect(env.PATH).toBe(path);
 });
+
+test("an environment that fails to take the PATH is reported, and the rest and providers still get it", async () => {
+  const env = started();
+  const reports: string[] = [];
+  const loginPath = receiveLoginPath({
+    env,
+    read: async () => encodeLoginPathLine("/bundled:/login/bin"),
+    timeout: never,
+    lookup: never,
+    log: (message) => reports.push(message),
+  });
+  loginPath?.onChange(() => {
+    throw new Error("frozen copy");
+  });
+  const healthy = followLoginPath(loginPath, { PATH: "/bundled:/saved/bin" });
+  expect(await loginPath?.final).toBe(true);
+  expect(healthy.PATH).toBe("/bundled:/login/bin");
+  expect(reports).toEqual([expect.stringContaining("frozen copy")]);
+});
