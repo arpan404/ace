@@ -143,9 +143,9 @@ struct InboxSearchList: View {
         if everyKind { actionSection }
         if offline, everyKind, !everything.commands.isEmpty {
             // This phone's pages are found offline; what the machines hold waits for one.
-            Text("Threads, projects, pull requests and messages show once a machine connects.")
-                .meta(AceTheme.Colours.subtleForeground)
-                .lineLimit(nil)
+            Text("Threads, pull requests and messages show once a machine connects.")
+                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, AceTheme.Spacing.rowInner)
                 .padding(.vertical, AceDesign.Space.row)
