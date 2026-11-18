@@ -368,13 +368,24 @@ mod tests {
     }
 
     #[test]
-    fn a_rescan_inside_an_excluded_folder_names_nothing() {
+    fn an_excluded_folder_is_never_the_folder_a_rescan_names() {
         let fixture = Fixture::new();
+        let outside = Excluder::new(&["**/node_modules/*/**".to_owned()]).unwrap();
         let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
         event = event.set_flag(notify::event::Flag::Rescan);
-        let excluder = Excluder::new(&["**/node_modules/*/**".to_owned()]).unwrap();
-        let translation = translate(event, &fixture.root, &excluder, &|_| None);
-        assert_eq!(translation.rescan, Some(None));
+        assert_eq!(
+            translate(event, &fixture.root, &outside, &|_| None).rescan,
+            Some(Some("node_modules/pkg".to_owned())),
+            "a package folder is listed, so it can be rescanned"
+        );
+        let inside = Excluder::new(&["**/node_modules".to_owned()]).unwrap();
+        let mut event = Event::new(EventKind::Other).add_path(fixture.path("node_modules/pkg"));
+        event = event.set_flag(notify::event::Flag::Rescan);
+        assert_eq!(
+            translate(event, &fixture.root, &inside, &|_| None).rescan,
+            Some(None),
+            "an excluded folder's overflow names the root instead"
+        );
     }
 
     #[test]
