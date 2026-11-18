@@ -10,6 +10,12 @@ export const desktopOrigin = "app://ace";
 /** ace's hosted web app (`app.acehq.dev`). Always allowed; `remote.hostedPairingLink` decides whether links open it. */
 export const hostedWebOrigin = "https://app.acehq.dev";
 
+/**
+ * The beta release's web app (`beta.app.acehq.dev`, docs/release/web.md). Always allowed, so a
+ * person on the Beta line can use it; pairing links never open it.
+ */
+export const betaWebOrigin = "https://beta.app.acehq.dev";
+
 /** One http(s) origin exactly as a browser sends it: scheme, host and port, nothing else. */
 const WebOrigin = z
   .string()
@@ -34,8 +40,8 @@ export const WebOrigins = z
 
 /**
  * The origins a browser page may read the access routes from: the desktop app, ace's hosted web
- * app and the configured ones. Every route still needs a token or a one-use pairing code.
+ * app (stable and beta) and the configured ones. Every route still needs a token or a one-use pairing code.
  */
 export function webOriginAllowlist(configured: readonly string[] = []): ReadonlySet<string> {
-  return new Set([desktopOrigin, hostedWebOrigin, ...configured]);
+  return new Set([desktopOrigin, hostedWebOrigin, betaWebOrigin, ...configured]);
 }
