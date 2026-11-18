@@ -29,8 +29,8 @@ struct SpadeQuestionInputs: View {
     /// Typed into, a number keeps the keyboard's language too, so it is read the way that
     /// keyboard writes numbers, not the app's locale.
     private var numberBinding: Binding<String> {
-        Binding(get: { if case let .number(text, _) = draft { text } else { "" } },
-                set: { draft = .number($0, language: KeyboardLanguage.typing()) })
+        Binding(get: { if case let .number(text, _, _) = draft { text } else { "" } },
+                set: { draft = draft.typingNumber($0, on: KeyboardLanguage.typing()) })
     }
 
     private func field(_ prompt: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {

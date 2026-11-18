@@ -44,8 +44,9 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         /// A date's text.
         case field(String)
         /// A number as typed, with the language of the keyboard it was typed on
-        /// (`UITextInputMode.primaryLanguage`, nil when not known).
-        case number(String, language: String?)
+        /// (`UITextInputMode.primaryLanguage`, nil when not known), or `mixed` when its edits
+        /// came from keyboards of more than one language.
+        case number(String, language: String?, mixed: Bool = false)
 
         static func empty(for question: Question) -> Draft {
             switch question.kind {
@@ -66,13 +67,24 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             case let .picks(picked, other): ["kind": "picks", "picked": picked, "other": other]
             case let .confirm(value): value.map { ["kind": "confirm", "value": $0] } ?? ["kind": "confirm"]
             case let .field(text): ["kind": "field", "text": text]
-            case let .number(typed, language):
-                if let text = SpadeQuestionCard.numberText(typed, language: language, fallback: .current) {
+            case let .number(typed, language, mixed):
+                if !mixed, let text = SpadeQuestionCard.numberText(typed, language: language, fallback: .current) {
                     ["kind": "field", "text": text]
                 } else {
                     ["kind": "field", "text": typed, "unread": true]
                 }
             }
+        }
+
+        /// The number edited to `text` on a keyboard of `language` (nil when not known). Edits
+        /// from two languages leave it `mixed`, so it is sent unread: `1,23` typed in English
+        /// with `4` added in German is neither 1.234 nor 1,234. Cleared, it starts over.
+        func typingNumber(_ text: String, on language: String?) -> Draft {
+            guard case let .number(typed, had, mixed) = self, !typed.isEmpty, !text.isEmpty else {
+                return .number(text, language: text.isEmpty ? nil : language)
+            }
+            let switched = had != nil && language != nil && had != language
+            return .number(text, language: had ?? language, mixed: mixed || switched)
         }
 
         /// Pick `label`: the one pick for `choice`, toggled for `choices`. A single pick clears

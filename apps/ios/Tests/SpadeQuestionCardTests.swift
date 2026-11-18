@@ -58,6 +58,19 @@ import Testing
         }
     }
 
+    @Test func aNumberTypedAcrossTwoKeyboardsIsSentUnread() {
+        let empty = SpadeQuestionCard.Draft.number("", language: nil)
+        // `1,23` on an English keyboard, then `4` on a German one: neither reading is safe.
+        let both = empty.typingNumber("1,23", on: "en-US").typingNumber("1,234", on: "de-DE")
+        #expect(both.payload["unread"] as? Bool == true)
+        // Cleared and typed again on one keyboard, it is read again.
+        let again = both.typingNumber("", on: "de-DE").typingNumber("1,5", on: "de-DE")
+        #expect(again.payload["text"] as? String == "1.5")
+        // An edit whose keyboard isn't known keeps the one the number has.
+        let unknown = SpadeQuestionCard.Draft.number("1,5", language: "de-DE").typingNumber("1,55", on: nil)
+        #expect(unknown.payload["text"] as? String == "1.55")
+    }
+
     @Test func aNumberWithoutAKnownKeyboardIsReadInTheAppsLocale() {
         #expect(SpadeQuestionCard.numberText("1,5", language: nil, fallback: Locale(identifier: "de_DE")) == "1.5")
         #expect(SpadeQuestionCard.numberText("1,5", language: "emoji", fallback: Locale(identifier: "de_DE")) == "1.5")
