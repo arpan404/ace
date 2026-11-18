@@ -19,7 +19,7 @@ import type { FakeQueued, ThreadHost } from "./thread-host.ts";
  * facts to apply and marks the queue dirty so the daemon publishes `queue.updated`.
  */
 
-type QueueCommand = Extract<
+export type QueueCommand = Extract<
   CommandPayload,
   {
     type:
