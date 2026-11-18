@@ -163,7 +163,6 @@ fn creates_moves_and_removes_a_folder() {
         root,
         from: "notes/a.txt".to_owned(),
         to: "notes/b.txt".to_owned(),
-        overwrite: false,
         expected: None,
         own: None,
     });

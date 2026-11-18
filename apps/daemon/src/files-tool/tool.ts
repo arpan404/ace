@@ -121,7 +121,6 @@ export type FilesToolClient = {
     root: number,
     from: string,
     to: string,
-    overwrite?: boolean,
     options?: {
       signal?: AbortSignal | undefined;
       expected?: string | undefined;

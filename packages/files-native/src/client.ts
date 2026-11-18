@@ -178,7 +178,6 @@ export class FilesClient {
     root: number,
     from: string,
     to: string,
-    overwrite = false,
     options: FilesMutationOptions = {},
   ): Promise<void> {
     const { reply } = await this.#process.request(
@@ -187,7 +186,6 @@ export class FilesClient {
         root,
         from,
         to,
-        overwrite,
         ...(options.expected === undefined ? {} : { expected: options.expected }),
         ...(options.own === undefined ? {} : { own: options.own }),
       },

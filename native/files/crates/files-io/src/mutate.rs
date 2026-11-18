@@ -17,7 +17,7 @@ use std::io::ErrorKind;
 
 use cap_fs_ext::DirExt;
 use cap_std::fs::Dir;
-use files_safe::Root;
+use files_safe::{Parent, Root};
 
 use crate::Error;
 use crate::describe::Walks;
@@ -57,9 +57,9 @@ fn create_dir_with(
     }
 }
 
-/// Moves an entry. A taken destination is `CONFLICT` unless `overwrite` is set.
+/// Moves an entry. A taken destination is `CONFLICT`; a move never replaces one.
 ///
-/// A no-replace move is one atomic rename. Where the operating system or filesystem cannot make
+/// A move is one atomic no-replace rename. Where the operating system or filesystem cannot make
 /// one, the answer is `UNSUPPORTED` rather than a check followed by a rename that could replace a
 /// destination that appeared in between.
 ///
@@ -71,18 +71,16 @@ pub fn rename(
     root: &Root,
     from: &str,
     to: &str,
-    overwrite: bool,
     expected: Option<&str>,
     own: Option<&str>,
 ) -> Result<Committed, Error> {
-    rename_with(root, from, to, overwrite, expected, own, &handle::sync)
+    rename_with(root, from, to, expected, own, &handle::sync)
 }
 
 fn rename_with(
     root: &Root,
     from: &str,
     to: &str,
-    overwrite: bool,
     expected: Option<&str>,
     own: Option<&str>,
     sync: &dyn Fn(&Dir) -> Result<(), Error>,
@@ -116,12 +114,6 @@ fn rename_with(
             )));
         }
     }
-    if overwrite {
-        source.dir.rename(&source.name, &destination.dir, to_name)?;
-        return Ok(Committed {
-            warning: settle(sync, &[&source.dir, &destination.dir]),
-        });
-    }
     match handle::rename_noclobber(&source.dir, &source.name, &destination.dir, to_name)? {
         Noclobber::Done => {}
         Noclobber::Exists => {
@@ -150,7 +142,7 @@ fn rename_with(
         }
     }
     if let Some(expected) = expected {
-        let moved = moved_version(
+        let checked = moved_version(
             root,
             from,
             to,
@@ -158,29 +150,22 @@ fn rename_with(
             to_name,
             own,
             metadata.is_dir(),
-        )?;
-        if !same_version(expected, own, &moved) {
-            return match handle::rename_noclobber(
-                &destination.dir,
-                to_name,
-                &source.dir,
-                &source.name,
-            ) {
-                Ok(Noclobber::Done) => {
-                    let after = version_at(root, &source.dir, &source.name, from)?
-                        .unwrap_or_else(|| moved.clone());
-                    let _ = settle(sync, &[&source.dir, &destination.dir]);
-                    Err(Error::Conflict {
-                        path: to.to_owned(),
-                        current: Some(after),
-                    })
-                }
-                _ => Ok(Committed {
-                    warning: Some(format!(
-                        "{to} changed while it was being moved and could not be put back; it is at its new name with version {moved}"
-                    )),
-                }),
-            };
+        );
+        let held = checked
+            .as_ref()
+            .is_ok_and(|moved| same_version(expected, own, moved));
+        if !held {
+            return withdrawn(
+                root,
+                sync,
+                (&destination.dir, to_name),
+                &source,
+                from,
+                to,
+                expected,
+                checked.ok(),
+                to,
+            );
         }
     }
     Ok(Committed {
@@ -245,26 +230,22 @@ fn trash_with(
             )));
         }
     }
-    let moved = moved_version(root, path, endpoint, &trash, endpoint, own, folder)?;
-    if !same_version(expected, own, &moved) {
-        return match handle::rename_noclobber(&trash, endpoint, &source.dir, &source.name) {
-            Ok(Noclobber::Done) => {
-                let after = version_at(root, &source.dir, &source.name, path)?
-                    .unwrap_or_else(|| moved.clone());
-                let _ = settle(sync, &[&source.dir, &trash]);
-                Err(Error::Conflict {
-                    path: path.to_owned(),
-                    current: Some(after),
-                })
-            }
-            // The original name was taken while the entry was away. It is still safely in the
-            // trash, so the delete is reported as done rather than rolled back.
-            _ => Ok(Committed {
-                warning: Some(format!(
-                    "{path} changed while it was being deleted and could not be put back; it is in {endpoint} with version {moved}"
-                )),
-            }),
-        };
+    let checked = moved_version(root, path, endpoint, &trash, endpoint, own, folder);
+    let held = checked
+        .as_ref()
+        .is_ok_and(|moved| same_version(expected, own, moved));
+    if !held {
+        return withdrawn(
+            root,
+            sync,
+            (&trash, endpoint),
+            &source,
+            path,
+            path,
+            expected,
+            checked.ok(),
+            endpoint,
+        );
     }
     Ok(Committed {
         warning: settle(sync, &[&source.dir, &trash]),
@@ -384,9 +365,48 @@ fn moved_version(
             own,
         },
         &handle,
-        &Walks::unbounded(),
+        &Walks::complete(),
     )?
     .version)
+}
+
+/// Puts a moved entry back after its guard did not hold, and reports what the client should see.
+///
+/// A verification that could not be read at all is a guard failure too: leaving the entry at a
+/// name the client's version does not cover would strand it outside the daemon's bookkeeping. If
+/// the original name was taken while the entry was away, the entry is still safely at its new
+/// name, so the move is reported as done with a warning rather than as a failure.
+#[allow(clippy::too_many_arguments)]
+fn withdrawn(
+    root: &Root,
+    sync: &dyn Fn(&Dir) -> Result<(), Error>,
+    moved: (&Dir, &str),
+    source: &Parent,
+    source_path: &str,
+    report_path: &str,
+    expected: &str,
+    checked: Option<String>,
+    place: &str,
+) -> Result<Committed, Error> {
+    match handle::rename_noclobber(moved.0, moved.1, &source.dir, &source.name) {
+        Ok(Noclobber::Done) => {
+            let after = version_at(root, &source.dir, &source.name, source_path)
+                .ok()
+                .flatten()
+                .or(checked)
+                .or_else(|| Some(expected.to_owned()));
+            let _ = settle(sync, &[&source.dir, moved.0]);
+            Err(Error::Conflict {
+                path: report_path.to_owned(),
+                current: after,
+            })
+        }
+        _ => Ok(Committed {
+            warning: Some(format!(
+                "{report_path} changed while it was being moved and could not be put back; it is at {place}"
+            )),
+        }),
+    }
 }
 
 /// Whether a moved entry still carries the version the client expected.
@@ -619,6 +639,48 @@ mod tests {
         assert!(temp.path().join(".ace-upload-trash-6").is_symlink());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_verification_that_cannot_read_the_moved_tree_puts_it_back() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::create_dir_all(temp.path().join("docs/private")).expect("folders");
+        fs::write(temp.path().join("docs/private/kept.md"), b"kept").expect("write");
+        let root = root(temp.path());
+        let description =
+            crate::describe(&root, "docs", &walks()).expect("describe before the change");
+        let own = description.own_version.clone().expect("own");
+        // A folder the walk cannot enter makes the moved tree impossible to verify.
+        fs::set_permissions(
+            temp.path().join("docs/private"),
+            fs::Permissions::from_mode(0o000),
+        )
+        .expect("lock the folder");
+
+        let result = trash_with(
+            &root,
+            "docs",
+            ".ace-upload-trash-8",
+            &description.version,
+            Some(&own),
+            &|_| Ok(()),
+        );
+
+        fs::set_permissions(
+            temp.path().join("docs/private"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .expect("unlock the folder");
+        let error = result.expect_err("an unprovable tree is a guard failure");
+        assert_eq!(error.code(), "CONFLICT");
+        assert!(
+            temp.path().join("docs/private/kept.md").is_file(),
+            "put back"
+        );
+        assert!(!temp.path().join(".ace-upload-trash-8").exists());
+    }
+
     #[test]
     fn a_restore_never_replaces_a_destination_that_appeared() {
         let temp = tempfile::tempdir().expect("temp dir");
@@ -646,7 +708,7 @@ mod tests {
         std::os::windows::fs::symlink_dir("docs", temp.path().join("alias")).expect("link");
         let root = root(temp.path());
 
-        let error = super::rename(&root, "alias", "moved", false, None, None)
+        let error = super::rename(&root, "alias", "moved", None, None)
             .expect_err("a link is never a source");
         assert_eq!(error.code(), "PATH_ESCAPE");
     }

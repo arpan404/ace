@@ -5,25 +5,19 @@ mod common;
 use common::Fixture;
 
 #[test]
-fn rename_refuses_to_overwrite() {
+fn rename_never_replaces_an_existing_destination() {
     let fixture = Fixture::new();
     fixture.write("a.txt", b"a\n");
     fixture.write("b.txt", b"b\n");
 
-    let error = files_io::rename(fixture.root(), "a.txt", "b.txt", false, None, None)
+    let error = files_io::rename(fixture.root(), "a.txt", "b.txt", None, None)
         .expect_err("an existing destination must be refused");
     assert_eq!(error.code(), "CONFLICT");
     assert_eq!(fixture.read("a.txt"), b"a\n");
     assert_eq!(fixture.read("b.txt"), b"b\n");
 
-    files_io::rename(fixture.root(), "a.txt", "b.txt", true, None, None)
-        .expect("an allowed overwrite");
+    files_io::rename(fixture.root(), "a.txt", "c.txt", None, None).expect("rename to a free name");
     assert!(!fixture.exists("a.txt"));
-    assert_eq!(fixture.read("b.txt"), b"a\n");
-
-    files_io::rename(fixture.root(), "b.txt", "c.txt", false, None, None)
-        .expect("rename to a free name");
-    assert!(!fixture.exists("b.txt"));
     assert_eq!(fixture.read("c.txt"), b"a\n");
 }
 
@@ -31,8 +25,7 @@ fn rename_refuses_to_overwrite() {
 fn rename_moves_a_folder_with_its_contents() {
     let fixture = Fixture::new();
     fixture.write("before/nested/deep.txt", b"deep\n");
-    files_io::rename(fixture.root(), "before", "after", false, None, None)
-        .expect("rename the folder");
+    files_io::rename(fixture.root(), "before", "after", None, None).expect("rename the folder");
     assert!(!fixture.exists("before"));
     assert_eq!(fixture.read("after/nested/deep.txt"), b"deep\n");
 }
@@ -40,51 +33,26 @@ fn rename_moves_a_folder_with_its_contents() {
 #[test]
 fn rename_of_a_missing_file_is_not_found() {
     let fixture = Fixture::new();
-    let error = files_io::rename(
-        fixture.root(),
-        "missing.txt",
-        "other.txt",
-        false,
-        None,
-        None,
-    )
-    .expect_err("nothing to move");
+    let error = files_io::rename(fixture.root(), "missing.txt", "other.txt", None, None)
+        .expect_err("nothing to move");
     assert_eq!(error.code(), "NOT_FOUND");
 }
 
 #[test]
-fn rename_moves_between_folders_and_replaces_only_when_asked() {
+fn rename_moves_between_folders_without_replacing() {
     let fixture = Fixture::new();
     fixture.write("a/one.txt", b"one\n");
     fixture.write("b/two.txt", b"two\n");
 
-    files_io::rename(
-        fixture.root(),
-        "a/one.txt",
-        "b/three.txt",
-        false,
-        None,
-        None,
-    )
-    .expect("move into b");
+    files_io::rename(fixture.root(), "a/one.txt", "b/three.txt", None, None).expect("move into b");
     assert!(!fixture.exists("a/one.txt"));
     assert_eq!(fixture.read("b/three.txt"), b"one\n");
 
-    let error = files_io::rename(
-        fixture.root(),
-        "b/three.txt",
-        "b/two.txt",
-        false,
-        None,
-        None,
-    )
-    .expect_err("b/two.txt exists");
+    let error = files_io::rename(fixture.root(), "b/three.txt", "b/two.txt", None, None)
+        .expect_err("b/two.txt exists");
     assert_eq!(error.code(), "CONFLICT");
-
-    files_io::rename(fixture.root(), "b/three.txt", "b/two.txt", true, None, None)
-        .expect("replace");
-    assert_eq!(fixture.read("b/two.txt"), b"one\n");
-    assert!(!fixture.exists("b/three.txt"));
+    assert_eq!(fixture.read("b/two.txt"), b"two\n");
+    assert_eq!(fixture.read("b/three.txt"), b"one\n");
 }
 
 #[test]
@@ -92,7 +60,7 @@ fn rename_into_its_own_subfolder_is_invalid() {
     let fixture = Fixture::new();
     fixture.write("dir/inside.txt", b"inside\n");
 
-    let error = files_io::rename(fixture.root(), "dir", "dir/moved", false, None, None)
+    let error = files_io::rename(fixture.root(), "dir", "dir/moved", None, None)
         .expect_err("a folder cannot be moved inside itself");
 
     assert_eq!(error.code(), "INVALID_ARGUMENT");
@@ -108,7 +76,7 @@ fn case_only_rename_is_allowed_where_the_volume_ignores_case() {
         return;
     }
 
-    files_io::rename(fixture.root(), "Notes.md", "notes.md", false, None, None)
+    files_io::rename(fixture.root(), "Notes.md", "notes.md", None, None)
         .expect("a case-only rename");
 
     assert_eq!(fixture.read("notes.md"), b"case matters\n");
@@ -269,7 +237,6 @@ fn a_move_of_a_verified_folder_is_checked_after_it_lands() {
         fixture.root(),
         "before",
         "after",
-        false,
         Some(&description.version),
         Some(&own),
     )
@@ -280,7 +247,6 @@ fn a_move_of_a_verified_folder_is_checked_after_it_lands() {
         fixture.root(),
         "after",
         "elsewhere",
-        false,
         Some(&description.version),
         Some(&own),
     )

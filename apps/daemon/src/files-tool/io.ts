@@ -85,7 +85,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
     async move(root, from, to, expected, own) {
       try {
         await run(root, (client, number) =>
-          client.rename(number, from, to, false, {
+          client.rename(number, from, to, {
             ...(expected === null ? {} : { expected }),
             ...(own === null ? {} : { own }),
           }),
@@ -145,9 +145,9 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
         } while (cursor);
       }
     },
-    async measure(root, path) {
+    async measure(root, path, options = {}) {
       try {
-        return await run(root, (client, number) => client.measure(number, path));
+        return await run(root, (client, number) => client.measure(number, path, options));
       } catch (error) {
         throw refused(error);
       }

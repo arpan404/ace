@@ -132,7 +132,7 @@ pub enum Op {
         /// Root-relative path of the new folder.
         path: String,
     },
-    /// Move or rename a path.
+    /// Move or rename a path. A taken destination is never replaced.
     Rename {
         /// The root's number.
         root: u64,
@@ -140,8 +140,6 @@ pub enum Op {
         from: String,
         /// Root-relative destination.
         to: String,
-        /// True to replace an existing destination.
-        overwrite: bool,
         /// The version the caller worked from; a moved tree that no longer matches is moved back.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expected: Option<String>,
@@ -285,7 +283,6 @@ mod tests {
                 root: 0,
                 from: String::new(),
                 to: String::new(),
-                overwrite: false,
                 expected: None,
                 own: None,
             },

@@ -65,7 +65,6 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             root,
             from,
             to,
-            overwrite,
             expected,
             own,
         } => committed(read_write::rename(
@@ -73,7 +72,6 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             root,
             &from,
             &to,
-            overwrite,
             expected.as_deref(),
             own.as_deref(),
         )?),

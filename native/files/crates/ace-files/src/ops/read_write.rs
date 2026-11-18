@@ -113,19 +113,11 @@ pub fn rename(
     root: u64,
     from: &str,
     to: &str,
-    overwrite: bool,
     expected: Option<&str>,
     own: Option<&str>,
 ) -> Result<Committed, Error> {
     let entry = shared.roots.get(root)?;
-    Ok(files_io::rename(
-        entry.root(),
-        from,
-        to,
-        overwrite,
-        expected,
-        own,
-    )?)
+    Ok(files_io::rename(entry.root(), from, to, expected, own)?)
 }
 
 /// Delete a file, or a folder and everything inside it. The daemon's own cleanup, not a client's

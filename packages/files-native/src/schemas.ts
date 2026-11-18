@@ -158,7 +158,6 @@ export const opSchema = z.discriminatedUnion("op", [
     root: u64,
     from: z.string(),
     to: z.string(),
-    overwrite: z.boolean(),
     expected: z.string().optional(),
     own: z.string().optional(),
   }),
