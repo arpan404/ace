@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { recordStoredTrust, type OpenedTrust } from "./stored-shape.ts";
-import { confirmThreadRows } from "./thread-row-trust.ts";
+import { confirmThreadRows, type ThreadRowStep } from "./thread-row-trust.ts";
 import { indexStoredTrustRows, storedTrustRowsComplete } from "./stored-trust-rows.ts";
 
 /**
@@ -23,11 +23,12 @@ export interface TrustTableWrites {
     rejected: readonly number[],
   ): boolean;
   /**
-   * Confirm up to `limit` thread rows not yet confirmed at their current revision, and stamp
-   * them (`thread-row-trust.ts`). A stamp only picks whether a row is decoded with validation
-   * or without, which read the same. Returns how many rows it checked.
+   * Check and stamp up to `limit` thread rows not yet checked at their current revision,
+   * walking row revisions from the saved position, or once caught up drop stamps of deleted
+   * threads (`thread-row-trust.ts`). A stamp only picks whether a row is decoded with
+   * validation or without, which read the same.
    */
-  stampThreadRows(limit: number): number;
+  stampThreadRows(limit: number): ThreadRowStep;
   /**
    * Map the next `limit` older revision and chunk rows by sequence (`stored-trust-rows.ts`),
    * which only lets the pass find them. False when the map is complete.
