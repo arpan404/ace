@@ -1,6 +1,15 @@
 import { FileError, type FilesService } from "@ace/files";
 import type { FileOperation, FolderPage, ThreadId, WorkspaceId } from "@ace/protocol";
-import { aceFilesMissing, type FilesTool } from "./tool.ts";
+import { aceFilesMissing } from "./tool.ts";
+
+/** What a folder listing needs from ace-files, so a test can stand in for the process. */
+export type FolderLister = {
+  listFolder(
+    path: string,
+    dir: string,
+    options: { limit?: number | undefined; cursor?: string | undefined },
+  ): Promise<FolderPage>;
+};
 
 /** The resolved service a scoped file request answers from; what both socket paths return. */
 export type ListingScope = (
@@ -28,11 +37,13 @@ export type FolderListingRequest = {
  */
 export async function listFolderPage(
   scope: ListingScope,
-  tool: FilesTool | undefined,
+  tool: FolderLister | undefined,
   request: FolderListingRequest,
 ): Promise<FolderPage> {
   if (request.scope === "support")
     throw new FileError("FORBIDDEN", "Support exports have no folders");
+  if (request.threadId === undefined && request.workspaceId === undefined)
+    throw new FileError("FORBIDDEN", "Folder listing needs a thread or a project folder");
   const binding = await scope(
     request.threadId,
     request.scope,

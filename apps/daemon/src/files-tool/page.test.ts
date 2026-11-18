@@ -42,9 +42,9 @@ it("leaves out a target that leaves the checkout", () => {
 });
 
 it("says the last page has no next cursor", () => {
-  const page = folderPage({ entries: [], total: 0 });
+  const page = folderPage({ type: "page", entries: [], total: 0 });
   expect(page).toEqual({ entries: [], nextCursor: null, total: 0 });
-  expect(folderPage({ entries: [], total: 12, nextCursor: "cursor-2" }).nextCursor).toBe(
-    "cursor-2",
-  );
+  expect(
+    folderPage({ type: "page", entries: [], total: 12, nextCursor: "cursor-2" }).nextCursor,
+  ).toBe("cursor-2");
 });

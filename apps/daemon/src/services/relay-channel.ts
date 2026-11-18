@@ -260,11 +260,14 @@ export function attachRelayService(
     operation: import("@ace/protocol").FileOperation | undefined,
     workspaceId: import("@ace/protocol").WorkspaceId | undefined,
   ) => {
+    const tool = options.filesNative?.tool;
     if (workspaceId !== undefined) {
       if (!options.threadFiles) throw new Error("Project files unavailable");
-      return projectFilesBinding(options.threadFiles, workspaceId, operation, () =>
+      const binding = await projectFilesBinding(options.threadFiles, workspaceId, operation, () =>
         authorize("read"),
       );
+      if (binding.root !== undefined) void tool?.warm(binding.root);
+      return binding;
     }
     if (scope === "support" && options.supportFiles)
       return {
@@ -293,6 +296,7 @@ export function attachRelayService(
       };
     }
     const root = files.root(threadId);
+    void tool?.warm(root);
     const { service, release } = await files.acquire(threadId);
     let source: ThreadId | undefined;
     try {

@@ -97,8 +97,9 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
     await tool.listFolder(checkout, "");
     await until(async () => (await tool.quickOpen(checkout, "main", 20)) !== undefined);
     await writeFile(join(checkout, "src", "after-start.ts"), "export const later = 1;\n");
-    await until(async () =>
-      (await tool.quickOpen(checkout, "afterstart", 20))?.includes("src/after-start.ts"),
+    await until(
+      async () =>
+        (await tool.quickOpen(checkout, "afterstart", 20))?.includes("src/after-start.ts") === true,
     );
     expect(await tool.quickOpen(checkout, "README", 20)).toContain("README.md");
   });

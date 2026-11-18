@@ -99,6 +99,22 @@ export class FilesTool {
     return this.#binary !== undefined;
   }
 
+  /**
+   * Open a checkout nobody asked to list yet, so its index is warm before the first quick open.
+   * Best effort: a machine without ace-files, or a folder that vanished, simply does not warm.
+   */
+  async warm(path: string): Promise<void> {
+    try {
+      await this.client();
+      await this.#rootBook().use(path, () => Promise.resolve());
+    } catch (error) {
+      this.#log("debug", "Could not warm a checkout for ace-files", {
+        path,
+        error: String(error),
+      });
+    }
+  }
+
   /** The folder ace-files would call a root, with missing folders as `NOT_FOUND`. */
   async canonical(path: string): Promise<string> {
     try {

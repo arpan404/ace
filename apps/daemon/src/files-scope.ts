@@ -34,14 +34,17 @@ export function filesScope(context: SocketContext): FilesScope {
     (context.canReadThread(source) && context.options.store.hasLiveThread(source));
   return async (threadId, scope, operation, workspaceId) => {
     const files = context.options.threadFiles;
+    const tool = context.options.filesNative?.tool;
     if (workspaceId !== undefined) {
       if (!files) throw new Error("Project files unavailable");
-      return projectFilesBinding(
+      const binding = await projectFilesBinding(
         files,
         workspaceId,
         operation,
         () => context.connected() && context.authorize("read"),
       );
+      if (binding.root !== undefined) void tool?.warm(binding.root);
+      return binding;
     }
     if (scope === "support") {
       const service = context.options.supportFiles;
@@ -71,6 +74,7 @@ export function filesScope(context: SocketContext): FilesScope {
       };
     }
     const root = files.root(threadId);
+    if (tool) void tool.warm(root);
     const { service, release } = await files.acquire(threadId);
     let source: ThreadId | undefined;
     try {
