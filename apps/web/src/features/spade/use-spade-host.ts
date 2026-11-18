@@ -19,7 +19,7 @@ export function useSpadeHost({ machines, fresh, mains, settled }: SpadeHosting) 
   const cache = useQueryClient();
   // A first choice this window writes keeps one time, so writing it again is the same record,
   // offered once, never a second, newer one.
-  const seededAt = useRef(Date.now());
+  const seededAt = useRef<number | undefined>(undefined);
   useEffect(() => {
     const seen = machines.flatMap((machine, index) => {
       const agents = fresh[index];
@@ -41,6 +41,7 @@ export function useSpadeHost({ machines, fresh, mains, settled }: SpadeHosting) 
       (machine, index) =>
         !machine.client || mains[index] !== undefined || fresh[index] === undefined,
     );
+    seededAt.current ??= Date.now();
     const sync = spadeHostSync(seen, settled && everyAnswered, own, seededAt.current);
     const choice = sync.choice;
     if (!choice) return;
