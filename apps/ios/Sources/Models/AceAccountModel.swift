@@ -168,6 +168,27 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         } catch { self.error = "Couldn't sign out. Reconnect and try again." }
     }
 
+    /// Deletes the ace account everywhere (`DELETE /v1/account`), then forgets it here as
+    /// signing out does. A failure keeps the account, so the person can try again.
+    func deleteAccount() async {
+        guard let token, !busy else { return }
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            let _: [String: Bool] = try await call("", method: "DELETE", token: token)
+            if !forget() { error = "Account deleted. Couldn't clear the saved account session." }
+        } catch AccountFailure.expired {
+            forget()
+            error = "Your session ended. Sign in again to delete your account."
+        } catch { self.error = "Couldn't delete your account. Reconnect and try again." }
+    }
+
+    /// Drops the session on this phone and its saved copy; false when the copy stayed.
+    @discardableResult private func forget() -> Bool {
+        token = nil; account = nil; picture = nil
+        return (try? secrets.delete(key)) != nil
+    }
+
     /// Reads the picture once per session. Only PNG, JPEG, WebP or GIF up to 1 MiB, as the web.
     private func loadPicture() async {
         guard let origin, let token, account?.picture == true else { picture = nil; return }
@@ -203,7 +224,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     }
     private func call<T: Decodable>(_ path: String, method: String = "GET", token: String? = nil, body: [String: String]? = nil) async throws -> T {
         guard let origin else { throw AccountFailure.request }
-        var request = URLRequest(url: origin.appending(path: "v1/account/\(path)"))
+        var request = URLRequest(url: origin.appending(path: path.isEmpty ? "v1/account" : "v1/account/\(path)"))
         request.httpMethod = method; request.timeoutInterval = 15
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
