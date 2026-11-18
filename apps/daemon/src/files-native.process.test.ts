@@ -1,0 +1,282 @@
+// Reason: the socket contract for list.folder, files.watch and quick open only holds end to end, through a real daemon and a real ace-files.
+import { once } from "node:events";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { WebSocket } from "ws";
+import { afterEach, describe, expect, it } from "vitest";
+import { connectClientViaRelay, startRelay } from "@ace/relay";
+import { ServerMessage, ThreadId } from "@ace/protocol";
+import { startDaemon, createDevThread } from "./index.ts";
+import { findFilesBinary } from "./files-tool/tool.ts";
+import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
+
+const cleanup: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of cleanup.splice(0).toReversed()) await close();
+});
+
+type Message = Record<string, unknown>;
+
+/** Replies to what this test sends; anything else the daemon pushes is left alone. */
+class Inbox {
+  readonly socket: WebSocket;
+  #queue: Message[] = [];
+  #waiters: { test: (message: Message) => boolean; resolve: (message: Message) => void }[] = [];
+
+  constructor(socket: WebSocket) {
+    this.socket = socket;
+    this.socket.on("message", (data) => {
+      const message = JSON.parse(data.toString()) as Message;
+      const waiting = this.#waiters.findIndex((waiter) => waiter.test(message));
+      if (waiting >= 0) this.#waiters.splice(waiting, 1)[0]?.resolve(message);
+      else this.#queue.push(message);
+    });
+  }
+
+  send(message: unknown): void {
+    this.socket.send(JSON.stringify(message));
+  }
+
+  next(test: (message: Message) => boolean): Promise<Message> {
+    const queued = this.#queue.findIndex(test);
+    if (queued >= 0) {
+      const [message] = this.#queue.splice(queued, 1);
+      if (message) return Promise.resolve(message);
+    }
+    return new Promise((resolve) => this.#waiters.push({ test, resolve }));
+  }
+
+  files(requestId: string): Promise<Message> {
+    return this.next(
+      (message) =>
+        (message.type === "files.result" || message.type === "files.error") &&
+        message.requestId === requestId,
+    );
+  }
+}
+
+/** A relayed client's replies, read through one pump so no two reads race. */
+class RemoteInbox {
+  #queue: ServerMessage[] = [];
+  #waiters: {
+    test: (message: ServerMessage) => boolean;
+    resolve: (message: ServerMessage) => void;
+  }[] = [];
+
+  constructor(remote: Awaited<ReturnType<typeof connectClientViaRelay>>) {
+    void (async () => {
+      try {
+        for (;;) {
+          const message = ServerMessage.parse(await remote.receive());
+          const waiting = this.#waiters.findIndex((waiter) => waiter.test(message));
+          if (waiting >= 0) this.#waiters.splice(waiting, 1)[0]?.resolve(message);
+          else this.#queue.push(message);
+        }
+      } catch {
+        // The client closed; there is nothing left to read.
+      }
+    })();
+  }
+
+  next(test: (message: ServerMessage) => boolean): Promise<ServerMessage> {
+    const queued = this.#queue.findIndex(test);
+    if (queued >= 0) {
+      const [message] = this.#queue.splice(queued, 1);
+      if (message) return Promise.resolve(message);
+    }
+    return new Promise((resolve) => this.#waiters.push({ test, resolve }));
+  }
+}
+
+function delay(ms: number): Promise<undefined> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** One daemon around a checkout with a thread, optionally reachable through a relay. */
+async function boot(options: { relayUrl?: string } = {}) {
+  const home = await mkdtemp(join(tmpdir(), "ace-files-native-"));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  const root = join(home, "workspace");
+  await mkdir(join(root, "src"), { recursive: true });
+  await writeFile(join(root, "src", "hello.ts"), "export const hello = 1;\n");
+  const daemon = await startDaemon({
+    engine: noProviderDiscovery,
+    config: {
+      dataDir: join(home, "data"),
+      workspaceRoot: root,
+      host: "127.0.0.1",
+      port: 0,
+      listen: "local",
+      remotePort: 0,
+      logLevel: "silent",
+      ...(options.relayUrl ? { relayUrl: options.relayUrl } : {}),
+    },
+  });
+  cleanup.push(() => daemon.close());
+  const workspace = daemon.store.createWorkspace(root, "Workspace");
+  const thread = createDevThread(daemon.store, workspace);
+  return { home, root, daemon, thread };
+}
+
+/** A host-credential socket on the daemon's main port. */
+async function connect(daemon: Awaited<ReturnType<typeof boot>>["daemon"]) {
+  const client = new Inbox(new WebSocket(daemon.url));
+  cleanup.push(() => {
+    client.socket.terminate();
+    return Promise.resolve();
+  });
+  await once(client.socket, "open");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: "files-native-test",
+    token: (await readFile(daemon.tokenPath, "utf8")).trim(),
+  });
+  expect(await client.next((message) => message.type === "welcome")).toMatchObject({
+    type: "welcome",
+  });
+  return client;
+}
+
+describe.skipIf(!findFilesBinary())("the daemon's ace-files over its socket", () => {
+  it("lists a folder, reports a changed folder and answers quick open", async () => {
+    const { root, daemon, thread } = await boot();
+    const client = await connect(daemon);
+
+    client.send({
+      type: "files.request",
+      requestId: "list-root",
+      threadId: thread.id,
+      operation: { op: "list.folder", path: "" },
+    });
+    expect(await client.files("list-root")).toMatchObject({
+      type: "files.result",
+      value: { nextCursor: null },
+    });
+    client.send({
+      type: "files.request",
+      requestId: "list-src",
+      threadId: thread.id,
+      operation: { op: "list.folder", path: "src" },
+    });
+    expect(await client.files("list-src")).toMatchObject({
+      type: "files.result",
+      value: {
+        entries: [{ name: "hello.ts", path: "src/hello.ts", kind: "file", ignored: false }],
+        nextCursor: null,
+      },
+    });
+
+    client.send({ type: "files.watch", threadId: thread.id, folders: ["src"] });
+    const changed = client.next((message) => message.type === "files.folders_changed");
+    for (let attempt = 0; attempt < 50; attempt++) {
+      await writeFile(join(root, "src", `watch-${attempt}.ts`), "export const later = 1;\n");
+      if (await Promise.race([changed.then(() => true), delay(100).then(() => false)])) break;
+    }
+    expect(await changed).toMatchObject({
+      type: "files.folders_changed",
+      threadId: thread.id,
+      folders: ["src"],
+      rescan: false,
+    });
+
+    let paths: string[] = [];
+    for (let attempt = 0; attempt < 60; attempt++) {
+      client.send({
+        type: "context.request",
+        requestId: "quick-open",
+        operation: {
+          op: "mention.complete",
+          threadId: ThreadId.parse(thread.id),
+          query: "hello",
+          limit: 50,
+        },
+      });
+      const reply = await client.next(
+        (message) => message.type === "context.result" && message.requestId === "quick-open",
+      );
+      const result = reply.result as { kind?: string; paths?: unknown };
+      if (result.kind === "completion" && Array.isArray(result.paths)) {
+        paths = result.paths.filter((path): path is string => typeof path === "string");
+        if (paths.includes("src/hello.ts")) break;
+      }
+      await delay(100);
+    }
+    expect(paths).toContain("src/hello.ts");
+  }, 25_000);
+
+  it("refuses listings for a thread that is not live and in the support scope", async () => {
+    const { daemon } = await boot();
+    const client = await connect(daemon);
+    client.send({
+      type: "files.request",
+      requestId: "missing",
+      threadId: ThreadId.parse("gone-thread"),
+      operation: { op: "list.folder", path: "" },
+    });
+    expect(await client.files("missing")).toMatchObject({ type: "files.error" });
+    client.send({
+      type: "files.request",
+      requestId: "support",
+      scope: "support",
+      operation: { op: "list.folder", path: "" },
+    });
+    expect(await client.files("support")).toMatchObject({
+      type: "files.error",
+      code: "FORBIDDEN",
+    });
+  });
+
+  it("serves a paired phone's folder listing and watch over the relay", async () => {
+    const relay = await startRelay();
+    cleanup.push(() => relay.close());
+    const { root, daemon, thread } = await boot({ relayUrl: relay.url });
+    const hostId = daemon.relayHostId;
+    const fingerprint = daemon.relayFingerprint;
+    if (!hostId || !fingerprint) throw new Error("No relay endpoint on the daemon");
+    const paired = daemon.store.devices.create("Phone", ["read"], 1);
+    const remote = await connectClientViaRelay({
+      relayUrl: relay.url,
+      hostId,
+      pinnedFingerprint: fingerprint,
+    });
+    cleanup.push(async () => {
+      remote.close();
+      await remote.closed;
+    });
+    await remote.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: paired.device.id,
+      token: paired.token,
+      channel: "files",
+    });
+    const inbox = new RemoteInbox(remote);
+    expect(await inbox.next((message) => message.type === "welcome")).toMatchObject({
+      type: "welcome",
+    });
+    await remote.send({
+      type: "files.request",
+      requestId: "relay-list",
+      threadId: thread.id,
+      operation: { op: "list.folder", path: "src", limit: 500 },
+    });
+    expect(await inbox.next((message) => message.type.startsWith("files."))).toMatchObject({
+      type: "files.result",
+      value: { entries: [{ path: "src/hello.ts" }] },
+    });
+
+    await remote.send({ type: "files.watch", threadId: thread.id, folders: ["src"] });
+    const changed = inbox.next((message) => message.type === "files.folders_changed");
+    for (let attempt = 0; attempt < 50; attempt++) {
+      await writeFile(join(root, "src", `relay-${attempt}.ts`), "export const relayed = 1;\n");
+      if (await Promise.race([changed.then(() => true), delay(100).then(() => false)])) break;
+    }
+    expect(await changed).toMatchObject({
+      type: "files.folders_changed",
+      threadId: thread.id,
+      folders: ["src"],
+    });
+  }, 25_000);
+});

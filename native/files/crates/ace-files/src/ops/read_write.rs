@@ -39,11 +39,17 @@ pub struct WriteOp {
 }
 
 /// Read one range, ready to be answered as metadata plus a body frame.
+///
+/// A cancel that arrives before the read starts stops it; one that arrives after the bytes are in
+/// hand changes nothing, since the read has happened.
 pub fn read(shared: &Shared, cancel: &Cancel, op: &ReadOp) -> Result<(ReadMeta, Vec<u8>), Error> {
     if op.length > u64::from(MAX_BODY_LEN) {
         return Err(Error::InvalidArgument(format!(
             "a read returns at most {MAX_BODY_LEN} bytes; page through the file"
         )));
+    }
+    if cancel.cancelled() {
+        return Err(Error::Aborted);
     }
     let entry = shared.roots.get(op.root)?;
     let range = ReadRange {
@@ -52,9 +58,6 @@ pub fn read(shared: &Shared, cancel: &Cancel, op: &ReadOp) -> Result<(ReadMeta, 
         max_size: op.max_size,
     };
     let read = io_read(entry.root(), &op.path, range)?;
-    if cancel.cancelled() {
-        return Err(Error::Aborted);
-    }
     let meta = convert::read_meta(&read);
     Ok((meta, read.bytes))
 }

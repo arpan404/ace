@@ -11,22 +11,23 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use files_index::{IndexChange, IndexOptions, PathIndex};
+use tokio::runtime::Handle;
+
+use files_index::PathIndex;
 use files_list::Lister;
 use files_safe::Root;
 use files_watch::{Batch, WatchOptions, Watcher};
-use files_wire::IndexResult;
 
-use crate::convert;
 use crate::error::Error;
 use crate::guard;
-use crate::io::Out;
 use crate::ops::watch;
-use crate::subscriptions::Subscriptions;
+use crate::quick_open::IndexBook;
+use crate::subscriptions::{Kind, Subscriptions};
+use crate::writer::Out;
 
 /// Quiet period that closes a watch batch, as the plan fixes it.
 const DEBOUNCE: Duration = Duration::from_millis(75);
@@ -41,35 +42,45 @@ const MAX_BATCH: usize = 5_000;
 /// The longest a change waits while writes keep arriving, so a busy file can't delay the rest.
 const MAX_WAIT: Duration = Duration::from_secs(1);
 
-/// The answer while the index is still being built: nothing to search yet, and not an error.
-fn empty_index() -> IndexResult {
-    IndexResult {
-        hits: Vec::new(),
-        total: 0,
-        truncated: false,
-        ready: false,
-    }
-}
+/// How many root entries the process holds. Test-only: with `ACE_FILES_LIVE_ROOTS` set, the
+/// binary prints the count on stderr whenever a root is dropped, so a test can prove `closeRoot`
+/// released its root rather than leaking the watcher that points back at it.
+static LIVE_ROOTS: AtomicUsize = AtomicUsize::new(0);
 
 /// Every root the daemon has open, by the number `openRoot` handed out.
-#[derive(Default)]
 pub struct Roots {
     inner: Mutex<HashMap<u64, Arc<RootEntry>>>,
     next: AtomicU64,
+    /// Where a rebuild is spawned from. The watcher thread asks for one, and it has no runtime of
+    /// its own.
+    handle: Handle,
 }
 
 impl Roots {
+    /// The open roots of one running daemon.
+    pub fn new(handle: Handle) -> Roots {
+        Roots {
+            inner: Mutex::new(HashMap::new()),
+            next: AtomicU64::new(0),
+            handle,
+        }
+    }
+
     /// Open a checkout and keep it until `closeRoot`.
     pub fn open(&self, path: &Path) -> Result<Arc<RootEntry>, Error> {
         let root = Root::open(path)?;
         let lister = Arc::new(Lister::new(root.clone()));
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        LIVE_ROOTS.fetch_add(1, Ordering::Relaxed);
         let entry = Arc::new(RootEntry {
             id,
             root,
             lister,
             index: RwLock::new(None),
-            build: Arc::new(AtomicBool::new(false)),
+            book: Mutex::new(IndexBook::default()),
+            build: AtomicBool::new(false),
+            handle: self.handle.clone(),
+            closed: AtomicBool::new(false),
             watcher: Mutex::new(None),
         });
         guard::lock(&self.inner)?.insert(id, Arc::clone(&entry));
@@ -92,12 +103,29 @@ impl Roots {
 
 /// One open checkout and everything shared by the requests that name it.
 pub struct RootEntry {
-    id: u64,
-    root: Root,
+    pub(crate) id: u64,
+    pub(crate) root: Root,
     lister: Arc<Lister>,
-    index: RwLock<Option<PathIndex>>,
-    build: Arc<AtomicBool>,
+    /// The index quick open is served from. An `Arc` so a watcher batch can prepare its update on
+    /// a clone, without holding the read lock across the walk `prepare` does.
+    pub(crate) index: RwLock<Option<Arc<PathIndex>>>,
+    pub(crate) book: Mutex<IndexBook>,
+    pub(crate) build: AtomicBool,
+    /// Where a rebuild is spawned from, for the watcher thread that has no runtime of its own.
+    pub(crate) handle: Handle,
+    /// Set by `closeRoot` before anything is torn down. A watcher start or a subscription that
+    /// races the close sees it and refuses, so a closed root leaves no thread or subscription.
+    closed: AtomicBool,
     watcher: Mutex<Option<Watcher>>,
+}
+
+impl Drop for RootEntry {
+    fn drop(&mut self) {
+        let live = LIVE_ROOTS.fetch_sub(1, Ordering::Relaxed) - 1;
+        if std::env::var_os("ACE_FILES_LIVE_ROOTS").is_some() {
+            eprintln!("ace-files: live-roots {live}");
+        }
+    }
 }
 
 impl RootEntry {
@@ -116,28 +144,41 @@ impl RootEntry {
         &self.lister
     }
 
-    /// Build the quick-open index in the background, right after the root opens.
-    pub fn start_index(self: &Arc<Self>) {
-        let entry = Arc::clone(self);
-        tokio::task::spawn_blocking(move || entry.build_index());
+    /// Whether `closeRoot` already claimed this root.
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
     }
 
-    /// Stop a build that is still walking, so closing a root does not leave it reading a tree
-    /// nobody asked about.
-    pub fn stop_index(&self) {
-        self.build.store(true, Ordering::Relaxed);
+    /// Claim the root for closing: a watcher start or a new subscription that has not looked yet
+    /// sees the flag and backs out, and a build that is still walking stops at its next file.
+    pub fn close(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+        self.stop_index();
     }
 
-    /// Walk the checkout into a path index and publish it.
-    fn build_index(&self) {
-        match PathIndex::build(&self.root, &IndexOptions::default(), &self.build) {
-            Ok(index) => {
-                if let Ok(mut slot) = guard::write(&self.index) {
-                    *slot = Some(index);
-                }
-            }
-            Err(files_index::Error::Aborted) => {}
-            Err(error) => eprintln!("ace-files: index for root {}: {error}", self.id),
+    /// Take the watcher out of its slot, so dropping it joins its worker thread somewhere the
+    /// caller chooses: `closeRoot` does that on a blocking thread, never on a runtime worker.
+    pub fn take_watcher(&self) -> Option<Watcher> {
+        guard::lock(&self.watcher)
+            .ok()
+            .and_then(|mut slot| slot.take())
+    }
+
+    /// Register a watch or search subscription on this root unless `closeRoot` closed it first.
+    /// The flag and the registry are checked under one lock, so a close that races a subscription
+    /// leaves neither a live subscription nor a watcher behind.
+    pub fn subscribe(
+        &self,
+        subscriptions: &Subscriptions,
+        kind: Kind,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<u64, Error> {
+        match subscriptions.create(self.id, kind, cancel, &self.closed)? {
+            Some(id) => Ok(id),
+            None => Err(Error::InvalidArgument(format!(
+                "root {} was closed",
+                self.id
+            ))),
         }
     }
 
@@ -152,6 +193,12 @@ impl RootEntry {
         out: &Out,
     ) -> Result<(), Error> {
         let mut slot = guard::lock(&self.watcher)?;
+        if self.is_closed() {
+            return Err(Error::InvalidArgument(format!(
+                "root {} was closed",
+                self.id
+            )));
+        }
         if slot.is_some() {
             return Ok(());
         }
@@ -168,69 +215,5 @@ impl RootEntry {
         };
         *slot = Some(Watcher::start(self.root.clone(), options, sink)?);
         Ok(())
-    }
-
-    /// Answer a quick-open query. Before the build lands there is nothing to search, which the
-    /// daemon shows as an empty list rather than an error.
-    pub fn index_query(&self, query: &str, limit: usize) -> IndexResult {
-        let index = match guard::read(&self.index) {
-            Ok(index) => index,
-            Err(_) => return empty_index(),
-        };
-        match index.as_ref() {
-            None => empty_index(),
-            Some(index) => IndexResult {
-                hits: index
-                    .search(query, limit)
-                    .into_iter()
-                    .map(convert::hit)
-                    .collect(),
-                total: u64::try_from(index.len()).unwrap_or(u64::MAX),
-                truncated: index.truncated(),
-                ready: true,
-            },
-        }
-    }
-
-    /// Rebuild the index after the watcher lost track of the tree, so quick open drops paths a
-    /// rescan made stale. A build that is still running already walks the whole checkout, so it
-    /// needs no restart.
-    pub fn rescan_index(self: &Arc<Self>) {
-        let built = matches!(guard::read(&self.index), Ok(slot) if slot.is_some());
-        if !built {
-            return;
-        }
-        if let Ok(mut slot) = guard::write(&self.index) {
-            *slot = None;
-        }
-        self.start_index();
-    }
-
-    /// Fold a watcher batch into the index: created folders are walked outside the write lock, so
-    /// quick open keeps answering while a large folder is being indexed.
-    pub fn apply_changes(&self, changes: &[IndexChange]) {
-        let prepared = {
-            let index = match guard::read(&self.index) {
-                Ok(index) => index,
-                Err(_) => return,
-            };
-            match index.as_ref() {
-                Some(index) => index.prepare(&self.root, changes),
-                None => return,
-            }
-        };
-        match guard::write(&self.index) {
-            Ok(mut index) => {
-                if let Some(index) = index.as_mut() {
-                    index.commit(prepared);
-                }
-            }
-            Err(error) => {
-                eprintln!(
-                    "ace-files: cannot update the index of root {}: {error}",
-                    self.id
-                )
-            }
-        }
     }
 }

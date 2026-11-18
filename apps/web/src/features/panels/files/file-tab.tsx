@@ -34,7 +34,6 @@ import { FindBar } from "./find-bar.tsx";
 import { useChangeMarks } from "./use-change-marks.ts";
 import { useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
-import { checkoutChanged } from "./checkout-refresh.ts";
 
 const TextEditor = lazy(() =>
   import("./text-editor.tsx").then((module) => ({ default: module.TextEditor })),
@@ -98,7 +97,8 @@ export function FileTab(props: TabViewProps) {
                 event.threadId === threadId && event.payload.type === "workspace.files_changed",
             ))
         ) {
-          checkoutChanged();
+          // The lazy tree follows agents through files.folders_changed; this only refreshes
+          // the open file's content.
           void queries.invalidateQueries({ queryKey: ["checkout"] });
         }
       }),

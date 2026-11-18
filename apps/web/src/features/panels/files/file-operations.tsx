@@ -44,8 +44,8 @@ export function FileOperations(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const manager = fileManagement(client, props.threadId);
-  const refresh = () => {
-    checkoutChanged();
+  const refresh = (paths: readonly (string | undefined)[]) => {
+    checkoutChanged(props.threadId, paths);
     void queries.invalidateQueries({ queryKey: ["checkout"] });
   };
   if (op.kind === "archive")
@@ -83,7 +83,7 @@ export function FileOperations(props: {
           throw new Error("Keep the same folder when renaming. Use Move to change folders.");
       }
       const result = await manager.mutate(mutation);
-      refresh();
+      refresh([result.path, result.destination]);
       props.onChanged(result.path, result.destination);
       if (result.trashId) {
         const trashId = result.trashId;
@@ -94,7 +94,7 @@ export function FileOperations(props: {
             onClick: () => {
               void manager.mutate({ op: "restore", trashId, path: original, expected: null }).then(
                 () => {
-                  refresh();
+                  refresh([original]);
                   props.onChanged(original);
                 },
                 (failure: unknown) =>

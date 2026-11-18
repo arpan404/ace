@@ -4,13 +4,25 @@ import {
   folderKey,
   folderPageArrived,
   folderPageFailed,
+  folderRequestRepeated,
+  folderRequestSettled,
+  folderRequestStarted,
+  folderRequestLimit,
+  folderDepth,
+  orderedFolderRequests,
+  relistLimit,
+  retryPage,
   folderRows,
+  folderStopped,
   foldersToRelist,
   openedFolders,
   revealingFolders,
   startingFolderPage,
   toggledFolders,
+  visibleOpenFolders,
   watchedFolders,
+  emptyFolder,
+  noFolderRequests,
   type FolderStates,
 } from "./folder-tree.ts";
 
@@ -126,12 +138,67 @@ test("a folder still loading shows one Loading row and a folder with more pages 
     "file:a.ts",
     "more:Show more",
   ]);
-  folders = startingFolderPage(folders, "", false);
+  // Listing the folder again keeps its rows while the new page is on its way.
+  folders = startingFolderPage(folders, "", true);
   expect(folderRows(folders, new Set([""])).map((row) => `${row.kind}:${row.name}`)).toEqual([
     "folder:src",
     "file:a.ts",
-    "loading:Loading…",
   ]);
+});
+
+test("a folder with nothing listed yet shows Loading, and its row is busy", () => {
+  const folders = folderPageArrived({}, "", page([folder("src")], null, 1), undefined);
+  const rows = folderRows(folders, new Set(["", "src/"]));
+  expect(rows.map((row) => `${row.key}:${row.kind}:${row.busy}`)).toEqual([
+    "src/:folder:true",
+    "loading:src/:loading:false",
+  ]);
+  const listed = folderPageArrived(folders, "src/", page([file("src/a.ts")], null, 1), undefined);
+  expect(folderRows(listed, new Set(["", "src/"])).map((row) => `${row.key}:${row.busy}`)).toEqual([
+    "src/:false",
+    "src/a.ts:false",
+  ]);
+});
+
+test("stopping the request for a folder clears its loading state", () => {
+  const loading = startingFolderPage({}, "src/", true);
+  expect(loading["src/"]?.loading).toBe(true);
+  expect(folderStopped(loading, "src/")["src/"]?.loading).toBe(false);
+  expect(folderStopped({}, "src/")).toEqual({});
+});
+
+test("only folders with every ancestor open are visible, and folding keeps what they loaded", () => {
+  expect([...visibleOpenFolders(["", "apps/", "apps/web/"])]).toEqual(["", "apps/", "apps/web/"]);
+  expect([...visibleOpenFolders(["apps/web/"])]).toEqual([""]);
+  expect([...visibleOpenFolders(["apps/", "docs/", "docs/api/"])]).toEqual([
+    "",
+    "apps/",
+    "docs/",
+    "docs/api/",
+  ]);
+  let folders = folderPageArrived({}, "", page([folder("apps")], null, 1), undefined);
+  folders = folderPageArrived(folders, "apps/", page([folder("apps/web")], null, 1), undefined);
+  folders = folderPageArrived(
+    folders,
+    "apps/web/",
+    page([file("apps/web/a.ts")], null, 1),
+    undefined,
+  );
+  // Folding apps/ hides apps/web/'s rows without listing anything; its state waits for it.
+  expect(folderRows(folders, new Set(["apps/"])).map((row) => row.key)).toEqual([
+    "apps/",
+    "apps/web/",
+  ]);
+  expect(folders["apps/web/"]?.entries).toHaveLength(1);
+});
+
+test("retrying a failed next page asks for that page, not the folder's first", () => {
+  const first = folderPageArrived({}, "", page([file("a.ts")], "next", 2), undefined);
+  const failedMore = folderPageFailed(first, "", { code: "IO_ERROR", message: "Couldn't list." });
+  expect(retryPage(failedMore[""])).toEqual({ mode: "more", cursor: "next" });
+  const failedFirst = folderPageFailed({}, "src/", { code: "IO_ERROR", message: "Couldn't list." });
+  expect(retryPage(failedFirst["src/"])).toEqual({ mode: "first" });
+  expect(retryPage(undefined)).toEqual({ mode: "first" });
 });
 
 test("only open folders show their entries, one level under their folder", () => {
@@ -187,4 +254,69 @@ test("watch names the root and every open folder without trailing slashes, once"
   expect(watchedFolders(Array.from({ length: 600 }, (_, n) => `f${n}/`))).toHaveLength(512);
   expect(folderKey("src")).toBe("src/");
   expect(folderKey("")).toBe("");
+});
+
+test("a re-list asks for what the folder already shows, between 500 and 5000", () => {
+  expect(relistLimit(undefined)).toBe(500);
+  expect(relistLimit({ ...emptyFolder, entries: [] })).toBe(500);
+  expect(
+    relistLimit({
+      ...emptyFolder,
+      entries: Array.from({ length: 1200 }, (_, n) => file(`f${n}.ts`)),
+    }),
+  ).toBe(1200);
+  expect(
+    relistLimit({
+      ...emptyFolder,
+      entries: Array.from({ length: 9000 }, (_, n) => file(`f${n}.ts`)),
+    }),
+  ).toBe(5000);
+});
+
+test("a re-list asked for while a request is on its way happens once when it ends", () => {
+  let requests = folderRequestStarted(noFolderRequests, "src/", 1);
+  requests = folderRequestRepeated(requests, "src/");
+  requests = folderRequestRepeated(requests, "src/");
+  expect(requests.requests["src/"]).toEqual({ token: 1, dirty: true });
+  const settled = folderRequestSettled(requests, "src/", 1);
+  expect(settled.relist).toBe(true);
+  expect(settled.state.requests["src/"]).toBeUndefined();
+  // The same reply again is stale: no second re-list.
+  expect(folderRequestSettled(settled.state, "src/", 1)).toEqual({
+    state: settled.state,
+    relist: false,
+  });
+});
+
+test("a reply for a token the folder moved past is stale and leaves the newer request", () => {
+  let requests = folderRequestStarted(noFolderRequests, "src/", 1);
+  requests = folderRequestStarted(requests, "src/", 2);
+  expect(folderRequestSettled(requests, "src/", 1)).toEqual({ state: requests, relist: false });
+  expect(requests.requests["src/"]?.token).toBe(2);
+  expect(folderRequestRepeated(noFolderRequests, "src/").requests["src/"]).toBeUndefined();
+});
+
+test("pending requests go visible first, shallower first, then by path", () => {
+  expect(folderDepth("")).toBe(0);
+  expect(folderDepth("src/")).toBe(1);
+  expect(folderDepth("src/lib/")).toBe(2);
+  const visible = new Set(["", "src/", "src/lib/", "src/deep/"]);
+  const ordered = orderedFolderRequests(
+    [
+      { folder: "src/deep/", mode: "first" },
+      { folder: "hidden/deep/", mode: "first" },
+      { folder: "src/lib/", mode: "more" },
+      { folder: "hidden/", mode: "first" },
+      { folder: "src/", mode: "first" },
+    ],
+    visible,
+  );
+  expect(ordered.map((request) => request.folder)).toEqual([
+    "src/",
+    "src/deep/",
+    "src/lib/",
+    "hidden/",
+    "hidden/deep/",
+  ]);
+  expect(folderRequestLimit).toBe(6);
 });

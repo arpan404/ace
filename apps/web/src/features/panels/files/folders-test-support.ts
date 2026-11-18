@@ -34,6 +34,8 @@ export interface FolderRequestRecord {
   /** The folder asked for, without a trailing slash ("" is the root). */
   path: string;
   cursor: string | undefined;
+  /** How many entries the page asked for. */
+  limit: number;
 }
 
 export interface FolderFixture {
@@ -47,6 +49,12 @@ export interface FolderFixture {
   ignore(paths: readonly string[]): void;
   /** Push the daemon's `files.folders_changed` for this thread. */
   changed(folders: readonly string[], rescan?: boolean): void;
+  /** Push the daemon's `files.changed` for one path, as an agent's write does. */
+  changedFile(path: string): void;
+  /** Hold the next listing of `folder` until the returned function is called. */
+  hold(folder: string): () => void;
+  /** Fail the next listing of `folder` with `code`. */
+  failNext(folder: string, code: string): void;
 }
 
 const clean = (path: string) => path.replace(/\/+$/, "");
@@ -66,6 +74,9 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
   const requests: FolderRequestRecord[] = [];
   const watches: string[][] = [];
   const listeners = new Set<(message: ServerMessage) => void>();
+  const holds = new Map<string, Promise<void>>();
+  const failures = new Map<string, string[]>();
+  let changes = 0;
 
   type Patchable = {
     request(input: unknown, options?: unknown): Promise<unknown>;
@@ -126,7 +137,7 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
     if (operation.op !== "list.folder") return request(input, options);
     const requestId = envelope.data.requestId ?? "fixture-list.folder";
     const folder = clean(operation.path);
-    requests.push({ path: folder, cursor: operation.cursor });
+    requests.push({ path: folder, cursor: operation.cursor, limit: operation.limit });
     const offset = operation.cursor === undefined ? 0 : Number(operation.cursor);
     if (!Number.isInteger(offset) || offset < 0)
       return {
@@ -135,7 +146,17 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
         code: "INVALID_CURSOR",
         message: "Folder cursor is stale",
       };
-    const entries = entriesOf(await allPaths(), folder);
+    // The entries are read when the listing starts, so a held reply carries what it saw then.
+    const paths = await allPaths();
+    const held = holds.get(folder);
+    if (held) {
+      holds.delete(folder);
+      await held;
+    }
+    const failure = failures.get(folder)?.shift();
+    if (failure)
+      return { type: "files.error", requestId, code: failure, message: "Folder listing failed" };
+    const entries = entriesOf(paths, folder);
     const page = entries.slice(offset, offset + operation.limit);
     const nextCursor = offset + page.length < entries.length ? String(offset + page.length) : null;
     const value: FolderPage = { entries: page, nextCursor, total: entries.length };
@@ -168,6 +189,28 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
         rescan,
       });
       for (const listener of listeners) listener(message);
+    },
+    changedFile(path) {
+      const message = FilesServerMessage.parse({
+        type: "files.changed",
+        change: { id: `change-${++changes}`, op: "write", path, version: null },
+      });
+      for (const listener of listeners) listener(message);
+    },
+    hold(folder) {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      holds.set(clean(folder), gate);
+      return () => {
+        holds.delete(clean(folder));
+        release();
+      };
+    },
+    failNext(folder, code) {
+      const key = clean(folder);
+      failures.set(key, [...(failures.get(key) ?? []), code]);
     },
   };
 }

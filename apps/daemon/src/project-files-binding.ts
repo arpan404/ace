@@ -3,7 +3,7 @@ import type { FileOperation, WorkspaceId } from "@ace/protocol";
 import type { FilesWorkspaces } from "./files-workspaces.ts";
 
 /** What a device may do in a project's folder before any thread exists: read, nothing else. */
-const reads: ReadonlySet<string> = new Set(["list", "stat", "read", "download"]);
+const reads: ReadonlySet<string> = new Set(["list", "list.folder", "stat", "read", "download"]);
 
 /**
  * A `files.request` binding for a registered project's own folder. Read-only: listing, stat, read and
@@ -18,6 +18,7 @@ export async function projectFilesBinding(
   readable: () => boolean,
 ): Promise<{
   service: FilesService;
+  root?: string | undefined;
   release?(): void;
   allowed(access: "read" | "operate"): boolean;
   operation?: FileOperation;
@@ -47,6 +48,7 @@ export async function projectFilesBinding(
   const { service, release } = await files.acquireProject(workspaceId);
   return {
     service,
+    root,
     release,
     allowed: (access) => access === "read" && readable() && files.matchesProject(workspaceId, root),
   };
