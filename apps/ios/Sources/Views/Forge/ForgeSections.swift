@@ -91,3 +91,19 @@ struct ForgeLinkRow: View {
         .accessibilityIdentifier(identifier)
     }
 }
+
+/// The trailing value of a row that opens a menu (Milestone, Lock), drawn as Settings draws its
+/// menus: the value in muted ink beside the up and down chevrons.
+struct ForgeMenuValue: View {
+    let text: String
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.xxs) {
+            Text(text).lineLimit(1).contentTransition(.opacity)
+            Image(systemName: "chevron.up.chevron.down").font(AceDesign.Typeface.meta)
+        }
+        .font(AceDesign.Typeface.body)
+        .foregroundStyle(AceDesign.Ink.muted)
+        .frame(minHeight: AceDesign.Size.tap)
+        .contentShape(Rectangle())
+    }
+}
