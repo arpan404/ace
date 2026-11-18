@@ -4,6 +4,44 @@ A checklist for sending ace for iPhone and iPad to App Review. Items marked **Ow
 decision or a dashboard login that only the owner has. The desktop release is in
 [releasing.md](releasing.md).
 
+## Build and upload
+
+`apps/ios/scripts/archive.ts --upload` (`bun run release:upload` in `apps/ios`) archives a signed
+Release build and uploads it to App Store Connect, where it shows in TestFlight once Apple has
+processed it. The `iOS release` workflow (`.github/workflows/ios-release.yml`) runs the same
+script after the simulator tests pass. Submitting a build for review stays a step in App Store
+Connect.
+
+One-time setup (**Owner**):
+
+- [ ] Create the app in App Store Connect with bundle id `app.ace.ios`.
+- [ ] Create an App Store Connect API key (Users and Access › Integrations) with the **Admin**
+      role. Automatic signing uses it to create the distribution certificate and the profiles
+      for the app and its three extensions (`app.ace.ios.activity`, `.share`, `.notifications`)
+      and the `group.app.ace.ios` app group.
+- [ ] In GitHub, create an environment named `app-store` (Settings › Environments; add yourself
+      as a required reviewer if each upload should wait for approval), with these secrets:
+  - `ACE_IOS_TEAM_ID`: the Apple Developer team id.
+  - `APPLE_API_KEY_P8`: the whole `AuthKey_<id>.p8` file's text.
+  - `APPLE_API_KEY_ID`: the key id.
+  - `APPLE_API_ISSUER`: the issuer id shown above the keys list.
+
+Each release:
+
+1. Deploy ace cloud first when the build needs a new endpoint: it deploys from a `v*` tag
+   (`release.yml`), not from `ios-v*`.
+2. Push a tag such as `ios-v1.0.0`, which sets the version to 1.0.0, or run the `iOS release`
+   workflow by hand with an optional version and build number.
+3. The build number defaults to the UTC time (`YYYYMMDDHHmm`), so builds from CI and from a Mac
+   never collide and always increase.
+4. In App Store Connect, answer export compliance for the build if asked, add it to TestFlight
+   groups or to a version, and submit.
+
+From a Mac, without CI: set `ACE_IOS_TEAM_ID`, `APPLE_API_KEY` (the `.p8` file's path),
+`APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, then run `bun run release:upload` in `apps/ios`.
+`ACE_IOS_VERSION`, `ACE_IOS_BUILD_NUMBER` and `ACE_PUSH` (on by default for uploads) override
+the defaults.
+
 ## URLs
 
 - Privacy Policy: https://acehq.dev/privacy-policy/
