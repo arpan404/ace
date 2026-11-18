@@ -78,8 +78,13 @@ fn subject<'a>(s: &'a Screening<'_>) -> Option<Subject<'a>> {
 }
 
 /// The model's decision (`spade_classify::Model::decide`).
-pub fn decide(model: &Model, subject: &Subject<'_>, reviewing: Reviewing) -> (Prediction, Screen) {
-    model.decide(subject, reviewing)
+pub fn decide(
+    model: &Model,
+    subject: &Subject<'_>,
+    reviewing: Reviewing,
+    config_clean: spade_classify::ConfigTools,
+) -> (Prediction, Screen) {
+    model.decide(subject, reviewing, config_clean)
 }
 
 impl Engine {
@@ -103,7 +108,7 @@ impl Engine {
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
             return Ok(Screened::Review);
         };
-        let (prediction, screen) = decide(model, &subject, s.reviewing);
+        let (prediction, screen) = decide(model, &subject, s.reviewing, s.classed.config_clean);
         let (top, confidence) = prediction.top();
         self.decisions.append(&Logged {
             at: self.clock.now_ms(),

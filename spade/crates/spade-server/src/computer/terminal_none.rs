@@ -93,6 +93,10 @@ impl Terminal {
         std::path::PathBuf::new()
     }
 
+    pub fn start_environment(&self, _session: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
+
     pub fn attach(
         self: &Arc<Self>,
         _after: u64,

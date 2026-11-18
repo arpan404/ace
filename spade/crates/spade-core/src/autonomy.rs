@@ -156,6 +156,44 @@ pub struct Classed {
     /// places the command's paths against it (ADR 0172). `None` when it starts elsewhere or the
     /// folder is unknown, and then the classifier never settles it.
     pub workspace: Option<String>,
+    /// The tools whose configuration around the folder the command starts in was inspected and
+    /// names no program they would run (ADR 0172, amendment 2). The classifier never settles a
+    /// command that runs a tool not in it.
+    pub config_clean: ConfigTools,
+}
+
+/// Tools that read configuration from the project or its surroundings that can make them run a
+/// program the command never names: git (an fsmonitor, a pager, diff and filter drivers, hooks,
+/// aliases), the Node package managers (`.npmrc`'s `node-options` or `script-shell`, a
+/// `.pnpmfile.cjs`, `yarnPath`, `bunfig.toml`'s `preload`), cargo (`.cargo/config.toml` runners and
+/// wrappers, a toolchain `path`) and ripgrep (a config file's `--pre`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ConfigTools {
+    pub git: bool,
+    pub node: bool,
+    pub cargo: bool,
+    pub ripgrep: bool,
+}
+
+impl ConfigTools {
+    pub const ALL: Self = Self {
+        git: true,
+        node: true,
+        cargo: true,
+        ripgrep: true,
+    };
+
+    /// Whether every tool in `self` is also in `other`.
+    pub fn within(self, other: Self) -> bool {
+        (!self.git || other.git)
+            && (!self.node || other.node)
+            && (!self.cargo || other.cargo)
+            && (!self.ripgrep || other.ripgrep)
+    }
+
+    pub fn any(self) -> bool {
+        self.git || self.node || self.cargo || self.ripgrep
+    }
 }
 
 impl Classed {
@@ -206,6 +244,7 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         shown: assessed.shown,
         credentials,
         workspace: None,
+        config_clean: ConfigTools::default(),
     }
 }
 

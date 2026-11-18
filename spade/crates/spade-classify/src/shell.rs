@@ -5,11 +5,21 @@
 //! pipe into a shell, escapes, look-alike letters) and character n-grams of the whole text, so an
 //! obfuscated command still lands near what it hides.
 
+use spade_core::autonomy::ConfigTools;
 use spade_core::autonomy::shell::{self, Simple};
 
 use crate::hash::Bag;
+
+mod hiding;
+mod lists;
+
 use crate::shape;
 use crate::text;
+pub(crate) use hiding::carries_credential;
+use hiding::{configured, runs_with_secrets, sets_loader, union};
+use lists::{
+    DECODERS, GIT_NETWORK, NESTED, NETWORK, RUNS_ANOTHER, SHELLS, SUBCOMMANDS, TWO_LEVELS,
+};
 
 /// The most of a command read; past it the rest is cut, and that is a feature.
 const LONGEST: usize = 8 * 1024;
@@ -20,30 +30,6 @@ const MOST_COMMANDS: usize = 32;
 /// The most words read from one simple command, and tokens taken from its words.
 const MOST_WORDS: usize = 64;
 const MOST_TOKENS: usize = 96;
-
-/// Programs that run text they are given as code or as a command.
-const SHELLS: &[&str] = &[
-    "sh",
-    "bash",
-    "zsh",
-    "dash",
-    "ksh",
-    "fish",
-    "python",
-    "python3",
-    "node",
-    "perl",
-    "ruby",
-    "php",
-    "osascript",
-    "deno",
-    "bun",
-    "pwsh",
-    "powershell",
-    "lua",
-    "tclsh",
-    "awk",
-];
 
 /// What reading a command found besides its features, for whether it may ever be settled.
 #[derive(Debug, Default, Clone, Copy)]
@@ -60,426 +46,10 @@ pub(crate) struct Found {
     /// It may reach another machine: a program that can, or an argument naming a place on the
     /// network (a URL, a host, an address). Never settled while untrusted content is in view.
     pub network: bool,
+    /// The tools it runs that read configuration around the folder which can name a program for
+    /// them to run: never settled unless the gate inspected that and found none.
+    pub config: ConfigTools,
 }
-
-/// Programs that can reach another machine, whatever their arguments say. With untrusted content
-/// in view a command running one is never settled, so text it read can't be sent anywhere
-/// without a review. This list only ever makes the model more careful; it routes nothing.
-const NETWORK: &[&str] = &[
-    "curl",
-    "wget",
-    "http",
-    "https",
-    "xh",
-    "httpie",
-    "aria2c",
-    "ssh",
-    "scp",
-    "sftp",
-    "rsync",
-    "nc",
-    "ncat",
-    "netcat",
-    "socat",
-    "telnet",
-    "ftp",
-    "ping",
-    "dig",
-    "nslookup",
-    "host",
-    "whois",
-    "mtr",
-    "traceroute",
-    "gh",
-    "glab",
-    "hub",
-    "tea",
-    "aws",
-    "gcloud",
-    "gsutil",
-    "az",
-    "doctl",
-    "heroku",
-    "vercel",
-    "netlify",
-    "fly",
-    "flyctl",
-    "wrangler",
-    "firebase",
-    "supabase",
-    "railway",
-    "render",
-    "kubectl",
-    "helm",
-    "terraform",
-    "tofu",
-    "pulumi",
-    "docker",
-    "podman",
-    "npm",
-    "npx",
-    "pnpm",
-    "pnpx",
-    "yarn",
-    "bun",
-    "bunx",
-    "deno",
-    "pip",
-    "pip3",
-    "uv",
-    "uvx",
-    "poetry",
-    "pipenv",
-    "conda",
-    "mamba",
-    "cargo",
-    "rustup",
-    "go",
-    "gem",
-    "bundle",
-    "composer",
-    "brew",
-    "apt",
-    "apt-get",
-    "pacman",
-    "yay",
-    "paru",
-    "dnf",
-    "yum",
-    "snap",
-    "flatpak",
-    "nix",
-    "rclone",
-    "s3cmd",
-    "mail",
-    "mailx",
-    "sendmail",
-    "mutt",
-    "msmtp",
-    "osascript",
-    "open",
-    "xdg-open",
-    "stripe",
-    "op",
-    "vault",
-    "ollama",
-    "mvn",
-    "gradle",
-    "dotnet",
-    "swift",
-    "flutter",
-    "dart",
-    "jj",
-    "hg",
-    "svn",
-    "python",
-    "python3",
-    "node",
-    "perl",
-    "ruby",
-    "php",
-    "lua",
-    "sh",
-    "bash",
-    "zsh",
-    "dash",
-    "ksh",
-    "fish",
-    "pwsh",
-    "powershell",
-    "make",
-    "just",
-    "task",
-    "xargs",
-    "parallel",
-    "socket",
-];
-
-/// Programs that run a command with the person's secrets put into its environment (`doppler run
-/// -- ls`, `op run -- …`, `aws-vault exec prod -- …`): the command they wrap is what the parser
-/// shows, but it runs with the person's sign-ins, so the whole is never settled.
-const SECRET_RUNNERS: &[&str] = &[
-    "doppler",
-    "aws-vault",
-    "infisical",
-    "chamber",
-    "envchain",
-    "teller",
-    "dotenvx",
-    "berglas",
-    "varlock",
-    "summon",
-    "with-secrets",
-];
-
-/// Of programs with other uses, the subcommands that do the same (`op run`, `sops exec-env`).
-const SECRET_SUBCOMMANDS: &[(&str, &str)] = &[
-    ("op", "run"),
-    ("sops", "exec-env"),
-    ("sops", "exec-file"),
-    ("vault", "exec"),
-    ("gopass", "env"),
-    ("pass", "env"),
-];
-
-/// Whether `lower` starts a command, anywhere in it, with a program that injects the person's
-/// secrets. Read from the words as written, since the parser takes such wrappers off.
-fn runs_with_secrets(lower: &str) -> bool {
-    lower
-        .split(['\n', ';', '|', '&', '(', ')', '`', '{', '}'])
-        .any(|segment| {
-            let mut words = segment.split_whitespace().skip_while(|w| {
-                w.contains('=')
-                    || matches!(
-                        *w,
-                        "sudo"
-                            | "env"
-                            | "exec"
-                            | "command"
-                            | "nohup"
-                            | "time"
-                            | "then"
-                            | "do"
-                            | "!"
-                    )
-            });
-            let Some(first) = words.next() else {
-                return false;
-            };
-            let first = first.rsplit('/').next().unwrap_or(first);
-            let next = words.find(|w| !w.starts_with('-')).unwrap_or("");
-            SECRET_RUNNERS.contains(&first) || SECRET_SUBCOMMANDS.contains(&(first, next))
-        })
-}
-
-/// `git` subcommands that reach a remote.
-const GIT_NETWORK: &[&str] = &[
-    "fetch",
-    "pull",
-    "push",
-    "clone",
-    "ls-remote",
-    "submodule",
-    "remote",
-    "send-email",
-    "request-pull",
-    "archive",
-    "lfs",
-    "credential",
-];
-
-/// Options that make a program run another program it names, by program: a command with one
-/// hides what it runs, so it is never settled (`rg --pre`, `tar --to-command`, `rsync -e`).
-const RUNS_ANOTHER: &[(&str, &[&str])] = &[
-    ("rg", &["--pre"]),
-    (
-        "tar",
-        &[
-            "-I",
-            "--use-compress-program",
-            "--to-command",
-            "--checkpoint-action",
-            "--info-script",
-            "--new-volume-script",
-            "-F",
-        ],
-    ),
-    ("sort", &["--compress-program"]),
-    ("rsync", &["-e", "--rsh", "--rsync-path"]),
-    (
-        "git",
-        &[
-            "-c",
-            "--config-env",
-            "--exec-path",
-            "--upload-pack",
-            "--receive-pack",
-            "--ext-diff",
-            "--textconv",
-        ],
-    ),
-    ("zip", &["-TT", "--unzip-command"]),
-    ("man", &["-P", "--pager", "-H"]),
-    ("less", &["--lesskey-src", "-k"]),
-    ("find", &["-exec", "-execdir", "-ok", "-okdir"]),
-    ("fd", &["-x", "--exec", "-X", "--exec-batch"]),
-    ("ssh", &["-o", "-F"]),
-    ("dpkg", &["--root"]),
-    ("vim", &["-c", "--cmd", "-S"]),
-    ("nvim", &["-c", "--cmd", "-S"]),
-    ("emacs", &["--eval", "-l", "--load"]),
-    ("watch", &["-x"]),
-    ("entr", &[]),
-];
-
-/// Programs whose first word is a subcommand (`git push`, `npm publish`): for them the
-/// subcommand is a key part of what the command is, so one never seen in a low-risk command
-/// is never settled. For any other program the first argument is data (a file, a pattern).
-/// This list only ever makes the model more careful; it routes nothing.
-const SUBCOMMANDS: &[&str] = &[
-    "git",
-    "gh",
-    "npm",
-    "pnpm",
-    "yarn",
-    "bun",
-    "deno",
-    "cargo",
-    "go",
-    "rustup",
-    "uv",
-    "pip",
-    "pip3",
-    "poetry",
-    "gem",
-    "bundle",
-    "brew",
-    "apt",
-    "apt-get",
-    "dnf",
-    "docker",
-    "podman",
-    "kubectl",
-    "helm",
-    "terraform",
-    "aws",
-    "gcloud",
-    "gsutil",
-    "az",
-    "doctl",
-    "heroku",
-    "vercel",
-    "netlify",
-    "fly",
-    "flyctl",
-    "firebase",
-    "wrangler",
-    "serverless",
-    "stripe",
-    "op",
-    "pass",
-    "vault",
-    "security",
-    "systemctl",
-    "launchctl",
-    "defaults",
-    "diskutil",
-    "dscl",
-    "xcrun",
-    "shortcuts",
-    "dotnet",
-    "swift",
-    "mvn",
-    "gradle",
-    "rclone",
-    "twine",
-    "flutter",
-    "dart",
-    "composer",
-    "conda",
-    "mamba",
-    "nix",
-    "jj",
-    "hg",
-    "svn",
-    "glab",
-    "tea",
-    "kubectx",
-    "minikube",
-    "colima",
-    "lima",
-    "multipass",
-    "ollama",
-    "supabase",
-    "railway",
-    "render",
-    "pulumi",
-    "hyprctl",
-    "omarchy",
-    "journalctl",
-    "nmcli",
-    "tmux",
-    "zellij",
-];
-
-/// Of those, the ones whose second word is a subcommand too (`gh pr create`, `aws s3 cp`).
-const TWO_LEVELS: &[&str] = &[
-    "gh",
-    "aws",
-    "gcloud",
-    "az",
-    "kubectl",
-    "docker",
-    "podman",
-    "stripe",
-    "op",
-    "glab",
-    "doctl",
-    "heroku",
-    "firebase",
-    "supabase",
-    "jj",
-    "rustup",
-    "terraform",
-    "pulumi",
-    "dotnet",
-    "flutter",
-    "dart",
-    "vault",
-    "minikube",
-    "colima",
-    "multipass",
-];
-
-/// Subcommands whose next word says what they do (`git remote add`, `git stash drop`, `git bisect
-/// run`, `brew services start`, `npm config set`): that word is a key part too. Other programs'
-/// second words are data (a branch, a file, a package), so they aren't keys.
-const NESTED: &[(&str, &str)] = &[
-    ("git", "remote"),
-    ("git", "stash"),
-    ("git", "worktree"),
-    ("git", "submodule"),
-    ("git", "bisect"),
-    ("git", "notes"),
-    ("git", "lfs"),
-    ("git", "config"),
-    ("git", "credential"),
-    ("git", "reflog"),
-    ("hg", "bookmark"),
-    ("brew", "services"),
-    ("brew", "tap"),
-    ("npm", "config"),
-    ("npm", "token"),
-    ("npm", "access"),
-    ("npm", "owner"),
-    ("npm", "dist-tag"),
-    ("npm", "pkg"),
-    ("pnpm", "config"),
-    ("yarn", "config"),
-    ("yarn", "npm"),
-    ("bun", "pm"),
-    ("uv", "tool"),
-    ("uv", "pip"),
-    ("uv", "self"),
-    ("poetry", "config"),
-    ("poetry", "self"),
-    ("cargo", "owner"),
-    ("go", "mod"),
-    ("go", "env"),
-    ("helm", "repo"),
-    ("helm", "plugin"),
-    ("conda", "env"),
-    ("conda", "config"),
-    ("nix", "profile"),
-    ("hyprctl", "keyword"),
-    ("hyprctl", "dispatch"),
-    ("omarchy", "theme"),
-];
-
-/// Programs that decode text.
-const DECODERS: &[&str] = &[
-    "base64", "xxd", "openssl", "uudecode", "rev", "printf", "gunzip", "zcat",
-];
 
 /// The features of `command`, run from `workspace`, and what reading it found.
 pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) -> Found {
@@ -533,6 +103,16 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
         found.hides = true;
         found.network = true;
     }
+    if sets_loader(&lower) {
+        bag.add("M", &["sets_loader"]);
+        found.hides = true;
+    }
+    // A credential in the command: it acts with the person's sign-in.
+    if carries_credential(&folded.text) {
+        bag.add("M", &["carries_credential"]);
+        found.hides = true;
+        found.network = true;
+    }
     // Every word as written, wrappers included: the parser takes `sudo`, `env` or `nohup` off
     // what it reads, and the model should still see them.
     text::tokens(&lower, MOST_TOKENS, |t| bag.add("T", &[t]));
@@ -554,8 +134,32 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
             // More commands than Spade examines: what is past the window is unseen.
             found.dropped |= commands.len() > MOST_COMMANDS;
             let mut previous: Option<String> = None;
+            // Whether an earlier command moved to a folder other than the bot's own, where the
+            // configuration the gate inspected may not be the one that applies.
+            let mut moved = false;
             for simple in commands.iter().take(MOST_COMMANDS) {
                 let program = one(simple, previous.as_deref(), workspace, bag, &mut found);
+                let tools = configured(&program);
+                if tools.any() {
+                    if moved || simple.dir.is_some() {
+                        found.hides = true;
+                    }
+                    // `rg --no-config` reads no configuration.
+                    let ripgrep_plain =
+                        program == "rg" && simple.words.iter().any(|w| w == "--no-config");
+                    found.config = union(
+                        found.config,
+                        ConfigTools {
+                            ripgrep: tools.ripgrep && !ripgrep_plain,
+                            ..tools
+                        },
+                    );
+                }
+                if matches!(program.as_str(), "cd" | "pushd" | "popd" | "chdir") {
+                    let target = simple.words.get(1).map(|t| t.trim_end_matches('/'));
+                    let home = workspace.map(|w| w.trim_end_matches('/'));
+                    moved |= !(target == Some(".") || target.is_some() && target == home);
+                }
                 previous = Some(program);
             }
         }
@@ -640,7 +244,7 @@ fn one(
                         && !w.starts_with("--"))
             })
         });
-        // `entr` runs whatever it is given.
+        // `entr` runs whatever it is given; `mise` only through the subcommands listed.
         found.hides |= runs || options.is_empty();
     }
     // Names that run other text: what runs isn't the word the command shows.

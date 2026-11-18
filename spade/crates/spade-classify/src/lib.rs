@@ -10,6 +10,7 @@
 //!
 //! Pure and deterministic: the same input gives the same output, with no I/O and no network.
 
+mod ambient;
 mod hash;
 mod math;
 mod model;
@@ -22,8 +23,10 @@ use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use serde_json::Value;
+pub use spade_core::autonomy::ConfigTools;
 pub use spade_core::effect::{Effect, Mcp};
 
+pub use ambient::{Files, Found as FileRead, inspect};
 pub use hash::{BUCKETS, KNOWN_BITS, probes};
 pub use math::exp;
 pub use model::{Header, Invalid, Model, encode, known_bits, quantize, softmax};
@@ -91,6 +94,8 @@ pub struct Features {
     pub dropped: bool,
     /// It may reach another machine: never settled while untrusted content is in view.
     pub network: bool,
+    /// The tools it runs whose configuration could name a program for them to run.
+    pub config: ConfigTools,
 }
 
 pub fn features(subject: &Subject<'_>) -> Features {
@@ -111,6 +116,7 @@ pub fn features(subject: &Subject<'_>) -> Features {
         keys,
         dropped: found.dropped,
         network: found.network,
+        config: found.config,
     }
 }
 
@@ -127,6 +133,8 @@ pub struct Prediction {
     pub dropped: bool,
     /// It may reach another machine.
     pub network: bool,
+    /// The tools it runs whose configuration could name a program for them to run.
+    pub config: ConfigTools,
 }
 
 impl Prediction {
@@ -207,6 +215,7 @@ impl Model {
             dropped: features.dropped,
             known: self.knows(&features.keys),
             network: features.network,
+            config: features.config,
         }
     }
 
@@ -254,15 +263,25 @@ impl Model {
     /// reaches nothing); anything else it can only raise to the person or leave to the reviewer.
     /// A command that doesn't start in a known bot's folder is never settled: its paths can't be
     /// placed against it.
-    pub fn decide(&self, subject: &Subject<'_>, reviewing: Reviewing) -> (Prediction, Screen) {
+    ///
+    /// `config_clean` is the tools whose configuration around the command's folder the gate
+    /// inspected ([`inspect`]) and found naming no program to run.
+    pub fn decide(
+        &self,
+        subject: &Subject<'_>,
+        reviewing: Reviewing,
+        config_clean: ConfigTools,
+    ) -> (Prediction, Screen) {
         let prediction = self.predict(subject);
+        // A tool whose configuration could run a program settles only where the gate found its
+        // configuration runs nothing (ADR 0172, amendment 2).
         let shell = matches!(
             subject,
             Subject::Shell {
                 workspace: Some(_),
                 ..
             }
-        );
+        ) && prediction.config.within(config_clean);
         let screen = if shell && reviewing.may_settle() {
             self.screen(&prediction)
         } else if shell && reviewing.may_settle_read() {

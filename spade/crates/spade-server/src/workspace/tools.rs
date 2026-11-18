@@ -490,29 +490,46 @@ impl Tool for ShellTool {
         if asks && !asks_outside(arguments) {
             return Classed::sandboxed();
         }
-        let start = match &self.shell {
-            Commands::Terminal(terminals) => self
-                .place
-                .bots
-                .agent_for_key(key)
-                .and_then(|bot| terminals.of(&bot).ok())
-                .map(|terminal| terminal.start_dir(&self.place.bots.session_for_key(key)))
-                .filter(|dir| !dir.as_os_str().is_empty()),
-            Commands::OneShot(_) => None,
-        }
-        .unwrap_or_else(|| workspace.clone());
+        // Where the command starts, and the environment it starts with.
+        let (start, env) = match &self.shell {
+            Commands::Terminal(terminals) => {
+                let terminal = self
+                    .place
+                    .bots
+                    .agent_for_key(key)
+                    .and_then(|bot| terminals.of(&bot).ok());
+                let session = self.place.bots.session_for_key(key);
+                let start = terminal
+                    .as_ref()
+                    .map(|t| t.start_dir(&session))
+                    .filter(|dir| !dir.as_os_str().is_empty());
+                let env = terminal.map(|t| t.start_environment(&session));
+                (start, env)
+            }
+            Commands::OneShot(shell) => (None, Some(shell.environment(&workspace))),
+        };
+        let start = start.unwrap_or_else(|| workspace.clone());
         // The folder the classifier places paths against, when the command starts in it.
         // As Spade names it to the bot, so the paths the bot writes match it.
         let folder = std::fs::canonicalize(&workspace)
             .ok()
             .filter(|root| std::fs::canonicalize(&start).is_ok_and(|start| start.starts_with(root)))
             .map(|_| workspace.clone());
-        let classed = match super::place::FsPlace::new(start, &workspace) {
+        let classed = match super::place::FsPlace::new(start.clone(), &workspace) {
             Some(place) => classify_shell(arguments, &place),
             None => classify_shell(arguments, &Lexical),
         };
+        // What configuration around the folder could make git, a package manager, cargo or
+        // ripgrep run (ADR 0172, amendment 2); unknown without the command's environment.
+        let config_clean = match (&folder, env) {
+            (Some(_), Some(env)) => {
+                spade_classify::inspect(&super::ambient::Disk { env }, &start, &workspace)
+            }
+            _ => spade_core::autonomy::ConfigTools::default(),
+        };
         let classed = spade_core::autonomy::Classed {
             workspace: folder.map(|root| root.to_string_lossy().into_owned()),
+            config_clean,
             ..classed
         };
         // Asking to run outside: what it would run there is read now, so the request is bound

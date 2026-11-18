@@ -147,6 +147,8 @@ impl Tool for FakeTool {
             );
             spade_core::autonomy::Classed {
                 workspace: (!self.unplaced).then(|| "/workspace".to_owned()),
+                // As if the folder's configuration had been inspected and runs nothing.
+                config_clean: spade_core::autonomy::ConfigTools::ALL,
                 ..classed
             }
         } else {

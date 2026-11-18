@@ -338,5 +338,5 @@ fn input_past_the_feature_bounds_is_never_settled() {
     // A plain short command is still allowed to settle, so the gate is on the dropped input,
     // not on length: a long but complete line of known low-risk commands still settles.
     assert_eq!(screen("cat README.md"), Screen::LowRisk);
-    assert_eq!(screen(&"cat README.md; ".repeat(10)), Screen::LowRisk);
+    assert_eq!(screen(&"ls -la src; ".repeat(10)), Screen::LowRisk);
 }

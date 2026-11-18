@@ -400,6 +400,21 @@ impl Terminal {
             .unwrap_or_else(|| self.dir.clone())
     }
 
+    /// The environment `session`'s next command would start with: the terminal's, with the
+    /// variables carried from its last command over it (what Spade's classifier inspects
+    /// configuration through, ADR 0172 amendment 2).
+    pub fn start_environment(&self, session: &str) -> Vec<(String, String)> {
+        let carried = self.carried_in(session).env;
+        let mut vars: Vec<(String, String)> = self
+            .environment
+            .iter()
+            .filter(|(name, _)| !carried.iter().any(|(c, _)| c == name))
+            .cloned()
+            .collect();
+        vars.extend(carried);
+        vars
+    }
+
     fn carried_in(&self, session: &str) -> Carried {
         lock(&self.carried)
             .get(session)
