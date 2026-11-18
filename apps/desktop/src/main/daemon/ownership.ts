@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -68,10 +69,13 @@ export function readOwnership(home: string): Promise<OwnershipRecord | undefined
   return readJson(join(home, ownershipFile), OwnershipRecord);
 }
 
-/** Written whole and renamed into place, so a reader never sees half a record. */
+/**
+ * Written whole and renamed into place, so a reader never sees half a record; each write has its
+ * own partial file, so two at once both land.
+ */
 export async function writeOwnership(home: string, record: OwnershipRecord): Promise<void> {
   const path = join(home, ownershipFile);
-  const partial = `${path}.${record.pid}.tmp`;
+  const partial = `${path}.${randomUUID()}.tmp`;
   await writeFile(partial, JSON.stringify(record), { mode: 0o600 });
   await rename(partial, path);
 }

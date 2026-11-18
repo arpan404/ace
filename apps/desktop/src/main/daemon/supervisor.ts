@@ -54,6 +54,8 @@ export class DaemonSupervisor {
   private status: DaemonStatus = { state: "starting", source: "app", restarts: 0, paused: false };
   private daemon: LocalDaemon | undefined;
   private child: Child | undefined;
+  /** The child recorded as the app's (`recordOwned`), so a quit leaves it for the next launch. */
+  private recorded: Child | undefined;
   private crashes = 0;
   /** The next start, and the daemon it starts, leave off what kept failing (ADR 0175). */
   private safeMode = false;
@@ -161,8 +163,8 @@ export class DaemonSupervisor {
     return this.transition(false, async () => {
       const child = this.child;
       if (!child || child.done) return;
-      const recorded = (await this.ports.recordOwned?.(child.process).catch(() => false)) ?? false;
-      if (recorded) {
+      if (this.recorded !== child) await this.record(child);
+      if (this.recorded === child) {
         this.ports.log("info", "Leaving the daemon running", { pid: child.process.pid });
         return;
       }
@@ -255,6 +257,8 @@ export class DaemonSupervisor {
       if (this.stale(generation)) return;
       if (!owned) return this.adopt(existing, generation);
       const adopted = this.track(owned.process);
+      // Its record names it already: the next launch adopts it as this one did.
+      if (!owned.replace) this.recorded = adopted;
       if (!owned.replace) {
         this.ports.log("info", "Adopted the daemon an earlier launch left running", {
           pid: owned.process.pid,
@@ -531,8 +535,8 @@ export class DaemonSupervisor {
   private async record(child: Child): Promise<void> {
     if (!this.ports.recordOwned) return;
     try {
-      if (!(await this.ports.recordOwned?.(child.process)))
-        this.ports.log("warn", "Could not record the daemon as this app's");
+      if (await this.ports.recordOwned(child.process)) this.recorded = child;
+      else this.ports.log("warn", "Could not record the daemon as this app's");
     } catch (error) {
       this.ports.log("warn", "Could not record the daemon as this app's", { error: String(error) });
     }

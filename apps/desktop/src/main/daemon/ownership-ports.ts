@@ -4,7 +4,7 @@ import { requestStop } from "./stop-request.ts";
 import type { SupervisorPorts } from "./supervisor-config.ts";
 
 /** How often an adopted daemon, no longer this process's child, is looked for. */
-const adoptedPollMs = 1_000;
+const adoptedPollMs = 250;
 
 function alive(pid: number): boolean {
   try {
