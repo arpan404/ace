@@ -324,6 +324,8 @@ export async function evalWorld(options: {
     /** The scripted model starts a new turn, or ends the one it is in. */
     startTurn: (thread: ThreadId) => emit(thread, start),
     endTurn: (thread: ThreadId) => emit(thread, end),
+    /** The person stops the scripted model's turn. */
+    interruptTurn: (thread: ThreadId) => emit(thread, { ...end, outcome: "interrupted" }),
     flush: () => engine.flush(),
     async close() {
       for (const agent of agents) await agent.close().catch(() => {});

@@ -83,8 +83,14 @@ export class BrowserHelp {
     const threadId = ThreadId.parse(caller.threadId);
     const tab = this.deps.tab(threadId, input.tabId, caller.agentId);
     if (!tab) throw new PublicToolError("tab_not_found");
-    // Asking again about the same tab waits on the request already open.
-    const open = this.pending(threadId).find((row) => row.tab_id === input.tabId);
+    // Asking again about the same tab waits on the request already open, while the person can
+    // still answer it. One an interrupted turn closed is forgotten, and a new one opens.
+    const open = this.pending(threadId).find((row) => {
+      if (row.tab_id !== input.tabId) return false;
+      if (this.deps.store.getInteraction(row.interaction_id)?.state === "pending") return true;
+      this.forget(row.interaction_id);
+      return false;
+    });
     const interactionId = open?.interaction_id ?? this.open(engine, threadId, input, tab);
     const outcome = await new Promise<Outcome | undefined>((resolve) => {
       const finish = (value: Outcome | undefined) => {

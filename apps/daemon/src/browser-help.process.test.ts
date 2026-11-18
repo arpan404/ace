@@ -97,6 +97,8 @@ it("a request for a tab the thread does not have is refused and nobody is asked"
 
 it("an unanswered request stays open after the turn ends, and the person's Done arrives as their next message", async () => {
   const { world, agent, threadId, tabId } = await browsing();
+  // A turn is running, so its end is a real one that closes what the turn left open.
+  await world.startTurn(threadId);
   const result = await agent.call("browser_request_help", {
     tabId,
     reason: "two_factor",
@@ -148,4 +150,35 @@ it("an agent that carries on in a new turn withdraws the request nobody answered
     ),
   ).toEqual([]);
   expect(world.store.getThread(threadId)?.status.state).not.toBe("needs_you");
+});
+
+it("asking again about a tab whose request an interrupted turn cancelled opens a new one the person can answer", async () => {
+  const { world, agent, threadId, tabId } = await browsing();
+  await world.startTurn(threadId);
+  const first = Help.parse(
+    (
+      await agent.call("browser_request_help", {
+        tabId,
+        reason: "login",
+        message: "Sign in",
+        timeoutSeconds: 5,
+      })
+    ).data,
+  );
+  expect(first.status).toBe("pending");
+  await world.interruptTurn(threadId);
+  await world.flush();
+  expect(world.store.snapshotThread(threadId)?.interactions).toSatisfy((all: object) =>
+    Object.values(all).every((each: { state: string }) => each.state !== "pending"),
+  );
+
+  // No new run starts in between (another agent of the thread may still be running), so
+  // nothing has withdrawn the old request's record yet.
+  const again = agent.call("browser_request_help", { tabId, reason: "login", message: "Sign in" });
+  const request = await openRequest(world, threadId);
+  expect(request.id).not.toBe(first.requestId);
+  expect(
+    answer(world, request.id, "person", { kind: "browser_help", outcome: "done" }),
+  ).toMatchObject({ ok: true });
+  expect(Help.parse((await again).data)).toMatchObject({ status: "done", tabId });
 });
