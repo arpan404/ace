@@ -44,6 +44,44 @@ test("a global alias cannot migrate or read workspace settings through a replace
   expect(await readFile(path, "utf8")).toBe(source);
 });
 
+test("a global alias stays guarded after 64 other workspaces and file turnover evict it", async () => {
+  const f = await setup();
+  const ace = join(f.workspace, ".ace");
+  await mkdir(ace);
+  const service = new SettingsService({
+    dataDir: ace,
+    io: f.edges.io,
+    scheduler: f.edges.scheduler,
+  });
+  cleanups.push(() => service.close());
+  await service.get("threads.settleOnClose", { workspace: f.workspace });
+  await service.set("threads.settleOnClose", true, { kind: "global" });
+  for (let index = 0; index < 64; index++) {
+    const workspace = join(f.root, `workspace-${index}`);
+    await mkdir(workspace);
+    await service.get("threads.settleOnClose", { workspace });
+  }
+  // Thread-only writes turn the file cache over until the global file is closed too.
+  for (let index = 0; index < 65; index++)
+    await service.set("threads.settleOnClose", true, { kind: "thread", thread: `t${index}` });
+  const outside = join(f.root, "outside");
+  await mkdir(outside);
+  const path = join(outside, "settings.json");
+  const source = '{"version":1,"values":{"threads.settleOnClose":false}}';
+  await writeFile(path, source);
+  await rename(ace, join(f.workspace, "old-ace"));
+  await symlink(outside, ace, "dir");
+  await service.refresh({ kind: "global" });
+  await expect(
+    service.set("threads.followUpBehavior", "steer", { kind: "global" }),
+  ).rejects.toMatchObject({ code: "validation" });
+  expect(await service.get("threads.settleOnClose")).not.toMatchObject({
+    value: false,
+    provenance: "global",
+  });
+  expect(await readFile(path, "utf8")).toBe(source);
+});
+
 test.each([1, 2])(
   "reloading a protected workspace cannot read or migrate an outside v%i file",
   async (version) => {
