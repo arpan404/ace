@@ -5,22 +5,24 @@ import { harness } from "@/test/harness.tsx";
 
 const closing = "ace is closing to update and will reopen in a few seconds";
 
+/** The desktop's update status, downloaded unless a case says otherwise. */
+const status = (overrides: Record<string, unknown>) => ({
+  state: "downloaded",
+  currentVersion: "1.0.0",
+  version: "1.1.0",
+  releaseUrl: null,
+  inPlace: true,
+  percent: 100,
+  waiting: 0,
+  notes: [],
+  olderReleases: 0,
+  error: null,
+  ...overrides,
+});
+
 /** The desktop preload's `window.ace.updates`, reporting what the test says. */
 function desktopUpdates() {
   const listeners = new Set<(value: unknown) => void>();
-  const status = (overrides: Record<string, unknown>) => ({
-    state: "downloaded",
-    currentVersion: "1.0.0",
-    version: "1.1.0",
-    releaseUrl: null,
-    inPlace: true,
-    percent: 100,
-    waiting: 0,
-    notes: [],
-    olderReleases: 0,
-    error: null,
-    ...overrides,
-  });
   Reflect.set(globalThis, "ace", {
     updates: {
       current: () => Promise.resolve(status({})),

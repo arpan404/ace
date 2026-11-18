@@ -107,12 +107,18 @@ const daemon = (stage: string, state = "starting"): StartupEvent => ({
   stage,
 });
 
+/** What a desktop window says once the start is slow enough to say anything. */
+const saidOnDesktop = (...events: StartupEvent[]) =>
+  startupView(
+    run({ type: "slow" }, { type: "connection", state: "connecting" }, ...events),
+    desktop,
+  ).message;
+/** The same in a browser, which has only its connection to go on. */
+const saidInBrowser = (...events: StartupEvent[]) =>
+  startupView(run({ type: "slow" }, ...events), browser).message;
+
 test("the startup screen names the step the desktop's supervisor reports, as it moves", () => {
-  const said = (...events: StartupEvent[]) =>
-    startupView(
-      run({ type: "slow" }, { type: "connection", state: "connecting" }, ...events),
-      desktop,
-    ).message;
+  const said = saidOnDesktop;
   expect(said(daemon("looking"))).toBe("Looking for ace's background service");
   expect(said(daemon("launching"))).toBe("Starting ace's background service");
   expect(said(daemon("lock-wait"))).toBe("Waiting for the previous ace to close");
@@ -125,8 +131,7 @@ test("the startup screen names the step the desktop's supervisor reports, as it 
 });
 
 test("a browser without the desktop bridge still says connecting, starting and opening", () => {
-  const said = (...events: StartupEvent[]) =>
-    startupView(run({ type: "slow" }, ...events), browser).message;
+  const said = saidInBrowser;
   expect(said({ type: "connection", state: "connecting" })).toBe("Connecting to ace");
   expect(said({ type: "connection", state: "starting" })).toBe(
     "Waiting for ace to finish starting",

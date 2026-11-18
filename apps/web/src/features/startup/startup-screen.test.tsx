@@ -169,6 +169,8 @@ test("a Suit that makes pages see-through still can't let the app show through t
   }
 });
 
+const status = () => screen.getByRole("status").textContent;
+
 test("the startup screen names the step the desktop reports, and says when one runs long", async () => {
   const { startup, elapse } = clock();
   let emit: ((status: DesktopDaemonStatus) => void) | undefined;
@@ -188,7 +190,6 @@ test("the startup screen names the step the desktop reports, and says when one r
   );
   await act(async () => {});
   elapse(startupSlowMs);
-  const status = () => screen.getByRole("status").textContent;
   expect(status()).toBe("Looking for ace's background service");
 
   act(() => emit?.({ state: "starting", stage: "lock-wait" }));
