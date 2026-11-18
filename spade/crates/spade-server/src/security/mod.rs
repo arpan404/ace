@@ -322,8 +322,9 @@ impl Security {
     /// Whether `stamp` is the person's say on `target` becoming `value` (ADR 0163 amendment 2,
     /// `attest`); a good stamp is used up. Accepting a bot moved here asks this (ADR 0187).
     pub fn person_says(&self, stamp: Option<&str>, target: &str, value: &str) -> bool {
+        let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
         self.attestor
-            .person(stamp, target, value, self.clock.now_ms())
+            .person(stamp, target, value, self.clock.now_ms(), &claim)
     }
 
     /// Sets how bots without their own setting decide; Full access needs the person's stamp.
