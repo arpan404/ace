@@ -31,6 +31,7 @@ pub struct Client {
     pending: VecDeque<Message>,
     bodies: VecDeque<(u64, Vec<u8>)>,
     stderr: Option<Receiver<String>>,
+    published: usize,
     last_id: u64,
 }
 
@@ -126,6 +127,7 @@ impl Client {
             pending: VecDeque::new(),
             bodies: VecDeque::new(),
             stderr,
+            published: 0,
             last_id: 0,
         }
     }
@@ -410,6 +412,43 @@ impl Client {
                 Ok(Frame::Body { id, bytes }) => self.bodies.push_back((id, bytes)),
                 Ok(Frame::Message(message)) => panic!("expected silence, got {message:?}"),
             }
+        }
+    }
+
+    /// How many indexes the binary has published, as `ACE_FILES_INDEX_EVENTS` reports them.
+    pub fn index_publishes(&mut self) -> usize {
+        let stderr = self
+            .stderr
+            .as_mut()
+            .expect("this client was launched with the index events");
+        loop {
+            match stderr.try_recv() {
+                Ok(line) => {
+                    if let Some(count) = line
+                        .strip_prefix("ace-files: index published ")
+                        .and_then(|count| count.parse::<usize>().ok())
+                    {
+                        self.published = count;
+                    }
+                }
+                Err(_) => return self.published,
+            }
+        }
+    }
+
+    /// Wait for the binary to publish `wanted` indexes.
+    pub fn await_index_published(&mut self, wanted: usize) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "only {} indexes were published, not {wanted}",
+                self.published
+            );
+            if self.index_publishes() >= wanted {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 

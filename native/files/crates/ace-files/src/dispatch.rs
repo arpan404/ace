@@ -10,18 +10,21 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::runtime::Handle;
+
 use files_search::Summary;
 use files_wire::{EventPayload, Frame, Message, Op, PROTOCOL, Reply};
 use tokio::task::JoinError;
 
 use crate::convert;
 use crate::error::{Error, Failure};
-use crate::io::{self, Input, Out};
+use crate::io::{self, Input};
 use crate::ops;
 use crate::ops::read_write::{ReadOp, WriteOp};
 use crate::requests::{Bodies, Cancel, InFlight};
 use crate::roots::{RootEntry, Roots};
 use crate::subscriptions::Subscriptions;
+use crate::writer::Out;
 
 /// How long a `write` or `createFile` waits for the body frame that carries its bytes.
 const BODY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -45,7 +48,7 @@ impl Shared {
     fn new(out: Out) -> Shared {
         Shared {
             out,
-            roots: Arc::new(Roots::default()),
+            roots: Arc::new(Roots::new(Handle::current())),
             requests: Arc::new(InFlight::default()),
             bodies: Arc::new(Bodies::default()),
             subscriptions: Arc::new(Subscriptions::default()),

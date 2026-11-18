@@ -8,7 +8,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{Client, checkout, write_file};
+use common::{Client, await_reported, checkout, watch, write_file};
 use files_wire::{Op, Reply};
 
 /// How long the build may take before the test calls it hung.
@@ -97,6 +97,91 @@ fn refuses_a_quick_open_page_above_a_thousand_hits() {
         limit: 1_000,
     });
     assert!(matches!(client.reply(capped), Reply::Index(_)));
+}
+
+#[test]
+fn a_file_created_during_the_first_build_is_found_afterwards() {
+    let checkout = checkout(&[("a.txt", "")]);
+    // The walk finishes at once and is then held before publishing, so a file that appears after
+    // it can only reach the index through the change the watcher reports meanwhile.
+    let mut client = Client::launch(&[("ACE_FILES_HOLD_INDEX_MS", "3000")], false);
+    client.hello();
+    let root = client.open_root(checkout.path());
+    let subscription = watch(&mut client, root);
+    write_file(checkout.path(), "late.txt", "found me\n");
+    await_reported(&mut client, checkout.path(), subscription, "late.txt");
+
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "the index never became ready after the build"
+        );
+        let id = client.request(Op::IndexQuery {
+            root,
+            query: "late".to_owned(),
+            limit: 10,
+        });
+        if let Reply::Index(index) = client.reply(id)
+            && index.ready
+        {
+            assert!(
+                index.hits.iter().any(|hit| hit.path == "late.txt"),
+                "the change that arrived during the build is in the index: {:?}",
+                index.hits
+            );
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn quick_open_keeps_answering_while_a_rescan_walks() {
+    let checkout = checkout(&[("src/server_main.rs", "fn main() {}\n")]);
+    // The first build publishes, a rebuild starts soon after, and each walk is held before it
+    // publishes, so the queries below land while a rescan is walking.
+    let mut client = Client::launch(
+        &[
+            ("ACE_FILES_HOLD_INDEX_MS", "600"),
+            ("ACE_FILES_REBUILD_AFTER_MS", "200"),
+            ("ACE_FILES_INDEX_EVENTS", "1"),
+        ],
+        true,
+    );
+    client.hello();
+    let root = client.open_root(checkout.path());
+    client.await_index_published(1);
+
+    let deadline = Instant::now() + DEADLINE;
+    let mut answered = 0;
+    while client.index_publishes() < 2 {
+        assert!(Instant::now() < deadline, "the rebuild never published");
+        let id = client.request(Op::IndexQuery {
+            root,
+            query: "srvmain".to_owned(),
+            limit: 10,
+        });
+        let index = match client.reply(id) {
+            Reply::Index(index) => index,
+            other => panic!("indexQuery answered {other:?}"),
+        };
+        assert!(
+            index.ready,
+            "quick open answers from the index it already has while a rescan walks"
+        );
+        assert!(
+            index
+                .hits
+                .iter()
+                .any(|hit| hit.path == "src/server_main.rs"),
+            "the old index still answers: {:?}",
+            index.hits
+        );
+        answered += 1;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(answered > 5, "queries ran while the rebuild was walking");
 }
 
 #[test]

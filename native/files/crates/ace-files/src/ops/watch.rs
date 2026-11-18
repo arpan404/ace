@@ -19,10 +19,10 @@ use files_wire::{EventPayload, Message, Reply};
 use crate::convert;
 use crate::dispatch::{Shared, joined};
 use crate::error::Error;
-use crate::io::Out;
 use crate::requests::Cancel;
 use crate::roots::RootEntry;
 use crate::subscriptions::{Kind, Subscriptions};
+use crate::writer::Out;
 
 /// Start a watch: bring the root's watcher up, then hand out the subscription that receives its
 /// batches.
@@ -64,7 +64,10 @@ pub fn deliver(
         }
         Batch::Rescan { dir } => {
             match dir.as_deref() {
-                Some(dir) => entry.lister().invalidate(&[dir]),
+                Some(dir) => {
+                    entry.lister().invalidate(&[dir]);
+                    entry.apply_changes(&subtree(dir));
+                }
                 None => {
                     entry.lister().invalidate(&[""]);
                     entry.rescan_index();
@@ -91,6 +94,23 @@ pub fn deliver(
             entry.id()
         ),
     }
+}
+
+/// A folder the watcher could not describe change by change: forget everything indexed under it,
+/// then walk it again, so quick open sees exactly what survived.
+fn subtree(dir: &str) -> Vec<IndexChange> {
+    vec![
+        IndexChange {
+            path: dir.to_owned(),
+            deleted: true,
+            directory: true,
+        },
+        IndexChange {
+            path: dir.to_owned(),
+            deleted: false,
+            directory: true,
+        },
+    ]
 }
 
 /// Drop the cached listings a batch makes stale: the folder each path sits in, and the path
@@ -122,4 +142,85 @@ fn index_changes(changes: &[Change]) -> Vec<IndexChange> {
             directory: change.directory,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    // Test-only code: a fixture that cannot be built is a failed assertion.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use std::fs;
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use tokio::runtime::Handle;
+
+    use super::*;
+    use crate::roots::Roots;
+    use crate::writer::Out;
+
+    fn file(dir: &Path, path: &str) {
+        let full = dir.join(path);
+        fs::create_dir_all(full.parent().expect("a parent")).expect("the folder");
+        fs::write(full, "x").expect("the file");
+    }
+
+    /// Wait until the background build has published its index.
+    async fn indexed(entry: &Arc<RootEntry>) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if entry.index_query("a", 10).is_ok_and(|index| index.ready) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the index never became ready");
+    }
+
+    fn paths(entry: &Arc<RootEntry>, query: &str) -> Vec<String> {
+        match entry.index_query(query, 20) {
+            Ok(index) => index.hits.into_iter().map(|hit| hit.path).collect(),
+            Err(error) => panic!("indexQuery failed: {error}"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_rescan_of_one_folder_replaces_that_folder_and_nothing_else() {
+        let checkout = tempfile::tempdir().expect("a temp dir");
+        file(checkout.path(), "keep/still.txt");
+        file(checkout.path(), "gone/old.txt");
+        let roots = Roots::new(Handle::current());
+        let entry = roots.open(checkout.path()).expect("the root opens");
+        entry.start_index();
+        indexed(&entry).await;
+        assert_eq!(paths(&entry, "old"), ["gone/old.txt"]);
+
+        // The watcher lost track of the folder: one path vanished, another appeared, and neither
+        // was reported change by change.
+        fs::remove_file(checkout.path().join("gone/old.txt")).expect("the delete");
+        file(checkout.path(), "gone/new.txt");
+
+        let out = Out::discard();
+        deliver(
+            &entry,
+            &Arc::new(Subscriptions::default()),
+            &out,
+            Batch::Rescan {
+                dir: Some("gone".to_owned()),
+            },
+        );
+
+        assert_eq!(
+            paths(&entry, "old"),
+            Vec::<String>::new(),
+            "the rescan drops the paths that vanished"
+        );
+        assert_eq!(paths(&entry, "new"), ["gone/new.txt"]);
+        assert_eq!(
+            paths(&entry, "still"),
+            ["keep/still.txt"],
+            "a folder the rescan did not name keeps its paths"
+        );
+    }
 }
