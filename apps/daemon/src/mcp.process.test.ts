@@ -110,6 +110,8 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
   const paired = DeviceCredential.parse(await redeemPairing(pairing.url, "Integration device"));
   if (!daemon.remoteUrl || !daemon.fingerprint) throw new Error("Missing remote listener");
   const remote = daemon.remoteUrl.replace("wss:", "https:");
+  // Read while it serves: a stopped daemon names no remote address or key.
+  const fingerprint = daemon.fingerprint;
   expect(
     await accessRequest(remote, "/v1/status", {
       token: paired.token,
@@ -138,7 +140,7 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
     name: "Integration device",
   });
   expect(reopened.store.getMcpAgent(scope.threadId, scope.agentId)).toMatchObject({ id: "root" });
-  expect(reopened.fingerprint).toBe(daemon.fingerprint);
+  expect(reopened.fingerprint).toBe(fingerprint);
   expect((await call(reopened.mcp.url, lease.bearer, "context")).status).toBe(401);
 });
 

@@ -101,6 +101,19 @@ after five fast failures in a row. Each start failed the same way.
    (`no-floating-promises` with `void` not exempt, and `no-misused-promises`) keeps new code
    from leaving a promise's failure unhandled, in the daemon, the desktop main process and every
    package.
+10. **Remote access starts after the daemon listens** (amended 2026-11-18). On a signed-in Mac
+    the daemon took 13 s from spawn to listening, all of it in `startServer` waiting on a relay
+    registration, which gives up only after 15 s (a signed-in account adds ace's relay even with
+    `remote.relay` off). The daemon now binds its local port and writes its endpoint first;
+    the LAN and Tailscale listener and every relay start in the background, the direct listener
+    first. Each network shows `waiting` in `/v1/status` until it serves or fails, as it already
+    did on a reconnect. A stop while they start gives up what waits on the network, as before.
+    Callers that name a remote address read it live: a pairing link waits for remote access
+    still starting, at most 15 s (the direct listener, then, with no direct address, the
+    relays); `ace start` waits up to 5 s for the direct listener before it prints its `Remote:`
+    line, and leaves the line out if the listener isn't up by then. The start logs one line per
+    phase (modules loaded, event store, core services each with its duration, listening,
+    listener services, engine ready, each remote network) so a slow start says why.
 
 ## Consequences
 
@@ -122,6 +135,10 @@ after five fast failures in a row. Each start failed the same way.
   (`@ace/provider-kit/unscoped`), so a crash there is never charged to whoever first started it.
 - The supervisor only asks for safe mode after fast failures (under 60 s). A service that
   crashes the daemon later in each run is recorded, but nothing leaves it off yet.
+- Saved remote settings that can't be read no longer stop the daemon's start; remote access
+  stays off and the failure is logged (decision 10).
+- A client can connect before the LAN listener or a relay serves; the endpoint file no longer
+  means remote access is up. Code that needs it settled waits on `remoteStarted`.
 
 ## Tests
 
@@ -147,3 +164,8 @@ after five fast failures in a row. Each start failed the same way.
   off by the next safe-mode start, never a critical one.
 - `apps/desktop/src/main/daemon/exit-policy.test.ts` and `supervisor-safe-mode.test.ts`: when
   safe mode starts, when it ends, and what the person reads.
+- `apps/daemon/src/remote-runtime.server.process.test.ts`: a signed-in daemon listens, reports
+  ace's relay as waiting and pairs over the LAN while that relay never answers, and a stop then
+  ends within remote access's close budget (decision 10).
+- `apps/daemon/src/services/startup-timing.test.ts`: each startup phase logs one line naming
+  every service and how long its own start took.
