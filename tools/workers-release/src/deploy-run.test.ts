@@ -15,6 +15,8 @@ class FakeWorker implements WorkerPort {
   migratedWhenDeployed: string[] | undefined;
   failMigration: string | undefined;
   failDeploy = false;
+  /** The deploy activates the new version, then wrangler exits nonzero anyway. */
+  failAfterActivating = false;
   failRollback = false;
   blindAfterDeploy = false;
   staleReads = 0;
@@ -50,6 +52,7 @@ class FakeWorker implements WorkerPort {
     this.migratedWhenDeployed = [...this.migrated];
     this.#beforeDeploy = this.current;
     this.current = { kind: "single", version };
+    if (this.failAfterActivating) throw new Error("custom domain attach failed");
   }
   async rollback(versionId: string) {
     const version = this.versions.get(versionId);
@@ -182,6 +185,40 @@ describe("a Worker release", () => {
     const result = await runDeploy(input(), deps(worker, new Set(["old", "new-1"])));
     expect(result.code).toBe(exitCodes.rolledBack);
     expect(worker.liveId).toBe("old");
+  });
+
+  it("recovers a deploy that went live but failed, even when the first read lags", async () => {
+    const worker = new FakeWorker(old);
+    worker.failAfterActivating = true;
+    worker.staleReads = 1;
+    const result = await runDeploy(input(), deps(worker, new Set(["old"])));
+    expect(result.code).toBe(exitCodes.rolledBack);
+    expect(worker.liveId).toBe("old");
+  });
+
+  it("keeps a deploy that went live, failed, and still passes its smoke", async () => {
+    const worker = new FakeWorker(old);
+    worker.failAfterActivating = true;
+    worker.staleReads = 1;
+    const result = await runDeploy(input(), deps(worker, new Set(["old", "new-1"])));
+    expect(result.code).toBe(exitCodes.deployed);
+    expect(worker.liveId).toBe("new-1");
+  });
+
+  it("smokes what serves after a failed deploy instead of trusting it unchanged", async () => {
+    const worker = new FakeWorker(old);
+    worker.failDeploy = true;
+    const result = await runDeploy(input(), deps(worker, new Set()));
+    expect(result.code).toBe(exitCodes.needsHuman);
+    expect(worker.liveId).toBe("old");
+  });
+
+  it("reports a first deploy that never took as unchanged, with nothing to recover", async () => {
+    const worker = new FakeWorker(undefined);
+    worker.failDeploy = true;
+    const result = await runDeploy(input(), deps(worker, new Set()));
+    expect(result.code).toBe(exitCodes.unchanged);
+    expect(worker.liveId).toBe("none");
   });
 
   it("refuses to deploy over split traffic, leaving it as it is", async () => {

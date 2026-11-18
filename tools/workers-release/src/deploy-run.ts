@@ -120,11 +120,11 @@ async function rollBack(
 }
 
 /**
- * What the deploy left live. "Unchanged" only when the deploy failed and the previous version
- * still serves: a deploy that reported success is re-read once (the API can lag), and if it
- * still shows the previous version it is treated as unknown and rolled back to that version. If
+ * What the deploy left live, read twice when the first read shows the previous version (the API
+ * can lag, and wrangler can exit nonzero after activating the new version). A deploy that
+ * reported success yet still reads as the previous version is unknown, and so is recovered. If
  * Cloudflare can't be asked, a deploy that reported success is taken as live (and smoked), one
- * that failed as unknown. Never unchanged while an unsmoked version might serve.
+ * that failed as unknown.
  */
 async function afterDeploy(
   input: RunInput,
@@ -134,10 +134,10 @@ async function afterDeploy(
 ): Promise<AfterDeploy> {
   try {
     const first = readAfterDeploy(await deps.port.live(), previous, input.release);
-    if (first.state !== "unchanged" || deployError !== undefined) return first;
+    if (first.state !== "unchanged") return first;
     await deps.sleep(settle(deps));
     const again = readAfterDeploy(await deps.port.live(), previous, input.release);
-    return again.state === "unchanged" ? { state: "unknown" } : again;
+    return again.state === "unchanged" && deployError === undefined ? { state: "unknown" } : again;
   } catch (error) {
     deps.log(`couldn't read what serves after the deploy: ${describe(error)}`);
     return deployError === undefined
@@ -201,10 +201,14 @@ export async function runDeploy(input: RunInput, deps: RunDeps): Promise<RunResu
     deployError = describe(error);
   }
   const after = await afterDeploy(input, deps, start.previous, deployError);
-  if (after.state === "unchanged")
-    return unchanged(
-      `the deploy didn't take: ${deployError ?? "the previous version still serves"}`,
-    );
+  if (after.state === "unchanged") {
+    const failed = `the deploy failed (${deployError ?? "no error"})`;
+    if (start.previous === undefined) return unchanged(`${failed}; nothing serves yet`);
+    // Reads say the previous version serves; the smoke confirms it before calling it unchanged.
+    if (await healthy(input.origins, deps, 0))
+      return unchanged(`${failed}; the previous version still serves and passes its smoke`);
+    return rollBack(input, deps, start.previous, `${failed} and what serves fails its smoke`);
+  }
   if (after.state === "unknown")
     return rollBack(input, deps, start.previous, `the deploy left an unexpected version live`);
 
