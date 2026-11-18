@@ -37,6 +37,9 @@ struct NewThreadSheet: View {
     @State private var suggester = ComposerSuggester()
     /// The chosen project's open pull requests and issues to start from.
     @State private var startFrom: NewThreadStartFrom?
+    /// A move to a machine that hadn't listed its projects, waiting for its checkout of the
+    /// project left (ADR 0180).
+    @State private var move = NewThreadProjectMove()
     private var draft: NewThreadDraft { drafts.draft }
     /// The first message's files, in the chosen project's draft scope.
     private var files: [AttachmentFile] {
@@ -130,6 +133,7 @@ struct NewThreadSheet: View {
         }
         // With no project yet, the first thread is a chat.
         .onChange(of: compose?.projectsState) { _, state in
+            if let machineId, let compose { move.listed(drafts, on: machineId, compose: compose, memory: memory) }
             if state == "ready", draft.projectId == nil, compose?.projects.isEmpty == true {
                 drafts.edit { $0.projectId = NewThreadDraft.chat }
             }
@@ -151,6 +155,7 @@ struct NewThreadSheet: View {
         .sheet(isPresented: $choosingProject) {
             if let client {
                 ProjectPickerSheet(client: client, selected: draft.projectId) { id in
+                    move.chose()
                     drafts.edit { $0 = memory.load().chose(project: id, in: $0) }
                 }
             }
@@ -197,12 +202,10 @@ struct NewThreadSheet: View {
             place: place, access: access)
     }
     /// That machine's last project and model come back, as the web's do; its checkout of the
-    /// same logical project (ADR 0180) comes first when it has one.
+    /// same logical project (ADR 0180) comes first when it has one, now or once it lists them.
     private func chooseMachine(_ id: String) {
         guard id != machineId else { return }
-        let same = project?.sameProject(in: inbox.client(id)?.compose.projects ?? [])
-        drafts.edit { $0 = memory.load().open($0, on: id) }
-        if let same { drafts.edit { $0 = memory.load().chose(project: same.id, in: $0) } }
+        move.move(drafts, to: id, leaving: project, there: inbox.client(id)?.compose, memory: memory)
         memory.remember(draft)
     }
     /// Asks the machine for the chosen project's branches again, after a failed read.
