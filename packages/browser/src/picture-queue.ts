@@ -76,9 +76,11 @@ export class PictureQueue {
       return;
     }
     viewer.busy = true;
+    // A draw that fails is skipped; a drain that cannot run has nothing to report either.
     void Promise.resolve()
       .then(() => viewer.draw(next))
       .catch(() => {})
-      .then(() => this.#drain(viewer));
+      .then(() => this.#drain(viewer))
+      .catch(() => {});
   }
 }

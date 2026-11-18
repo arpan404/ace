@@ -2,6 +2,17 @@
   "$id": "https://ace.local/protocol/v1/AppUpdateReply.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "homeData": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/HomeData.json"
+        },
+        {
+          "$ref": "https://ace.local/protocol/v1/HomeData.json",
+          "x-ace-constraint": "A value this build can't read is ignored, as if absent."
+        }
+      ]
+    },
     "instruction": {
       "anyOf": [
         {

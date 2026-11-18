@@ -368,6 +368,40 @@ import XCTest
         XCTAssertEqual(plain.label, "Forked from the earlier thread")
         XCTAssertFalse(gone.buttons["transcript.forked"].exists, "a source the list doesn't know opens nothing")
     }
+    /// A turn ace restarted and a usage limit held reads as one "Worked for". Folded, nothing in
+    /// it mentions the restarts; opened, each restart, the wait and the results that landed
+    /// together is one quiet row among the steps (#2132).
+    func testARestartedTurnShowsItsRestartsAndWaitOnlyOnceWorkedForOpens() {
+        let app = open("ios-log-restarted")
+        let toggle = app.buttons["work.toggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 25))
+        for _ in 0..<6 where !toggle.isHittable { swipeToTop(app) }
+        let moment = { (text: String) in
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
+        }
+        XCTAssertFalse(moment("Restarted").exists, "a folded turn says nothing about its restarts")
+        screenshot("restarted-folded")
+        toggle.tap()
+        _ = moment("Restarted twice, continued").waitForExistence(timeout: 15)
+        sleep(1)
+        screenshot("restarted-open")
+        XCTAssertTrue(moment("Restarted twice, continued").exists)
+        XCTAssertTrue(moment("Restarted, continued").exists)
+        XCTAssertTrue(moment("2 subagents finished").exists)
+        let wait = moment("Waited for the usage limit")
+        for _ in 0..<4 where !(wait.exists && wait.isHittable) { app.scrollViews["transcript"].swipeUp(velocity: .slow) }
+        XCTAssertTrue(wait.exists)
+        screenshot("restarted-open-wait")
+    }
+    /// A step still in flight is its own row after the steps that ran, its time counting up.
+    func testAStepInFlightReadsRunningBesideTheOneThatRan() {
+        let app = open("ios-log-parallel")
+        let running = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'step.' AND label CONTAINS 'bun run slow'")).firstMatch
+        XCTAssertTrue(running.waitForExistence(timeout: 25))
+        XCTAssertEqual(running.value as? String, "Running")
+        sleep(2)
+        screenshot("step-running")
+    }
     private func open(_ threadId: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
@@ -404,9 +438,14 @@ import XCTest
         if transcript.exists { transcript.swipeDown(velocity: .fast) }
     }
     private func screenshot(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let shot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: shot)
         attachment.name = "ios-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
+        // `ACE_IOS_SHOTS` (a folder) also keeps each one there, for a PR's before and after.
+        if let folder = ProcessInfo.processInfo.environment["ACE_IOS_SHOTS"] {
+            try? shot.pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+        }
     }
 }

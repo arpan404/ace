@@ -1,6 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import type { Item } from "@ace/protocol";
 import {
+  describeStep,
   formatElapsed,
   readTurnActivity,
   stepLine,
@@ -14,7 +15,7 @@ import { cutEnd, padStart, safeText, textWidth, wrap } from "../tui/layout.ts";
 import type { Paint, StateTone } from "../tui/paint.ts";
 
 /**
- * A thread's transcript as the app shows it (ADR 0176 §9), drawn for a terminal. Pure over the
+ * A thread's transcript as the app shows it (ADR 0178 §9), drawn for a terminal. Pure over the
  * client's thread store and ui-core's blocks: the person's messages, the agent's work folded
  * under "Worked for 3m 12s", answers in full, wrapped, and handoffs, stops and limits as one
  * quiet line each.
@@ -79,13 +80,10 @@ export function blockLines(
       return answerLines(textOf(reader.item(block.itemId)), width);
     case "work": {
       if (block.bare) return [];
-      const head = paint.dim(
-        cutEnd(`${block.ongoing ? "◌" : "▸"} ${workHead(block, reader, now)}`, width),
-      );
       const answers = (block.answerIds ?? []).flatMap((id) =>
         answerLines(textOf(reader.item(id)), width),
       );
-      return [head, ...answers];
+      return [workLine(block, reader, now, width, paint), ...answers];
     }
     case "subagents": {
       const count = block.itemIds.length;
@@ -134,6 +132,64 @@ export function blockLines(
     case "question":
       return [];
   }
+}
+
+type WorkBlock = Extract<Block, { kind: "work" }>;
+
+/** A work block's folded line: "▸ Worked for 3m 12s · Ran 4 commands" (◌ while it runs). */
+export function workLine(
+  block: WorkBlock,
+  reader: ThreadReader,
+  now: number,
+  width: number,
+  paint: Paint,
+): string {
+  return paint.dim(cutEnd(`${block.ongoing ? "◌" : "▸"} ${workHead(block, reader, now)}`, width));
+}
+
+/** The work blocks that fold steps behind their line, oldest first: what `↑` walks. */
+export function foldedWork(blocks: readonly Block[]): WorkBlock[] {
+  return blocks.flatMap((block) => (block.kind === "work" && !block.bare ? [block] : []));
+}
+
+/** One step under an unfolded line: what it did, its note, and a mark when it failed or runs. */
+function stepRows(item: Item | undefined, width: number, paint: Paint): string[] {
+  if (!item) return [];
+  if (item.type === "message") {
+    if (item.role === "user") return [];
+    return wrap(textOf(item), Math.max(10, width - 4)).map((line) => `    ${paint.dim(line)}`);
+  }
+  const step = describeStep(item);
+  const mark = step.failed ? paint.tone("failed", "✕") : step.settled ? "·" : "◌";
+  const text = [step.target ? `${step.verb} ${step.target}` : step.verb, step.note]
+    .filter(Boolean)
+    .join("  ");
+  return [`  ${mark} ${cutEnd(safeText(text), Math.max(4, width - 4))}`];
+}
+
+/**
+ * A work block unfolded, as the app opens "Worked for": its line, then every step in order,
+ * with what the agent said between them, then its answer. Pure.
+ */
+export function unfoldedLines(
+  block: WorkBlock,
+  reader: ThreadReader,
+  now: number,
+  width: number,
+  paint: Paint,
+): string[] {
+  const head = paint.dim(cutEnd(`▾ ${workHead(block, reader, now)}`, width));
+  const inner: readonly Block[] = block.folded ?? [{ ...block, folded: undefined, answerIds: [] }];
+  const steps = inner.flatMap((part) => {
+    if (part.kind === "work")
+      return part.itemIds.flatMap((id) => stepRows(reader.item(id), width, paint));
+    if (part.kind === "message") return stepRows(reader.item(part.itemId), width, paint);
+    return blockLines(part, reader, now, width - 2, paint).map((line) => `  ${line}`);
+  });
+  const answers = (block.answerIds ?? []).flatMap((id) =>
+    answerLines(textOf(reader.item(id)), width),
+  );
+  return [head, ...(steps.length ? steps : [`  ${paint.dim("No steps.")}`]), ...answers];
 }
 
 /**

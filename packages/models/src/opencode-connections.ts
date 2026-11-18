@@ -24,7 +24,8 @@ export async function connectedOpenCodeProviders(
     output += line + "\n";
   });
   const abort = () => {
-    void proc.stop({ graceMs: 0 });
+    // The stop awaited in the finally reports a tree that survives it.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
   try {

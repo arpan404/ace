@@ -1,4 +1,4 @@
-import type { SpadeApproval, SpadeConversationState, SpadeEntry } from "./fold.ts";
+import type { SpadeApproval, SpadeConversationState, SpadeEntry, SpadeOutsideAsk } from "./fold.ts";
 import type { SpadeDecision } from "./decisions.ts";
 import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
 import { spadeHelperApprovalSentence } from "./helper-words.ts";
@@ -29,6 +29,8 @@ export interface SpadeView {
   status: string | undefined;
   /** Approvals waiting on the person, oldest first, each with its sentence. */
   approvals: readonly (SpadeApproval & { sentence: string })[];
+  /** Plugins asking to run outside the sandbox, oldest first (ADR 0167). */
+  outsideAsks: readonly SpadeOutsideAsk[];
   /** The bot asked the person a card and waits on it (or on their next message). */
   asking: boolean;
   /** Cards left for later, by call id, oldest first (ADR 0154). */
@@ -82,6 +84,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
         ? plainStatus(state.status, [...state.running.values()].at(-1)?.name)
         : undefined,
     approvals,
+    outsideAsks: [...state.outsideAsks],
     asking: state.question !== undefined,
     forLater: [...state.forLater],
     questionsForLater: questionsIn(state.entries, state.forLater),

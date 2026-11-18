@@ -12,7 +12,7 @@ import {
 } from "@ace/ui-core";
 
 /**
- * The thread list as the app's Inbox orders and marks it (ADR 0176 §3, §7), from the daemon's
+ * The thread list as the app's Inbox orders and marks it (ADR 0178 §3, §7), from the daemon's
  * list entries. Status comes from `@ace/ui-core`'s card, attention and row-look rules, the
  * same code the app runs, so a parent whose subagent still works never reads as done. Pure:
  * the caller passes the clock.

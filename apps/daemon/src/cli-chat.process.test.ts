@@ -134,7 +134,7 @@ test("chat off a terminal shows descendant attention without claiming completion
     expect(session.records).not.toContainEqual(
       expect.objectContaining({ type: "status", status: "ok" }),
     );
-    // Off a terminal nobody is there to confirm: a piped `y` answers nothing (ADR 0176 §12.5).
+    // Off a terminal nobody is there to confirm: a piped `y` answers nothing (ADR 0178 §12.5).
     session.child.stdin.write("y\n");
     await session.next((entry) => entry.type === "error");
     expect(session.records).toContainEqual(

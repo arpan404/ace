@@ -34,6 +34,7 @@ export const requiredRoutes: Readonly<Record<string, string>> = {
   "session.form.list": "GET /api/session/{sessionID}/form",
   "session.form.reply": "POST /api/session/{sessionID}/form/{formID}/reply",
   "session.form.cancel": "DELETE /api/session/{sessionID}/form/{formID}",
+  "session.environment": "PUT /api/session/{sessionID}/environment",
   "session.inbox.list": "GET /api/session/{sessionID}/inbox",
   "shell.list": "GET /api/shell",
   "shell.get": "GET /api/shell/{id}",

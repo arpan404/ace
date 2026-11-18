@@ -90,7 +90,16 @@ export class RecoveringWorker extends EventEmitter {
       const milliseconds = Math.min(30000, 1000 * 2 ** Math.min(this.attempt++, 5));
       this.stopRetry = this.runtime.delay(() => {
         this.stopRetry = undefined;
-        void gone.then(() => this.start());
+        void gone
+          .then(() => this.start())
+          .catch((restartError: unknown) =>
+            this.emit(
+              "error",
+              restartError instanceof Error
+                ? restartError
+                : new Error("Saved conversations could not restart"),
+            ),
+          );
       }, milliseconds);
     };
     worker.on("error", failed);

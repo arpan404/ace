@@ -1,6 +1,6 @@
 import type { FlagSpec } from "./spec.ts";
 
-/** Flags every command takes, parsed before its own (ADR 0176 §2). */
+/** Flags every command takes, parsed before its own (ADR 0178 §2). */
 export const globalFlags: readonly FlagSpec[] = [
   { name: "help", short: "h", summary: "This command's help" },
   { name: "json", summary: "Print one JSON value; implies --no-input" },

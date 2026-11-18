@@ -5,7 +5,8 @@ export interface CacheScheduler {
 export const cacheScheduler: CacheScheduler = {
   after(delayMs, task) {
     const timer = setTimeout(() => {
-      void task();
+      // Each task reports its own failure; this timer only owns the retry.
+      void task().catch(() => {});
     }, delayMs);
     timer.unref();
     return () => clearTimeout(timer);

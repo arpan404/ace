@@ -21,7 +21,8 @@ export async function discoverClaudePlugins(options: {
   const chunks: string[] = [];
   let bytes = 0;
   const stop = () => {
-    void proc.stop({ graceMs: 0 });
+    // Only a head start: the finally block stops the same process again and reports there.
+    void proc.stop({ graceMs: 0 }).catch(() => {});
   };
   const deadline = setTimeout(stop, 5000);
   options.signal.addEventListener("abort", stop, { once: true });

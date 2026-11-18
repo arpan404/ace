@@ -128,7 +128,8 @@ export function nkHost(options: NkHostOptions): NkHost {
         abandon: () => session.close(),
         async open(opened) {
           channel = opened;
-          void opened.closed.then(() => session.close());
+          // A channel's closed promise only resolves, when the peer goes.
+          void opened.closed.then(() => session.close()).catch(() => {});
           const confirmed = confirmation(opened, session, early.deviceId, held);
           await options.serve({
             channel: opened,

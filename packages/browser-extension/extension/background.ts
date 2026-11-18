@@ -76,12 +76,13 @@ async function received(raw: unknown): Promise<void> {
 function connect(): void {
   const current = chrome.runtime.connectNative(hostName);
   port = current;
-  void controller.link("connecting");
+  // The link state is what the popup reads; a detach that fails leaves its tab as it was.
+  void controller.link("connecting").catch(() => {});
   current.onMessage.addListener((message) => void received(message));
   current.onDisconnect.addListener(() => {
     if (port !== current) return;
     port = undefined;
-    void controller.link("offline");
+    void controller.link("offline").catch(() => {});
     // The host is missing or exited: try again, slower each time, up to a minute.
     const delay = Math.min(60_000, 2_000 * 2 ** Math.min(retry++, 5));
     setTimeout(connect, delay);
@@ -109,5 +110,6 @@ chrome.runtime.onMessage.addListener((raw, _sender, respond) => {
   return true;
 });
 
-void chrome.action.setBadgeBackgroundColor({ color: "#2563eb" });
+// A badge colour the browser refuses changes nothing else.
+void chrome.action.setBadgeBackgroundColor({ color: "#2563eb" }).catch(() => {});
 connect();

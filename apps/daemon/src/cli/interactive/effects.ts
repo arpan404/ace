@@ -1,7 +1,7 @@
 import type { CommandPayload } from "@ace/protocol";
 
 /**
- * What a key press asks the shell to do (ADR 0176 §9). The models are pure reducers that
+ * What a key press asks the shell to do (ADR 0178 §9). The models are pure reducers that
  * return these; `app.ts` carries them out against the daemon and the terminal.
  */
 export type Place = "projects" | "spade" | "market" | "settings" | "help";
@@ -24,6 +24,8 @@ export type Effect =
   /** Send what the composer holds to the attached thread (or start one). */
   | { kind: "send"; text: string; delivery: "queue" | "steer" }
   | { kind: "slash"; line: string }
+  /** Open the steps folded behind one "Worked for" line (a transcript block's key). */
+  | { kind: "unfold"; key: string }
   | { kind: "quit"; farewell: string; code: number };
 
 export interface Step<S> {

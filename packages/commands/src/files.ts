@@ -229,7 +229,8 @@ export class CommandFiles {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.pump();
+      // pump() reports its own failures; the recovery loop picks up what is left.
+      void this.pump().catch(() => {});
     }, 30);
     this.timer.unref();
   }
@@ -281,7 +282,7 @@ export class CommandFiles {
     if (!this.closed && (this.pending.size || this.index.pending) && !this.continuation) {
       this.continuation = setImmediate(() => {
         this.continuation = undefined;
-        void this.pump();
+        void this.pump().catch(() => {});
       });
       this.continuation.unref();
     }
@@ -309,7 +310,8 @@ export class CommandFiles {
       await this.advance();
     })().finally(() => {
       this.healing = undefined;
-      if (!this.closed && (this.pending.size || this.index.pending)) void this.pump();
+      if (!this.closed && (this.pending.size || this.index.pending))
+        void this.pump().catch(() => {});
     });
     return this.healing;
   }

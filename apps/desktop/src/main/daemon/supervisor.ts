@@ -102,10 +102,13 @@ export class DaemonSupervisor {
         stop();
         reject(failure(status));
       });
-      void this.ready().then((daemon) => {
-        stop();
-        resolve(daemon);
-      });
+      // ready() only resolves; a daemon that never comes leaves the status listener to reject.
+      void this.ready()
+        .then((daemon) => {
+          stop();
+          resolve(daemon);
+        })
+        .catch(() => {});
     });
   }
 
@@ -278,7 +281,11 @@ export class DaemonSupervisor {
     });
     // Starting, not failed: a client waiting to connect keeps waiting.
     this.update({ state: "starting", cause: "lock-held" });
-    void this.transition(true, (generation) => this.awaitLock(generation));
+    void this.transition(true, (generation) => this.awaitLock(generation)).catch((error: unknown) =>
+      this.ports.log("warn", "Waiting for the other daemon's lock failed", {
+        error: String(error),
+      }),
+    );
   }
 
   /** Look for the other daemon for a while, then try our own again. */
@@ -310,16 +317,20 @@ export class DaemonSupervisor {
 
   /** Report the child as running once it answers; kill it if it never does. */
   private awaitChild(generation: number, child: Child): void {
-    void this.waitForDaemon(generation, () => !child.done).then(async (found) => {
-      if (this.stale(generation) || child.done) return;
-      if (found) await this.running(found, "app", generation);
-      else {
-        this.ports.log("error", "The daemon did not become ready; restarting it", {
-          readyTimeoutMs: this.options.readyTimeoutMs,
-        });
-        this.terminate(child, "not-ready");
-      }
-    });
+    void this.waitForDaemon(generation, () => !child.done)
+      .then(async (found) => {
+        if (this.stale(generation) || child.done) return;
+        if (found) await this.running(found, "app", generation);
+        else {
+          this.ports.log("error", "The daemon did not become ready; restarting it", {
+            readyTimeoutMs: this.options.readyTimeoutMs,
+          });
+          this.terminate(child, "not-ready");
+        }
+      })
+      .catch((error: unknown) =>
+        this.ports.log("error", "Waiting for the daemon failed", { error: String(error) }),
+      );
   }
 
   private onChildExit(
@@ -408,7 +419,9 @@ export class DaemonSupervisor {
     });
     this.cancelTimer = this.ports.timers.set(delay, () => {
       this.cancelTimer = undefined;
-      void this.start();
+      void this.start().catch((restartError: unknown) =>
+        this.ports.log("warn", "The restart failed", { error: String(restartError) }),
+      );
     });
   }
 
@@ -468,7 +481,9 @@ export class DaemonSupervisor {
       // counts as one; it ends before the next check could send another.
       probe: async () => {
         const answer = await this.ports.health(daemon, healthTimeoutMs + healthIntervalMs);
-        if (answer.healthy) void this.followAdmission(generation, daemon, answer.admission);
+        if (answer.healthy)
+          // followAdmission keeps its own request failure and reads it again next check.
+          void this.followAdmission(generation, daemon, answer.admission).catch(() => {});
         return answer.healthy;
       },
       timers: this.ports.timers,
@@ -492,7 +507,11 @@ export class DaemonSupervisor {
         }
         // Someone else's daemon went away: run our own instead.
         this.ports.log("warn", "The daemon stopped answering health checks", facts);
-        void this.start();
+        void this.start().catch((error: unknown) =>
+          this.ports.log("warn", "The start after an unresponsive daemon failed", {
+            error: String(error),
+          }),
+        );
       },
     });
   }

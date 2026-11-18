@@ -68,7 +68,8 @@ export class RunCheckpoints {
             );
         }
         if (p.type === "thread.updated" && p.status && ["done", "failed"].includes(p.status.state))
-          void this.finish(event.threadId);
+          // finish() swallows its own capture failure and the next drain picks the rows up.
+          void this.finish(event.threadId).catch(() => {});
       }
     });
   }
@@ -115,7 +116,8 @@ export class RunCheckpoints {
     );
     for (const row of candidates) {
       const id = ThreadId.parse(row.thread_id);
-      if (!this.flights.has(id)) void this.finish(id);
+      // finish() swallows its own capture failure and the next drain picks the rows up.
+      if (!this.flights.has(id)) void this.finish(id).catch(() => {});
       if (this.flights.size >= 16) break;
     }
   }

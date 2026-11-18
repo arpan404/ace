@@ -8,7 +8,7 @@ import { itemRow, preview } from "./presentation.ts";
 import { logFacts } from "./thread-blocks.ts";
 import { itemDetail, stepContext } from "./thread-rows.ts";
 import { turnThoughtMs, turnThoughts } from "./thread-messages.ts";
-import { workLog } from "./work-log.ts";
+import { placedWorkLog, type PlacedMoment } from "./work-log.ts";
 
 /*
  * A finished turn's full steps, read from the daemon (`turn.steps`, the SDK's bounded cache) while
@@ -34,6 +34,8 @@ interface Slot {
   /** The hold on the turn while it is open; undefined once closed. */
   release: (() => void) | undefined;
   answers: ReadonlySet<string>;
+  /** The head's moments, placed among the steps where they happened. */
+  moments: readonly PlacedMoment[];
   entry: TurnStepsEntry | undefined;
   /** Its header goes with the next send even if its steps did not change (it opened again). */
   fresh: boolean;
@@ -42,6 +44,13 @@ interface Slot {
   /** A summary read is under way; `again` asks for one more when it lands. */
   checking: boolean;
   again: boolean;
+}
+
+function sameMoments(a: readonly PlacedMoment[], b: readonly PlacedMoment[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((moment, at) => moment.id === b[at]?.id && moment.at === b[at]?.at)
+  );
 }
 
 function stepRow(store: ThreadSource, item: Parameters<typeof itemRow>[0], thought: string | null) {
@@ -86,22 +95,32 @@ export class StepsFollower {
 
   /**
    * A log opened or its head came into view: hold its turn and read it, or show what was read.
-   * `answers` are the head's answer ids. Opening one already open does nothing.
+   * `answers` are the head's answer ids, `moments` its restarts, waits and results landing. Opening
+   * one already open only takes the head's moments, which it may have gathered since.
    */
-  open(ordinal: number, answers: readonly string[]): void {
+  open(ordinal: number, answers: readonly string[], moments: readonly PlacedMoment[] = []): void {
     let slot = this.#slots.get(ordinal);
-    if (slot?.release) return;
+    if (slot?.release) {
+      if (sameMoments(slot.moments, moments)) return;
+      slot.moments = moments;
+      slot.fresh = true;
+      this.#emit(ordinal);
+      return;
+    }
     if (slot) this.#slots.delete(ordinal);
     else
       slot = {
         release: undefined,
         answers: new Set(answers),
+        moments,
         entry: undefined,
         pages: [],
         fresh: true,
         checking: false,
         again: false,
       };
+    // A head read again may have gathered another moment meanwhile.
+    slot.moments = moments;
     this.#slots.set(ordinal, slot);
     const held = [...this.#slots].filter(([, other]) => other.release);
     if (held.length >= openLimit) this.close(held[0]?.[0] ?? ordinal);
@@ -246,12 +265,12 @@ export class StepsFollower {
     }
     slot.pages.length = Math.min(slot.pages.length, pages);
     this.#put(`steps:${ordinal}`, () => {
-      // The turn's steps in groups, as the web's opened log groups them; rows name items the
-      // pages carry. The turn is over, so nothing in it still runs.
+      // The turn's steps in groups, as the web's opened log groups them, with its moments in
+      // place; rows name items the pages carry. The turn is over, so nothing in it still runs.
       const items = new Map<string, Item>(steps.map((step) => [step.item.id, step.item]));
       const ids = [...items.keys()];
       const background = backgroundRows(this.#store, ids);
-      const log = workLog(ids, (id) => items.get(id), {
+      const log = placedWorkLog(ids, (id) => items.get(id), slot.moments, {
         ...logFacts(this.#store),
         ended: () => true,
         took,

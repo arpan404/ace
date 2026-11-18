@@ -6,7 +6,7 @@ import { SpadeStatus } from "./spade.ts";
 import { StorageApply, StorageCompaction, StoragePlan, StorageUsage } from "./storage.ts";
 
 /**
- * `--json` success values for This machine and Spade (ADR 0176 §7): the daemon, its service,
+ * `--json` success values for This machine and Spade (ADR 0178 §7): the daemon, its service,
  * storage, settings, repair, Spade, Beta switches and automations. Keyed into `cliOutputs`.
  */
 

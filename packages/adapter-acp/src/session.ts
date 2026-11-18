@@ -197,27 +197,31 @@ class AcpSession implements ProviderSession {
       this.routing.receive(object(notification.params));
       this.shells.receive(object(notification.params));
       if (!this.routing.hasLiveChildren) this.clearGrace();
-      void this.drain();
+      // drain() settles each turn it takes, so its rejection has no reporter here.
+      void this.drain().catch(() => {});
     };
     proc.stdout.once("close", this.stdoutClosed);
     proc.stderr.on("line", (line) => this.frame("stderr", "stdio", line));
     ctx.signal.addEventListener("abort", this.abort, { once: true });
-    void proc.exited.then((exit) => {
-      this.closed = true;
-      ctx.mcp?.end();
-      this.clearGrace();
-      ctx.signal.removeEventListener("abort", this.abort);
-      this.cancelQuestions();
-      this.rejectQueue(new Error("ACP process exited"));
-      this.frame("note", "recorder", {
-        event: "process-exit",
-        detail: { ...exit, deliberate: this.deliberate },
-      });
-      ctx.onExit({
-        deliberate: this.deliberate,
-        message: `ACP process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
-      });
-    });
+    // exited never rejects; the exit itself reaches the engine through onExit.
+    void proc.exited
+      .then((exit) => {
+        this.closed = true;
+        ctx.mcp?.end();
+        this.clearGrace();
+        ctx.signal.removeEventListener("abort", this.abort);
+        this.cancelQuestions();
+        this.rejectQueue(new Error("ACP process exited"));
+        this.frame("note", "recorder", {
+          event: "process-exit",
+          detail: { ...exit, deliberate: this.deliberate },
+        });
+        ctx.onExit({
+          deliberate: this.deliberate,
+          message: `ACP process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
+        });
+      })
+      .catch(() => {});
     this.frame("note", "recorder", { event: "process-start" });
     if (ctx.signal.aborted) this.abort();
   }
@@ -240,10 +244,12 @@ class AcpSession implements ProviderSession {
     this.rejectQueue(error);
     this.rpc.stopRequests(error);
     if (this.windows) {
-      void this.stopTree();
+      // stopTree notes a tree that survives its stop itself.
+      void this.stopTree().catch(() => {});
       return;
     }
-    void this.proc.stop();
+    // stop() warns a surviving tree itself.
+    void this.proc.stop().catch(() => {});
   }
   abort = (): void => {
     // A tree that outlived its stop is noted by stopTree; shutdown goes on.
@@ -367,7 +373,8 @@ class AcpSession implements ProviderSession {
       throw sanitizedError(error, this.ctx);
     } finally {
       this.selecting = false;
-      void this.drain();
+      // drain() settles each turn it takes, so its rejection has no reporter here.
+      void this.drain().catch(() => {});
     }
   }
 
@@ -438,7 +445,8 @@ class AcpSession implements ProviderSession {
               reject,
             });
             this.queueChanged();
-            void this.drain();
+            // drain() settles each turn it takes, so its rejection has no reporter here.
+            void this.drain().catch(() => {});
           }),
       ),
     );
@@ -532,7 +540,8 @@ class AcpSession implements ProviderSession {
       next.reject(sanitizedError(error, this.ctx));
     } finally {
       this.active = false;
-      void this.drain();
+      // drain() settles each turn it takes, so its rejection has no reporter here.
+      void this.drain().catch(() => {});
     }
   }
   handleRequest(request: ServerRequest): unknown | Promise<unknown> {
@@ -569,7 +578,8 @@ class AcpSession implements ProviderSession {
     const answer = encodeResolution(pending.request.method, validated, request);
     this.pending.delete(key);
     pending.answer(answer);
-    void this.drain();
+    // drain() settles each turn it takes, so its rejection has no reporter here.
+    void this.drain().catch(() => {});
   }
   cancelQuestions(owners?: Set<string>): void {
     for (const [key, pending] of this.pending)
@@ -592,10 +602,11 @@ class AcpSession implements ProviderSession {
     const id = child?.id ?? this.nativeSessionId;
     const descendants = target.cascade ? this.routing.descendants(id) : [];
     this.cancelQuestions(new Set([id, ...descendants.map((value) => value.id)]));
-    this.rpc.notify("session/cancel", { sessionId: id });
+    // notify() reports a failed send through the peer's onError.
+    void this.rpc.notify("session/cancel", { sessionId: id }).catch(() => {});
     for (const descendant of descendants)
       if (descendant.live && descendant.cancel)
-        this.rpc.notify("session/cancel", { sessionId: descendant.id });
+        void this.rpc.notify("session/cancel", { sessionId: descendant.id }).catch(() => {});
   }
   async stopTask(_task: string): Promise<void> {
     throw new Error("ACP does not expose individual background task control");

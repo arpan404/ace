@@ -4,12 +4,15 @@ import { testHomePathVariables } from "@ace/provider-kit/test-isolation";
 /**
  * Pure environment policy. The caller owns creation of the redirected directories.
  * `gitCeilings` are checkouts a test git must never discover by walking up from its cwd.
+ * `toolPath` replaces PATH (see `prepareTestToolPath`): the person's PATH can reach agent CLIs
+ * and version-manager shims, and a shim run under a test HOME installs its tool there.
  */
 export function isolatedTestEnvironment(
   ambient: NodeJS.ProcessEnv,
   home: string,
   realHome: string,
   gitCeilings: readonly string[] = [],
+  toolPath?: string,
 ): NodeJS.ProcessEnv {
   const selectors = new Set(testHomePathVariables);
   const env: NodeJS.ProcessEnv = {};
@@ -19,13 +22,15 @@ export function isolatedTestEnvironment(
       // Every GIT_* goes: a GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR or GIT_INDEX_FILE inherited
       // from a hook or a linked worktree would aim fixture git commands at the real checkout.
       !/^(?:ACE_|XDG_|GIT_|CURSOR_|OPENCODE_)/.test(key) &&
-      !["SHELL", "HOMEDRIVE", "HOMEPATH", "NODE_OPTIONS"].includes(key)
+      // SCOOP names the person's Scoop root, whose shims Windows discovery falls back to.
+      !["SHELL", "HOMEDRIVE", "HOMEPATH", "NODE_OPTIONS", "SCOOP"].includes(key)
     )
       env[key] = value;
   }
   const deviceLive = ambient.ACE_DEVICE_LIVE === "1";
   return {
     ...env,
+    ...(toolPath === undefined ? {} : { PATH: toolPath }),
     HOME: home,
     USERPROFILE: home,
     ACE_HOME: join(home, ".ace"),

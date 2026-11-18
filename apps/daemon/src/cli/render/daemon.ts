@@ -1,6 +1,6 @@
 import type { CliLogRecord } from "@ace/protocol/cli-outputs";
 
-/** Words for `ace daemon …` and `ace service …` (ADR 0176 §3). Pure: values → lines. */
+/** Words for `ace daemon …` and `ace service …` (ADR 0178 §3). Pure: values → lines. */
 
 export interface StartedDaemon {
   running: true;

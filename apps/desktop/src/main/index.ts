@@ -5,7 +5,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
-import type { AppUpdateInstruction } from "@ace/protocol";
+import type { AppUpdateInstruction, HomeData } from "@ace/protocol";
 import { desktopUpdateArgument } from "@ace/service/desktop-update-argument";
 import {
   app,
@@ -26,7 +26,7 @@ import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import { healthy, reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
-import { UpdateReporter } from "./daemon/update-report.ts";
+import { appUpdateReport, UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
 import { createPageConnection } from "./daemon/page-connection.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
@@ -191,7 +191,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     spawn: bundledStallWorker(import.meta.url),
     clock: beat.clock,
   });
-  void logFreshStart(target, log, new Date());
+  // logFreshStart records its own failure in the log; a throw from the log itself is all left.
+  void logFreshStart(target, log, new Date()).catch(() => {});
   const info: AppInfo = {
     version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
     platform:
@@ -262,10 +263,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
   // Paired clients read the app's update status from its daemon, and an administrator there can
   // ask for the update; the daemon's reply carries the request (ADR 0113).
   let remoteUpdate: ((instruction: AppUpdateInstruction) => void) | undefined;
+  // What the daemon's home holds, from its replies: an older release is offered only if it
+  // reads all of it (ADR 0177).
+  let homeData: HomeData | undefined;
   const updateReport = new UpdateReporter({
     ready: async () => healthy(await runtime.local()),
     send: async (report) => reportAppUpdate(await runtime.local(), report),
     instructed: (instruction) => remoteUpdate?.(instruction),
+    replied: (reply) => {
+      if (reply.homeData) homeData = reply.homeData;
+    },
     withdraw: async () => withdrawAppUpdate(await runtime.local()),
     timers,
     log: (message) => log("warn", message),
@@ -331,6 +338,18 @@ function main(target: DaemonTarget, crashDumps: string): void {
       await quitGate.shutDown();
     },
     quit: () => app.quit(),
+    chosenLine: () => settings.get().updateLine,
+    saveLine: async (line) => void (await settings.update({ updateLine: line })),
+    homeData: () => homeData,
+    // The guard's second look before an install: the daemon reads the home again on each report.
+    freshHomeData: async () => {
+      const reply = await reportAppUpdate(
+        await runtime.local(),
+        appUpdateReport(updates.current()),
+      ).catch(() => undefined);
+      if (reply?.homeData) homeData = reply.homeData;
+      return reply?.homeData;
+    },
     log: logger("updates"),
   });
   updateReport.status(updates.current());
@@ -473,7 +492,10 @@ function main(target: DaemonTarget, crashDumps: string): void {
     if (links.length === 0) open();
     for (const link of links) open(link);
     // `ace update apply` from the bundled CLI, while the app runs.
-    if (argv.includes(desktopUpdateArgument)) void updates.apply();
+    if (argv.includes(desktopUpdateArgument))
+      void updates
+        .apply()
+        .catch((error: unknown) => log("warn", `Applying the update failed: ${String(error)}`));
   });
   app.on("open-url", (event, url) => {
     event.preventDefault();
@@ -512,7 +534,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
   app.on("window-all-closed", () => background.windowChanged());
   app.on("activate", () => open());
 
-  void app.whenReady().then(async () => {
+  // The app's startup: a failure is logged, and the app stays up without a window.
+  const ready = app.whenReady().then(async () => {
     if (paths.devIcon) app.dock?.setIcon(paths.devIcon);
     const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
     const network = new DaemonNetwork();
@@ -613,7 +636,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
       log: (line) => log("info", line),
     });
     let terminalStatus: Awaited<ReturnType<typeof terminal.status>> | undefined;
-    void terminal.status().then((status) => (terminalStatus = status));
+    void terminal
+      .status()
+      .then((status) => (terminalStatus = status))
+      .catch((error: unknown) =>
+        log("warn", `Could not read the terminal's status: ${String(error)}`),
+      );
     let bindings: Readonly<Record<string, string>> | undefined;
     const toolchains = bundledToolchains(import.meta.url);
     // Spade beside this app's daemon, reached directly so it works while the daemon is down.
@@ -762,6 +790,11 @@ function main(target: DaemonTarget, crashDumps: string): void {
       log("error", `Update checks failed to start: ${String(error)}`);
     }
     // Launched by `ace update apply` from the bundled CLI.
-    if (process.argv.includes(desktopUpdateArgument)) void updates.apply();
+    if (process.argv.includes(desktopUpdateArgument))
+      void updates
+        .apply()
+        .catch((error: unknown) => log("warn", `Applying the update failed: ${String(error)}`));
   });
+  // A startup that fails is logged; the app stays up with no window rather than dying.
+  void ready.catch((error: unknown) => log("error", `Desktop startup failed: ${String(error)}`));
 }

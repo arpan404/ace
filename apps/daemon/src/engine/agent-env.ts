@@ -1,7 +1,7 @@
 import type { ThreadId } from "@ace/protocol";
 
 /**
- * The variables ace gives every agent session it starts (ADR 0176 §10): its own thread, never to
+ * The variables ace gives every agent session it starts (ADR 0178 §10): its own thread, never to
  * prompt, and the home its daemon uses, so `ace` in the agent's shell talks to the right daemon
  * about the right thread. Hints for an honest caller, not a security boundary. Pure.
  */

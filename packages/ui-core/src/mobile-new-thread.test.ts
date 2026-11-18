@@ -126,6 +126,19 @@ test("with nothing chosen the first ready agent starts on its default model and 
   expect(picked.ok && picked.model.id).toBe("sonnet");
 });
 
+test("a model with no default effort shows the effort its thread is created with", () => {
+  const offered = newThreadAgents({
+    statuses: [row("claude")],
+    accounts: [],
+    catalog: { models: [model("claude", "opus", true, ["low", "medium", "high"])], instances: [] },
+    now: 0,
+  });
+  const shown = offered.providers[0]?.models[0]?.defaultEffort;
+  const start = selectNewThreadAgent(offered, {});
+  expect(start.ok && start.effort).toBe("medium");
+  expect(shown).toBe(start.ok ? start.effort : undefined);
+});
+
 test("an effort picked for another provider's model doesn't carry over to the ready agent", () => {
   const start = selectNewThreadAgent(agents(), {
     model: modelKey("codex", "gpt-6"),

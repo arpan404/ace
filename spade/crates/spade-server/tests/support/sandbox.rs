@@ -1,4 +1,4 @@
-//! A server whose bots' commands run through the macOS sandbox (ADR 0167), a fake home folder
+//! A server whose bots' commands run through the machine's sandbox (ADR 0167), a fake home folder
 //! holding the person's files, and one bot: the world the security and effects process tests
 //! share.
 
@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use spade_server::clock::{CountingIds, SystemClock};
 use spade_server::security::{Security, Setup};
 use spade_server::tools::{EngineHandle, Tool};
-use spade_server::workspace::shell::{Confine, Confined, Kind, Shell};
+use spade_server::workspace::shell::{Confine, Confinement, Kind, Shell};
 use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_store::Store;
 use spade_testkit::Script;
@@ -21,7 +21,7 @@ use super::{Result, Spade};
 pub struct Late(OnceLock<Arc<Security>>);
 
 impl Confine for Late {
-    fn confine(&self, home: &Path, kind: &Kind) -> std::result::Result<Option<Confined>, String> {
+    fn confine(&self, home: &Path, kind: &Kind) -> std::result::Result<Confinement, String> {
         match self.0.get() {
             Some(security) => security.confine(home, kind),
             None => Err("the security service isn't set".to_owned()),
@@ -111,12 +111,40 @@ pub async fn reviewed_world(
     world_with(options, false, sandboxed, extra, scripts).await
 }
 
+/// [`world`] (sandboxed) whose bots' shell goes through `wrap` around the security service, so a
+/// test can change what the sandbox holds between the gate's decision and the launch.
+pub async fn wrapped_world(
+    wrap: impl FnOnce(Arc<dyn Confine>) -> Arc<dyn Confine>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_built(
+        super::Options::default(),
+        false,
+        true,
+        vec![],
+        scripts,
+        wrap,
+    )
+    .await
+}
+
 async fn world_with(
     options: super::Options,
     terminal: bool,
     sandboxed: bool,
     extra: Vec<Arc<dyn Tool>>,
     scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_built(options, terminal, sandboxed, extra, scripts, |late| late).await
+}
+
+async fn world_built(
+    options: super::Options,
+    terminal: bool,
+    sandboxed: bool,
+    extra: Vec<Arc<dyn Tool>>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+    wrap: impl FnOnce(Arc<dyn Confine>) -> Arc<dyn Confine>,
 ) -> Result<World> {
     let dir = tempfile::tempdir()?;
     let root = std::fs::canonicalize(dir.path())?;
@@ -128,7 +156,7 @@ async fn world_with(
     let workspaces = Workspaces::new(data.join("workspace"));
     let late = Arc::new(Late::default());
     let bots = EngineHandle::default();
-    let shell = Shell::system().confined(late.clone());
+    let shell = Shell::system().confined(wrap(late.clone()));
     let kept = (shell.clone(), workspaces.clone(), bots.clone());
     let commands = if terminal {
         let terminals = spade_server::computer::Terminals::new(
@@ -150,7 +178,8 @@ async fn world_with(
     let spade = Spade::start_with(scripts, tools, options).await?;
     bots.set(&spade.engine);
     let runner = if sandboxed {
-        spade_sandbox::Runner::probe(None)
+        // Linux starts Spade's own binary as the launcher; macOS's sandbox needs none.
+        spade_sandbox::Runner::probe(Some(PathBuf::from(env!("CARGO_BIN_EXE_spade"))))
     } else {
         spade_sandbox::Runner::unavailable("no sandbox in this test")
     };

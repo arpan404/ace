@@ -2,7 +2,7 @@
 
 <!-- Generated from apps/daemon/src/cli/commands by `bun apps/daemon/scripts/cli-doc.ts`. Don't edit by hand. -->
 
-Every command is `ace <noun> <verb> [ARGUMENTS] [FLAGS]` ([ADR 0176](../adr/0176-one-cli-grammar-interactive-home-and-market.md)).
+Every command is `ace <noun> <verb> [ARGUMENTS] [FLAGS]` ([ADR 0178](../adr/0178-one-cli-grammar-interactive-home-and-market.md)).
 `ace help COMMAND` prints the same page in a terminal, and `ace help --json` prints all of it as JSON.
 
 ## Global flags
@@ -62,6 +62,8 @@ The CLI's version.
 ### `ace completion SHELL`
 
 Tab completion for bash, zsh, fish or PowerShell.
+
+Completes commands, flags and choices, and asks the running daemon for thread ids, project names, open request ids and Spade bot names; zsh, fish and PowerShell show each with a thread's title or a project's folder beside it. With ace down, or no answer within 300 ms, it completes what the command table knows. Completion never starts ace, never prompts and never writes.
 
 - `SHELL`: bash, zsh, fish, powershell, or install
 

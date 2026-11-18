@@ -9,7 +9,7 @@ import { requestStrip } from "./request-strip.ts";
 import type { LiveLine } from "./transcript.ts";
 
 /**
- * Attach's live region (ADR 0176 §9), below what is already in the scrollback: the turn in
+ * Attach's live region (ADR 0178 §9), below what is already in the scrollback: the turn in
  * progress, the request strip when one is open, the live line, then the composer. Pure.
  */
 export interface AttachView {
@@ -23,6 +23,10 @@ export interface AttachView {
   readonly fresh: boolean;
   /** A line saying the connection is down or catching up. */
   readonly connection: string | undefined;
+  /** The focused "Worked for" line, drawn (`↑` reached it; `↵` unfolds it). */
+  readonly focus?: string | undefined;
+  /** The transcript has "Worked for" lines `↑` can reach. */
+  readonly work?: boolean | undefined;
 }
 
 export function attachView(
@@ -45,6 +49,10 @@ export function attachView(
   if (view.connection) foot.push(paint.dim(cutEnd(view.connection, width)));
   else if (view.live) foot.push(paint.tone(view.live.tone, cutEnd(`◌ ${view.live.text}`, width)));
   if (state.notice) foot.push(paint.dim(cutEnd(state.notice, width)));
+  if (view.focus) {
+    foot.push(`› ${view.focus}`);
+    foot.push(paint.dim(keysLine(["↵ unfold its steps", "↑↓ other work", "esc back"], width)));
+  }
   const typing = answer !== undefined && capturing(answer);
   if (!typing) {
     const placeholder = view.fresh
@@ -55,9 +63,9 @@ export function attachView(
     const composer = composerView(state.composer, width, placeholder ? paint.dim(placeholder) : "");
     cursor = { row: foot.length + composer.cursor.row, column: composer.cursor.column };
     foot.push(...composer.lines);
-    foot.push(
-      paint.dim(keysLine(["esc home", "/steer", "/stop", "/model", "/resume", "/quit"], width)),
-    );
+    const keys = ["esc home", "/steer", "/stop", "/model", "/resume", "/quit"];
+    if (view.work && !view.focus && !state.composer.text) keys.splice(1, 0, "↑ work");
+    foot.push(paint.dim(keysLine(keys, width)));
   }
   const room = Math.max(0, height - foot.length);
   const turn = view.turn.slice(Math.max(0, view.turn.length - room));

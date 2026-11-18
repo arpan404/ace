@@ -153,7 +153,7 @@ async fn a_typed_send_goes_to_the_person_and_no_reviewer() -> Result {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 mod sandboxed {
     use super::*;
     use support::sandbox::{output, reviewed_world, world};

@@ -20,11 +20,13 @@ export const thirdPartyLicensesFile = "THIRD-PARTY-LICENSES";
  * entry budget (`releaseArchiveLimits` in `@ace/service`).
  */
 export async function collectLicenses(inputs: string[], output: string): Promise<void> {
-  if (inputs.length > 4096) throw new Error("Bundle input limit exceeded");
+  // Only dependency files are walked for a package.json, so only they count toward the bound:
+  // ace's own sources (about 3,800 in November 2026) are skipped and grow with every feature.
+  const dependencies = inputs.filter((input) => input.includes("node_modules"));
+  if (dependencies.length > 4096) throw new Error("Bundle input limit exceeded");
   const packages = new Set<string>();
   const notices: { heading: string; text: string }[] = [];
-  for (const input of inputs) {
-    if (!input.includes("node_modules")) continue;
+  for (const input of dependencies) {
     let directory = dirname(resolve(input));
     while (dirname(directory) !== directory) {
       let value: unknown;

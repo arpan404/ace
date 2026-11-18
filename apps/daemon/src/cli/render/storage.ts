@@ -1,6 +1,6 @@
 import type { StorageApply, StorageCompaction, StoragePlan, StorageUsage } from "@ace/protocol";
 
-/** Words for `ace storage` (ADR 0176 §3). Pure: values → lines. */
+/** Words for `ace storage` (ADR 0178 §3). Pure: values → lines. */
 
 export function formatBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];

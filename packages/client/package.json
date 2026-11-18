@@ -15,6 +15,7 @@
     "./machines": "./src/machines.ts",
     "./screen": "./src/screen.ts",
     "./spade-http": "./src/spade-http.ts",
+    "./spade-live": "./src/spade-live.ts",
     "./screen-stream": "./src/screen-stream.ts",
     "./media": "./src/media.ts",
     "./worktree-creations": "./src/worktree-creations.ts",

@@ -107,7 +107,12 @@ export class PersonPresence {
       const publish = () => {
         if (!this.active(surface)) this.options.changed?.(surface, false);
       };
-      if (this.options.sample) void this.refresh(surface).then(publish);
+      // refresh() treats an unreadable sample as no physical input; a failure here leaves the
+      // lease as the clock says, and the next input asks again.
+      if (this.options.sample)
+        void this.refresh(surface)
+          .then(publish)
+          .catch(() => {});
       else publish();
     });
     this.lapses.set(surface, cancel);

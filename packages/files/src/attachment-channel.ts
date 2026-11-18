@@ -172,7 +172,8 @@ export function attachmentChannel(options: {
           opening,
         ).catch(() => {});
         jobs.add(job);
-        void job.finally(() => jobs.delete(job));
+        // open() reports its own failure to the client; this only forgets the finished job.
+        void job.finally(() => jobs.delete(job)).catch(() => {});
         return true;
       }
       if (message.type === "files.abort") {

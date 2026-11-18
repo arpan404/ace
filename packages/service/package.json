@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./home": "./src/home.ts",
+    "./home-path": "./src/home-path.ts",
     "./exit-codes": "./src/exit-codes.ts",
     "./desktop-update": "./src/desktop-update.ts",
     "./desktop-update-argument": "./src/desktop-update-argument.ts",
@@ -14,7 +15,8 @@
     "./spade-update-mode": "./src/spade-update-mode.ts",
     "./spade-plan": "./src/spade-plan.ts",
     "./spade-layout": "./src/spade-layout.ts",
-    "./spade-service": "./src/spade-api.ts"
+    "./spade-service": "./src/spade-api.ts",
+    "./release-line": "./src/release-line.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

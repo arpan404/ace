@@ -221,7 +221,8 @@ export class BrowserBackend {
     const threadId = options.threadId;
     page.orphan?.();
     const forget = () => {
-      if (this.orphans.get(threadId) === orphan) void this.closeOrphan(threadId);
+      if (this.orphans.get(threadId) === orphan)
+        void this.closeOrphan(threadId).catch((error: unknown) => this.options.log(String(error)));
     };
     const cancel = (this.options.timers ?? defaultTimers).set(
       this.options.orphanGraceMs ?? defaultOrphanGraceMs,
@@ -287,7 +288,7 @@ export class BrowserBackend {
       if (latest) this.sendFrame(session, latest.frameId, latest.params);
       return;
     }
-    void this.request(link, message);
+    void this.request(link, message).catch((error: unknown) => this.options.log(String(error)));
   }
 
   private async request(link: BackendLink, request: BrowserBackendRequest): Promise<void> {
@@ -501,7 +502,8 @@ export class BrowserBackend {
       return;
     }
     // The view is gone (closed by the person, crashed, or the debugger detached).
-    if (method === "Inspector.detached") void this.dispose(session);
+    if (method === "Inspector.detached")
+      void this.dispose(session).catch((error: unknown) => this.options.log(String(error)));
   }
 
   private losePolicySession(session: Session): void {
@@ -514,7 +516,7 @@ export class BrowserBackend {
       method: "Inspector.detached",
       params: { reason: "Browser policy event payload limit" },
     });
-    void this.dispose(session);
+    void this.dispose(session).catch((error: unknown) => this.options.log(String(error)));
   }
 
   private frame(session: Session, params: unknown): void {

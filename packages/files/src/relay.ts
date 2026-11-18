@@ -18,9 +18,12 @@ export function attachFilesRelay(
   authorize: (capability: "files.read" | "files.write", operation?: FileOperation) => boolean,
 ) {
   let ended = false;
-  void channel.closed.then(() => {
-    ended = true;
-  });
+  // closed resolves with the error that ended the channel; it never rejects.
+  void channel.closed
+    .then(() => {
+      ended = true;
+    })
+    .catch(() => {});
   return attachFilesChannel(
     service,
     {
@@ -34,9 +37,11 @@ export function attachFilesRelay(
       sendBinary: (frame) => channel.sendBinary(frame),
       onClose(listener) {
         let active = true;
-        void channel.closed.then(() => {
-          if (active) listener();
-        });
+        void channel.closed
+          .then(() => {
+            if (active) listener();
+          })
+          .catch(() => {});
         return () => {
           active = false;
         };

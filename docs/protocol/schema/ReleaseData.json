@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReleaseData.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "daemon": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "home": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "notify": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "spade": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "home",
+    "daemon",
+    "notify",
+    "spade"
+  ],
+  "type": "object"
+}

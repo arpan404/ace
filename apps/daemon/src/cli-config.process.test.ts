@@ -85,7 +85,7 @@ test("ace config set retention-days applies to the running daemon at once and ke
     for (const kept of [working, recent]) expect(f.deleted(kept)).toBe(false);
 
     const refused = await invoke(f.home, ["config", "set", "retention-days", "0", "--json"]);
-    // A value the setting doesn't take is a wrong command line (ADR 0176 §4).
+    // A value the setting doesn't take is a wrong command line (ADR 0178 §4).
     expect(refused.code).toBe(64);
     expect(JSON.parse(refused.stdout).error).toContain("retention-days must be");
   } finally {

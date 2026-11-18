@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("the window's connection sits on Fleet, not General, and daemon diagnostics stay under Advanced", async () => {
+test("the window's connection sits on the main machine's Fleet page, not General, and daemon diagnostics stay under Advanced", async () => {
   const app = harness();
-  let view = await app.open("/settings/remote");
+  let view = await app.open("/settings/remote/primary");
   const daemon = await screen.findByRole("region", { name: "In this window" });
   expect(within(daemon).getByText("Computer connection")).toBeTruthy();
   expect(within(daemon).queryByRole("button", { name: "Disconnect" })).toBeNull();

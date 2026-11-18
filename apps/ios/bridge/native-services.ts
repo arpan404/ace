@@ -99,6 +99,8 @@ import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
+import type { NativeSpade } from "./spade.ts";
+import { answerSpade, NativeSpadeRequest } from "./spade-requests.ts";
 import { NativeCatalogRequest, type CatalogPage } from "./catalog-page.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
@@ -165,6 +167,8 @@ export class NativeServices {
   carried: (threadId: string) => ReadonlySet<string> = () => new Set();
   /** The Skills and commands pages' catalog reads, shared with the composer. */
   catalog: CatalogPage | undefined;
+  /** Spade on this machine (`spade.ts`), set once the runtime has made it. */
+  spade: NativeSpade | undefined;
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -326,6 +330,19 @@ export class NativeServices {
       const outside = NativeOutsideRequest.safeParse(raw);
       if (outside.success) {
         this.#reply(id, true, await answerOutside(this.owner, outside.data, this.now), "");
+        return;
+      }
+      const spadeRequest = NativeSpadeRequest.safeParse(raw);
+      if (spadeRequest.success && this.spade) {
+        const deps = { id: () => host.uuid() };
+        const outcome = await answerSpade(
+          this.owner,
+          this.spade,
+          spadeRequest.data,
+          deps,
+          controller.signal,
+        );
+        this.#reply(id, true, outcome, "");
         return;
       }
       const catalog = NativeCatalogRequest.safeParse(raw);

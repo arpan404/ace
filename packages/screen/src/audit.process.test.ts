@@ -1,14 +1,14 @@
 import { expect, it, onTestFinished } from "vitest";
 import { readdir } from "node:fs/promises";
 import { Helper, screenConnection, Simulators } from "./index.ts";
-import { manager, ready, ids, target } from "./testing/support.ts";
+import { macHostPlatform, manager, ready, ids, target } from "./testing/support.ts";
 import { helperGate } from "./testing/gate.ts";
 
 const caller = { threadId: "thread", agentId: "agent" };
 const owner = JSON.stringify([caller.threadId, caller.agentId]);
 const args = [new URL("./testing/fake-helper-behavior.ts", import.meta.url).pathname];
 async function fixture(env: NodeJS.ProcessEnv = {}) {
-  const h = await manager(env, { args });
+  const h = await manager(env, { ...macHostPlatform, args });
   onTestFinished(h.close);
   return h;
 }
@@ -130,7 +130,7 @@ it("status and permission inspections can finish while an app launch is still pe
 });
 
 it("disabled status does not start a helper", async () => {
-  const h = await manager({}, { command: "/no/such/screen-helper", args: [] });
+  const h = await manager({}, { ...macHostPlatform, command: "/no/such/screen-helper", args: [] });
   onTestFinished(h.close);
   expect(await h.screen.currentPermissions()).toEqual({
     screenRecording: false,

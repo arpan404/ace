@@ -7,7 +7,7 @@ import { ownThread, withSession, type CommandContext } from "../run/context.ts";
 
 /*
  * Every people and publisher market command goes through the daemon's `marketplace.request`
- * (ADR 0176 §11), never to market.acehq.dev, so this machine's sources, signature checks, scan
+ * (ADR 0178 §11), never to market.acehq.dev, so this machine's sources, signature checks, scan
  * and signed-in ace account are the ones used. In an agent's shell the request names its thread
  * (`ACE_THREAD_ID`), and the daemon turns a person-only action into a request there.
  */
@@ -42,7 +42,7 @@ const hints: Partial<Record<MarketError["code"], string>> = {
   expired: "The review ran out; run the command again for a fresh one.",
 };
 
-/** The market's refusal as the CLI reports it (ADR 0176 §12.3–§12.4). Pure. */
+/** The market's refusal as the CLI reports it (ADR 0178 §12.3–§12.4). Pure. */
 /**
  * `unavailable` also answers a marketplace turned off in Settings › Beta (`TurnedOff` in the
  * daemon, which says so in these words); that one alone is `turned_off`, with the switch's hint.

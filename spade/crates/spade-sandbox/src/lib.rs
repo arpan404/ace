@@ -9,6 +9,7 @@ pub mod linux;
 pub mod policy;
 pub mod runner;
 pub mod seatbelt;
+pub mod windows;
 
 pub use policy::{Facts, Policy};
 pub use runner::{Coverage, Launch, Mechanism, Runner, Status, Unavailable};

@@ -1,5 +1,5 @@
 /**
- * Who is on the other end (ADR 0176 §3, §9, §10). Pure: the dispatcher passes in the flags,
+ * Who is on the other end (ADR 0178 §3, §9, §10). Pure: the dispatcher passes in the flags,
  * the environment and whether stdin and stdout are terminals.
  */
 export type OutputMode = "human" | "json" | "quiet";

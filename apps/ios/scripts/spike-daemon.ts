@@ -1,4 +1,5 @@
 import { outsideScenario, seedOutside, type OutsideScenario } from "./outside-scenario.ts";
+import { seedSpade, spadeScenario, type SpadeScenario } from "./spade-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -32,6 +33,7 @@ import {
 import { spikePoster } from "./spike-poster.ts";
 import { spikeMedia, type PhoneMain, type SpikeSocketData } from "./spike-media.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
+import { SpikeAccount } from "./spike-account.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
@@ -50,6 +52,7 @@ import { seedToolBurst, toolBurst } from "./tool-burst-scenario.ts";
 import { richRound, seedRichWork } from "./rich-work-scenario.ts";
 import { seedAppUpdate, seedMachineUpdate, seedStorage } from "./storage-scenario.ts";
 import { seedSkills } from "./skills-scenario.ts";
+import { ReadMarkScenario } from "./read-mark-scenario.ts";
 
 /** `ACE_IOS_SPIKE_PORT` lets parallel fixtures share one Mac; the app takes `--spike-port`. */
 const port = z.coerce
@@ -286,6 +289,7 @@ seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 seedChats(daemon);
 seedOutside(daemon, Date.now());
+seedSpade(daemon, Date.now());
 // Opt-in, so other UI tests keep the list they expect: `ACE_IOS_SPIKE_ROUTING=1`.
 if (process.env.ACE_IOS_SPIKE_ROUTING === "1") seedRouting(daemon, details, machineName);
 // GitHub pull requests, issues and notifications for the Pulls tab.
@@ -298,6 +302,7 @@ seedMessageAttachments(daemon);
 seedBrowser(daemon, details);
 seedFiles(daemon, details);
 seedChanges(daemon, details);
+const readMarks = new ReadMarkScenario(daemon, details);
 seedWorkLogs(daemon);
 seedLongSteps(daemon);
 seedMessages(daemon, details);
@@ -363,6 +368,8 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
   });
 }
 const lostReceipt = new LostReceipt();
+// The account backend `--spike-account` signs in to, on this same port.
+const spikeAccount = new SpikeAccount(() => Date.now());
 const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,
@@ -397,6 +404,11 @@ const server = Bun.serve<SpikeSocketData>({
         "home",
       ] as const satisfies OutsideScenario[];
       outsideScenario(daemon, z.enum(kinds).parse(await request.json()));
+      return Response.json({ ok: true });
+    }
+    if (path === "/review/spade" && request.method === "POST") {
+      const kinds = ["off", "on", "stream"] as const satisfies SpadeScenario[];
+      spadeScenario(daemon, z.enum(kinds).parse(await request.json()));
       return Response.json({ ok: true });
     }
     if (path === "/review/many" && request.method === "POST") {
@@ -492,8 +504,12 @@ const server = Bun.serve<SpikeSocketData>({
     if (posterReply) return posterReply;
     const browserReply = await browserControl(daemon, request);
     if (browserReply) return browserReply;
+    const accountReply = await spikeAccount.handle(request);
+    if (accountReply) return accountReply;
     const devicesReply = devicesControl(daemon, request);
     if (devicesReply) return devicesReply;
+    const readMarkReply = await readMarks.control(request);
+    if (readMarkReply) return readMarkReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,
@@ -592,6 +608,7 @@ const server = Bun.serve<SpikeSocketData>({
         if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
+        readMarks.observe(data);
         poster.observe(data);
         if (answerScreenshot(data, (text) => socket.send(text), daemon)) return;
         connections.get(socket)?.receive(data);

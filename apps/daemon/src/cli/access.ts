@@ -56,7 +56,7 @@ export async function accessCommand(args: Args, home: string) {
   throw new CliFailure("refused", `Unknown access command ${command ?? ""}.`);
 }
 
-/** `ace device list|pair|revoke`: who is paired with this machine (ADR 0176 §7). */
+/** `ace device list|pair|revoke`: who is paired with this machine (ADR 0178 §7). */
 export async function deviceCommand(
   args: Args,
   home: string,

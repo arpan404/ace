@@ -7,7 +7,7 @@ import type { OutputMode } from "../input-mode.ts";
 import { CliFailure } from "../output.ts";
 import type { Parsed } from "../parse.ts";
 
-/** What a command's handler gets (ADR 0176 §14): the parsed line and how to reach ace. */
+/** What a command's handler gets (ADR 0178 §14): the parsed line and how to reach ace. */
 export interface CommandContext {
   readonly command: CommandSpec;
   readonly parsed: Parsed;
@@ -16,8 +16,10 @@ export interface CommandContext {
   readonly mode: OutputMode;
   readonly env: NodeJS.ProcessEnv;
   readonly table: CommandTable;
-  /** The daemon's config; read on first use, so offline commands never need it. */
-  readonly config: () => Config;
+  /** The daemon's config; loaded and read on first use, so offline commands never need it. */
+  readonly config: () => Promise<Config>;
+  /** The ace home alone, without loading the config (the interactive home's first paint). */
+  readonly dataDir: () => string;
 }
 
 export type Handler = (context: CommandContext) => Promise<void>;
@@ -60,7 +62,7 @@ export async function withSession(
   run: (session: Session) => Promise<void>,
 ): Promise<void> {
   const { connectCli } = await import("../connection.ts");
-  const session = await connectCli(context.config().dataDir, args);
+  const session = await connectCli((await context.config()).dataDir, args);
   try {
     await run(session);
   } finally {

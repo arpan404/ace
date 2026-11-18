@@ -33,11 +33,12 @@ import XCTest
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
         // No tab bar beside the list: its places sit at the sidebar's foot, New thread in its bar.
-        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable)
+        XCTAssertFalse(app.tabBars.buttons["Projects"].reachable)
         let threads = app.buttons["sidebar.threads"], chats = app.buttons["sidebar.chats"]
         XCTAssertTrue(threads.reachable)
         XCTAssertTrue(threads.isSelected)
-        XCTAssertFalse(app.buttons["sidebar.spade"].exists)
+        // The fixture's machine shows Spade (Settings › Beta), so its place follows Chats.
+        XCTAssertTrue(app.buttons["sidebar.spade"].reachable)
         // Chats shows its own list, and Threads comes back to its open thread.
         chats.tap()
         XCTAssertTrue(app.staticTexts["No chat open"].waitForExistence(timeout: 10))
@@ -106,13 +107,13 @@ import XCTest
         guard app.windows.firstMatch.frame.width < full.width - 100 else { throw XCTSkip("the window did not resize: windowed apps are off") }
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["sidebar.threads"].reachable)
-        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable, "as on a phone, the tab bar steps aside for a thread")
+        XCTAssertFalse(app.tabBars.buttons["Projects"].reachable, "as on a phone, the tab bar steps aside for a thread")
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("ipad-narrow-window-thread")
         // Back returns to the full-screen list and its tab bar.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForHittable(timeout: 10))
-        XCTAssertTrue(app.tabBars.buttons["Threads"].reachable)
+        XCTAssertTrue(app.tabBars.buttons["Projects"].reachable)
         screenshot("ipad-narrow-window")
         app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
@@ -120,7 +121,7 @@ import XCTest
         // Wide again: the sidebar and its places are back, the tab bar gone, nothing lost.
         resize(app, toWidth: full.width, height: full.height)
         XCTAssertTrue(app.buttons["sidebar.threads"].waitForHittable(timeout: 10))
-        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable)
+        XCTAssertFalse(app.tabBars.buttons["Projects"].reachable)
         XCTAssertTrue(app.buttons["thread.ios-approval"].isSelected)
         XCTAssertEqual(input.value as? String, "Keep this draft")
     }
@@ -159,7 +160,7 @@ import XCTest
         XCTAssertTrue(chatsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
         XCTAssertTrue(chatsTab.isSelected)
         XCTAssertFalse(app.buttons["sidebar.chats"].reachable)
-        app.tabBars.buttons["Threads"].tap()
+        app.tabBars.buttons["Projects"].tap()
         XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")
@@ -170,7 +171,8 @@ import XCTest
 
     func testBackFromAPageOverTheThreadKeepsTheThreadOpen() throws {
         let app = launch()
-        open("thread.ios-browser", in: app)
+        // The fixture's inbox runs past the fold, and this row sits below it.
+        app.revealRow("thread.ios-browser").tap()
         XCTAssertTrue(title("Check the checkout flow", in: app).waitForExistence(timeout: 20))
         app.buttons["thread.menu"].tap()
         app.threadMenuItem("thread.browser").tap()

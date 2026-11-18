@@ -186,6 +186,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     }
   });
   #hostId: string | undefined;
+  /** The daemon build's release line, from its last welcome (ADR 0177). */
+  #releaseLine: string | undefined;
   /** Read snapshots under the verified host id; forgotten once the daemon refuses us. */
   #snapshots: HostSnapshots | undefined;
   #history: KeptHistory | undefined;
@@ -242,6 +244,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "welcome":
             if (this.#hostId && this.#hostId !== message.hostId)
               throw new ClientError("identity", "Transport changed daemon identity");
+            this.#releaseLine = message.releaseLine;
             this.#newSocket();
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
@@ -302,7 +305,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         // Signing out, another account, an expired or refused grant or a new machine code
         // keep it all: it comes back when the person signs in again.
         if (this.state === "fatal" && this.connection.error?.revoked === true)
-          void this.#snapshots?.forget();
+          // forget() drops what it can and resolves either way.
+          void this.#snapshots?.forget().catch(() => {});
         this.notifications.emit(["connection"]);
       },
       () => {
@@ -504,6 +508,11 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   connectionGeneration(): Selection<number | undefined> {
     return this.notifications.select(["connection", "socket"], () =>
       this.state === "ready" ? this.#socket : undefined,
+    );
+  }
+  releaseLine(): Selection<string | undefined> {
+    return this.notifications.select(["connection", "socket"], () =>
+      this.state === "ready" ? this.#releaseLine : undefined,
     );
   }
   #newSocket(): void {
@@ -729,7 +738,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#collections.delete(sidebar);
         const written = sidebar.close();
         this.#checkpoints.add(written);
-        void written.finally(() => this.#checkpoints.delete(written));
+        // A checkpoint that fails writes nothing; the next change writes the newest copy.
+        void written.catch(() => {}).finally(() => this.#checkpoints.delete(written));
       },
     };
   }

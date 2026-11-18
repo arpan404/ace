@@ -25,7 +25,7 @@ import { publishLines } from "../render/market.ts";
 import { installQuestion } from "../render/market-review.ts";
 import { ownThread, type CommandContext } from "./context.ts";
 
-/* The market commands that take more than one request, or ask the person (ADR 0176 §11, §12). */
+/* The market commands that take more than one request, or ask the person (ADR 0178 §11, §12). */
 
 const stderr = (text: string) => void process.stderr.write(text);
 const flag = (context: CommandContext, name: string) => {
@@ -49,7 +49,7 @@ async function signedIn<T>(context: CommandContext, run: () => Promise<T>): Prom
     const { aceAccountCommand } = await import("../ace-account.ts");
     await aceAccountCommand(
       { ...context.args, words: [], flags: {} },
-      context.config().dataDir,
+      (await context.config()).dataDir,
       "login",
     );
     return run();

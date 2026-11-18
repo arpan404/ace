@@ -113,8 +113,10 @@ export async function fixture(
   await nodeBinary(join(root, "sdk/emulator"), "emulator", "");
   // An ffmpeg that notes its pid and runs until its input ends, as one decoding stills does.
   const pids = join(root, "ffmpeg.pids");
+  // PATH holds only this folder: a system one could carry a real ffmpeg (Linux puts it in
+  // /usr/bin), and a host without ffmpeg must not find one.
+  await mkdir(join(root, "bin"));
   if (options.ffmpeg) {
-    await mkdir(join(root, "bin"));
     await nodeBinary(
       join(root, "bin"),
       "ffmpeg",
@@ -126,7 +128,7 @@ export async function fixture(
   const device = await fakeDevice(cleanup, { resetAtControl: options.resetAtControl ?? false });
   const commands: string[] = [];
   const env = {
-    PATH: options.ffmpeg ? `${join(root, "bin")}:/usr/bin:/bin` : "/usr/bin:/bin",
+    PATH: join(root, "bin"),
     ANDROID_HOME: join(root, "sdk"),
   };
   const platform = new DevicePlatform({

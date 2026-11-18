@@ -9,7 +9,7 @@ import type {
 } from "@ace/protocol/marketplace";
 import { findingSentence } from "@ace/marketplace/signer";
 
-/* The market's answers as a person reads them (ADR 0176 §3, §11, §12). Pure. */
+/* The market's answers as a person reads them (ADR 0178 §3, §11, §12). Pure. */
 
 const day = (at: number) => new Date(at).toISOString().slice(0, 10);
 const ref = (entry: { type: string; name: string }) => `${entry.type}/${entry.name}`;
@@ -105,7 +105,7 @@ export function discoverLines(discover: MarketDiscover): string[] {
   return lines;
 }
 
-/** A publishing answer, in the publisher's words (ADR 0176 §12.2). */
+/** A publishing answer, in the publisher's words (ADR 0178 §12.2). */
 export function publishLines(answer: MarketPublishAnswer): string[] {
   switch (answer.kind) {
     case "published":

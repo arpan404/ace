@@ -126,6 +126,9 @@
         "logs.maxBytes": {
           "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
         },
+        "market.askBeforeAgentPublish": {
+          "type": "boolean"
+        },
         "media.delivery": {
           "enum": [
             "auto",

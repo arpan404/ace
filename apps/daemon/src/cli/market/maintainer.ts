@@ -10,7 +10,7 @@ import { maintainerWork } from "./maintainer-queue.ts";
 import { marketUrl, now, readKey, signerIo, signerToken, trustedWith } from "./maintainer-io.ts";
 
 /*
- * The marketplace's maintainer tools (ADR 0168 §6, §7; ADR 0176 §12.6), run on a maintainer's
+ * The marketplace's maintainer tools (ADR 0168 §6, §7; ADR 0178 §12.6), run on a maintainer's
  * machine under the hidden `ace market maintainer VERB` (old `ace market VERB` spellings stay for
  * the deprecation window):
  *

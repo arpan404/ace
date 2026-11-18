@@ -110,10 +110,13 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
   void recovery.catch((error) =>
     log.log("error", "Handoff recovery requires cleanup", logError(error)),
   );
-  resources.onShutdown(async () => {
+  resources.onShutdown(() => {
     for (const entry of pending.values()) entry.cancel();
-    await Promise.allSettled([...pending.values()].map((entry) => entry.work));
-    await recovery.catch(() => {});
+    // Shutdown doesn't wait for this callback, so the work is let go here and reported.
+    void (async () => {
+      await Promise.allSettled([...pending.values()].map((entry) => entry.work));
+      await recovery.catch(() => {});
+    })().catch((error: unknown) => log.log("error", "Handoff shutdown failed", logError(error)));
   });
   function sourceCheckout(id: ThreadId): string | undefined {
     try {

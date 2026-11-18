@@ -2,7 +2,7 @@ import type { RequestListener, Server } from "node:http";
 import { SettingsError } from "@ace/settings";
 import { remoteListener, systemNetwork, urlHost, type RemoteListener } from "./network.ts";
 import { trustedCertificate, type TrustedCertificate } from "./tailscale-certificate.ts";
-import { sniListener, type SniListener } from "./sni-listener.ts";
+import { sniListener, type SniListener, type SniListenerOptions } from "./sni-listener.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { DirectPlan } from "./remote-policy.ts";
@@ -24,15 +24,18 @@ function failureMessage(network: DirectNetwork): string {
  * that fails leaves the other serving; it never falls back to the LAN on its own.
  */
 export function remoteDirect(deps: {
-  options: ServerOptions;
+  options: Pick<ServerOptions, "remoteConfig" | "network" | "now" | "runtime" | "log">;
   http: RequestListener;
   attach: (server: Server) => void;
   /** Drops the sockets of the listener being closed. */
   disconnect: () => void;
   /** Pairing links naming the old address or key stop working. */
   clearPending: () => void;
+  /** Makes the HTTPS listener; `sniListener` unless a test slows its bind. */
+  listener?: (options: SniListenerOptions) => SniListener;
 }) {
   const { options } = deps;
+  const makeListener = deps.listener ?? sniListener;
   let listener: SniListener | undefined;
   let bindHost: string | undefined;
   let port: number | undefined;
@@ -42,6 +45,8 @@ export function remoteDirect(deps: {
   let serving: DirectPlan = { lan: false, tailscale: false };
   let last: DirectResolution = {};
   let errors: Partial<Record<DirectNetwork, string>> = {};
+  /** Set by `close`, for good: nothing opens after it, and a bind still under way is closed. */
+  let closed = false;
 
   const resolveOne = async (network: DirectNetwork): Promise<RemoteListener | Error> => {
     const config = options.remoteConfig;
@@ -95,6 +100,7 @@ export function remoteDirect(deps: {
      * listener that can't open is reported in `errors`, never thrown.
      */
     async commit(resolution: DirectResolution): Promise<void> {
+      if (closed) return;
       last = resolution;
       errors = {};
       for (const network of ["lan", "tailscale"] as const) {
@@ -103,7 +109,11 @@ export function remoteDirect(deps: {
       }
       const target = directAdvertisement(resolution);
       if (!target) return takeDown(true);
-      if (listener && bindHost !== target.host) await takeDown(true);
+      if (listener && bindHost !== target.host) {
+        await takeDown(true);
+        // Closed while the old listener went: no certificate and no new listener start.
+        if (closed) return;
+      }
       const name = target.tailnetName;
       if (trusted?.name !== name) {
         stopTrusted();
@@ -120,7 +130,7 @@ export function remoteDirect(deps: {
       if (!listener) {
         // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
         // client (and every client until it arrives) gets ace's own, pinned certificate.
-        const server = sniListener({
+        const server = makeListener({
           tls: {
             ...target.identity,
             minVersion: "TLSv1.2",
@@ -131,8 +141,9 @@ export function remoteDirect(deps: {
           log: (error) => options.log?.(error),
         });
         deps.attach(server.http);
+        let bound: number;
         try {
-          port = await server.listen(target.host, target.port);
+          bound = await server.listen(target.host, target.port);
         } catch {
           // The port is taken or the address went away: these networks fail; relays go on.
           await server.close();
@@ -143,6 +154,14 @@ export function remoteDirect(deps: {
                 `Couldn't listen on port ${target.port}. Free it or set ACE_REMOTE_PORT, then try again.`;
           return;
         }
+        // Closed while binding: `close` found no listener, and closing a server before its bind
+        // lands doesn't stop it, so the bind that landed closes here.
+        if (closed) {
+          stopTrusted();
+          await server.close();
+          return;
+        }
+        port = bound;
         listener = server;
         bindHost = target.host;
       }
@@ -192,7 +211,13 @@ export function remoteDirect(deps: {
     serving: () => serving,
     errors: () => errors,
     open: () => listener !== undefined,
-    /** Closes the listener. Links stay valid: stopping the daemon replaces no address. */
-    close: () => takeDown(false),
+    /**
+     * Closes the listener for good; a bind still under way closes as it finishes. Links stay
+     * valid: stopping the daemon replaces no address.
+     */
+    close: () => {
+      closed = true;
+      return takeDown(false);
+    },
   };
 }

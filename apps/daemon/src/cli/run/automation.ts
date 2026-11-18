@@ -4,7 +4,7 @@ import type { Renderer } from "../io.ts";
 import { CliFailure } from "../output.ts";
 import { withSession, type CommandContext, type Handlers } from "./context.ts";
 
-/** `ace automation …` (ADR 0176 §7). */
+/** `ace automation …` (ADR 0178 §7). */
 
 type Run = (args: Args, client: Client, signal: AbortSignal) => Promise<void>;
 

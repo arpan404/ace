@@ -7,7 +7,7 @@ test("the selected device name hides in a narrow sidebar and remains available o
   await page.goto("/new?project=chat");
   await page.getByRole("button", { name: "Project filter: All projects", exact: true }).click();
   await page.getByRole("menuitem", { name: "Device filter: All devices" }).hover();
-  await page.getByRole("menuitemradio", { name: "Build server", exact: true }).click();
+  await page.getByRole("menuitemcheckbox", { name: "Build server", exact: true }).click();
   const control = page.getByRole("button", {
     name: "Project filter: All projects, Device: Build server",
     exact: true,

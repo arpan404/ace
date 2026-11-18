@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * What the `ace` CLI prints and how it exits (ADR 0176 §3–§5). Schema only: the CLI builds
+ * What the `ace` CLI prints and how it exits (ADR 0178 §3–§5). Schema only: the CLI builds
  * these values, and agents and scripts that call it parse them.
  */
 

@@ -34,10 +34,14 @@ const pause = (ports: ReadinessPorts) =>
 function nextChange(ports: ReadinessPorts, watch: EndpointWatch): Promise<boolean> {
   return new Promise((resolve) => {
     const cancel = ports.timers.set(WATCHED_POLL_MS, () => resolve(false));
-    void watch.changed().then(() => {
-      cancel();
-      resolve(true);
-    });
+    // A watch that fails leaves the fallback poll above to wake the lookup.
+    void watch
+      .changed()
+      .then(() => {
+        cancel();
+        resolve(true);
+      })
+      .catch(() => {});
   });
 }
 

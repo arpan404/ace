@@ -10,7 +10,6 @@ import { z } from "zod";
 import { accessRequest } from "./client-access.ts";
 import { Client } from "./socket-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
-import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { retainNotifications } from "./notification-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -204,7 +203,10 @@ it("a notification worker that never replies is named as degraded while the daem
       expect(status.services.find((service) => service.name === "notifications")?.state).toBe(
         "starting",
       );
-      expect(status.services.find((service) => service.name === "engine")?.state).toBe("ready");
+      // The engine is up; it says "starting" until its providers are read (ADR 0175).
+      expect(["starting", "ready"]).toContain(
+        status.services.find((service) => service.name === "engine")?.state,
+      );
     },
     // A saved push device needs the worker from startup; a fresh home starts it on first use.
     retainNotifications,
@@ -231,75 +233,26 @@ it("a notification worker that never replies is named as degraded while the daem
   expect((await daemon.exited)[0]).toBe(0);
 });
 
-it("a daemon whose engine cannot start fails with a logged error and never listens or reports ready", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-startup-engine-"));
-  cleanups.push(() => rm(home, { recursive: true, force: true }));
-  const entry = join(home, "daemon-entry.mjs");
+it("a provider discovery that never settles leaves the engine starting while the daemon listens and serves", async () => {
+  // ADR 0175: providers are read after the engine is published, so a CLI that never answers
+  // degrades only the engine's readiness, never the daemon's start.
   const index = new URL("./index.ts", import.meta.url).href;
-  await writeFile(
-    entry,
-    `
+  const daemon = await launch(`
     import { startDaemon } from ${JSON.stringify(index)};
     const daemon = await startDaemon({
       engine: { adapterDiscovery: () => new Promise(() => {}) },
-      startup: {
-        schedule(name, expire, milliseconds) {
-          const timer = setTimeout(expire, name === "engine" ? 25 : milliseconds);
-          return () => clearTimeout(timer);
-        },
-      },
     });
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
-  `,
+    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+  `);
+  // The daemon's start is done; the engine alone says its providers aren't read yet.
+  expect(daemon.status.ready).toBe(true);
+  expect(daemon.status.services.find((service) => service.name === "engine")?.state).toBe(
+    "starting",
   );
-  const child = spawn(process.execPath, [entry], {
-    env: {
-      ...process.env,
-      ACE_HOME: home,
-      ACE_PORT: "0",
-      ACE_LISTEN: "local",
-      ACE_MAINTENANCE: "0",
-      ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
-      ACE_DEV: "0",
-      ACE_HISTORY_INSTANCES: "[]",
-      ACE_MODEL_INSTANCES: "[]",
-      ACE_APNS_KEY_FILE: "",
-      ACE_VAPID_KEY_FILE: "",
-      ACE_WORKSPACE_ROOT: "",
-      ACE_RELAY_URL: undefined,
-      ACE_SCREEN_HELPER: undefined,
-      PATH: "",
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const exited = once(child, "close");
-  cleanups.push(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await exited;
-  });
-  let output = "",
-    errors = "";
-  child.stdout?.on("data", (chunk: Buffer) => {
-    output += chunk.toString();
-  });
-  child.stderr?.on("data", (chunk: Buffer) => {
-    errors += chunk.toString();
-  });
-  const [code] = (await exited) as [number | null];
-  expect(code).not.toBe(0);
-  expect(output).not.toContain("ace daemon:");
-  expect(errors).toContain("Daemon cannot start: Service engine: Service engine startup exceeded");
-  // No endpoint was ever published, so no client can find a daemon without an engine.
-  await expect(readFile(join(home, "daemon-endpoint"))).rejects.toMatchObject({ code: "ENOENT" });
-  const records = await daemonLogRecords(home);
-  const messages = records.map((record) => record.message);
-  expect(messages).not.toContain("Daemon listening");
-  expect(records.find((record) => record.message === "Daemon startup failed")?.data).toMatchObject({
-    error: { message: expect.stringContaining("Daemon cannot start: Service engine") },
-  });
-  expect(records.find((record) => record.message === "Daemon stopping")?.data).toMatchObject({
-    source: "startup-failure",
-  });
+  await daemon.client.close();
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
 });
 
 it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {

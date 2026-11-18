@@ -105,7 +105,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
       settings.close();
       const pending = settings.drained();
       tasks.add(pending);
-      void pending.finally(() => tasks.delete(pending));
+      // drained() never rejects: its own chain answers every request and logs its failure.
+      void pending.finally(() => tasks.delete(pending)).catch(() => {});
     },
     async handle(message) {
       switch (message.type) {

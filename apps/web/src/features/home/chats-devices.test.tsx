@@ -40,9 +40,23 @@ async function openChats(app: ReturnType<typeof harness>, path = "/chats") {
   await waitFor(() => expect(titles(chatsNav())).toContain("Cron for weekdays at 6"));
 }
 
+const openDevices = () => userEvent.click(screen.getByRole("button", { name: /^Chats, Device:/ }));
+
+const item = (device: string) => screen.findByRole("menuitemcheckbox", { name: device });
+
+/** Narrow the Chats panel to `name` alone (or every device). */
 async function chooseDevice(name: string) {
-  await userEvent.click(screen.getByRole("button", { name: /^Chats, Device:/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
+  await openDevices();
+  // A device ticks into the filter, so first clear one already chosen.
+  if (
+    name !== "All devices" &&
+    (await item("All devices")).getAttribute("aria-checked") !== "true"
+  ) {
+    await userEvent.click(await item("All devices"));
+    await openDevices();
+  }
+  await userEvent.click(await item(name));
+  while (screen.queryAllByRole("menu").length) await userEvent.keyboard("{Escape}");
 }
 
 test("chats from another machine join the list and name their machine", async () => {

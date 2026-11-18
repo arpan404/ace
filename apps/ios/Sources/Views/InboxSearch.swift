@@ -57,6 +57,17 @@ struct SearchScope: Equatable {
     ]
     static let ranges: [(days: Int, label: String)] = [(0, "Any time"), (1, "Past day"), (7, "Past week"), (30, "Past month")]
     var isDefault: Bool { self == SearchScope() }
+    /// The machine a project filter names, or nil for every machine.
+    var machine: String? { project.isEmpty ? nil : String(project.split(separator: "/", maxSplits: 1).first ?? "") }
+    /// The workspace a project filter names, or nil for every project.
+    var workspace: String? { project.isEmpty ? nil : project.split(separator: "/", maxSplits: 1).last.map(String.init) }
+
+    /// Machines are paired but none the scope searches answers, so the search couldn't be asked:
+    /// with a project on a disconnected machine, another machine being ready doesn't count.
+    /// `connections` holds each paired machine's id and connection state.
+    func offline(_ connections: [(hostId: String, connection: String)]) -> Bool {
+        !connections.isEmpty && !connections.contains { (machine == nil || $0.hostId == machine) && $0.connection == "ready" }
+    }
 }
 
 /// What Search's rows open, as the inbox carries them out.
@@ -95,8 +106,6 @@ struct InboxSearchList: View {
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var projectChoices: [ProjectChoice] { inbox.projectChoices() }
-    private var scopedMachine: String? { scope.project.isEmpty ? nil : String(scope.project.split(separator: "/", maxSplits: 1).first ?? "") }
-    private var scopedWorkspace: String? { scope.project.isEmpty ? nil : scope.project.split(separator: "/", maxSplits: 1).last.map(String.init) }
     private var connections: String { inbox.sessions.map { "\($0.hostId):\($0.client.connection)" }.joined(separator: ",") }
 
     var body: some View {
@@ -108,7 +117,7 @@ struct InboxSearchList: View {
             .scrollDismissesKeyboard(.immediately)
             .environment(\.defaultMinListRowHeight, 0)
             .task(id: "\(text)|\(openTitle != nil)|\(scope.project)|\(connections)") {
-                let project = scopedMachine.flatMap { machine in scopedWorkspace.map { (machineId: machine, workspaceId: $0) } }
+                let project = scope.machine.flatMap { machine in scope.workspace.map { (machineId: machine, workspaceId: $0) } }
                 await everything.run(inbox, query: text, threadOpen: openTitle != nil, project: project)
             }
             .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(connections)") {
@@ -117,12 +126,14 @@ struct InboxSearchList: View {
             }
             .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(scope.days)|\(connections)") {
                 guard !text.isEmpty, scope.kind != "thread" else { return }
-                let filters = ConversationSearch.filters(workspaceId: scopedWorkspace, days: scope.days, now: Date().timeIntervalSince1970 * 1000)
-                await messages.run(inbox, text: text, kind: scope.kind == "all" ? "message" : scope.kind, filters: filters, only: scopedMachine)
+                let filters = ConversationSearch.filters(workspaceId: scope.workspace, days: scope.days, now: Date().timeIntervalSince1970 * 1000)
+                await messages.run(inbox, text: text, kind: scope.kind == "all" ? "message" : scope.kind, filters: filters, only: scope.machine)
             }
     }
 
     private var everyKind: Bool { scope.kind == "all" && scope.project.isEmpty }
+    /// The machines the scope searches are paired but none answers: the search couldn't be asked.
+    private var offline: Bool { scope.offline(inbox.sessions.map { (hostId: $0.hostId, connection: $0.client.connection) }) }
 
     @ViewBuilder private var results: some View {
         if everyKind { actionSection }
@@ -133,6 +144,19 @@ struct InboxSearchList: View {
                     ForEach(threads) { found in threadRow(found) }
                 } header: { SearchHeader("Threads") }
             }
+        }
+        if everyKind, !everything.projects.isEmpty {
+            Section {
+                ForEach(everything.projects) { found in
+                    Button { remember(); actions.project(found.machineId, found.project.id) } label: {
+                        SearchPlainRow(title: found.project.name, icon: .folderSimple,
+                                       detail: inbox.showsMachineNames ? inbox.name(found.machineId) : nil)
+                    }
+                    .buttonStyle(.row)
+                    .accessibilityIdentifier("search.project.\(found.project.id)")
+                    .inboxRowChrome()
+                }
+            } header: { SearchHeader("Projects") }
         }
         if everyKind, !pulls.found.isEmpty || pulls.problem != nil {
             Section {
@@ -149,19 +173,6 @@ struct InboxSearchList: View {
                 }
             } header: { SearchHeader("Pull requests") }
         }
-        if everyKind, !everything.projects.isEmpty {
-            Section {
-                ForEach(everything.projects) { found in
-                    Button { remember(); actions.project(found.machineId, found.project.id) } label: {
-                        SearchPlainRow(title: found.project.name, icon: .folderSimple,
-                                       detail: inbox.showsMachineNames ? inbox.name(found.machineId) : nil)
-                    }
-                    .buttonStyle(.row)
-                    .accessibilityIdentifier("search.project.\(found.project.id)")
-                    .inboxRowChrome()
-                }
-            } header: { SearchHeader("Projects") }
-        }
         if scope.kind != "thread" { messageSection }
         if messages.loading && messages.merged(inbox).isEmpty && foundThreads.isEmpty {
             ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
@@ -169,8 +180,16 @@ struct InboxSearchList: View {
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
         } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
                     && pulls.found.isEmpty && !(everyKind && pulls.problem != nil) && messages.merged(inbox).isEmpty {
-            EmptyState.search(text)
-                .listRowSeparator(.hidden).listRowBackground(Color.clear)
+            // The scoped machines are unreachable: nothing was asked, so "No results" would be wrong.
+            Group {
+                if offline {
+                    EmptyState(icon: .magnifyingGlass, title: "Search is offline", line: "Search when reconnected.")
+                } else {
+                    EmptyState.search(text)
+                }
+            }
+            .padding(.top, AceDesign.Space.section)
+            .listRowSeparator(.hidden).listRowBackground(Color.clear)
         }
     }
 
@@ -229,8 +248,8 @@ struct InboxSearchList: View {
         everything.threads.filter { found in
             let key = InboxKey(machineId: found.machineId, id: found.thread.id)
             // The machines filtered by project before ranking; this holds while a new answer loads.
-            if let scopedMachine, found.machineId != scopedMachine { return false }
-            if let scopedWorkspace, found.thread.workspaceId != scopedWorkspace { return false }
+            if let machine = scope.machine, found.machineId != machine { return false }
+            if let workspace = scope.workspace, found.thread.workspaceId != workspace { return false }
             if scope.days > 0, found.thread.at < (Date().timeIntervalSince1970 - Double(scope.days) * 86_400) * 1000 { return false }
             return !found.thread.listed || includes(key)
         }

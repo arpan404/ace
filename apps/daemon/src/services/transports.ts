@@ -18,6 +18,8 @@ export async function startRelayTransport(
     account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
     onRefused?: (error: import("@ace/relay").RelayRefusedError) => void;
     onRegistration?: (registered: boolean) => void;
+    /** Gives up the registration, answered or not (`startFilesRelay`). */
+    signal?: AbortSignal;
   } = {},
 ) {
   if (!relay) return undefined;
@@ -72,6 +74,7 @@ export async function startRelayTransport(
     relayAccount: access.account,
     onRefused: access.onRefused,
     onRegistration: access.onRegistration,
+    signal: access.signal,
     devices: options.store.devices,
     hostId: options.hostId,
     headSeq: () => options.store.headSeq(),

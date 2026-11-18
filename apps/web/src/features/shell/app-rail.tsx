@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ChatsCircleIcon, FolderSimpleIcon, GearSixIcon } from "@ace/icons";
+import { useDaemonReleaseLine } from "@ace/client-react";
 import type { PlaceSignal } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -9,6 +10,7 @@ import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
+import { ReleaseLineWord } from "./release-line-word.tsx";
 import { UpdateButton } from "./update-button.tsx";
 import { usePlaceSignals } from "./use-place-signals.ts";
 import { useRailPlace } from "./use-rail-place.ts";
@@ -96,6 +98,7 @@ export function AppRail(props: {
   const merged = props.merged === true;
   const current = useRailPlace();
   const signals = usePlaceSignals();
+  const daemonLine = useDaemonReleaseLine();
   const threads = useLastPlace(current === "home", "/new");
   const chats = useLastPlace(current === "chats", "/chats");
   const spade = useLastPlace(current === "spade", "/spade");
@@ -162,6 +165,7 @@ export function AppRail(props: {
         ))}
         {marketplace && props.market}
         <span className="flex-1" />
+        <ReleaseLineWord daemonLine={daemonLine} />
         <UpdateButton />
         {props.usage?.(current === "usage")}
         <Tip label="Settings" shortcut="settings">

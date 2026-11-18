@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliDaemonStart.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "fingerprint": {
+      "type": "string"
+    },
+    "remoteUrl": {
+      "type": "string"
+    },
+    "running": {
+      "const": true,
+      "type": "boolean"
+    },
+    "tokenPath": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "running",
+    "url",
+    "tokenPath"
+  ],
+  "type": "object"
+}

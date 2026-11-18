@@ -227,7 +227,8 @@ export function daemonDelivery(
     sessionStarted: (session) => live.links.started(session),
     sessionEnded: (session) => {
       live.links.ended(session);
-      void live.connections.sessionClosed(session);
+      // The revocation rule is already held by the supervisor, so a failed close needs no report.
+      void live.connections.sessionClosed(session).catch(() => {});
     },
     sample: (session, rttMs, backlogBytes) => live.links.sample(session, rttMs, backlogBytes),
     relay,

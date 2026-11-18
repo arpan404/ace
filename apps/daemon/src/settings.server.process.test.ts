@@ -363,10 +363,7 @@ test("daemon startup exposes the same settings service used by its sockets and c
     key: "threads.settleOnClose",
     scope: {},
   });
-  // A welcomed device is also told its active look (`suitActive`): the answer comes among pushes.
-  let reply = await client.next();
-  while (reply.type !== "settings.result") reply = await client.next();
-  expect(reply).toMatchObject({
+  expect(await client.next()).toMatchObject({
     type: "settings.result",
     ok: true,
     entries: [{ value: true, provenance: "global" }],

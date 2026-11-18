@@ -35,7 +35,7 @@ export async function validateOutput(args: Args): Promise<void> {
     );
   });
 }
-/** Prints one command's result in the mode asked for (ADR 0176 §3). */
+/** Prints one command's result in the mode asked for (ADR 0178 §3). */
 export async function emit<T>(args: Args, value: T, render: Renderer<T> = {}): Promise<void> {
   const mode = outputMode(args.flags);
   if (mode === "json") return print(args, value);
@@ -108,7 +108,7 @@ export async function mutationResult(
 }
 /**
  * The text at `index`, or stdin when it is `-`. Stdin is never read by default, so an agent
- * whose stdin is an open pipe never waits on it (ADR 0176 §9).
+ * whose stdin is an open pipe never waits on it (ADR 0178 §9).
  */
 export async function prompt(args: Args, index: number): Promise<string> {
   const supplied = args.words[index];

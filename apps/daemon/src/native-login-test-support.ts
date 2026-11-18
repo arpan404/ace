@@ -13,6 +13,26 @@ import { Resources } from "./services/resources.ts";
 import type { ServiceContext } from "./services/types.ts";
 import { readConfig } from "./config.ts";
 
+/** How long one step of a login test may take before it fails, naming what it waited for. */
+export const LOGIN_STEP_MS = 10_000;
+
+/** `promise`, or a failure naming `what` once `ms` pass. Every wait in a login test is bounded. */
+export async function within<T>(
+  promise: Promise<T>,
+  what: () => string,
+  ms = LOGIN_STEP_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${ms} ms: ${what()}`)), ms);
+  });
+  try {
+    return await Promise.race([promise, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Real stores and production login wiring; only provider executables are controlled fixtures. */
 export async function nativeLoginHarness(
   provider: "codex" | "opencode",
@@ -134,12 +154,18 @@ else console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : "[]")
     context,
     sessions,
     events,
+    /** Resolves once the login reports `state`; fails, listing what it did report, if it never does. */
     wait(state: ProviderLoginProgress["state"]) {
       if (events.some((event) => event.state === state)) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        waiters.set(state, [...(waiters.get(state) ?? []), resolve]);
-      });
+      return within(
+        new Promise<void>((resolve) => {
+          waiters.set(state, [...(waiters.get(state) ?? []), resolve]);
+        }),
+        () => `login state ${state}; it reported ${describeEvents(events)}`,
+      );
     },
+    /** What the login has reported so far, for a failure message. */
+    describe: () => describeEvents(events),
     async configure(update: { binaryPath?: string; enabled?: boolean }) {
       await settings.set(
         "providers.configuration",
@@ -164,4 +190,11 @@ else console.log(${JSON.stringify(provider === "codex" ? "Not logged in" : "[]")
       await f.close();
     },
   };
+}
+
+function describeEvents(events: readonly ProviderLoginProgress[]): string {
+  if (events.length === 0) return "nothing";
+  return events
+    .map((event) => (event.message ? `${event.state} (${event.message})` : event.state))
+    .join(" → ");
 }

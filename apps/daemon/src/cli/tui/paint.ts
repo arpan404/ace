@@ -1,7 +1,7 @@
 import type { RowStatusTone } from "@ace/ui-core";
 
 /**
- * The only styling the TUI draws (ADR 0176 §9): colour for state, and dim and bold ink. With
+ * The only styling the TUI draws (ADR 0178 §9): colour for state, and dim and bold ink. With
  * colour off (NO_COLOR, not a colour terminal) every function returns its text unchanged.
  */
 export type StateTone = RowStatusTone;

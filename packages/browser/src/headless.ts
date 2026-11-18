@@ -191,9 +191,13 @@ export class ChromeBackend implements BrowserBackend {
           browserContextId,
         );
       current = { instance, browserContextId };
-      void instance.exited.then((reason) => {
-        if (current?.instance === instance && !signal.aborted) recover(reason);
-      });
+      // `exited` rejects only when teardown itself failed, which `stop()` reports; the watch
+      // just stops recovering.
+      void instance.exited
+        .then((reason) => {
+          if (current?.instance === instance && !signal.aborted) recover(reason);
+        })
+        .catch(() => {});
       return current;
     };
     const release = () => {

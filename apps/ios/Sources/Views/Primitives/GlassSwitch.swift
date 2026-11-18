@@ -18,6 +18,8 @@ struct CapsuleSegments<Value: Hashable>: View {
     let select: (Value) -> Void
     @Environment(\.colorScheme) private var scheme
     @Namespace private var thumb
+    /// The choices whose words are cut short on screen (`SegmentWords`).
+    @State private var cut: Set<Value> = []
     /// The control's height, grown with its words' text style so large text never clips.
     @ScaledMetric(relativeTo: .subheadline) private var height = AceDesign.Size.segment
 
@@ -40,9 +42,9 @@ struct CapsuleSegments<Value: Hashable>: View {
             guard !chosen, !disabled else { return }
             select(choice.value)
         } label: {
-            ViewThatFits(in: .horizontal) {
-                Text(choice.title)
-                if let short = choice.short { Text(short) }
+            SegmentWords(title: choice.title, short: choice.short) { isCut in
+                guard cut.contains(choice.value) != isCut else { return }
+                if isCut { cut.insert(choice.value) } else { cut.remove(choice.value) }
             }
             .aceFont(AceDesign.TextRole.segment)
             .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
@@ -63,6 +65,43 @@ struct CapsuleSegments<Value: Hashable>: View {
         .disabled(disabled)
         .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier(choice.identifier)
+        #if DEBUG
+        // For UI tests, which can't see an ellipsis: "cut" while the words on show are cut short.
+        .accessibilityValue(cut.contains(choice.value) ? "cut" : "whole")
+        #endif
+    }
+}
+
+/// A segment's words: its title, else its short form, whichever fits whole, else the short form
+/// cut short. Says whether the words on show are cut, by their width against their whole width.
+private struct SegmentWords: View {
+    let title: String
+    let short: String?
+    let report: (Bool) -> Void
+    @State private var shown: CGFloat = 0
+    @State private var whole: CGFloat = 0
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Text(title)
+            if let short { Text(short) }
+        }
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+            shown = width
+            reportCut()
+        }
+        .background {
+            Text(short ?? title).fixedSize().hidden().accessibilityHidden(true)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                    whole = width
+                    reportCut()
+                }
+        }
+    }
+
+    private func reportCut() {
+        guard shown > 0, whole > 0 else { return }
+        report(shown + 0.5 < whole)
     }
 }
 

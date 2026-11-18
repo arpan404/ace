@@ -1,7 +1,7 @@
 import { grammarRelease as since, idempotencyKey, limit, outputPath, threadRef } from "./flags.ts";
 import type { ArgSpec, CommandSpec, FlagSpec, NounSpec } from "./spec.ts";
 
-/** Tools agents call from a shell (ADR 0176 §7, Agent tools). */
+/** Tools agents call from a shell (ADR 0178 §7, Agent tools). */
 export const agentToolNouns: readonly NounSpec[] = [
   {
     name: "browser",
@@ -26,7 +26,8 @@ const browserFlags: readonly FlagSpec[] = [
 const browserThread = {
   name: "THREAD",
   summary: "The thread whose browser; defaults to ACE_THREAD_ID in an agent's shell",
-};
+  ref: "thread",
+} as const;
 const simArg = { name: "SIM", summary: "The simulator or emulator", required: true } as const;
 const simFlags: readonly FlagSpec[] = [
   threadRef,

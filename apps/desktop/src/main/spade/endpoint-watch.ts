@@ -73,9 +73,12 @@ export function spadeEndpointWatch(options: EndpointWatchOptions) {
     const before = reading ?? Promise.resolve(undefined);
     const after = read();
     reading = after;
-    void Promise.all([before, after]).then(([was, now]) => {
-      if (reading === after && !closed && !sameLocalSpade(was, now)) options.onChange();
-    });
+    // A read that fails leaves the last reading in place; the next change reads again.
+    void Promise.all([before, after])
+      .then(([was, now]) => {
+        if (reading === after && !closed && !sameLocalSpade(was, now)) options.onChange();
+      })
+      .catch(() => {});
   };
   const ensureWatch = () => {
     if (unwatch || closed || !dataDir) return;

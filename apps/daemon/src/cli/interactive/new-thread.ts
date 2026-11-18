@@ -5,7 +5,7 @@ import { CliFailure } from "../output.ts";
 import type { Terminal } from "../tui/terminal.ts";
 
 /**
- * New thread (`n`, ADR 0176 §9): the project (this folder first, then the known ones), then
+ * New thread (`n`, ADR 0178 §9): the project (this folder first, then the known ones), then
  * the provider and model with the person's defaults first. The prompt is typed in attach's
  * composer next, so Enter sends, Alt+Enter adds a line and Ctrl-G opens $EDITOR. Each question
  * names the flag that would have answered it.

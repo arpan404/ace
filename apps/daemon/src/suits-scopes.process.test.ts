@@ -61,12 +61,14 @@ async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
     const message = await next((candidate) => candidate.type === "suitActive");
     return message.type === "suitActive" ? message.active : undefined;
   };
+  /** Asks to hear the agent's looks on this socket (`suitWatch`). */
+  const watch = () => socket.send(JSON.stringify({ type: "suitWatch", requestId: "watch" }));
   /** Nothing more for this device after a round trip the socket answers in order. */
   const quiet = async (requestId: string) => {
     await request(requestId, { op: "list" });
     return frames.filter((message) => message.type === "suitActive");
   };
-  return { id: device.device.id, request, next, active, quiet };
+  return { id: device.device.id, request, next, active, quiet, watch };
 }
 
 function library(root: string) {
@@ -143,9 +145,15 @@ test("an agent's preview reaches the person's sockets only; keep and revert foll
     const laptop = await connect(f, sockets, ["read"]);
     readers.add(laptop.id);
     const stranger = await connect(f, sockets, ["read"]);
-    expect(await stranger.active()).toEqual({ kind: "none" });
+    // A reader that never asks: its replies are never preceded by a look it didn't request.
+    const phone = await connect(f, sockets, ["read"]);
+    readers.add(phone.id);
+    expect(await phone.quiet("unasked")).toEqual([]);
 
-    // Each socket hears the state when it is welcomed: no preview yet.
+    // Each socket that asks hears the state then: no preview yet.
+    stranger.watch();
+    expect(await stranger.active()).toEqual({ kind: "none" });
+    laptop.watch();
     expect(await laptop.active()).toEqual({ kind: "none" });
     const previews = new SuitPreviews(
       daemonSuitPort(
@@ -175,6 +183,8 @@ test("an agent's preview reaches the person's sockets only; keep and revert foll
     expect(await previews.revert(caller)).toMatchObject({ status: "reverted" });
     expect(await laptop.active()).toEqual({ kind: "restore", keepId: "keep-1" });
     expect(await stranger.quiet("after")).toEqual([]);
+    // The phone may read the thread but never asked, so it heard none of it.
+    expect(await phone.quiet("phone-after")).toEqual([]);
 
     // A turn's end takes its preview down on the devices that saw it.
     await previews.preview(caller, "sample-suit", signal);

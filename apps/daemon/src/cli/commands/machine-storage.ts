@@ -1,7 +1,7 @@
 import { grammarRelease as since } from "./flags.ts";
 import type { CommandSpec, FlagSpec } from "./spec.ts";
 
-/** `ace storage …` and `ace config …` (ADR 0176 §7, §8). Data only. */
+/** `ace storage …` and `ace config …` (ADR 0178 §7, §8). Data only. */
 
 const kinds: readonly FlagSpec[] = [
   { name: "threads", summary: "Settled threads' history" },

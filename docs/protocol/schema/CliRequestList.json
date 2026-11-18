@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliRequestList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requests": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CliOpenRequest.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "requests",
+    "truncated"
+  ],
+  "type": "object"
+}

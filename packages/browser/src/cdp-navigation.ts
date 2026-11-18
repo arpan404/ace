@@ -89,8 +89,9 @@ export async function navigateCdp(
   cdp.on("Page.frameStartedLoading", started);
   cdp.on("Page.frameStoppedLoading", stoppedLoading);
   signal?.addEventListener("abort", abort, { once: true });
-  // Attach a rejection handler before Page.navigate, which itself can await Fetch.
-  const response = Promise.resolve()
+  // Attach a rejection handler before Page.navigate, which itself can await Fetch. The transport
+  // owns its bounded request, so a late reply is never replayed.
+  Promise.resolve()
     .then(() => {
       signal?.throwIfAborted();
       return cdp.send("Page.navigate", { url });
@@ -110,7 +111,5 @@ export async function navigateCdp(
     cdp.off("Page.frameNavigated", committed);
     cdp.off("Page.frameStartedLoading", started);
     cdp.off("Page.frameStoppedLoading", stoppedLoading);
-    // The transport owns its bounded request; a late reply is never replayed.
-    void response;
   }
 }

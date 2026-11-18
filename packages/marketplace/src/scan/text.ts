@@ -7,11 +7,12 @@
  */
 
 /** Zero-width, bidi and tag code points that never belong in code or a name. */
-const ZERO_WIDTH = /[​-‏‪-‮⁠-⁤⁦-⁯﻿\u{E0000}-\u{E007F}]/gu;
+const ZERO_WIDTH =
+  /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\u{E0000}-\u{E007F}]/gu;
 /** Bidi overrides and embeddings, the dangerous subset that reorders text. */
-const BIDI = /[‪-‮⁦-⁩]/u;
+const BIDI = /[\u202A-\u202E\u2066-\u2069]/u;
 /** Zero-width and tag characters (bidi handled apart); an emoji ZWJ between emoji is allowed. */
-const INVISIBLE = /[​-‍⁠-⁤﻿\u{E0000}-\u{E007F}]/u;
+const INVISIBLE = /[\u200B-\u200D\u2060-\u2064\uFEFF\u{E0000}-\u{E007F}]/u;
 const TAG = /[\u{E0000}-\u{E007F}]/u;
 
 /**

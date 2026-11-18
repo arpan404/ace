@@ -1,5 +1,5 @@
 /**
- * The shape of the command table (ADR 0176 §5). The table is data: the parser, help,
+ * The shape of the command table (ADR 0178 §5). The table is data: the parser, help,
  * suggestions, completions, `ace help --json` and the generated docs page all read it, so help
  * can't drift from behaviour. Files under `commands/` import nothing but these types, which
  * keeps them safe to load on the rescue path (ADR 0092).
@@ -14,6 +14,12 @@ export type CommandGroup =
   | "spade-market"
   | "agent-tools";
 
+/**
+ * What a value names, so completion can ask the running daemon for the live ones (ADR 0178 §6):
+ * thread ids, project names, open request ids, Spade bot names.
+ */
+export type RefKind = "thread" | "project" | "request" | "bot";
+
 export interface FlagSpec {
   readonly name: string;
   /** One letter, used as `-x`. */
@@ -24,6 +30,8 @@ export interface FlagSpec {
   /** May be given more than once; values collect in `Args.lists`. */
   readonly repeat?: boolean;
   readonly choices?: readonly string[];
+  /** The value names one of these, which completion offers live from the daemon. */
+  readonly ref?: RefKind;
   /** Accepted, never shown: old spellings kept for the deprecation window. */
   readonly hidden?: boolean;
 }
@@ -36,6 +44,8 @@ export interface ArgSpec {
   readonly variadic?: boolean;
   /** `-` reads this argument from stdin. */
   readonly stdin?: boolean;
+  /** The argument names one of these, which completion offers live from the daemon. */
+  readonly ref?: RefKind;
 }
 
 export interface Example {
@@ -45,7 +55,7 @@ export interface Example {
 
 /**
  * Another spelling of a command. Without `deprecatedSince` it is a permanent shortcut
- * (`ace run`); with it, it is an old spelling on its way out (ADR 0176 decision 6).
+ * (`ace run`); with it, it is an old spelling on its way out (ADR 0178 decision 6).
  */
 export interface AliasSpec {
   readonly words: readonly string[];
@@ -88,7 +98,7 @@ export interface CommandSpec {
   /** What a bare noun runs: `ace thread` is `ace thread list`. */
   readonly nounDefault?: boolean;
   /**
-   * The person's alone (ADR 0176 §12.5): refused in an agent's shell, and an answer needs the
+   * The person's alone (ADR 0178 §12.5): refused in an agent's shell, and an answer needs the
    * person at a terminal to type its confirmation.
    */
   readonly personOnly?: "answer" | "setting";

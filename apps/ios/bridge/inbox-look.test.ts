@@ -55,3 +55,24 @@ test("the lock screen counts a row as working only while the daemon says its tre
   expect(live({ state: "needs_you", interactions: 1 })).toBe("needs-you");
   expect(live({ state: "done" })).toBe("idle");
 });
+
+/** Finished after this phone started following the machine, and never opened anywhere. */
+const finished = (extra: Record<string, unknown> = {}) =>
+  inboxLook(
+    thread({ snoozeWoke: undefined, readAt: undefined, activitySeq: 40, ...extra }),
+    0,
+    now,
+  );
+
+test("a finished row keeps its check until this phone reads through its last answer, then shows its age", () => {
+  expect(finished().icon).toBe("done");
+  // Read part way: the last answer is still unread.
+  expect(finished({ readState: { lastSeenSeq: 30, updatedAt: now - minute } }).icon).toBe("done");
+  const read = finished({ readState: { lastSeenSeq: 40, updatedAt: now - minute } });
+  expect(read.icon).not.toBe("done");
+  expect(read.mode).toBe("age");
+  // Marked unread by hand: the check comes back whatever the cursor says.
+  expect(
+    finished({ unread: true, readState: { lastSeenSeq: 40, updatedAt: now - minute } }).icon,
+  ).toBe("done");
+});

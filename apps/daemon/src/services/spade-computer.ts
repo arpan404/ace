@@ -46,12 +46,19 @@ export function createSpadeComputerSession(context: SpadeComputerSocket): Socket
           ? ("person" as const)
           : ("bot" as const)
         : (message.driver ?? "bot");
-      const task = computers.drive(bot, driver).then((result) => {
-        if (context.connected())
-          context.send({ type: "spade.computer.drive.result", requestId, ...result });
-      });
+      const task = computers
+        .drive(bot, driver)
+        .then((result) => {
+          if (context.connected())
+            context.send({ type: "spade.computer.drive.result", requestId, ...result });
+        })
+        .catch(() => {
+          if (context.connected())
+            context.send({ type: "spade.computer.drive.result", requestId, error: "unavailable" });
+        });
       context.tasks.add(task);
-      void task.finally(() => context.tasks.delete(task));
+      // The drive above answers its own failure; this only forgets the task.
+      void task.finally(() => context.tasks.delete(task)).catch(() => {});
       return true;
     },
   };

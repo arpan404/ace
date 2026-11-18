@@ -34,7 +34,8 @@ export async function withGit<T>(
   let failure: ContextError | undefined;
   const stop = (message: string) => {
     failure ??= new ContextError("busy", message);
-    void child.stop({ graceMs: 0 });
+    // The caller reports the failure; stop() warns a surviving tree itself.
+    void child.stop({ graceMs: 0 }).catch(() => {});
   };
   const cancel = () => stop("Git operation cancelled");
   options.signal?.addEventListener("abort", cancel, { once: true });

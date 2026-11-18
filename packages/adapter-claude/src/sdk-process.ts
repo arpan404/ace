@@ -93,7 +93,8 @@ export function spawnSdkProcess(
       if (Buffer.byteLength(outbound) > 16 * 1024 * 1024) {
         callback(new Error("Claude outbound frame capacity reached"));
         outbound = "";
-        void process.stop({ graceMs: 0 });
+        // The write callback reports this failure; a surviving tree warns inside stop().
+        void process.stop({ graceMs: 0 }).catch(() => {});
         return;
       }
       let newline: number;
@@ -118,19 +119,23 @@ export function spawnSdkProcess(
   stdin.on("error", () => {});
   const abort = () => {
     killed = true;
-    void process.stop();
+    // A surviving tree warns inside stop().
+    void process.stop().catch(() => {});
   };
   if (options.signal.aborted) abort();
   else options.signal.addEventListener("abort", abort, { once: true });
-  void process.exited.then((exit) => {
-    file?.remove();
-    options.signal.removeEventListener("abort", abort);
-    exitCode = exit.code;
-    stdout.end();
-    if (exit.reason === "spawn-error")
-      events.emit("error", new Error("Claude process failed to spawn"));
-    events.emit("exit", exit.code, exit.signal);
-  });
+  // The SDK observes this exit too, so the chain has no other listener to report to.
+  void process.exited
+    .then((exit) => {
+      file?.remove();
+      options.signal.removeEventListener("abort", abort);
+      exitCode = exit.code;
+      stdout.end();
+      if (exit.reason === "spawn-error")
+        events.emit("error", new Error("Claude process failed to spawn"));
+      events.emit("exit", exit.code, exit.signal);
+    })
+    .catch(() => {});
   hooks.onProcess(process);
   return {
     stdin,
@@ -143,7 +148,8 @@ export function spawnSdkProcess(
     },
     kill(signal) {
       killed = true;
-      void process.stop({ graceMs: signal === "SIGKILL" ? 0 : 5_000 });
+      // A surviving tree warns inside stop().
+      void process.stop({ graceMs: signal === "SIGKILL" ? 0 : 5_000 }).catch(() => {});
       return true;
     },
     on(event, listener) {

@@ -443,6 +443,7 @@ struct ConversationFeed: View {
             .onChange(of: reading.joined) { _, joined in windowJoined(joined) }
             .onChange(of: jumps) { _, _ in returnToEnd(proxy: proxy) }
             .modifier(TranscriptTopEdge())
+            .modifier(ReaderAtEnd(model: model, thread: thread, atEnd: pinned && thread.loaded))
     }
     /// A sent message or a Scroll to end tap: back to the live end, following it.
     private func returnToEnd(proxy: ScrollViewProxy) {

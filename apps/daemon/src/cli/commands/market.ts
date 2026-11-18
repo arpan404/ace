@@ -3,7 +3,7 @@ import { marketMaintainerCommands } from "./market-maintainer.ts";
 import { marketPublishCommands } from "./market-publish.ts";
 import type { CommandSpec, FlagSpec, NounSpec } from "./spec.ts";
 
-/** The market for people, publishers and maintainers (ADR 0176 §11, §12). */
+/** The market for people, publishers and maintainers (ADR 0178 §11, §12). */
 export const marketNouns: readonly NounSpec[] = [
   {
     name: "market",

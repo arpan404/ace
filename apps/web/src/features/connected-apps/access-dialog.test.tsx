@@ -11,7 +11,7 @@ const day = 86_400_000;
 /** The machine's page, settled: its settings and outside sections have loaded. */
 async function openMachinePage() {
   const app = harness();
-  await app.open("/settings/remote/primary");
+  await app.open("/settings/remote/primary/apps");
   await screen.findByRole("region", { name: "Connect an app" });
   await screen.findByText("No apps connected.");
   return app;

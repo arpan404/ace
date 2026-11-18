@@ -112,7 +112,7 @@ export class PagePreviewer {
       return shots;
     } finally {
       // A page still running a script must not hold the tab: the browser closes it regardless.
-      if (target) void instance.targets.close(target.targetId);
+      if (target) void instance.targets.close(target.targetId).catch(() => {});
       if (context) void instance.targets.disposeContext(context).catch(() => {});
       lease.release();
     }

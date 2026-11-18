@@ -108,7 +108,7 @@ import XCTest
         // tap to close a long-press menu can miss its backdrop.
         let answers = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.answer."))
         openMenu(of: answers.element(boundBy: 0), in: app)
-        app.buttons["Rewind to here"].tap()
+        choose(app.buttons["Rewind to here"], in: app)
         XCTAssertTrue(app.buttons["rewind.confirm"].waitForExistence(timeout: 10))
         screenshot("rewind-confirm")
         app.alerts.firstMatch.buttons["Cancel"].tap()
@@ -242,6 +242,14 @@ import XCTest
             last = now
         }
         XCTFail("The message's menu kept moving")
+    }
+    /// Chooses a row of the open long-press menu. Where the menu runs past the bottom of the
+    /// screen, as an earlier answer's in `ios-pi` does, the test's first touch on a row is dropped
+    /// and the menu stays open, so a row still there after a moment is touched once more.
+    private func choose(_ row: XCUIElement, in app: XCUIApplication) {
+        row.tap()
+        if app.buttons["Copy"].waitForNonExistence(timeout: 2) { return }
+        if row.isHittable { row.tap() }
     }
     /// Relaunches straight into `id`. The app reads the first `--spike-open`, so an earlier one is
     /// replaced rather than kept.

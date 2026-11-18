@@ -1,0 +1,60 @@
+{
+  "$id": "https://ace.local/protocol/v1/CliThreadRow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "activityAt": {
+      "type": "number"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "meaning": {
+      "type": "string"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "project": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "settled": {
+      "type": "boolean"
+    },
+    "since": {
+      "type": "number"
+    },
+    "state": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "waitingOn": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer"
+    },
+    "workspaceId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "title",
+    "project",
+    "workspaceId",
+    "provider",
+    "pinned",
+    "settled",
+    "state",
+    "meaning",
+    "activityAt"
+  ],
+  "type": "object"
+}

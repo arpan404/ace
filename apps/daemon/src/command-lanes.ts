@@ -40,13 +40,16 @@ export class CommandLanes {
     );
     this.#tails.set(lane, done);
     this.#tasks.add(done);
-    void done.finally(() => {
-      this.#tasks.delete(done);
-      const count = (this.#pending.get(key) ?? 1) - 1;
-      if (count > 0) this.#pending.set(key, count);
-      else this.#pending.delete(key);
-      if (this.#tails.get(lane) === done) this.#tails.delete(lane);
-    });
+    // done answers both outcomes already; this only retires it from the lane maps.
+    void done
+      .finally(() => {
+        this.#tasks.delete(done);
+        const count = (this.#pending.get(key) ?? 1) - 1;
+        if (count > 0) this.#pending.set(key, count);
+        else this.#pending.delete(key);
+        if (this.#tails.get(lane) === done) this.#tails.delete(lane);
+      })
+      .catch(() => {});
     return done;
   }
   /** True while a command is queued or executing on any lane. */
@@ -69,9 +72,12 @@ export function settledWithin(
 ): Promise<void> {
   return new Promise<void>((resolve) => {
     const cancel = delay(resolve, milliseconds);
-    void task.finally(() => {
-      cancel();
-      resolve();
-    });
+    // The caller holds the same task, so this only stops waiting on it.
+    void task
+      .finally(() => {
+        cancel();
+        resolve();
+      })
+      .catch(() => {});
   });
 }

@@ -18,12 +18,12 @@ function down(error: unknown): boolean {
 
 /**
  * `ace status`: the daemon's health exactly as before (or `{running: false}`), plus the ace
- * account, how many requests need the person and how many threads work (ADR 0176 §7). The
+ * account, how many requests need the person and how many threads work (ADR 0178 §7). The
  * extras are additive: one the daemon can't give in time is left out, and status never fails
  * because of them.
  */
 export async function statusCommand(context: CommandContext): Promise<void> {
-  const home = context.config().dataDir;
+  const home = (await context.config()).dataDir;
   let health: Record<string, unknown> & { version?: string };
   let origin: string;
   let token: string;
@@ -63,7 +63,7 @@ export async function statusCommand(context: CommandContext): Promise<void> {
 
 async function workCounts(context: CommandContext) {
   const { connectCli } = await import("../connection.ts");
-  const session = await connectCli(context.config().dataDir, {
+  const session = await connectCli((await context.config()).dataDir, {
     ...context.args,
     flags: { timeout: extrasTimeout },
   });

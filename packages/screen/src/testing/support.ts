@@ -13,6 +13,12 @@ export const fakeCommand = {
   command: process.execPath,
   args: [new URL("./fake-helper.ts", import.meta.url).pathname],
 };
+/**
+ * fake-helper.ts and fake-helper-behavior.ts are Mac helpers. A test of their macOS permission
+ * semantics injects a Mac host, so a Linux test machine does not apply Linux rules (a legacy
+ * helper's unknown requirements, portal input that needs no Accessibility) to a Mac helper.
+ */
+export const macHostPlatform = { platform: "darwin" } as const;
 export async function manager(env: NodeJS.ProcessEnv = {}, extra: Partial<ScreenOptions> = {}) {
   const directory = await mkdtemp(join(tmpdir(), "screen-test-"));
   const screen = new ScreenManager({

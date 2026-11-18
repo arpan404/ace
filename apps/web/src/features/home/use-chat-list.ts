@@ -17,6 +17,7 @@ import { useIsChat, useIsChatThread } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useEntries, useEveryEntryKey, useStandingOf } from "./use-home-threads.ts";
 import { useThreadHits, type SearchHit } from "./use-panel-search.ts";
+import { type DeviceScope, inScope } from "./device-filter-state.ts";
 
 /** The Chats panel's list now: its rows, and what the shared thread list needs beside them. */
 export interface ChatsView {
@@ -54,7 +55,7 @@ const selectedEqual = (a: Selected, b: Selected) =>
 /**
  * Every chat (ADR 0099), unsettled ones on top, settled ones by the day they last moved (`chatList`):
  * this machine's, and `others`, other machines' chats under their machine row ids
- * (`useMachineEntries`, ADR 0102). `device` narrows them to one machine. `query` narrows them
+ * (`useMachineEntries`, ADR 0102). `device` narrows them to some machines. `query` narrows them
  * by title, and this daemon's thread search (scoped to chats here, since it can only scope to
  * one project) adds matching older chats the list hasn't paged in, and loaded ones whose
  * messages match; as in Threads, it isn't asked while another device is chosen. Only ids are
@@ -63,7 +64,7 @@ const selectedEqual = (a: Selected, b: Selected) =>
 export function useChatList(
   query: string,
   others: readonly ThreadListEntry[] = noOthers,
-  device?: string | undefined,
+  device?: DeviceScope,
 ): ChatsView {
   const keys = useEveryEntryKey();
   const read = useEntries();
@@ -73,7 +74,7 @@ export function useChatList(
   const isChatProject = useIsChat();
   const text = query.trim();
   const ownDevice = usePrimaryMachine().id;
-  const offDevice = device !== undefined && device !== ownDevice;
+  const offDevice = !inScope(device, ownDevice);
   const asked = useThreadHits(text);
   const found = offDevice ? noHits : asked;
   const select = useCallback(
@@ -81,7 +82,7 @@ export function useChatList(
       const own = read(reader);
       const merged = others.length ? [...own, ...others] : own;
       const entries = device
-        ? merged.filter((entry) => (machineRow(entry.id)?.hostId ?? ownDevice) === device)
+        ? merged.filter((entry) => inScope(device, machineRow(entry.id)?.hostId ?? ownDevice))
         : merged;
       const unconfirmed = reader.unconfirmed;
       const standingOf = unconfirmed

@@ -180,7 +180,8 @@ export class ChromeTabs {
       try {
         await this.bind(tab, target);
       } catch (error) {
-        void host.instance.targets.close(target.targetId);
+        // close() already swallows its CDP failure; the bind error is the one worth reporting.
+        void host.instance.targets.close(target.targetId).catch(() => {});
         throw error;
       }
     }
@@ -392,7 +393,7 @@ export class ChromeTabs {
         });
         await this.bind(tab, target);
       } catch (error) {
-        if (target) void host.instance.targets.close(target.targetId);
+        if (target) void host.instance.targets.close(target.targetId).catch(() => {});
         tab.release();
         tab.release = () => {};
         throw error;
@@ -481,7 +482,7 @@ export class ChromeTabs {
     } catch (error) {
       if (tab) this.remove(tab, false);
       else release();
-      if (target) void host.instance.targets.close(target.targetId);
+      if (target) void host.instance.targets.close(target.targetId).catch(() => {});
       throw error;
     } finally {
       this.starting--;

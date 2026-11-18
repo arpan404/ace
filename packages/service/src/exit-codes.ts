@@ -10,7 +10,7 @@ import { cliExitCodes } from "@ace/protocol/cli-output";
  * (`@ace/provider-kit/incompatible-data`); its message names the file and the recovery.
  * `lock-held`: `ace start` could not take ACE_HOME's daemon lock because another daemon holds
  * it, usually one still starting up or shutting down.
- * `usage`: the command line was wrong (ADR 0176): an unknown command or flag, or a missing or bad
+ * `usage`: the command line was wrong (ADR 0178): an unknown command or flag, or a missing or bad
  * argument. 64 is sysexits' EX_USAGE.
  */
 export const exitCodes = cliExitCodes;

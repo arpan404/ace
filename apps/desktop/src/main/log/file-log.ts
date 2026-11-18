@@ -126,7 +126,8 @@ export function createFileLog(options: FileLogOptions): FileLog {
       armed = true;
       options.schedule(() => {
         armed = false;
-        void drain();
+        // drain() counts a failed write and keeps the queue moving.
+        void drain().catch(() => {});
       }, flushMs);
     },
     async flush() {

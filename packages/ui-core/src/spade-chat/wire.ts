@@ -100,6 +100,24 @@ const known = z.discriminatedUnion("type", [
       .nullish()
       .catch(undefined),
   }),
+  /**
+   * A plugin's server or hook the sandbox can't seal off asks to run outside it (ADR 0167): it
+   * waits for the person, and doesn't start until they allow it.
+   */
+  z.object({
+    type: z.literal("plugin_outside_asked"),
+    id: z.string(),
+    plugin: z.string(),
+    version: z.string(),
+    what: z.string(),
+    line: z.string(),
+  }),
+  z.object({
+    type: z.literal("plugin_outside_answered"),
+    id: z.string(),
+    allowed: z.boolean(),
+    always: z.boolean().optional(),
+  }),
   z.object({
     type: z.literal("approval_answered"),
     reply,

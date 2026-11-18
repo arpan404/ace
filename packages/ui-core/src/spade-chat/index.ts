@@ -39,3 +39,6 @@ export * from "./workers.ts";
 export * from "./decisions.ts";
 export * from "./security.ts";
 export * from "./security-words.ts";
+export * from "./request-error.ts";
+export * from "./follow.ts";
+export * from "./list-rows.ts";

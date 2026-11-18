@@ -1,5 +1,5 @@
 /**
- * The nearest word to a typo (ADR 0176 §4): `thraed` → `thread`. Pure. Optimal string
+ * The nearest word to a typo (ADR 0178 §4): `thraed` → `thread`. Pure. Optimal string
  * alignment distance, so one swapped pair of letters counts as one edit.
  */
 export function distance(a: string, b: string): number {

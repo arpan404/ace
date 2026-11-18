@@ -49,7 +49,7 @@ let controller = new AbortController();
 let iterator: AsyncGenerator<Packet> | undefined;
 let busy = false;
 let scanning = false;
-port.on("message", async (value: unknown) => {
+const handle = async (value: unknown): Promise<void> => {
   if (value === "cancel") {
     controller.abort();
     return;
@@ -170,6 +170,10 @@ port.on("message", async (value: unknown) => {
     busy = false;
     scanning = false;
   }
+};
+port.on("message", (value: unknown) => {
+  // handle() answers every request itself; a post that fails means the parent is gone.
+  void handle(value).catch(() => {});
 });
 port.postMessage({ id: 0, value: "ready" });
 

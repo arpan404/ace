@@ -25,8 +25,15 @@ const tokens = (text: string) => Math.ceil(text.length / 4);
 const descriptor = ({ name, description, inputSchema }: ListedTool) =>
   JSON.stringify({ name, description, inputSchema });
 
-/** Every tool a full-access thread with the browser and computer use on is offered. */
-const catalogueCap = 10_050;
+/**
+ * Every tool a full-access thread with the browser and computer use on is offered.
+ * 10,050 → 10,600 (measured 10,561): market_read (~190) and market_publish (~430), the two tools
+ * ADR 0178 §12.5 gives agents for the market. No existing tool reaches it, the two stay apart so
+ * read-only and open-world annotations stay honest, and market_publish's fields carry what a
+ * person-only request hands the person. Wording trimmed first; they load upfront nowhere: a
+ * core client finds them with tools_find, a deferring one lists their names.
+ */
+const catalogueCap = 10_600;
 /** Any one tool's advertised definition: its name, description and input schema. */
 const perToolCap = 650;
 /**

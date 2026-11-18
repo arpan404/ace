@@ -29,3 +29,13 @@ export async function openProfileMenu() {
   });
   return menu;
 }
+
+/**
+ * Settings' own General page in the pages list, under "This device". Spade's first page is also
+ * named General, under its "Spade" label, so a bare "General" link is ambiguous.
+ */
+export async function findSettingsGeneral() {
+  const pages = await screen.findByRole("navigation", { name: "Settings pages" });
+  const device = within(pages).getByRole("region", { name: "This device" });
+  return within(device).getByRole("link", { name: "General" });
+}

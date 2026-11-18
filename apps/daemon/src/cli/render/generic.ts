@@ -1,5 +1,5 @@
 /**
- * Words for a value no renderer of its own covers yet (ADR 0176 §3: nothing prints indented
+ * Words for a value no renderer of its own covers yet (ADR 0178 §3: nothing prints indented
  * JSON to a person). Objects become aligned `name  value` lines, lists of objects one row
  * each, nested values indented under their name. Pure.
  */

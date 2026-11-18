@@ -11,7 +11,7 @@ import {
 } from "@ace/protocol/marketplace";
 
 /*
- * The market's verbs as people and agents say them (ADR 0176 §11, §12): `ace market …` and the
+ * The market's verbs as people and agents say them (ADR 0178 §11, §12): `ace market …` and the
  * `market_read`/`market_publish` tools build one of these, and this module turns it into the
  * `marketplace.request` operation that does it. One verb, one operation, except `describe`
  * (a listing edit over the entry's current listing). The market's own logic stays in the daemon.
@@ -30,7 +30,7 @@ export const marketReadVerbs = [
   "signals",
   "verification",
 ] as const;
-/** What an agent may do itself (the daemon's allowlist, ADR 0176 §12.5). */
+/** What an agent may do itself (the daemon's allowlist, ADR 0178 §12.5). */
 export const marketPublishVerbs = [
   "draft_create",
   "draft_update",

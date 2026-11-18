@@ -134,7 +134,7 @@ struct ThreadView: View {
         } else {
             ThreadPager(pages: pages, shown: Binding(get: { shownPage }, set: { select($0) })) { kind in
                 if kind == .chat {
-                    feed
+                    feed.environment(\.chatShowing, shownPage == .chat)
                 } else {
                     ThreadPageBody(model: model, title: metadata?.title ?? "", changesFile: changesFile,
                                    changesScope: changesScope, scopeShown: { changesScope = nil },

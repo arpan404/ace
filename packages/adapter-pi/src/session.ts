@@ -118,7 +118,7 @@ export async function openPiSession(
   }
   const env = {
     ...ctx.env,
-    // One Pi process per session: its bash tool inherits the agent's variables (ADR 0176 §10).
+    // One Pi process per session: its bash tool inherits the agent's variables (ADR 0178 §10).
     ...ctx.agentEnv,
     ACE_PI_SESSION_FILE: configuration.path,
     ACE_PI_CONTROL_SECRET: undefined,
@@ -265,10 +265,13 @@ export async function openPiSession(
     (exit) =>
       new Promise<typeof exit>((resolve) => {
         const cancel = io.schedule(() => resolve(exit), 1000);
-        void stderrEnded.then(() => {
-          cancel();
-          resolve(exit);
-        });
+        // stderrEnded never rejects; this only ends the drain wait.
+        void stderrEnded
+          .then(() => {
+            cancel();
+            resolve(exit);
+          })
+          .catch(() => {});
       }),
   );
   function close(_reason: "idle" | "user" | "shutdown", expected = true): Promise<void> {
@@ -289,15 +292,20 @@ export async function openPiSession(
     void close("shutdown").catch(stopFailed);
   }
   ctx.signal.addEventListener("abort", abort, { once: true });
-  void proc.exited.then(() => {
-    closed = true;
-    release();
-    rpc.close();
-  });
-  void drained.then((exit) => {
-    detachStderr();
-    ctx.onExit({ deliberate, message: `Pi process ${exit.reason}, code ${exit.code}` });
-  });
+  // A session that exits is stopping too, so a failure here is noted like a close's.
+  void proc.exited
+    .then(() => {
+      closed = true;
+      release();
+      rpc.close();
+    })
+    .catch(stopFailed);
+  void drained
+    .then((exit) => {
+      detachStderr();
+      ctx.onExit({ deliberate, message: `Pi process ${exit.reason}, code ${exit.code}` });
+    })
+    .catch(stopFailed);
   const checkOpen = () => {
     if (closed) throw new Error("Pi session closed");
     ctx.signal.throwIfAborted();
