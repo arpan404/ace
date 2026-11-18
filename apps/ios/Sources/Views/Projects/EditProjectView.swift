@@ -23,6 +23,7 @@ struct EditProjectView: View {
     @State private var photo: PhotosPickerItem?
     @State private var imageProblem: String?
     @State private var initials = ""
+    @State private var discarding = false
     /// Saved on this phone; the computer hasn't answered yet.
     @State private var waiting = false
 
@@ -99,7 +100,12 @@ struct EditProjectView: View {
         .navigationTitle("Edit project").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button { done(.cancelled) } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+                Button { if dirty { discarding = true } else { done(.cancelled) } } label: { Image(systemName: "xmark") }
+                    .accessibilityLabel("Close")
+                    .confirmationDialog("Discard your changes?", isPresented: $discarding, titleVisibility: .visible) {
+                        Button("Discard changes", role: .destructive) { done(.cancelled) }
+                        Button("Keep editing", role: .cancel) {}
+                    }
             }
             ToolbarItem(placement: .confirmationAction) {
                 if saving { WorkingMark(label: "Saving") } else {
@@ -108,6 +114,8 @@ struct EditProjectView: View {
                 }
             }
         }
+        // A swipe down never throws changes away; Close asks first.
+        .interactiveDismissDisabled(dirty)
         .projectRemoval(model: model, project: project, isPresented: $removing) { done(.removed) }
         .task { await readOptions() }
         .task(id: name) { initials = await model.projectInitials(name) ?? initials }
@@ -211,6 +219,13 @@ struct EditProjectView: View {
         catch { optionsProblem = error.localizedDescription }
     }
 
+    /// Notes as the machine would store them, to compare with what it has.
+    private var notesChanged: Bool {
+        notes.map { [$0.saved ?? "", $0.text] } != project.notes.map { [$0.id, $0.text] }
+    }
+    /// Anything here differs from the project as it opened.
+    private var dirty: Bool { name != project.name || iconTouched || defaults != project.defaults || notesChanged }
+
     private func save() async {
         saving = true; problem = nil
         defer { saving = false }
@@ -219,8 +234,7 @@ struct EditProjectView: View {
         if defaults != project.defaults, let encoded = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(ServiceValue.object(defaults))) {
             draft["defaults"] = encoded
         }
-        let saved = project.notes.map { [$0.id, $0.text] }
-        if notes.map({ [$0.saved ?? "", $0.text] }) != saved.map({ [$0[0], $0[1]] }) {
+        if notesChanged {
             draft["notes"] = notes.map { note -> [String: Any] in
                 var value: [String: Any] = ["text": note.text]
                 // An edited note becomes the person's, under the same id.

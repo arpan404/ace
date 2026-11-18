@@ -45,6 +45,36 @@ import XCTest
         shot("project-detail-saved", app)
     }
 
+    func testClosingAnEditedProjectAsksBeforeThrowingTheChangesAway() {
+        let app = launch()
+        openProject("ace", in: app)
+        // Untouched, Close just closes.
+        app.buttons["project.edit"].tap()
+        let close = app.buttons["Close"].firstMatch
+        XCTAssertTrue(app.textFields["project.edit.name"].waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(app.buttons["project.edit"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Discard changes"].exists, "an untouched draft closes without asking")
+
+        app.buttons["project.edit"].tap()
+        let name = app.textFields["project.edit.name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap()
+        name.typeText("-draft")
+        close.tap()
+        let keep = app.buttons["Keep editing"].firstMatch
+        XCTAssertTrue(keep.waitForExistence(timeout: 5), "closing a changed draft asks first")
+        keep.tap()
+        XCTAssertTrue((name.value as? String)?.hasSuffix("-draft") == true, "Keep editing keeps the draft")
+        close.tap()
+        let discard = app.buttons["Discard changes"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(app.buttons["project.edit"].waitForExistence(timeout: 10), "Discard changes closes the editor")
+        XCTAssertFalse(app.navigationBars.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "-draft")).firstMatch.exists,
+                       "nothing was saved")
+    }
+
     func testRemovingAProjectWithRunningThreadsOffersToStopThem() {
         let app = launch()
         openProject("ace", in: app)
