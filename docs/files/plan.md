@@ -87,7 +87,8 @@ a line-level incremental API (see "markit"); the editor never carries a second h
 
 ### files-safe
 
-Crates: `cap-std`, `cap-fs-ext`, `thiserror`. API:
+Crates: `cap-std`, `cap-fs-ext`, `thiserror`, `rustix` (Apple, for `F_GETPATH`), `winx` and
+`same-file` (Windows, for the handle's path and for file identity). API:
 
 ```rust
 pub struct Root;                                     // Clone, Send, Sync
@@ -107,18 +108,30 @@ impl Root {
 ```
 
 Every lookup starts at `root.dir()` and steps down segment by segment with `symlink_metadata`,
-`read_link_contents` and `open_dir_nofollow`; no lookup is driven by a path string. An absolute
-link target is compared as text against the root (canonical and as opened) and its remainder is
-walked from the root again, so nothing outside the root is ever stat'd. `resolve` returns the
-names the disk stores, and `relative` only returns strings `check` accepts. If the folder behind
-the handle is no longer what `path()` names (the root was moved and replaced by a link), every
-call is `PATH_CHANGED`.
+`read_link_contents` and `open_dir_nofollow`; no lookup is driven by a path string. The walk holds
+one open folder handle at a time and remembers only names, so a deep path cannot exhaust
+descriptors; `..` re-opens the parents it needs. An absolute link target is compared as text
+against the root (canonical and as opened) and its remainder is walked from the root again, so
+nothing outside the root is ever stat'd. Every segment a link target introduces goes through the
+same name rules as a request, and a target part that is not text is `PATH_ESCAPE`. One walk is
+capped at 256 segments, request and targets together, and beyond that is `LIMIT_EXCEEDED`. If the
+folder behind the handle is no longer what `path()` names (the root was moved and replaced by a
+link), every call is `PATH_CHANGED`.
+
+`resolve` returns the names the disk stores, never the spelling the caller used. A folder the walk
+opened is named from the handle itself (`F_GETPATH` on Apple, the final path name on Windows);
+anything else is matched against the folder's entries by identity — device and inode on Unix, the
+folded name on Windows — and a listing with no matching entry is `PATH_CHANGED`, never a guess.
+Listings are cached per root, stamped with the folder's identity and modification time, so
+resolving twenty thousand entries of one folder lists it once. `relative` only returns strings
+`check` accepts.
 
 I/O goes through handles, never through a resolved path: `open_dir` for a folder and
 `open_parent` for a leaf (which is returned as a name and never followed, so a dangling link is a
-file to delete, not a target to resolve). Mutations create with `O_EXCL`/no-follow through the
-parent handle. `resolve` is for read-only walkers such as a lister, the path index or a content
-search.
+file to delete, not a target to resolve). Readers open the leaf through the returned handle with
+no link following, and mutations create with `O_EXCL`/no-follow. `resolve` is left for read-only
+walkers such as a lister, the path index or a content search, which must run with
+`follow_links(false)` and compare each opened file's identity with the entry they walked.
 
 On Windows also reject `\`, `:`, `~` (8.3 short names), drive prefixes, reserved device names
 (`CON`, `NUL`, `COM1`, `COM¹`, ...) and trailing dots or spaces, matching
@@ -127,7 +140,10 @@ On Windows also reject `\`, `:`, `~` (8.3 short names), drive prefixes, reserved
 `resolves_missing_leaf_under_existing_parent`, `relative_round_trips_resolve`,
 `root_must_be_a_directory`, `refuses_a_root_that_was_moved_and_replaced_by_a_link`,
 `refuses_an_absolute_link_that_climbs_out`, `refuses_an_inside_link_that_reaches_an_outside_link`,
-`open_parent_never_follows_the_leaf`, `returns_the_name_the_folder_stores`.
+`open_parent_never_follows_the_leaf`, `returns_the_name_the_folder_stores`,
+`stored_names_do_not_mix_up_lookalikes`, `refuses_a_walk_deeper_than_the_limit`,
+`refuses_a_windows_style_link_target`. Bench: resolving every entry of a 20,000-entry folder, with
+the listing-per-entry behaviour it replaced for comparison.
 
 ### files-list
 

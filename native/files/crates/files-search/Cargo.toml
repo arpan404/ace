@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "files-search"
+description = "Content search over a checkout with ripgrep's libraries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cap-fs-ext = "4"
+cap-std = "4"
+files-safe = { path = "../files-safe" }
+globset = "0.4"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+ignore = "0.4"
+regex = "1"
+thiserror = "2"
+
+[target.'cfg(windows)'.dependencies]
+same-file = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bench]]
+name = "search"
+harness = false

@@ -6,9 +6,14 @@
 //! folder that holds it (`symlink_metadata`), folders are entered with `open_dir_nofollow`, and a
 //! link is read with `read_link_contents` and its target spliced back into the walk. Because the
 //! walk itself resolves the target, an escaping link is decided textually, without touching what
-//! it points at: `..` pops the stack of proven folders and cannot pop past the root, a relative
-//! target continues from the link's folder, and an absolute target must spell the root (either
-//! its canonical path or the path it was opened with) or the walk stops with `PATH_ESCAPE`.
+//! it points at: `..` pops the stack of names and cannot pop past the root, a relative target
+//! continues from the link's folder, and an absolute target must spell the root (either its
+//! canonical path or the path it was opened with) or the walk stops with `PATH_ESCAPE`. Segments a
+//! target introduces are held to the same name rules as the request, so a target cannot smuggle in
+//! a spelling Windows would reinterpret.
+//!
+//! The walk holds one open folder handle at a time and remembers only names, so a deep path or a
+//! hundred concurrent resolves cannot run out of descriptors. `..` re-opens the parents it needs.
 
 use std::collections::VecDeque;
 use std::ffi::{OsStr, OsString};
@@ -16,7 +21,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use cap_fs_ext::DirExt;
-use cap_std::fs::Dir;
+use cap_std::fs::{Dir, Metadata};
 
 use crate::Root;
 use crate::error::Error;
@@ -25,6 +30,9 @@ use crate::names;
 /// How many links one walk may follow. The kernel stops at 40; a longer chain is a loop and not a
 /// path we can prove.
 const MAX_LINKS: u32 = 40;
+
+/// How many segments one walk may visit, request and link targets together.
+const MAX_DEPTH: u32 = 256;
 
 /// One step still to walk. `Parent` only ever comes from a link target, never from the caller.
 enum Segment {
@@ -90,10 +98,12 @@ struct Walk<'a> {
     rel: &'a str,
     /// The folder the next segment is looked up in.
     current: Dir,
-    /// The folders above it with the names they were entered by, from the root down.
-    parents: Vec<(OsString, Dir)>,
+    /// The names of the folders above it, from the root down.
+    names: Vec<OsString>,
     /// What to do with the last name.
     last: Last,
+    /// Segments visited so far, and links followed so far.
+    depth: u32,
     links: u32,
 }
 
@@ -105,8 +115,9 @@ impl<'a> Walk<'a> {
             root,
             rel,
             current: root.dir().try_clone()?,
-            parents: Vec::new(),
+            names: Vec::new(),
             last,
+            depth: 0,
             links: 0,
         })
     }
@@ -116,11 +127,12 @@ impl<'a> Walk<'a> {
     fn run(&mut self, mut pending: VecDeque<Segment>) -> Result<Option<OsString>, Error> {
         let mut leaf = None;
         while let Some(segment) = pending.pop_front() {
+            self.depth += 1;
+            if self.depth > MAX_DEPTH {
+                return Err(Error::LimitExceeded(self.rel.to_owned()));
+            }
             match segment {
-                Segment::Parent => match self.parents.pop() {
-                    Some((_, parent)) => self.current = parent,
-                    None => return Err(self.escape()),
-                },
+                Segment::Parent => self.climb()?,
                 Segment::Name(name) => leaf = self.step(name, &mut pending)?,
             }
         }
@@ -133,30 +145,8 @@ impl<'a> Walk<'a> {
         name: OsString,
         pending: &mut VecDeque<Segment>,
     ) -> Result<Option<OsString>, Error> {
-        match self.current.symlink_metadata(&name) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                self.links += 1;
-                if self.links > MAX_LINKS {
-                    return Err(Error::LinkLoop(self.rel.to_owned()));
-                }
-                let target = self.current.read_link_contents(&name)?;
-                self.follow(&target, pending)?;
-                Ok(None)
-            }
-            Ok(metadata) => {
-                let stored = names::stored_name(self.current(), &name);
-                if pending.is_empty() && self.last == Last::Entry {
-                    return Ok(Some(stored));
-                }
-                // Only a folder can carry the segments that come after it.
-                if !metadata.is_dir() {
-                    return Err(Error::NotDirectory(self.rel.to_owned()));
-                }
-                let next = self.current.open_dir_nofollow(&stored)?;
-                let previous = std::mem::replace(&mut self.current, next);
-                self.parents.push((stored, previous));
-                Ok(None)
-            }
+        let metadata = match self.current.symlink_metadata(&name) {
+            Ok(metadata) => metadata,
             // The last segment may be missing: callers resolve a path they are about to create.
             // A gap higher up means the folder chain is not there at all.
             Err(error)
@@ -164,10 +154,48 @@ impl<'a> Walk<'a> {
                     && pending.is_empty()
                     && self.last == Last::Entry =>
             {
-                Ok(Some(name))
+                return Ok(Some(name));
             }
-            Err(error) => Err(error.into()),
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.file_type().is_symlink() {
+            self.links += 1;
+            if self.links > MAX_LINKS {
+                return Err(Error::LinkLoop(self.rel.to_owned()));
+            }
+            let target = self.current.read_link_contents(&name)?;
+            self.follow(&target, pending)?;
+            return Ok(None);
         }
+        if pending.is_empty() && self.last == Last::Entry {
+            return Ok(Some(self.listed(&name, &metadata)?));
+        }
+        // Only a folder can carry the segments that come after it.
+        if !metadata.is_dir() {
+            return Err(Error::NotDirectory(self.rel.to_owned()));
+        }
+        let next = self.current.open_dir_nofollow(&name)?;
+        let stored = match names::from_handle(&next) {
+            Some(stored) => stored,
+            None => self.listed(&name, &metadata)?,
+        };
+        self.current = next;
+        self.names.push(stored);
+        Ok(None)
+    }
+
+    /// Steps out of the current folder. The walk keeps no handle per level, so the parents the
+    /// target names are opened again from the root.
+    fn climb(&mut self) -> Result<(), Error> {
+        if self.names.pop().is_none() {
+            return Err(self.escape());
+        }
+        let mut dir = self.root.dir().try_clone()?;
+        for name in &self.names {
+            dir = dir.open_dir_nofollow(name)?;
+        }
+        self.current = dir;
+        Ok(())
     }
 
     /// Splices a link target into the walk. Nothing outside the root is ever looked at: an
@@ -182,7 +210,7 @@ impl<'a> Walk<'a> {
                 pending.push_front(segment);
             }
             self.current = self.root.dir().try_clone()?;
-            self.parents.clear();
+            self.names.clear();
             return Ok(());
         }
         for segment in self.target_segments(target)?.into_iter().rev() {
@@ -212,13 +240,22 @@ impl<'a> Walk<'a> {
         None
     }
 
-    /// A relative link target as segments. `..` is kept and applied to the stack of folders the
-    /// walk already proved, which is what keeps it inside the root.
+    /// A relative link target as segments. `..` is kept and applied to the stack of names the walk
+    /// already proved, which is what keeps it inside the root.
     fn target_segments(&self, target: &Path) -> Result<Vec<Segment>, Error> {
         let mut segments = Vec::new();
         for component in target.components() {
             match component {
-                Component::Normal(part) => segments.push(Segment::Name(part.to_os_string())),
+                Component::Normal(part) => {
+                    // A target is not a request, but it names entries, so it is held to the same
+                    // rules: a part Windows would read differently, or one that is not text at
+                    // all, leaves nothing we can prove.
+                    let name = part.to_str().filter(|name| crate::check::segment(name));
+                    match name {
+                        Some(name) => segments.push(Segment::Name(OsString::from(name))),
+                        None => return Err(self.escape()),
+                    }
+                }
                 Component::ParentDir => segments.push(Segment::Parent),
                 Component::CurDir => {}
                 // A target that names a root of its own is not a relative path after all.
@@ -233,17 +270,40 @@ impl<'a> Walk<'a> {
     fn stored_leaf(&self, leaf: &str) -> Result<String, Error> {
         let requested = OsStr::new(leaf);
         let name = match self.current.symlink_metadata(requested) {
-            Ok(_) => names::stored_name(&self.current, requested),
+            Ok(metadata) => self.listed(requested, &metadata)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => requested.to_os_string(),
             Err(error) => return Err(error.into()),
         };
         Ok(name.into_string().unwrap_or_else(|_| leaf.to_owned()))
     }
 
+    /// The name the current folder stores for an entry it holds.
+    fn listed(&self, name: &OsStr, metadata: &Metadata) -> Result<OsString, Error> {
+        names::listed(
+            self.root.cache(),
+            self.current(),
+            &self.folder_path(),
+            name,
+            metadata,
+        )
+    }
+
+    /// The folders above `current`, as the cache spells them.
+    fn folder_path(&self) -> String {
+        let mut path = String::new();
+        for name in &self.names {
+            if !path.is_empty() {
+                path.push('/');
+            }
+            path.push_str(&name.to_string_lossy());
+        }
+        path
+    }
+
     /// The absolute result, re-proven against the canonical root.
     fn absolute(&self, leaf: Option<&OsStr>) -> Result<PathBuf, Error> {
         let mut path = self.root.path().to_path_buf();
-        for (name, _) in &self.parents {
+        for name in &self.names {
             path.push(name);
         }
         if let Some(leaf) = leaf {
