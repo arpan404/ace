@@ -1,10 +1,9 @@
 import type { ClientApi } from "@ace/client";
-import { ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
+import { FolderPage, ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
 import { ArchivePreview } from "@ace/ui-core";
 import { z } from "zod";
 import { checkoutError, fromCode } from "./checkout-source.ts";
 
-const listing = z.object({ paths: z.array(z.string()), truncated: z.boolean() });
 const trash = z.object({
   entries: z.array(
     z.object({ id: z.string(), path: z.string(), size: z.number(), expires: z.number() }),
@@ -44,8 +43,15 @@ export function fileManagement(client: ClientApi, threadId: string) {
     return reply.value;
   };
   return {
-    async list(signal?: AbortSignal) {
-      return decode(listing, await request({ op: "list", path: "", limit: 1000 }, signal));
+    /** One folder of the checkout, a page at a time; `cursor` is the last page's next one. */
+    async listFolder(path: string, cursor: string | undefined, signal?: AbortSignal) {
+      return decode(
+        FolderPage,
+        await request(
+          { op: "list.folder", path, limit: 500, ...(cursor === undefined ? {} : { cursor }) },
+          signal,
+        ),
+      );
     },
     async mutate(operation: FileMutation) {
       return decode(WorkspaceFileChange, await request(operation));

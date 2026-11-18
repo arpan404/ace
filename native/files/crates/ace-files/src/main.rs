@@ -13,9 +13,11 @@ mod error;
 mod guard;
 mod io;
 mod ops;
+mod quick_open;
 mod requests;
 mod roots;
 mod subscriptions;
+mod writer;
 
 use std::process::ExitCode;
 

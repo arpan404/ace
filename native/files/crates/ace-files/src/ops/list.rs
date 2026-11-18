@@ -9,7 +9,13 @@ use crate::convert;
 use crate::dispatch::Shared;
 use crate::error::Error;
 
+/// The largest page the contract allows.
+const MAX_LIMIT: usize = 5_000;
+
 /// One page of one folder.
+///
+/// The contract allows at most 5,000 entries per page, which `files-list` also enforces; checking
+/// it here refuses an impossible page before any folder is read.
 pub fn list(
     shared: &Shared,
     root: u64,
@@ -18,6 +24,11 @@ pub fn list(
     cursor: Option<String>,
     hide: Vec<String>,
 ) -> Result<Reply, Error> {
+    if !(1..=MAX_LIMIT as u64).contains(&limit) {
+        return Err(Error::InvalidArgument(format!(
+            "limit {limit} is outside 1..={MAX_LIMIT}"
+        )));
+    }
     let entry = shared.roots.get(root)?;
     let limit = usize::try_from(limit)
         .map_err(|_| Error::InvalidArgument(format!("limit {limit} is out of range")))?;

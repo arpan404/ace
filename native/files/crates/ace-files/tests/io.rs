@@ -5,8 +5,11 @@
 
 mod common;
 
+use std::fs;
+use std::time::Duration;
+
 use common::{Client, checkout};
-use files_wire::{Op, Reply};
+use files_wire::{Message, Op, Reply};
 
 #[test]
 fn writes_then_reads_the_same_bytes() {
@@ -64,6 +67,37 @@ fn refuses_a_read_larger_than_one_body_frame() {
     });
     let error = client.error(id);
     assert_eq!(error.code, "INVALID_ARGUMENT");
+}
+
+#[test]
+fn cancel_sent_during_a_remove_still_answers_success() {
+    // A tree big enough that the cancel lands while the removal is still running: the removal
+    // happens either way, so its answer is `done` rather than a late `ABORTED`. Only a cancel that
+    // arrives before the work starts may stop it.
+    let checkout = checkout(&[]);
+    let bulk = checkout.path().join("bulk");
+    fs::create_dir(&bulk).expect("the folder");
+    for index in 0..20_000 {
+        fs::write(bulk.join(format!("file{index}.txt")), b"").expect("the file");
+    }
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let removed = client.request(Op::Remove {
+        root,
+        path: "bulk".to_owned(),
+    });
+    // Long enough that the request has left the dispatcher and its worker is in the tree, far too
+    // short for twenty thousand files to be gone.
+    std::thread::sleep(Duration::from_millis(50));
+    client.send(&Message::Cancel { id: removed });
+
+    assert_eq!(client.reply(removed), Reply::Done);
+    let after = client.request(Op::Stat {
+        root,
+        path: "bulk".to_owned(),
+    });
+    assert_eq!(client.error(after).code, "NOT_FOUND");
 }
 
 #[test]

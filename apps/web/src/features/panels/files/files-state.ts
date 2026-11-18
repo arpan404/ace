@@ -24,7 +24,8 @@ export const FileTabData = z.object({
   tree: z.optional(z.boolean()),
   query: z.optional(z.string()),
   find: z.optional(z.object({ query: z.string(), index: z.number() })),
-  collapsed: z.optional(z.array(z.string())),
+  /** The folders the person opened in the tree; unset, only the current file's parents. */
+  expanded: z.optional(z.array(z.string())),
   treeScroll: z.optional(z.number().check(z.gte(0), z.lte(10_000_000))),
 });
 export type FileTabData = z.infer<typeof FileTabData>;
