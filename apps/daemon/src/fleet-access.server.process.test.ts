@@ -255,10 +255,49 @@ it("an administrator allows a scope it holds on a paired device, which keeps its
   expect(await ask(host, change("no-read", "read", false))).toMatchObject({
     error: { code: "invalid" },
   });
+  // The same id again for another device answers nothing as applied, and changes nothing.
+  const other = await f.pair(["read", "operate"]);
+  expect(
+    await ask(host, { ...change("host-allows", "projects", true), deviceId: other.device.id }),
+  ).toMatchObject({ error: { code: "invalid" } });
+  expect(await ask(host, change("host-allows", "projects", false))).toMatchObject({
+    error: { code: "invalid" },
+  });
+  expect((await ask(host, { op: "devices" })).result).toMatchObject({
+    devices: expect.arrayContaining([
+      expect.objectContaining({ id: other.device.id, scopes: ["read", "operate"] }),
+    ]),
+  });
   // A command id another device used is its receipt, not this one's.
   expect(await ask(admin, change("host-allows", "projects", true))).toMatchObject({
     error: { code: "forbidden" },
   });
+});
+
+it("a connection that is open when its device loses Projects is refused on its next request", async () => {
+  const f = await setup();
+  const { credential, client } = await pairedSocket(f, ["read", "operate", "projects"]);
+  let asked = 0;
+  const browse = async () => {
+    const requestId = `home-${++asked}`;
+    client.send({ type: "projects.request", requestId, operation: { op: "fs.home" } });
+    for (;;) {
+      const message: ServerMessage = await client.next();
+      if (message.type === "projects.result" && message.requestId === requestId)
+        return message.result;
+    }
+  };
+  expect(await browse()).not.toMatchObject({ kind: "error", code: "forbidden" });
+  const host = await welcomed(await f.connect());
+  await ask(host, {
+    op: "scope",
+    commandId: CommandId.parse("take-projects"),
+    deviceId: credential.device.id,
+    scope: "projects",
+    allowed: false,
+  });
+  // The same socket, never reconnected.
+  expect(await browse()).toMatchObject({ kind: "error", code: "forbidden" });
 });
 
 it("a device without administrator access can't use fleet requests", async () => {
