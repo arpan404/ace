@@ -40,10 +40,49 @@ struct ScannerModelTests {
         #expect(model.phase == .found("https://host/pair#a"))
     }
 
-    @Test func aCameraThatWontStartReadsAsNoCamera() {
+    @Test func aCameraThatWontStartOffersPasteAndTriesAgainOnReturn() {
         var model = ScannerModel(access: .allowed, hasCamera: true)
         model.cameraFailed()
-        #expect(model.phase == .noCamera)
+        #expect(model.phase == .failed)
+        #expect(!model.showsCamera && !model.offersSettings)
+        model.recheck(access: .allowed, hasCamera: true)
+        #expect(model.phase == .scanning)
+    }
+
+    @Test func accessTurnedOnInSettingsStartsTheCameraOnReturn() {
+        var model = ScannerModel(access: .denied, hasCamera: true)
+        model.recheck(access: .allowed, hasCamera: true)
+        #expect(model.phase == .scanning)
+        #expect(model.showsCamera)
+    }
+
+    @Test func accessTurnedOffWhileAwayStopsScanningOnReturn() {
+        var model = ScannerModel(access: .allowed, hasCamera: true)
+        model.recheck(access: .denied, hasCamera: true)
+        #expect(model.phase == .denied)
+        #expect(model.read("https://host/pair#a", problem: nil) == .ignored)
+    }
+
+    @Test func aTakenCodeSurvivesAReturnFromTheBackground() {
+        var model = ScannerModel(access: .allowed, hasCamera: true)
+        #expect(model.read("https://host/pair#a", problem: nil) == .accepted)
+        model.recheck(access: .denied, hasCamera: true)
+        #expect(model.handsBack("https://host/pair#a"))
+    }
+
+    @Test func aCodeTakenJustBeforeCloseIsNeverHandedBack() {
+        var model = ScannerModel(access: .allowed, hasCamera: true)
+        #expect(model.read("https://host/pair#a", problem: nil) == .accepted)
+        #expect(model.handsBack("https://host/pair#a"))
+        model.close()
+        #expect(!model.handsBack("https://host/pair#a"))
+    }
+
+    @Test func onlyTheCodeTakenIsHandedBack() {
+        var model = ScannerModel(access: .allowed, hasCamera: true)
+        #expect(!model.handsBack("https://host/pair#a"), "nothing taken yet")
+        #expect(model.read("https://host/pair#a", problem: nil) == .accepted)
+        #expect(!model.handsBack("https://host/pair#b"))
     }
 
     @Test func theFirstGoodCodeIsHandedBackOnceAndLaterReadsAreIgnored() {

@@ -14,6 +14,8 @@ enum ScannerPhase: Equatable {
     /// Screen Time or a profile keeps the camera off.
     case restricted
     case noCamera
+    /// The camera was there but wouldn't start, or stopped with an error.
+    case failed
     /// A pairing link, read once and on its way back to the pairing page.
     case found(String)
 }
@@ -34,6 +36,7 @@ struct ScannerModel: Equatable {
     /// Why the last code read wasn't taken, shown in place of the instruction.
     private(set) var note: String?
     private var rejected: String?
+    private var closed = false
 
     init(access: CameraAccess, hasCamera: Bool) {
         guard hasCamera else { phase = .noCamera; return }
@@ -48,7 +51,7 @@ struct ScannerModel: Equatable {
     var showsCamera: Bool {
         switch phase {
         case .asking, .scanning, .found: true
-        case .denied, .restricted, .noCamera: false
+        case .denied, .restricted, .noCamera, .failed: false
         }
     }
     var offersSettings: Bool { phase == .denied || phase == .restricted }
@@ -59,10 +62,26 @@ struct ScannerModel: Equatable {
         phase = granted ? .scanning : .denied
     }
 
-    /// The camera couldn't be opened after all.
+    /// The camera couldn't be opened after all, or stopped with an error.
     mutating func cameraFailed() {
-        if phase == .asking || phase == .scanning { phase = .noCamera }
+        if phase == .asking || phase == .scanning { phase = .failed }
     }
+
+    /// Back in the foreground: the permission or camera may have changed meanwhile (access
+    /// turned on in Settings), so every state but a taken code is decided again. A camera that
+    /// failed gets another try.
+    mutating func recheck(access: CameraAccess, hasCamera: Bool) {
+        if case .found = phase { return }
+        guard !closed else { return }
+        phase = ScannerModel(access: access, hasCamera: hasCamera).phase
+    }
+
+    /// The person closed the scanner: a code still showing its check is not handed back.
+    mutating func close() { closed = true }
+
+    /// Whether `code` may still go back once its check has shown: it is the code taken and the
+    /// scanner wasn't closed meanwhile.
+    func handsBack(_ code: String) -> Bool { !closed && phase == .found(code) }
 
     /// A code the camera read, with why it can't pair (nil when it can).
     mutating func read(_ code: String, problem: String?) -> Reading {

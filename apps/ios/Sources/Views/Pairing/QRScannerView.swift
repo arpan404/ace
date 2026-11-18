@@ -15,9 +15,16 @@ struct QRScannerView: View {
     let close: () -> Void
     @State private var probe: CameraProbe?
     @State private var model: ScannerModel?
+    /// The torch asked for, and whether it really is on (it can be unavailable when hot).
     @State private var torch = false
+    @State private var torchLit = false
     @State private var torchAvailable = false
     @State private var rejections = 0
+    /// The half-second check before a taken code goes back; Close cancels it.
+    @State private var handOver: Task<Void, Never>?
+    /// False while the app is in the background, when the camera is stopped.
+    @State private var foreground = true
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
@@ -35,7 +42,7 @@ struct QRScannerView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(action: close) { Image(systemName: "xmark") }
+                    Button(action: dismiss) { Image(systemName: "xmark") }
                         .accessibilityLabel("Close").accessibilityIdentifier("scanner.close")
                 }
             }
@@ -48,6 +55,22 @@ struct QRScannerView: View {
         .sensoryFeedback(.success, trigger: model?.phase) { _, phase in if case .found = phase { true } else { false } }
         .sensoryFeedback(.warning, trigger: rejections)
         .task { await start() }
+        .onChange(of: scenePhase) { _, phase in
+            // Only the background stops the camera: the permission prompt and Control Center
+            // make the scene inactive without leaving.
+            if phase == .background { foreground = false }
+            if phase == .active && !foreground {
+                foreground = true
+                Task { await recheck() }
+            }
+        }
+        .onDisappear { handOver?.cancel() }
+    }
+
+    private func dismiss() {
+        model?.close()
+        handOver?.cancel()
+        close()
     }
 
     // MARK: Camera
@@ -59,9 +82,10 @@ struct QRScannerView: View {
             let found = if case .found = model.phase { true } else { false }
             ZStack {
                 Color.black
-                if live && model.phase != .asking {
+                if live && foreground && model.phase != .asking {
                     CameraPreview(read: { read($0) }, failed: { self.model?.cameraFailed() }, torch: torch, held: found,
-                                  torchAvailable: { torchAvailable = $0 })
+                                  torchAvailable: { torchAvailable = $0 },
+                                  torchApplied: { lit in torchLit = lit; torch = lit })
                 }
                 ScannerDim(side: side, centre: centre)
                 ScannerFrame(side: side, found: found, reduceMotion: reduceMotion)
@@ -85,12 +109,12 @@ struct QRScannerView: View {
     private func controls(_ model: ScannerModel) -> some View {
         HStack(spacing: AceDesign.Space.row) {
             if torchAvailable {
-                Button { torch.toggle() } label: {
-                    Image(systemName: torch ? "flashlight.on.fill" : "flashlight.off.fill")
+                Button { torch = !torchLit } label: {
+                    Image(systemName: torchLit ? "flashlight.on.fill" : "flashlight.off.fill")
                         .frame(width: AceDesign.Size.tap - AceDesign.Space.row)
                 }
                 .pairingSecondaryButton()
-                .accessibilityLabel(torch ? "Turn torch off" : "Turn torch on")
+                .accessibilityLabel(torchLit ? "Turn torch off" : "Turn torch on")
                 .accessibilityIdentifier("scanner.torch")
             }
             Button("Paste link instead", action: paste)
@@ -132,19 +156,29 @@ struct QRScannerView: View {
     private func start() async {
         let probe = CameraProbe.current()
         self.probe = probe
-        var model = ScannerModel(access: probe.access, hasCamera: probe.hasCamera)
-        self.model = model
-        if model.phase == .asking {
-            let granted = await CameraProbe.requestAccess()
-            guard !Task.isCancelled else { return }
-            model.answered(granted: granted)
-            self.model?.answered(granted: granted)
-        }
-        if let code = probe.standInCode, model.phase == .scanning {
+        self.model = ScannerModel(access: probe.access, hasCamera: probe.hasCamera)
+        await askIfNeeded()
+        if let code = probe.standInCode, self.model?.phase == .scanning {
             try? await Task.sleep(for: ScannerLook.standInDelay)
             guard !Task.isCancelled else { return }
             read(code)
         }
+    }
+
+    /// Back from the background: permission may have changed in Settings, and the camera
+    /// view is built again.
+    private func recheck() async {
+        let probe = CameraProbe.current()
+        self.probe = probe
+        model?.recheck(access: probe.access, hasCamera: probe.hasCamera)
+        await askIfNeeded()
+    }
+
+    private func askIfNeeded() async {
+        guard model?.phase == .asking else { return }
+        let granted = await CameraProbe.requestAccess()
+        guard !Task.isCancelled else { return }
+        model?.answered(granted: granted)
     }
 
     private func read(_ code: String) {
@@ -153,8 +187,10 @@ struct QRScannerView: View {
         self.model = model
         switch reading {
         case .accepted:
-            Task {
+            handOver = Task {
                 try? await Task.sleep(for: ScannerLook.checkHold)
+                // Closed while the check showed, or this scan is no longer the one on screen.
+                guard !Task.isCancelled, self.model?.handsBack(code) == true else { return }
                 found(code)
             }
         case .rejected: rejections += 1
@@ -232,6 +268,9 @@ private struct ScannerWords {
         case .restricted:
             title = "Camera isn't allowed"
             line = "This iPhone's restrictions keep the camera off. Check Screen Time in Settings, or paste the link from your computer."
+        case .failed:
+            title = "The camera didn't start"
+            line = "Close the scanner and try again, or paste the pairing link from your computer."
         default:
             title = "No camera"
             line = "There's no camera here to scan with. Copy the pairing link on your computer and paste it instead."
