@@ -34,6 +34,17 @@ pub(crate) struct Tree {
     pub(crate) shallow: bool,
 }
 
+/// Where a folder's digest is taken: the path it records, the path it lives at now, and its own
+/// version from before any rename.
+pub(crate) struct Place<'a> {
+    /// The path the client's expected version was made for, which every entry records.
+    pub(crate) recorded: &'a str,
+    /// The path the folder is at right now, which links inside it resolve against.
+    pub(crate) location: &'a str,
+    /// The folder's own version before a rename, so a new change time does not change the digest.
+    pub(crate) own: &'a str,
+}
+
 /// The version of a folder: the daemon's `tree:` digest.
 ///
 /// The walk checks the caller's cancel flag before every entry and stops at the caller's budget.
@@ -47,12 +58,38 @@ pub(crate) fn version(
     walks: &Walks,
 ) -> Result<Tree, Error> {
     let own = version::version_of(own_handle(dir)?.as_ref(), &dir.dir_metadata()?)?;
+    version_at(
+        root,
+        &Place {
+            recorded: relative,
+            location: relative,
+            own: &own,
+        },
+        dir,
+        walks,
+    )
+}
+
+/// The digest of a folder that was renamed, recorded as the path its expected version names.
+///
+/// A rename changes the folder's own change time, so the caller passes the own version the folder
+/// had before the move; entries below it keep their versions, so a tree that did not change
+/// digests to the same `tree:` value as before. A link inside the folder resolves against
+/// `place.location`, the path the folder has now.
+pub(crate) fn version_at(
+    root: &Root,
+    place: &Place,
+    dir: &Dir,
+    walks: &Walks,
+) -> Result<Tree, Error> {
+    let own = place.own.to_owned();
     let mut digest = Sha256::new();
     digest.update(&own);
     let mut stack = Vec::new();
-    if !temporary(relative) {
+    if !temporary(place.recorded) {
         stack.push(Folder {
-            path: relative.to_owned(),
+            recorded: place.recorded.to_owned(),
+            location: place.location.to_owned(),
             dir: dir.try_clone()?,
             names: names(dir)?,
             next: 0,
@@ -65,13 +102,9 @@ pub(crate) fn version(
             continue;
         };
         stack[index].next += 1;
-        let base = stack[index].path.clone();
-        let path = if base.is_empty() {
-            name.clone()
-        } else {
-            format!("{base}/{name}")
-        };
-        if name.contains('\\') || temporary(&path) {
+        let recorded = join(&stack[index].recorded, &name);
+        let location = join(&stack[index].location, &name);
+        if name.contains('\\') || temporary(&recorded) {
             continue;
         }
         visited += 1;
@@ -82,17 +115,18 @@ pub(crate) fn version(
                 shallow: true,
             });
         }
-        let examined = examine(root, &stack[index].dir, &path, &name)?;
+        let examined = examine(root, &stack[index].dir, &location, &name)?;
         let Some((entry_version, child)) = examined else {
             continue;
         };
-        digest.update(path.as_bytes());
+        digest.update(recorded.as_bytes());
         digest.update([0]);
         digest.update(entry_version.as_bytes());
         digest.update([0]);
         if let Some(child) = child {
             stack.push(Folder {
-                path,
+                recorded,
+                location,
                 names: names(&child)?,
                 dir: child,
                 next: 0,
@@ -106,12 +140,22 @@ pub(crate) fn version(
     })
 }
 
-/// One folder waiting to be reported: the path its entries answer to, and their sorted names.
+/// One folder waiting to be reported: the path its entries record and where it is now.
 struct Folder {
-    path: String,
+    recorded: String,
+    location: String,
     dir: Dir,
     names: Vec<String>,
     next: usize,
+}
+
+/// A child's path below its folder; the root's own children carry no leading slash.
+fn join(base: &str, name: &str) -> String {
+    if base.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{base}/{name}")
+    }
 }
 
 /// What one entry contributes: its version and, when it is a real folder, the handle to walk.

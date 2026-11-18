@@ -49,12 +49,32 @@ enum Last {
     Folder,
 }
 
+/// Whether the walk may follow a symbolic link it meets.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Links {
+    /// Follow a link whose target stays inside the root.
+    Follow,
+    /// Refuse any link: a mutation must never be redirected by one.
+    Refuse,
+}
+
+/// The folder a caller acts in, with the names the disk stores for the path that reached it.
+#[derive(Debug)]
+pub struct Parent {
+    /// The handle of the folder that holds the leaf.
+    pub dir: Dir,
+    /// The leaf's stored name, or the caller's spelling when nothing is there yet.
+    pub name: String,
+    /// The stored names of the folders from the root down to `dir`.
+    pub folders: Vec<String>,
+}
+
 /// Resolves `rel` to an absolute path inside the root. The path is for read-only walkers; opening
 /// anything must go through [`crate::Root::open_dir`] or [`crate::Root::open_parent`], because a
 /// path can be rewritten between the walk and the open.
 pub(crate) fn resolve(root: &Root, rel: &str) -> Result<PathBuf, Error> {
     let rel = Root::check(rel)?;
-    let mut walk = Walk::start(root, rel, Last::Entry)?;
+    let mut walk = Walk::start(root, rel, Last::Entry, Links::Follow)?;
     let leaf = walk.run(request_segments(rel))?;
     walk.absolute(leaf.as_deref())
 }
@@ -62,7 +82,7 @@ pub(crate) fn resolve(root: &Root, rel: &str) -> Result<PathBuf, Error> {
 /// Opens the folder `rel` names, with nothing followed after the walk.
 pub(crate) fn open_dir(root: &Root, rel: &str) -> Result<Dir, Error> {
     let rel = Root::check(rel)?;
-    let mut walk = Walk::start(root, rel, Last::Entry)?;
+    let mut walk = Walk::start(root, rel, Last::Entry, Links::Follow)?;
     match walk.run(request_segments(rel))? {
         Some(leaf) => walk.current().open_dir_nofollow(&leaf).map_err(Into::into),
         None => walk.handle(),
@@ -72,16 +92,50 @@ pub(crate) fn open_dir(root: &Root, rel: &str) -> Result<Dir, Error> {
 /// Opens the folder that holds `rel` and returns it with the leaf name.
 pub(crate) fn open_parent(root: &Root, rel: &str) -> Result<(Dir, String), Error> {
     let rel = Root::check(rel)?;
-    let (parent, leaf) = match rel.rsplit_once('/') {
-        Some(split) => split,
-        // A name at the top of the checkout has the root itself as its folder.
-        None if !rel.is_empty() => ("", rel),
-        None => return Err(Error::InvalidPath(rel.to_owned())),
-    };
-    let mut walk = Walk::start(root, rel, Last::Folder)?;
+    let (parent, leaf) = split(rel)?;
+    let mut walk = Walk::start(root, rel, Last::Folder, Links::Follow)?;
     walk.run(request_segments(parent))?;
-    let name = walk.stored_leaf(leaf)?;
-    Ok((walk.handle()?, name))
+    Ok((walk.handle()?, walk.stored_leaf(leaf)?))
+}
+
+/// Opens the folder that holds `rel` and reports the stored names on the way to it.
+pub(crate) fn open_parent_stored(root: &Root, rel: &str) -> Result<Parent, Error> {
+    let rel = Root::check(rel)?;
+    let (parent, leaf) = split(rel)?;
+    let mut walk = Walk::start(root, rel, Last::Folder, Links::Follow)?;
+    walk.run(request_segments(parent))?;
+    walk.parent(leaf)
+}
+
+/// Opens the folder that holds `rel`, refusing any link on the way, and reports the stored names.
+///
+/// Mutations use this so the policy they apply reads the spelling the disk stores: a
+/// case-insensitive volume answers `.GIT` for `.git`, and a Windows 8.3 alias answers with the
+/// long name, so neither can slip past a check made on the caller's text.
+pub(crate) fn open_parent_unlinked(root: &Root, rel: &str) -> Result<Parent, Error> {
+    let rel = Root::check(rel)?;
+    let (parent, leaf) = split(rel)?;
+    let mut walk = Walk::start(root, rel, Last::Folder, Links::Refuse)?;
+    walk.run(request_segments(parent))?;
+    walk.parent(leaf)
+}
+
+/// The stored names of every component of `rel`, after following every link.
+pub(crate) fn stored_path(root: &Root, rel: &str) -> Result<Vec<String>, Error> {
+    let rel = Root::check(rel)?;
+    let mut walk = Walk::start(root, rel, Last::Entry, Links::Follow)?;
+    let leaf = walk.run(request_segments(rel))?;
+    walk.stored_components(leaf.as_deref())
+}
+
+/// The parent half of a non-empty relative path and its leaf.
+fn split(rel: &str) -> Result<(&str, &str), Error> {
+    match rel.rsplit_once('/') {
+        Some(split) => Ok(split),
+        // A name at the top of the checkout has the root itself as its folder.
+        None if !rel.is_empty() => Ok(("", rel)),
+        None => Err(Error::InvalidPath(rel.to_owned())),
+    }
 }
 
 /// The `/`-separated form as segments. The input is already checked, so no segment is empty.
@@ -102,6 +156,8 @@ struct Walk<'a> {
     names: Vec<OsString>,
     /// What to do with the last name.
     last: Last,
+    /// Whether a link on the way may be followed.
+    follows: Links,
     /// Segments visited so far, and links followed so far.
     depth: u32,
     links: u32,
@@ -109,7 +165,7 @@ struct Walk<'a> {
 
 impl<'a> Walk<'a> {
     /// Starts at the root, after proving the root path still names the folder we hold.
-    fn start(root: &'a Root, rel: &'a str, last: Last) -> Result<Walk<'a>, Error> {
+    fn start(root: &'a Root, rel: &'a str, last: Last, follows: Links) -> Result<Walk<'a>, Error> {
         root.still_ours()?;
         Ok(Walk {
             root,
@@ -117,6 +173,7 @@ impl<'a> Walk<'a> {
             current: root.dir().try_clone()?,
             names: Vec::new(),
             last,
+            follows,
             depth: 0,
             links: 0,
         })
@@ -159,6 +216,9 @@ impl<'a> Walk<'a> {
             Err(error) => return Err(error.into()),
         };
         if metadata.file_type().is_symlink() {
+            if self.follows == Links::Refuse {
+                return Err(self.escape());
+            }
             self.links += 1;
             if self.links > MAX_LINKS {
                 return Err(Error::LinkLoop(self.rel.to_owned()));
@@ -275,6 +335,40 @@ impl<'a> Walk<'a> {
             Err(error) => return Err(error.into()),
         };
         Ok(name.into_string().unwrap_or_else(|_| leaf.to_owned()))
+    }
+
+    /// The parent handle and stored leaf of a walk that stopped in the parent folder.
+    fn parent(&self, leaf: &str) -> Result<Parent, Error> {
+        Ok(Parent {
+            dir: self.handle()?,
+            name: self.stored_leaf(leaf)?,
+            folders: self.stored_names()?,
+        })
+    }
+
+    /// Every stored name from the root to the entry the walk stopped on.
+    fn stored_components(&self, leaf: Option<&OsStr>) -> Result<Vec<String>, Error> {
+        let mut names = self.stored_names()?;
+        if let Some(leaf) = leaf {
+            names.push(leaf.to_str().ok_or_else(|| self.changed())?.to_owned());
+        }
+        Ok(names)
+    }
+
+    /// The folders above the current one, as exact strings.
+    ///
+    /// A name that is not UTF-8 cannot have been requested as a UTF-8 path, so a stored name that
+    /// fails to convert means the folder changed under the walk rather than something to guess.
+    fn stored_names(&self) -> Result<Vec<String>, Error> {
+        let mut names = Vec::with_capacity(self.names.len());
+        for name in &self.names {
+            names.push(name.to_str().ok_or_else(|| self.changed())?.to_owned());
+        }
+        Ok(names)
+    }
+
+    fn changed(&self) -> Error {
+        Error::PathChanged(self.rel.to_owned())
     }
 
     /// The name the current folder stores for an entry it holds.

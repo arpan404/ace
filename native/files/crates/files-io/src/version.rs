@@ -126,8 +126,8 @@ pub(crate) fn same_entry(
 }
 
 /// A version with its last field removed: a rename changes the change time and nothing else a
-/// version records, so the daemon compares versions this way when it swaps a save into place.
-#[cfg(unix)]
+/// version records, so the daemon compares versions this way when it swaps a save into place or
+/// checks an entry it has just moved.
 pub(crate) fn without_change_time(version: &str) -> &str {
     version.rsplit_once(':').map_or(version, |(rest, _)| rest)
 }

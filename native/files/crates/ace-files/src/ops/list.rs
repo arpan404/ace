@@ -33,14 +33,10 @@ pub fn list(
     let entry = shared.roots.get(root)?;
     let limit = usize::try_from(limit)
         .map_err(|_| Error::InvalidArgument(format!("limit {limit} is out of range")))?;
-    // The daemon's transfer temporaries are never listed, and neither is anything inside one.
-    if hidden::temporary(dir) {
-        return Ok(Reply::Page(convert::page(files_list::Page {
-            entries: Vec::new(),
-            next_cursor: None,
-            total: 0,
-        })));
-    }
+    // Git's store and the daemon's transfer temporaries are never served, and neither is anything
+    // a link leads into: the check reads the stored names the walk found, so another spelling of
+    // the same folder is refused too.
+    files_io::refuse_reserved(entry.root(), dir)?;
     let options = ListOptions {
         limit,
         cursor,
@@ -53,6 +49,7 @@ pub fn list(
 /// The description of one path.
 pub fn stat(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
     let entry = shared.roots.get(root)?;
+    files_io::refuse_reserved(entry.root(), path)?;
     let stat = entry.lister().stat(path)?;
     Ok(Reply::Entry(convert::entry(stat)))
 }

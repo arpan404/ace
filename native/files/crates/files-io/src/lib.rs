@@ -13,17 +13,18 @@ mod error;
 mod handle;
 mod mutate;
 mod number;
+mod policy;
 mod read;
 mod tree;
 mod version;
 mod write;
 
 pub use describe::{
-    Description, Kind, Measurement, Walks, check_mutation, describe, describe_entry, entry_version,
-    measure,
+    Description, Kind, Measurement, Walks, describe, describe_entry, entry_version, measure,
 };
 pub use error::Error;
-pub use mutate::{create_dir, remove, rename};
+pub use mutate::{Committed, create_dir, remove, rename, trash, untrash};
+pub use policy::refuse_reserved;
 pub use read::{Read, ReadRange, read};
 pub use version::stat_version;
 pub use write::{SaveWarning, Saved, create_file, write};

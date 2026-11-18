@@ -54,7 +54,30 @@ impl<'a> Walks<'a> {
     pub fn unbounded() -> Walks<'static> {
         Walks {
             cancel: &never,
-            max_entries: Self::DEFAULT_ENTRIES,
+            max_entries: unbounded_budget(),
+        }
+    }
+
+    /// A walk nobody cancels and nothing bounds, for verifying a tree a mutation just moved.
+    ///
+    /// The operation has already happened, so stopping the check early would leave a guard that
+    /// cannot be compared with the digest the caller held; it must finish.
+    pub fn complete() -> Walks<'static> {
+        Walks {
+            cancel: &never,
+            max_entries: usize::MAX,
+        }
+    }
+
+    /// A walk with no entry budget, for a destructive guard and the trash quota.
+    ///
+    /// A delete or a move must know the whole tree it is about to carry, and the trash quota must
+    /// count every byte it reserves; a lower bound is not a guard. The request's cancel flag still
+    /// reaches every entry, so the daemon can give up on the walk.
+    pub fn unlimited(cancel: &'a dyn Fn() -> bool) -> Walks<'a> {
+        Walks {
+            cancel,
+            max_entries: usize::MAX,
         }
     }
 
@@ -72,6 +95,21 @@ impl<'a> Walks<'a> {
 
 fn never() -> bool {
     false
+}
+
+/// The budget a never-stopped walk uses; a test-hooks build can shrink it so a test can show a
+/// destructive guard walks past the display budget.
+#[cfg(not(feature = "test-hooks"))]
+fn unbounded_budget() -> usize {
+    Walks::DEFAULT_ENTRIES
+}
+
+#[cfg(feature = "test-hooks")]
+fn unbounded_budget() -> usize {
+    std::env::var("ACE_FILES_WALK_BUDGET")
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .unwrap_or(Walks::DEFAULT_ENTRIES)
 }
 
 /// The entry vanished while it was being described.
@@ -113,7 +151,11 @@ pub struct Measurement {
 }
 
 /// Describe the entry at `path`; the empty path is the checkout itself.
+///
+/// An entry whose resolved name is one of the daemon's own, git's store or a transfer temporary,
+/// is `INVALID_PATH`: a description carries a version and a size, and neither is a client's.
 pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, Error> {
+    crate::policy::refuse_reserved(root, path)?;
     if path.is_empty() {
         let dir = root.dir();
         let metadata = dir.dir_metadata()?;
@@ -167,6 +209,7 @@ pub fn describe(root: &Root, path: &str, walks: &Walks) -> Result<Description, E
 /// This is the cheap guard a queued mutation re-checks before it acts, so a folder's identity and
 /// times decide whether it moved, without walking everything below it again.
 pub fn describe_entry(root: &Root, path: &str) -> Result<Description, Error> {
+    crate::policy::refuse_reserved(root, path)?;
     if path.is_empty() {
         let metadata = root.dir().dir_metadata()?;
         return Ok(Description {
@@ -203,39 +246,6 @@ fn root_version(dir: &Dir) -> Result<String, Error> {
     #[cfg(windows)]
     let handle = Some(crate::handle::dir_handle(&dir.try_clone()?)?);
     crate::version::version_of(handle.as_ref(), &metadata)
-}
-
-/// Check that `path` may be a mutation target under the daemon's rule: no link on the way and no
-/// link as the leaf, because a mutation must never be redirected by one.
-///
-/// The last segment may be missing (a create); every segment before it must be a real folder. This
-/// mirrors what the daemon's own confinement checked before ace-files answered these writes.
-pub fn check_mutation(root: &Root, path: &str) -> Result<(), Error> {
-    if path.is_empty() {
-        return Err(Error::InvalidArgument("the checkout itself".to_owned()));
-    }
-    let parts: Vec<&str> = path.split('/').collect();
-    let mut dir = root.dir().try_clone()?;
-    for (index, part) in parts.iter().enumerate() {
-        let last = index + 1 == parts.len();
-        let metadata = match dir.symlink_metadata(part) {
-            Ok(metadata) => metadata,
-            Err(error) if last && error.kind() == ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.into()),
-        };
-        if metadata.file_type().is_symlink() {
-            return Err(Error::Path(files_safe::Error::PathEscape(path.to_owned())));
-        }
-        if !last {
-            if !metadata.is_dir() {
-                return Err(Error::Path(files_safe::Error::NotDirectory(
-                    path.to_owned(),
-                )));
-            }
-            dir = dir.open_dir_nofollow(part).map_err(Error::Io)?;
-        }
-    }
-    Ok(())
 }
 
 /// The version of the entry at `path` without a folder digest, so a conflict reply never walks a
@@ -279,6 +289,7 @@ fn permissions(metadata: &Metadata) -> u64 {
 /// walk that hits its budget reports a lower bound instead of failing, so a huge folder can still
 /// be deleted.
 pub fn measure(root: &Root, path: &str, walks: &Walks) -> Result<Measurement, Error> {
+    crate::policy::refuse_reserved(root, path)?;
     if path.is_empty() {
         return measure_folder(root, path, root.dir(), walks);
     }
@@ -416,7 +427,7 @@ mod tests {
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::{Kind, Walks, check_mutation, describe, describe_entry, entry_version, measure};
+    use super::{Kind, Walks, describe, describe_entry, entry_version, measure};
     use crate::Error;
 
     fn root(dir: &std::path::Path) -> files_safe::Root {
@@ -668,26 +679,59 @@ mod tests {
     }
 
     #[test]
-    fn a_mutation_may_create_a_leaf_but_never_follow_a_link() {
+    fn a_read_refuses_a_link_into_gits_store_or_the_trash() {
         let temp = tempfile::tempdir().expect("temp dir");
-        fs::create_dir(temp.path().join("docs")).expect("folder");
-        fs::write(temp.path().join("docs/a.md"), b"a").expect("write");
+        fs::create_dir(temp.path().join(".git")).expect("git");
+        fs::write(temp.path().join(".git/config"), b"[core]\n").expect("write");
+        fs::create_dir(temp.path().join(".ace-upload-trash-1")).expect("trash");
+        fs::write(temp.path().join(".ace-upload-trash-1/kept"), b"kept").expect("write");
+        fs::write(temp.path().join("notes.md"), b"notes").expect("write");
         #[cfg(unix)]
-        std::os::unix::fs::symlink("docs", temp.path().join("alias")).expect("link");
+        {
+            std::os::unix::fs::symlink(".git/config", temp.path().join("config-link"))
+                .expect("link");
+            std::os::unix::fs::symlink(".ace-upload-trash-1/kept", temp.path().join("trash-link"))
+                .expect("link");
+        }
         #[cfg(windows)]
-        std::os::windows::fs::symlink_dir("docs", temp.path().join("alias")).expect("link");
+        {
+            std::os::windows::fs::symlink_file(".git/config", temp.path().join("config-link"))
+                .expect("link");
+            std::os::windows::fs::symlink_file(
+                ".ace-upload-trash-1/kept",
+                temp.path().join("trash-link"),
+            )
+            .expect("link");
+        }
         let root = root(temp.path());
 
-        check_mutation(&root, "docs/new.md").expect("a new leaf in a real folder");
-        check_mutation(&root, "docs/a.md").expect("an existing file");
-
-        let through = check_mutation(&root, "alias/new.md").expect_err("a link on the way");
-        assert_eq!(through.code(), "PATH_ESCAPE");
-        let onto = check_mutation(&root, "alias").expect_err("a link as the leaf");
-        assert_eq!(onto.code(), "PATH_ESCAPE");
-        let missing = check_mutation(&root, "gone/new.md").expect_err("a missing parent");
-        assert_eq!(missing.code(), "NOT_FOUND");
-        let over = check_mutation(&root, "docs/a.md/below").expect_err("a file on the way");
-        assert_eq!(over.code(), "NOT_DIRECTORY");
+        for path in [
+            ".git/config",
+            ".ace-upload-trash-1/kept",
+            "config-link",
+            "trash-link",
+        ] {
+            let error = super::super::read(
+                &root,
+                path,
+                crate::ReadRange {
+                    offset: 0,
+                    length: 10,
+                    max_size: None,
+                },
+            )
+            .expect_err("a reserved path is never read");
+            assert_eq!(error.code(), "INVALID_PATH", "{path}");
+        }
+        super::super::read(
+            &root,
+            "notes.md",
+            crate::ReadRange {
+                offset: 0,
+                length: 10,
+                max_size: None,
+            },
+        )
+        .expect("an ordinary file reads");
     }
 }

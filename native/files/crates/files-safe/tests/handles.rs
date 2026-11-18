@@ -210,3 +210,80 @@ fn a_hard_link_resolves_to_its_own_name() {
         root.path().join("second.txt")
     );
 }
+
+#[test]
+fn open_parent_stored_reports_the_spelling_the_disk_keeps() {
+    let (_temp, root) = checkout();
+    fs::create_dir_all(root.path().join("Docs/nested")).expect("folders");
+
+    let parent = root
+        .open_parent_stored("Docs/nested/new.txt")
+        .expect("open stored parent");
+    assert_eq!(parent.name, "new.txt");
+    assert_eq!(parent.folders, ["Docs", "nested"]);
+
+    let parent = root
+        .open_parent_stored("DOCS/NESTED/new.txt")
+        .expect("open the folders under another spelling");
+    assert_eq!(
+        parent.folders,
+        ["Docs", "nested"],
+        "a case-insensitive volume answers with the names on disk"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn open_parent_stored_refuses_a_link_that_leaves_and_keeps_inside_ones() {
+    use std::os::unix::fs::symlink;
+
+    let (_temp, root) = checkout();
+    fs::create_dir_all(root.path().join("real")).expect("folders");
+    symlink("real", root.path().join("alias")).expect("link");
+
+    let parent = root
+        .open_parent_stored("alias/new.txt")
+        .expect("an inside link is followed for a read");
+    assert_eq!(
+        parent.folders,
+        ["real"],
+        "a policy reads the target's stored name, not the link's"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mutation_walk_refuses_every_link_on_the_way() {
+    use std::os::unix::fs::symlink;
+
+    let (_temp, root) = checkout();
+    fs::create_dir_all(root.path().join("real")).expect("folders");
+    symlink("real", root.path().join("alias")).expect("link");
+
+    let parent = root
+        .open_parent_unlinked("real/new.txt")
+        .expect("a real folder is fine");
+    assert_eq!(parent.folders, ["real"]);
+
+    let error = root
+        .open_parent_unlinked("alias/new.txt")
+        .expect_err("a link on the way is not a mutation target");
+    assert_eq!(error.code(), "PATH_ESCAPE");
+}
+
+#[test]
+fn stored_path_names_what_a_link_leads_into() {
+    let (_temp, root) = checkout();
+    fs::create_dir_all(root.path().join(".git")).expect("git");
+    fs::write(root.path().join(".git/config"), b"x").expect("file");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(".git/config", root.path().join("config-link")).expect("link");
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(".git/config", root.path().join("config-link"))
+        .expect("link");
+
+    assert_eq!(
+        root.stored_path("config-link").expect("stored target"),
+        [".git", "config"]
+    );
+}

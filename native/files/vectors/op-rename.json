@@ -2,14 +2,13 @@
   "json": {
     "id": 10,
     "op": {
-      "from": "notes/todo.md",
       "op": "rename",
-      "overwrite": false,
       "root": 1,
+      "from": "notes/todo.md",
       "to": "notes/done.md"
     },
     "type": "request"
   },
-  "text": "{\"type\":\"request\",\"id\":10,\"op\":{\"op\":\"rename\",\"root\":1,\"from\":\"notes/todo.md\",\"to\":\"notes/done.md\",\"overwrite\":false}}",
-  "frame": "77000000017b2274797065223a2272657175657374222c226964223a31302c226f70223a7b226f70223a2272656e616d65222c22726f6f74223a312c2266726f6d223a226e6f7465732f746f646f2e6d64222c22746f223a226e6f7465732f646f6e652e6d64222c226f7665727772697465223a66616c73657d7d"
+  "text": "{\"type\":\"request\",\"id\":10,\"op\":{\"op\":\"rename\",\"root\":1,\"from\":\"notes/todo.md\",\"to\":\"notes/done.md\"}}",
+  "frame": "65000000017b2274797065223a2272657175657374222c226964223a31302c226f70223a7b226f70223a2272656e616d65222c22726f6f74223a312c2266726f6d223a226e6f7465732f746f646f2e6d64222c22746f223a226e6f7465732f646f6e652e6d64227d7d"
 }

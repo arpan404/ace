@@ -12,7 +12,7 @@ pub mod read_write;
 pub mod search;
 pub mod watch;
 
-use files_io::Walks;
+use files_io::{Committed, Walks};
 use files_wire::{Op, Reply};
 
 use crate::dispatch::Shared;
@@ -36,7 +36,6 @@ fn walk_budget() -> usize {
 /// Run one request that has no body frame and no subscription.
 pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error> {
     let cancelled = || cancel.cancelled();
-    let walks = Walks::with_budget(&cancelled, walk_budget());
     match op {
         Op::List {
             root,
@@ -46,19 +45,56 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             hide,
         } => list::list(shared, root, &dir, limit, cursor, hide),
         Op::Stat { root, path } => list::stat(shared, root, &path),
-        Op::Describe { root, path } => read_write::describe(shared, root, &path, &walks),
+        Op::Describe { root, path, full } => {
+            let walks = if full {
+                // A guard a mutation will compare needs the whole tree, not a lower bound.
+                Walks::unlimited(&cancelled)
+            } else {
+                Walks::with_budget(&cancelled, walk_budget())
+            };
+            read_write::describe(shared, root, &path, &walks)
+        }
         Op::DescribeEntry { root, path } => read_write::describe_entry(shared, root, &path),
-        Op::CheckMutation { root, path } => read_write::check_mutation(shared, root, &path),
-        Op::Measure { root, path } => read_write::measure(shared, root, &path, &walks),
+        // The trash quota counts every byte it reserves, so its measure has no entry budget.
+        Op::Measure { root, path } => {
+            read_write::measure(shared, root, &path, &Walks::unlimited(&cancelled))
+        }
         Op::IndexQuery { root, query, limit } => index::query(shared, root, &query, limit),
-        Op::CreateDir { root, path } => read_write::create_dir(shared, root, &path),
+        Op::CreateDir { root, path } => committed(read_write::create_dir(shared, root, &path)?),
         Op::Rename {
             root,
             from,
             to,
-            overwrite,
-        } => read_write::rename(shared, root, &from, &to, overwrite),
-        Op::Remove { root, path } => read_write::remove(shared, root, &path),
+            expected,
+            own,
+        } => committed(read_write::rename(
+            shared,
+            root,
+            &from,
+            &to,
+            expected.as_deref(),
+            own.as_deref(),
+        )?),
+        Op::Remove { root, path } => committed(read_write::remove(shared, root, &path)?),
+        Op::Trash {
+            root,
+            path,
+            endpoint,
+            expected,
+            own,
+        } => committed(read_write::trash(
+            shared,
+            root,
+            &path,
+            &endpoint,
+            &expected,
+            own.as_deref(),
+        )?),
+        Op::Untrash {
+            root,
+            endpoint,
+            path,
+        } => committed(read_write::untrash(shared, root, &endpoint, &path)?),
         Op::OpenRoot { .. }
         | Op::CloseRoot { .. }
         | Op::Read { .. }
@@ -70,4 +106,12 @@ pub fn perform(shared: &Shared, cancel: &Cancel, op: Op) -> Result<Reply, Error>
             "this request is handled by the dispatcher".to_owned(),
         )),
     }
+}
+
+/// Answer a mutation that landed, putting its warning on the log the daemon reads.
+fn committed(committed: Committed) -> Result<Reply, Error> {
+    if let Some(warning) = committed.warning {
+        eprintln!("ace-files: {warning}");
+    }
+    Ok(Reply::Done)
 }

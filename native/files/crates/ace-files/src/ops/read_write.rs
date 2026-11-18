@@ -6,7 +6,7 @@
 //! pages the client asks for. A write takes its bytes from a body frame that follows the request
 //! on the same pipe.
 
-use files_io::{ReadRange, Walks, read as io_read};
+use files_io::{Committed, ReadRange, Walks, read as io_read};
 use files_wire::{MAX_BODY_LEN, ReadMeta, Reply};
 
 use crate::convert;
@@ -81,10 +81,9 @@ pub fn write(shared: &Shared, op: &WriteOp, bytes: &[u8]) -> Result<Reply, Error
 }
 
 /// Create a folder.
-pub fn create_dir(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
+pub fn create_dir(shared: &Shared, root: u64, path: &str) -> Result<Committed, Error> {
     let entry = shared.roots.get(root)?;
-    files_io::create_dir(entry.root(), path)?;
-    Ok(Reply::Done)
+    Ok(files_io::create_dir(entry.root(), path)?)
 }
 
 /// Describe one path: the version a guarded write compares, its size, kind and mode.
@@ -106,13 +105,6 @@ pub fn describe_entry(shared: &Shared, root: u64, path: &str) -> Result<Reply, E
     Ok(Reply::Description(convert::description(description)))
 }
 
-/// Check that a path may be a mutation target: nothing on the way may be a link.
-pub fn check_mutation(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
-    let entry = shared.roots.get(root)?;
-    files_io::check_mutation(entry.root(), path)?;
-    Ok(Reply::Done)
-}
-
 /// How many bytes of files a path holds, for the trash quota a delete reserves.
 pub fn measure(shared: &Shared, root: u64, path: &str, walks: &Walks) -> Result<Reply, Error> {
     let entry = shared.roots.get(root)?;
@@ -123,22 +115,47 @@ pub fn measure(shared: &Shared, root: u64, path: &str, walks: &Walks) -> Result<
     })
 }
 
-/// Move or rename a path.
+/// Move or rename a path, verifying a moved folder against the version the caller held.
 pub fn rename(
     shared: &Shared,
     root: u64,
     from: &str,
     to: &str,
-    overwrite: bool,
-) -> Result<Reply, Error> {
+    expected: Option<&str>,
+    own: Option<&str>,
+) -> Result<Committed, Error> {
     let entry = shared.roots.get(root)?;
-    files_io::rename(entry.root(), from, to, overwrite)?;
-    Ok(Reply::Done)
+    Ok(files_io::rename(entry.root(), from, to, expected, own)?)
 }
 
-/// Delete a file, or a folder and everything inside it.
-pub fn remove(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
+/// Delete a file, or a folder and everything inside it. The daemon's own cleanup, not a client's
+/// delete.
+pub fn remove(shared: &Shared, root: u64, path: &str) -> Result<Committed, Error> {
     let entry = shared.roots.get(root)?;
-    files_io::remove(entry.root(), path)?;
-    Ok(Reply::Done)
+    Ok(files_io::remove(entry.root(), path)?)
+}
+
+/// Park a client's entry at a generated trash endpoint, verified after the move.
+pub fn trash(
+    shared: &Shared,
+    root: u64,
+    path: &str,
+    endpoint: &str,
+    expected: &str,
+    own: Option<&str>,
+) -> Result<Committed, Error> {
+    let entry = shared.roots.get(root)?;
+    Ok(files_io::trash(
+        entry.root(),
+        path,
+        endpoint,
+        expected,
+        own,
+    )?)
+}
+
+/// Move a generated trash endpoint back to a client path.
+pub fn untrash(shared: &Shared, root: u64, endpoint: &str, path: &str) -> Result<Committed, Error> {
+    let entry = shared.roots.get(root)?;
+    Ok(files_io::untrash(entry.root(), endpoint, path)?)
 }

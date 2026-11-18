@@ -72,7 +72,12 @@ export async function previewArchive(
   expires: number,
   signal?: AbortSignal,
 ): Promise<Preview> {
-  const before = await io.describe(root, path, signal ? { signal } : {});
+  // The root is versioned by its whole tree: a shallow own version cannot prove the folder held
+  // still while the preview walked it.
+  const before = await io.describe(root, path, {
+    ...(signal ? { signal } : {}),
+    full: true,
+  });
   if (before === null) throw new FileError("NOT_FOUND", "Folder not found");
   const walked: WalkEntry[] = [];
   let metadataBytes = 0;
@@ -104,7 +109,10 @@ export async function previewArchive(
     digest.update(item.path);
     digest.update(item.version);
   }
-  const after = await io.describe(root, path, signal ? { signal } : {});
+  const after = await io.describe(root, path, {
+    ...(signal ? { signal } : {}),
+    full: true,
+  });
   if (after?.version !== before.version)
     throw new FileError("CONFLICT", "Directory changed during preview");
   return {
@@ -141,7 +149,7 @@ export function archiveDownload(io: FilesIo, root: string, preview: Preview): Do
     });
   const writing = (async () => {
     try {
-      const now = await io.describe(root, preview.path);
+      const now = await io.describe(root, preview.path, { full: true });
       if (now?.version !== preview.rootVersion)
         throw new FileError("CONFLICT", "Directory changed since preview");
       for (const entry of preview.entries) {

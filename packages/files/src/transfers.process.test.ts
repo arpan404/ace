@@ -157,6 +157,20 @@ it("resumes after disconnect byte-exactly and rejects a changed file", async () 
   ).toMatchObject({ type: "files.error", code: "CONFLICT" });
 });
 
+it("never sends bytes from a replacement that lands before a range", async () => {
+  const f = await setup();
+  const bytes = Buffer.alloc(3 * CHUNK_SIZE, 7);
+  await writeFile(join(f.root, "binary"), bytes);
+  const client = await f.connect();
+  const ready = Ready.parse(await client.request({ op: "download", path: "binary", offset: 0 }));
+  // The download opened the file and read its first byte. A replacement now gets its own range,
+  // which is checked against the version the download started with before any byte is sent.
+  await writeFile(join(f.root, "binary"), Buffer.alloc(bytes.length + 3, 9));
+  client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
+
+  expect(await client.next()).toMatchObject({ type: "files.error", code: "CONFLICT" });
+});
+
 it("resumes uploads across daemon restart and exposes only the atomically committed file", async () => {
   const f = await setup();
   const first = await f.connect();
@@ -260,7 +274,7 @@ it("waits for each credit before sending more bytes and rejects an oversized cre
   client.send({ type: "files.credit", channel: ready.channel, credits: 9 });
   expect(await client.next()).toMatchObject({ code: "INVALID_MESSAGE" });
 });
-it("refuses a successful trailer if the file changes during a paused transfer", async () => {
+it("refuses a replacement before the next range instead of sending its bytes", async () => {
   const f = await setup();
   const client = await f.connect();
   await writeFile(join(f.root, "a"), Buffer.alloc(2 * CHUNK_SIZE, 1));
@@ -269,7 +283,7 @@ it("refuses a successful trailer if the file changes during a paused transfer", 
   expect(Buffer.isBuffer(await client.next())).toBe(true);
   await writeFile(join(f.root, "a"), Buffer.alloc(2 * CHUNK_SIZE, 2));
   client.send({ type: "files.credit", channel: ready.channel, credits: 1 });
-  expect(Buffer.isBuffer(await client.next())).toBe(true);
+  // The range that follows is read from the replacement; it fails before any of its bytes land.
   expect(await client.next()).toMatchObject({ type: "files.error", code: "CONFLICT" });
 });
 

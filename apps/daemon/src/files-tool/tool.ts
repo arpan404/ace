@@ -78,18 +78,13 @@ export type FilesToolClient = {
   describe(
     root: number,
     path: string,
-    options?: { signal?: AbortSignal | undefined },
+    options?: { signal?: AbortSignal | undefined; full?: boolean | undefined },
   ): Promise<DescriptionReply>;
   describeEntry(
     root: number,
     path: string,
     options?: { signal?: AbortSignal | undefined },
   ): Promise<DescriptionReply>;
-  checkMutation(
-    root: number,
-    path: string,
-    options?: { signal?: AbortSignal | undefined },
-  ): Promise<void>;
   measure(
     root: number,
     path: string,
@@ -126,7 +121,25 @@ export type FilesToolClient = {
     root: number,
     from: string,
     to: string,
-    overwrite?: boolean,
+    options?: {
+      signal?: AbortSignal | undefined;
+      expected?: string | undefined;
+      own?: string | undefined;
+    },
+  ): Promise<void>;
+  /** Park a client's entry at the generated trash endpoint, verified after the move. */
+  trash(
+    root: number,
+    path: string,
+    endpoint: string,
+    expected: string,
+    options?: { signal?: AbortSignal | undefined; own?: string | undefined },
+  ): Promise<void>;
+  /** Move a generated trash endpoint back to a client path that must be absent. */
+  untrash(
+    root: number,
+    endpoint: string,
+    path: string,
     options?: { signal?: AbortSignal | undefined },
   ): Promise<void>;
   remove(root: number, path: string, options?: { signal?: AbortSignal | undefined }): Promise<void>;

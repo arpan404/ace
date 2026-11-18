@@ -54,7 +54,8 @@ fn operations_refuse_paths_outside_root() {
 
     let empty = files_io::remove(fixture.root(), "").expect_err("the root is not removable");
     assert_eq!(empty.code(), "INVALID_ARGUMENT");
-    let no_source = files_io::rename(fixture.root(), "", "moved", false).expect_err("no source");
+    let no_source =
+        files_io::rename(fixture.root(), "", "moved", None, None).expect_err("no source");
     assert_eq!(no_source.code(), "INVALID_ARGUMENT");
     assert!(fixture.dir().exists());
 }

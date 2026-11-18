@@ -1,0 +1,16 @@
+{
+  "json": {
+    "id": 11,
+    "op": {
+      "op": "trash",
+      "root": 1,
+      "path": "docs/old.md",
+      "endpoint": ".ace-upload-trash-7",
+      "expected": "tree:abc",
+      "own": "1:2:3:4:5"
+    },
+    "type": "request"
+  },
+  "text": "{\"type\":\"request\",\"id\":11,\"op\":{\"op\":\"trash\",\"root\":1,\"path\":\"docs/old.md\",\"endpoint\":\".ace-upload-trash-7\",\"expected\":\"tree:abc\",\"own\":\"1:2:3:4:5\"}}",
+  "frame": "96000000017b2274797065223a2272657175657374222c226964223a31312c226f70223a7b226f70223a227472617368222c22726f6f74223a312c2270617468223a22646f63732f6f6c642e6d64222c22656e64706f696e74223a222e6163652d75706c6f61642d74726173682d37222c226578706563746564223a22747265653a616263222c226f776e223a22313a323a333a343a35227d7d"
+}

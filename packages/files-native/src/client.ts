@@ -16,6 +16,11 @@ export type FilesReadOptions = FilesRequestOptions & {
   maxSize?: number | undefined;
 };
 export type FilesWriteOptions = FilesRequestOptions & { expected?: string | undefined };
+export type FilesDescribeOptions = FilesRequestOptions & { full?: boolean | undefined };
+export type FilesMutationOptions = FilesRequestOptions & {
+  expected?: string | undefined;
+  own?: string | undefined;
+};
 
 export type PageReply = Extract<Reply, { type: "page" }>;
 export type EntryReply = Extract<Reply, { type: "entry" }>;
@@ -80,9 +85,12 @@ export class FilesClient {
   async describe(
     root: number,
     path: string,
-    options: FilesRequestOptions = {},
+    options: FilesDescribeOptions = {},
   ): Promise<DescriptionReply> {
-    const { reply } = await this.#process.request({ op: "describe", root, path }, options);
+    const { reply } = await this.#process.request(
+      { op: "describe", root, path, ...(options.full === true ? { full: true } : {}) },
+      options,
+    );
     if (reply.type !== "description") throw unexpected("describe", reply);
     return reply;
   }
@@ -96,16 +104,6 @@ export class FilesClient {
     const { reply } = await this.#process.request({ op: "describeEntry", root, path }, options);
     if (reply.type !== "description") throw unexpected("describeEntry", reply);
     return reply;
-  }
-
-  /** Refuse a mutation path with a link on the way, before any mutation op runs. */
-  async checkMutation(
-    root: number,
-    path: string,
-    options: FilesRequestOptions = {},
-  ): Promise<void> {
-    const { reply } = await this.#process.request({ op: "checkMutation", root, path }, options);
-    if (reply.type !== "done") throw unexpected("checkMutation", reply);
   }
 
   async measure(
@@ -180,11 +178,17 @@ export class FilesClient {
     root: number,
     from: string,
     to: string,
-    overwrite = false,
-    options: FilesRequestOptions = {},
+    options: FilesMutationOptions = {},
   ): Promise<void> {
     const { reply } = await this.#process.request(
-      { op: "rename", root, from, to, overwrite },
+      {
+        op: "rename",
+        root,
+        from,
+        to,
+        ...(options.expected === undefined ? {} : { expected: options.expected }),
+        ...(options.own === undefined ? {} : { own: options.own }),
+      },
       options,
     );
     if (reply.type !== "done") throw unexpected("rename", reply);
@@ -193,6 +197,39 @@ export class FilesClient {
   async remove(root: number, path: string, options: FilesRequestOptions = {}): Promise<void> {
     const { reply } = await this.#process.request({ op: "remove", root, path }, options);
     if (reply.type !== "done") throw unexpected("remove", reply);
+  }
+
+  /** Park an entry at the daemon's generated trash endpoint, guarded by the version it had. */
+  async trash(
+    root: number,
+    path: string,
+    endpoint: string,
+    expected: string,
+    options: FilesMutationOptions = {},
+  ): Promise<void> {
+    const { reply } = await this.#process.request(
+      {
+        op: "trash",
+        root,
+        path,
+        endpoint,
+        expected,
+        ...(options.own === undefined ? {} : { own: options.own }),
+      },
+      options,
+    );
+    if (reply.type !== "done") throw unexpected("trash", reply);
+  }
+
+  /** Move a generated trash endpoint back to a client path that must be absent. */
+  async untrash(
+    root: number,
+    endpoint: string,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<void> {
+    const { reply } = await this.#process.request({ op: "untrash", root, endpoint, path }, options);
+    if (reply.type !== "done") throw unexpected("untrash", reply);
   }
 
   watch(root: number, onBatch: (payload: EventPayload) => void): Promise<FilesWatch> {

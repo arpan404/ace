@@ -100,7 +100,11 @@ fn save(
     before_publish: &dyn Fn(),
     after_commit: &dyn Fn(),
 ) -> Result<Saved, Error> {
-    let (dir, name) = handle::target_parent(root, path)?;
+    // The daemon's client policy is part of the save, not a step before it: no reserved name, no
+    // link on the way, and no link as the target, so bytes never land where the client did not
+    // name.
+    let parent = crate::policy::client_parent(root, path)?;
+    let (dir, name) = (parent.dir, parent.name);
     let existing = guard(root, &dir, &name, path, expected)?;
     let permissions = existing.as_ref().map(copied_permissions);
     let mut staged = Staged::new(&dir, bytes, permissions)?;
@@ -155,10 +159,10 @@ fn published_version(dir: &Dir, name: &str) -> Result<String, Error> {
     version::version_of(Some(&handle), &metadata)
 }
 
-/// The version a conflict reports, without walking a folder for a digest.
+/// The version a conflict reports, with a folder's full digest.
 fn version_of(root: &Root, dir: &Dir, name: &str, path: &str) -> Result<Option<String>, Error> {
     Ok(
-        version::entry_version(root, dir, name, path, &Walks::unbounded())?
+        version::entry_version(root, dir, name, path, &Walks::complete())?
             .map(|found| found.version),
     )
 }

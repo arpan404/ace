@@ -1,0 +1,14 @@
+{
+  "json": {
+    "id": 12,
+    "op": {
+      "op": "untrash",
+      "root": 1,
+      "endpoint": ".ace-upload-trash-7",
+      "path": "docs/old.md"
+    },
+    "type": "request"
+  },
+  "text": "{\"type\":\"request\",\"id\":12,\"op\":{\"op\":\"untrash\",\"root\":1,\"endpoint\":\".ace-upload-trash-7\",\"path\":\"docs/old.md\"}}",
+  "frame": "70000000017b2274797065223a2272657175657374222c226964223a31322c226f70223a7b226f70223a22756e7472617368222c22726f6f74223a312c22656e64706f696e74223a222e6163652d75706c6f61642d74726173682d37222c2270617468223a22646f63732f6f6c642e6d64227d7d"
+}

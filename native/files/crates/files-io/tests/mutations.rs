@@ -5,23 +5,19 @@ mod common;
 use common::Fixture;
 
 #[test]
-fn rename_refuses_to_overwrite() {
+fn rename_never_replaces_an_existing_destination() {
     let fixture = Fixture::new();
     fixture.write("a.txt", b"a\n");
     fixture.write("b.txt", b"b\n");
 
-    let error = files_io::rename(fixture.root(), "a.txt", "b.txt", false)
+    let error = files_io::rename(fixture.root(), "a.txt", "b.txt", None, None)
         .expect_err("an existing destination must be refused");
     assert_eq!(error.code(), "CONFLICT");
     assert_eq!(fixture.read("a.txt"), b"a\n");
     assert_eq!(fixture.read("b.txt"), b"b\n");
 
-    files_io::rename(fixture.root(), "a.txt", "b.txt", true).expect("an allowed overwrite");
+    files_io::rename(fixture.root(), "a.txt", "c.txt", None, None).expect("rename to a free name");
     assert!(!fixture.exists("a.txt"));
-    assert_eq!(fixture.read("b.txt"), b"a\n");
-
-    files_io::rename(fixture.root(), "b.txt", "c.txt", false).expect("rename to a free name");
-    assert!(!fixture.exists("b.txt"));
     assert_eq!(fixture.read("c.txt"), b"a\n");
 }
 
@@ -29,7 +25,7 @@ fn rename_refuses_to_overwrite() {
 fn rename_moves_a_folder_with_its_contents() {
     let fixture = Fixture::new();
     fixture.write("before/nested/deep.txt", b"deep\n");
-    files_io::rename(fixture.root(), "before", "after", false).expect("rename the folder");
+    files_io::rename(fixture.root(), "before", "after", None, None).expect("rename the folder");
     assert!(!fixture.exists("before"));
     assert_eq!(fixture.read("after/nested/deep.txt"), b"deep\n");
 }
@@ -37,28 +33,26 @@ fn rename_moves_a_folder_with_its_contents() {
 #[test]
 fn rename_of_a_missing_file_is_not_found() {
     let fixture = Fixture::new();
-    let error = files_io::rename(fixture.root(), "missing.txt", "other.txt", false)
+    let error = files_io::rename(fixture.root(), "missing.txt", "other.txt", None, None)
         .expect_err("nothing to move");
     assert_eq!(error.code(), "NOT_FOUND");
 }
 
 #[test]
-fn rename_moves_between_folders_and_replaces_only_when_asked() {
+fn rename_moves_between_folders_without_replacing() {
     let fixture = Fixture::new();
     fixture.write("a/one.txt", b"one\n");
     fixture.write("b/two.txt", b"two\n");
 
-    files_io::rename(fixture.root(), "a/one.txt", "b/three.txt", false).expect("move into b");
+    files_io::rename(fixture.root(), "a/one.txt", "b/three.txt", None, None).expect("move into b");
     assert!(!fixture.exists("a/one.txt"));
     assert_eq!(fixture.read("b/three.txt"), b"one\n");
 
-    let error = files_io::rename(fixture.root(), "b/three.txt", "b/two.txt", false)
+    let error = files_io::rename(fixture.root(), "b/three.txt", "b/two.txt", None, None)
         .expect_err("b/two.txt exists");
     assert_eq!(error.code(), "CONFLICT");
-
-    files_io::rename(fixture.root(), "b/three.txt", "b/two.txt", true).expect("replace");
-    assert_eq!(fixture.read("b/two.txt"), b"one\n");
-    assert!(!fixture.exists("b/three.txt"));
+    assert_eq!(fixture.read("b/two.txt"), b"two\n");
+    assert_eq!(fixture.read("b/three.txt"), b"one\n");
 }
 
 #[test]
@@ -66,7 +60,7 @@ fn rename_into_its_own_subfolder_is_invalid() {
     let fixture = Fixture::new();
     fixture.write("dir/inside.txt", b"inside\n");
 
-    let error = files_io::rename(fixture.root(), "dir", "dir/moved", false)
+    let error = files_io::rename(fixture.root(), "dir", "dir/moved", None, None)
         .expect_err("a folder cannot be moved inside itself");
 
     assert_eq!(error.code(), "INVALID_ARGUMENT");
@@ -82,7 +76,8 @@ fn case_only_rename_is_allowed_where_the_volume_ignores_case() {
         return;
     }
 
-    files_io::rename(fixture.root(), "Notes.md", "notes.md", false).expect("a case-only rename");
+    files_io::rename(fixture.root(), "Notes.md", "notes.md", None, None)
+        .expect("a case-only rename");
 
     assert_eq!(fixture.read("notes.md"), b"case matters\n");
     let names: Vec<String> = std::fs::read_dir(fixture.dir())
@@ -144,16 +139,17 @@ fn create_dir_creates_one_folder_and_refuses_a_taken_name() {
 
 #[cfg(unix)]
 #[test]
-fn remove_deletes_a_symlink_not_its_target() {
+fn remove_refuses_a_link_and_never_touches_its_target() {
     let fixture = Fixture::new();
     let outside = tempfile::tempdir().expect("outside dir");
     let target = outside.path().join("target.txt");
     std::fs::write(&target, b"keep me\n").expect("outside file");
     std::os::unix::fs::symlink(&target, fixture.path("link.txt")).expect("symlink");
 
-    files_io::remove(fixture.root(), "link.txt").expect("remove the link");
+    let error = files_io::remove(fixture.root(), "link.txt").expect_err("a link is not a target");
 
-    assert!(!fixture.exists("link.txt"));
+    assert_eq!(error.code(), "PATH_ESCAPE");
+    assert!(fixture.exists("link.txt"));
     assert_eq!(std::fs::read(&target).expect("read outside"), b"keep me\n");
 }
 
@@ -174,4 +170,89 @@ fn remove_folder_keeps_what_its_links_point_at_outside_the_root() {
         std::fs::read(&target).expect("the outside file survives"),
         b"not ours\n"
     );
+}
+
+#[test]
+fn trash_and_untrash_round_trip_a_folder_with_its_digest() {
+    let fixture = Fixture::new();
+    fixture.write("docs/nested/deep.txt", b"deep\n");
+    let description = files_io::describe(fixture.root(), "docs", &files_io::Walks::unbounded())
+        .expect("describe the folder");
+    let own = description.own_version.clone().expect("an own version");
+
+    files_io::trash(
+        fixture.root(),
+        "docs",
+        ".ace-upload-trash-7",
+        &description.version,
+        Some(&own),
+    )
+    .expect("trash a verified folder");
+    assert!(!fixture.exists("docs"));
+    assert_eq!(
+        fixture.read(".ace-upload-trash-7/nested/deep.txt"),
+        b"deep\n"
+    );
+
+    files_io::untrash(fixture.root(), ".ace-upload-trash-7", "docs").expect("restore it");
+    assert_eq!(fixture.read("docs/nested/deep.txt"), b"deep\n");
+
+    let error = files_io::untrash(fixture.root(), ".ace-upload-trash-7", "docs")
+        .expect_err("the endpoint is gone");
+    assert_eq!(error.code(), "NOT_FOUND");
+}
+
+#[test]
+fn a_trash_never_takes_a_client_path_the_policy_protects() {
+    let fixture = Fixture::new();
+    fixture.write(".git/config", b"[core]\n");
+    fixture.write(".ace-upload-1", b"private\n");
+
+    for (path, code) in [
+        (".git/config", "INVALID_PATH"),
+        (".ace-upload-1", "INVALID_PATH"),
+    ] {
+        let error = files_io::trash(
+            fixture.root(),
+            path,
+            ".ace-upload-trash-8",
+            "0:0:0:0:0",
+            None,
+        )
+        .expect_err("a reserved client path is never trashed");
+        assert_eq!(error.code(), code, "{path}");
+    }
+    assert_eq!(fixture.read(".git/config"), b"[core]\n");
+}
+
+#[test]
+fn a_move_of_a_verified_folder_is_checked_after_it_lands() {
+    let fixture = Fixture::new();
+    fixture.write("before/nested/deep.txt", b"deep\n");
+    let description = files_io::describe(fixture.root(), "before", &files_io::Walks::unbounded())
+        .expect("describe");
+    let own = description.own_version.clone().expect("own");
+
+    files_io::rename(
+        fixture.root(),
+        "before",
+        "after",
+        Some(&description.version),
+        Some(&own),
+    )
+    .expect("the unchanged tree moves");
+    assert_eq!(fixture.read("after/nested/deep.txt"), b"deep\n");
+
+    let error = files_io::rename(
+        fixture.root(),
+        "after",
+        "elsewhere",
+        Some(&description.version),
+        Some(&own),
+    )
+    .expect_err("the digest was taken under the old name");
+    // The folder's version records the path its entries answer to, so the digest from `before`
+    // no longer guards a move of `after`; the folder is moved back untouched.
+    assert_eq!(error.code(), "CONFLICT");
+    assert_eq!(fixture.read("after/nested/deep.txt"), b"deep\n");
 }

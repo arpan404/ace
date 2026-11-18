@@ -5,7 +5,7 @@ import type { WorkspaceFileChange, FileOperation } from "@ace/protocol";
 import { Catalog, TrashRecord } from "./catalog.ts";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
 import { newId } from "./filesystem.ts";
-import type { Description, FilesIo } from "./io.ts";
+import type { FilesIo } from "./io.ts";
 import { codeOf, FileError, checkVersion, type FilesOptions } from "./types.ts";
 
 type Mutation = Extract<
@@ -13,16 +13,16 @@ type Mutation = Extract<
   { op: "write" | "create" | "mkdir" | "rename" | "move" | "delete" | "restore" }
 >;
 
-/** What preparation learned: the guard a queued apply re-checks, and what a delete reserves. */
+/** A mutation that landed, before its new version is read. */
+export type Applied = Omit<WorkspaceFileChange, "version">;
+
+/**
+ * What preparation learned: the full version the client's expectation was checked against, and
+ * the folder's own version a post-move verification needs.
+ */
 interface Prepared {
-  /** The entry's own version at prepare: identity and times, never a folder digest. */
-  guard: string | null;
-  /** The version the client's expectation was checked against, dug through for a folder. */
-  version: string | null;
-  /** True when a walk budget stopped that version, so only the guard can be compared. */
-  shallow: boolean;
-  /** True when the path is a folder, whose tree the version covers. */
-  directory: boolean;
+  /** A folder's own version before the move; a file has none. */
+  own: string | null;
   /** The bytes a delete would reserve in the trash. */
   bytes: number;
 }
@@ -31,15 +31,19 @@ interface Prepared {
  * The write operations a client asks for, on the checkout's I/O port.
  *
  * Preparation reads the version the client worked from and fails with `CONFLICT` (and the current
- * version) when it differs; the same check runs again under the mutation queue, so a save that
- * lost a race never lands on another writer's work. Recently-deleted entries are this class's own
- * bookkeeping: a delete moves the entry to a private name in the checkout, and a restore moves it
- * back only while the destination is still absent.
+ * version) when it differs. The guard is the whole tree for a destructive operation: a delete or
+ * a move of a folder is admitted only against a full digest, never a shallow own version, and a
+ * client that holds only the folder's identity is told to stat it again. The digest is read
+ * outside the mutation queue, with the request's cancellation and no entry budget.
  *
- * Preparation happens outside the mutation queue and may walk a folder once. The queued apply
- * compares only the folder's own version, so a delete of `node_modules` does not walk it again
- * with every other write waiting: a direct entry change is the one case that re-reads the tree
- * digest, and a folder too large to digest is guarded by its own version alone.
+ * The queued apply moves in one atomic no-replace rename and verifies the moved tree against the
+ * digest it was admitted with; a tree that changed is moved straight back and reported as
+ * `CONFLICT` with the digest on disk. The new version is read after the queue, never in it, so a
+ * huge folder's digest does not hold up every other write; `null` means the path is absent.
+ *
+ * Recently-deleted entries are this class's own bookkeeping: a delete moves the entry to a
+ * private name in the checkout through `trash`, and a restore moves it back through `untrash`
+ * only while the destination is still absent.
  */
 export class Mutations {
   private readonly io: FilesIo;
@@ -64,10 +68,29 @@ export class Mutations {
     return this.safe.root;
   }
   async prepare(operation: Mutation, signal: AbortSignal): Promise<Prepared> {
-    const description = await this.io.describe(this.root(), operation.path, { signal });
-    checkVersion(description?.version ?? null, operation.expected);
-    const guard = description === null ? null : (description.ownVersion ?? description.version);
+    const destructive =
+      operation.op === "delete" ||
+      operation.op === "rename" ||
+      operation.op === "move" ||
+      operation.op === "restore";
+    const description = await this.io.describe(this.root(), operation.path, {
+      signal,
+      ...(destructive ? { full: true } : {}),
+    });
     const directory = description?.kind === "directory";
+    if (destructive && description?.shallow)
+      throw new FileError(
+        "INVALID_ARGUMENT",
+        "The folder was described without its tree digest; stat it again before changing it",
+      );
+    // A folder's identity is what a display stat falls back to for a huge tree; it is never a
+    // guard. The client is told to stat again rather than being handed a conflict it cannot fix.
+    if (directory && operation.expected !== null && !operation.expected.startsWith("tree:"))
+      throw new FileError(
+        "INVALID_ARGUMENT",
+        "The expected version is a folder's identity, not its tree digest; stat it again",
+      );
+    checkVersion(description?.version ?? null, operation.expected);
     const bytes = directory
       ? operation.op === "delete"
         ? (await this.io.measure(this.root(), operation.path, { signal })).bytes
@@ -75,22 +98,10 @@ export class Mutations {
       : description?.kind === "file"
         ? description.size
         : 0;
-    return {
-      guard,
-      version: description?.version ?? null,
-      shallow: description?.shallow ?? false,
-      directory,
-      bytes,
-    };
+    return { own: description?.ownVersion ?? null, bytes };
   }
-  async apply(operation: Mutation, prepared: Prepared): Promise<WorkspaceFileChange> {
+  async apply(operation: Mutation, prepared: Prepared): Promise<Applied> {
     const root = this.root();
-    const current = await this.io.shallow(root, operation.path);
-    const guard = current === null ? null : current.version;
-    if (guard !== prepared.guard) {
-      const latest = await this.revalidated(operation.path, current, prepared);
-      throw new FileError("CONFLICT", "File version changed", latest);
-    }
     const id = newId(this.options.id);
     let trashId: string | undefined;
     let destination: string | undefined;
@@ -118,14 +129,20 @@ export class Mutations {
           throw new FileError("INVALID_PATH", "Source equals destination");
         // Replacing a target must never permanently discard it. Move to an absent path only.
         if (operation.destinationExpected !== null) {
-          const target = await this.io.describe(root, operation.destination);
+          const target = await this.io.describe(root, operation.destination, { full: true });
           throw new FileError(
             "CONFLICT",
             "Move destination must be absent",
             target?.version ?? null,
           );
         }
-        await this.io.move(root, operation.path, operation.destination);
+        await this.io.move(
+          root,
+          operation.path,
+          operation.destination,
+          operation.expected,
+          prepared.own,
+        );
         destination = operation.destination;
         break;
       }
@@ -149,10 +166,11 @@ export class Mutations {
           location,
           expires: this.options.now() + (this.options.retentionMs ?? 7 * 86400_000),
         };
-        await this.io.checkMutation(root, operation.path);
+        // The row is written first so a landed move is never lost, and removed only on a
+        // refusal; a mutation that committed with a sync warning stays catalogued.
         this.catalog.put(record);
         try {
-          await this.io.internal.move(root, operation.path, location);
+          await this.io.trash(root, operation.path, location, operation.expected, prepared.own);
         } catch (error) {
           this.catalog.delete(id);
           throw error;
@@ -165,48 +183,37 @@ export class Mutations {
         if (record.expires <= this.options.now())
           throw new FileError("EXPIRED", "Trash entry expired");
         if (operation.expected !== null) {
-          const target = await this.io.describe(root, operation.path);
+          const target = await this.io.describe(root, operation.path, { full: true });
           throw new FileError(
             "CONFLICT",
             "Restore destination must be absent",
             target?.version ?? null,
           );
         }
-        await this.io.checkMutation(root, operation.path);
-        if (record.location) await this.io.internal.move(root, record.location, operation.path);
+        if (record.location) await this.io.untrash(root, record.location, operation.path);
         else await this.legacyMove(record.id, operation.path);
         this.catalog.delete(record.id);
         break;
       }
     }
-    const after = await this.io.describe(root, destination ?? operation.path);
     return {
       id,
       op: operation.op,
       path: operation.path,
-      version: after?.version ?? null,
       ...(destination ? { destination } : {}),
       ...(trashId ? { trashId } : {}),
     };
   }
   /**
-   * The version to report for an entry that moved between prepare and apply.
+   * The change with the version the path has now, read after the mutation queue has released it.
    *
-   * The own version already answered the common case; when it changed on a folder whose tree was
-   * digested, the digest is read once more, so a rename out and back is not a conflict while a
-   * real change is. A folder too large to digest keeps its own version, which is what `prepare`
-   * compared.
+   * `current: null` means the path is absent, which is what a delete leaves and never a guess at
+   * a folder too large to digest.
    */
-  private async revalidated(
-    path: string,
-    current: Description | null,
-    prepared: Prepared,
-  ): Promise<string | null> {
-    if (!prepared.directory || prepared.shallow || current?.kind !== "directory")
-      return current?.version ?? null;
-    const again = await this.io.describe(this.root(), path);
-    if ((again?.version ?? null) === prepared.version) return null;
-    return again?.version ?? null;
+  async change(applied: Applied): Promise<WorkspaceFileChange> {
+    const path = applied.destination ?? applied.path;
+    const after = await this.io.describe(this.root(), path, { full: true });
+    return { ...applied, version: after?.version ?? null };
   }
   /** Forget a trash entry: delete the bytes it kept, then its row. */
   async expire(record: TrashRecord): Promise<void> {
@@ -229,7 +236,7 @@ export class Mutations {
       await this.exclusive.move(join(this.options.dataDir, "trash", id), destination.path);
     } catch (error) {
       if (error instanceof FileError && error.code === "CONFLICT") {
-        const current = await this.io.describe(this.root(), path).catch(() => null);
+        const current = await this.io.describe(this.root(), path, { full: true });
         throw new FileError(
           "CONFLICT",
           "Restore destination must be absent",

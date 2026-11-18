@@ -15,7 +15,6 @@ pub(crate) const TAGS: &[&str] = &[
     "stat",
     "describe",
     "describeEntry",
-    "checkMutation",
     "measure",
     "read",
     "write",
@@ -23,6 +22,8 @@ pub(crate) const TAGS: &[&str] = &[
     "createDir",
     "rename",
     "remove",
+    "trash",
+    "untrash",
     "watch",
     "unwatch",
     "indexQuery",
@@ -75,16 +76,12 @@ pub enum Op {
         root: u64,
         /// Root-relative path.
         path: String,
+        /// Walk the whole tree, with no entry budget, for a guard a mutation will compare.
+        #[serde(default, skip_serializing_if = "is_false")]
+        full: bool,
     },
     /// The entry itself: its own version, never a folder's tree digest, so a guard is cheap.
     DescribeEntry {
-        /// The root's number.
-        root: u64,
-        /// Root-relative path.
-        path: String,
-    },
-    /// Check that a path is a legal mutation target: nothing on the way may be a link.
-    CheckMutation {
         /// The root's number.
         root: u64,
         /// Root-relative path.
@@ -135,7 +132,7 @@ pub enum Op {
         /// Root-relative path of the new folder.
         path: String,
     },
-    /// Move or rename a path.
+    /// Move or rename a path. A taken destination is never replaced.
     Rename {
         /// The root's number.
         root: u64,
@@ -143,14 +140,43 @@ pub enum Op {
         from: String,
         /// Root-relative destination.
         to: String,
-        /// True to replace an existing destination.
-        overwrite: bool,
+        /// The version the caller worked from; a moved tree that no longer matches is moved back.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected: Option<String>,
+        /// A folder's own version from before the move, so its digest can be verified afterward.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        own: Option<String>,
     },
     /// Delete a file or a folder and everything inside it.
+    ///
+    /// This is the daemon's own cleanup, not a client delete: a client's delete is `trash`.
     Remove {
         /// The root's number.
         root: u64,
         /// Root-relative path to delete.
+        path: String,
+    },
+    /// Move a client's entry to the generated trash endpoint at the checkout root.
+    Trash {
+        /// The root's number.
+        root: u64,
+        /// Root-relative client path.
+        path: String,
+        /// The generated `.ace-upload-trash-<id>` endpoint at the root.
+        endpoint: String,
+        /// The version the client worked from; the moved tree is verified against it.
+        expected: String,
+        /// A folder's own version from before the move, so its digest can be verified afterward.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        own: Option<String>,
+    },
+    /// Move a generated trash endpoint back to a client path.
+    Untrash {
+        /// The root's number.
+        root: u64,
+        /// The generated `.ace-upload-trash-<id>` endpoint at the root.
+        endpoint: String,
+        /// Root-relative client destination, which must be absent.
         path: String,
     },
     /// Start watching a root. The result is the subscription; `event` messages follow.
@@ -180,6 +206,11 @@ pub enum Op {
         #[serde(flatten)]
         query: SearchQuery,
     },
+}
+
+/// Whether a defaulted flag is off, so a plain message keeps its old shape on the wire.
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[cfg(test)]
@@ -218,12 +249,9 @@ mod tests {
             Op::Describe {
                 root: 0,
                 path: String::new(),
+                full: false,
             },
             Op::DescribeEntry {
-                root: 0,
-                path: String::new(),
-            },
-            Op::CheckMutation {
                 root: 0,
                 path: String::new(),
             },
@@ -255,10 +283,23 @@ mod tests {
                 root: 0,
                 from: String::new(),
                 to: String::new(),
-                overwrite: false,
+                expected: None,
+                own: None,
             },
             Op::Remove {
                 root: 0,
+                path: String::new(),
+            },
+            Op::Trash {
+                root: 0,
+                path: String::new(),
+                endpoint: String::new(),
+                expected: String::new(),
+                own: None,
+            },
+            Op::Untrash {
+                root: 0,
+                endpoint: String::new(),
                 path: String::new(),
             },
             Op::Watch { root: 0 },

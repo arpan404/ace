@@ -16,13 +16,14 @@ export async function observed(
   safe: SafeRoot,
   path: string,
   signal?: AbortSignal,
+  entryLimit = 1_000_000,
 ): Promise<string | null> {
   const target = await safe.target(path);
   try {
     const info = await lstat(target.path);
     const current = version(info);
     if (!info.isDirectory()) return current;
-    return await treeVersion(safe, path, info, signal);
+    return await treeVersion(safe, path, info, signal, entryLimit);
   } catch (error) {
     if (codeOf(error) === "ENOENT") return null;
     throw error;
@@ -39,6 +40,7 @@ export async function treeVersion(
   path: string,
   info: Stats,
   signal?: AbortSignal,
+  entryLimit = 1_000_000,
 ): Promise<string> {
   const digest = createHash("sha256").update(version(info));
   const ignore = await GitIgnore.create(safe);
@@ -47,7 +49,7 @@ export async function treeVersion(
     depth: Number.MAX_SAFE_INTEGER,
     includeIgnored: true,
     exclude: isWorkspaceTransferTemporary,
-    entryLimit: 1_000_000,
+    entryLimit,
     ...(signal ? { signal } : {}),
   })) {
     if (isWorkspaceTransferTemporary(entry.path)) continue;
