@@ -184,6 +184,7 @@ it("the idle pass resumes after a restart where the last one stopped", () => {
 it("stamps of deleted threads are dropped, by the delete itself or by the idle pass", () => {
   const { open, close, raw, idle } = setup();
   const [kept, deleted] = threads(open(), 2);
+  if (!kept || !deleted) throw new Error("no threads");
   close();
   // A home from a build before the delete trigger, with a stamp left behind for a thread it
   // removed.
