@@ -244,7 +244,12 @@ test("a newer @ query cancels the wait on a building index", async () => {
   held.pop()?.();
   const ready = await until(() => list()?.seq === 2 && list(), "the newer list");
   expect(ready?.state).toBe("ready");
-  expect(native.frames.some((frame) => frame.type === "composer.suggestions" && frame.seq === 1 && frame.state === "failed")).toBe(false);
+  expect(
+    native.frames.some(
+      (frame) =>
+        frame.type === "composer.suggestions" && frame.seq === 1 && frame.state === "failed",
+    ),
+  ).toBe(false);
 });
 
 test("lists keep answering after a thousand queries", async () => {

@@ -51,7 +51,10 @@ test("a file trigger fires for matching non-ignored changes and reconciles a res
       run: async <T>(
         _path: string,
         task: (client: {
-          stat: (root: number, path: string) => Promise<{
+          stat: (
+            root: number,
+            path: string,
+          ) => Promise<{
             path: string;
             kind: { type: string };
             size: number;
@@ -125,7 +128,14 @@ test("a rescan of an untouched checkout reports nothing", async () => {
       },
       listFolder: async () => ({
         entries: [
-          { name: "keep.ts", path: "src/keep.ts", kind: "file" as const, size: 4, mtimeMs: 7, ignored: false },
+          {
+            name: "keep.ts",
+            path: "src/keep.ts",
+            kind: "file" as const,
+            size: 4,
+            mtimeMs: 7,
+            ignored: false,
+          },
         ],
         nextCursor: null,
         total: 1,

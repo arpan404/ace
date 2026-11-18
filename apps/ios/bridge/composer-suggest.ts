@@ -292,10 +292,7 @@ export class ComposerSuggest {
     let completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
     // A checkout whose index is still building answers empty with `ready: false`: ask again,
     // unless the query moved on or its deadline passed.
-    while (
-      completion?.ready === false &&
-      this.#ports.now() - started < buildingWait.deadlineMs
-    ) {
+    while (completion?.ready === false && this.#ports.now() - started < buildingWait.deadlineMs) {
       if (!(await this.#pause(buildingWait.retryMs, seq))) return;
       completion = await this.#complete(scope, workspaceId, query).catch(() => undefined);
     }

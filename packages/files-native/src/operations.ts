@@ -199,9 +199,7 @@ export class Operations {
    * retryably stays in the book and asks for another pass, so a busy or slow start does not cost a
    * trigger its changes.
    */
-  async restore(
-    timeoutMs: number,
-  ): Promise<{ restored: readonly number[]; pending: boolean }> {
+  async restore(timeoutMs: number): Promise<{ restored: readonly number[]; pending: boolean }> {
     const restored: number[] = [];
     let pending = false;
     for (const [rootNumber, root] of Array.from(this.#roots)) {

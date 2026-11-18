@@ -108,9 +108,7 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
       /** The version the folder holds now, or undefined when the path is gone. */
       const currentVersion = async (tool: FilesTool, path: string): Promise<string | undefined> => {
         try {
-          const entry = await tool.run(workspace.path, (client, root) =>
-            client.stat(root, path),
-          );
+          const entry = await tool.run(workspace.path, (client, root) => client.stat(root, path));
           return version({
             type: entry.kind.type,
             size: entry.size,
@@ -195,7 +193,8 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
           if (before === undefined) changes.push({ path, kind: "created" });
           else if (before !== now) changes.push({ path, kind: "changed" });
         }
-        for (const path of known.keys()) if (!current.has(path)) changes.push({ path, kind: "deleted" });
+        for (const path of known.keys())
+          if (!current.has(path)) changes.push({ path, kind: "deleted" });
         known.clear();
         for (const [path, now] of current) known.set(path, now);
         fire(changes);
