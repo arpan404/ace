@@ -75,7 +75,12 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
     );
     try {
       await watch.watch(
-        { id: "phone", canSend: () => true, send: (message) => inbox.push(message) },
+        {
+          id: "phone",
+          sendable: () => true,
+          valid: () => true,
+          send: (message) => inbox.push(message),
+        },
         threadId,
         checkout,
         ["src"],
@@ -102,5 +107,26 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
         (await tool.quickOpen(checkout, "afterstart", 20))?.includes("src/after-start.ts") === true,
     );
     expect(await tool.quickOpen(checkout, "README", 20)).toContain("README.md");
+  });
+
+  it("answers the quick-open shapes the panel sends", async () => {
+    await tool.listFolder(checkout, "");
+    // The Rust index ranks like VS Code's quick open, so the order may differ from the
+    // TypeScript index; the paths a person expects are the behaviour this guards.
+    const expected: [string, string][] = [
+      ["main", "src/main.ts"],
+      ["gude", "docs/guide.md"],
+      ["page3", "docs/page3.md"],
+    ];
+    for (const [query, path] of expected) {
+      const end = Date.now() + 15_000;
+      for (;;) {
+        const paths = await tool.quickOpen(checkout, query, 20);
+        if (paths?.includes(path)) break;
+        if (Date.now() > end)
+          throw new Error(`quick open missed ${path} for ${JSON.stringify(query)}`);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
   });
 });
