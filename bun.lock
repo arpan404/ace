@@ -830,7 +830,7 @@
     "packages/markit-web": {
       "name": "@ace/markit-web",
       "dependencies": {
-        "@markit/web": "https://github.com/arpan404/markit/releases/download/v0.1.0/markit-web-0.1.0.tgz",
+        "@markit/web": "https://github.com/arpan404/markit/releases/download/v0.2.0/markit-web-0.2.0.tgz",
         "zod": "^4.6.5",
       },
       "peerDependencies": {
@@ -2031,7 +2031,7 @@
 
     "@malept/flatpak-bundler": ["@malept/flatpak-bundler@0.4.0", "", { "dependencies": { "debug": "^4.1.1", "fs-extra": "^9.0.0", "lodash": "^4.17.15", "tmp-promise": "^3.0.2" } }, "sha512-9QOtNffcOF/c1seMCDnjckb3R9WHcG34tky+FHpNKKCW0wc/scYLwMtO+ptyGUfMW0/b/n4qRiALlaFHc9Oj7Q=="],
 
-    "@markit/web": ["@markit/web@https://github.com/arpan404/markit/releases/download/v0.1.0/markit-web-0.1.0.tgz", { "peerDependencies": { "react": ">=18" }, "optionalPeers": ["react"] }, "sha512-jjgAQfL07NpUhMXzR7DDkoaaTLvIFGESTid5NrsvceNN90rTF7kp3sOdAebYtDw8xMArpXqBuj1DRlfJEKfBpQ=="],
+    "@markit/web": ["@markit/web@https://github.com/arpan404/markit/releases/download/v0.2.0/markit-web-0.2.0.tgz", { "peerDependencies": { "react": ">=18" }, "optionalPeers": ["react"] }, "sha512-46x5kQbqW/6ZNEuTrI4Y83RuDPSpD2dMXXfjwyhPTQrbJGBwXwhv9P2brNjzM28G3o1KsIB8UEFzK82a8YeM8A=="],
 
     "@mermaid-js/parser": ["@mermaid-js/parser@2.0.1", "", { "dependencies": { "@chevrotain/types": "~13.2.0" } }, "sha512-j37dj/h6p6pots1L7pLPPNuABEEu9WP4OYg9pW1g+nYG331j0+3canE9OagtYdytYvdSAMG+2fKU5cxep6LgjA=="],
 
