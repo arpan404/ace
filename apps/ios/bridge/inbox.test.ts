@@ -138,7 +138,12 @@ function runPumpTimers() {
   for (const run of pending) run();
 }
 
-type DeliveredConnectionPatch = { type: "connection"; state: string; generation: unknown };
+type DeliveredConnectionPatch = {
+  type: "connection";
+  state: string;
+  generation: unknown;
+  socket?: unknown;
+};
 type DeliveredInboxRowPatch = {
   type: "inbox.row";
   id: string;
@@ -918,6 +923,11 @@ describe("inbox confirmation", () => {
     expect(typeof advanced?.generation).toBe("number");
     const advancedGeneration = advanced?.generation as number;
     expect(advancedGeneration).toBeGreaterThan(settledGeneration);
+    // The ready state looks unchanged, but it is a new socket: the patch names it, so what the
+    // phone read on the old one (Search's pull requests) can tell it is out of date.
+    expect(typeof settledConnection?.socket).toBe("number");
+    expect(typeof advanced?.socket).toBe("number");
+    expect(advanced?.socket).not.toBe(settledConnection?.socket);
     const frame = pumpFrames[pumpFrames.length - 1] ?? [];
     expect(
       frame.some(
