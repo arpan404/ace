@@ -47,32 +47,32 @@ const crateLimit = 512;
 const noticeFile = /^(?:licen[cs]e|notice|copying)(?:[-.]|$)/i;
 
 /**
- * The third-party crates linked into ace-media: everything reachable from it through normal
- * dependencies in the resolved graph. Dev and build dependencies never ship; workspace crates are
- * ace's own and carry ace's license.
+ * The third-party crates linked into a native binary: everything reachable from its workspace
+ * package through normal dependencies in the resolved graph. Dev and build dependencies never
+ * ship; workspace crates are ace's own and carry ace's license.
  */
-export function shippedMediaCrates(metadata: unknown): ShippedCrate[] {
+export function shippedCrates(metadata: unknown, packageName: string): ShippedCrate[] {
   const { packages, resolve } = CargoMetadata.parse(metadata);
   const byId = new Map(packages.map((pkg) => [pkg.id, pkg]));
   const nodes = new Map(resolve.nodes.map((node) => [node.id, node]));
-  const root = packages.find((pkg) => pkg.name === "ace-media" && pkg.source === null);
-  if (!root) throw new Error("ace-media is missing from the media workspace");
+  const root = packages.find((pkg) => pkg.name === packageName && pkg.source === null);
+  if (!root) throw new Error(`${packageName} is missing from its workspace`);
   const pending = [root.id];
   const visited = new Set<string>();
   while (pending.length) {
     const id = pending.pop();
     if (id === undefined || visited.has(id)) continue;
     visited.add(id);
-    if (visited.size > crateLimit) throw new Error("ace-media crate limit exceeded");
+    if (visited.size > crateLimit) throw new Error(`${packageName} crate limit exceeded`);
     const node = nodes.get(id);
-    if (!node) throw new Error(`Missing resolved media crate ${id}`);
+    if (!node) throw new Error(`Missing resolved crate ${id} for ${packageName}`);
     for (const dep of node.deps)
       if (dep.dep_kinds.some((entry) => entry.kind === null)) pending.push(dep.pkg);
   }
   const shipped: ShippedCrate[] = [];
   for (const id of visited) {
     const pkg = byId.get(id);
-    if (!pkg) throw new Error(`Missing media crate ${id}`);
+    if (!pkg) throw new Error(`Missing crate ${id} for ${packageName}`);
     if (pkg.source === null) continue;
     shipped.push({
       name: pkg.name,
@@ -107,13 +107,17 @@ async function crateNotices(crate: ShippedCrate): Promise<string[]> {
   return texts;
 }
 
-/** One section per crate: its license expression, authors, source and every notice it ships. */
-export async function mediaLicenseListing(
+/**
+ * One section per crate: its license expression, authors, source and every notice it ships,
+ * under ace's own license for the binary.
+ */
+export async function licenseListing(
+  packageName: string,
   aceLicense: string,
   crates: ShippedCrate[],
 ): Promise<string> {
   const rule = "=".repeat(78);
-  const sections = [`ace-media: Apache-2.0\n\n${aceLicense.trimEnd()}\n`];
+  const sections = [`${packageName}: Apache-2.0\n\n${aceLicense.trimEnd()}\n`];
   for (const crate of crates) {
     if (!crate.license && !crate.licenseFile)
       throw new Error(`${crate.name} ${crate.version} declares no license`);
@@ -132,22 +136,52 @@ export async function mediaLicenseListing(
   return sections.join("\n");
 }
 
-/** Writes ace-media's license listing for the crates its `triple` build links. */
-export async function collectMediaLicenses(
-  repo: string,
-  triple: string,
-  output: string,
-): Promise<void> {
-  const metadata: unknown = JSON.parse(
+/**
+ * A native workspace's resolved dependencies for `triple`: only crates that build for the target,
+ * as cargo sees them now. Offline-safe with `--locked`, and cheap enough for a test fixture.
+ */
+export function rustMetadata(options: {
+  repo: string;
+  /** The workspace folder under `native/`, e.g. "media" or "files". */
+  workspace: string;
+  triple: string;
+}): unknown {
+  const { repo, workspace, triple } = options;
+  return JSON.parse(
     execFileSync(
       "cargo",
       ["metadata", "--locked", "--format-version", "1", "--filter-platform", triple],
-      { cwd: join(repo, "native/media"), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+      { cwd: join(repo, "native", workspace), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
     ),
   );
-  const listing = await mediaLicenseListing(
+}
+
+/** The version of a workspace's own package, which its binary reports at the handshake. */
+export function packageVersion(metadata: unknown, packageName: string): string {
+  const root = CargoMetadata.parse(metadata).packages.find(
+    (pkg) => pkg.name === packageName && pkg.source === null,
+  );
+  if (!root) throw new Error(`${packageName} is missing from its workspace`);
+  return root.version;
+}
+
+/**
+ * Writes a native binary's license listing for the crates its `triple` build links, beside the
+ * executable (`<workspace>/` on both bundle layouts).
+ */
+export async function collectRustLicenses(options: {
+  repo: string;
+  workspace: string;
+  packageName: string;
+  triple: string;
+  output: string;
+}): Promise<void> {
+  const { repo, workspace, packageName, triple, output } = options;
+  const metadata = rustMetadata({ repo, workspace, triple });
+  const listing = await licenseListing(
+    packageName,
     await readFile(join(repo, "LICENSE"), "utf8"),
-    shippedMediaCrates(metadata),
+    shippedCrates(metadata, packageName),
   );
   await writeFile(join(output, thirdPartyLicensesFile), listing);
 }
