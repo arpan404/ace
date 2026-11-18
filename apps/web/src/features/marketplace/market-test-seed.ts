@@ -4,6 +4,7 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { screen, waitFor } from "@testing-library/react";
 import { expect } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
 
 /*
  * The marketplace the modal's tests open: a Suit with its look in its review, a skill, a bot
@@ -99,9 +100,13 @@ export const seed: MarketplaceSeed = {
 };
 
 /** The app at `path` over this marketplace. */
-export async function openApp(path: string, more: MarketplaceSeed = {}) {
+export async function openApp(
+  path: string,
+  more: MarketplaceSeed = {},
+  options: { suits?: SuitTransport } = {},
+) {
   const history = createMemoryHistory({ initialEntries: [path] });
-  const app = harness({ history });
+  const app = harness({ history, ...options });
   app.daemon.seedServices({ marketplace: { ...seed, ...more } });
   await app.open(path);
   return { daemon: app.daemon, history };

@@ -1,5 +1,6 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
+import { fakeMarket } from "./fake-market.ts";
 import { seedFakeSpade } from "./fake-spade.ts";
 import {
   FakeDaemon,
@@ -158,6 +159,8 @@ export function bootFake(): {
       Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
     daemon.seedServices(longLists > 0 ? withLongAutomations(services, longLists) : services);
+    // The marketplace's listings, account and drafts, so its every page can be walked.
+    daemon.marketplace.seed(fakeMarket(Date.now()));
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());

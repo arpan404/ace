@@ -2,7 +2,7 @@ import type { MarketEntrySummary } from "@ace/protocol/marketplace";
 import { AppsShelf } from "./market-apps.tsx";
 import { useMarketHome, useMarketSearch } from "./market-api.ts";
 import type { MarketPlace } from "./market-address.ts";
-import { Card, CardItem, Cards, Empty, ResultRow, Section } from "./market-card.tsx";
+import { Card, CardItem, Cards, Empty, ResultRow, Section, shelfCount } from "./market-card.tsx";
 import { Hero } from "./market-hero.tsx";
 import { failureSentence } from "./market-model.ts";
 import { useMarketNav } from "./market-nav.ts";
@@ -29,11 +29,12 @@ function Shelf(props: {
 }) {
   const nav = useMarketNav();
   const found = useMarketSearch({ query: "", types: props.types });
-  const entries = found.data?.entries.slice(0, props.cols) ?? [];
+  const all = found.data?.entries ?? [];
+  const entries = all.slice(0, shelfCount(props.cols, all));
   if (!entries.length) return null;
   return (
     <Section title={props.title} all={() => nav.go(props.place)}>
-      <Cards cols={props.cols} shelf label={props.title}>
+      <Cards cols={props.cols} entries={entries} shelf label={props.title}>
         {entries.map((entry) => (
           <CardItem key={key(entry)}>
             <Card entry={entry} showKind={props.types.length > 1} />
@@ -103,7 +104,7 @@ export function LooksPage(props: { query: string }) {
     <div className="mk-inner">
       {list.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <Cards cols={2} label="Looks">
+          <Cards cols={2} entries={list.slice(0, 2)} label="Looks">
             {list.slice(0, 2).map((entry) => (
               <CardItem key={key(entry)}>
                 <Card entry={entry} big showKind={false} />
@@ -114,7 +115,7 @@ export function LooksPage(props: { query: string }) {
       )}
       {list.length > 2 && (
         <div style={{ marginTop: 40 }}>
-          <Cards cols={3} label="More looks">
+          <Cards cols={3} entries={list.slice(2)} label="More looks">
             {list.slice(2).map((entry) => (
               <CardItem key={key(entry)}>
                 <Card entry={entry} showKind={false} />
@@ -141,7 +142,7 @@ function Group(props: {
       first={props.first}
       meta={props.count ? props.entries.length : undefined}
     >
-      <Cards cols={4} phone={props.phone} label={props.title}>
+      <Cards cols={4} entries={props.entries} phone={props.phone} label={props.title}>
         {props.entries.map((entry) => (
           <CardItem key={key(entry)}>
             <Card entry={entry} showKind={false} />
