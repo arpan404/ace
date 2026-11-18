@@ -6,9 +6,11 @@
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "dev": "wrangler dev",
+    "deploy:release": "node ../../tools/workers-release/src/deploy.ts market",
     "migrate:local": "wrangler d1 migrations apply MARKET_BOTS --local && wrangler d1 migrations apply MARKET_PLUGINS --local && wrangler d1 migrations apply MARKET_SKILLS --local && wrangler d1 migrations apply MARKET_SUITS --local && wrangler d1 migrations apply MARKET_PUBLISHERS --local && wrangler d1 migrations apply MARKET_COUNTS --local && wrangler d1 migrations apply MARKET_MODERATION --local && wrangler d1 migrations apply MARKET_LISTS --local",
     "build-seed": "node scripts/build-seed.ts",
-    "seed": "node scripts/seed.ts"
+    "seed": "node scripts/seed.ts",
+    "smoke": "node scripts/smoke.ts"
   },
   "dependencies": {
     "@ace/account-grant": "workspace:*",
