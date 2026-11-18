@@ -15,7 +15,7 @@ import { LibraryEpisode, LibraryPast } from "./spade-library-past.tsx";
 import { LibraryResults, LibrarySearchField } from "./spade-library-search.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { SpadeNotes } from "./spade-notes.tsx";
-import { ProfileEmpty, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
+import { ProfileNone, ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 import { readSkillStore, type SpadeStoredSkill } from "./spade-skills-api.ts";
 import { readFolder } from "./spade-workspace-api.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -94,6 +94,7 @@ function Files(props: { bot: RosterBot; onOpen(files: FilesAt): void }) {
   return (
     <ProfileSection
       label="Files"
+      bare={listing.isSuccess && entries.length === 0}
       actions={
         entries.length > 0 && (
           <Button
@@ -112,7 +113,7 @@ function Files(props: { bot: RosterBot; onOpen(files: FilesAt): void }) {
       ) : listing.isError ? (
         <ProfileProblem text="Couldn't read the files." onRetry={() => void listing.refetch()} />
       ) : entries.length === 0 ? (
-        <ProfileEmpty>{`${bot.name} hasn't kept any files yet.`}</ProfileEmpty>
+        <ProfileNone>{`${bot.name} hasn't kept any files yet.`}</ProfileNone>
       ) : (
         entries.slice(0, shownFiles).map((entry) => (
           <button
@@ -167,13 +168,13 @@ function Skills(props: { bot: RosterBot }) {
       (skill) => skill.usedBy.includes(bot.id) || skill.writtenBy.includes(bot.id),
     ) ?? [];
   return (
-    <ProfileSection label="Skills">
+    <ProfileSection label="Skills" bare={store.isSuccess && mine.length === 0}>
       {store.isPending ? (
         <ListSkeleton label="skills" shape="row" rows={1} />
       ) : store.isError ? (
         <ProfileProblem text="Couldn't read the skills." onRetry={() => void store.refetch()} />
       ) : mine.length === 0 ? (
-        <ProfileEmpty>{`${bot.name} hasn't used a skill yet.`}</ProfileEmpty>
+        <ProfileNone>{`${bot.name} hasn't used a skill yet.`}</ProfileNone>
       ) : (
         mine.map((skill) => (
           <div
