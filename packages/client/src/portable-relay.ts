@@ -1,6 +1,6 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
 import type { AceClient } from "@ace/protocol/ace-client";
-import { namedUpgradeUrl } from "./ace-client.ts";
+import { namedUrl } from "./ace-client.ts";
 import {
   CREDIT_FLAG,
   FlowCredit,
@@ -126,7 +126,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     [RELAY_EARLY.query]: "1",
   }).toString();
   url.hash = "";
-  namedUpgradeUrl(url, options.aceClient);
+  namedUrl(url, options.aceClient);
   const nk = options.nk;
   const { nkState, xxState, nkFirst, xxFirst, nkFits, protocols } = handshakeStates(options);
   /** Erases both handshake states: every way out of the dial before the stream is up. */

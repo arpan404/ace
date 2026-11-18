@@ -7,14 +7,16 @@ import { z } from "zod";
  *
  * The value is `<app>/<version>`, e.g. `desktop/0.0.24-beta.1` or `daemon/0.0.23`. `version` is
  * the app's semver (a beta carries its prerelease, ADR 0177), or `development` for a build that
- * isn't a release. It travels in the `ace-client` header; a browser WebSocket upgrade, which
- * can't set headers, carries the same value in the `ace-client` query parameter.
+ * isn't a release. Apps outside a browser send it in the `ace-client` header. Browser callers
+ * (the web app, the desktop app's renderer) send it only in the `ace-client` query parameter, on
+ * every request and upgrade: a WebSocket upgrade can't set headers, and a custom header on a
+ * cross-origin call adds a CORS preflight an older cloud refuses.
  *
  * The servers read it leniently: a missing, unknown or garbled value is an unknown client and is
  * still served exactly as before; it only gets no gated feature.
  */
 export const ACE_CLIENT_HEADER = "ace-client";
-/** The same value on a browser WebSocket upgrade's URL. */
+/** The same value on a browser request's or upgrade's URL. */
 export const ACE_CLIENT_PARAM = "ace-client";
 
 /** The apps that name themselves. A value naming any other app is an unknown client. */

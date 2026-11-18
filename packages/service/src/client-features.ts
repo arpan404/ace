@@ -39,9 +39,10 @@ export function parseClient(value: string | null | undefined): ClientIdentity {
 }
 
 /**
- * The client a request names: the `ace-client` header, else, for a browser WebSocket upgrade
- * that can't set headers, the `ace-client` query parameter. A header that is present wins even
- * when it is garbled, so a URL can't override what the caller's own client said.
+ * The client any request or upgrade names: the `ace-client` header, else the `ace-client` query
+ * parameter, which browsers use (a WebSocket upgrade can't set headers, and a custom header on
+ * a cross-origin call needs a preflight). A header that is present wins even when it is
+ * garbled, so a URL can't override what the caller's own client said.
  */
 export function clientOf(request: { headers: Headers; url: string }): ClientIdentity {
   const header = request.headers.get(ACE_CLIENT_HEADER);

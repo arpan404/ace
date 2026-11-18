@@ -27,8 +27,10 @@ export function aceClientName(
 type Fetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /**
- * `fetch` that names the app on every request it makes. Give it only to code that calls ace
- * cloud or the market. Without a name it is `fetch` itself.
+ * `fetch` that names the app in the `ace-client` header of every request it makes. Outside
+ * browsers only (the daemon, the CLI, the desktop app's main process): in a browser a custom
+ * header makes a cross-origin call send a CORS preflight, which a cloud that doesn't allow the
+ * header refuses. Give it only to code that calls ace cloud or the market.
  */
 export function namedFetch<F extends Fetch>(fetch: F, name: AceClient | undefined): F | Fetch {
   if (!name) return fetch;
@@ -41,8 +43,23 @@ export function namedFetch<F extends Fetch>(fetch: F, name: AceClient | undefine
   };
 }
 
-/** A browser WebSocket upgrade's URL, which can't carry headers, naming the app instead. */
-export function namedUpgradeUrl(url: URL, name: AceClient | undefined): URL {
+/** `url` naming the app in its `ace-client` query parameter, as a browser names itself. */
+export function namedUrl(url: URL, name: AceClient | undefined): URL {
   if (name) url.searchParams.set(ACE_CLIENT_PARAM, name);
   return url;
+}
+
+/**
+ * `fetch` for browsers (the web app, the desktop app's renderer and their workers): names the
+ * app in the `ace-client` query parameter of every request and adds no header, so a
+ * cross-origin call needs no preflight it didn't need before. Give it only to code that calls
+ * ace cloud or the market.
+ */
+export function namedQueryFetch<F extends Fetch>(fetch: F, name: AceClient | undefined): F | Fetch {
+  if (!name) return fetch;
+  return (input, init) => {
+    if (input instanceof Request)
+      return fetch(new Request(namedUrl(new URL(input.url), name), input), init);
+    return fetch(namedUrl(new URL(String(input)), name), init);
+  };
 }

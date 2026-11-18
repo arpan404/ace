@@ -54,9 +54,17 @@ ace-client: <app>/<version>
   client; a new app is added to `AceClientApp` first.
 - `version`: the app's semver, a beta's prerelease included (`0.0.24-beta.1`), or
   `development` for a build that isn't a release.
-- A browser WebSocket upgrade can't set headers, so it carries the same value in the
-  `ace-client` query parameter. A present header wins over the parameter, even a garbled one.
-- At most 96 characters. The account API's CORS preflight allows the header.
+- **Browsers never send the header.** The web app, the desktop app's renderer and their
+  workers carry the same value in the `ace-client` query parameter, on every request and
+  upgrade. A WebSocket upgrade can't set headers, and a custom header on a cross-origin call
+  adds a CORS preflight: the web app at app.acehq.dev builds from `main` on merge, before the
+  cloud deploys, and an older cloud's preflight refuses the header, which would break sign-in.
+  A query parameter needs no preflight, so a browser build and any cloud work in either order.
+- Apps outside a browser (daemon, CLI, desktop main process, Spade) send the header.
+- The servers read the header first, then the parameter, on every request. A present header
+  wins over the parameter, even a garbled one.
+- At most 96 characters. The account API's CORS preflight also allows the header, which costs
+  nothing; no browser relies on it.
 
 The servers read it leniently. A missing, unknown, overlong or garbled value is an **unknown
 client**, and an unknown client is served exactly as before: absence never refuses a request.
@@ -102,18 +110,19 @@ One helper per runtime builds the value from the app's own version, and every re
 cloud or the market goes through it, never a copy per call site.
 
 - **TypeScript** (`@ace/client/ace-client`): `aceClientName(app, version)` builds the value, or
-  none for a version it can't read; `namedFetch` adds the header to a `fetch` used only for
-  ace cloud or the market; `namedUpgradeUrl` adds the query parameter to a browser relay
-  upgrade (`connectPortableRelay`'s `aceClient`). The Node relay dialer (`@ace/relay`'s
+  none for a version it can't read. Outside browsers `namedFetch` adds the header to a `fetch`
+  used only for ace cloud or the market; in browsers `namedQueryFetch` adds the query parameter
+  instead, and `namedUrl` adds it to a relay upgrade (`connectPortableRelay`'s `aceClient`). The Node relay dialer (`@ace/relay`'s
   `connectHostToRelay` and `connectClientViaRelay`) sends the header on every upgrade.
 - **Daemon**: `Config.aceClient`, `daemon/<ACE_VERSION>` or `daemon/development`. Its account
   calls, market calls, host registration on ace's relay (`/host`, `/join`, `/serve`) and
-  parcel links through ace's relay carry it. A relay the person runs themselves is never told.
+  parcel links through ace's relay carry it. ace-media's media `/join` writes its own upgrade,
+  so the daemon names itself on the join address it hands over, as a query parameter. A relay the person runs themselves is never told.
 - **Desktop** (main process): `desktop/<version>` when packaged, else `desktop/development`,
   on its account session check.
 - **Web** (also the desktop app's renderer): `web/<version>` from the build's `ACE_VERSION`
-  (`VITE_ACE_VERSION`), `web/development` under Vite's dev server, none otherwise; on account
-  calls (`accountFetch`) and on the account machine's relay route.
+  (`VITE_ACE_VERSION`), `web/development` under Vite's dev server, none otherwise; as the query
+  parameter on account calls (`accountFetch`) and on the account machine's relay route.
 - **CLI**: `cli/<version>` (as `ace --version` reads it) on the market maintainer tools' calls.
   The CLI's other traffic goes through the daemon.
 - **Spade** (Rust): `spade/<ACE_SPADE_VERSION>` or `spade/development` on its sign-in broker
@@ -131,8 +140,6 @@ relay feature needs it.
   behaviour.
 - Apps released before this ADR send nothing and stay unknown clients: they get no gated
   feature, and are served as before.
-- The account API's CORS preflight must allow `ace-client` before a browser build sends it: a
-  web or desktop renderer that sends it to a cloud without this change fails the preflight.
-  The cloud deploys first, as the release already orders it.
+- Browser builds and the cloud deploy in either order: browsers add nothing a preflight checks.
 - The table needs housekeeping: a gate stays until the oldest supported app passes it.
 - Version numbers alone don't protect anything; the header is a hint for compatibility only.

@@ -68,10 +68,12 @@ describe("reading the caller", () => {
     ).toEqual({ kind: "release", app: "daemon", version: "0.0.24-beta.1" });
   });
 
-  it("reads the query parameter of a browser upgrade that can't set headers", () => {
-    expect(clientOf(request("https://relay.test/client?hostId=h&ace-client=web%2F0.0.24"))).toEqual(
-      { kind: "release", app: "web", version: "0.0.24" },
-    );
+  it("reads the query parameter a browser names itself with, on upgrades and plain requests", () => {
+    for (const url of [
+      "https://relay.test/client?hostId=h&ace-client=web%2F0.0.24",
+      "https://cloud.test/v1/account/session?ace-client=web%2F0.0.24",
+    ])
+      expect(clientOf(request(url))).toEqual({ kind: "release", app: "web", version: "0.0.24" });
   });
 
   it("lets a present header win over the URL, even a garbled one", () => {

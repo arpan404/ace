@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { ACE_CLIENT_PARAM } from "@ace/protocol/ace-client";
 import { watchLiveness } from "./liveness.ts";
 import { setMaxListeners } from "node:events";
 import type { KeyPair } from "@ace/secure-channel";
@@ -371,9 +372,12 @@ export async function connectHostToRelay(options: {
             }
             if (message.type !== "client") throw new Error("Invalid client ticket");
             if (message.purpose === "media") {
+              // ace-media dials this itself with its own minimal upgrade, so the daemon's
+              // name rides on the URL (ADR 0189).
               const joinUrl = relayAddress(options.relayUrl, "/join", {
                 ticket: message.ticket,
                 hostId: id,
+                ...(options.aceClient ? { [ACE_CLIENT_PARAM]: options.aceClient } : {}),
               });
               const ticket = message.ticket;
               const control = socket;

@@ -1,4 +1,4 @@
-import { aceClientName, namedFetch } from "@ace/client/ace-client";
+import { aceClientName, namedQueryFetch } from "@ace/client/ace-client";
 import type { AceClient } from "@ace/protocol/ace-client";
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import {
@@ -37,10 +37,11 @@ export function webClient(env: ImportMetaEnv = import.meta.env): AceClient | und
 
 /**
  * `fetch` for ace's account backend at `origin`: admitted by the desktop app first, and naming
- * this app on every request.
+ * this app on every request in the `ace-client` query parameter, never a header, so a cloud
+ * whose CORS preflight doesn't allow that header still answers (ADR 0189).
  */
-export function accountFetch(origin: string): typeof fetch {
-  const named = namedFetch(fetch, webClient());
+export function accountFetch(origin: string, env: ImportMetaEnv = import.meta.env): typeof fetch {
+  const named = namedQueryFetch(fetch, webClient(env));
   return async (input, init) => {
     await authorizeDaemonUrl(`${origin}/`);
     return named(input, init);

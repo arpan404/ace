@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aceClientName, namedFetch } from "./ace-client.ts";
+import { aceClientName, namedFetch, namedQueryFetch } from "./ace-client.ts";
 import type { PortableSocket } from "./portable-relay.ts";
 import { relayRoute } from "./relay-route.ts";
 
@@ -24,7 +24,7 @@ describe("an app's ace-client name", () => {
 describe("a named fetch", () => {
   const server = createServer((request, response) => {
     response.setHeader("content-type", "application/json");
-    response.end(JSON.stringify(request.headers));
+    response.end(JSON.stringify({ ...request.headers, "x-url": request.url }));
   });
   let origin = "";
   beforeAll(async () => {
@@ -42,6 +42,27 @@ describe("a named fetch", () => {
     const headers = await sent(namedFetch(fetch, aceClientName("daemon", "0.0.24-beta.2")));
     expect(headers["ace-client"]).toBe("daemon/0.0.24-beta.2");
     expect(headers.authorization).toBe("Bearer t");
+  });
+
+  it("in a browser, names the app in the URL and adds no header that needs a preflight", async () => {
+    const browser = namedQueryFetch(fetch, aceClientName("web", "0.0.24-beta.1"));
+    for (const input of [
+      `${origin}/v1/account/session?keep=1`,
+      new Request(`${origin}/v1/account/session?keep=1`, {
+        headers: { authorization: "Bearer t" },
+      }),
+    ]) {
+      const headers = (await (
+        await (typeof input === "string"
+          ? browser(input, { headers: { authorization: "Bearer t" } })
+          : browser(input))
+      ).json()) as Record<string, string>;
+      const url = new URL(headers["x-url"] ?? "", origin);
+      expect(url.searchParams.get("ace-client")).toBe("web/0.0.24-beta.1");
+      expect(url.searchParams.get("keep")).toBe("1");
+      expect(headers["ace-client"]).toBeUndefined();
+      expect(headers.authorization).toBe("Bearer t");
+    }
   });
 
   it("sends no name for an app that has none", async () => {
