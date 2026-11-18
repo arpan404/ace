@@ -112,7 +112,7 @@ struct ConversationFeed: View {
     /// The reader moved the feed or changed what it holds: size changes keep the top again.
     private func readerMovedFeed() {
         if growth.keepsEnd { growth.readerMoved() }
-        if surface.holding { endPageHold() }
+        if surface.running(.page) { endPageHold() }
     }
     private var pinned: Bool { following && (reading.thread == nil || reading.joined) }
     /// History rows are stale disk cache when the bridge said `.cached`, or
@@ -252,7 +252,7 @@ struct ConversationFeed: View {
         .onScrollPhaseChange { old, phase in
             // The hold only moves a feed at rest; any scroll it didn't make (a finger, VoiceOver's
             // three-finger swipe, Switch Control) ends it where the reader is.
-            if surface.holding, phase != .idle { endPageHold() }
+            if surface.running(.page), phase != .idle { endPageHold() }
             switch phase {
             case .tracking:
                 readerMovedFeed()
@@ -450,7 +450,7 @@ struct ConversationFeed: View {
     private func observeLifecycle<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         content
             .task { appeared(proxy: proxy) }
-            .task(id: ready) { if ready, !revealed { revealWhenSettled(proxy: proxy) } }
+            .task(id: ready) { if ready, !revealed { revealWhenSettled() } }
             .onDisappear { disappeared() }
             // Away from the end, or reading a window apart from it: following a joined window is at
             // the end, so Scroll to end isn't offered there.
@@ -678,7 +678,7 @@ struct ConversationFeed: View {
     /// height and offset have held for two frames with the feed at the end it follows, a quarter
     /// second at most (`TranscriptSettle`), then show there in one frame (ADR 0157). A saved
     /// place being reopened counts as not yet placed until its row is back where it was.
-    private func revealWhenSettled(proxy: ScrollViewProxy) {
+    private func revealWhenSettled() {
         let intent = intent
         let started = CACurrentMediaTime()
         var settle = TranscriptSettle(at: started)
@@ -688,8 +688,6 @@ struct ConversationFeed: View {
                                                  restoring: viewport.sessionAnchor != nil || reading.loading)
             return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
         }) { outcome in
-            // Still short of the end it follows at the limit: shown at the end, not on the way.
-            if outcome == .capped, pinned, intent.metrics.bottom > 1 { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) { revealed = true }
@@ -701,15 +699,19 @@ struct ConversationFeed: View {
     /// feed while its rows land and measure; each frame the row on top is put back at its height
     /// on screen from its own measured frame, then the feed thaws (`TranscriptSurface`).
     private func holdOlderPage() {
-        guard intent.olderPage else { return }
-        intent.olderPage = false
-        // A hidden feed has nothing to hold: the reveal waits for it to settle. Under VoiceOver
-        // and Switch Control the feed makes no automatic corrections, so none here either.
-        guard revealed, !surface.holding, !Self.assistiveScrolling, let top = currentTopRow(),
+        // Under VoiceOver and Switch Control the feed makes no automatic corrections, so none here
+        // either.
+        guard intent.olderPage, !surface.running(.page), !Self.assistiveScrolling, let top = currentTopRow(),
               let held = anchor.keeper.frames.inContent(top.rowID) else { return }
         let onScreen = Double(held.minY) - surface.offset
-        guard surface.freeze() else { return }
-        TranscriptJumpHooks.covered(true)
+        // A feed still hidden on open has nothing drawn to freeze: its row is held all the same,
+        // and the reveal, running on its own, shows it once both have settled.
+        let frozen = revealed
+        if frozen {
+            guard surface.freeze() else { return }
+            TranscriptJumpHooks.covered(true)
+        }
+        intent.olderPage = false
         let anchor = anchor, intent = intent, surface = surface
         var settle = TranscriptSettle(at: CACurrentMediaTime())
         surface.untilSettled(.page, { time in
@@ -721,6 +723,7 @@ struct ConversationFeed: View {
             if !placed { surface.shift(by: drift) }
             return settle.frame([Double(frame.minY), Double(intent.metrics.height)], placed: placed, at: time)
         }) { _ in
+            guard frozen else { return }
             surface.thaw()
             TranscriptJumpHooks.covered(false)
         }
@@ -730,6 +733,7 @@ struct ConversationFeed: View {
     private static var assistiveScrolling: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
     private func endPageHold() {
         surface.stop(.page)
+        guard surface.isFrozen else { return }
         surface.thaw()
         TranscriptJumpHooks.covered(false)
     }

@@ -24,8 +24,8 @@ import UIKit
 
     /// The scroll view's offset from its content's top, in points.
     var offset: Double { Double(scroller?.contentOffset.y ?? 0) }
-    /// An older page's hold is running.
-    var holding: Bool { frozen != nil }
+    /// A frozen frame is laid over the feed (`freeze`).
+    var isFrozen: Bool { frozen != nil }
 
     fileprivate func attach(_ view: UIView) {
         var next = view.superview
