@@ -4,6 +4,7 @@ import {
   type SpadeArrival,
   type SpadeMove,
 } from "@ace/ui-core/spade-chat";
+import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
@@ -13,7 +14,7 @@ import { cn } from "@/lib/cn.ts";
 import { primaryMachineId, useMachines } from "@/lib/machines.ts";
 import { pillButton } from "./spade-profile-parts.tsx";
 import { spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
-import { cancelMove, dismissArrival, startMove } from "./spade-move-api.ts";
+import { acceptMove, cancelMove, dismissArrival, newMoveId, startMove } from "./spade-move-api.ts";
 import { agentsKey, mainKey, type RosterBot } from "./use-spade-roster.ts";
 
 /*
@@ -44,6 +45,8 @@ function useMoveTargets(bot: RosterBot) {
 
 function useMoveActions(bot: RosterBot) {
   const client = useSpadeClient();
+  const here = useClient();
+  const machines = useMachines();
   const cache = useQueryClient();
   const [problem, setProblem] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -63,7 +66,16 @@ function useMoveActions(bot: RosterBot) {
   return {
     problem,
     busy,
-    move: (to: string) => run(() => startMove(client, bot.id, to)),
+    // The person's one click: accepted on the machine it goes to, then started where it is.
+    move: (to: string) =>
+      run(async () => {
+        const machine = machines.find((candidate) => candidate.id === to);
+        const target = machine?.primary ? here : machine?.client;
+        if (!target) throw new Error("That machine can't be reached now.");
+        const id = newMoveId(crypto.randomUUID());
+        await acceptMove(target, id, bot.id);
+        await startMove(client, bot.id, to, id);
+      }),
     cancel: () => run(() => cancelMove(client, bot.id)),
     dismissArrival: () => run(() => dismissArrival(client, bot.id)),
   };

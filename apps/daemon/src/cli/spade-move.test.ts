@@ -2,7 +2,7 @@ import { SpadeMachine } from "@ace/protocol";
 import type { CliSpadeBot } from "@ace/protocol/cli-outputs";
 import { expect, test } from "vitest";
 import { CliFailure } from "./output.ts";
-import { findMachine, moveBot } from "./spade-move.ts";
+import { findMachine, moveBot, newMoveId } from "./spade-move.ts";
 
 const machines = [
   { hostId: "host-studio", name: "Studio Mac", status: "online" },
@@ -32,19 +32,25 @@ const sending = { id: "mv_1", to: { host: "host-studio", name: "Studio Mac" }, s
 
 test("a move is followed until the bot has left, then reads as done", async () => {
   const { sent, call } = spade([sending, sending, null]);
-  const moved = await moveBot(call, bot, studio, 60_000, async () => {});
+  const moved = await moveBot(call, bot, studio, "mv_1", 60_000, async () => {});
   expect(moved).toEqual({
     bot: { id: "a_1", name: "Research" },
     to: { host: "host-studio", name: "Studio Mac" },
     state: "done",
   });
-  expect(sent[0]).toEqual(["POST", "/v1/agents/a_1/move", { to: "host-studio" }]);
+  expect(sent[0]).toEqual(["POST", "/v1/agents/a_1/move", { to: "host-studio", move: "mv_1" }]);
   expect(sent.filter(([method]) => method === "GET")).toHaveLength(3);
 });
 
 test("a failed move ends the command with Spade's reason and says the bot stayed", async () => {
   const { call } = spade([{ ...sending, state: "failed", problem: "Studio Mac is offline" }]);
-  await expect(moveBot(call, bot, studio, 60_000, async () => {})).rejects.toThrow(
+  await expect(moveBot(call, bot, studio, "mv_1", 60_000, async () => {})).rejects.toThrow(
     "Couldn't move Research to Studio Mac: Studio Mac is offline. It's still here.",
+  );
+});
+
+test("a move's id is one plain name Spade takes", () => {
+  expect(newMoveId("0190AB12-3C4D-7E8F-9A0B-1C2D3E4F5A6B")).toBe(
+    "mv_0190ab123c4d7e8f9a0b1c2d3e4f5a6b",
   );
 });

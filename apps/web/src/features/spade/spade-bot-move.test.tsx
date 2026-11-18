@@ -13,8 +13,8 @@ const withResearch = (spade: FakeSpadeApi) => {
 };
 const studio = [{ hostId: "studio", name: "Studio Mac", seed: withEndpoint }];
 
-test("Move to… moves the bot to the machine picked, and the move reads as one sentence with Cancel", async () => {
-  const { spade } = await spadeApp("/spade/research?profile=details", withResearch, {
+test("Move to… is accepted on the machine picked, then started here, and reads as one sentence with Cancel", async () => {
+  const { spade, others } = await spadeApp("/spade/research?profile=details", withResearch, {
     machines: studio,
   });
   await userEvent.click(
@@ -22,8 +22,13 @@ test("Move to… moves the bot to the machine picked, and the move reads as one 
   );
   await userEvent.click(await screen.findByRole("menuitem", { name: "Studio Mac" }));
   await waitFor(() =>
-    expect(spade.sent("POST", "/v1/agents/research/move")).toEqual([{ to: "studio" }]),
+    expect(spade.sent("POST", "/v1/agents/research/move")).toEqual([
+      { to: "studio", move: expect.stringMatching(/^mv_[0-9a-f]{32}$/) },
+    ]),
   );
+  // The person's acceptance went to the studio first, for that move and that bot.
+  const [started] = spade.sent("POST", "/v1/agents/research/move");
+  expect(others.get("studio")?.acceptedMoves.get(String(started?.move))).toBe("research");
   const moving = "Copying Research to Studio Mac, 3 of 12.";
   // In the profile, as its status line, and in the list as the bot's row line.
   await waitFor(() =>
@@ -82,7 +87,9 @@ test("a failed move says the bot is still here, with Try again and Dismiss", asy
   ).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() =>
-    expect(spade.sent("POST", "/v1/agents/research/move")).toEqual([{ to: "studio" }]),
+    expect(spade.sent("POST", "/v1/agents/research/move")).toEqual([
+      { to: "studio", move: expect.stringMatching(/^mv_[0-9a-f]{32}$/) },
+    ]),
   );
 });
 
@@ -106,7 +113,7 @@ test("a bot that arrived names what needs the person until they dismiss it", asy
 });
 
 test("Spade read through another machine offers to move here", async () => {
-  const { others } = await spadeApp("/spade/main?on=studio&profile=details", withEndpoint, {
+  const { spade, others } = await spadeApp("/spade/main?on=studio&profile=details", withEndpoint, {
     machines: [
       {
         hostId: "studio",
@@ -122,7 +129,9 @@ test("Spade read through another machine offers to move here", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Move Spade to this machine" }));
   await waitFor(() =>
     expect(others.get("studio")?.sent("POST", "/v1/agents/main/move")).toEqual([
-      { to: "this-mac" },
+      { to: "this-mac", move: expect.stringMatching(/^mv_[0-9a-f]{32}$/) },
     ]),
   );
+  // Accepted here, on this machine, where Spade is coming.
+  expect(spade.acceptedMoves.size).toBe(1);
 });

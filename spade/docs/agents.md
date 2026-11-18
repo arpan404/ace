@@ -51,43 +51,52 @@ record the old election's `main_enabled` still decides; the first record heard d
 
 ### Moving a bot
 
-A bot moves to another of the person's machines with everything it knows (ADR 0187). The machine
-it is on does the work (`engine/moves/`):
+A bot moves to another of the person's machines with everything it knows, and only with the
+person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves` for the rows.
 
-1. `POST /agents/{id}/move {to}` (a host id from the daemon's linked machines, online) answers
-   `202 {move}`. Refused (`409`) for a worker (it moves with its maker), the main bot on a machine
-   that doesn't host it, a bot already moving, and one that (or a worker of which) is working,
-   waiting on the person, sleeping or running a service. The bot and its workers are frozen:
-   messages answer `409` ("Research is moving to Studio …"), routines don't fire, and its
+1. **The person accepts it there.** `PUT /moves/{move}/accept {bot}` on the machine it goes to
+   answers `200` only with the person's stamp (`x-ace-person`, ADR 0163 amendment 2, over
+   `move:<move>` and `accept:<bot>`; the daemon adds it for a caller with their standing),
+   else `403`. Ids are plain (`[a-z0-9][a-z0-9_-]{0,79}`), else `400`. It stays good for an hour.
+2. **Then it starts here.** `POST /agents/{id}/move {to, move}` (`to` a host id from the daemon's
+   linked machines, online; `move` the accepted id) answers `202 {move}`. The move is reserved
+   first: the `moves` table holds a bot to one open move each way (`one_open_move`), so a second
+   start answers `409` before anything is awaited. Refused too (`409`): a worker (it moves with
+   its maker), the main bot where it isn't hosted, and one that (or a worker of which) is working,
+   waiting on the person, sleeping or running a service. The bot and its workers are frozen for
+   that move: messages answer `409` ("Research is moving to Studio …"), routines don't fire, its
    `status` reads "Moving to Studio".
-2. **Packing** (`moves/<id>/out/`): numbered parts of at most 384 KiB: rows table by table
-   (`spade_store::MOVE_TABLES`: its conversations and their events, helpers, spend, seen marks,
-   notes, knowledge and links, episodes, digests, routines and runs, skill uses, the clubs it leads
-   with their members, inbox keys, and every `<what>:<id>` or `<what>.<id>` setting), a row bigger
-   than a part as `piece`s of its text, every image its avatar or events name, then each workspace
-   file in 256 KiB pieces with its size and SHA-256 on the last. Links stay behind. Then
-   `manifest.json`: format `spade-move` 1, the schema version, the agents, per table its row count
-   and hash (SHA-256 over the sorted SHA-256s of each row's JSON), the file count, the endpoints
-   its models use (ids and names), plugin and connector choices. Never a key, a token or a
-   sign-in.
-3. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
-   machine call): `begin {manifest}` answers `{have, host}` (the parts already staged, and the
-   host record held there); `part {index, part}` stores one; then **committing**: `commit
-{host?}`. Unreachable means wait and try again (`waiting: true`); Cancel works until the
-   commit is sent.
-4. The target stages parts in `moves/<id>/in/`, and on `commit` joins the files (checking each
-   hash), then in one transaction deletes any older copy under the same ids, writes every row,
-   checks each table's count and hash, and arrives: routines pause, webhooks get new secrets, the
-   bot's clubs point here, folder grants and toolchains whose folder this machine lacks are
-   dropped and named, the host record for Spade is kept, and the move reads `placing`. It then
-   places the workspace and images (resumed at start if cut off) and answers `{committed,
-arrival}`. A refused check answers `422` and keeps nothing. `status` and `abort` answer a source
-   after a lost answer or when it gives up; staging left a day without news is dropped.
-5. **Finishing** on the source: the main bot goes quiet as the record now names the target;
-   any other bot is archived (`moved/<id>/parts` and `workspace/`), `moved:<id>` remembers
-   where it went, clubs here list it on the target, and its rows go.
+3. **Packing** (`moves/<id>/out/`): numbered parts of at most 384 KiB: rows table by table
+   (`MOVE_TABLES`, each with its typed columns; a rowid table's own `id` and a routine's webhook
+   `secret` are never read out), a row bigger than a part as `piece`s of its text, every image its
+   avatar or events name, each workspace file in 256 KiB pieces, then the inventory (every file
+   and image with its size and SHA-256). Links stay behind. Then `manifest.json`: format
+   `spade-move` 2, the schema version, the agents, per table its row count and hash (SHA-256 over
+   the sorted SHA-256s of each row's JSON), the inventory's count and hash, the endpoints its
+   models use, the apps and plugins it used, by name.
+4. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
+   machine call): `begin {manifest}` (`403` unless accepted, for that bot), answering `{have,
+host}`; `part {index, part}`; then `commit {host?}`. `begin` binds the move to the sending
+   machine and the manifest's hash: any step from another machine answers `403`, another manifest
+   `409`. Unreachable means wait and try again (`waiting: true`); Cancel works until the commit.
+5. **The target** stages parts in `moves/<id>/in/` and on `commit`: joins the files against the
+   inventory (none missing, twice or unexpected, each flushed); then in one transaction deletes
+   an older copy under the same ids, writes every row (typed; each must be the moving bots' own:
+   its id, its agent, its club, or one of `PER_BOT_SETTINGS` for one of them), checks that each
+   table holds exactly the rows written, with the manifest's count and hash, and arrives:
+   routines pause and webhooks get new secrets; its security settings lose every grant, its
+   toolchains and Full access; its clubs point here; each moved conversation gets an `arrived`
+   event, before which no answer counts here (`since_arrival`); Spade's host record is kept; and
+   the move reads `placing` with all it needs to finish. Any failed check answers `422` and keeps
+   nothing. It then places the workspace and images, flushes them, reads `committed` and answers
+   `{committed, arrival}`; a placing that fails answers `503` and stays `placing`, and a retried
+   commit or a restart only places. The bot's apps start at none.
+6. **Finishing** on the source: the main bot goes quiet as the record now names the target; any
+   other bot is archived (`moved/<id>/parts` and `workspace/`, no secrets), `moved:<id>`
+   remembers where it went, clubs here list it on the target, and its rows go. Archives go 30
+   days after the move ended.
 
-The target keeps `arrived:<id>` (`{from, at, routines_paused, webhooks, folders, endpoints, apps,
+The target keeps `arrived:<id>` (`{from, at, routines_paused, webhooks, consent, endpoints, apps,
 plugins, left}`) until `DELETE /agents/{id}/arrival`. `GET /agents/{id}/move` answers `{move,
 arrival}`; `DELETE /agents/{id}/move` cancels or dismisses. The Agent JSON carries `move` (`{id,
 to: {host, name}, state, sent, total, waiting, problem, can_cancel}`, while one is open or failed)

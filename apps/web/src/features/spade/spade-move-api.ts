@@ -38,14 +38,30 @@ function moveOf(body: string): SpadeMove | undefined {
   }
 }
 
-/** Starts moving a bot to the machine with host id `to`. */
+/** A new move's id, as Spade takes them: one plain lowercase name. */
+export function newMoveId(uuid: string): string {
+  return `mv_${uuid.toLowerCase().replaceAll(/[^0-9a-f]/g, "")}`;
+}
+
+/**
+ * The person accepts, on the machine the bot goes to, the bot arriving by move `id`. ace's
+ * daemon there stamps it as theirs; a machine of the fleet alone can't push a bot in.
+ */
+export async function acceptMove(target: SpadeTarget, id: string, bot: string): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/moves/${segment(id)}/accept`, { body: { bot } });
+}
+
+/** Starts moving a bot to the machine with host id `to`, as the move `id` accepted there. */
 export async function startMove(
   target: SpadeTarget,
   bot: string,
   to: string,
+  id: string,
 ): Promise<SpadeMove | undefined> {
   return moveOf(
-    await spadeHttp(target, "POST", `/v1/agents/${segment(bot)}/move`, { body: { to } }),
+    await spadeHttp(target, "POST", `/v1/agents/${segment(bot)}/move`, {
+      body: { to, move: id },
+    }),
   );
 }
 

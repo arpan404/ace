@@ -41,14 +41,14 @@ test("an arrival names everything that needs the person, and nothing when nothin
     from: { host: "h1", name: "Laptop" },
     routines_paused: 2,
     webhooks: 1,
-    folders: ["/Users/sam/launch"],
+    consent: ["the folder /Users/sam/launch, to change", "Full access"],
     endpoints: ["Paid"],
     apps: ["gmail"],
     plugins: [],
     left: [],
   });
   expect(arrival && spadeArrivalLine(arrival)).toBe(
-    "Moved from Laptop. 2 routines are paused until you resume them; 1 webhook has a new address; grant this folder again: /Users/sam/launch; add the endpoint Paid on this machine; connect gmail.",
+    "Moved from Laptop. 2 routines are paused until you resume them; 1 webhook has a new address; give again what you allowed on Laptop: the folder /Users/sam/launch, to change and Full access; add the endpoint Paid on this machine; allow its apps again: gmail.",
   );
   const quiet = parseSpadeArrival({ from: { name: "Laptop" } });
   expect(quiet && spadeArrivalLine(quiet)).toBe("Moved from Laptop.");

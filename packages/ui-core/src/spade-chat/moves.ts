@@ -61,7 +61,8 @@ export interface SpadeArrival {
   at: number;
   routinesPaused: number;
   webhooks: number;
-  folders: string[];
+  /** The person's consent that stayed on the other machine (grants, Full access), in words. */
+  consent: string[];
   endpoints: string[];
   apps: string[];
   plugins: string[];
@@ -75,7 +76,7 @@ const arrivalShape = z.object({
   at: z.number().catch(0).default(0),
   routines_paused: z.number().int().nonnegative().catch(0).default(0),
   webhooks: z.number().int().nonnegative().catch(0).default(0),
-  folders: names,
+  consent: names,
   endpoints: names,
   apps: names,
   plugins: names,
@@ -91,7 +92,7 @@ export function parseSpadeArrival(raw: unknown): SpadeArrival | undefined {
     at: arrival.at,
     routinesPaused: arrival.routines_paused,
     webhooks: arrival.webhooks,
-    folders: arrival.folders,
+    consent: arrival.consent,
     endpoints: arrival.endpoints,
     apps: arrival.apps,
     plugins: arrival.plugins,
@@ -137,19 +138,14 @@ export function spadeArrivalLine(arrival: SpadeArrival): string {
     );
   if (arrival.webhooks > 0)
     needs.push(`${count(arrival.webhooks, "webhook has", "webhooks have")} a new address`);
-  if (arrival.folders.length > 0)
-    needs.push(
-      `grant ${arrival.folders.length === 1 ? "this folder" : "these folders"} again: ${list(arrival.folders)}`,
-    );
+  if (arrival.consent.length > 0)
+    needs.push(`give again what you allowed on ${arrival.from}: ${list(arrival.consent)}`);
   if (arrival.endpoints.length > 0)
     needs.push(
       `add ${arrival.endpoints.length === 1 ? "the endpoint" : "the endpoints"} ${list(arrival.endpoints)} on this machine`,
     );
-  if (arrival.apps.length > 0) needs.push(`connect ${list(arrival.apps)}`);
-  if (arrival.plugins.length > 0)
-    needs.push(
-      `install ${arrival.plugins.length === 1 ? "the plugin" : "the plugins"} ${list(arrival.plugins)}`,
-    );
+  if (arrival.apps.length > 0) needs.push(`allow its apps again: ${list(arrival.apps)}`);
+  if (arrival.plugins.length > 0) needs.push(`allow its plugins again: ${list(arrival.plugins)}`);
   if (arrival.left.length > 0)
     needs.push(`${count(arrival.left.length, "link", "links")} in its folder stayed behind`);
   const first = `Moved from ${arrival.from}.`;

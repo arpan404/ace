@@ -30,6 +30,19 @@ export function findMachine(machines: readonly SpadeMachine[], ref: string): Spa
   });
 }
 
+/** A new move's id, as Spade takes them: one plain lowercase name. */
+export function newMoveId(uuid: string): string {
+  return `mv_${uuid.toLowerCase().replaceAll(/[^0-9a-f]/g, "")}`;
+}
+
+/**
+ * The person's say on the machine the bot goes to (ADR 0187): accepted there, through that
+ * machine's daemon, which stamps it as theirs. Without it that machine refuses the move.
+ */
+export async function acceptThere(call: SpadeCall, id: string, bot: string): Promise<void> {
+  await call("PUT", `/v1/moves/${encodeURIComponent(id)}/accept`, { bot });
+}
+
 /** How long between reads of the move. */
 const pollMs = 1000;
 
@@ -41,11 +54,15 @@ export async function moveBot(
   call: SpadeCall,
   bot: CliSpadeBot,
   machine: SpadeMachine,
+  id: string,
   limitMs: number,
   wait: (ms: number) => Promise<void>,
 ): Promise<CliSpadeMove> {
   const { parseSpadeMove, spadeMoveLine } = await import("@ace/ui-core/spade-chat");
-  await call("POST", `/v1/agents/${encodeURIComponent(bot.id)}/move`, { to: machine.hostId });
+  await call("POST", `/v1/agents/${encodeURIComponent(bot.id)}/move`, {
+    to: machine.hostId,
+    move: id,
+  });
   const to = { host: machine.hostId, name: machine.name };
   for (let waited = 0; waited <= limitMs; waited += pollMs) {
     const body: unknown = JSON.parse(

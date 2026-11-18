@@ -97,6 +97,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   hostRecord: Json | undefined = undefined;
   /** The person switched Spade off here. */
   mainOff = false;
+  /** Moves the person accepted here, by id, with the bot each brings. */
+  acceptedMoves = new Map<string, string>();
   /** Names of the machines a move can go to, by host id. */
   machineNames = new Map<string, string>();
   /** Whether Spade's main bot shows here, as Spade decides it. */
@@ -399,6 +401,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
   refuseQuestion: { status: number; error: string } | undefined;
 
   /** The bodies the app sent to `method path`, parsed. */
+  /** The paths of the requests sent with `method` whose path matches `pattern`, in order. */
+  sentPaths(method: string, pattern: RegExp): string[] {
+    return this.requests
+      .filter((request) => request.method === method && pattern.test(request.path))
+      .map((request) => request.path);
+  }
+
   sent(method: string, path: string): Json[] {
     return this.requests
       .filter((request) => request.method === method && request.path === path)
@@ -547,6 +556,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
       agent.pinned_at = body.pinned === true ? (agent.pinned_at ?? this.now()) : null;
       return reply({ agent });
     }
+    // The person accepts a bot moving here (ADR 0187); the daemon stamps it as theirs.
+    if (root === "moves" && id && sub === "accept" && request.method === "PUT") {
+      if (typeof body.bot !== "string") return problem(400, "Name the bot.");
+      this.acceptedMoves.set(id, body.bot);
+      return reply({ accepted: true });
+    }
     if (root === "agents" && id && (sub === "move" || sub === "arrival")) {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
@@ -564,9 +579,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
           409,
           `${agent.name} is working; it can move once that ends, or once you stop it.`,
         );
+      if (typeof body.move !== "string") return problem(400, "Name the move.");
       const to = String(body.to);
       agent.move = {
-        id: `mv_${agent.id}`,
+        id: body.move,
         to: { host: to, name: this.machineNames.get(to) ?? to },
         state: "sending",
         sent: 3,

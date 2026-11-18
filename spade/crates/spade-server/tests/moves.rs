@@ -103,7 +103,7 @@ async fn events(spade: &Spade, conversation: &str) -> Result<Vec<Value>> {
     let (_, body) = spade
         .get(&format!("/v1/conversations/{conversation}/events"))
         .await?;
-    Ok(body["events"].as_array().cloned().unwrap_or_default())
+    Ok(body.as_array().cloned().unwrap_or_default())
 }
 
 async fn notes(spade: &Spade, bot: &str) -> Result<Vec<String>> {
@@ -153,11 +153,13 @@ async fn a_bot_moved_to_another_machine_keeps_its_history_notes_files_and_id_and
         json!(conversation),
         "same conversation id"
     );
-    assert_eq!(
-        events(&studio, &conversation).await?,
-        history,
-        "the whole history"
-    );
+    // The whole history, every event as it was, then one more: its arrival, after which no
+    // answer the person gave on the laptop counts.
+    assert!(history.len() >= 3, "{history:?}");
+    let mut there = events(&studio, &conversation).await?;
+    let last = there.pop().unwrap_or_default();
+    assert_eq!(there, history, "the whole history");
+    assert_eq!(last["event"]["type"], "arrived", "{last}");
     assert_eq!(notes(&studio, &bot).await?, kept_notes);
     let (_, routines) = studio.get(&format!("/v1/agents/{bot}/routines")).await?;
     let routines = routines["routines"].as_array().cloned().unwrap_or_default();

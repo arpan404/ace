@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn every_grant_and_full_access_stay_behind_and_are_named_while_limits_stay() {
         let text = json!({
-            "network": { "mode": "none" },
+            "network": { "mode": "off" },
             "autonomy": "full_access",
             "full_access_confirmed": true,
             "toolchains": ["/opt/rust"],
@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(kept["toolchains"], json!([]));
         assert!(kept.get("autonomy").is_none_or(Value::is_null));
         assert!(kept.get("full_access_confirmed").is_none_or(|v| v == false));
-        assert_eq!(kept["network"]["mode"], "none", "a limit it had stays");
+        assert_eq!(kept["network"]["mode"], "off", "a limit it had stays");
         assert_eq!(dropped.len(), 8, "{dropped:?}");
         assert!(dropped.contains(&"Full access".to_owned()));
         assert!(dropped.iter().any(|d| d.contains("/srv/app")));
