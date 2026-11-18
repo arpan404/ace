@@ -60,7 +60,10 @@ import XCTest
     func testLinkedMachinesAndFleetRulesShowEveryMachinesValues() {
         let app = launch()
         openMachine(app)
-        app.buttons["machine.links"].tap()
+        // Linked machines sits a row or two under Devices, which may still be below the fold.
+        let links = app.buttons["machine.links"]
+        for _ in 0..<4 where !links.isHittable { app.swipeUp() }
+        links.tap()
         XCTAssertTrue(app.navigationBars["Linked machines"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", "reaches")).firstMatch.waitForExistence(timeout: 20))
         shot("machine-links", app)
