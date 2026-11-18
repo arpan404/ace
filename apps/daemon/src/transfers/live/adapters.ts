@@ -9,7 +9,7 @@ import type { LiveTargetPorts } from "./target.ts";
 import { LiveStarts } from "./target-rows.ts";
 
 /*
- * ADR 0190's live move, bound to this daemon's engine, agent control, terminals and accounts.
+ * ADR 0191's live move, bound to this daemon's engine, agent control, terminals and accounts.
  * Thin: every decision is in source.ts, target.ts and the pure modules beside them.
  */
 

@@ -1,5 +1,5 @@
 /*
- * When a working thread may be stopped to move it (ADR 0190, "Stop at a safe point"). Pure.
+ * When a working thread may be stopped to move it (ADR 0191, "Stop at a safe point"). Pure.
  */
 
 /** What the engine says about the thread's turn right now. */

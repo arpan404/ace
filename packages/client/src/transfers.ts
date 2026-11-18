@@ -107,7 +107,7 @@ export function transferCancellable(transfer: Pick<Transfer, "phase">): boolean 
 
 /**
  * Whether a thread in this state can't be continued on another machine. A working thread moves
- * while it works (ADR 0190); only one whose work already moved can't go again from here.
+ * while it works (ADR 0191); only one whose work already moved can't go again from here.
  */
 export function continueBlocked(state: ThreadStatus["state"]): boolean {
   return state === "moved";

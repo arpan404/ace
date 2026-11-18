@@ -4,7 +4,7 @@ import { SessionNotCarried } from "./carrier.ts";
 
 /**
  * Copies a captured session's files into `folder` at their paths relative to the source home,
- * without following links, each checked unchanged while it was read (ADR 0190). The session's
+ * without following links, each checked unchanged while it was read (ADR 0191). The session's
  * writer has stopped by now (the turn was interrupted), so a file still changing is not carried.
  */
 export async function stageSession(captured: CapturedSession, folder: string): Promise<string[]> {

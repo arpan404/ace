@@ -26,7 +26,7 @@ const Row = z.object({
 const Prior = z.object({ peer: Peer, epoch: z.number(), transferId: z.string() });
 
 /**
- * The durable record of which machine owns a thread (ADR 0190), one row per thread whose owner
+ * The durable record of which machine owns a thread (ADR 0191), one row per thread whose owner
  * isn't simply this machine. Every change goes through `nextOwnership` inside one transaction,
  * so two changes can't both pass. The lid-close stage adds its lease to the same row.
  */

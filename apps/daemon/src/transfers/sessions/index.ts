@@ -12,7 +12,7 @@ export {
 
 /**
  * The provider's carrier, or none: OpenCode, Pi, Cursor and ACP agents' sessions aren't carried
- * yet, so a thread on one of them continues from the handoff summary (ADR 0190).
+ * yet, so a thread on one of them continues from the handoff summary (ADR 0191).
  */
 export function sessionCarrier(provider: ProviderKind): SessionCarrier | undefined {
   if (provider === "claude") return claudeCarrier;

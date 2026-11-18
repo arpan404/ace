@@ -40,7 +40,7 @@ export const TransferPlan = z.object({
       z.object({ files: z.literal(0) }),
     ])
     .optional(),
-  /** A live move (ADR 0190): the turn was interrupted, so a failed move tells it to carry on. */
+  /** A live move (ADR 0191): the turn was interrupted, so a failed move tells it to carry on. */
   interrupted: z.boolean().optional(),
   /** A live move, once stopped: the final payload and what the commit carries with it. */
   live: z
@@ -74,7 +74,7 @@ export const TransferRequest = z.object({
       model: z.string().optional(),
     })
     .optional(),
-  /** The thread was working: it moves live (ADR 0190). Rows from before this move idle. */
+  /** The thread was working: it moves live (ADR 0191). Rows from before this move idle. */
   live: z.boolean().default(false),
   /** Set when an agent started it: its thread holds the transfer like a background task. */
   agent: z

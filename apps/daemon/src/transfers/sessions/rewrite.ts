@@ -1,6 +1,6 @@
 /*
  * Folder paths inside a provider's session files, moved to the checkout a transfer landed in
- * (ADR 0190). Pure. Decoding is lenient: a line that isn't JSON, or a record whose shape isn't
+ * (ADR 0191). Pure. Decoding is lenient: a line that isn't JSON, or a record whose shape isn't
  * known, is kept byte for byte. Only a path equal to the source folder or inside it changes.
  */
 

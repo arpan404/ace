@@ -66,7 +66,7 @@ export function placementOf(transfer: Transfer): Placement | undefined {
 /** What a thread's line says about where its work went or came from. */
 export type ThreadTransferState =
   | { kind: "transfer"; transfer: Transfer }
-  /** Its work moved there while it worked and goes on there (ADR 0190). */
+  /** Its work moved there while it worked and goes on there (ADR 0191). */
   | { kind: "moved"; to: Extract<ThreadStatus, { state: "moved" }>["to"] }
   | { kind: "on"; on: ThreadContinuedOn }
   | { kind: "from"; from: ThreadContinuedOn };

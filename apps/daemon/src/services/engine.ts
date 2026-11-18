@@ -484,7 +484,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   );
   services.engine = engine;
   // A thread moving or moved to another machine refuses new turns from the first command
-  // (ADR 0190), before transfers start.
+  // (ADR 0191), before transfers start.
   const owners = new ThreadOwnership(store);
   engine.bindOwnershipFence((threadId) => owners.refusal(threadId));
   if (accountRegistry)

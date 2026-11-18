@@ -1,5 +1,5 @@
 /*
- * Moving a working thread to another machine (ADR 0190), end to end: two real daemons over their
+ * Moving a working thread to another machine (ADR 0191), end to end: two real daemons over their
  * pinned TLS link, real Git, scripted providers. A process test because the switch-over is the
  * wiring between two engines, their transfer rows and their ownership records; the pure rules
  * are tested in live/*.test.ts, restarts and lost links in transfer-live-recovery.

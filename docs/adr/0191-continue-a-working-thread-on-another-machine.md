@@ -1,4 +1,4 @@
-# 0190: Continue a working thread on another machine
+# 0191: Continue a working thread on another machine
 
 Date: 2026-11-18. Status: accepted. Decided by: the owner (the design, 2026-11-18), the build of
 this ADR's PR (how). Amends [ADR 0101](0101-work-on-another-machine.md), "Continuing a thread".

@@ -80,7 +80,7 @@ export interface TargetThreadStarter {
       threadId: ThreadId;
       thread: NonNullable<TransferCommit["thread"]>;
       machine: { hostId: string; name: string };
-      /** False when a carried native session holds the conversation (ADR 0190). */
+      /** False when a carried native session holds the conversation (ADR 0191). */
       handoff?: boolean | undefined;
     },
     then: () => void,
@@ -105,7 +105,7 @@ export interface LandingDeps {
     registeredId?: string | undefined;
   }): void;
   /**
-   * A live move (ADR 0190): fetches what changed after the bulk into the repository, once the
+   * A live move (ADR 0191): fetches what changed after the bulk into the repository, once the
    * bulk is there and before the branch is placed.
    */
   delta?: ((path: string, held: { directoryFd: number } | undefined) => Promise<void>) | undefined;

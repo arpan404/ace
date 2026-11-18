@@ -90,7 +90,7 @@ export function startTransfers(context: ServiceContext): void {
   const transport: TransferTransport = (profile, route, callOptions) =>
     base(profile, route, { ...callOptions, connections });
 
-  // Which machine owns each thread (ADR 0190); the engine's fence reads the same record.
+  // Which machine owns each thread (ADR 0191); the engine's fence reads the same record.
   const ownership = new ThreadOwnership(store);
   const identities = transferIdentities(store, () => services.projects?.catalog, randomUUID, now);
   const incoming = new IncomingTransfers({

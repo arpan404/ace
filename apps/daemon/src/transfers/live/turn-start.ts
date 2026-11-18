@@ -1,7 +1,7 @@
 import type { ThreadStatus } from "@ace/protocol";
 
 /*
- * Whether the moved thread's first turn started on the target (ADR 0190). Pure. Any status but
+ * Whether the moved thread's first turn started on the target (ADR 0191). Pure. Any status but
  * new, failed and a message still queued means the turn ran: it works, waits, needs the person,
  * or already ended.
  */

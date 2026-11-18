@@ -12,7 +12,7 @@ export interface Refusal {
   detail?: string | undefined;
 }
 
-/** The running sentence, by phase; a working thread's move by its stage (ADR 0190). */
+/** The running sentence, by phase; a working thread's move by its stage (ADR 0191). */
 export function runningWords(transfer: Transfer): string {
   const to = transfer.target.name;
   const live = liveWords(transfer);

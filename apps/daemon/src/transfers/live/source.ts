@@ -11,7 +11,7 @@ import { resumeMessage } from "./messages.ts";
 import type { ThreadOwnership } from "./ownership.ts";
 import { interrupts, safePoint, type TurnFacts } from "./safe-point.ts";
 
-/** What the source machine does to a thread it moves (ADR 0190), narrowed for tests. */
+/** What the source machine does to a thread it moves (ADR 0191), narrowed for tests. */
 export interface LiveSourcePorts {
   ownership: ThreadOwnership;
   git: Pick<TransferGit, "bundleRefs" | "captureChanges" | "createBundle" | "pinRef">;

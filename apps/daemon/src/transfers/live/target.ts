@@ -15,7 +15,7 @@ import type { ThreadOwnership } from "./ownership.ts";
 import { LiveStarts, type LiveStart } from "./target-rows.ts";
 import { turnStart } from "./turn-start.ts";
 
-/** What the receiving machine does for a thread that moved while it worked (ADR 0190). */
+/** What the receiving machine does for a thread that moved while it worked (ADR 0191). */
 export interface LiveTargetPorts {
   starts: LiveStarts;
   ownership: ThreadOwnership;

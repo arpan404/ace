@@ -22,7 +22,7 @@ export interface TransferCommandDeps {
   /** thread.move's refusal for a live tree; none when the thread may be carried. */
   continueRefusal(threadId: ThreadId): Promise<string | undefined>;
   /**
-   * Whether a working thread may move live (ADR 0190): the code for a refusal, or none. A
+   * Whether a working thread may move live (ADR 0191): the code for a refusal, or none. A
    * delegated child moves with its parent or not at all. Omitted: busy threads are refused.
    */
   liveRefusal?(threadId: ThreadId): string | undefined;
@@ -120,7 +120,7 @@ export class TransferCommands {
       const self = input.asker.kind === "agent" && input.asker.self;
       const refused = self ? "thread_busy" : await this.deps.continueRefusal(input.threadId);
       if (refused === "thread_busy" && this.deps.liveRefusal) {
-        // A working thread moves while it works (ADR 0190).
+        // A working thread moves while it works (ADR 0191).
         const cannot = this.deps.liveRefusal(input.threadId);
         if (cannot) throw new TransferError(cannot, refusalDetail(cannot));
         live = true;

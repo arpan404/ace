@@ -175,7 +175,7 @@ export class AgentTransfers {
     }
     try {
       // A thread that moved itself runs nothing more here, and one whose move failed was told to
-      // carry on by the move itself (ADR 0190): no result turn either way.
+      // carry on by the move itself (ADR 0191): no result turn either way.
       if (!transfer.live)
         this.deps.deliver(
           agent.threadId,

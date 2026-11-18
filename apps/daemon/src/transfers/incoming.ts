@@ -46,7 +46,7 @@ export interface IncomingDeps {
   threads: TargetThreadStarter;
   /** Logical project identity (ADR 0180); without it, this target says it keeps none. */
   identities?: TransferIdentities | undefined;
-  /** Threads moved while working (ADR 0190); without it, this target takes none. */
+  /** Threads moved while working (ADR 0191); without it, this target takes none. */
   live?: LiveTarget | undefined;
   now(): number;
   log(message: string, fields: Record<string, unknown>): void;
@@ -155,7 +155,7 @@ export class IncomingTransfers {
   private ignoredFile(transferId: string) {
     return join(this.deps.directory, `${transferId}.ignored.part`);
   }
-  /** A live move's final payload: what changed after the bulk, and the session (ADR 0190). */
+  /** A live move's final payload: what changed after the bulk, and the session (ADR 0191). */
   private finalFile(transferId: string) {
     return join(this.deps.directory, `${transferId}.final.part`);
   }
@@ -543,7 +543,7 @@ export class IncomingTransfers {
     }
   }
   /**
-   * A moved thread (ADR 0190): its carried session placed, or the summary chosen, before its
+   * A moved thread (ADR 0191): its carried session placed, or the summary chosen, before its
    * setup; the bulk's own capture ref removed. A restart repeats it with the same outcome.
    */
   private async prepareLive(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>) {

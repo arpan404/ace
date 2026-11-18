@@ -82,7 +82,7 @@ export const TransferIgnoredFiles = z.object({
 export type TransferIgnoredFiles = z.infer<typeof TransferIgnoredFiles>;
 
 /**
- * Where a live switch-over stands (ADR 0190): the bulk uploading while the agent works, stopping
+ * Where a live switch-over stands (ADR 0191): the bulk uploading while the agent works, stopping
  * at a safe point, handed over and waiting for the other machine's answer, moved there, or back
  * to running here because the move didn't happen.
  */
@@ -165,7 +165,7 @@ export const Transfer = z.object({
     .optional(),
   /** Set once failed, in words a person acts on. */
   error: z.object({ code: z.string().min(1).max(64), message: z.string().max(512) }).optional(),
-  /** A thread moved while it was working (ADR 0190): where the switch-over stands. */
+  /** A thread moved while it was working (ADR 0191): where the switch-over stands. */
   live: z
     .object({
       stage: TransferLiveStage,

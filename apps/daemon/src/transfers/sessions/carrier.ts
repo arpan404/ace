@@ -1,7 +1,7 @@
 import type { CarriedSession, ProviderKind } from "@ace/protocol";
 
 /**
- * One provider's own session, carried to another machine with a working thread (ADR 0190).
+ * One provider's own session, carried to another machine with a working thread (ADR 0191).
  * `capture` names the session's files in the home of the thread's account; `place` writes copies
  * of them, folder paths rewritten, into the target account's home. Session files are provider
  * data, never credentials (ADR 0002): no auth file is ever read or written.

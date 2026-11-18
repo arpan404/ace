@@ -57,7 +57,7 @@ export const TransferBegin = z.strictObject({
    */
   sourceWorkspaceId: WorkspaceId.optional(),
   /**
-   * The thread is still working on the sender (ADR 0190): a small final payload follows the
+   * The thread is still working on the sender (ADR 0191): a small final payload follows the
    * bulk, and the target starts the thread's turn itself. Sent only for a working thread; a
    * target that doesn't answer `live` can't take one.
    */
@@ -80,7 +80,7 @@ export const TransferThread = z.object({
 });
 export type TransferThread = z.infer<typeof TransferThread>;
 
-/** The provider's own session, carried in the final payload's `session/` folder (ADR 0190). */
+/** The provider's own session, carried in the final payload's `session/` folder (ADR 0191). */
 export const CarriedSession = z.object({
   provider: ProviderKind,
   nativeSessionId: z.string().min(1).max(256),
@@ -91,7 +91,7 @@ export const CarriedSession = z.object({
 });
 export type CarriedSession = z.infer<typeof CarriedSession>;
 
-/** What a live switch-over adds to the commit (ADR 0190). */
+/** What a live switch-over adds to the commit (ADR 0191). */
 export const TransferLive = z.object({
   /** Grows with every handover of the thread; the target's ownership record keeps it. */
   epoch: z.number().int().positive(),
@@ -215,7 +215,7 @@ export const IncomingTransfer = z.object({
   /** The target keeps logical project identities: `commit` may carry the source's. */
   identity: z.literal(true).optional(),
   /**
-   * The target takes live switch-overs (ADR 0190): bytes of the final payload it holds, and once
+   * The target takes live switch-overs (ADR 0191): bytes of the final payload it holds, and once
    * completed, whether the moved thread's turn started there (it owns the thread from its cutoff).
    */
   live: z

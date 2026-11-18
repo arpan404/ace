@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TransferSessionOutcome } from "@ace/protocol";
 import type { Store } from "../../store.ts";
 
-/** A moved thread's start on this machine (ADR 0190): how its history came, and whether it runs. */
+/** A moved thread's start on this machine (ADR 0191): how its history came, and whether it runs. */
 export interface LiveStart {
   transferId: string;
   threadId: string;

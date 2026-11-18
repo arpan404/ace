@@ -236,7 +236,7 @@ export type Fact =
        */
       stopped?: boolean;
     }
-  /** The thread's work moved to another machine (ADR 0190); null when it runs here again. */
+  /** The thread's work moved to another machine (ADR 0191); null when it runs here again. */
   | { type: "thread.moved"; to: Extract<ThreadStatus, { state: "moved" }>["to"] | null }
   | { type: "tick" };
 

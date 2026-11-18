@@ -4,7 +4,7 @@ import { publishFile, rollback } from "@ace/accounts/session-files";
 import { SessionNotCarried, assertSessionFile } from "./carrier.ts";
 
 /**
- * Writes rewritten copies of staged session files into `home` (ADR 0190): each file is written
+ * Writes rewritten copies of staged session files into `home` (ADR 0191): each file is written
  * to a private stage inside the home first, then linked into place, which never replaces a file
  * that is there. Any failure removes every file this call placed.
  */

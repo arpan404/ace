@@ -19,7 +19,7 @@ export const ThreadStatus = z.discriminatedUnion("state", [
   z.object({ state: z.literal("failed") }),
   z.object({ state: z.literal("unresponsive") }),
   /**
-   * Its work moved to another machine while it was working and goes on there (ADR 0190). Not
+   * Its work moved to another machine while it was working and goes on there (ADR 0191). Not
    * done and not settled: the thread there is the work; this one runs nothing more.
    */
   z.object({

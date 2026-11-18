@@ -97,7 +97,7 @@ async function land(
 ): Promise<Landed> {
   const commit = record.commit;
   if (!commit) throw new TransferError("transfer_invalid", "Nothing was sent to import.");
-  // A live move (ADR 0190): the bulk bundle holds the branch as it was then; the delta brings it
+  // A live move (ADR 0191): the bulk bundle holds the branch as it was then; the delta brings it
   // up to the stop, and the work lands as `commit` says.
   const base = bulkCommit(commit);
   const delta = async (path: string, held: { directoryFd: number } | undefined) => {

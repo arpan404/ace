@@ -436,11 +436,11 @@ export class Engine {
       await this.settledTrees.stop(id, this.settleFailed);
   }
   private fence?: Parameters<typeof liveMove.fenceCommand>[1];
-  /** A thread moving or moved to another machine refuses new turns (ADR 0190). */
+  /** A thread moving or moved to another machine refuses new turns (ADR 0191). */
   bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
     this.fence = fence;
   }
-  /** ADR 0190's live move: safe-point facts, the moved state, a carried native session. */
+  /** ADR 0191's live move: safe-point facts, the moved state, a carried native session. */
   readonly liveMove = {
     turnFacts: (id: ThreadId) => liveMove.turnFacts(this.repo, id),
     markMoved: (id: ThreadId, to: Parameters<typeof liveMove.markMoved>[2]) =>

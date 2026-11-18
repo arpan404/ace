@@ -63,7 +63,7 @@ export interface OutgoingDeps {
   log(message: string, fields: Record<string, unknown>): void;
   /** Longest a target may stay unreachable before the transfer fails. */
   offlineMs?: number;
-  /** Moving a working thread (ADR 0190); without it, a busy thread is never sent. */
+  /** Moving a working thread (ADR 0191); without it, a busy thread is never sent. */
   live?: LiveSource | undefined;
 }
 
@@ -370,7 +370,7 @@ export class OutgoingTransfers {
           error instanceof MachineFailure &&
           (error.kind !== "refused" || error.refusal === "unavailable");
         if (!passing) throw error;
-        // A handed-over thread waits for its target however long it takes (ADR 0190).
+        // A handed-over thread waits for its target however long it takes (ADR 0191).
         if (!patient && this.deps.now() - since > (this.deps.offlineMs ?? 60 * 60 * 1000))
           throw new TransferError(
             "machine_offline",
@@ -458,7 +458,7 @@ export class OutgoingTransfers {
         continue;
       }
       if (record.request.live && !status.live) throw tooOld(record.transfer.target.name);
-      // A folder has no cheap diff: a moving thread's is packed once it stopped (ADR 0190).
+      // A folder has no cheap diff: a moving thread's is packed once it stopped (ADR 0191).
       if (record.request.live && method === "archive" && !plan.live)
         ({ record, plan } = await this.stopLive(this.need(transferId), plan, signal));
       // Receiving: write what travels once, then send what the target doesn't hold yet.
@@ -540,7 +540,7 @@ export class OutgoingTransfers {
       };
       await upload("code", file?.path ?? "", codeBytes);
       await upload("ignored", ignored?.path ?? "", ignoredBytes);
-      // A working thread stops only now that the target holds the bulk (ADR 0190).
+      // A working thread stops only now that the target holds the bulk (ADR 0191).
       if (record.request.live && !plan.live)
         ({ record, plan } = await this.stopLive(this.need(transferId), plan, signal));
       const live = record.request.live ? plan.live : undefined;
@@ -594,7 +594,7 @@ export class OutgoingTransfers {
     }
   }
   /**
-   * Stops a working thread at a safe point and writes the final payload (ADR 0190), kept on the
+   * Stops a working thread at a safe point and writes the final payload (ADR 0191), kept on the
    * row so a restart sends the same one. The thread runs here again if this fails.
    */
   private async stopLive(
@@ -688,7 +688,7 @@ export class OutgoingTransfers {
   }
   /**
    * A live move that ends without the target taking the thread: it runs here again, and an agent
-   * that was stopped is told to carry on (ADR 0190). Only the target's answer reaches here once
+   * that was stopped is told to carry on (ADR 0191). Only the target's answer reaches here once
    * handed over; a lost link keeps asking instead (see `run`).
    */
   private releaseLive(record: OutgoingRecord, change: Partial<Transfer>): OutgoingRecord {

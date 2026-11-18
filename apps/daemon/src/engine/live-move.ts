@@ -2,7 +2,7 @@ import type { Command, CommandResult, ThreadId, ThreadStatus } from "@ace/protoc
 import type { EngineRepository } from "./repository.ts";
 
 /*
- * What the engine does for a thread moving to another machine while it works (ADR 0190): the
+ * What the engine does for a thread moving to another machine while it works (ADR 0191): the
  * facts the safe point reads, the fence that refuses new turns, the moved state, and the carried
  * native session a new thread there continues.
  */

@@ -1,5 +1,5 @@
 /*
- * Which machine owns a thread (ADR 0190, "Ownership record"). Pure transitions: exactly one
+ * Which machine owns a thread (ADR 0191, "Ownership record"). Pure transitions: exactly one
  * machine owns a thread at every step. No record means this machine owns its own thread.
  */
 

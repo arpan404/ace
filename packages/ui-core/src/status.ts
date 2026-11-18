@@ -30,7 +30,7 @@ export function threadStatusLabel(status: ThreadStatus): { label: string; tone: 
   }
 }
 
-/** "Moved to Studio" (ADR 0190): the work goes on there; this thread runs nothing more. */
+/** "Moved to Studio" (ADR 0191): the work goes on there; this thread runs nothing more. */
 export function movedWords(status: Extract<ThreadStatus, { state: "moved" }>): string {
   return `Moved to ${status.to.name}`;
 }

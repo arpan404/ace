@@ -1,5 +1,5 @@
 /*
- * A live switch-over (ADR 0190) converging when the link drops or a daemon restarts mid-cutover:
+ * A live switch-over (ADR 0191) converging when the link drops or a daemon restarts mid-cutover:
  * the source resumes, or the target owns the thread, never both and never neither. Two real
  * daemons over their pinned TLS link, because the guarantee lives in their rows and their calls.
  */

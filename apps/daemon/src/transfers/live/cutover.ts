@@ -1,7 +1,7 @@
 import type { TransferLiveStage } from "@ace/protocol";
 
 /*
- * The source's side of a live switch-over (ADR 0190, "Switch over atomically"). Pure: each event
+ * The source's side of a live switch-over (ADR 0191, "Switch over atomically"). Pure: each event
  * gives the next stage and what the shell does. Before `handing` nothing was committed, so the
  * target can't own the thread and the source may always run it again. From `handing` the commit
  * may have landed: only the target's own answer moves the source or returns it to running.

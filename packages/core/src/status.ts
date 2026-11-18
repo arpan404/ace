@@ -318,7 +318,7 @@ export function deriveAgentStatus(state: ThreadState, key: Key, now: number): Ag
 
 /**
  * Agent statuses must have been derived for the current fact before calling this. A thread whose
- * work moved to another machine (ADR 0190) reads moved once nothing runs here; work that still
+ * work moved to another machine (ADR 0191) reads moved once nothing runs here; work that still
  * runs here always shows as it is.
  */
 export function deriveThreadStatus(state: ThreadState): ThreadStatus {

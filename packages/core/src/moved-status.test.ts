@@ -5,7 +5,7 @@ import { activeRoot, endedRoot } from "./status-test-helper.ts";
 
 const to = { hostId: HostId.parse("studio"), name: "Studio", threadId: ThreadId.parse("t-there") };
 
-describe("a thread whose work moved to another machine (ADR 0190)", () => {
+describe("a thread whose work moved to another machine (ADR 0191)", () => {
   it("reads moved once its turn here has ended, never done", () => {
     const h = endedRoot();
     h.send({ type: "thread.moved", to });

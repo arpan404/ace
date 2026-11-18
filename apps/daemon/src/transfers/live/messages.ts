@@ -1,7 +1,7 @@
 import type { TransferLive } from "@ace/protocol";
 
 /*
- * What the agent is told when its thread moves (ADR 0190). Pure. One plain paragraph each.
+ * What the agent is told when its thread moves (ADR 0191). Pure. One plain paragraph each.
  */
 
 const list = (items: readonly string[]) => items.slice(0, 8).join(", ");
