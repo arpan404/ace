@@ -31,6 +31,9 @@ impl Engine {
         }
         let attached = outgoing.images.len() + outgoing.documents.len();
         self.check_message(&outgoing.text, attached)?;
+        if let Some((name, machine)) = self.moving_to(id) {
+            return Err(SendError::Moving(name, machine));
+        }
         if self.store.conversation(id)?.is_none() || self.deleting(id) {
             return Err(SendError::NotFound);
         }

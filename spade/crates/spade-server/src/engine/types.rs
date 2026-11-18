@@ -210,6 +210,9 @@ pub enum SendError {
     NotFound,
     #[error("Spade is switched off on this machine; it runs on another one")]
     Disabled,
+    /// Frozen while it moves to another machine (ADR 0187).
+    #[error("{0} is moving to {1}; send this once it has arrived there")]
+    Moving(String, String),
     #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
     Group,
     #[error("this is a helper's conversation; it takes no messages")]

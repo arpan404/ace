@@ -32,6 +32,7 @@ pub(crate) use ledger::Admission;
 mod maintenance;
 mod media;
 mod memory;
+mod moves;
 mod outbox;
 mod oversight;
 mod park;
@@ -73,6 +74,7 @@ pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use moves::{HostRecord, MoveError};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,
@@ -219,6 +221,8 @@ pub struct Engine {
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
     digests: digests::Shared,
+    /// Bots moving to or from another machine (ADR 0187, `moves`).
+    moves: moves::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -325,6 +329,7 @@ impl Engine {
             security: std::sync::OnceLock::new(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
+            moves: moves::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -575,12 +580,15 @@ impl Engine {
         }
     }
 
-    /// Whether `id`'s agent is being deleted.
+    /// Whether `id`'s agent is being deleted, or is frozen while it moves to another machine
+    /// (ADR 0187): either way nothing is delivered to it and nothing of it starts.
     pub(super) fn deleting(&self, id: &str) -> bool {
-        self.deleting
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .contains(id)
+        self.frozen(id)
+            || self
+                .deleting
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains(id)
     }
 
     pub fn events(&self, id: &str, after: i64) -> Result<Option<Vec<StoredEvent>>, StoreError> {

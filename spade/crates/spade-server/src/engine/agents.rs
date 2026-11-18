@@ -19,7 +19,6 @@ const MODEL_CHARS: usize = 400;
 pub const MAIN: &str = "main";
 pub const BOT: &str = "bot";
 const MAIN_NAME: &str = "Spade";
-const MAIN_ENABLED: &str = "main_enabled";
 /// Set while Spade's model is the placeholder it was created with before keys could be read.
 const MAIN_PLACEHOLDER: &str = "main_model_placeholder";
 /// How long deleting an agent waits for its stopped work to let go.
@@ -376,10 +375,25 @@ impl Engine {
                     .map_or(serde_json::Value::Null, |open| self.wake_json(open)),
             );
             shown.insert("services".into(), activity.services.into());
+            // A move to another machine, and what needs the person after one (ADR 0187).
+            shown.insert(
+                "move".into(),
+                self.move_view(&agent.id).unwrap_or(serde_json::Value::Null),
+            );
+            shown.insert(
+                "arrived".into(),
+                self.arrival_view(&agent.id)
+                    .unwrap_or(serde_json::Value::Null),
+            );
             // Its place in a tree (ADR 0161).
             self.tree_fields(&agent.conversation, &activity, shown);
         }
         let seen = self.store.seen(&agent.conversation)?;
+        // While it moves its line says where to.
+        let status = match self.moving_to(&agent.conversation) {
+            Some((_, machine)) => Some(format!("Moving to {machine}")),
+            None => status,
+        };
         Ok(AgentView {
             oversight,
             seen,
@@ -393,11 +407,6 @@ impl Engine {
         })
     }
 
-    /// Whether the main agent runs on this machine (ADR 0127: the app picks one machine).
-    pub fn main_enabled(&self) -> Result<bool, StoreError> {
-        Ok(self.store.setting(MAIN_ENABLED)?.as_deref() != Some("false"))
-    }
-
     /// Pins an agent to the top of the person's list, or unpins it. Answers its view, or `None`
     /// for no such agent.
     pub fn pin_agent(&self, id: &str, pinned: bool) -> Result<Option<AgentView>, StoreError> {
@@ -408,11 +417,6 @@ impl Engine {
             return Ok(None);
         }
         self.agent_view(id)
-    }
-
-    pub fn set_main_enabled(&self, enabled: bool) -> Result<(), StoreError> {
-        self.store
-            .set_setting(MAIN_ENABLED, (!enabled).then_some("false"))
     }
 
     /// Whether `conversation` is Spade's while Spade is switched off here.

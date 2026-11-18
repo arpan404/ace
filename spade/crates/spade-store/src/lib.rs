@@ -9,6 +9,7 @@ mod endpoints;
 mod episodes;
 mod helpers;
 mod knowledge;
+mod moves;
 mod notes;
 mod oversight;
 mod routines;
@@ -25,6 +26,10 @@ pub use endpoints::{StoredEndpoint, StoredModel};
 pub use episodes::{NewEpisode, StoredEpisode};
 pub use helpers::StoredHelper;
 pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};
+pub use moves::{
+    Arrived, Arriving, EVENTS, HostChange, Import, MOVE_TABLES, MoveTable, Part, Row, RowSums,
+    Selection, StoredMove, TableSum, move_table,
+};
 pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};

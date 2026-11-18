@@ -425,6 +425,32 @@ impl Store {
     }
 
     /// Marks an entry to be stopped; its worker withdraws or stops it.
+    /// Sends a queued ask to `machine` instead: its bot moved there (ADR 0187). Clubs here
+    /// that list that bot on the old machine list it on the new one.
+    pub fn retarget_outbox(
+        &self,
+        key: &str,
+        agent: &str,
+        machine: &str,
+        machine_name: &str,
+        now_ms: i64,
+    ) -> Result<()> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        tx.execute(
+            "UPDATE group_members SET machine = ?2 WHERE agent_id = ?1
+             AND machine = (SELECT machine FROM outbox WHERE key = ?3)",
+            params![agent, machine, key],
+        )?;
+        tx.execute(
+            "UPDATE outbox SET machine = ?2, machine_name = ?3, state = 'queued', next_ms = ?4,
+             updated_ms = ?4 WHERE key = ?1",
+            params![key, machine, machine_name, now_ms],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn stop_outbox(&self, key: &str, now_ms: i64) -> Result<()> {
         self.lock()?.execute(
             "UPDATE outbox SET stop = 1, next_ms = ?2, updated_ms = ?2

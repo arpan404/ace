@@ -47,6 +47,10 @@ impl Engine {
         text: &str,
         from: FromRoutine,
     ) -> Result<i64, RoutineDeliveryError> {
+        // A bot moving to another machine runs no routine meanwhile (ADR 0187).
+        if self.frozen(conversation) {
+            return Err(RoutineDeliveryError::Disabled);
+        }
         if self.store.conversation(conversation)?.is_none() || self.deleting(conversation) {
             return Err(RoutineDeliveryError::Gone);
         }

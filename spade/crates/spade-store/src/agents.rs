@@ -121,11 +121,13 @@ impl Store {
         Ok(())
     }
 
-    /// Every agent: the main one first, then by latest activity.
+    /// Every agent: the main one first, then by latest activity. A main bot another machine's
+    /// Spade replaced when it moved here (ADR 0187) is kept, retired, and never listed.
     pub fn agents(&self) -> Result<Vec<Agent>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
             "SELECT {COLUMNS} FROM agents a JOIN conversations c ON c.id = a.conversation_id
+             WHERE a.kind != 'retired'
              ORDER BY a.kind = 'main' DESC, c.updated_ms DESC, a.id DESC"
         ))?;
         let rows = statement.query_map([], agent)?;

@@ -59,11 +59,23 @@ fn valid_key(key: &str) -> bool {
 impl Engine {
     /// One inbox request from `sender`.
     pub async fn inbox(self: &Arc<Self>, sender: &Sender, body: &Value) -> InboxAnswer {
+        self.inbox_with(sender, body, None).await
+    }
+
+    /// [`Engine::inbox`], with the person's connected apps here, which a moved bot's choices
+    /// among them are kept against (ADR 0187).
+    pub async fn inbox_with(
+        self: &Arc<Self>,
+        sender: &Sender,
+        body: &Value,
+        connectors: Option<Arc<spade_connect::Connectors>>,
+    ) -> InboxAnswer {
         match body["op"].as_str() {
             Some("bots") => self.inbox_bots(),
             Some("ask") => self.inbox_ask(sender, body),
             Some("answer") => self.inbox_answer(sender, body).await,
             Some("stop") => self.inbox_stop(sender, body),
+            Some("move") => self.inbox_move(sender, body, connectors).await,
             _ => refuse(400, "unknown op"),
         }
     }
@@ -126,6 +138,13 @@ impl Engine {
             Err(error) => return refuse(500, &error),
         };
         let Some(agent) = agent else {
+            // A bot that moved away says where it went, so the asker sends it there (ADR 0187).
+            if let Some((host, name)) = self.moved_away(to) {
+                return (
+                    410,
+                    json!({ "error": format!("That bot moved to {name}."), "moved_to": host, "name": name }),
+                );
+            }
             return refuse(404, "no such bot on this machine");
         };
         let from_agent = body["from"].as_object().map(|from| FromAgent {
