@@ -750,3 +750,25 @@ fn an_empty_or_trailing_space_alias_still_shows_what_runs() {
         "{read:?}"
     );
 }
+
+#[test]
+fn a_variable_a_command_sets_is_kept_on_what_it_reads() {
+    let sets = |command: &str| {
+        read(command)
+            .unwrap_or_default()
+            .iter()
+            .map(|s| (s.words.first().cloned().unwrap_or_default(), s.assigns))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        sets("TAR_OPTIONS=x tar -tf a.tar"),
+        [("tar".to_owned(), true)]
+    );
+    assert_eq!(sets("env LESSOPEN=x less a"), [("less".to_owned(), true)]);
+    assert_eq!(
+        sets("X=1; ls"),
+        [(String::new(), true), ("ls".to_owned(), false)]
+    );
+    assert_eq!(sets("sh -c 'X=1 ls'"), [("ls".to_owned(), true)]);
+    assert_eq!(sets("ls -la"), [("ls".to_owned(), false)]);
+}

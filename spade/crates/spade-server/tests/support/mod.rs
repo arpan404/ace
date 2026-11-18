@@ -45,6 +45,11 @@ pub struct FakeTool {
     pub app: Option<bool>,
     /// What it declares it does (ADR 0171), over what its name or annotations would say.
     pub declared: Option<spade_core::effect::Effect>,
+    /// A fake `shell` whose command starts outside the bot's folder, or in one Spade can't
+    /// resolve: the classifier can't place its paths.
+    pub unplaced: bool,
+    /// A fake `shell` on a machine with no read-only sandbox: the classifier settles nothing.
+    pub no_sandbox: bool,
     /// Answers given in turn before `answer`, the last of them again and again.
     pub answers: Arc<Mutex<Vec<String>>>,
 }
@@ -69,8 +74,22 @@ impl FakeTool {
             calls: Arc::default(),
             app: None,
             declared: None,
+            unplaced: false,
+            no_sandbox: false,
             answers: Arc::default(),
         }
+    }
+
+    /// A fake `shell` on a machine with no read-only sandbox.
+    pub fn no_sandbox(mut self) -> Self {
+        self.no_sandbox = true;
+        self
+    }
+
+    /// A fake `shell` whose command starts where Spade can't place it against the bot's folder.
+    pub fn unplaced(mut self) -> Self {
+        self.unplaced = true;
+        self
     }
 
     /// Takes arguments shaped by `schema`, as its server says.
@@ -144,10 +163,23 @@ impl Tool for FakeTool {
     }
 
     /// A fake `shell` is a command with no sandbox, as on a machine without one: classed by
-    /// what it runs, for the review.
+    /// what it runs, for the review, starting in the bot's folder (`Lexical`'s `/workspace`)
+    /// unless it is [`FakeTool::unplaced`].
     fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
         if self.def.spec.name == spade_core::autonomy::SHELL {
-            spade_core::autonomy::classify_shell(arguments, &spade_core::autonomy::shell::Lexical)
+            let classed = spade_core::autonomy::classify_shell(
+                arguments,
+                &spade_core::autonomy::shell::Lexical,
+            );
+            spade_core::autonomy::Classed {
+                workspace: (!self.unplaced).then(|| "/workspace".to_owned()),
+                // As if the folder's configuration had been inspected and runs nothing.
+                config_clean: spade_core::autonomy::ConfigTools::ALL,
+                // As if the machine could hold a settled read in a read-only sandbox: the fake
+                // shell doesn't launch through one, so this only exercises the gate.
+                sandboxable: !self.no_sandbox,
+                ..classed
+            }
         } else {
             spade_core::autonomy::Classed::default()
         }

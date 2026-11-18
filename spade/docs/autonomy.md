@@ -304,13 +304,49 @@ and a connector's or plugin's tool. For each it does one of three things:
 | low-risk (`read`, or `write_local` in the bot's folder), above its threshold, for a command it may settle   | runs                                                                         |
 | anything else                                                                                               | the reviewer, as without it                                                  |
 
-It may settle only a command the shell classifier found nothing in, that runs no file the
-reviewer would be shown, with nothing untrusted in view, no standing work and no concern named.
-It never settles a command that points outside the bot's folders (the home folder, an absolute
-path, `..`, a variable, another machine, a URL that isn't a web page), that hides what it runs
-(decoded text run as code, `eval`, a program from a variable, an alias or function defined in the
-command, escapes, look-alike or invisible letters, text that can't be read), or that has a
-program, subcommand or flag never seen in a low-risk training command.
+It may settle only a command the shell classifier found nothing in, that starts in the bot's
+folder, runs no file the reviewer would be shown, sets up no standing work and has no concern
+named. With nothing untrusted in view it may settle a read or a write in the folder; with
+untrusted content in view (a command's own output is untrusted, so this is most of a session) only
+a read, above a read threshold of its own, that can reach no other machine (no program that can,
+no URL, host or address in it), so nothing it was shown can be sent anywhere or change anything
+(ADR 0172, amendment 1). It never settles a command that points outside the bot's folders (the
+home folder, an absolute path outside it, `..`, a variable, another machine, a URL that isn't a
+web page), that hides what it runs (decoded text run as code, `eval`, a program from a variable,
+an alias or function defined in the command, an option that runs another program such as
+`rg --pre` or `tar --to-command`, a wrapper that injects the person's secrets such as
+`doppler run`, a variable that makes a program load code such as `PATH` or `PYTHONPATH`, a
+credential written into it, escapes, look-alike or invisible letters, text that can't be read), or
+that has a program, subcommand or flag never seen in a low-risk training command. A command that
+runs git, a Node package manager, cargo or ripgrep settles only when the gate inspected that
+tool's configuration around the folder (the repository's and its worktree's config and what they
+include, the config of `HOME`, which is the bot's folder, hooks, rc files, the variables the
+command runs with) and found no program in it, such as an fsmonitor, a pager, a diff or filter
+driver or a runner (ADR 0172, amendment 2). It settles only reads, in a hard form: Spade runs the
+command with overrides that make git, ripgrep and grep ignore any such configuration whatever the
+files say at launch, and with a clean, fixed environment built by Spade, never the daemon's or a
+terminal's carried variables (amendments 3 and 4). Only the programs in the audited list above
+settle (git's reads that run no diff, filter or merge driver; never `git status`, `git diff`,
+writes, builds, installs, interpreters or script languages). The gate records the form with the
+verdict, and the launch checks it, applies it and runs the command in the clean environment.
+
+A settled command runs inside a read-only OS sandbox confined to the bot's folder (ADR 0172,
+amendment 7; ADR 0167's Landlock, Seatbelt or AppContainer). The profile is strict, minimal and
+offline: it may read the folder and a narrow allowlist of the program and library trees a command
+needs to start (`/usr/bin`, `/bin`, `/usr/lib*`, `/lib*`, the loader's cache; the dyld shared cache
+on macOS), and nothing else — not `/etc`, `/opt`, `/var/lib`, `/sys` or `/Library`. It creates no
+socket of any kind, so it reaches no network, binds no port and opens no Unix socket; its one device
+is `/dev/null`. A symlink, a recursive walk or a `.git` `gitdir:` file that resolves outside the
+folder is refused by the kernel, not by a path check, so a read can't follow a link out and there is
+no decision-to-launch race to lose. The sandbox is a second wall behind the gate's refusals, never a
+substitute for them. It is enforced fully or not at all: a command settles only where the whole
+boundary holds (the file ABI that contains truncation, the loaded syscall filter, process and IPC
+isolation), checked both when the gate admits the settle and again at launch; where it doesn't, the
+command goes to the reviewer. Before settling, Spade resolves each program the command runs on the
+clean PATH outside the sandbox and grants the read-only sandbox exactly the extra read roots they
+need (a Homebrew or Cargo install prefix; on macOS the active developer dir behind the `/usr/bin/git`
+shim, and the links the `/bin/sh` trampoline reads); a program that can't be resolved means the
+command doesn't settle. Windows has no read-only profile yet and reviews these commands.
 
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
 cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older
@@ -319,6 +355,44 @@ low-risk and person-only probabilities and the decision, never the call's argume
 setting `classifier` (`PUT /v1/oversight`) turns it off; everything then goes to the reviewer.
 Its measures, data and thresholds are in `spade/crates/spade-classify/model/REPORT.md`; it is
 retrained with `spade/tools/classify-train`.
+
+#### Programs a settled command may run
+
+A command the classifier settles only reads: it writes nowhere real, sets no variable, and runs
+only the programs below, each kept because its own manual page shows that Spade's overrides and
+refusals cover every configuration file, variable and option that could make it run, pipe to or
+load something the command doesn't name (`spade_classify::hardening`, ADR 0172, amendments 3 and
+4). A command that writes a file (a write-capable program, or a redirect to anything but
+`/dev/null` and its kin), runs a program from a script (`awk`, `sed`), handles archives (`tar`),
+pages (`less`, `more`), sets any variable, or builds text at run time is not settled, however
+plain it looks. The settled set is deliberately small, so each entry is simple to prove.
+
+| Program                                                                                                                                                                                                                                                                                                                                                                                                   | What its documentation says it reads                                       | Kept, and how                                                                                                                                                                                                                                                                        | Source                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Shell builtins: `echo`, `printf`, `test`, `[`, `true`, `false`, `pwd`, `type`, `cd`, `pushd`, `popd`, `exit`, `return`, `shift`, `wait`                                                                                                                                                                                                                                                                   | no configuration; `cd` reads `CDPATH`                                      | kept; `printf -v` (a write to a variable) refused; `CDPATH` is never carried into a settled command's clean environment                                                                                                                                                              | bash(1), SHELL BUILTIN COMMANDS                           |
+| GNU coreutils that write only standard output: `cat`, `head`, `tail`, `wc`, `ls`, `sleep`, `date`, `basename`, `dirname`, `realpath`, `readlink`, `stat`, `du`, `df`, `sort`, `uniq`, `cut`, `tr`, `comm`, `join`, `paste`, `nl`, `fold`, `fmt`, `expand`, `unexpand`, `tac`, `od`, the `*sum` programs, `seq`, `id`, `whoami`, `uname`, `nproc`, `printenv`, `base32`, `numfmt`, `factor`, `expr`, `yes` | locale and format variables only (`LS_COLORS`, `TIME_STYLE`, `BLOCK_SIZE`) | kept; `sort -o`/`--compress-program`, `uniq`'s output operand and `date -s` refused                                                                                                                                                                                                  | each program's manual page, DESCRIPTION and options       |
+| GNU diffutils `diff`, `cmp`; GNU `which`; binutils `strings`                                                                                                                                                                                                                                                                                                                                              | no configuration                                                           | kept                                                                                                                                                                                                                                                                                 | diff(1), cmp(1), which(1), strings(1)                     |
+| util-linux `rev`, `column`, `hexdump`                                                                                                                                                                                                                                                                                                                                                                     | colour schemes in `terminal-colors.d`                                      | kept                                                                                                                                                                                                                                                                                 | column(1), hexdump(1), COLORS                             |
+| procps `uptime`, `free`                                                                                                                                                                                                                                                                                                                                                                                   | no configuration                                                           | kept                                                                                                                                                                                                                                                                                 | uptime(1), free(1)                                        |
+| findutils `find`                                                                                                                                                                                                                                                                                                                                                                                          | actions that run a command, write or delete                                | kept; `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint*`, `-fls` refused                                                                                                                                                                                                    | find(1), ACTIONS                                          |
+| `fd`                                                                                                                                                                                                                                                                                                                                                                                                      | ignore files (filter results only); options that run a command             | kept; `-x`/`--exec`, `-X`/`--exec-batch` refused                                                                                                                                                                                                                                     | fd(1)                                                     |
+| `jq`                                                                                                                                                                                                                                                                                                                                                                                                      | `~/.jq`, sourced as jq code; module search path                            | kept: jq code can neither write a file nor run a program                                                                                                                                                                                                                             | jq(1), MODULES                                            |
+| `file`                                                                                                                                                                                                                                                                                                                                                                                                    | magic files (classification only); options that run decompressors or write | kept; `-z`, `-Z`, `-C` refused                                                                                                                                                                                                                                                       | file(1)                                                   |
+| git (the reads listed in `harden.rs`)                                                                                                                                                                                                                                                                                                                                                                     | every config scope, includes, hooks, pagers, drivers                       | kept for reads that run no diff, filter or merge driver and write nothing, with `GIT_CONFIG_COUNT` overrides, which outrank every file, `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_PAGER=cat`; `-c`, `-C`, `--git-dir`, `--work-tree` and content options refused | git-config(1), FILES and ENVIRONMENT; git(1), ENVIRONMENT |
+| `rg`                                                                                                                                                                                                                                                                                                                                                                                                      | `RIPGREP_CONFIG_PATH`; options that run a program                          | kept with the variable blanked; `--pre`, `--hostname-bin`, `-z` refused                                                                                                                                                                                                              | rg(1), CONFIGURATION FILES                                |
+| `grep`, `egrep`, `fgrep`                                                                                                                                                                                                                                                                                                                                                                                  | colour and locale variables                                                | kept; `GREP_OPTIONS` blanked                                                                                                                                                                                                                                                         | grep(1), ENVIRONMENT                                      |
+
+Removed from settling: every write-capable program (`cp`, `mv`, `mkdir`, `touch`, `rm`, `rmdir`,
+`ln`, `chmod`, `tee`, `truncate`, `split`, `csplit`), the script languages `awk`/`gawk`/`mawk` and
+`sed` (a program given on the command line can `system`, redirect or read another file from places
+the parser can't fully follow), `tar` (compressors, remote archives and format-string actions from
+too many places), the pagers `less` and `more`; and, from the earlier audit, `cloc` (an options
+file in the home folder, and a `--vcs` file-list command), `tree`, `xxd`, `getconf` (no manual on
+the audit machine), `ps`, `pgrep` (other processes' command lines and environments), `shasum` (a
+Perl script), `env` and the builtins that set variables or command paths (`export`, `declare`,
+`typeset`, `readonly`, `local`, `set`, `unset`, `read`, `hash`), `hyprctl`, `wl-paste` (they can
+start programs), `ip`, `ss`, `netstat`, `lsof`, `lsblk`, `lscpu`, `dmesg`, the compressors,
+`tokei`, `zip`, `unzip` and `journalctl`.
 
 ### The reviewer
 

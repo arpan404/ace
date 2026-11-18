@@ -127,6 +127,10 @@ fn walk(
             let k = key.unwrap_or("");
             let folded = text::fold(s, 4096);
             found.dropped |= folded.cut;
+            if crate::shell::carries_credential(&folded.text) {
+                bag.add("M", &["carries_credential"]);
+                found.hides = true;
+            }
             let shape = shape::of(&folded.text, None, "KS", bag);
             bag.add("KS", &[k, shape]);
             bag.add("S", &[shape]);

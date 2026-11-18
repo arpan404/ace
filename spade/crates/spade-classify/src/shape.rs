@@ -40,11 +40,26 @@ impl Place {
 
 /// Whether `word` reads as a path at all.
 pub(crate) fn is_path(word: &str) -> bool {
+    let word = &*without_status(word);
     word.contains('/') || word.starts_with('~') || word.starts_with('.') || word.contains('$')
+}
+
+/// `word` without the shell's special parameters that can't name a place (`$?`, `$#`, `$$`):
+/// `exit=$?` is a status, not a path.
+fn without_status(word: &str) -> std::borrow::Cow<'_, str> {
+    if word.contains("$?") || word.contains("$#") || word.contains("$$") {
+        word.replace("$?", "0")
+            .replace("$#", "0")
+            .replace("$$", "0")
+            .into()
+    } else {
+        word.into()
+    }
 }
 
 /// Where the path `word` points, with `workspace` the bot's folder when known.
 pub(crate) fn place(word: &str, workspace: Option<&str>) -> Place {
+    let word = &*without_status(word);
     if word.contains('$') || word.contains('`') {
         return Place::Variable;
     }
@@ -139,6 +154,40 @@ pub(crate) fn elsewhere(word: &str, shape: &str) -> bool {
         || shape == "url"
             && host(word.trim())
                 .is_some_and(|(scheme, _)| !matches!(scheme.as_str(), "http" | "https"))
+}
+
+/// Whether a word may name a machine on the network: an IP address, `localhost`, `host:port`, or
+/// a dotted name ending in a common top-level domain (`example.com`, `api.github.com/x`).
+pub(crate) fn names_host(word: &str) -> bool {
+    let word = word.trim_matches(['"', '\'']);
+    let host = word.split(['/', '?']).next().unwrap_or(word);
+    let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
+    let (name, port) = host.rsplit_once(':').unwrap_or((host, ""));
+    if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) && !name.is_empty() {
+        return true;
+    }
+    if name.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let parts: Vec<&str> = name.split('.').collect();
+    if parts.len() == 4
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 3 && p.chars().all(|c| c.is_ascii_digit()))
+    {
+        return true;
+    }
+    // Not ones that are also file extensions (`.sh`, `.md`, `.rs`, `.app`).
+    const TLDS: &[&str] = &[
+        "com", "net", "org", "io", "dev", "ai", "xyz", "cloud", "info", "gov", "edu",
+    ];
+    parts.len() >= 2
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+        && parts
+            .last()
+            .is_some_and(|tld| TLDS.contains(&tld.to_ascii_lowercase().as_str()))
 }
 
 fn email(word: &str) -> bool {
@@ -266,6 +315,8 @@ mod tests {
             ("/data/workspace/b1/../b2/x", Place::Parent),
             ("/data/workspace/b10/x", Place::Absolute),
             ("$HOME/x", Place::Variable),
+            ("exit=$?", Place::Inside),
+            ("$?$X", Place::Variable),
             ("/dev/null", Place::Nowhere),
         ] {
             assert_eq!(place(path, w), expected, "{path}");

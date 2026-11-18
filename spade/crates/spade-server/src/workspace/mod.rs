@@ -7,6 +7,7 @@
 //! Writes go to a temporary file beside the target and are renamed over it, never truncated in
 //! place, and a file with more than one hard link is never written.
 
+mod ambient;
 mod files;
 mod identity;
 mod installed;
