@@ -51,3 +51,74 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test.skipIf(process.platform === "win32")(
+  "a profile that leaves a background process holding the shell's output still answers, and that process is ended",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    const pidFile = join(root, "pid");
+    try {
+      await writeFile(
+        shell,
+        [
+          "#!/bin/sh",
+          // Started by the profile, never exits, and keeps the shell's stdout open.
+          `/bin/sleep 30 & echo $! > ${JSON.stringify(pidFile)}`,
+          "printf '__ACE_PATH__/login/bin__ACE_PATH__'",
+        ].join("\n"),
+      );
+      await chmod(shell, 0o755);
+      const started = performance.now();
+      expect(await loginShellPath({ SHELL: shell, PATH: "/usr/bin" }, { killGraceMs: 200 })).toBe(
+        "/login/bin:/usr/bin",
+      );
+      expect(performance.now() - started).toBeLessThan(2_000);
+      const pid = Number(await readFile(pidFile, "utf8"));
+      await vi.waitFor(() => expect(running(pid)).toBe(false), { timeout: 3_000 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a shell that exits on SIGTERM while something it started ignores it leaves nothing behind",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-login-path-"));
+    const shell = join(root, "shell");
+    const pidFile = join(root, "pid");
+    try {
+      await writeFile(
+        shell,
+        [
+          "#!/bin/sh",
+          `( trap '' TERM; while :; do /bin/sleep 0.05; done ) & echo $! > ${JSON.stringify(pidFile)}`,
+          // The shell itself never answers, and exits on SIGTERM.
+          "/bin/sleep 30",
+        ].join("\n"),
+      );
+      await chmod(shell, 0o755);
+      expect(
+        await loginShellPath(
+          { SHELL: shell, PATH: "/usr/bin" },
+          { timeoutMs: 300, killGraceMs: 200 },
+        ),
+      ).toBe("/usr/bin");
+      const pid = Number(await readFile(pidFile, "utf8"));
+      // SIGTERM ends the leader; the descendant ignores it and is killed with the group.
+      await vi.waitFor(() => expect(running(pid)).toBe(false), { timeout: 3_000 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

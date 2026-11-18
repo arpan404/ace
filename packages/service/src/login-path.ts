@@ -4,11 +4,11 @@ import { z } from "zod";
 
 const marker = "__ACE_PATH__";
 
-/** How long a login shell may take, and how long it gets to exit once told to stop. */
+/** How long a login shell may take, and how long its processes get to exit once told to stop. */
 export interface LoginShellTiming {
   /** The answer is settled by then whatever the shell does. */
   timeoutMs?: number;
-  /** After the deadline, the shell gets SIGTERM, then SIGKILL this long later. */
+  /** Once answered, what is left of the shell's group gets SIGTERM, then SIGKILL this long later. */
   killGraceMs?: number;
 }
 
@@ -17,7 +17,8 @@ export interface LoginShellTiming {
  * provider CLIs installed by Homebrew, npm or installers are invisible. Ask the user's login
  * shell once for its PATH. Allow slow shell startup before selecting an installation. Falls back
  * to the current PATH on any failure, and at the deadline at the latest, even if the shell
- * ignores being stopped: the shell's process group is then ended separately.
+ * ignores being stopped. However it ends, nothing the shell started outlives the lookup: its
+ * process group is ended (`endProcessGroup`).
  */
 export function loginShellPath(
   env: NodeJS.ProcessEnv,
@@ -29,15 +30,20 @@ export function loginShellPath(
   return new Promise((resolve) => {
     let done = false;
     let output = "";
+    let child: ChildProcess | undefined;
     const finish = (found: string | undefined) => {
       if (done) return;
       done = true;
       clearTimeout(deadline);
       resolve(found ? mergePaths(found, current) : current);
+      // A process the profile left holding stdout open must not keep this end of the pipe.
+      child?.stdout?.destroy();
+      if (child?.pid !== undefined) endProcessGroup(child.pid, killGraceMs);
     };
-    let child: ChildProcess;
+    const deadline = setTimeout(() => finish(undefined), timeoutMs);
+    deadline.unref();
     try {
-      // Its own process group, so a stop reaches whatever the shell profile started too.
+      // Its own process group, so the stop reaches whatever the shell profile started too.
       child = spawn(shell, ["-ilc", `printf '%s%s%s' ${marker} "$PATH" ${marker}`], {
         env: { ...env, TERM: "dumb" },
         stdio: ["ignore", "pipe", "ignore"],
@@ -46,20 +52,6 @@ export function loginShellPath(
     } catch {
       return finish(undefined);
     }
-    const stop = (signal: NodeJS.Signals) => {
-      if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
-      try {
-        process.kill(-child.pid, signal);
-      } catch {
-        child.kill(signal);
-      }
-    };
-    const deadline = setTimeout(() => {
-      finish(undefined);
-      stop("SIGTERM");
-      setTimeout(() => stop("SIGKILL"), killGraceMs).unref();
-    }, timeoutMs);
-    deadline.unref();
     child.stdout?.setEncoding("utf8").on("data", (chunk: string) => {
       output += chunk;
       // Answered once both markers are in: a profile that leaves a process holding stdout
@@ -74,6 +66,34 @@ export function loginShellPath(
       finish(parts.length >= 3 ? parts[1] : undefined);
     });
   });
+}
+
+/**
+ * Ends process group `pgid` whether or not its leader is still running: SIGTERM now, then
+ * SIGKILL to the whole group after `graceMs` if any member is left. While members are left this
+ * keeps the process alive (it owns them), and an exit before the grace ends kills them at once.
+ * A group that is already empty costs nothing.
+ */
+function endProcessGroup(pgid: number, graceMs: number): void {
+  // Signal 0 checks the group still has a member this process may signal.
+  const signal = (name: NodeJS.Signals | 0): boolean => {
+    try {
+      process.kill(-pgid, name);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!signal("SIGTERM")) return;
+  const killNow = () => void signal("SIGKILL");
+  process.once("exit", killNow);
+  const until = performance.now() + graceMs;
+  const watch = setInterval(() => {
+    if (signal(0) && performance.now() < until) return;
+    signal("SIGKILL");
+    clearInterval(watch);
+    process.off("exit", killNow);
+  }, 50);
 }
 
 /** Login-shell entries first, then anything only the current environment had. */
