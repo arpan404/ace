@@ -125,7 +125,6 @@ struct QRScannerView: View {
                 }
             }
         }
-        .accessibilityIdentifier("scanner.unavailable")
     }
 
     // MARK: Decisions
@@ -174,7 +173,7 @@ private enum ScannerLook {
     /// Lifts the frame a little above centre, clear of the buttons at the foot.
     static let lift: CGFloat = 48
     static let checkHold: Duration = .milliseconds(500)
-    static let standInDelay: Duration = .seconds(1)
+    static let standInDelay: Duration = .seconds(3)
     static var corner: CGFloat { AceDesign.Corner.device / 2 + AceDesign.Space.related }
 }
 

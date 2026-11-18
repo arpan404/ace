@@ -15,13 +15,12 @@ import XCTest
         capture("pair")
         app.buttons["pairing.scan"].tap()
         // The simulator has no camera: the scanner says so in place instead of closing.
-        XCTAssertTrue(app.descendants(matching: .any)["scanner.unavailable"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["No camera"].exists)
+        XCTAssertTrue(app.staticTexts["No camera"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["scanner.paste"].exists)
         capture("scanner-no-camera")
         app.buttons["scanner.close"].tap()
         XCTAssertTrue(app.buttons["pairing.scan"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.descendants(matching: .any)["scanner.unavailable"].exists)
+        XCTAssertFalse(app.staticTexts["No camera"].exists)
     }
 
     func testCameraAccessOffOffersSettingsAndPaste() {
