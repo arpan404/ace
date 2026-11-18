@@ -8,164 +8,18 @@
 //! watcher was alive. One watcher runs per test, because several FSEvents streams in one
 //! process interfere.
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use files_safe::Root;
-use files_watch::{Batch, Change, ChangeKind, WatchOptions, Watcher};
+use files_watch::{Batch, Change, ChangeKind, WatchOptions};
 
-const DEBOUNCE: Duration = Duration::from_millis(100);
-const WAIT: Duration = Duration::from_secs(15);
-const SETTLE: Duration = Duration::from_secs(2);
+mod support;
 
-/// One OS watcher at a time: several FSEvents streams in one process interfere on macOS.
-static SERIAL: Mutex<()> = Mutex::new(());
+use support::{Session, changes, options};
 
-struct Session {
-    _watcher: Watcher,
-    dir: tempfile::TempDir,
-    batches: Arc<Mutex<Vec<Batch>>>,
-    debounce: Duration,
-    // Last, so the OS watch is closed before the next test takes the lock.
-    _serial: MutexGuard<'static, ()>,
-}
-
-impl Session {
-    fn start(options: WatchOptions, prepare: impl FnOnce(&Path)) -> Session {
-        let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-        let dir = tempfile::tempdir().unwrap();
-        prepare(dir.path());
-        // FSEvents replays the last second of the journal when a stream starts, which would
-        // resurface whatever `prepare` wrote as creations; let that history age out first.
-        std::thread::sleep(Duration::from_millis(1_200));
-        let root = Root::open(dir.path()).unwrap();
-        let batches = Arc::new(Mutex::new(Vec::new()));
-        let recorded = Arc::clone(&batches);
-        let debounce = options.debounce;
-        let watcher = Watcher::start(
-            root,
-            options,
-            Box::new(move |batch| {
-                recorded
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(batch);
-            }),
-        )
-        .unwrap();
-        Session {
-            _watcher: watcher,
-            dir,
-            batches,
-            debounce,
-            _serial: serial,
-        }
-    }
-
-    fn path(&self, rel: &str) -> PathBuf {
-        self.dir.path().join(rel)
-    }
-
-    /// How long the sink has to stay silent for a burst of batches to count as finished.
-    fn quiet(&self) -> Duration {
-        self.debounce.saturating_mul(3).max(SETTLE)
-    }
-
-    fn seen(&self) -> Vec<Batch> {
-        self.batches
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-
-    /// Waits until at least one batch arrived and the sink has been quiet for a while.
-    fn settle(&self) -> Vec<Batch> {
-        let deadline = Instant::now() + WAIT;
-        let mut last = 0;
-        let mut quiet_since = Instant::now();
-        loop {
-            let count = self
-                .batches
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .len();
-            if count != last {
-                last = count;
-                quiet_since = Instant::now();
-            }
-            if count > 0 && quiet_since.elapsed() >= self.quiet() {
-                return self.seen();
-            }
-            if Instant::now() >= deadline {
-                return self.seen();
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-    }
-
-    /// Waits for one change, whichever batch carries it.
-    fn wait_for(&self, path: &str, kind: ChangeKind) -> Change {
-        let deadline = Instant::now() + WAIT;
-        loop {
-            if let Some(change) = changes(&self.seen())
-                .into_iter()
-                .find(|change| change.path == path && change.kind == kind)
-            {
-                return change;
-            }
-            if Instant::now() >= deadline {
-                panic!(
-                    "no {kind:?} for {path} within {WAIT:?}; saw {:?}",
-                    self.seen()
-                );
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-    }
-
-    /// Waits for a rescan and returns the folder it names.
-    fn wait_for_rescan(&self) -> Option<String> {
-        let deadline = Instant::now() + WAIT;
-        loop {
-            for batch in self.seen() {
-                if let Batch::Rescan { dir } = batch {
-                    return dir;
-                }
-            }
-            if Instant::now() >= deadline {
-                panic!("no rescan within {WAIT:?}; saw {:?}", self.seen());
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-    }
-
-    /// Waits a quiet period and returns everything the sink saw.
-    fn after_quiet(&self) -> Vec<Batch> {
-        std::thread::sleep(self.quiet());
-        self.seen()
-    }
-}
-
-fn options() -> WatchOptions {
-    WatchOptions {
-        debounce: DEBOUNCE,
-        max_wait: Duration::from_secs(1),
-        exclude: Vec::new(),
-        max_batch: 5_000,
-    }
-}
-
-fn changes(batches: &[Batch]) -> Vec<Change> {
-    let mut changes = Vec::new();
-    for batch in batches {
-        match batch {
-            Batch::Changes(reported) => changes.extend(reported.iter().cloned()),
-            Batch::Warning(message) => panic!("unexpected warning: {message}"),
-            Batch::Rescan { .. } => {}
-        }
-    }
-    changes
+/// Waits a quiet period and returns everything the sink saw.
+fn after_quiet(session: &Session) -> Vec<Batch> {
+    std::thread::sleep(session.quiet());
+    session.seen()
 }
 
 #[test]
@@ -214,7 +68,7 @@ fn create_then_delete_in_one_window_reports_nothing() {
     std::fs::write(session.path("fleeting.txt"), b"brief").unwrap();
     std::thread::sleep(Duration::from_millis(2_000));
     std::fs::remove_file(session.path("fleeting.txt")).unwrap();
-    let reported = changes(&session.after_quiet());
+    let reported = changes(&after_quiet(&session));
     assert!(
         reported.is_empty(),
         "a create and delete in one window cancels out, saw {reported:?}"

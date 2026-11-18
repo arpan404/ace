@@ -34,6 +34,8 @@ mod linux;
 mod observed;
 mod translate;
 mod watch;
+#[cfg(windows)]
+mod windows;
 
 pub use batch::{Batch, Change, ChangeKind};
 pub use error::Error;

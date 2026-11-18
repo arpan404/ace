@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 
 use files_safe::Root;
 use notify::Event;
+#[cfg(windows)]
+use notify::event::{EventKind, Flag};
 
 use crate::adopt::{self, Adopted};
 use crate::backend::{self, Backend, Native, POLL_INTERVAL};
@@ -178,6 +180,30 @@ pub(crate) struct Events {
 
 impl notify::EventHandler for Events {
     fn handle_event(&mut self, event: notify::Result<Event>) {
+        self.offer(event);
+    }
+}
+
+impl Events {
+    /// Hands one event to the worker without ever blocking the OS watcher.
+    #[cfg(windows)]
+    pub(crate) fn send(&self, event: Event) {
+        self.offer(Ok(event));
+    }
+
+    /// The backend lost events: the worker sends a rescan of the whole root.
+    #[cfg(windows)]
+    pub(crate) fn lost_events(&self) {
+        self.offer(Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan)));
+    }
+
+    /// The OS watch stopped working, with the reason the worker reports as a warning.
+    #[cfg(windows)]
+    pub(crate) fn failed(&self, message: &str) {
+        self.offer(Err(notify::Error::generic(message)));
+    }
+
+    fn offer(&self, event: notify::Result<Event>) {
         match self.sender.try_send(Command::Event(event)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => self.overflow.store(true, Ordering::Release),

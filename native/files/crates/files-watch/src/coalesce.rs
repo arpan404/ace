@@ -68,12 +68,21 @@ impl Coalescer {
         {
             return None;
         }
-        self.paths.entry(change.path).or_default().push(
-            change.kind,
-            change.directory,
-            rename,
-            present,
-        );
+        let path = change.path;
+        let holds_a_change = self.holds_a_change(&path);
+        let observed = self.paths.entry(path.clone()).or_default();
+        observed.push(change.kind, change.directory, rename, present);
+        if holds_a_change {
+            observed.mark_directory();
+        }
+        // A path with news is a folder, and so is every ancestor already in the window.
+        let mut folder = parent(&path);
+        while !folder.is_empty() {
+            if let Some(ancestor) = self.paths.get_mut(folder) {
+                ancestor.mark_directory();
+            }
+            folder = parent(folder);
+        }
         if self.rescan.is_none() && self.paths.len() > self.max_batch {
             let dir = self.narrowest();
             self.rescan = Some(dir.clone());
@@ -81,6 +90,15 @@ impl Coalescer {
             return Some(Batch::Rescan { dir });
         }
         None
+    }
+
+    /// Whether the window already holds news about something inside `folder`.
+    fn holds_a_change(&self, folder: &str) -> bool {
+        let prefix = format!("{folder}/");
+        self.paths
+            .range(prefix.clone()..)
+            .next()
+            .is_some_and(|(path, _)| path.starts_with(&prefix))
     }
 
     /// The backend lost events. `dir` is the folder it named, if it named one.
@@ -424,5 +442,25 @@ mod tests {
         );
         coalescer.push(notice("fleeting.txt", ChangeKind::Deleted), now);
         assert_eq!(coalescer.settle(now, &gone), None);
+    }
+
+    #[test]
+    fn a_deleted_folder_is_known_from_the_children_it_reported() {
+        // Windows reports a deleted folder exactly like a deleted file. The children removed
+        // first are the evidence that the path was a folder, in either order of arrival.
+        for children_first in [true, false] {
+            let mut coalescer = coalescer(100);
+            let now = Instant::now();
+            if children_first {
+                coalescer.push(notice("gone/file.txt", ChangeKind::Deleted), now);
+                coalescer.push(notice("gone", ChangeKind::Deleted), now);
+            } else {
+                coalescer.push(notice("gone", ChangeKind::Deleted), now);
+                coalescer.push(notice("gone/file.txt", ChangeKind::Deleted), now);
+            }
+            let changes = changes_of(coalescer.settle(now, &gone));
+            let folder = changes.iter().find(|change| change.path == "gone").unwrap();
+            assert!(folder.directory, "children_first = {children_first}");
+        }
     }
 }

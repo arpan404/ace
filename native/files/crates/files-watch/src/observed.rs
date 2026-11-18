@@ -45,6 +45,11 @@ impl Observed {
         }
     }
 
+    /// Records that something else lives at this path, which makes it a folder.
+    pub(crate) fn mark_directory(&mut self) {
+        self.directory = true;
+    }
+
     /// The change this path contributes, or `None` when the window's news cancels out.
     ///
     /// `look` answers whether the path exists now, and whether it is a directory.
