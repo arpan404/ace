@@ -73,7 +73,7 @@ test("while text is being edited, untouched lines keep their colours and the edi
 
 test("a very long line is drawn plain and clipped", async () => {
   const huge = "x".repeat(24_000);
-  await openView({ text: `${huge}\nshort`, readOnly: true, highlightDelay: 0 });
+  await openView({ text: `${huge}\nshort`, path: "notes.txt", readOnly: true, highlightDelay: 0 });
 
   const line = await waitFor(() => {
     const found = document.querySelector<HTMLElement>("[data-long-line]");
@@ -94,9 +94,10 @@ test("change marks appear in the gutter after an edit", async () => {
   );
   act(() => ref.current?.focus());
   await userEvent.keyboard("2");
-
   await waitFor(() =>
-    expect(document.querySelector('[data-line="1"]')?.getAttribute("data-mark")).toBe("modified"),
+    expect(document.querySelector('[data-line="1"] [data-mark]')?.getAttribute("data-mark")).toBe(
+      "modified",
+    ),
   );
 });
 

@@ -28,6 +28,7 @@ import {
   visualColumn,
 } from "./geometry.ts";
 import { useEditorKeys } from "./keys.ts";
+import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
 import { EditorLine } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
@@ -119,8 +120,13 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const last = all
     ? lineCount
     : Math.min(lineCount, Math.ceil((scroll.top + height) / lineHeight) + overscan);
-  // Visible lines only: one Wasm call per render, and the visible count is small.
-  const lines = doc ? doc.lines(first, last) : noLines;
+  const [lines, setLines] = useState<string[]>(noLines);
+  const linesKey = `${state.version}:${first}:${last}`;
+  useEffect(() => {
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- the document is an external store; its lines change under React.
+    setLines(doc ? doc.lines(first, last) : noLines);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
+  }, [linesKey, doc]);
   const gutter = gutterWidth(lineCount);
   const lineAt = useCallback(
     (line: number): string => {
@@ -150,9 +156,12 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     let widest = 0;
     for (const text of lines) widest = Math.max(widest, lineWidth(element, text, cell));
     const width = gutter + widest + paddingRight;
-    setContent((previous) =>
-      previous.doc === doc ? { doc, width: Math.max(previous.width, width) } : { doc, width },
-    );
+    setContent((previous) => {
+      const base = previous.doc === doc ? previous.width : 0;
+      const next = Math.max(base, width);
+      if (previous.doc === doc && previous.width === next) return previous;
+      return { doc, width: next };
+    });
   }, [doc, lines, cell, gutter]);
   const contentWidth = content.doc === doc ? content.width : 0;
 
@@ -280,9 +289,13 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     return found;
   }, [results.matches, first, last, currentIndex]);
 
-  // Read every render: `paint` changes when the highlighter answers, and only visible lines cost.
-  void paint;
-  const tokens = state.highlighter?.tokens(first, last) ?? [];
+  const [tokens, setTokens] = useState<Token[][]>([]);
+  const tokenKey = `${paint}:${first}:${last}`;
+  useEffect(() => {
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- colours live in the highlighter's own store, not in React.
+    setTokens(state.highlighter?.tokens(first, last) ?? []);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
+  }, [tokenKey, state.highlighter]);
 
   const insert = (text: string) => {
     if (readOnly || !text) return;
