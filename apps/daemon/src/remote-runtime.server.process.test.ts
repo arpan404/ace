@@ -16,7 +16,12 @@ import { readConfig } from "./config.ts";
 import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { accessRequest } from "./client-access.ts";
-import { addressCheckMs, remoteCloseWaitMs, settingsUnreadable } from "./remote-runtime.ts";
+import {
+  addressCheckMs,
+  remoteCloseWaitMs,
+  settingsChangeUnreadable,
+  settingsUnreadable,
+} from "./remote-runtime.ts";
 import { Store } from "./store.ts";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
@@ -1199,6 +1204,49 @@ test("saved settings that couldn't be read come into force when they change", as
     await expect
       .poll(async () => (await status()).networks)
       .toMatchObject({ lan: { state: "on" } });
+    expect((await status()).error).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("a write while saved settings can't be read is refused and leaves recovery running", async () => {
+  const reads = { failing: true };
+  const f = await runtime({ enabled: true, settingsReads: reads });
+  try {
+    const status = async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess;
+    expect((await status()).error).toBe(settingsUnreadable);
+    // The write needs the saved choice under it, which can't be read: refused, nothing applied.
+    expect(await f.set("remote.tailscale", false)).toMatchObject({ ok: false });
+    reads.failing = false;
+    // No further write or change: the retry the refused write left reads and brings access up.
+    await expect
+      .poll(async () => (await status()).networks, { timeout: 8_000 })
+      .toMatchObject({
+        lan: { state: "on" },
+      });
+    expect((await status()).error).toBeUndefined();
+  } finally {
+    await f.close();
+  }
+});
+
+test("turning remote access off while the change can't be read turns it off once it reads", async () => {
+  const reads = { failing: false };
+  const f = await runtime({ enabled: true, settingsReads: reads });
+  try {
+    const status = async () => RemoteStatus.parse(await f.local("/v1/status")).remoteAccess;
+    expect((await status()).networks).toMatchObject({ lan: { state: "on" } });
+    reads.failing = true;
+    // Saved where the daemon reads it; the change notification's read fails.
+    await f.settings.set("remote.enabled", false, { kind: "global" });
+    await expect.poll(async () => (await status()).error).toBe(settingsChangeUnreadable);
+    reads.failing = false;
+    // The retry reads the saved change, never re-applies the choice it replaced.
+    await expect
+      .poll(async () => (await status()).networks, { timeout: 8_000 })
+      .toMatchObject({ lan: { state: "off" } });
+    expect(await status()).toMatchObject({ enabled: false });
     expect((await status()).error).toBeUndefined();
   } finally {
     await f.close();

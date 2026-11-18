@@ -140,7 +140,10 @@ after five fast failures in a row. Each start failed the same way.
   crashes the daemon later in each run is recorded, but nothing leaves it off yet.
 - Saved remote settings that can't be read no longer stop the daemon's start. Remote access
   stays off, `/v1/status` says why, and it comes up when a read succeeds: on the retry timer
-  (1 s doubling to 30 s) or when the settings change (decision 10).
+  (1 s doubling to 30 s) or when the settings change (decision 10). Any read that fails, at
+  start, on a change or under a write, keeps that retry scheduled, and every retry reads the
+  settings again rather than re-applying the last choice it knew: a change that turned remote
+  access off takes effect once it can be read.
 - A client can connect before the LAN listener or a relay serves; the endpoint file no longer
   means remote access is up. Code that needs it settled waits on `remoteStarted`.
 

@@ -43,6 +43,9 @@ export const remoteCloseWaitMs = 2_000;
 /** What status says while the saved remote settings can't be read; access stays off meanwhile. */
 export const settingsUnreadable =
   "Couldn't read the remote access settings, so remote access is off for now. ace tries again on its own; if this keeps up, restart ace.";
+/** What status says while a saved change to remote access can't be read yet. */
+export const settingsChangeUnreadable =
+  "Couldn't read the latest remote access settings, so a change may not have taken effect yet. ace tries again on its own; if this keeps up, restart ace.";
 const Stored = SettingsValues.pick({
   "remote.enabled": true,
   "remote.lan": true,
@@ -96,6 +99,10 @@ export function remoteRuntime(
   let dirty = false;
   // Whether the saved settings were read once: until then nothing opens, and status says why.
   let loaded = false;
+  // Whether the saved settings must be read again before anything is applied: until the first
+  // read, and after any read that failed. Every retry reads while it is set, never applying the
+  // last choice it knows, which a saved change (remote access turned off) may have replaced.
+  let stale = true;
   let unreadable: string | undefined;
   // What the change under way brings up: each of its networks reads `waiting` until it serves.
   let pending: RemotePlan | undefined;
@@ -150,7 +157,7 @@ export function remoteRuntime(
     if (closed || retry) return;
     retry = delay(() => {
       retry = undefined;
-      void serialize(() => (loaded ? apply(preferences) : sync())).catch(recover);
+      void serialize(() => (stale ? sync() : apply(preferences))).catch(recover);
     }, retryMs);
     retryMs = Math.min(retryMs * 2, 30000);
   };
@@ -252,24 +259,33 @@ export function remoteRuntime(
     return parsed.success ? parsed.data : base;
   };
   /**
-   * Reads the saved choice and brings the networks to it. Until a read succeeds once, remote
-   * access stays off, status says why, and the retry timer reads again.
+   * Every read of the saved choice. One that fails marks the settings stale, says so in status
+   * and keeps a retry scheduled, whoever asked (a start, a change, a write), so recovery never
+   * waits on another event.
+   */
+  const readSaved = async (): Promise<Preferences> => {
+    try {
+      const next = await read(preferences);
+      stale = false;
+      loaded = true;
+      unreadable = undefined;
+      return next;
+    } catch (failure) {
+      stale = true;
+      const message = loaded ? settingsChangeUnreadable : settingsUnreadable;
+      if (unreadable !== message) options.log?.(new Error(message, { cause: failure }));
+      unreadable = message;
+      scheduleRetry();
+      throw new SettingsError("io", message);
+    }
+  };
+  /**
+   * Reads the saved choice and brings the networks to it. Until a read succeeds, the networks
+   * stay as they are (off before the first), status says why, and the retry timer reads again.
    */
   const sync = async (retryRefused = false): Promise<void> => {
-    let next: Preferences;
-    try {
-      next = await read(preferences);
-    } catch (failure) {
-      if (loaded) throw failure;
-      if (unreadable === undefined)
-        options.log?.(new Error(settingsUnreadable, { cause: failure }));
-      unreadable = settingsUnreadable;
-      scheduleRetry();
-      return;
-    }
-    loaded = true;
-    unreadable = undefined;
-    await apply(next, undefined, retryRefused);
+    const next = await readSaved().catch(() => undefined);
+    if (next) await apply(next, undefined, retryRefused);
   };
   const reconcile = () => {
     dirty = true;
@@ -315,12 +331,13 @@ export function remoteRuntime(
       if (closed) return;
       retry?.();
       retry = undefined;
-      void serialize(() => (loaded ? apply(preferences, undefined, true) : sync(true))).catch(
+      void serialize(() => (stale ? sync(true) : apply(preferences, undefined, true))).catch(
         recover,
       );
     });
     stopWatch = every(() => {
-      if (direct.open() && !closed) void serialize(() => apply(preferences)).catch(recover);
+      if (direct.open() && !closed)
+        void serialize(() => (stale ? sync() : apply(preferences))).catch(recover);
     }, addressCheckMs);
   };
   const begin = async () => {
@@ -452,14 +469,9 @@ export function remoteRuntime(
       return serialize(async () => {
         retry?.();
         retry = undefined;
-        // Applied on top of the saved choice, never on the defaults standing in for it.
-        if (!loaded) {
-          preferences = await read(preferences).catch(() => {
-            throw new SettingsError("io", settingsUnreadable);
-          });
-          loaded = true;
-          unreadable = undefined;
-        }
+        // Applied on top of the saved choice, never on the defaults or a choice a later saved
+        // change replaced. A read that fails refuses the write and leaves a retry scheduled.
+        if (stale) preferences = await readSaved();
         const before = preferences;
         // An older app's single network choice becomes the networks it meant.
         const change =
@@ -477,7 +489,7 @@ export function remoteRuntime(
           throw failure;
         }
         // The saved settings are the truth: a write may have changed others with it.
-        const saved = await read(preferences);
+        const saved = await readSaved();
         if (JSON.stringify(saved) !== JSON.stringify(preferences)) await apply(saved);
       });
     },
