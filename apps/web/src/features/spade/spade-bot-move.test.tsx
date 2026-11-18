@@ -24,14 +24,17 @@ test("Move to… moves the bot to the machine picked, and the move reads as one 
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/agents/research/move")).toEqual([{ to: "studio" }]),
   );
-  const line = await screen.findByText("Copying Research to Studio Mac, 3 of 12.");
-  expect(line.closest('[role="status"]')).not.toBeNull();
+  const moving = "Copying Research to Studio Mac, 3 of 12.";
+  // In the profile, as its status line, and in the list as the bot's row line.
+  await waitFor(() =>
+    expect(
+      screen.getAllByText(moving).filter((line) => line.closest('[role="status"]')),
+    ).toHaveLength(1),
+  );
   expect(screen.queryByRole("button", { name: "Move Research to another machine" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(spade.sent("DELETE", "/v1/agents/research/move")).toHaveLength(1));
-  await waitFor(() =>
-    expect(screen.queryByText("Copying Research to Studio Mac, 3 of 12.")).toBeNull(),
-  );
+  await waitFor(() => expect(screen.queryAllByText(moving)).toHaveLength(0));
 });
 
 test("a bot that can't move yet says why where the person asked", async () => {
