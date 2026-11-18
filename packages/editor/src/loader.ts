@@ -2,6 +2,8 @@ import type { WasmGlue } from "./wasm-types.ts";
 
 /** What `init` may be given beyond the defaults. */
 export interface InitOptions {
+  /** An already-imported glue module, for a bundler that emits it as a static import. */
+  module?: WasmGlue;
   /** The generated glue module. Defaults to the built `pkg/` beside this package. */
   moduleUrl?: string | URL;
   /**
@@ -44,12 +46,16 @@ function load(options: InitOptions): Promise<WasmGlue> {
 }
 
 async function instantiate(options: InitOptions): Promise<WasmGlue> {
-  const moduleUrl = options.moduleUrl ?? defaultModuleUrl;
-  const url = typeof moduleUrl === "string" ? moduleUrl : moduleUrl.href;
-  const module = (await import(/* @vite-ignore */ url)) as WasmGlue;
+  const module = options.module ?? (await importGlue(options.moduleUrl));
   // The generated loader reads the modern single-object form; a bare value logs a deprecation.
   const input = options.wasm === undefined ? undefined : { module_or_path: options.wasm };
   await module.default(input);
   glue = module;
   return module;
+}
+
+async function importGlue(moduleUrl: string | URL | undefined): Promise<WasmGlue> {
+  const target = moduleUrl ?? defaultModuleUrl;
+  const url = typeof target === "string" ? target : target.href;
+  return (await import(/* @vite-ignore */ url)) as WasmGlue;
 }

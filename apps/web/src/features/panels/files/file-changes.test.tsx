@@ -69,8 +69,11 @@ test("text typed in the editor is kept for the tab once typing pauses", async ()
   const storage = memoryKeyValue();
   const { panel } = await openRetry(storage);
   await userEvent.click(within(panel).getByRole("button", { name: "Edit file" }));
-  const editor = await within(panel).findByRole("textbox", { name: "Edit src/retry.ts" });
-  await userEvent.type(editor, "// typed");
+  const editor = await within(panel).findByRole("textbox", { name: "retry.ts" });
+  await userEvent.click(editor);
+  await userEvent.keyboard("{Control>}a{/Control}");
+  await userEvent.keyboard("// typed");
   await waitFor(() => expect(storage.getItem("ace.workspace") ?? "").toContain("// typed"));
-  expect((editor as HTMLTextAreaElement).value).toContain("// typed");
+  const surface = within(panel).getByRole("region", { name: "Editing src/retry.ts" });
+  expect(surface.textContent).toContain("// typed");
 });
