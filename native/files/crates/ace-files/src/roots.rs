@@ -38,6 +38,8 @@ const EXCLUDES: [&str; 3] = [
 ];
 /// A window holding more paths than this becomes a rescan instead of a batch.
 const MAX_BATCH: usize = 5_000;
+/// The longest a change waits while writes keep arriving, so a busy file can't delay the rest.
+const MAX_WAIT: Duration = Duration::from_secs(1);
 
 /// The answer while the index is still being built: nothing to search yet, and not an error.
 fn empty_index() -> IndexResult {
@@ -162,6 +164,7 @@ impl RootEntry {
             debounce: DEBOUNCE,
             exclude: EXCLUDES.iter().map(|glob| (*glob).to_owned()).collect(),
             max_batch: MAX_BATCH,
+            max_wait: MAX_WAIT,
         };
         *slot = Some(Watcher::start(self.root.clone(), options, sink)?);
         Ok(())

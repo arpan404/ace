@@ -340,15 +340,23 @@ fn deleting_and_recreating_files_never_reports_deleted() {
 }
 
 #[test]
-fn an_atomic_save_is_a_modification() {
+fn an_atomic_save_never_reports_the_saved_file_deleted() {
+    // A rename over an existing file can arrive as Created or Modified depending on how the OS
+    // splits the window; either keeps the file in the tree. A Deleted would drop it.
     let session = Session::start(options(), |root| {
         std::fs::write(root.join("x.txt"), b"old").unwrap();
     });
     std::fs::write(session.path("x.tmp"), b"new").unwrap();
     std::thread::sleep(Duration::from_millis(300));
     std::fs::rename(session.path("x.tmp"), session.path("x.txt")).unwrap();
-    let change = session.wait_for("x.txt", ChangeKind::Modified);
-    assert!(!change.directory);
+    let reported = changes(&session.settle());
+    let last = reported
+        .iter()
+        .rev()
+        .find(|change| change.path == "x.txt")
+        .unwrap_or_else(|| panic!("no change for x.txt, saw {reported:?}"));
+    assert_ne!(last.kind, ChangeKind::Deleted, "saw {reported:?}");
+    assert!(!last.directory);
 }
 
 #[test]
