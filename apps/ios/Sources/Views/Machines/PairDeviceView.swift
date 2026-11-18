@@ -19,6 +19,8 @@ struct PairDeviceView: View {
 
     var body: some View {
         List {
+            // Making the link failed: on the form there's nothing to retry but Make link itself.
+            if let problem { ProblemRow(problem, id: "pair.problem", retry: made == nil ? nil : { Task { await make() } }) }
             Group {
                 if let made, let url = made.url {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -32,7 +34,6 @@ struct PairDeviceView: View {
                             }
                         } else { result(made, url: url) }
                     }
-                    if let problem { ProblemRow(problem, id: "pair.problem") { Task { await make() } } }
                 } else { form }
             }
             .insetRowBackground()
@@ -58,7 +59,6 @@ struct PairDeviceView: View {
     }
 
     @ViewBuilder private var form: some View {
-        if let problem { ProblemRow(problem, id: "pair.problem") }
         Section {
             TextField("Device name (optional)", text: $label).accessibilityIdentifier("pair.label")
         } footer: { Text("The device shows under this name on \(machine), instead of the one it gives itself.") }

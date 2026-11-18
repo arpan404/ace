@@ -26,18 +26,16 @@ struct MachineDevicesView: View {
                 if overview.forbidden {
                     ProblemRow(overview.devicesProblem ?? "Only a phone paired with full access can manage devices.", id: "devices.problem")
                 } else {
-                    Group {
-                        devices(overview)
-                        links(overview)
-                        if model.canOperate, overview.devices.contains(where: { !$0.`self` }) {
-                            Section {
-                                Button("Revoke all other devices…", role: .destructive) { revokingOthers = true }
-                                    .buttonStyle(.rowAction)
-                                    .accessibilityIdentifier("devices.revokeOthers")
-                            }
+                    devices(overview)
+                    links(overview)
+                    if model.canOperate, overview.devices.contains(where: { !$0.`self` }) {
+                        Section {
+                            Button("Revoke all other devices…", role: .destructive) { revokingOthers = true }
+                                .buttonStyle(.rowAction)
+                                .accessibilityIdentifier("devices.revokeOthers")
                         }
+                        .insetRowBackground()
                     }
-                    .insetRowBackground()
                 }
             } else if problem == nil {
                 Section { SkeletonRows(count: 2, label: "Reading this machine's devices").listRowInsets(EdgeInsets()) }
@@ -99,6 +97,7 @@ struct MachineDevicesView: View {
         } header: { InsetHeader("Paired with \(machine)") } footer: {
             Text("Phones, tablets and browsers that follow and steer agents. They run none themselves.")
         }
+        .insetRowBackground()
     }
 
     @ViewBuilder private func links(_ overview: FleetOverview) -> some View {
@@ -120,6 +119,7 @@ struct MachineDevicesView: View {
                     }
                 }
             } header: { InsetHeader("Open pairing links") } footer: { Text("Each works once. Cancel one you shared by mistake.") }
+            .insetRowBackground()
         }
     }
 

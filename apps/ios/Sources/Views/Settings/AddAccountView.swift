@@ -92,9 +92,9 @@ struct AddAccountView: View {
                         TextField("Location", text: $location).textInputAutocapitalization(.never).autocorrectionDisabled()
                     }
                 } header: { InsetHeader("Sign in with") } footer: { if let way { Text(way.next) } }
-                if let problem { ProblemRow(problem, id: "accounts.add.problem") }
             }
             .insetRowBackground()
+            if let problem { ProblemRow(problem, id: "accounts.add.problem") }
         }
         .insetGroupedList()
         .sensoryFeedback(.selection, trigger: way)
@@ -162,9 +162,9 @@ struct AccountSignInSheet: View {
                             } header: { InsetHeader(target.way.label) } footer: { Text(target.way.next) }
                             Button("Continue") { Task { await start() } }.buttonStyle(.rowAction).disabled(busy)
                         } else if busy { SkeletonRows(count: 1, label: "Starting sign-in").listRowInsets(EdgeInsets()) }
-                        if let problem { ProblemRow(problem, id: "accounts.signIn.problem", disabled: busy) { Task { await start() } } }
                     }
                     .insetRowBackground()
+                    if let problem { ProblemRow(problem, id: "accounts.signIn.problem", disabled: busy) { Task { await start() } } }
                 }
                 .insetGroupedList()
                 .transition(.opacity)

@@ -171,11 +171,11 @@ struct ProviderSignInView: View {
                         if !progress.finished { Button("Cancel sign-in", role: .cancel) { request(["type": "provider.login.cancel", "session": progress.session]) } }
                     } header: { InsetHeader(progress.finished ? "Result" : "Continue sign-in") }.disabled(busy || !model.canOperate)
                 }
-                if let failure = problem ?? pollProblem {
-                    ProblemRow(failure, id: "provider.signIn.problem", disabled: busy, retry: retry)
-                }
             }
             .insetRowBackground()
+            if let failure = problem ?? pollProblem {
+                ProblemRow(failure, id: "provider.signIn.problem", disabled: busy, retry: retry)
+            }
         }
         .insetGroupedList()
         .modifier(ServiceSearch(enabled: (progress?.choices?.count ?? 0) > Self.searchFrom, query: $query))
