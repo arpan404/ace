@@ -174,7 +174,7 @@ export class FolderWatch {
     if (!client.valid({ id: update.threadId, root })) {
       const folders = this.#fanout.folders(clientId, update.threadId);
       void this.#stopNow(clientId, update.threadId);
-      client.send({
+      this.#send(client, {
         type: "files.folders_changed",
         threadId: update.threadId,
         folders,
@@ -182,12 +182,20 @@ export class FolderWatch {
       });
       return;
     }
-    client.send({
+    this.#send(client, {
       type: "files.folders_changed",
       threadId: update.threadId,
       folders: update.folders,
       rescan: update.rescan,
     });
+  }
+
+  #send(client: FolderWatchClient, message: FoldersChanged): void {
+    try {
+      client.send(message);
+    } catch {
+      // A socket that cannot take the push is its own session's to close.
+    }
   }
 
   /** Stop a thread's watch from inside a push; the caller owns no ordering there. */
