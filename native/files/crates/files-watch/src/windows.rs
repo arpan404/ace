@@ -442,10 +442,17 @@ impl Rename {
 
 /// Sends the events one buffer of records describes.
 fn emit(root: &Path, bytes: &[u8], events: &Events, renames: &mut Rename) {
+    let parsed = parse(bytes);
     let mut out = Vec::new();
-    renames.events(root, &parse(bytes), &mut out);
+    renames.events(root, &parsed.records, &mut out);
     for event in out {
         events.send(event);
+    }
+    if !parsed.whole {
+        // A record was cut short or pointed outside the buffer: the rest is lost, and a pending
+        // rename half cannot be trusted without the records that would have followed it.
+        renames.clear();
+        events.lost_events();
     }
 }
 
