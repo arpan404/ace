@@ -19,6 +19,7 @@ export type FilesWriteOptions = FilesRequestOptions & { expected?: string | unde
 
 export type PageReply = Extract<Reply, { type: "page" }>;
 export type EntryReply = Extract<Reply, { type: "entry" }>;
+export type DescriptionReply = Extract<Reply, { type: "description" }>;
 export type ReadReply = Extract<Reply, { type: "read" }>;
 export type VersionReply = Extract<Reply, { type: "version" }>;
 export type IndexReply = Extract<Reply, { type: "index" }>;
@@ -74,6 +75,26 @@ export class FilesClient {
     const { reply } = await this.#process.request({ op: "stat", root, path }, options);
     if (reply.type !== "entry") throw unexpected("stat", reply);
     return reply;
+  }
+
+  async describe(
+    root: number,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<DescriptionReply> {
+    const { reply } = await this.#process.request({ op: "describe", root, path }, options);
+    if (reply.type !== "description") throw unexpected("describe", reply);
+    return reply;
+  }
+
+  async measure(
+    root: number,
+    path: string,
+    options: FilesRequestOptions = {},
+  ): Promise<number> {
+    const { reply } = await this.#process.request({ op: "measure", root, path }, options);
+    if (reply.type !== "measure") throw unexpected("measure", reply);
+    return reply.bytes;
   }
 
   async read(

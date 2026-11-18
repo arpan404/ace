@@ -203,15 +203,19 @@ test.each(["archive.preview", "delete"] as const)(
     await writeFile(join(f.root, "dir", "file"), "bytes");
     const expected = await version(f, "dir");
     const original = filesystem.realpath;
+    // The checkout sits under a folder macOS reaches through a link, so the stop names the
+    // resolved folder, never the spelling the test made it with.
+    const stopped = join(await original(f.root), "dir");
     runtime.filesystem = {
       ...filesystem,
       async realpath(path) {
-        if (path === join(f.root, "dir") && !blocked) {
+        const resolved = await original(path);
+        if (resolved === stopped && !blocked) {
           blocked = true;
           entered.resolve();
           await gate.promise;
         }
-        return original(path);
+        return resolved;
       },
     };
     // SafeRoot captured its filesystem object, so intercept the same I/O object.

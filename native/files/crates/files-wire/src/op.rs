@@ -13,6 +13,8 @@ pub(crate) const TAGS: &[&str] = &[
     "closeRoot",
     "list",
     "stat",
+    "describe",
+    "measure",
     "read",
     "write",
     "createFile",
@@ -63,6 +65,20 @@ pub enum Op {
         /// The root's number.
         root: u64,
         /// Root-relative path.
+        path: String,
+    },
+    /// One path's version, size, kind and mode, with the daemon's folder digest for a folder.
+    Describe {
+        /// The root's number.
+        root: u64,
+        /// Root-relative path.
+        path: String,
+    },
+    /// How many bytes of files a path holds, for the trash quota a delete must respect.
+    Measure {
+        /// The root's number.
+        root: u64,
+        /// Root-relative path of a file or a folder.
         path: String,
     },
     /// Read bytes of a file. The result carries metadata and a body frame carries the bytes.
@@ -180,6 +196,14 @@ mod tests {
                 hide: Vec::new(),
             },
             Op::Stat {
+                root: 0,
+                path: String::new(),
+            },
+            Op::Describe {
+                root: 0,
+                path: String::new(),
+            },
+            Op::Measure {
                 root: 0,
                 path: String::new(),
             },

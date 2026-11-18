@@ -66,8 +66,43 @@ class FakeClient implements FilesToolClient {
     });
   }
 
-  indexQuery(_root: number, _query: string, limit: number) {
-    this.indexLimits.push(limit);
+  stat(): never {
+    throw new Error("the fake lists folders, it does not stat them");
+  }
+
+  describe(): never {
+    throw new Error("the fake lists folders, it does not describe them");
+  }
+
+  measure(): never {
+    throw new Error("the fake lists folders, it does not measure them");
+  }
+
+  read(): never {
+    throw new Error("the fake lists folders, it does not read them");
+  }
+
+  write(): never {
+    throw new Error("the fake lists folders, it does not write them");
+  }
+
+  createFile(): never {
+    throw new Error("the fake lists folders, it does not create files");
+  }
+
+  createDir(): never {
+    throw new Error("the fake lists folders, it does not create folders");
+  }
+
+  rename(): never {
+    throw new Error("the fake lists folders, it does not rename");
+  }
+
+  remove(): never {
+    throw new Error("the fake lists folders, it does not remove");
+  }
+
+  indexQuery(_root: number, _query: string, limit: number) {    this.indexLimits.push(limit);
     return Promise.resolve({
       type: "index" as const,
       hits: [],

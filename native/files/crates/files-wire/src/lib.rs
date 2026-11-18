@@ -51,8 +51,8 @@ mod reply;
 pub use error::Error;
 pub use event::{Change, ChangeKind, EventPayload};
 pub use files::{
-    Case, Entry, FileMatches, Hit, IndexResult, Kind, LineMatch, Page, ReadMeta, SearchQuery,
-    Summary,
+    Case, Description, Entry, FileMatches, Hit, IndexResult, Kind, LineMatch, Page, ReadMeta,
+    SearchQuery, Summary,
 };
 pub use frame::{Decoder, Frame, MAX_BODY_LEN, MAX_FRAME_LEN, encode, encode_body};
 pub use message::{Message, PROTOCOL};

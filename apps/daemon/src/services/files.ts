@@ -8,6 +8,7 @@ import { FilesWorkspaces } from "../files-workspaces.ts";
 import { repeatableWarmup } from "./warmup.ts";
 import { backgroundFailure } from "./background.ts";
 import { startFilesNative, sweepFilesRoots } from "../files-tool/wiring.ts";
+import { aceFilesIo } from "../files-tool/io.ts";
 import { filesErrorCode } from "../files-tool/tool.ts";
 import { FilesService, attachFilesSocket, chunkFilesChannel, attachmentChannel } from "@ace/files";
 import { mkdir, realpath } from "node:fs/promises";
@@ -29,6 +30,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
   resources.own(() => scoped.close());
   const native = startFilesNative(owner);
   services.filesNative = native;
+  scoped.attachNative(native);
   resources.own(() => native.tool.close());
   resources.own(() => native.folders.close());
   const idle = setInterval(() => {
@@ -46,6 +48,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
     const artifactsRoot = await realpath(artifactsDirectory);
     files = await FilesService.create({
       ...owner.options.files,
+      workspaceIo: aceFilesIo(native.tool),
       workspace: workspaceRoot,
       dataDir: join(config.dataDir, "files"),
       artifactRoots: [artifactsRoot],

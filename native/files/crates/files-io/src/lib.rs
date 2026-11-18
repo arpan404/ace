@@ -7,6 +7,7 @@
 //! and hands back the folder's capability and the entry's name, so no path string reaches the
 //! filesystem and a link rewritten mid-operation cannot redirect the work.
 
+mod describe;
 mod encoding;
 mod error;
 mod handle;
@@ -17,6 +18,7 @@ mod tree;
 mod version;
 mod write;
 
+pub use describe::{Description, Kind, describe, entry_version, measure};
 pub use error::Error;
 pub use mutate::{create_dir, remove, rename};
 pub use read::{Read, ReadRange, read};

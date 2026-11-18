@@ -169,6 +169,7 @@ export function daemonHandle({
         }
       : {}),
     ...(services.files ? { files: services.files } : {}),
+    ...(services.filesNative ? { filesNative: services.filesNative } : {}),
     serviceStatus: startup.status,
     eventLoop,
     maintenance: server.maintenance,

@@ -183,3 +183,67 @@ fn creates_moves_and_removes_a_folder() {
     });
     assert_eq!(client.error(gone).code, "NOT_FOUND");
 }
+
+#[test]
+fn describes_a_file_and_a_folder_the_way_the_daemon_does() {
+    let checkout = checkout(&[("docs/a.md", "aaaa\n"), ("docs/nested/b.md", "bb\n")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let request = client.request(Op::Describe {
+        root,
+        path: "docs/a.md".to_owned(),
+    });
+    let file = client.reply(request);
+    let Reply::Description(file) = file else {
+        panic!("describe answered {file:?}");
+    };
+    assert_eq!(file.size, 5);
+    assert_eq!(file.mode & 0o777, 0o644);
+    assert!(matches!(file.kind, files_wire::Kind::File));
+
+    let request = client.request(Op::Describe {
+        root,
+        path: "docs".to_owned(),
+    });
+    let folder = client.reply(request);
+    let Reply::Description(folder) = folder else {
+        panic!("describe answered {folder:?}");
+    };
+    assert!(matches!(folder.kind, files_wire::Kind::Directory));
+    assert!(
+        folder.version.starts_with("tree:"),
+        "a folder version digests its tree: {}",
+        folder.version
+    );
+
+    let missing = client.request(Op::Describe {
+        root,
+        path: "docs/gone.md".to_owned(),
+    });
+    assert_eq!(client.error(missing).code, "NOT_FOUND");
+}
+
+#[test]
+fn measures_the_bytes_a_delete_would_reserve() {
+    let checkout = checkout(&[("docs/a.md", "aaaa\n"), ("docs/nested/b.md", "bb\n")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let request = client.request(Op::Measure {
+        root,
+        path: "docs".to_owned(),
+    });
+    let measured = client.reply(request);
+    let Reply::Measure { bytes } = measured else {
+        panic!("measure answered {measured:?}");
+    };
+    assert_eq!(bytes, 8);
+
+    let request = client.request(Op::Measure {
+        root,
+        path: "docs/a.md".to_owned(),
+    });
+    let file = client.reply(request);
+    assert_eq!(file, Reply::Measure { bytes: 5 });
+}

@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
 import { createGzip } from "node:zlib";
-import { GitIgnore, SafeRoot, walkWorkspace } from "@ace/workspace";
+import type { FilesIo } from "./io.ts";
+import { openDownload } from "./download.ts";
 import { readChunks } from "./readable-chunks.ts";
 import { tarHeaders } from "./tar.ts";
-import { openBorrowedDownload } from "./download.ts";
-import { CHUNK_SIZE, FileError, version, type Download } from "./types.ts";
+import { CHUNK_SIZE, FileError, type Download } from "./types.ts";
 
 interface Entry {
   path: string;
   name: string;
   size: number;
+  /** An opaque marker of the entry's bytes and modification time, for the preview's digest. */
   version: string;
   mtime: number;
   directory: boolean;
@@ -20,38 +21,48 @@ export interface Preview {
   bytes: number;
   entries: Entry[];
   validator: string;
+  /** Root-relative folder the preview was made of. */
   path: string;
   rootVersion: string;
 }
+
+/** The change marker a preview keeps per entry, from the walk's own size and modification time. */
+function marker(entry: { size: number; mtime: number }): string {
+  return `${entry.size}:${entry.mtime}`;
+}
+
+/**
+ * One folder as a downloadable archive, described without reading any file's bytes.
+ *
+ * The walk comes from the checkout's port, which leaves out `.git` and the daemon's transfer
+ * temporaries. The root's version is read before and after so an archive that would mix two
+ * states of the folder is refused rather than produced.
+ */
 export async function previewArchive(
-  safe: SafeRoot,
+  io: FilesIo,
+  root: string,
   path: string,
   includeIgnored: boolean,
   id: string,
   expires: number,
   signal?: AbortSignal,
 ): Promise<Preview> {
-  const base = safe.path(path);
-  const rootVersion = version((await safe.metadata(base)).info);
-  const ignore = await GitIgnore.create(safe);
+  const before = await io.describe(root, path, signal ? { signal } : {});
+  if (before === null) throw new FileError("NOT_FOUND", "Folder not found");
   const entries: Entry[] = [];
   let bytes = 0;
   let metadataBytes = 0;
   const digest = createHash("sha256");
-  for await (const entry of walkWorkspace(safe, ignore, {
-    dir: base,
-    depth: Number.MAX_SAFE_INTEGER,
-    includeIgnored,
-    ...(signal ? { signal } : {}),
-  })) {
+  for await (const entry of io.walk(root, path, signal ? { signal } : {})) {
     if (entry.type !== "file" && entry.type !== "directory") continue;
-    const { info } = await safe.metadata(entry.path);
+    if (entry.ignored && !includeIgnored) continue;
+    const name = path ? entry.path.slice(path.length + 1) : entry.path;
     const item = {
       path: entry.path,
-      name: base ? entry.path.slice(base.length + 1) : entry.path,
-      size: info.size,
-      version: version(info),
-      mtime: info.mtimeMs,
+      name,
+      size: entry.size,
+      version: marker(entry),
+      mtime: entry.mtime,
       directory: entry.type === "directory",
     };
     metadataBytes += Buffer.byteLength(item.path) + Buffer.byteLength(item.name) + 256;
@@ -62,11 +73,25 @@ export async function previewArchive(
     digest.update(item.path);
     digest.update(item.version);
   }
-  if (version((await safe.metadata(base)).info) !== rootVersion)
+  const after = await io.describe(root, path, signal ? { signal } : {});
+  if (after?.version !== before.version)
     throw new FileError("CONFLICT", "Directory changed during preview");
-  return { id, expires, bytes, entries, validator: digest.digest("hex"), path: base, rootVersion };
+  return {
+    id,
+    expires,
+    bytes,
+    entries,
+    validator: digest.digest("hex"),
+    path,
+    rootVersion: before.version,
+  };
 }
-export function archiveDownload(safe: SafeRoot, preview: Preview): Download {
+
+/**
+ * The preview's bytes as a gzipped tar, streamed: each file is read in chunks through the port,
+ * never whole, and the folder's version is checked before anything is written.
+ */
+export function archiveDownload(io: FilesIo, root: string, preview: Preview): Download {
   let current: Download | undefined;
   let cancelled = false;
   const gzip = createGzip({ chunkSize: CHUNK_SIZE });
@@ -83,15 +108,14 @@ export function archiveDownload(safe: SafeRoot, preview: Preview): Download {
     });
   const writing = (async () => {
     try {
-      if (version((await safe.metadata(preview.path)).info) !== preview.rootVersion)
+      const now = await io.describe(root, preview.path);
+      if (now?.version !== preview.rootVersion)
         throw new FileError("CONFLICT", "Directory changed since preview");
       for (const entry of preview.entries) {
         if (cancelled) break;
-        if (version((await safe.metadata(entry.path)).info) !== entry.version)
-          throw new FileError("CONFLICT", "Archive entry changed");
         for (const header of tarHeaders(entry)) await write(header);
         if (!entry.directory) {
-          current = await openBorrowedDownload(safe, entry.path, 0, entry.version);
+          current = await openDownload(io, root, entry.path, 0, undefined);
           // The gzip callback releases ownership before this buffer is refilled.
           for await (const bytes of current.chunks) await write(bytes);
           await current.close();

@@ -28,6 +28,8 @@ pub fn perform(shared: &Shared, op: Op) -> Result<Reply, Error> {
             hide,
         } => list::list(shared, root, &dir, limit, cursor, hide),
         Op::Stat { root, path } => list::stat(shared, root, &path),
+        Op::Describe { root, path } => read_write::describe(shared, root, &path),
+        Op::Measure { root, path } => read_write::measure(shared, root, &path),
         Op::IndexQuery { root, query, limit } => index::query(shared, root, &query, limit),
         Op::CreateDir { root, path } => read_write::create_dir(shared, root, &path),
         Op::Rename {

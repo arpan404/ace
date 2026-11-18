@@ -41,6 +41,27 @@ fn kind(entry_kind: &Kind) -> files_wire::Kind {
     }
 }
 
+/// One path's details.
+pub fn description(description: files_io::Description) -> files_wire::Description {
+    files_wire::Description {
+        version: description.version,
+        size: description.size,
+        kind: io_kind(description.kind),
+        mode: description.mode,
+    }
+}
+
+/// What an I/O entry is, tagged by `type`; `describe` never follows a final link, so a symlink's
+/// target is left unknown here.
+fn io_kind(kind: files_io::Kind) -> files_wire::Kind {
+    match kind {
+        files_io::Kind::File => files_wire::Kind::File,
+        files_io::Kind::Directory => files_wire::Kind::Directory,
+        files_io::Kind::Symlink => files_wire::Kind::Symlink { target: None },
+        files_io::Kind::Other => files_wire::Kind::Other,
+    }
+}
+
 /// One quick-open hit.
 pub fn hit(hit: files_index::Hit) -> Hit {
     Hit {

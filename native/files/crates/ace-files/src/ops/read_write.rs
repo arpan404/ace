@@ -79,6 +79,23 @@ pub fn create_dir(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error
     Ok(Reply::Done)
 }
 
+/// Describe one path: the version a guarded write compares, its size, kind and mode.
+///
+/// The daemon's `stat` answer needs exactly this, so a client that has been reading a file with
+/// the TypeScript daemon sees the same version strings from the Rust one.
+pub fn describe(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
+    let entry = shared.roots.get(root)?;
+    let description = files_io::describe(entry.root(), path)?;
+    Ok(Reply::Description(convert::description(description)))
+}
+
+/// How many bytes of files a path holds, for the trash quota a delete reserves.
+pub fn measure(shared: &Shared, root: u64, path: &str) -> Result<Reply, Error> {
+    let entry = shared.roots.get(root)?;
+    let bytes = files_io::measure(entry.root(), path)?;
+    Ok(Reply::Measure { bytes })
+}
+
 /// Move or rename a path.
 pub fn rename(
     shared: &Shared,
