@@ -64,7 +64,18 @@ import Testing
         // Two settings on one page list the page once.
         #expect(SettingsSearch.phoneCommands(items, query: "face id").map(\.label) == ["App lock"])
         let every = SettingsSearch.phoneCommands(items, query: "e")
-        #expect(every.allSatisfy { PlaceSheet.of(command: $0.id, machine: nil, serial: 1)?.start.isEmpty == false })
+        #expect(every.filter { $0.id != "settings" }.allSatisfy { PlaceSheet.of(command: $0.id, machine: nil, serial: 1)?.start.isEmpty == false })
         #expect(SettingsSearch.phoneCommands(SettingsSearch.phoneItems(notifications: false, lock: false), query: "face id").isEmpty)
+    }
+
+    /// Settings itself opens with no machine, so it is found offline by the words the palette
+    /// finds it by, ahead of the pages inside it.
+    @Test func searchFindsSettingsItselfWithNoMachine() throws {
+        let items = SettingsSearch.phoneItems(notifications: true, lock: true)
+        let settings = try #require(SettingsSearch.phoneCommands(items, query: "settings").first)
+        #expect(settings.label == "Settings")
+        #expect(PlaceSheet.of(command: settings.id, machine: nil, serial: 1)?.root == .settings)
+        #expect(SettingsSearch.phoneCommands(items, query: "preferences").map(\.label) == ["Settings"])
+        #expect(!SettingsSearch.phoneCommands(items, query: "dark mode").contains { $0.label == "Settings" })
     }
 }
