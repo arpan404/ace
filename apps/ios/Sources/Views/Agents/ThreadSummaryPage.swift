@@ -46,6 +46,7 @@ struct ThreadSummaryPage: View {
         }
         if summary.hasResults { results(summary) }
         if let plan = summary.plan { SummaryPlanSection(plan: plan) }
+        SummaryAutomationsLine(model: model, workspaceId: summary.workspaceId, workspacePath: summary.workspacePath)
     }
 
     private func catchUp(_ lines: [ThreadSummarySheet.Line]) -> some View {
@@ -245,5 +246,49 @@ private struct SummaryPlanSection: View {
     }
     private func settled(_ todo: ThreadSummarySheet.Plan.Todo) -> Bool {
         todo.status == "completed" || todo.status == "cancelled"
+    }
+}
+
+/// The project's schedules in one quiet line at the foot of the Summary, as the web's is ("2
+/// automations in this project · next tonight 2:00 AM"), opening Automations. The bridge words it
+/// (`automations.projectLine`); a project with none shows nothing, and a failed read says so with
+/// a way to try again.
+private struct SummaryAutomationsLine: View {
+    let model: ClientModel
+    let workspaceId: String
+    let workspacePath: String?
+    @State private var reply: Reply?
+    @State private var opened = false
+    private struct Reply: Decodable, Sendable, Equatable { let ok: Bool; let line: String?; let failed: String? }
+
+    var body: some View {
+        Group {
+            if let failed = reply?.failed {
+                Button(failed) { Task { await read() } }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AceTheme.StatusText.failed)
+                    .accessibilityIdentifier("summary.automations.retry")
+            } else if let line = reply?.line {
+                Button(line) { opened = true }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(AceDesign.Ink.subtle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityHint("Opens Automations")
+                    .accessibilityIdentifier("summary.automations")
+            }
+        }
+        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, AceDesign.Space.margin)
+        // Read again when the machine reconnects: a schedule may have been made or run meanwhile.
+        .task(id: "\(workspaceId):\(model.connection)") { await read() }
+        .sheet(isPresented: $opened) { NavigationStack { AutomationsView(model: model) } }
+    }
+
+    private func read() async {
+        var request: [String: Any] = ["type": "automations.projectLine", "workspaceId": workspaceId, "zone": TimeZone.current.identifier]
+        if let workspacePath { request["workspacePath"] = workspacePath }
+        if let next = try? await model.service(request, as: Reply.self), next.ok { reply = next }
     }
 }
