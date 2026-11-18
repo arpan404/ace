@@ -5,7 +5,7 @@ import { z } from "zod";
 
 /**
  * The desktop app leaves the daemon it started running when it quits, so the next launch hands
- * the page a daemon at once (ADR 0185). This record, in the daemon's home, is how a later launch
+ * the page a daemon at once (ADR 0186). This record, in the daemon's home, is how a later launch
  * knows that daemon is the app's: it names the run by the pid and the per-run id the daemon
  * wrote in its `daemon-lock`, which no other daemon (the CLI's, the login service's) can share.
  */

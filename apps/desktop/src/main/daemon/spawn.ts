@@ -130,7 +130,7 @@ export function daemonEnvironment(
 }
 
 /**
- * Starts the bundled daemon so that it outlives this app (ADR 0185): detached, in its own process
+ * Starts the bundled daemon so that it outlives this app (ADR 0186): detached, in its own process
  * group and session (on Windows, outside the job that would end it with the app), with its
  * stdout and stderr in its home's launch log (`@ace/service/launch-log`), so no pipe to this app
  * is left to break under it when the app quits. Its records go to its own `logs/ace.jsonl`.
@@ -215,13 +215,17 @@ function spawnDetached(
   program: NodeJS.ProcessEnv,
   output: number,
 ) {
-  return spawn(launch.command, launch.args, {
+  const child = spawn(launch.command, launch.args, {
     cwd: dirname(options.resources.entry),
     env: daemonEnvironment(options, program),
     stdio: ["pipe", output, output],
     detached: true,
     windowsHide: true,
   });
+  // Node always opens a piped stdin; its typings for a mixed stdio list only lose track of it.
+  const { stdin } = child;
+  if (!stdin) throw new Error("The daemon's stdin did not open");
+  return Object.assign(child, { stdin });
 }
 
 /** Runs a one-shot daemon CLI command (`doctor --json`) with the same environment. */

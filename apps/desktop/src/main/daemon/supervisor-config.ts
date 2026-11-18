@@ -3,7 +3,7 @@ import type { EndpointWatch } from "./readiness.ts";
 import type { FreezeSignal } from "./watchdog.ts";
 import type { AdmissionFacts, Health, LocalDaemon } from "./probe.ts";
 
-/** A daemon an earlier launch of this app started and left running (ADR 0185). */
+/** A daemon an earlier launch of this app started and left running (ADR 0186). */
 export interface OwnedDaemon {
   /** A handle to stop it and to notice its exit, though it is not this process's child. */
   process: DaemonProcess;

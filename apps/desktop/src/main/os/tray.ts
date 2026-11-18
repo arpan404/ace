@@ -13,7 +13,7 @@ export interface TrayActions {
 /**
  * The menu-bar (macOS) or notification-area icon while ace keeps running in the background:
  * daemon status, the needs-you count, Open, Pause new work, Quit (the daemon this app started
- * keeps running, ADR 0185) and Quit ace completely (it stops too).
+ * keeps running, ADR 0186) and Quit ace completely (it stops too).
  */
 export class StatusTray {
   private tray: Tray | undefined;

@@ -8,7 +8,7 @@ export const quitBoundMs = 30_000;
 export interface QuitGatePorts {
   /**
    * Stops what the app runs: the browser backend, then the daemon this app started on a complete
-   * quit, or leaves that daemon running on a plain one (ADR 0185).
+   * quit, or leaves that daemon running on a plain one (ADR 0186).
    */
   shutDown(): Promise<void>;
   /** Quits the app for real, once shutdown is over. */

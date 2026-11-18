@@ -39,7 +39,7 @@ type Source = DaemonStatus["source"];
  * window, the CLI or the login service) and only spawns its own when none answers. It
  * restarts only the daemon it started, with backoff, and never stops one it did not start.
  * A daemon an earlier launch of the app started, and left running when it quit, counts as
- * started by this one (ADR 0185); from another app version it is replaced.
+ * started by this one (ADR 0186); from another app version it is replaced.
  *
  * Lifecycle requests (`start`, `restart`, `stop` and crash restarts) are transitions run one
  * at a time in order. Each bumps a generation, so slower work from an earlier transition
@@ -153,7 +153,7 @@ export class DaemonSupervisor {
   }
 
   /**
-   * The app quits and leaves its daemon running for the next launch to adopt (ADR 0185): nothing
+   * The app quits and leaves its daemon running for the next launch to adopt (ADR 0186): nothing
    * more starts, restarts or is health-checked, and the daemon and its agents carry on. A daemon
    * that has not yet taken its home's lock is stopped instead: it has no work yet, and without
    * its lock no later launch could know it as the app's. Final, as `stop` is.

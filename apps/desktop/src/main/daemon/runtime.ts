@@ -356,7 +356,7 @@ export class DaemonRuntime {
     await this.supervisor?.stop();
   }
 
-  /** A plain quit: the app goes and its daemon keeps running for the next launch (ADR 0185). */
+  /** A plain quit: the app goes and its daemon keeps running for the next launch (ADR 0186). */
   async release(): Promise<void> {
     await this.supervisor?.release();
   }

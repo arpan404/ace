@@ -32,7 +32,7 @@ export async function shutDownBeforeQuit(steps: {
 }
 
 /**
- * What a quit does with the daemon this app started (ADR 0185). A plain quit (Cmd+Q, the menu's
+ * What a quit does with the daemon this app started (ADR 0186). A plain quit (Cmd+Q, the menu's
  * or the tray's Quit, the last window closing) leaves it running, with its agents, for the next
  * launch to adopt. "Quit ace completely" stops it, and so does any quit that installs an update,
  * so that the new version starts its own.

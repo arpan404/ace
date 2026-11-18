@@ -10,7 +10,7 @@ import { machine } from "./supervisor-test-support.ts";
  */
 function computer() {
   const m = machine();
-  const home: { lock?: LockOwner; record?: OwnershipRecord } = {};
+  const home: { lock?: LockOwner | undefined; record?: OwnershipRecord | undefined } = {};
   const pids = new Map<DaemonProcess, number>();
   let nextPid = 100;
   const spawnFake = m.ports.spawn;
@@ -58,7 +58,7 @@ function computer() {
   return { ...m, home, launch, startWithOwnDaemon };
 }
 
-describe("the daemon outlives the app that started it (ADR 0185)", () => {
+describe("the daemon outlives the app that started it (ADR 0186)", () => {
   it("quit leaves the app-started daemon running and the next launch adopts it without spawning", async () => {
     const c = computer();
     const first = c.launch("1.0.0");

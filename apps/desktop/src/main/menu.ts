@@ -16,7 +16,7 @@ export function applicationMenu(options: {
   trigger(keymapId: string): void;
   bindings?: Readonly<Record<string, string>> | undefined;
   checkForUpdates(): void;
-  /** Quits and stops the daemon too; a plain Quit leaves it running (ADR 0185). */
+  /** Quits and stops the daemon too; a plain Quit leaves it running (ADR 0186). */
   quitCompletely(): void;
   openUrl(url: string): void;
   showLogs(): void;

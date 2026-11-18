@@ -17,7 +17,7 @@ export interface AdoptedPorts {
 }
 
 /**
- * A daemon an earlier launch of this app started and left running (ADR 0185), supervised as
+ * A daemon an earlier launch of this app started and left running (ADR 0186), supervised as
  * the app's own: it stops on the same signals, and its exit is noticed by looking for the pid,
  * since it is no longer this process's child. No exit code reaches a non-parent, so its exit
  * reports neither code nor signal.

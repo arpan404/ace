@@ -17,7 +17,7 @@ function alive(pid: number): boolean {
 }
 
 /**
- * The supervisor's ports for the daemon an ace app started in `home` (ADR 0185): recording the
+ * The supervisor's ports for the daemon an ace app started in `home` (ADR 0186): recording the
  * one this app spawned once it holds the home's lock, and claiming one an earlier launch left
  * running, as the app's own (`version` matches) or to replace (it does not).
  */

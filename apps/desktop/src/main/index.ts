@@ -279,7 +279,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
   updateReport.connected(runtime.current().state === "running");
   /**
    * "Quit ace completely" (the app menu, the tray) or an update's restart: this quit stops the
-   * daemon too. Any other quit leaves it running for the next launch (ADR 0185).
+   * daemon too. Any other quit leaves it running for the next launch (ADR 0186).
    */
   let stopDaemonOnQuit = false;
   const quitCompletely = () => {
