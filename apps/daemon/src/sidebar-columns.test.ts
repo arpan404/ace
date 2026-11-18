@@ -274,16 +274,17 @@ it("a home from before the facts table lists, orders and counts every thread on 
   expect(inbox?.live.total).toBe(20);
 });
 
+const factRows = (db: DatabaseSync) =>
+  Number(db.prepare("SELECT COUNT(*) AS n FROM sidebar_thread_columns").get()?.n);
+
 it("later opens don't read every thread to repair the facts table", () => {
   const { store, raw, open } = setup();
   seed(store, 5);
-  const rows = (db: DatabaseSync) =>
-    Number(db.prepare("SELECT COUNT(*) AS n FROM sidebar_thread_columns").get()?.n);
   const db = raw();
   // No trigger watches the facts table itself, so only a full pass at open would refill it.
   db.exec("DELETE FROM sidebar_thread_columns WHERE thread_id = 't-001'");
   db.close();
   open().close();
   const check = raw();
-  expect(rows(check)).toBe(4);
+  expect(factRows(check)).toBe(4);
 });
