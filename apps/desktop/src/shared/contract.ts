@@ -51,6 +51,21 @@ export const DaemonState = z.enum([
   "unavailable",
 ]);
 export type DaemonState = z.infer<typeof DaemonState>;
+/**
+ * The step a daemon start is on. `looking`: for a daemon that already runs; `service`: starting
+ * the login service; `launching`: this app's own daemon, before it listens; `lock-wait`: on the
+ * previous daemon's lock, until it closes; `warming`: listening, getting ready to answer;
+ * `admission`: answering, being asked whether it takes new work.
+ */
+export const DaemonStage = z.enum([
+  "looking",
+  "service",
+  "launching",
+  "lock-wait",
+  "warming",
+  "admission",
+]);
+export type DaemonStage = z.infer<typeof DaemonStage>;
 export const DaemonStatus = z.object({
   state: DaemonState,
   /** Who runs the daemon: this app (a supervised child), a login service, or someone else. */
@@ -66,6 +81,8 @@ export const DaemonStatus = z.object({
   cause: z.enum(["port-in-use", "lock-held"]).optional(),
   /** Set while the supervisor restarts a crashed daemon on its own: which try, of how many. */
   retry: z.object({ attempt: z.number().int().min(1), of: z.number().int().min(1) }).optional(),
+  /** Where a start has got to, while the daemon is not yet running (the startup screen says it). */
+  stage: DaemonStage.optional(),
 });
 export type DaemonStatus = z.infer<typeof DaemonStatus>;
 
@@ -471,6 +488,11 @@ export const UpdateStatus = z.object({
    * install's data. One sentence; null when nothing is held back.
    */
   blocked: z.string().max(400).nullable(),
+  /**
+   * The person's Restart is under way: the app is stopping its daemon and will close and reopen
+   * on the update. Absent from builds that predate it.
+   */
+  restarting: z.boolean().optional(),
   error: z
     .object({
       during: z.enum(["check", "download", "install"]),

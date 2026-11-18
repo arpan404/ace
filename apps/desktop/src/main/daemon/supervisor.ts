@@ -1,4 +1,4 @@
-import type { DaemonStatus } from "../../shared/contract.ts";
+import type { DaemonStage, DaemonStatus } from "../../shared/contract.ts";
 import {
   stopChild,
   terminate,
@@ -216,7 +216,10 @@ export class DaemonSupervisor {
     // Our own child is still alive (a second start): wait for it, never adopt it as external.
     const child = this.child;
     if (child && !child.done) return this.awaitChild(generation, child);
-    this.update({ state: this.status.restarts ? "restarting" : "starting" });
+    this.update({
+      state: this.status.restarts ? "restarting" : "starting",
+      stage: this.stageOf("looking"),
+    });
     const existing = await this.ports.find();
     if (this.stale(generation)) return;
     if (existing) return this.adopt(existing, generation);
@@ -234,6 +237,7 @@ export class DaemonSupervisor {
         if (found) return this.running(found, "external", generation);
       }
     }
+    this.stage("launching");
     if (this.ports.prepareSpawn) {
       await this.ports.prepareSpawn();
       if (this.stale(generation)) return;
@@ -280,7 +284,7 @@ export class DaemonSupervisor {
       waitedMs,
     });
     // Starting, not failed: a client waiting to connect keeps waiting.
-    this.update({ state: "starting", cause: "lock-held" });
+    this.update({ state: "starting", cause: "lock-held", stage: "lock-wait" });
     void this.transition(true, (generation) => this.awaitLock(generation)).catch((error: unknown) =>
       this.ports.log("warn", "Waiting for the other daemon's lock failed", {
         error: String(error),
@@ -428,6 +432,7 @@ export class DaemonSupervisor {
   private async startService(): Promise<boolean> {
     const service = this.ports.service;
     if (!service) return false;
+    this.stage("service");
     try {
       if (!(await service.active())) await service.start();
       return true;
@@ -442,13 +447,27 @@ export class DaemonSupervisor {
       this.ports,
       this.options.readyTimeoutMs,
       () => !this.stale(generation) && alive(),
+      () => this.stage("warming"),
     );
+  }
+
+  /** A start's step, while another daemon's lock is waited out that wait is what it is on. */
+  private stageOf(stage: DaemonStage): DaemonStage {
+    return this.lockWaitSince === undefined ? stage : "lock-wait";
+  }
+
+  /** Say which step a start is on (the startup screen shows it); running clears it. */
+  private stage(stage: DaemonStage): void {
+    if (this.status.state === "running" || this.status.state === "failed") return;
+    const next = this.stageOf(stage);
+    if (this.status.stage !== next) this.update({ stage: next });
   }
 
   private async running(daemon: LocalDaemon, source: Source, generation: number): Promise<void> {
     // A daemon this app started counts only while that child is still alive.
     const live = () =>
       !this.stale(generation) && (source !== "app" || (!!this.child && !this.child.done));
+    if (live()) this.stage("admission");
     const admission = await readAdmission(this.ports, daemon, this.options.readyTimeoutMs, live);
     if (admission.kind === "failed") return this.couldNotStart(admission.reason);
     if (admission.kind === "abandoned" || !live()) return;
