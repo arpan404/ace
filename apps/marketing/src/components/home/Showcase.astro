@@ -326,6 +326,13 @@ const span: Record<ShowcaseId, string> = {
     padding: 22px 24px;
   }
 
+  /* A narrow tile shows only the payment the agent is making. */
+  @media (max-width: 519px) {
+    .site .order {
+      display: none;
+    }
+  }
+
   .order {
     display: grid;
     align-content: start;
@@ -517,6 +524,8 @@ const span: Record<ShowcaseId, string> = {
 
   /* An account at its limit, and the one the thread moves to. */
   .accounts {
+    top: 50%;
+    transform: translateY(-50%);
     display: grid;
     gap: 14px;
     padding: 16px 16px 18px;
@@ -579,7 +588,12 @@ const span: Record<ShowcaseId, string> = {
 
   /* Automations: what runs, what starts it, and the agent that does it. */
   .autos {
-    bottom: -30px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .auto:last-child {
+    border-bottom: 0;
   }
 
   .auto {

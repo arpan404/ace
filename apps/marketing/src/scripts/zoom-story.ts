@@ -48,6 +48,7 @@ export function startZoomStory(root: HTMLElement): void {
   const captions = q("[data-zoom-captions]");
   const lens = q("[data-zoom-lens]");
   const ghost = q("[data-zoom-ghost]");
+  const cue = q("[data-zoom-cue]");
   const app = q(".ace");
   const composer = q(".ace .composer");
   const placeholder = q(".ace .composer .placeholder");
@@ -101,6 +102,9 @@ export function startZoomStory(root: HTMLElement): void {
   let tops: Record<string, Rect> = {};
   let mids: { x: number; y: number }[] = [];
   let promptBox: Rect | undefined;
+  let narrow = false;
+  /** How large the standalone composer is drawn on a narrow screen, where the real one is tiny. */
+  const readable = 0.9;
 
   function measure(): void {
     size = { width: stage.clientWidth, height: stage.clientHeight };
@@ -119,24 +123,28 @@ export function startZoomStory(root: HTMLElement): void {
       16,
       edge.getBoundingClientRect().left - stage.getBoundingClientRect().left,
     );
-    const narrow = size.width < 760;
+    narrow = size.width < 760;
     // Clear of the header and a label above the top drawing, and of the captions below.
     const band = size.height - captions.offsetTop;
     stage.style.setProperty("--band", `${band}px`);
     const insets = { top: 64 + 44, right: side, bottom: band + 60, left: side };
     promptBox = rectOf(composer);
-    if (ghost) ghost.style.width = `${promptBox.width}px`;
+    if (ghost) {
+      const width = narrow ? (size.width - side * 2) / readable : promptBox.width;
+      ghost.style.width = `${width}px`;
+    }
     const thread = rectOf(column);
     const shots: Record<(typeof shotOrder)[number], Shot> = {
       prompt: {
         rect: promptBox,
         insets: {
-          top: hero.offsetTop + hero.offsetHeight + 32,
+          top: hero.offsetTop + hero.offsetHeight + 36,
           right: side,
-          bottom: 24,
+          bottom: 64,
           left: side,
         },
-        maxScale: 0.92,
+        // On a wide screen the composer is drawn larger than life, up to 880 pixels across.
+        maxScale: narrow ? 0.92 : Math.min(1.3, 880 / promptBox.width),
         alignX: 0,
         alignY: 0,
       },
@@ -233,8 +241,20 @@ export function startZoomStory(root: HTMLElement): void {
     if (lens) lens.style.opacity = String(arrived);
     if (ghost && promptBox) {
       const at = project(camera, promptBox);
-      ghost.style.transform = `translate(${at.x}px, ${at.y}px) scale(${camera.scale})`;
+      // Wide: an exact copy, swapped out unseen. Narrow: a readable one that fades into the app.
+      const scale = narrow ? readable : camera.scale;
+      ghost.style.transform = `translate(${at.x}px, ${at.y}px) scale(${scale})`;
+      ghost.style.opacity = narrow ? String(1 - arrived) : "";
       ghost.style.visibility = arrived === 1 ? "hidden" : "";
+      if (cue) {
+        const waiting = 1 - clamp(leg.at / 0.06);
+        cue.style.opacity = String(waiting);
+        if (waiting > 0) {
+          const box = ghost.getBoundingClientRect();
+          const frame = stage.getBoundingClientRect();
+          cue.style.transform = `translate(${box.left - frame.left + 4}px, ${box.bottom - frame.top + 16}px)`;
+        }
+      }
     }
 
     const leaving = clamp(leg.at / 0.4);

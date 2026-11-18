@@ -9,6 +9,7 @@
  * twice: side by side for wide screens (`--x`, `--y`) and stacked for narrow ones (`--tx`,
  * `--ty`). Without the script the story reads as the headline and its captions, in order.
  */
+import { builtInAgents } from "../../content/agents.ts";
 import { delegates, rows } from "../../content/stage.ts";
 import { product } from "../../content/product.ts";
 import {
@@ -20,6 +21,7 @@ import {
 } from "../../content/zoom.ts";
 import { shotOrder } from "../../scripts/zoom-camera.ts";
 import { links } from "../../site.ts";
+import BrandMark from "../BrandMark.astro";
 import DownloadButton from "../DownloadButton.astro";
 import Icon from "../Icon.astro";
 import Laptop from "../devices/Laptop.astro";
@@ -76,6 +78,12 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     </div>
 
     <div class="ghost ace" data-zoom-ghost aria-hidden="true"></div>
+    <p class="cue" data-zoom-cue aria-hidden="true">
+      Scroll to send
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"
+        ><path d="M6 1.5v9M2.5 7 6 10.5 9.5 7"></path></svg
+      >
+    </p>
 
     <div class="marks" aria-hidden="true">
       {
@@ -108,14 +116,31 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
             Star on GitHub
           </a>
         </div>
-        <p class="facts">{product.heroFacts.join(". ")}.</p>
+        <div class="facts">
+          <ul aria-label="Agents ace runs">
+            {
+              builtInAgents.map((agent) => (
+                <li title={agent.label}>
+                  <BrandMark brand={agent.brand} size={18} />
+                  <span class="sr-only">{agent.label}</span>
+                </li>
+              ))
+            }
+          </ul>
+          <p>{product.heroFacts.join(". ")}.</p>
+        </div>
       </div>
     </div>
 
     <ol class="captions page" data-zoom-captions>
       {
-        zoomCaptions.map((caption) => (
+        zoomCaptions.map((caption, index) => (
           <li data-caption={caption.shot}>
+            <span class="steps" aria-hidden="true">
+              {zoomCaptions.map((_, step) => (
+                <i class:list={{ on: step === index }} />
+              ))}
+            </span>
             <h2>{caption.title}</h2>
             <p>
               {caption.body} <a href={caption.href}>More</a>
@@ -165,12 +190,14 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     position: absolute;
     inset: 0;
     overflow: hidden;
-    -webkit-mask-image: linear-gradient(
-      to top,
-      transparent var(--band, 0px),
-      #000 calc(var(--band, 0px) + 48px)
-    );
-    mask-image: linear-gradient(to top, transparent var(--band, 0px), #000 calc(var(--band, 0px) + 48px));
+    /* Clear under the floating header as well, so the drawing never shows through it. */
+    --fade:
+      linear-gradient(to top, transparent var(--band, 0px), #000 calc(var(--band, 0px) + 48px)),
+      linear-gradient(to bottom, transparent 58px, #000 100px);
+    -webkit-mask-image: var(--fade);
+    mask-image: var(--fade);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
   }
 
   /*
@@ -188,6 +215,19 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
 
   .ghost :global(.composer) {
     box-shadow: 0 24px 60px -30px var(--frame-shadow);
+  }
+
+  /* On a narrow screen the copy is drawn at reading size, so the prompt wraps inside it. */
+  @media (max-width: 759px) {
+    .ghost :global(.composer) {
+      height: auto;
+      min-height: 112px;
+      gap: 14px;
+    }
+
+    .verb {
+      display: none;
+    }
   }
 
   .zoom:not([data-live]) .ghost {
@@ -345,11 +385,64 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
     margin-top: 28px;
   }
 
+  /* The agents ace runs, as bare marks, then what it costs and where it runs. */
   .facts {
-    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+    margin-top: 20px;
     color: var(--subtle);
     font-size: 13px;
   }
+
+  .facts ul {
+    display: flex;
+    gap: 12px;
+    color: var(--muted);
+  }
+
+  .facts li {
+    display: grid;
+  }
+
+  /* Under the composer: what to do next. It leaves with the first scroll. */
+  .cue {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .zoom:not([data-live]) .cue {
+    display: none;
+  }
+
+  /* Which of the story's five stops this is. */
+  .steps {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 16px;
+  }
+
+  .steps i {
+    width: 22px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border-strong);
+  }
+
+  .steps .on {
+    background: var(--foreground);
+  }
+
 
   .captions {
     display: grid;
