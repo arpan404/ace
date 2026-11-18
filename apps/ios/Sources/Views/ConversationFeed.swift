@@ -250,6 +250,9 @@ struct ConversationFeed: View {
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { old, phase in
+            // The hold only moves a feed at rest; any scroll it didn't make (a finger, VoiceOver's
+            // three-finger swipe, Switch Control) ends it where the reader is.
+            if surface.holding, phase != .idle { endPageHold() }
             switch phase {
             case .tracking:
                 readerMovedFeed()
@@ -292,7 +295,7 @@ struct ConversationFeed: View {
                 // An assistive scroll (VoiceOver's three-finger swipe, Switch Control) is the
                 // reader's own though no finger tracked it; the feed's own scrolls are excluded.
                 if !touched, old == .animating || old == .decelerating, !settle.isRunning, !keyboardMoving,
-                   UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning {
+                   Self.assistiveScrolling {
                     readerTookOver(proxy)
                 }
                 // After the follow mode above: where the scroll came to rest is held, and a
@@ -697,8 +700,9 @@ struct ConversationFeed: View {
     private func holdOlderPage() {
         guard intent.olderPage else { return }
         intent.olderPage = false
-        // A hidden feed has nothing to hold: the reveal waits for it to settle.
-        guard revealed, !surface.holding, let top = currentTopRow(),
+        // A hidden feed has nothing to hold: the reveal waits for it to settle. Under VoiceOver
+        // and Switch Control the feed makes no automatic corrections, so none here either.
+        guard revealed, !surface.holding, !Self.assistiveScrolling, let top = currentTopRow(),
               let held = anchor.keeper.frames.inContent(top.rowID) else { return }
         let onScreen = Double(held.minY) - surface.offset
         guard surface.freeze() else { return }
@@ -719,6 +723,8 @@ struct ConversationFeed: View {
         }
     }
     /// The reader took the feed mid-hold: it's theirs as it is.
+    /// An assistive technology may scroll the feed without a touch it can see.
+    private static var assistiveScrolling: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
     private func endPageHold() {
         surface.stop(.page)
         surface.thaw()
