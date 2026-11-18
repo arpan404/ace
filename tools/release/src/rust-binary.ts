@@ -85,7 +85,7 @@ export async function rustBinarySource(options: {
     throw new Error(`Build and verify ${packageName} on a ${target} host`);
   const crate = join(repo, "native", workspace);
   const triple = releaseTriples[target];
-  const override = env[envName] || undefined;
+  const override = env[envName];
   const executable =
     override ?? join(crate, "target", triple, "release", executableName(packageName, target));
   if (!override)
@@ -97,7 +97,7 @@ export async function rustBinarySource(options: {
   const info = await lstat(executable);
   if (!info.isFile()) throw new Error(`${packageName} is not a regular file: ${executable}`);
   if (info.size > sizeLimit) throw new Error(`${packageName} exceeds ${sizeLimit} bytes`);
-  return { executable, triple, prebuilt: override !== undefined };
+  return { executable, triple, prebuilt: Boolean(override) };
 }
 
 /** Copies a built executable into the bundle's `<folder>/`, runnable, and checks Linux links. */

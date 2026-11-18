@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
 import { smokeMedia } from "@ace/release/media-smoke";
 import { smokeFiles } from "@ace/release/files-smoke";
+import { aceFilesVersion } from "@ace/release/ace-files";
 import { verifyDesktopNatives } from "@ace/release/native-smoke";
 import { readScreenHelperIdentity } from "@ace/release/screen-identity";
 import { ReleaseTarget } from "@ace/protocol";
@@ -380,7 +381,12 @@ await smokeMedia(
   packagedAppVersion(process.env, appVersion()),
   runtime,
 );
-await smokeFiles(packedResources, nativeTarget, runtime);
+await smokeFiles(
+  packedResources,
+  nativeTarget,
+  aceFilesVersion({ repo, target: nativeTarget }),
+  runtime,
+);
 if (process.platform === "linux")
   outputs.push(
     await writeLinuxTarball({

@@ -11,6 +11,7 @@ import { InstalledRelease, DaemonHealth } from "@ace/protocol";
 import { checked, runProcess } from "@ace/service";
 import { smokeMedia } from "./media-smoke.ts";
 import { smokeFiles } from "./files-smoke.ts";
+import { aceFilesVersion } from "./ace-files.ts";
 import { verifyDesktopNatives } from "./native-smoke.ts";
 import { hashFile, verifyManifest, unpackArchive } from "@ace/service";
 import { z } from "zod";
@@ -18,6 +19,7 @@ import { smokeOptions } from "./smoke-options.ts";
 import { ScreenHelperIdentity } from "./screen-identity.ts";
 const options = smokeOptions(process.argv.slice(2));
 const artifact = resolve(options.root);
+const repo = resolve(import.meta.dirname, "../../..");
 const manifest = InstalledRelease.parse(
   JSON.parse(await readFile(join(artifact, "release.json"), "utf8")),
 );
@@ -93,6 +95,7 @@ await smokeMedia(
 await smokeFiles(
   artifact,
   manifest.target,
+  aceFilesVersion({ repo, target: manifest.target }),
   join(artifact, "bin", process.platform === "win32" ? "node.exe" : "node"),
 );
 const app = options.app;
@@ -102,7 +105,7 @@ if (app) {
   await verifyDesktopNatives(
     app,
     manifest.target,
-    resolve(import.meta.dirname, "../../../native/screen-helper/identity.txt"),
+    join(repo, "native/screen-helper/identity.txt"),
     {
       production: options.production,
       authenticode: options.authenticode,
@@ -124,6 +127,7 @@ if (app) {
   await smokeFiles(
     resources,
     manifest.target,
+    aceFilesVersion({ repo, target: manifest.target }),
     join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
   );
 }

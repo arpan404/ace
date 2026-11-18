@@ -137,25 +137,47 @@ export async function licenseListing(
 }
 
 /**
- * Writes a native binary's license listing for the crates its `triple` build links, beside the
- * executable (`<workspace>/` on both bundle layouts).
+ * A native workspace's resolved dependencies for `triple`: only crates that build for the target,
+ * as cargo sees them now. Offline-safe with `--locked`, and cheap enough for a test fixture.
  */
-export async function collectRustLicenses(options: {
+export function rustMetadata(options: {
   repo: string;
   /** The workspace folder under `native/`, e.g. "media" or "files". */
   workspace: string;
-  packageName: string;
   triple: string;
-  output: string;
-}): Promise<void> {
-  const { repo, workspace, packageName, triple, output } = options;
-  const metadata: unknown = JSON.parse(
+}): unknown {
+  const { repo, workspace, triple } = options;
+  return JSON.parse(
     execFileSync(
       "cargo",
       ["metadata", "--locked", "--format-version", "1", "--filter-platform", triple],
       { cwd: join(repo, "native", workspace), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
     ),
   );
+}
+
+/** The version of a workspace's own package, which its binary reports at the handshake. */
+export function packageVersion(metadata: unknown, packageName: string): string {
+  const root = CargoMetadata.parse(metadata).packages.find(
+    (pkg) => pkg.name === packageName && pkg.source === null,
+  );
+  if (!root) throw new Error(`${packageName} is missing from its workspace`);
+  return root.version;
+}
+
+/**
+ * Writes a native binary's license listing for the crates its `triple` build links, beside the
+ * executable (`<workspace>/` on both bundle layouts).
+ */
+export async function collectRustLicenses(options: {
+  repo: string;
+  workspace: string;
+  packageName: string;
+  triple: string;
+  output: string;
+}): Promise<void> {
+  const { repo, workspace, packageName, triple, output } = options;
+  const metadata = rustMetadata({ repo, workspace, triple });
   const listing = await licenseListing(
     packageName,
     await readFile(join(repo, "LICENSE"), "utf8"),

@@ -3,25 +3,34 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 import { ReleaseTarget } from "@ace/protocol";
-import { filesSizeLimit, stageAceFiles, stagedAceFiles } from "./ace-files.ts";
+import { filesSizeLimit, aceFilesVersion, stageAceFiles, stagedAceFiles } from "./ace-files.ts";
 
 const host = ReleaseTarget.parse(`${process.platform}-${process.arch}`);
 
 /** A native/files workspace with no dependencies, so `cargo metadata` runs without a registry. */
-async function fakeWorkspace(repo: string): Promise<void> {
+async function fakeWorkspace(repo: string, version = "0.1.0"): Promise<void> {
   const crate = join(repo, "native/files");
   await mkdir(crate, { recursive: true });
   await writeFile(
     join(crate, "Cargo.lock"),
-    'version = 4\n\n[[package]]\nname = "ace-files"\nversion = "0.1.0"\n',
+    `version = 4\n\n[[package]]\nname = "ace-files"\nversion = "${version}"\n`,
   );
   await writeFile(
     join(crate, "Cargo.toml"),
-    '[package]\nname = "ace-files"\nversion = "0.1.0"\nedition = "2024"\n[[bin]]\nname = "ace-files"\npath = "main.rs"\n',
+    `[package]\nname = "ace-files"\nversion = "${version}"\nedition = "2024"\n[[bin]]\nname = "ace-files"\npath = "main.rs"\n`,
   );
   await writeFile(join(crate, "main.rs"), "fn main() {}\n");
   await writeFile(join(repo, "LICENSE"), "Apache-2.0 notice");
 }
+
+test("the hello version is the crate's workspace version, not the app's", async ({
+  onTestFinished,
+}) => {
+  const repo = await mkdtemp(join(tmpdir(), "ace-files-version-"));
+  onTestFinished(() => rm(repo, { recursive: true, force: true }));
+  await fakeWorkspace(repo, "4.5.6");
+  expect(aceFilesVersion({ repo, target: host })).toBe("4.5.6");
+});
 
 test.runIf(process.platform !== "win32")(
   "staging copies a prebuilt ace-files into files/ with its crate notices",

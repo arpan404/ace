@@ -1,13 +1,33 @@
 import { join } from "node:path";
 import type { ReleaseTarget } from "@ace/protocol";
 import type { z } from "zod";
-import { installRustBinary, rustBinarySource, stagedRustBinary } from "./rust-binary.ts";
-import { collectRustLicenses } from "./rust-licenses.ts";
+import {
+  installRustBinary,
+  releaseTriples,
+  rustBinarySource,
+  stagedRustBinary,
+} from "./rust-binary.ts";
+import { collectRustLicenses, packageVersion, rustMetadata } from "./rust-licenses.ts";
 
 type Target = z.infer<typeof ReleaseTarget>;
 export const filesSizeLimit = 8_000_000;
 export const stagedAceFiles = (root: string, target: Target) =>
   stagedRustBinary(root, target, "files", "ace-files");
+
+/**
+ * The version ace-files reports on its hello frame: its workspace package version, read from the
+ * same `cargo metadata` the license collection beside it uses.
+ */
+export function aceFilesVersion(options: { repo: string; target: Target }): string {
+  return packageVersion(
+    rustMetadata({
+      repo: options.repo,
+      workspace: "files",
+      triple: releaseTriples[options.target],
+    }),
+    "ace-files",
+  );
+}
 
 /**
  * Stages ace-files, the daemon's file system process: built from `native/files` on the matching

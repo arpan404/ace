@@ -10,27 +10,33 @@ type Target = z.infer<typeof ReleaseTarget>;
 
 /**
  * Starts the staged ace-files through the shipped daemon runtime, from the shipped layout with
- * no source imports, completes the files-wire hello handshake on its stdio and expects it to exit
- * cleanly when stdin closes: exactly what the daemon does when it starts the process.
+ * no source imports, completes the files-wire hello handshake on its stdio, checks the version it
+ * reports and expects it to exit cleanly when stdin closes: exactly what the daemon does when it
+ * starts the process.
  */
-export async function smokeFiles(root: string, target: Target, runtime: string): Promise<void> {
+export async function smokeFiles(
+  root: string,
+  target: Target,
+  version: string,
+  runtime: string,
+): Promise<void> {
   const binary = stagedAceFiles(root, target);
   if ((await stat(binary)).size > filesSizeLimit)
     throw new Error(`ace-files exceeds ${filesSizeLimit} bytes`);
-  const output = runShipped(runtime, ["-e", helloSmokeScript(binary)]);
+  const output = runShipped(runtime, ["-e", helloSmokeScript(binary, version)]);
   if (output.trim()) throw new Error("Unexpected files smoke output");
   if (target.startsWith("linux-")) await checkLinuxRustBinary("ace-files", binary);
   process.stdout.write(
-    `ace-files ${target}: hello handshake and clean exit passed (${await hashFile(binary)})\n`,
+    `ace-files ${target}: hello handshake, version ${version} and clean exit passed (${await hashFile(binary)})\n`,
   );
 }
 
 /**
  * The driver the shipped runtime runs: it frames `hello` the way files-wire does (u32 LE length
- * of the rest, kind byte 1, JSON), waits for ace-files' hello on kind 1, then closes stdin, which
- * is how the process is stopped.
+ * of the rest, kind byte 1, JSON), requires hello back with protocol 1 and the crate's version,
+ * then closes stdin, which is how the process is stopped, and waits for it to exit.
  */
-function helloSmokeScript(binary: string): string {
+function helloSmokeScript(binary: string, version: string): string {
   return `
 const { spawn } = require("node:child_process");
 const child = spawn(${JSON.stringify(binary)}, { stdio: ["pipe", "pipe", "pipe"] });
@@ -41,12 +47,13 @@ const frame = (message) => {
   header.writeUInt32LE(1 + json.length, 0);
   return Buffer.concat([header, Buffer.from([1]), json]);
 };
+let exitTimer;
 const fail = (reason) => {
   console.error(reason);
   child.kill();
   process.exit(1);
 };
-const timer = setTimeout(() => fail("ace-files sent no hello"), 10000);
+const helloTimer = setTimeout(() => fail("ace-files sent no hello"), 10000);
 let buffered = Buffer.alloc(0);
 let greeted = false;
 child.stdout.on("data", (chunk) => {
@@ -62,16 +69,24 @@ child.stdout.on("data", (chunk) => {
     if (message.type !== "hello") continue;
     if (message.protocol !== 1)
       return fail("ace-files answered another protocol: " + message.protocol);
+    if (message.version !== ${JSON.stringify(version)})
+      return fail("ace-files reports version " + message.version + ", not " + ${JSON.stringify(version)});
     greeted = true;
-    clearTimeout(timer);
+    clearTimeout(helloTimer);
+    exitTimer = setTimeout(
+      () => fail("ace-files did not exit after stdin closed"),
+      10000,
+    );
     child.stdin.end();
     return;
   }
 });
 child.stderr.on("data", () => {});
 child.on("error", fail);
-child.on("exit", (code) => {
-  clearTimeout(timer);
+// "close", not "exit": stdout is drained, so a hello buffered just before the child stopped is seen.
+child.on("close", (code) => {
+  clearTimeout(helloTimer);
+  clearTimeout(exitTimer);
   if (!greeted) fail("ace-files exited before hello");
   else if (code !== 0) fail("ace-files did not shut down cleanly (" + code + ")");
   else process.exit(0);
