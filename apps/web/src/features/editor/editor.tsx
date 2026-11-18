@@ -10,13 +10,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type ClipboardEvent,
-  type FormEvent,
   type Ref,
 } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
-import { copyText, deleteForward, deleteSelections } from "./editing.ts";
 import { EditorFindBar } from "./find-bar.tsx";
 import type { MatchSegment } from "./find-matches.ts";
 import {
@@ -33,6 +30,9 @@ import { CaretLayers } from "./layers.tsx";
 import { EditorLine } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
 import { useEditorDocument } from "./use-editor.ts";
+import { selectedLineSpan } from "./cursor.ts";
+import { useEditorInput } from "./use-editor-input.ts";
+import { useFindInFile } from "./use-find-in-file.ts";
 import { useFindResults } from "./use-find.ts";
 
 const overscan = 8;
@@ -40,7 +40,6 @@ const overscan = 8;
 const mountAll = 400;
 const paddingRight = 24;
 const noLines = [""];
-const normalized = (text: string) => text.replace(/\r\n?/g, "\n");
 
 /** What the editor exposes to code that needs to place a caret or read the text. */
 export interface EditorHandle {
@@ -93,10 +92,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   const doc = state.doc;
   const scroller = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
-  const composing = useRef(false);
-  const justComposed = useRef(false);
-  const [composingText, setComposingText] = useState<string>();
+  const field = useRef<HTMLTextAreaElement>(null);
   const [scroll, setScroll] = useState({ top: 0, left: 0 });
   const [content, setContent] = useState<{ doc: unknown; width: number }>({
     doc: undefined,
@@ -104,12 +100,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   });
   const [cell, setCell] = useState(fallbackCharWidth);
   const [paint, setPaint] = useState(0);
-  const [findOpen, setFindOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [regex, setRegex] = useState(false);
-  const [caseSensitive, setCaseSensitive] = useState(true);
-  const [wholeWord, setWholeWord] = useState(false);
-  const [matchIndex, setMatchIndex] = useState(0);
   const viewport = useElementSize(scroller);
 
   const name = pathParts(props.path).name;
@@ -165,33 +155,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   }, [doc, lines, cell, gutter]);
   const contentWidth = content.doc === doc ? content.width : 0;
 
-  const internal = useFindResults(doc, state.version, {
-    active: findOpen,
-    query,
-    regex,
-    caseSensitive,
-    wholeWord,
-  });
-  const external = useFindResults(doc, state.version, {
-    active: !findOpen && !!props.find?.query,
-    query: findOpen ? "" : (props.find?.query ?? ""),
-    caseSensitive: false,
-  });
-  const results = findOpen ? internal : external;
-  const activeQuery = findOpen ? query : (props.find?.query ?? "");
-  const externalIndex = useMemo(() => {
-    const hit = props.find?.hit;
-    if (!hit) return -1;
-    return results.matches.findIndex(
-      (range) => range.start.line === hit.line && range.start.column === hit.column,
-    );
-  }, [results.matches, props.find?.hit]);
-  const index = results.matches.length ? Math.min(matchIndex, results.matches.length - 1) : 0;
-  const currentIndex = findOpen ? index : externalIndex;
-
   const primary = state.selections[state.primary] ?? state.selections[0];
   const caretLine = primary?.head.line ?? 0;
   const caretColumn = primary?.head.column ?? 0;
+  const selected = selectedLineSpan(state.selections);
 
   const reveal = useCallback(
     (position: Position) => {
@@ -224,56 +191,49 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       reveal({ line: hitLine, column: hitColumn });
   }, [hitLine, hitColumn, reveal]);
 
-  const openFind = useCallback(() => {
-    const target = state.doc;
-    if (!findOpen && target) {
-      const selection = target.selections()[target.primarySelection()];
-      if (selection && selection.anchor.line === selection.head.line) {
-        const text = target.line(selection.anchor.line);
-        const start = Math.min(selection.anchor.column, selection.head.column);
-        const end = Math.max(selection.anchor.column, selection.head.column);
-        if (end > start && end - start <= 200) setQuery(text.slice(start, end));
-      }
-    }
-    setFindOpen(true);
-  }, [findOpen, state.doc, setFindOpen, setQuery]);
-
-  const closeFind = useCallback(() => {
-    setFindOpen(false);
-    input.current?.focus({ preventScroll: true });
-  }, [setFindOpen]);
+  const finder = useFindInFile({
+    doc,
+    version: state.version,
+    select: (range) => state.select([{ anchor: range.start, head: range.end }]),
+    reveal,
+    focusEditor: () => field.current?.focus({ preventScroll: true }),
+  });
+  const external = useFindResults(doc, state.version, {
+    active: !finder.open && !!props.find?.query,
+    query: finder.open ? "" : (props.find?.query ?? ""),
+    caseSensitive: false,
+  });
+  const matches = finder.open ? finder.matches : external.matches;
+  const activeQuery = finder.open ? finder.query : (props.find?.query ?? "");
+  const externalIndex = useMemo(() => {
+    const hit = props.find?.hit;
+    if (!hit) return -1;
+    return matches.findIndex(
+      (range) => range.start.line === hit.line && range.start.column === hit.column,
+    );
+  }, [matches, props.find?.hit]);
+  const currentIndex = finder.open ? finder.index : externalIndex;
 
   const onKeyDown = useEditorKeys({
     state,
     readOnly,
     path: props.path,
     rows: Math.max(1, Math.floor(height / lineHeight)),
-    onFind: openFind,
+    onFind: finder.openFind,
     ...(props.onSave ? { onSave: props.onSave } : {}),
     onEscape: () => {
-      if (!findOpen) return false;
-      closeFind();
+      if (!finder.open) return false;
+      finder.close();
       return true;
     },
     reveal,
   });
 
-  const step = (delta: 1 | -1) => {
-    const count = results.matches.length;
-    if (!count) return;
-    const next = (((index + delta) % count) + count) % count;
-    setMatchIndex(next);
-    const range = results.matches[next];
-    if (!range) return;
-    state.select([{ anchor: range.start, head: range.end }]);
-    reveal(range.start);
-  };
-
   const byLine = useMemo(() => {
     const found = new Map<number, MatchSegment[]>();
-    results.matches.forEach((range) => {
+    matches.forEach((range) => {
       if (range.end.line < first || range.start.line > last - 1) return;
-      const currentMatch = results.matches[currentIndex] === range;
+      const currentMatch = matches[currentIndex] === range;
       for (
         let line = Math.max(first, range.start.line);
         line <= Math.min(last - 1, range.end.line);
@@ -287,7 +247,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       }
     });
     return found;
-  }, [results.matches, first, last, currentIndex]);
+  }, [matches, first, last, currentIndex]);
 
   const [tokens, setTokens] = useState<Token[][]>([]);
   const tokenKey = `${paint}:${first}:${last}`;
@@ -297,89 +257,19 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
   }, [tokenKey, state.highlighter]);
 
-  const insert = (text: string) => {
-    if (readOnly || !text) return;
-    state.edit((target) => target.insertText(text));
-  };
-  const handled = useRef(false);
-
-  const onBeforeInput = (event: FormEvent<HTMLTextAreaElement>) => {
-    const native = event.nativeEvent as InputEvent;
-    if (justComposed.current) {
-      justComposed.current = false;
-      event.preventDefault();
-      return;
-    }
-    const block = () => {
-      event.preventDefault();
-      handled.current = true;
-    };
-    handled.current = false;
-    if (readOnly || composing.current) {
-      block();
-      return;
-    }
-    const type = native.inputType ?? "";
-    if (type === "insertLineBreak" || type === "insertParagraph") {
-      block();
-      state.edit((target) => target.insertNewline());
-      return;
-    }
-    if (type === "deleteContentBackward" || type === "deleteSoftLineBackward") {
-      block();
-      state.edit((target) =>
-        type === "deleteSoftLineBackward" ? target.deleteWordBackward() : target.backspace(),
-      );
-      return;
-    }
-    if (type === "deleteWordBackward") {
-      block();
-      state.edit((target) => target.deleteWordBackward());
-      return;
-    }
-    if (type === "deleteContentForward" || type === "deleteWordForward") {
-      block();
-      state.edit(deleteForward);
-      return;
-    }
-    if (type === "historyUndo" || type === "historyRedo") {
-      block();
-      state.edit((target) => (type === "historyUndo" ? target.undo() : target.redo()));
-      return;
-    }
-    if (native.data !== null && native.data !== undefined) {
-      block();
-      insert(normalized(native.data));
-    }
-  };
-
-  const onCopy = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!doc) return;
-    event.preventDefault();
-    event.clipboardData.setData("text/plain", copyText(doc));
-  };
-  const onCut = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!doc) return;
-    event.preventDefault();
-    event.clipboardData.setData("text/plain", copyText(doc));
-    state.edit(deleteSelections);
-  };
-  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    event.preventDefault();
-    insert(normalized(event.clipboardData.getData("text/plain")));
-  };
+  const input = useEditorInput(state, readOnly);
 
   const pointer = usePointerSelection({
     state,
     cell,
     gutter,
     element: host,
-    focus: () => input.current?.focus({ preventScroll: true }),
+    focus: () => field.current?.focus({ preventScroll: true }),
     reveal,
   });
 
   useImperativeHandle(ref, () => ({
-    focus: () => input.current?.focus({ preventScroll: true }),
+    focus: () => field.current?.focus({ preventScroll: true }),
     text: () => state.doc?.text() ?? props.text,
     selections: () => state.doc?.selections() ?? [],
     setSelections: (selections: readonly Selection[]) => state.select(selections),
@@ -403,6 +293,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     <div
       role="region"
       aria-label={props.label}
+      data-selected-lines={selected}
       className={cn("relative h-full min-h-0", props.className)}
     >
       <div
@@ -422,7 +313,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       >
         <div
           ref={host}
-          className="relative min-h-full"
+          className="relative min-h-full min-w-full"
           style={{ height: lineCount * lineHeight, width: contentWidth || "100%" }}
         >
           <div aria-hidden>
@@ -451,9 +342,12 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               gutter={gutter}
               cell={cell}
               composing={
-                composingText === undefined
+                input.composingText === undefined
                   ? undefined
-                  : { position: { line: caretLine, column: caretColumn }, text: composingText }
+                  : {
+                      position: { line: caretLine, column: caretColumn },
+                      text: input.composingText,
+                    }
               }
             />
           </div>
@@ -461,7 +355,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       </div>
       {doc ? (
         <textarea
-          ref={input}
+          ref={field}
           aria-label={name}
           aria-multiline="true"
           spellCheck={false}
@@ -470,37 +364,14 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           readOnly={readOnly}
           autoFocus={props.focusOnMount}
           onKeyDown={onKeyDown}
-          onBeforeInput={onBeforeInput}
-          onInput={(event) => {
-            if (composing.current) return;
-            const value = event.currentTarget.value;
-            if (!value) return;
-            event.currentTarget.value = "";
-            if (handled.current) {
-              handled.current = false;
-              return;
-            }
-            insert(normalized(value));
-          }}
-          onCopy={onCopy}
-          onCut={onCut}
-          onPaste={onPaste}
-          onCompositionStart={() => {
-            composing.current = true;
-            setComposingText("");
-          }}
-          onCompositionUpdate={(event) => setComposingText(event.data)}
-          onCompositionEnd={(event) => {
-            composing.current = false;
-            justComposed.current = true;
-            // React synthesises a beforeinput from compositionend where the browser has none.
-            queueMicrotask(() => {
-              justComposed.current = false;
-            });
-            setComposingText(undefined);
-            event.currentTarget.value = "";
-            insert(normalized(event.data));
-          }}
+          onBeforeInput={input.onBeforeInput}
+          onInput={input.onInput}
+          onCopy={input.onCopy}
+          onCut={input.onCut}
+          onPaste={input.onPaste}
+          onCompositionStart={input.onCompositionStart}
+          onCompositionUpdate={input.onCompositionUpdate}
+          onCompositionEnd={input.onCompositionEnd}
           className="absolute size-px resize-none overflow-hidden border-0 bg-transparent p-0 font-mono text-ui text-transparent caret-transparent outline-none"
           style={{ left: textareaLeft, top: textareaTop }}
         />
@@ -508,27 +379,19 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       <span aria-live="polite" className="sr-only">
         {`Line ${caretLine + 1}, column ${caretColumn + 1}`}
       </span>
-      {findOpen ? (
+      {finder.open ? (
         <EditorFindBar
-          query={query}
-          count={internal.matches.length}
-          index={index}
-          status={internal.status}
-          regex={regex}
-          caseSensitive={caseSensitive}
-          wholeWord={wholeWord}
-          onQuery={(next) => {
-            setQuery(next);
-            setMatchIndex(0);
-          }}
-          onToggle={(option) => {
-            if (option === "regex") setRegex((value) => !value);
-            if (option === "caseSensitive") setCaseSensitive((value) => !value);
-            if (option === "wholeWord") setWholeWord((value) => !value);
-            setMatchIndex(0);
-          }}
-          onStep={step}
-          onClose={closeFind}
+          query={finder.query}
+          count={finder.matches.length}
+          index={finder.index}
+          status={finder.status}
+          regex={finder.regex}
+          caseSensitive={finder.caseSensitive}
+          wholeWord={finder.wholeWord}
+          onQuery={finder.setQuery}
+          onToggle={finder.toggle}
+          onStep={finder.step}
+          onClose={finder.close}
         />
       ) : null}
     </div>

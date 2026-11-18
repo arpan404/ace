@@ -18,8 +18,8 @@ const markBar: Record<LineMark, string> = {
   removed: "shadow-[inset_0_2px_0_var(--status-failed)]",
 };
 const markWords: Record<LineMark, string> = {
-  added: "Added since the file was opened",
-  modified: "Changed since the file was opened",
+  added: "Added since the last commit",
+  modified: "Changed since the last commit",
   removed: "Lines removed above",
 };
 

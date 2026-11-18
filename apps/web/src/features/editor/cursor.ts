@@ -174,3 +174,19 @@ export function moveAll(
     head: move(selection.head),
   }));
 }
+
+/** The 1-based line span every non-empty selection covers, or undefined when all are carets. */
+export function selectedLineSpan(selections: readonly Selection[]): string | undefined {
+  let start = Number.POSITIVE_INFINITY;
+  let end = -1;
+  for (const selection of selections) {
+    if (
+      selection.anchor.line === selection.head.line &&
+      selection.anchor.column === selection.head.column
+    )
+      continue;
+    start = Math.min(start, selection.anchor.line, selection.head.line);
+    end = Math.max(end, selection.anchor.line, selection.head.line);
+  }
+  return end >= 0 ? `${start + 1}-${end + 1}` : undefined;
+}

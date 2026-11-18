@@ -130,6 +130,24 @@ test("the textarea names the file, the lines are hidden from assistive tech, and
   expect(box.getAttribute("aria-label")).toBe("hello.ts");
 });
 
+test("a selection is published for the Files tab's mention menu", async () => {
+  const { ref } = await openView({ text: "alpha\nbeta\ngamma", readOnly: true });
+
+  act(() =>
+    ref.current?.setSelections([{ anchor: { line: 1, column: 1 }, head: { line: 2, column: 2 } }]),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("region").getAttribute("data-selected-lines")).toBe("2-3"),
+  );
+
+  act(() =>
+    ref.current?.setSelections([{ anchor: { line: 0, column: 0 }, head: { line: 0, column: 0 } }]),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("region").getAttribute("data-selected-lines")).toBeNull(),
+  );
+});
+
 test("a read-only editor shows the text but takes no keyboard input", async () => {
   const { ref } = await openView({ text: "unchanged", readOnly: true });
   act(() => ref.current?.focus());
