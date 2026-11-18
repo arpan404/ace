@@ -2,19 +2,33 @@ import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 
 /*
  * Spade on the fixture's machine (ADR 0121, 0139): turned on in Settings › Beta and running,
- * with Spade itself, a bot waiting on an approval, one working and one that finished. `POST
+ * with Spade itself, a bot waiting on an approval, one on a card of questions (with another left
+ * for later), one working and one that finished. `POST
  * /review/spade` stages the rest: `off` turns Beta's switch off (the tab goes), `on` back on,
- * `stream` has the finished bot start a reply and stream its first words. `on` also puts back
+ * `stream` has the finished bot start a reply and stream its first words, `hold` has Spade take a
+ * card's answer but send the update only on `release`. `on` also puts back
  * what earlier tests changed, so each starts from the seed whatever ran before it.
  */
 
-export type SpadeScenario = "off" | "on" | "stream";
+export type SpadeScenario = "off" | "on" | "stream" | "hold" | "release";
 
 let api: FakeSpadeApi | undefined;
 let asks = 0;
 /** Builder's open reply: the one asking, then answered and still open. */
 let asking = "r-builder-0";
 const tests = { command: "bun run test:fast apps/ios/bridge" };
+/** Lets held card settlements through (`hold`). */
+let release: (() => void) | undefined;
+/** Planner's waiting card, asked again once answered. */
+let planning = 0;
+const trip = [
+  {
+    prompt: "Where to?",
+    kind: "choice",
+    options: ["Lisbon", { label: "Porto", detail: "By train from Lisbon" }],
+  },
+  { prompt: "How many nights?", kind: "number", min: 1, max: 14, unit: "nights" },
+];
 
 export function seedSpade(daemon: FakeDaemon, now: number): void {
   daemon.services.settings.seed({ "beta.spade": true, "spade.enabled": true });
@@ -31,6 +45,14 @@ export function seedSpade(daemon: FakeDaemon, now: number): void {
     text: "Run the tests for the iOS bridge",
   });
   spade.ask(builder, "call-tests", "shell", tests, asking);
+  const planner = spade.addAgent({
+    id: "planner",
+    name: "Planner",
+    last_activity: now - 45 * minute,
+  });
+  spade.store(planner.conversation, { type: "user_message", text: "Plan a weekend away" });
+  spade.card(planner, "q-tone", [{ prompt: "Any places you'd rather skip?" }], true);
+  spade.card(planner, "q-trip-0", trip);
   spade.addAgent({
     id: "research",
     name: "Research",
@@ -44,6 +66,11 @@ export function seedSpade(daemon: FakeDaemon, now: number): void {
 }
 
 export function spadeScenario(daemon: FakeDaemon, scenario: SpadeScenario): void {
+  if (scenario === "hold" || scenario === "release" || scenario === "on") {
+    release?.();
+    release = scenario === "hold" ? api?.holdQuestionSettles() : undefined;
+    if (scenario !== "on") return;
+  }
   if (scenario === "off" || scenario === "on") {
     daemon.services.settings.write("beta.spade", scenario === "on");
     // Back on, Spade runs again, as the daemon starts it.
@@ -63,11 +90,13 @@ export function spadeScenario(daemon: FakeDaemon, scenario: SpadeScenario): void
   });
 }
 
-/** Builder asks again once answered, and Notes' streamed reply finishes. */
+/** Builder and Planner ask again once answered, and Notes' streamed reply finishes. */
 function reseed(): void {
   const builder = api?.agents.find((agent) => agent.id === "builder");
   const notes = api?.agents.find((agent) => agent.id === "notes");
   if (!api) return;
+  const planner = api.agents.find((agent) => agent.id === "planner");
+  if (planner && planner.state !== "waiting") api.card(planner, `q-trip-${++planning}`, trip);
   if (builder && builder.state !== "waiting") {
     api.store(builder.conversation, { type: "reply_finished", reply: asking, text: "" });
     asking = `r-builder-${++asks}`;

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingCard, SettingRow, settingsGroup } from "@/components/setting-row.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 
 /*
@@ -43,5 +43,16 @@ export function LoadingRows(props: { label: string; rows: number }) {
         );
       })}
     </LoadingRegion>
+  );
+}
+
+/** A whole page before its body has loaded: one group of placeholder rows where its rows go. */
+export function PageLoading(props: { label: string }) {
+  return (
+    <div className={settingsGroup}>
+      <SettingCard>
+        <LoadingRows label={`${props.label} settings`} rows={4} />
+      </SettingCard>
+    </div>
   );
 }

@@ -332,3 +332,59 @@
   border-radius: var(--radius-xs);
   box-shadow: inset 0 0 0 1px var(--suit-edge);
 }
+
+/* ── Section heads, Spade and the Marketplace ───────────────────────────────────────────── */
+
+[data-part="section-title"] {
+  letter-spacing: -0.006em;
+}
+/* A sheet's search row is a band ruled under it, and the field inside a search row has no frame. */
+[data-part="search-field"] [data-part="input"],
+[data-part="search-field"] [data-part="input"]:focus,
+[data-part="search-field"] [data-part="input"]:focus-within,
+[data-part="command-palette"] [data-part="search-field"],
+[data-part="command-palette"] [data-part="search-field"]:focus-within {
+  box-shadow: none;
+}
+/* The composer's Access chip reads as the model chip beside it: no frame, a wash under the pointer. */
+[data-part="composer-toolbar"] [data-part="select"] {
+  box-shadow: none;
+}
+[data-part="composer-toolbar"] [data-part="select"]:hover {
+  background: var(--suit-wash-2);
+}
+
+/* Spade: the bot's words on a pane with a hairline; what waits on the person is lifted. */
+[data-part="spade-message"]:not([data-variant="user"]) {
+  box-shadow: 0 0 0 1px var(--suit-edge);
+}
+[data-part="spade-message"][data-variant="user"] {
+  box-shadow: var(--suit-lift-1);
+}
+[data-part="card"]:is([data-variant="spade-question"], [data-variant="spade-request"]),
+[data-part="header-title"][data-variant="spade-pill"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge-strong),
+    var(--suit-top),
+    var(--suit-lift-2);
+}
+
+/* The Marketplace: its pictures sit on the modal with a hairline, the shown pick on a plate. */
+[data-part="market-stage"] {
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}
+[data-part="list-row"][data-variant="market-pick"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="list-row"][data-variant="market-pick"][data-state="selected"] {
+  background: var(--suit-plate);
+  box-shadow:
+    0 0 0 1px var(--suit-edge),
+    var(--suit-lift-1);
+}
+[data-part="market-try"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge-strong),
+    var(--suit-top),
+    var(--suit-lift-3);
+}

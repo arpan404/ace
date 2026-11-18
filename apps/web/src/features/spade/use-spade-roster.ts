@@ -1,11 +1,17 @@
 import type { ClientApi } from "@ace/client";
-import { spadeHostPlan, spadeRoster, type SpadeAgent } from "@ace/ui-core/spade-chat";
+import {
+  spadeHostPlan,
+  spadeRoster,
+  spadeWithLive,
+  type SpadeAgent,
+} from "@ace/ui-core/spade-chat";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { readAgents, setMainHosted } from "./spade-api.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { spadeMachineKey, spadeMachineOf, type SpadeMachine } from "./spade-machine.tsx";
+import { liveRowKey, useLiveRows } from "./spade-live-rows.ts";
 
 export const agentsKey = ["spade", "agents"] as const;
 
@@ -76,6 +82,8 @@ export function useSpadeRoster(ready: boolean) {
       (!machine.primary || ready),
   );
   const answerKey = answering.join(",");
+  // A bot whose conversation is open here reads as its chat shows it (`spadeLiveAgent`).
+  const live = useLiveRows().bots;
   const bots = useMemo(() => {
     const all: RosterBot[] = [];
     machines.forEach((machine, index) => {
@@ -86,9 +94,10 @@ export function useSpadeRoster(ready: boolean) {
       const unavailable = !away && !answering[index];
       for (const agent of data)
         all.push({
-          ...agent,
-          // What a bot was doing when its Spade last answered isn't true any more.
-          ...(away || unavailable ? { state: "idle" as const, status: undefined } : {}),
+          ...(away || unavailable
+            ? // What a bot was doing when its Spade last answered isn't true any more.
+              { ...agent, state: "idle" as const, status: undefined }
+            : spadeWithLive(agent, live.get(liveRowKey(spade.key, agent.conversation)))),
           machine: spade,
           away,
           unavailable,
@@ -112,7 +121,7 @@ export function useSpadeRoster(ready: boolean) {
         .toSorted((a, b) => a.createdAt - b.createdAt || order(a.machine.key, b.machine.key))[0];
     return spadeRoster(all.filter((agent) => agent.kind !== "main" || agent === shown));
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `answering` is keyed by answerKey
-  }, [machines, results, answerKey]);
+  }, [machines, results, answerKey, live]);
   const hosts = useMemo(
     () =>
       machines.flatMap((machine, index): SpadeHost[] =>

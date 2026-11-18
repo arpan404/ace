@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { win32 } from "node:path";
 import { z } from "zod";
+import { homeServiceTag, taggedName } from "./service-name.ts";
 const text = z
   .string()
   .min(1)
@@ -31,6 +32,14 @@ export const ServiceConfig = z.object({
   executable: absolute,
   path: text,
   uid: z.number().int().nonnegative(),
+  /**
+   * The tag of this home's service names, chosen by the I/O shell (`chooseServiceIdentity`):
+   * empty for the default names. When absent, it follows from the paths alone.
+   */
+  serviceTag: z
+    .string()
+    .regex(/^[0-9a-f]{0,16}$/)
+    .optional(),
 });
 export type ServiceConfig = z.input<typeof ServiceConfig>;
 export interface ServicePlan {
@@ -48,14 +57,26 @@ export const xml = (s: string) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
+/** Text `xml` escaped, back to its value. */
+export const unxml = (s: string) =>
+  s
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&amp;", "&");
 /** A systemd unit-file quoted word: `\\`, `"` and the `%` specifier escaped. */
 export const quote = (s: string) =>
   '"' + s.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
+/** The inside of a word `quote` wrote, back to its value. */
+export const unquote = (s: string) => s.replace(/\\(.)/g, "$1").replaceAll("%%", "%");
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
   const logDir = join(c.dataDir, "logs");
-  const label = "dev.ace.next.daemon";
-  const unit = "ace-next.service";
+  // The default home's names; any other home's carry a hash of its path (ADR 0185).
+  const tag = c.serviceTag ?? homeServiceTag(c.dataDir, c.home, c.platform);
+  const label = taggedName("dev.ace.next.daemon", ".", tag);
+  const unit = `${taggedName("ace-next", "-", tag)}.service`;
   const variables: [string, string][] = [
     ["ACE_HOME", c.dataDir],
     ["PATH", c.path],
@@ -106,10 +127,18 @@ export const TaskConfig = z.object({
   /** The account's SID, from `whoami /user`. */
   user: z.string().regex(/^S-1-\d+(?:-\d+){1,14}$/),
   systemRoot: windowsAbsolute,
+  /** The person's profile folder: its `.ace` is the default home, which keeps the plain name. */
+  userHome: windowsAbsolute,
+  /** The tag of this home's task name, as `ServiceConfig.serviceTag`. */
+  serviceTag: z
+    .string()
+    .regex(/^[0-9a-f]{0,16}$/)
+    .optional(),
+  /** The task's name; by default `ace-next-daemon`, with a hash of any other home's path. */
   name: z
     .string()
     .regex(/^[A-Za-z0-9-]{1,64}$/)
-    .default("ace-next-daemon"),
+    .optional(),
 });
 export type TaskConfig = z.input<typeof TaskConfig>;
 export interface TaskPlan {
@@ -152,7 +181,7 @@ export function planTask(input: TaskConfig): TaskPlan {
   return {
     platform: "win32",
     command: [c.executable, "supervise"],
-    name: `\\${c.name}`,
+    name: `\\${c.name ?? taggedName("ace-next-daemon", "-", c.serviceTag ?? homeServiceTag(c.dataDir, c.userHome, "win32"))}`,
     file: win32.join(c.dataDir, "service", "task.xml"),
     content,
     environmentFile: win32.join(c.dataDir, "service", "environment.json"),

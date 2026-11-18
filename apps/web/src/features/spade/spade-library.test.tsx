@@ -93,6 +93,35 @@ test("one search finds notes, pages and past work, and leaves out groups with no
   expect(panel.queryByRole("heading", { name: "Past work" })).toBeNull();
 });
 
+test("an empty Library says so in one line per section, and Add on a heading writes in place", async () => {
+  const { spade } = await spadeApp("/spade/flights?profile=library", withFlights);
+  const panel = await profile();
+  const section = async (name: string) =>
+    within((await panel.findByRole("heading", { name })).closest("section") as HTMLElement);
+  const notes = await section("Notes");
+  await notes.findByText("No notes yet.");
+  const pages = await section("Pages");
+  await pages.findByText("No pages yet.");
+  expect(
+    await (await section("Past work")).findByText("Each goal Flights finishes is kept here."),
+  ).toBeTruthy();
+
+  await userEvent.click(notes.getByRole("button", { name: "Add a note" }));
+  expect(notes.queryByText("No notes yet.")).toBeNull();
+  await userEvent.type(
+    notes.getByRole("textbox", { name: "Add something for Flights to remember" }),
+    "Flies from Porto{Enter}",
+  );
+  await notes.findByRole("button", { name: "Edit: Flies from Porto" });
+  expect(spade.notes.notes.map((note) => note.text)).toEqual(["Flies from Porto"]);
+
+  await userEvent.click(pages.getByRole("button", { name: "Add a page" }));
+  expect(pages.queryByText("No pages yet.")).toBeNull();
+  await userEvent.click(pages.getByRole("button", { name: "Cancel" }));
+  expect(pages.getByText("No pages yet.")).toBeTruthy();
+  expect(pages.queryByRole("textbox", { name: "Title" })).toBeNull();
+});
+
 test("Stop ends a running service in place, and a service that ended offers no Stop", async () => {
   const { spade } = await spadeApp("/spade/flights?profile=computer&computer=services", (api) => {
     withFlights(api);

@@ -36,7 +36,7 @@ pub struct GroupInput {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GroupError {
-    #[error("no such group")]
+    #[error("no such club")]
     NotFound,
     #[error("{0}")]
     Invalid(String),
@@ -133,7 +133,7 @@ fn clean_name(name: &str) -> Result<String, GroupError> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > GROUP_NAME_CHARS || name.contains('\n') {
         return Err(GroupError::Invalid(format!(
-            "a group's name is 1 to {GROUP_NAME_CHARS} characters on one line"
+            "a club's name is 1 to {GROUP_NAME_CHARS} characters on one line"
         )));
     }
     Ok(name.to_owned())
@@ -180,7 +180,7 @@ impl Engine {
         }
         if members.len() > MOST_MEMBERS {
             return Err(GroupError::Invalid(format!(
-                "a group has at most {MOST_MEMBERS} bots"
+                "a club has at most {MOST_MEMBERS} bots"
             )));
         }
         Ok(members)
@@ -228,16 +228,14 @@ impl Engine {
             .find(|m| local(m))
             .map(|m| m.agent_id.clone())
             .ok_or_else(|| {
-                GroupError::Conflict(
-                    "a group needs a lead that is a bot of this machine".to_owned(),
-                )
+                GroupError::Conflict("a club needs a lead that is a bot of this machine".to_owned())
             })
     }
 
     fn check_size(members: &[StoredMember]) -> Result<(), GroupError> {
         if members.len() < FEWEST_MEMBERS || members.len() > MOST_MEMBERS {
             return Err(GroupError::Invalid(format!(
-                "a group has {FEWEST_MEMBERS} to {MOST_MEMBERS} bots"
+                "a club has {FEWEST_MEMBERS} to {MOST_MEMBERS} bots"
             )));
         }
         Ok(())
@@ -247,7 +245,7 @@ impl Engine {
         let name = clean_name(input.name.as_deref().unwrap_or(""))?;
         let refs = input
             .members
-            .ok_or_else(|| GroupError::Invalid("name the group's members".to_owned()))?;
+            .ok_or_else(|| GroupError::Invalid("name the club's members".to_owned()))?;
         let mut members = self.members_from(&refs).await?;
         let lead_id = self.lead_of(&mut members, input.lead.as_deref())?;
         Self::check_size(&members)?;

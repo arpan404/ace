@@ -159,14 +159,41 @@ export function sizeText(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/**
+ * What a flagged file in a review is, in a word: the market flags every executable and every file
+ * that isn't a text format, and a font or a picture is no program. Undefined when unflagged.
+ */
+export function flaggedWord(file: {
+  path: string;
+  executable: boolean;
+  flagged: boolean;
+}): string | undefined {
+  if (file.executable) return "A script or program";
+  if (!file.flagged) return undefined;
+  const extension = file.path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
+  if (["woff2", "woff", "ttf", "otf"].includes(extension)) return "Font";
+  if (["webp", "png", "jpg", "jpeg", "gif", "avif"].includes(extension)) return "Picture";
+  if (["mp4", "m4v", "mov", "webm"].includes(extension)) return "Video";
+  if (["js", "mjs", "cjs", "ts", "py", "sh", "rb", "wasm"].includes(extension)) return "Code";
+  return "Not text";
+}
+
 /** "1 file", "12 files". */
 export const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** "A", "A and B", "A, B and C". */
+export function andList(words: readonly string[]): string {
+  if (words.length < 2) return words.join("");
+  return `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
 
 /** What one review's body lets the entry do, as plain sentences. */
 export function canDoSentences(review: MarketReview): string[] {
   const body = review.body;
   switch (body.type) {
-    case "suit":
+    case "suit": {
+      // A daemon from before families were tidied at the source sends repeats; each shows once.
+      const fonts = [...new Set(body.fonts)];
       return [
         body.passes
           ? "Passes ace's checks."
@@ -174,9 +201,10 @@ export function canDoSentences(review: MarketReview): string[] {
         body.scenes.length
           ? "Runs its own animation, sandboxed."
           : "Changes how ace looks, nothing else.",
-        ...(body.fonts.length ? [`Brings its own fonts: ${body.fonts.join(", ")}.`] : []),
+        ...(fonts.length ? [`Sets its fonts: ${andList(fonts)}.`] : []),
         `${count(body.files, "file")}.`,
       ];
+    }
     case "spade-skill":
       return [
         `Teaches Spade's bots “${body.skillName}”${body.description ? `: ${sentence(body.description)}` : "."}`,

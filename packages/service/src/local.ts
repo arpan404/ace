@@ -6,7 +6,18 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { lstat, rm } from "node:fs/promises";
 import { z } from "zod";
-import { planService, ServiceEnvironment } from "./plan.ts";
+import {
+  planService,
+  ServiceEnvironment,
+  type ServiceConfig,
+  type ServicePlan,
+  type TaskConfig,
+  type TaskPlan,
+} from "./plan.ts";
+import { canonicalPath } from "./canonical-path.ts";
+import { readRegistration } from "./compatibility.ts";
+import { registeredServiceHome, taskServiceHome } from "./service-identity.ts";
+import { chooseServiceIdentity, homeServiceTag, taggedName } from "./service-name.ts";
 import { UserService } from "./service.ts";
 import { enableLinger } from "./linger.ts";
 import { runProcess } from "./process.ts";
@@ -21,7 +32,7 @@ import { currentUserSid } from "./windows-user.ts";
 import { removeSpadeService } from "./spade-service.ts";
 import { localSpadePlan } from "./spade-local.ts";
 import { spawn } from "node:child_process";
-import { isAbsolute, relative, sep } from "node:path";
+import { isAbsolute, relative, sep, win32 } from "node:path";
 
 const windowsLinger =
   "--linger is not available on Windows: ace's task runs while you are logged on, from logon to sign-out.";
@@ -30,19 +41,33 @@ const windowsLinger =
 function localTask(dataDir: string) {
   assertCompatibleHome(dataDir);
   assertTestHomeIsolation(homedir());
-  let plan: ReturnType<typeof planTask> | undefined;
+  let plan: TaskPlan | undefined;
+  const planned = async (): Promise<TaskPlan> => {
+    if (plan) return plan;
+    const config = {
+      environment: ServiceEnvironment.parse(process.env),
+      updatePolicy: process.env.ACE_AUTO_UPDATE === "0" ? "manual" : "daily",
+      dataDir,
+      executable: join(dataDir, "bin", CMD_LAUNCHER),
+      path: process.env.PATH ?? "",
+      user: await currentUserSid(),
+      systemRoot: process.env.SystemRoot ?? "C:\\Windows",
+      userHome: homedir(),
+    } satisfies TaskConfig;
+    const tasks = new Map<string, string>();
+    for (const name of daemonTaskNames(dataDir, config.userHome)) {
+      const query = await runProcess("schtasks.exe", ["/Query", "/TN", name, "/XML"]);
+      if (query.code === 0) tasks.set(name, query.stdout);
+    }
+    plan = localTaskPlan(config, {
+      canonical: canonicalPath,
+      loadedTask: (name) => tasks.get(name),
+    });
+    return plan;
+  };
   const lazy = {
     async perform(action: "install" | "uninstall" | "start" | "stop" | "status") {
-      plan ??= planTask({
-        environment: ServiceEnvironment.parse(process.env),
-        updatePolicy: process.env.ACE_AUTO_UPDATE === "0" ? "manual" : "daily",
-        dataDir,
-        executable: join(dataDir, "bin", CMD_LAUNCHER),
-        path: process.env.PATH ?? "",
-        user: await currentUserSid(),
-        systemRoot: process.env.SystemRoot ?? "C:\\Windows",
-      });
-      const task = plan;
+      const task = await planned();
       return new TaskService(task, {
         run: runProcess,
         preflight: () => assertCompatibleTask(task, dataDir),
@@ -52,6 +77,39 @@ function localTask(dataDir: string) {
     },
   };
   return lazy;
+}
+
+/** The two task names `dataDir`'s daemon can have: the default one and its own. */
+function daemonTaskNames(dataDir: string, userHome: string): string[] {
+  const own = homeServiceTag(canonicalPath(dataDir), canonicalPath(userHome), "win32");
+  return [...new Set(["\\ace-next-daemon", `\\${taggedName("ace-next-daemon", "-", own)}`])];
+}
+
+/**
+ * The daemon's Task Scheduler plan for `config`'s home (ADR 0185), as `localServicePlan` does
+ * for launchd and systemd, reading the tasks through `io`.
+ */
+export function localTaskPlan(
+  config: TaskConfig,
+  io: { canonical(path: string): string; loadedTask(name: string): string | undefined },
+): TaskPlan {
+  const planWith = (dataDir: string, tag: string) =>
+    planTask({
+      ...config,
+      dataDir,
+      executable: win32.join(dataDir, "bin", CMD_LAUNCHER),
+      serviceTag: tag,
+    });
+  const identity = chooseServiceIdentity({
+    platform: "win32",
+    home: config.dataDir,
+    userHome: config.userHome,
+    canonical: io.canonical,
+    registration: (tag) => io.loadedTask(planWith(config.dataDir, tag).name),
+    homeOf: taskServiceHome,
+    sharedName: "\\ace-next-daemon",
+  });
+  return planWith(identity.home, identity.tag);
 }
 
 /**
@@ -165,13 +223,38 @@ async function requestDaemonStop(dataDir: string): Promise<boolean> {
     return false;
   }
 }
+/**
+ * The daemon's launchd or systemd plan for `config`'s home (ADR 0185): the default names for the
+ * default home and for a home registered under them by an earlier build, its own hashed names
+ * for any other. Registrations are read from `config.home`; one that may be this home's but
+ * can't be read as ace's is refused, never stepped around.
+ */
+export function localServicePlan(
+  config: ServiceConfig,
+  canonical: (path: string) => string,
+): ServicePlan {
+  const planWith = (dataDir: string, tag: string) =>
+    planService({ ...config, dataDir, executable: join(dataDir, "bin/ace"), serviceTag: tag });
+  const platform = planWith(config.dataDir, "").platform;
+  const identity = chooseServiceIdentity({
+    platform,
+    home: config.dataDir,
+    userHome: config.home,
+    canonical,
+    registration: (tag) => readRegistration(planWith(config.dataDir, tag)),
+    homeOf: (content) => registeredServiceHome(platform, content),
+    sharedName: planWith(config.dataDir, "").domain,
+  });
+  return planWith(identity.home, identity.tag);
+}
+
 /** OS/environment discovery belongs only in this local I/O boundary. */
 export function localService(dataDir: string) {
   if (process.platform === "win32") return localTask(dataDir);
   assertCompatibleHome(dataDir);
   const home = homedir();
   assertTestHomeIsolation(home);
-  const plan = planService({
+  const config = {
     environment: ServiceEnvironment.parse(process.env),
     updatePolicy: process.env.ACE_AUTO_UPDATE === "0" ? "manual" : "daily",
     platform: z.enum(["darwin", "linux"]).parse(process.platform),
@@ -180,7 +263,8 @@ export function localService(dataDir: string) {
     executable: join(dataDir, "bin/ace"),
     path: process.env.PATH ?? "/usr/bin:/bin",
     uid: process.getuid?.() ?? 0,
-  });
+  } satisfies ServiceConfig;
+  const plan = localServicePlan(config, canonicalPath);
   return new UserService(plan, runProcess, () => assertCompatibleService(plan, dataDir));
 }
 export async function serviceCommand(dataDir: string, args: string[]) {

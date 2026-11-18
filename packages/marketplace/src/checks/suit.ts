@@ -3,6 +3,7 @@ import type { MarketProblem } from "@ace/protocol/marketplace";
 import { inspectSuit, plan, type SuitEntry } from "@ace/suits/folder";
 import type { ArchiveFile } from "../archive.ts";
 import { previewBytes } from "../limits.ts";
+import { suitFontFamilies } from "./suit-fonts.ts";
 
 /** A Suit's facts for its review: ADR 0150's static checks, its scenes and fonts. */
 export interface SuitInspection {
@@ -52,9 +53,7 @@ export function checkSuit(name: string, files: readonly ArchiveFile[]): SuitInsp
         ...Object.keys(manifest.scenes ?? {}).filter((region) => region !== "app"),
       ]
     : [];
-  const fonts = Object.values(manifest?.fonts ?? {}).flatMap((font) =>
-    font ? ["family" in font ? font.family : font.system] : [],
-  );
+  const fonts = suitFontFamilies(Object.values(manifest?.fonts ?? {}));
   return {
     type: "suit",
     passes: problems.length === 0,

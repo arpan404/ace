@@ -141,6 +141,29 @@ impl Runner {
         program: &Path,
         args: &[OsString],
     ) -> Result<Launch, Unavailable> {
+        self.wrap_in(policy, program, args, false)
+    }
+
+    /// `program args` started under `policy`, read-only when `read_only` (ADR 0172, amendment 7):
+    /// the workspace and every other place readable but not writable, and no network. A machine
+    /// whose sandbox can't do that returns `Unavailable`, so a settled command never runs
+    /// unconfined.
+    pub fn wrap_read_only(
+        &self,
+        policy: &Policy,
+        program: &Path,
+        args: &[OsString],
+    ) -> Result<Launch, Unavailable> {
+        self.wrap_in(policy, program, args, true)
+    }
+
+    fn wrap_in(
+        &self,
+        policy: &Policy,
+        program: &Path,
+        args: &[OsString],
+        read_only: bool,
+    ) -> Result<Launch, Unavailable> {
         if !self.status.usable() {
             return Err(Unavailable(
                 self.status
@@ -149,12 +172,22 @@ impl Runner {
                     .unwrap_or_else(|| "this machine has no sandbox".to_owned()),
             ));
         }
+        // A read-only settled command is enforced fully or not at all (ADR 0172, amendment 7): it
+        // runs only where every boundary holds — the file ABI that contains truncation, the
+        // syscall filter that denies sockets, process and IPC isolation. A machine with only
+        // partial coverage reviews the command instead of running it half-confined.
+        if read_only && !self.status.contains() {
+            return Err(Unavailable(self.status.reason.clone().unwrap_or_else(
+                || "this machine can't fully confine a read-only command".to_owned(),
+            )));
+        }
         platform::wrap(
             &self.status,
             self.launcher.as_deref(),
             policy,
             program,
             args,
+            read_only,
         )
     }
 }
@@ -180,7 +213,7 @@ mod platform {
         });
         let ran = std::process::Command::new(seatbelt::SANDBOX_EXEC)
             .arg("-p")
-            .arg(seatbelt::profile(&policy))
+            .arg(seatbelt::profile(&policy, false))
             .arg("/usr/bin/true")
             .env_clear()
             .stdin(std::process::Stdio::null())
@@ -219,8 +252,9 @@ mod platform {
         policy: &Policy,
         program: &Path,
         args: &[OsString],
+        read_only: bool,
     ) -> Result<Launch, Unavailable> {
-        let mut all: Vec<OsString> = vec!["-p".into(), seatbelt::profile(policy).into()];
+        let mut all: Vec<OsString> = vec!["-p".into(), seatbelt::profile(policy, read_only).into()];
         all.push(program.as_os_str().to_owned());
         all.extend(args.iter().cloned());
         Ok(Launch {
@@ -344,6 +378,7 @@ mod platform {
         policy: &Policy,
         program: &Path,
         args: &[OsString],
+        read_only: bool,
     ) -> Result<Launch, Unavailable> {
         let launcher =
             launcher.ok_or_else(|| Unavailable("Spade's own program is unknown".to_owned()))?;
@@ -359,7 +394,7 @@ mod platform {
         } else {
             Processes::Hidden
         };
-        let plan = crate::linux::plan(policy, network, processes);
+        let plan = crate::linux::plan(policy, network, processes, read_only);
         let plan = serde_json::to_string(&plan)
             .map_err(|error| Unavailable(format!("the sandbox plan: {error}")))?;
         let mut all: Vec<OsString> = vec![crate::linux::LAUNCHER_ARG.into(), plan.into()];
@@ -429,7 +464,14 @@ mod platform {
         policy: &Policy,
         program: &Path,
         args: &[OsString],
+        read_only: bool,
     ) -> Result<Launch, Unavailable> {
+        if read_only {
+            return Err(Unavailable(
+                "Spade has no read-only sandbox for Windows yet, so this command is reviewed."
+                    .to_owned(),
+            ));
+        }
         let launcher =
             launcher.ok_or_else(|| Unavailable("Spade's own program is unknown".to_owned()))?;
         let bot = policy
@@ -465,6 +507,7 @@ mod platform {
         _policy: &Policy,
         _program: &Path,
         _args: &[OsString],
+        _read_only: bool,
     ) -> Result<Launch, Unavailable> {
         Err(Unavailable(
             "Spade has no sandbox for this system".to_owned(),

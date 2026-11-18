@@ -124,6 +124,7 @@ fn day() -> Vec<Event> {
             model: "fake/fast".into(),
             cost_micros: 100,
             bound: None,
+            acts_in: None,
         }),
         k(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -134,6 +135,8 @@ fn day() -> Vec<Event> {
             reviewer_reason: None,
             ask: None,
             tool_key: None,
+            app: None,
+            acts_in: None,
             helper: None,
         }),
         k(Known::ApprovalAnswered {

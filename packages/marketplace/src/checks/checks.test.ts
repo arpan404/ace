@@ -15,6 +15,39 @@ describe("the shared checks", () => {
     expect(checked.inspection).toMatchObject({ type: "suit", passes: true, scenes: [] });
   });
 
+  it("name a Suit's fonts once each, unquoted, without fallbacks or generic families", () => {
+    const manifest = JSON.parse(
+      new TextDecoder().decode(sampleSuit()[0]?.content ?? new Uint8Array()),
+    ) as Record<string, unknown>;
+    const files = folder({
+      "suit.json": JSON.stringify({
+        ...manifest,
+        fonts: {
+          ui: { system: '"Tarn Sans", "Hanken Grotesk", sans-serif' },
+          prose: { system: "'Tarn Sans', Hanken Grotesk" },
+          mono: { asset: "assets/fonts/mono.woff2", family: "Tarn Mono" },
+        },
+      }),
+      "assets/fonts/mono.woff2": "woff2",
+    });
+    expect(checkFiles("suit", "harbour-dusk", files).inspection).toMatchObject({
+      fonts: ["Tarn Sans", "Tarn Mono"],
+    });
+  });
+
+  it("name no font for a stack of generic families alone", () => {
+    const manifest = JSON.parse(
+      new TextDecoder().decode(sampleSuit()[0]?.content ?? new Uint8Array()),
+    ) as Record<string, unknown>;
+    const files = folder({
+      "suit.json": JSON.stringify({
+        ...manifest,
+        fonts: { ui: { system: "system-ui, sans-serif" } },
+      }),
+    });
+    expect(checkFiles("suit", "harbour-dusk", files).inspection).toMatchObject({ fonts: [] });
+  });
+
   it("refuse a Suit whose suit.css names a class, with the line", () => {
     const files = [...sampleSuit(), ...folder({ "suit.css": "\n.sidebar { color: red; }\n" })];
     const checked = checkFiles("suit", "harbour-dusk", files);

@@ -14,7 +14,7 @@ import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { token } from "./socket-test-support.ts";
 
-test("paired read operate and admin devices need explicit projects scope for paths and project commands", async () => {
+test("paired read operate and admin devices need explicit projects scope for paths and project commands, but not to start a chat", async () => {
   const f = await projectFixture();
   const identity = loadIdentity(tlsFixtureHome());
   const server = await projectServer(f, {
@@ -117,6 +117,23 @@ test("paired read operate and admin devices need explicit projects scope for pat
           : { type: "error", code: "forbidden" },
       );
       if (!scopes.includes("projects")) expect(f.projects.catalog.recent(100)).toEqual([]);
+      // A chat's hidden project is where a new thread starts: whoever may start threads gets one.
+      client.send({
+        type: "command",
+        command: Command.parse({
+          id: `chat-${credential.device.id}`,
+          deviceId: credential.device.id,
+          payload: { type: "workspace.chat.create" },
+        }),
+      });
+      const chat = await until(
+        client,
+        (message) => message.type === "commandResult" || message.type === "error",
+      );
+      const operates = scopes.includes("operate") || scopes.includes("admin");
+      expect(chat).toMatchObject(
+        operates ? { type: "commandResult", ok: true } : { type: "error", code: "forbidden" },
+      );
     }
     const desktop = f.store.devices.create("Desktop", ["desktop"], 1000);
     if (!server.remoteUrl) throw new Error("Remote unavailable");

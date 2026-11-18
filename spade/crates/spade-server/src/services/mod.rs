@@ -137,6 +137,8 @@ impl Services {
                             // An owned service must be contained; if it can't be, it is refused,
                             // not started unconfined.
                             may_run_uncontained: false,
+                            clean: false,
+                            read_only: false,
                         },
                     )
                     .await;

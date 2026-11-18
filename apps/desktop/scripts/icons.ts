@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withBetaBand } from "../src/packaging/beta-icon.ts";
+import { betaIcon } from "../src/packaging/beta-icon.ts";
 import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
 
 /**
@@ -23,7 +23,7 @@ import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
  *   favicons) and `public/apple-touch-icon.png` (from `brand/apple-touch-icon.svg`).
  *
  * `node apps/desktop/scripts/icons.ts --beta <dir>` renders only `<dir>/icon.icns`, the beta
- * build's Dock icon: the same master with a "BETA" band (ADR 0177). `package.ts` runs it while
+ * build's Dock icon: the same master with its corner peeled back over orange (ADR 0177). `package.ts` runs it while
  * a beta packages; its output is never committed.
  *
  * The installed Electron rasterizes: each size is drawn from the vector at that size, never
@@ -127,7 +127,7 @@ try {
 }
 
 async function renderBeta(out: string): Promise<void> {
-  const beta = withBetaBand(await readFile(join(build, "icon.svg"), "utf8"));
+  const beta = betaIcon(await readFile(join(build, "icon.svg"), "utf8"));
   const set = join(work, "icon.iconset");
   await rasterize(
     iconset.map(([name, size]) => ({ svg: beta, size, out: join(set, name), template: false })),

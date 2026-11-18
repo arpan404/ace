@@ -9,15 +9,24 @@
 import "../../src/main/index.ts";
 import { app } from "electron";
 import { measureOpen } from "./open.ts";
+import { measureWake } from "./wake.ts";
 import { runScenario, ScenarioConfig } from "./scenario.ts";
 
-const marks: Record<string, number> = { evaluated: performance.now() };
+// `origin`: the main process's start in wall-clock ms, so the driver can place its own times
+// (the daemon's start) on the same clock.
+const marks: Record<string, number> = {
+  evaluated: performance.now(),
+  origin: performance.timeOrigin,
+};
 const config = ScenarioConfig.parse(JSON.parse(process.env.ACE_MEASURE ?? "null"));
 void app.whenReady().then(() => {
   marks.ready ??= performance.now();
 });
 app.once("browser-window-created", (_event, window) => {
   marks.windowCreated ??= performance.now();
+  // ACE_MEASURE_INACTIVE: the window opens without taking the keyboard, so a run on a Mac
+  // someone is using never catches their typing. It is still on top and uncovered.
+  if (process.env.ACE_MEASURE_INACTIVE) window.show = () => window.showInactive();
   // ACE_MEASURE_DEBUG: the page's console, timed like the marks, for tracing a start.
   if (process.env.ACE_MEASURE_DEBUG)
     window.webContents.on("console-message", (event) =>
@@ -45,9 +54,19 @@ app.once("browser-window-created", (_event, window) => {
   });
   if (config.scenario === "open")
     // From the window's creation up to the first usable screen.
-    void measureOpen(window, marks).finally(() => {
-      process.stdout.write(`ACE_MEASURE ${JSON.stringify({ marks })}\n`);
-      process.stdout.write(`ACE_MEASURE ${JSON.stringify({ done: true })}\n`);
-      app.quit();
-    });
+    void measureOpen(window, marks)
+      // ACE_MEASURE_LINGER_MS: stay open that long once measured, as a person would, so the
+      // window keeps what it showed (its read snapshots are written at most once a second) and
+      // the next launch opens on it.
+      .then(() =>
+        // ACE_MEASURE_WAKE: then how long a wake from sleep takes to be live again (`wake.ts`).
+        process.env.ACE_MEASURE_WAKE
+          ? measureWake(window, marks)
+          : new Promise((done) => setTimeout(done, Number(process.env.ACE_MEASURE_LINGER_MS ?? 0))),
+      )
+      .finally(() => {
+        process.stdout.write(`ACE_MEASURE ${JSON.stringify({ marks })}\n`);
+        process.stdout.write(`ACE_MEASURE ${JSON.stringify({ done: true })}\n`);
+        app.quit();
+      });
 });

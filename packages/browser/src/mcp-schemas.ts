@@ -7,7 +7,14 @@ const url = z.string().min(1).max(8192);
 const timeout = z.number().int().min(1).max(browserWaitLimitMs).default(10_000).describe("ms");
 /** Every page tool takes it: commands on different tabs run at the same time (ADR 0083). */
 const tabId = z.string().min(1).max(256).optional();
+/** Set by a caller's gate (Spade) to bind the step to the tab and address it checked. */
+const expect = z
+  .object({ tabId: z.string().min(1).max(256), url })
+  .optional()
+  .describe("Set by your host; leave it out.");
 const tab = { tabId };
+/** A tab tool whose input ace holds to the place the caller checked (`expect`). */
+const heldTab = { tabId, expect };
 
 export const browserOpenShape = {
   url: url.optional().describe("http(s) URL, localhost too."),
@@ -25,6 +32,7 @@ export const browserTabsShape = {
   url: url.optional(),
   label: z.string().min(1).max(64).optional(),
   keep: z.boolean().optional().describe("true: stays after your turn."),
+  expect,
 };
 type Refine = (input: Record<string, unknown>, context: z.RefinementCtx) => void;
 export const checkTabs: Refine = (input, context) => {
@@ -79,7 +87,7 @@ const actFields: Record<BrowserActKind, { required: string[]; optional?: string[
 };
 const delta = z.number().finite().min(-100_000).max(100_000);
 export const browserActShape = {
-  ...tab,
+  ...heldTab,
   action: z
     .enum(actKinds)
     .describe(
@@ -109,7 +117,7 @@ export const browserActShape = {
   promptText: z.string().max(4096).optional(),
 };
 /** Fields every browser tool may carry whatever its action. */
-const routing = ["action", "tabId", "machine", "browser"];
+const routing = ["action", "tabId", "expect", "machine", "browser"];
 export const checkAct: Refine = (input, context) => {
   const action = z.enum(actKinds).parse(input["action"]);
   const fields = actFields[action];
@@ -206,13 +214,13 @@ export const browserLogsShape = {
 };
 
 export const browserEvaluateShape = {
-  ...tab,
+  ...heldTab,
   expression: z.string().max(65_536),
   mode: z.enum(["read-only", "unrestricted"]).default("unrestricted"),
 };
 
 export const browserHistoryShape = {
-  ...tab,
+  ...heldTab,
   direction: z.enum(["back", "forward", "reload", "stop"]).optional(),
 };
 
@@ -239,4 +247,4 @@ export const checkSettings: Refine = (input, context) => {
       });
 };
 
-export const browserMeasureShape = { ...tab, ...BrowserMeasurementOptions.shape };
+export const browserMeasureShape = { ...heldTab, ...BrowserMeasurementOptions.shape };

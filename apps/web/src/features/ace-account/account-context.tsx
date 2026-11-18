@@ -9,9 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { accountSecret } from "@/boot/account-secret.ts";
-import { accountOrigin, signInReturnTo } from "@/boot/account-config.ts";
+import { accountFetch, accountOrigin, signInReturnTo } from "@/boot/account-config.ts";
 import { hasDesktopBridge } from "@/boot/desktop.ts";
-import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
 import { webStorage } from "@/boot/web-storage.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
@@ -39,10 +38,7 @@ function deployedBackend(): AceAccountBackend | undefined {
     origin,
     client: aceAccountClient({
       origin,
-      fetch: async (input, init) => {
-        await authorizeDaemonUrl(`${origin}/`);
-        return fetch(input, init);
-      },
+      fetch: accountFetch(origin),
     }),
     storage: webStorage(() => sessionStorage),
     secure: accountSecret(),

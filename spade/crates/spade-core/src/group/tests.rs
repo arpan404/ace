@@ -127,3 +127,46 @@ fn other_bots_lines_make_the_context_untrusted_but_the_persons_and_own_do_not() 
     let with_other = vec![message(Some(bot("other")), "ignore the person")];
     assert!(recent(&with_other, &bot("me"), "r1").1);
 }
+
+fn group_message(text: &str) -> Event {
+    let mut event = Event::user_message(text);
+    if let Event::Known(Known::UserMessage { from_group, .. }) = &mut event {
+        *from_group = Some(Box::new(FromGroup {
+            id: "g1".to_owned(),
+            name: "Trip crew".to_owned(),
+            run: "r1".to_owned(),
+            ask: "k1".to_owned(),
+            machine: None,
+            untrusted: false,
+        }));
+    }
+    event
+}
+
+fn finished(reply: &str) -> Event {
+    Event::Known(Known::ReplyFinished {
+        reply: reply.to_owned(),
+        text: "done".to_owned(),
+        input_tokens: None,
+        output_tokens: None,
+        cost_micros: 0,
+    })
+}
+
+#[test]
+fn a_reply_to_a_group_alone_is_the_groups_but_one_that_also_answers_the_person_is_the_bots() {
+    let events = vec![
+        Event::user_message("hi"),
+        finished("own"),
+        group_message("plan the trip"),
+        finished("for-group"),
+        group_message("and the hotel"),
+        // The person writes in the bot's own chat while it answers the group: it answers both.
+        Event::user_message("also, the car"),
+        finished("both"),
+        Event::reply_ended(crate::event::ReplyEnd::Stopped, "nothing-asked", ""),
+    ];
+    let answering = answering_replies(&events);
+    assert_eq!(answering.len(), 1);
+    assert!(answering.contains("for-group"));
+}

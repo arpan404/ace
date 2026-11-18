@@ -292,6 +292,7 @@ export function UsagePage() {
             <button
               type="button"
               aria-label="Refresh limits"
+              {...part("icon-button")}
               onClick={() => void refresh()}
               className="grid size-6 place-items-center rounded-sm text-subtle-foreground hover:bg-hover hover:text-foreground focus-ring"
             >
@@ -401,6 +402,7 @@ export function UsagePage() {
                   <button
                     type="button"
                     aria-expanded={tokenTypes}
+                    {...part("link")}
                     onClick={() => setTokenTypes((open) => !open)}
                     className="ml-auto rounded-xs font-medium hover:underline focus-ring"
                   >

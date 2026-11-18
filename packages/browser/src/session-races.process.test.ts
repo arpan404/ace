@@ -175,3 +175,188 @@ it("a delayed screencast frame captured while the tab was private never enters t
   expect(images).toContain("public-after-handback");
   expect(images.some((image) => image.includes("PRIVATE-PIXELS"))).toBe(false);
 });
+
+it.each([
+  ["moved on", "https://mail.google.com/mail/u/0", "place_changed"],
+  ["stayed", "https://docs.example/guide", undefined],
+] as const)(
+  "an input queued behind another runs only while its tab is still where its caller checked (%s)",
+  async (_case, after, refused) => {
+    const backend = new FakeHeadless(),
+      open = backend.open.bind(backend);
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    onTestFinished(() => release.resolve());
+    backend.open = async (request) => ({
+      ...(await open(request)),
+      // The first input holds the tab's queue until the test lets it go.
+      wheel: async () => {
+        entered.resolve();
+        await release.promise;
+      },
+    });
+    const f = await backendFixture({
+      headlessBackend: backend,
+      backendPreference: () => "headless",
+    });
+    await f.open();
+    const page = backend.pages.at(-1);
+    if (!page) throw new Error("no page");
+    page.url = "https://docs.example/guide";
+    const tabId = f.service.state("thread").activeTabId ?? "page";
+    const scrolling = f.service.execute("thread", { action: "scroll", x: 0, y: 10 });
+    await entered.promise;
+    // A ref-less Enter, checked on docs.example, waits its turn while the page moves on.
+    const pressing = f.service.execute("thread", {
+      action: "press",
+      key: "Enter",
+      expect: { tabId, url: "https://docs.example/guide" },
+    });
+    page.url = after;
+    release.resolve();
+    await scrolling;
+    if (refused) {
+      await expect(pressing).rejects.toMatchObject({ code: refused });
+      expect(page.effects).not.toContain("key");
+    } else {
+      await pressing;
+      expect(page.effects).toContain("key");
+    }
+  },
+);
+
+it("an input bound to another tab never runs in this one, at the same address", async () => {
+  const f = await backendFixture({ backendPreference: () => "headless" });
+  await f.open();
+  const page = f.headless.pages.at(-1);
+  if (!page) throw new Error("no page");
+  page.url = "https://docs.example/guide";
+  await expect(
+    f.service.execute("thread", {
+      action: "press",
+      key: "Enter",
+      expect: { tabId: "another-tab", url: "https://docs.example/guide" },
+    }),
+  ).rejects.toMatchObject({ code: "place_changed" });
+  expect(page.effects).not.toContain("key");
+});
+
+it("going back checks the place after reading the history, right before the move", async () => {
+  const backend = new FakeHeadless(),
+    open = backend.open.bind(backend);
+  const moves: string[] = [];
+  backend.open = async (request) => {
+    const session = await open(request),
+      send = session.cdp.send;
+    return {
+      ...session,
+      cdp: {
+        ...session.cdp,
+        send: async (method: string, params?: Record<string, unknown>) => {
+          if (method === "Page.getNavigationHistory") {
+            // The page moves on while the history is read.
+            const page = backend.pages.at(-1);
+            if (page) page.url = "https://mail.google.com/mail/u/0";
+            return {
+              currentIndex: 1,
+              entries: [
+                { id: 1, url: "https://docs.example/a", title: "" },
+                { id: 2, url: "https://docs.example/b", title: "" },
+              ],
+            };
+          }
+          return send(method, params);
+        },
+      },
+    };
+  };
+  const f = await backendFixture({ headlessBackend: backend, backendPreference: () => "headless" });
+  await f.open();
+  const page = backend.pages.at(-1);
+  if (!page) throw new Error("no page");
+  page.url = "https://docs.example/b";
+  page.onSend = (method) => {
+    if (method === "Page.navigateToHistoryEntry") moves.push(method);
+  };
+  const tabId = f.service.state("thread").activeTabId ?? "page";
+  await expect(
+    f.service.execute("thread", {
+      action: "history",
+      direction: "back",
+      expect: { tabId, url: "https://docs.example/b" },
+    }),
+  ).rejects.toMatchObject({ code: "place_changed" });
+  expect(moves).toEqual([]);
+});
+
+it("closing or keeping a tab acts only on the tab the caller checked, at its address", async () => {
+  const { backend } = tabBackend();
+  const closed: string[] = [];
+  const open = backend.open.bind(backend);
+  backend.open = async (request) => {
+    const session = await open(request);
+    if (!session.tabs) throw new Error("tabs");
+    const tabs = session.tabs;
+    return {
+      ...session,
+      tabs: {
+        ...tabs,
+        close: async (id: string) => {
+          closed.push(id);
+        },
+      },
+    };
+  };
+  const f = await backendFixture({ headlessBackend: backend, backendPreference: () => "headless" });
+  await f.open();
+  // tab-0 is on the person's mail now, though the caller checked it on docs.example.
+  const page = backend.pages.at(-1);
+  if (!page) throw new Error("no page");
+  page.url = "https://mail.google.com/mail/u/0";
+  for (const operation of ["close", "keep", "select"]) {
+    await expect(
+      f.service.execute("thread", {
+        action: "tabs",
+        operation,
+        tabId: "tab-0",
+        expect: { tabId: "tab-0", url: "https://docs.example/" },
+      }),
+    ).rejects.toMatchObject({ code: "place_changed" });
+  }
+  expect(closed).toEqual([]);
+  // Checked where it is, it closes.
+  await f.service.execute("thread", {
+    action: "tabs",
+    operation: "close",
+    tabId: "tab-0",
+    expect: { tabId: "tab-0", url: "https://mail.google.com/mail/u/0" },
+  });
+  expect(closed).toEqual(["tab-0"]);
+});
+
+it("a double click whose first click navigates never sends its second click to the new page", async () => {
+  const f = await backendFixture({ backendPreference: () => "headless" });
+  await f.open();
+  const page = f.headless.pages.at(-1);
+  if (!page) throw new Error("no page");
+  page.url = "https://docs.example/guide";
+  // What reached the page: the first press follows a link to the person's settings.
+  const sent: string[] = [];
+  page.onSend = (method, params) => {
+    if (method !== "Input.dispatchMouseEvent") return;
+    sent.push(`${String(params?.["type"])}:${String(params?.["clickCount"] ?? "")}`);
+    if (params?.["type"] === "mousePressed") page.url = "https://docs.example/settings";
+  };
+  const tabId = f.service.state("thread").activeTabId ?? "page";
+  await expect(
+    f.service.execute("thread", {
+      action: "click",
+      x: 10,
+      y: 10,
+      clickCount: 2,
+      expect: { tabId, url: "https://docs.example/guide" },
+    }),
+  ).rejects.toMatchObject({ code: "place_changed" });
+  // Its release and the whole second click never reached the settings page.
+  expect(sent).toEqual(["mouseMoved:", "mousePressed:1"]);
+});

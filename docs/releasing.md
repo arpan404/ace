@@ -1,8 +1,13 @@
 # Releasing the desktop app
 
-Releases are built, signed and notarized on your Mac, then published as a GitHub release.
 Every installed app checks GitHub releases and updates itself from them
 ([ADR 0091](adr/0091-desktop-auto-update.md)).
+
+**A release normally starts from a tag.** Pushing `vX.Y.Z` or `ace-X.Y.Z-beta-N` runs
+`.github/workflows/release.yml` on ace's own runners: it builds every platform, writes the
+notes, deploys the cloud and publishes ([ADR 0188](adr/0188-tag-driven-release-pipeline.md);
+runner setup in [release/runners.md](release/runners.md)). The rest of this page is the same
+build done by hand on your Mac, which the pipeline's steps call.
 
 ## One-time setup
 
@@ -75,7 +80,7 @@ bun run release:beta publish <tag> --notes-file notes.md
 `origin/main`. A beta previews the next version: the patch after `apps/desktop/package.json`
 (0.0.23 → 0.0.24), or a later `--version`. `N` is one more than the highest beta of that
 version on GitHub, across days. It builds the app as `X.Y.Z-beta.<N>` (`0.0.24-beta.1`), titled
-`ace 0.0.24 beta 1`, without touching `package.json`, with a BETA band on the Dock icon. `publish` uploads a draft prerelease, then
+`ace 0.0.24 beta 1`, without touching `package.json`, with a peeled corner on the Dock icon. `publish` uploads a draft prerelease, then
 publishes it.
 
 ## What people see
@@ -111,16 +116,16 @@ publishes it.
 
 Linux packages are built per architecture in a Debian 12 container on a Linux host of that
 architecture, so they run on Ubuntu 24.04+, Debian 12+, Fedora and Arch ([ADR 0093](adr/0093-linux-release.md)).
-`.github/workflows/release.yml` does this on GitHub's x64 and arm64 runners and uploads each
-staged folder as `ace-desktop-linux-<arch>`; locally, follow
-[tools/release](../tools/release/README.md). Either way it is the same `release:build`, which
-stages the AppImage, deb, tar.gz, `latest-linux.yml` or `latest-linux-arm64.yml` and
-`SHA256SUMS`, unsigned. Publish them with the Mac's build of the same commit:
+The release pipeline does this on omarchy (`tools/release/linux/pipeline-build.sh`, arm64
+under emulation); locally, follow [tools/release](../tools/release/README.md). Either way it is
+the same `release:build`, which stages the AppImage, deb, tar.gz, `latest-linux.yml` or
+`latest-linux-arm64.yml` and `SHA256SUMS`, unsigned. By hand, publish them with the Mac's build
+of the same commit:
 
 ```sh
-gh run download <run-id> --pattern 'ace-desktop-linux-*' --dir dist/linux
-bun run release:publish 0.0.3 --include dist/linux/ace-desktop-linux-x64 \
-  --include dist/linux/ace-desktop-linux-arm64
+# Each Linux host's dist/releases/v0.0.3, copied to the Mac:
+bun run release:publish 0.0.3 --include <linux-x64 staged folder> \
+  --include <linux-arm64 staged folder>
 ```
 
 `release:publish` refuses builds of different versions or commits and re-checks every file's

@@ -380,6 +380,9 @@ export class RemoteClient implements ClientApi {
   reconnectNow(): void {
     void this.call("reconnectNow", []).catch(() => {});
   }
+  wake(): void {
+    void this.call("wake", []).catch(() => {});
+  }
   networkOnline(online: boolean): void {
     this.online = online;
     void this.call("networkOnline", [online]).catch(() => {});

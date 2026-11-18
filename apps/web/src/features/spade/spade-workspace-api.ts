@@ -106,8 +106,13 @@ export async function readFolder(
   options: Signal = {},
 ): Promise<SpadeFolder> {
   const body = await spadeHttp(target, "GET", `${base(bot)}/workspace${at(path)}`, options);
-  return sure(parseFolder(body), "folder");
+  const folder = sure(parseFolder(body), "folder");
+  if (path !== "") return folder;
+  return { ...folder, entries: folder.entries.filter((entry) => entry.name !== spadeOwn) };
 }
+
+/** Spade's own folder at the top of a workspace: its bookkeeping, not the bot's files. */
+const spadeOwn = ".spade";
 
 export async function readFile(
   target: SpadeTarget,

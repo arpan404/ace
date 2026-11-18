@@ -135,6 +135,9 @@ export function followInbox(
   const organizer = inboxOrganizer(owner, machineId, clock);
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
+  // The daemon socket, which changes with every reconnect even when a drop and its recovery
+  // coalesce into one "ready": what the phone read on an older socket is out of date.
+  const socket = owner.connectionGeneration();
   const online = () => connection.getSnapshot() === "ready";
   // Results that finished before this phone started following count as seen.
   const baseline = clock.now();
@@ -166,6 +169,13 @@ export function followInbox(
           : null,
       };
     });
+  const putConnection = () =>
+    pump.put("connection", () => ({
+      type: "connection",
+      state: connection.getSnapshot(),
+      generation: generation.current(),
+      socket: socket.getSnapshot(),
+    }));
   /** Whether the phone has been sent a list yet; until then it keeps what it last showed. */
   let shown = false;
   // A fresh account list re-issues every row, so provider marks gain or lose their bubble.
@@ -342,11 +352,7 @@ export function followInbox(
     // flip (welcome before its snapshot, catch-up, error) re-issues every row with its
     // current confirmation even when the thread content itself did not change.
     connection.subscribe(() => {
-      pump.put("connection", () => ({
-        type: "connection",
-        state: connection.getSnapshot(),
-        generation: generation.current(),
-      }));
+      putConnection();
       const nowFresh = isConfirmed(store, online());
       if (fresh && !nowFresh) generation.bump();
       const flipped = nowFresh !== fresh;
@@ -357,6 +363,8 @@ export function followInbox(
       }
       for (const send of sends.getSnapshot()) pending(send.commandId);
     }),
+    // A move to another socket with no state change (another path, ADR 0114) is still news.
+    socket.subscribe(putConnection),
   ];
   change("all");
   const stop = () => {

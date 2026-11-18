@@ -45,6 +45,7 @@ export async function projectFixture(options: ProjectsOptions = {}) {
   const projects = new Projects(store, () => 1000, {
     home: root,
     roots: async () => [root],
+    chatsRoot: join(root, "data", "chats"),
     ...options,
     git: gitOptions,
   });

@@ -139,6 +139,7 @@ mod tests {
             model: model.into(),
             cost_micros: 0,
             bound: None,
+            acts_in: None,
         })
     }
 

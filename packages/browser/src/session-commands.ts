@@ -136,8 +136,13 @@ export async function executeBrowserCommand(
           clock: context.options.navigationClock,
           id,
           read: context.read,
+          // Every repetition's input is held to the place the caller checked, as well as timed:
+          // a first Enter that navigates never lets a later one act on the new page.
           input: (interaction, measurementSignal, beforeInput) =>
-            context.run(tabCommand(interaction), actor, measurementSignal, generation, beforeInput),
+            context.run(tabCommand(interaction), actor, measurementSignal, generation, () => {
+              context.beforeInput?.();
+              beforeInput?.();
+            }),
         },
         signal,
       );
@@ -160,7 +165,11 @@ export async function executeBrowserCommand(
       return traverseHistory(
         cdp,
         command.direction,
-        () => context.check(actor, signal, generation),
+        // Checked after the history is read, right before the move: the actor and the place.
+        () => {
+          context.check(actor, signal, generation);
+          context.beforeInput?.();
+        },
         context.options.navigationClock,
       );
     case "find_text":
@@ -273,6 +282,7 @@ export async function executeBrowserCommand(
     }
     case "dialog":
       context.check(actor, signal, generation);
+      context.beforeInput?.();
       await context.answer(command.dialogId, command.accept, command.promptText);
       return { ok: true };
     case "upload": {
@@ -294,17 +304,20 @@ export async function executeBrowserCommand(
           : {}),
       });
       dispatch.send();
+      context.beforeInput?.();
       await context.refs.upload(command.ref, files, dispatch.prepare);
       return { ok: true };
     }
     case "focus": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
+      context.beforeInput?.();
       await context.refs.focus(command.ref, dispatch.prepare);
       dispatch.send();
       return { ok: true };
     }
     case "select": {
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
+      context.beforeInput?.();
       await context.refs.choose(command.ref, command.values, dispatch.prepare);
       dispatch.send();
       return { ok: true };
@@ -315,6 +328,7 @@ export async function executeBrowserCommand(
       dispatch.send();
       context.point?.(point, "move");
       await context.cursor?.point(point);
+      context.beforeInput?.();
       await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
     }
@@ -353,6 +367,7 @@ export async function executeBrowserCommand(
         dispatch.send();
         context.point?.(point);
         await context.cursor?.point(point, true);
+        context.beforeInput?.();
         await page.click(point.x, point.y);
         if ((await context.refs.checked(command.ref, dispatch.prepare)) !== desired)
           throw new BrowserActionError("element_unavailable");
@@ -519,6 +534,7 @@ export async function executeBrowserCommand(
         throw new BrowserActionError("evaluate_approval_required");
       context.check(actor, signal, generation);
       document();
+      context.beforeInput?.();
       // The person's own browser keeps its cookies and storage from agents unless they allow it.
       if (
         actor.kind === "agent" &&

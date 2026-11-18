@@ -132,15 +132,27 @@ fn plain_person_only_calls_go_to_the_person() {
 }
 
 #[test]
-fn plain_reads_and_builds_in_the_folder_are_low_risk() {
+fn plain_reads_with_a_hard_form_are_low_risk_and_writes_and_builds_are_not() {
     for command in [
         "ls -la src",
-        "git status",
-        "cargo test",
+        "git log --oneline -5",
         "cat README.md",
-        "npm install",
+        "grep -rn TODO src",
+        "git ls-files",
     ] {
         assert_eq!(screen(command), Screen::LowRisk, "{command}");
+    }
+    // A build or install reads configuration no override covers; a write has no hard form, and a
+    // script language is never settled (ADR 0172, amendment 4).
+    for command in [
+        "cargo test",
+        "npm install",
+        "git status",
+        "cp README.md docs/",
+        "touch x",
+        "awk '{print}' x",
+    ] {
+        assert_ne!(screen(command), Screen::LowRisk, "{command}");
     }
 }
 
@@ -338,5 +350,5 @@ fn input_past_the_feature_bounds_is_never_settled() {
     // A plain short command is still allowed to settle, so the gate is on the dropped input,
     // not on length: a long but complete line of known low-risk commands still settles.
     assert_eq!(screen("cat README.md"), Screen::LowRisk);
-    assert_eq!(screen(&"cat README.md; ".repeat(10)), Screen::LowRisk);
+    assert_eq!(screen(&"ls -la src; ".repeat(10)), Screen::LowRisk);
 }

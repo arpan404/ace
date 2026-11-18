@@ -30,7 +30,7 @@ import type { ChangesKept } from "./changes-kept.ts";
  */
 
 /** Why the sheet's scope takes no comments, in words. */
-export const turnScopeReason = "Comments go on Uncommitted: a turn's lines can't be anchored.";
+export const turnScopeReason = "Switch to Uncommitted to comment.";
 
 /** Drafts one `changes.review` patch lists, newest first. */
 const shownDrafts = 200;

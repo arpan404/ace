@@ -20,6 +20,9 @@ pub struct Simple {
     /// Text a here-document or here-string feeds it. Only read for a program Spade reads
     /// scripts of (`osascript`); for any other the command is [`Unreadable`].
     pub here: Option<String>,
+    /// It sets a variable, for itself (`VAR=x cmd`, `env VAR=x cmd`) or for what follows (a bare
+    /// `VAR=x`), or a string it runs does: the assignment is taken off its words, and kept here.
+    pub assigns: bool,
 }
 
 impl Simple {
@@ -41,6 +44,7 @@ fn adopt(inner: Vec<Simple>, parent: &Simple) -> Vec<Simple> {
         .into_iter()
         .map(|mut command| {
             command.group += parent.group;
+            command.assigns |= parent.assigns;
             if command.dir.is_none() {
                 command.dir = parent.dir.clone();
             }
@@ -656,21 +660,25 @@ const INTERPRETERS: &[&str] = &[
 
 /// Takes off `flags` (and the value of each in `valued`) from the front of `words`, up to the
 /// first word that isn't one, and a `--` that ends them.
-fn strip_flags(words: &mut Vec<String>, valued: &[&str]) {
+/// Whether it took off a variable assignment (`env VAR=x cmd`).
+fn strip_flags(words: &mut Vec<String>, valued: &[&str]) -> bool {
+    let mut assigned = false;
     while let Some(word) = words.first() {
         if word == "--" {
             words.remove(0);
-            return;
+            return assigned;
         }
         if !word.starts_with('-') && !is_assignment(word) {
-            return;
+            return assigned;
         }
+        assigned |= is_assignment(word);
         let takes = valued.contains(&word.as_str());
         words.remove(0);
         if takes && !words.is_empty() {
             words.remove(0);
         }
     }
+    assigned
 }
 
 /// The value given to `flag` (`-c x`, `-cx`, `--flag=x`), if any.
@@ -696,13 +704,15 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
     let mut out: Vec<Simple> = Vec::new();
     loop {
         let Some(first) = simple.words.first().cloned() else {
-            if !simple.writes_to.is_empty() {
+            // A bare redirect, or a bare assignment: kept, so what it does is seen.
+            if !simple.writes_to.is_empty() || simple.assigns {
                 out.push(simple);
             }
             return Ok(out);
         };
         if is_assignment(&first) {
             simple.words.remove(0);
+            simple.assigns = true;
             continue;
         }
         // A shell keyword before a command (`{ cmd; }`, `if cmd; then cmd; fi`, `while`,
@@ -735,7 +745,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                 out.extend(adopt(parse(&script, depth + 1)?, &simple));
                 return Ok(out);
             }
-            strip_flags(&mut simple.words, valued);
+            simple.assigns |= strip_flags(&mut simple.words, valued);
             continue;
         }
         // `command -v x` only looks a name up.
@@ -769,7 +779,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                     .unwrap_or_else(|| "{}".to_owned())
             });
             simple.words.remove(0);
-            strip_flags(&mut simple.words, valued);
+            simple.assigns |= strip_flags(&mut simple.words, valued);
             // `timeout 10 cmd`, `chrt 10 cmd`, `taskset 0x3 cmd`: the first plain value is the
             // wrapper's.
             if matches!(program.as_str(), "timeout" | "chrt" | "taskset") && simple.words.len() > 1
@@ -793,7 +803,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                 // `doppler run -- cmd`.
                 if simple.words.first().is_some_and(|w| w == "run") {
                     simple.words.remove(0);
-                    strip_flags(&mut simple.words, &[]);
+                    simple.assigns |= strip_flags(&mut simple.words, &[]);
                 } else {
                     out.push(simple.child(vec![first]));
                     return Ok(out);
@@ -808,7 +818,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                 return Ok(out);
             }
             simple.words.remove(0);
-            strip_flags(
+            simple.assigns |= strip_flags(
                 &mut simple.words,
                 &["-w", "-E", "--timeout", "--conflict-exit-code"],
             );
@@ -820,7 +830,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
         if program == "watch" {
             // `watch` hands its words to `sh -c`.
             simple.words.remove(0);
-            strip_flags(
+            simple.assigns |= strip_flags(
                 &mut simple.words,
                 &["-n", "-d", "--interval", "-q", "--equexit"],
             );
@@ -830,7 +840,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
         if program == "parallel" {
             // `parallel [flags] cmd ::: args`; with no command it runs lines from its input.
             let mut rest: Vec<String> = simple.words[1..].to_vec();
-            strip_flags(
+            simple.assigns |= strip_flags(
                 &mut rest,
                 &["-j", "-S", "--jobs", "--sshlogin", "-a", "--arg-file"],
             );

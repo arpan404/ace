@@ -168,6 +168,7 @@ impl Transcript {
             Known::ReplyInterrupted { reply, text } => {
                 self.update(reply, text, Some(Outcome::Interrupted));
             }
+            Known::ReplyRetried { reply } => self.retried(reply),
             Known::Renamed { title } => self.title = Some(title.clone()),
             Known::StepFinished { reply, text, .. } => {
                 self.paused = false;
@@ -279,6 +280,7 @@ impl Transcript {
             | Known::PluginOutsideAnswered { .. }
             | Known::HookRan { .. }
             | Known::Shared { .. }
+            | Known::CommandRan { .. }
             | Known::MemoryIndexed { .. }
             | Known::KnowledgeIndexed { .. }
             | Known::EpisodeStored { .. }
@@ -333,6 +335,30 @@ impl Transcript {
         if let Some(outcome) = outcome {
             message.outcome = outcome;
             self.answering.remove(slot);
+        }
+    }
+
+    /// A failed reply tried again: the reply after it takes its place. One that said nothing
+    /// leaves the transcript; one that said something stays, cut short rather than failed. Found
+    /// from the end, where a retried reply always is.
+    fn retried(&mut self, reply: &str) {
+        let Some(at) = self
+            .messages
+            .iter()
+            .rposition(|m| m.reply.as_deref() == Some(reply))
+        else {
+            return;
+        };
+        if !matches!(self.messages[at].outcome, Outcome::Failed(_)) {
+            return;
+        }
+        if at + 1 == self.messages.len()
+            && self.answering.is_empty()
+            && self.messages[at].text.is_empty()
+        {
+            self.messages.pop();
+        } else {
+            self.messages[at].outcome = Outcome::Interrupted;
         }
     }
 
@@ -513,6 +539,8 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
+                acts_in: None,
                 helper: None,
             }),
         ];
@@ -536,6 +564,8 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
+                acts_in: None,
                 helper: None,
             }),
             Event::Known(Known::StopRequested {
@@ -569,6 +599,8 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
+                acts_in: None,
                 helper: None,
             }),
             Event::Known(Known::ApprovalAnswered {
@@ -878,6 +910,8 @@ mod tests {
                 reviewer_reason: None,
                 ask: None,
                 tool_key: None,
+                app: None,
+                acts_in: None,
                 helper: Some(Box::new(crate::event::HelperAsk {
                     job: "j1".into(),
                     conversation: "h1".into(),

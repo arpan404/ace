@@ -1,5 +1,6 @@
 import { beforeEach, expect, it } from "vitest";
 import { grantPublicKey } from "@ace/account-grant";
+import { serverGate, unknownClient } from "@ace/service/client-features";
 import type { App } from "./apps.ts";
 import { broker } from "./broker.ts";
 import type { BrokerLog } from "./broker.ts";
@@ -93,6 +94,8 @@ beforeEach(() => {
   });
 });
 
+const unknownGate = serverGate(unknownClient);
+
 function post(app: string, step: string, body: unknown, grant = grants.cloud("user_a")) {
   return service.handle(
     new Request(`https://cloud.acehq.dev/v1/oauth/${app}/${step}`, {
@@ -100,12 +103,14 @@ function post(app: string, step: string, body: unknown, grant = grants.cloud("us
       headers: { Authorization: `Bearer ${grant}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+    unknownGate,
   );
 }
 
 function returnTo(app: string, query: Record<string, string>) {
   return service.handle(
     new Request(`https://cloud.acehq.dev/v1/oauth/callback/${app}?${new URLSearchParams(query)}`),
+    unknownGate,
   );
 }
 

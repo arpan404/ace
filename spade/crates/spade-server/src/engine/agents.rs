@@ -477,6 +477,13 @@ impl Engine {
         Ok(())
     }
 
+    /// Whether `conversation`'s bot has no model, so nothing could answer it: only once setup is
+    /// done, since setup gives Spade the person's first usable model (and while the keychain
+    /// keeps setup waiting, a message is still taken, as before setup was split off).
+    pub(super) fn lacks_model(&self, conversation: &str) -> bool {
+        self.starting().is_none() && self.reply_model(conversation).trim().is_empty()
+    }
+
     /// The model a new reply in `conversation` uses: its agent's model now.
     pub(crate) fn reply_model(&self, conversation: &str) -> String {
         match self.store.agent_for_conversation(conversation) {

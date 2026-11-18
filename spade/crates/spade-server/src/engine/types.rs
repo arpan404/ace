@@ -210,12 +210,15 @@ pub enum SendError {
     NotFound,
     #[error("Spade is switched off on this machine; it runs on another one")]
     Disabled,
-    #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
+    #[error("this is a club's transcript; post with /v1/groups/{{id}}/messages")]
     Group,
     #[error("this is a helper's conversation; it takes no messages")]
     Helper,
     #[error("the message is empty")]
     Empty,
+    /// The bot has no model yet: nothing could answer, so nothing is posted.
+    #[error("this bot has no model yet: choose one in Spade's settings, under Models")]
+    NoModel,
     #[error("the message is too long")]
     TooLong,
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]

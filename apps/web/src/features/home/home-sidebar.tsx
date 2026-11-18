@@ -34,6 +34,7 @@ import {
   useOrganizerState,
   useOverlaidMachineEntries,
 } from "@/features/organize/index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /** Publish provisional titles even while the Unsent section is outside the virtual window. */
 const StartedTitlePublisher = deferredComponent(() =>
@@ -233,6 +234,7 @@ function NewThreadButton() {
         to="/new"
         {...(only ? { search: { project: only } } : {})}
         aria-label="New thread"
+        {...part("icon-button")}
         className={panelIconButton}
         onClick={(event) => {
           if (event.shiftKey) {

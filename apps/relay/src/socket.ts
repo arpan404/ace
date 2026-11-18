@@ -1,4 +1,5 @@
 import { WebSocket } from "ws";
+import { ACE_CLIENT_HEADER } from "@ace/protocol/ace-client";
 import type { ClientOptions } from "ws";
 import { systemClock } from "./clock.ts";
 import { upgradeRefusal } from "./refusal.ts";
@@ -215,8 +216,11 @@ export async function dial(
   clock: Clock = systemClock(),
   timeoutMs = 10000,
   protocols: string[] = [],
+  /** This app's `ace-client` name (ADR 0189), sent as a header on the upgrade. */
+  aceClient?: string,
 ): Promise<{ socket: WebSocket; reader: FrameReader }> {
   const options: ClientOptions & { closeTimeout: number } = {
+    ...(aceClient ? { headers: { [ACE_CLIENT_HEADER]: aceClient } } : {}),
     maxPayload: FRAME_LIMIT,
     perMessageDeflate: false,
     maxFragments: 256,

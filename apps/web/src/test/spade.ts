@@ -73,6 +73,28 @@ export function withEndpoint(spade: FakeSpadeApi) {
   ]);
 }
 
+/**
+ * Bot `id` at work, as Spade stores it: a reply open with a step of `tool` running. A surface
+ * Spade calls live is one the bot drives only while it is at work.
+ */
+export function botAtWork(spade: FakeSpadeApi, id: string, tool = "shell") {
+  const agent = spade.agents.find((each) => each.id === id);
+  if (!agent) throw new Error(`No bot ${id} to set to work`);
+  spade.store(agent.conversation, { type: "reply_started", reply: "at-work" });
+  spade.store(agent.conversation, {
+    type: "step_finished",
+    reply: "at-work",
+    text: "",
+    calls: [{ id: "at-work-1", name: tool }],
+  });
+  spade.store(agent.conversation, {
+    type: "tool_started",
+    reply: "at-work",
+    call_id: "at-work-1",
+    name: tool,
+  });
+}
+
 /** The Spade panel's list of bots. */
 export async function roster() {
   return within(await screen.findByRole("navigation", { name: "Bots" }));
@@ -83,7 +105,7 @@ export async function botRow(name: string) {
   return (await roster()).findByRole("link", { name: new RegExp(`^${name}`) });
 }
 
-/** + in the Spade list's header, then one of its items: "New bot", "New group", "Import bot…". */
+/** + in the Spade list's header, then one of its items: "New bot", "New club", "Import bot…". */
 export async function openNew(item: string) {
   await userEvent.click(await screen.findByRole("button", { name: "New" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: item }));

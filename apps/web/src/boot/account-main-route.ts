@@ -3,6 +3,7 @@ import { AceAccountError, aceAccountClient } from "@ace/client/ace-account";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
 import {
+  accountFetch,
   accountOrigin,
   accountSessionKey,
   sameAccountOrigin,
@@ -10,7 +11,6 @@ import {
 } from "./account-config.ts";
 import { accountMachineClient, accountMachineOptions } from "./account-machine-options.ts";
 import { accountSecret } from "./account-secret.ts";
-import { authorizeDaemonUrl } from "./daemon-network.ts";
 import type { AccountMainMachine, AccountMainRoute, AccountRouteSource } from "./main-machine.ts";
 import { accountPinnedGrant, trackedGrant } from "./tracked-grant.ts";
 
@@ -26,7 +26,10 @@ const schedule = (callback: () => void, delayMs: number) => {
  */
 export function accountMainRoute(
   machine: AccountMainMachine,
-  options: Pick<AccountMachineOptions, "relayUrl" | "deviceId" | "grant" | "socket" | "client">,
+  options: Pick<
+    AccountMachineOptions,
+    "relayUrl" | "aceClient" | "deviceId" | "grant" | "socket" | "client"
+  >,
 ): AccountMainRoute {
   const grants = trackedGrant(() => options.grant());
   const code = machineCodeGate(() => grants.grant());
@@ -37,6 +40,7 @@ export function accountMainRoute(
     client() {
       const route = relayRoute({
         relayUrl: options.relayUrl,
+        aceClient: options.aceClient,
         hostId: machine.hostId,
         credential: () => code.credential(),
         socket: options.socket,
@@ -77,10 +81,7 @@ export function browserAccountRoutes(options: {
     const key = accountSessionKey(origin);
     const backend = aceAccountClient({
       origin,
-      fetch: async (input, init) => {
-        await authorizeDaemonUrl(`${origin}/`);
-        return fetch(input, init);
-      },
+      fetch: accountFetch(origin),
     });
     const restore = async () => {
       if (!secure || windowAccountSession(options.session, origin) !== null) return;

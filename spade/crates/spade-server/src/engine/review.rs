@@ -89,6 +89,7 @@ pub(super) async fn call(
         model,
         cost_micros: cost,
         bound: None,
+        acts_in: None,
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict),

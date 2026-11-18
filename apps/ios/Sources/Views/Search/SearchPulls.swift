@@ -5,47 +5,86 @@ import SwiftUI
 struct FoundPull: Identifiable, Equatable {
     let route: ForgeRoute
     let row: ForgePullRow
+    /// The connection it was read on: which client, and which of its daemon sockets.
+    let connection: ConnectionStamp
     var id: String { row.key }
+}
+
+/// One connection to a machine: the client model and its `connectionEpoch`, which moves on
+/// every drop, socket change and runtime swap. Each model counts from zero, so the client
+/// (held weakly: a freed model never matches a new one at its address) tells a machine paired
+/// again apart.
+struct ConnectionStamp: Equatable {
+    private weak var client: ClientModel?
+    private let epoch: Int
+
+    /// `client`'s connection now, or nil while it isn't ready.
+    @MainActor init?(_ client: ClientModel) {
+        guard client.connection == "ready" else { return nil }
+        self.client = client
+        self.epoch = client.connectionEpoch
+    }
+
+    static func == (a: ConnectionStamp, b: ConnectionStamp) -> Bool {
+        a.client != nil && a.client === b.client && a.epoch == b.epoch
+    }
 }
 
 /// Pull requests matching a query in the project Pull requests opens on (the one chosen there
 /// last, else the machine's first), read from the machine's forge search. The last answer stays
 /// until the next one arrives; a newer query cancels the older read. A read that fails says so
-/// above the rows it last found, and can be asked again.
+/// above the rows it last found, and can be asked again. Rows belong to the connection they were
+/// read on: once their machine drops, they never show again, even after it reconnects or is
+/// paired again.
 @MainActor @Observable final class SearchPulls {
+    /// One machine's pull requests matching a query: the project it searched and the rows, or
+    /// nil when it has no project to search. The app reads the machine's forge (`forge`).
+    typealias Read = @MainActor (ClientModel, String) async throws -> (project: String, rows: [ForgePullRow])?
+
     static let shown = 3
     private(set) var found: [FoundPull] = []
     /// Why the last read didn't answer: its sentence stays over the rows found before it.
     private(set) var problem: String?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var asked = ""
+    @ObservationIgnored private let read: Read
+
+    init(read: @escaping Read = SearchPulls.forge) { self.read = read }
+
+    /// The rows to draw: only those read on their machine's current, ready connection. A row
+    /// never opens on a machine that has gone, nor shows again after it reconnects, whether or
+    /// not a search has run since.
+    func visible(_ inbox: MachineInbox) -> [FoundPull] {
+        found.filter { Self.current($0, inbox) }
+    }
 
     func run(_ inbox: MachineInbox, query: String) async {
         generation += 1
         let current = generation
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         asked = text
-        // Nothing to ask, or no machine to ask it: what an earlier machine found goes with it.
+        // Rows from a machine that went away, or from before it reconnected, go before anything
+        // is asked, whatever the next read does.
+        found = found.filter { Self.current($0, inbox) }
+        // Nothing to ask, or no machine to ask it.
         guard text.count >= 2, inbox.sessions.contains(where: { $0.client.connection == "ready" }) else { found = []; problem = nil; return }
         // Typing settles before the machine is asked.
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled, current == generation,
               let session = inbox.sessions.first(where: { $0.client.connection == "ready" }) else { return }
-        let client = session.client
-        let remembered = UserDefaults.standard.string(forKey: ForgeProjectChoice.key)
+        guard let connection = ConnectionStamp(session.client) else { return }
         do {
-            let projects = try await client.forgeProjects()
-            guard let project = ForgeProjectChoice.pick(chip: "", remembered: remembered, projects: projects) else {
+            guard let answer = try await read(session.client, text) else {
                 // No project to search: not a failure, just nothing to offer.
                 guard current == generation else { return }
                 found = []; problem = nil
                 return
             }
-            let list = try await client.forgePulls(project: project, filter: PullsFilter(), query: text, screens: 1, fresh: false)
             guard !Task.isCancelled, current == generation else { return }
-            found = list.groups.flatMap(\.rows).prefix(Self.shown).map { row in
-                FoundPull(route: ForgeRoute(kind: .pull, machineId: session.hostId, project: project, number: row.number, repository: row.repository),
-                          row: row)
+            found = answer.rows.prefix(Self.shown).map { row in
+                FoundPull(route: ForgeRoute(kind: .pull, machineId: session.hostId, project: answer.project, number: row.number,
+                                            repository: row.repository),
+                          row: row, connection: connection)
             }
             problem = nil
         } catch {
@@ -62,5 +101,19 @@ struct FoundPull: Identifiable, Equatable {
     func retry(_ inbox: MachineInbox) async {
         guard !asked.isEmpty else { return }
         await run(inbox, query: asked)
+    }
+
+    private static func current(_ found: FoundPull, _ inbox: MachineInbox) -> Bool {
+        inbox.client(found.route.machineId).flatMap(ConnectionStamp.init) == found.connection
+    }
+
+    /// The machine's forge search, in the project Pull requests opens on (the one chosen there
+    /// last, else the machine's first).
+    static func forge(_ client: ClientModel, _ query: String) async throws -> (project: String, rows: [ForgePullRow])? {
+        let remembered = UserDefaults.standard.string(forKey: ForgeProjectChoice.key)
+        let projects = try await client.forgeProjects()
+        guard let project = ForgeProjectChoice.pick(chip: "", remembered: remembered, projects: projects) else { return nil }
+        let list = try await client.forgePulls(project: project, filter: PullsFilter(), query: query, screens: 1, fresh: false)
+        return (project: project, rows: list.groups.flatMap(\.rows))
     }
 }

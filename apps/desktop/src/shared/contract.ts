@@ -62,6 +62,8 @@ export const DaemonStage = z.enum([
   "service",
   "launching",
   "lock-wait",
+  /** The app's own old daemon, being replaced, does not answer; it gets its whole allowance. */
+  "old-unanswered",
   "warming",
   "admission",
 ]);

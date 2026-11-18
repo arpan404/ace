@@ -47,6 +47,12 @@ export async function executeTabs(
 ): Promise<unknown> {
   signal?.throwIfAborted();
   const { tabs } = context;
+  // The tab a caller's gate checked (`expect`): selecting, keeping or closing acts on it only
+  // while it is still that tab at that address.
+  const held = (runtime: TabRuntime) => {
+    if (command.expect && !runtime.isAt(command.expect))
+      throw new BrowserActionError("place_changed");
+  };
   switch (command.operation) {
     case "list":
       return result(context, actor);
@@ -64,7 +70,11 @@ export async function executeTabs(
       const tabId = command.tabId ?? (actor.kind === "agent" ? undefined : tabs.viewedId());
       if (tabId === undefined) throw new BrowserActionError("invalid_arguments");
       tabs.get(tabId).readCheck(actor);
-      const runtime = await tabs.structural(() => tabs.select(actor, tabId));
+      held(tabs.get(tabId));
+      const runtime = await tabs.structural(() => {
+        held(tabs.get(tabId));
+        return tabs.select(actor, tabId);
+      });
       context.changed();
       if (command.url) await context.navigate(runtime, command.url, actor, signal);
       return result(context, actor, runtime.id);
@@ -73,6 +83,7 @@ export async function executeTabs(
       // A deliverable or handoff outlives the agent's turn; `keep: false` makes it scratch again.
       const runtime = tabs.resolve(actor, command.tabId);
       runtime.readCheck(actor);
+      held(runtime);
       tabs.keep(runtime.id, command.keep ?? true);
       context.changed();
       return result(context, actor, runtime.id);
@@ -81,11 +92,15 @@ export async function executeTabs(
       const runtime = tabs.resolve(actor, command.tabId);
       // People close any tab; agents any tab but a private one.
       if (actor.kind === "agent") runtime.check(actor, signal);
+      held(runtime);
       if (tabs.last(runtime.id)) {
         await context.closeBrowser(actor, signal);
         return { closed: true };
       }
-      await tabs.structural(() => tabs.close(runtime.id));
+      await tabs.structural(() => {
+        held(runtime);
+        return tabs.close(runtime.id);
+      });
       context.changed();
       return result(context, actor);
     }

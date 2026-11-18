@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { loadStandaloneTerminal } from "@/features/panels/index.ts";
 import { message } from "../spade-screen-parts.tsx";
@@ -39,13 +38,8 @@ export function BotTerminal(props: { bot: { id: string; name: string }; mayType:
   return (
     <div className="flex h-full min-h-0 flex-col p-4">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-code p-2 shadow-[inset_0_0_0_1px_var(--border)]">
-        <Suspense
-          fallback={
-            <div className="grid flex-1 place-items-center">
-              <Spinner label="Opening the terminal" />
-            </div>
-          }
-        >
+        {/* The view loads in a moment: the empty terminal stands in, with nothing turning in it. */}
+        <Suspense fallback={null}>
           <StandaloneTerminal
             source={source}
             id={`spade:${props.bot.id}`}

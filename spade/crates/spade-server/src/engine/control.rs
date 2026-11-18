@@ -187,6 +187,15 @@ impl Engine {
         if awaited && allowed && always && asks_outside(&events, call_id) {
             self.run_commands_outside(id);
         }
+        // "Allow <app> for this bot" on a driving step: a drive grant for that app or site, so
+        // its next steps are reviewed without asking (ADR 0171, amendment 3).
+        if awaited
+            && allowed
+            && always
+            && let Some(place) = offered_place(&events, call_id)
+        {
+            self.allow_driving(id, &place);
+        }
         // A request Spade asked for a reason of its own (outside the sandbox, a tool that
         // declares nothing) is answered for this call only: its "always" is kept elsewhere (the
         // bot's setting, the answer for the tool), never as an Always allow that would let the
@@ -226,6 +235,21 @@ fn asked_for_a_reason(events: &[Event], call_id: &str) -> bool {
         matches!(event, Event::Known(Known::ApprovalRequested {
             call_id: c, ask: Some(_), ..
         }) if c == call_id)
+    })
+}
+
+/// The app or site a driving step's request offered to allow for the bot: only one it named
+/// (`app`), as it found the step acts.
+fn offered_place(events: &[Event], call_id: &str) -> Option<spade_core::effect::drive::Place> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c,
+            ask: Some(spade_core::effect::Ask::Drive),
+            app: Some(_),
+            acts_in: Some(place),
+            ..
+        }) if c == call_id => Some((**place).clone()),
+        _ => None,
     })
 }
 

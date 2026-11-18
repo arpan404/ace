@@ -3,6 +3,7 @@ import {
   spadeBubbles,
   spadeByState,
   spadeFailureSentence,
+  spadeForLaterWords,
   spadeQuietLine,
   spadeRequestCard,
   spadeStateLine,
@@ -13,6 +14,7 @@ import {
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import type { SpadeStatus } from "@ace/protocol";
+import { spadeQuestionCardRow, type SpadeQuestionCardRow } from "./spade-question-rows.ts";
 
 /*
  * Spade's list and one conversation as the iPhone draws them, from the rules every client shares
@@ -98,6 +100,8 @@ export type SpadeBubbleRow =
       reason: string | null;
       always: boolean;
     }
+  /** A card of questions the bot asks (ADR 0154). */
+  | SpadeQuestionCardRow
   /** Anything that is nobody's words: one quiet line between bubbles. */
   | { kind: "note"; text: string };
 
@@ -172,8 +176,6 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
     }
     case "other":
       return { kind: "note", text: `${bubble.agent.name}: ${bubble.text}` };
-    case "group":
-      return { kind: "note", text: `In ${bubble.group}: ${bubble.text}` };
     case "routine":
       return { kind: "note", text: bubble.label || bubble.name };
     case "task-paused":
@@ -187,7 +189,7 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
     case "question":
-      return { kind: "note", text: "Answer this question in ace on your computer." };
+      return spadeQuestionCardRow(bubble, who);
     case "search-setup":
       return { kind: "note", text: "Web search isn't set up yet." };
   }
@@ -212,6 +214,11 @@ export function spadeConversationHead(id: string, view: SpadeView, problem: stri
     loaded: view.loaded,
     problem: problem ?? null,
     answering: view.answering,
+    // "2 questions for later" in the top bar, which goes to the oldest such card.
+    later:
+      view.questionsForLater > 0 && view.forLater[0]
+        ? { words: spadeForLaterWords(view.questionsForLater), callId: view.forLater[0] }
+        : null,
     working: view.working
       ? { label: view.status ?? view.working.label, moving: view.working.moving }
       : null,

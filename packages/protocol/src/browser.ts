@@ -53,10 +53,21 @@ export type BrowserOpen = z.infer<typeof BrowserOpen>;
  * `tabId` routes a command to one tab. Omitted: an agent's own current tab (the last it opened or
  * selected), otherwise the tab the person is viewing. Commands on different tabs run concurrently.
  */
+/**
+ * Where a caller's gate decided a command acts (Spade, ADR 0171 amendment 3): the command runs
+ * only while its tab is this tab at this address, checked in the tab's queue and again before
+ * each input it sends. Optional; other callers leave it out.
+ */
+export const BrowserExpectedPlace = z.object({
+  tabId: short,
+  url: z.string().min(1).max(8192),
+});
+export type BrowserExpectedPlace = z.infer<typeof BrowserExpectedPlace>;
 const commandBase = z.object({
   tabId: short
     .optional()
     .describe("The tab to act in, from browser_tabs. Omitted: your current tab."),
+  expect: BrowserExpectedPlace.optional(),
 });
 const [click, type, press, scroll, drag] = BrowserInteractionAction.options;
 const annotate = commandBase.extend({ action: z.literal("annotate") });

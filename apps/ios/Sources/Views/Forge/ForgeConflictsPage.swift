@@ -105,7 +105,7 @@ struct ForgeConflictsPageView: View {
             if let reason = file.unavailable {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                     Text(reason).meta()
-                    HStack(spacing: AceTheme.Spacing.lg) {
+                    HStack(spacing: AceDesign.Space.related) {
                         Button("Take ours") { step(["action": "take", "path": file.path, "side": "ours"], key: file.path) }
                         Button("Take theirs") { step(["action": "take", "path": file.path, "side": "theirs"], key: file.path) }
                     }
@@ -116,22 +116,21 @@ struct ForgeConflictsPageView: View {
             ForEach(Array(file.hunks.enumerated()), id: \.offset) { index, hunk in
                 hunkView(file, index: index, hunk: hunk, ready: ready)
             }
-            HStack {
-                Button("Ask the agent") { ask(file) }.disabled(!client.canOperate)
+            HStack(spacing: AceDesign.Space.related) {
+                Button("Ask the agent") { ask(file) }.buttonStyle(.rowAction).disabled(!client.canOperate)
                 if writing == file.path { ProgressView().controlSize(.small).transition(.opacity) }
             }
-            .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
+            .padding(.horizontal, AceDesign.Space.margin)
             .accessibilityIdentifier("forge.conflicts.ask.\(file.path)")
         }
-        .buttonStyle(.forgeWord)
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+        .buttonStyle(.secondaryAction).controlSize(.small)
     }
 
     private func hunkView(_ file: ForgeConflicts.File, index: Int, hunk: ForgeConflicts.Hunk, ready: Bool) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
             side("Ours", hunk.ours)
             side("Theirs", hunk.theirs)
-            HStack(spacing: AceTheme.Spacing.lg) {
+            HStack(spacing: AceDesign.Space.related) {
                 Button("Ours") { resolve(file, hunk: index, choice: ["kind": "ours"]) }
                 Button("Theirs") { resolve(file, hunk: index, choice: ["kind": "theirs"]) }
                 Button("Both") { resolve(file, hunk: index, choice: ["kind": "both"]) }

@@ -45,6 +45,10 @@ impl Engine {
         if self.helper_of(id).is_some() {
             return Err(SendError::Helper);
         }
+        // Until the person chooses a model nothing could answer: the message is not posted.
+        if self.lacks_model(id) {
+            return Err(SendError::NoModel);
+        }
         let images = outgoing
             .images
             .iter()

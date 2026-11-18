@@ -201,12 +201,15 @@ function ComposerBody({
   });
   // An empty composer on a narrow phone is one pill row: + · message · model · send. A narrow
   // column on a desktop or tablet (a docked panel, say) keeps the full composer and approvals.
+  // A capsule stays one row while the draft is words alone (the field grows in place); a phone's
+  // pill opens as soon as there is anything to type.
   const pill =
-    (props.capsule || (handheld && width < pillWidth)) &&
     width > 0 &&
-    empty &&
     !props.unavailable &&
-    suggestions.state === "closed";
+    suggestions.state === "closed" &&
+    (props.capsule
+      ? !attachments.items.length && !annotations.count && !quotes.count
+      : handheld && width < pillWidth && empty);
   useAutosize(input, text, width, pill ? 1 : inputMinLines);
   useTypeToFocus(input, !!props.typeToFocus && !props.unavailable);
   // The sent message ↑/↓ last put in the composer, and how many back it is.

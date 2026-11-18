@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { namedFetch } from "@ace/client/ace-client";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { marketOrigin, shippedMarketKeys } from "@ace/marketplace";
@@ -29,7 +30,8 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
     root: join(await realpath(config.dataDir), "marketplace"),
     now: context.now,
     id: context.id,
-    fetch: (url, init) => fetch(url, init),
+    // Every call this makes goes to the market, so each names the daemon (ADR 0189).
+    fetch: namedFetch((url, init) => fetch(url, init), config.aceClient),
     origin: config.marketUrl ?? marketOrigin,
     keys: shippedMarketKeys,
     git: gitRuntime(),

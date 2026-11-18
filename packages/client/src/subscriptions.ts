@@ -34,19 +34,15 @@ interface Cached {
   restored: boolean;
   /** Its kept record is still being read: it subscribes once that settles. */
   loading: boolean;
-  /** Completions of a tail-only copy that failed in a row, and the retry waiting, if any. */
-  completions: number;
+  /**
+   * Subscribes refused (or tail completions failed) in a row while held, and the retry waiting,
+   * if any: a held thread is never left failed until someone reopens it.
+   */
+  failures: number;
   retry: (() => void) | undefined;
 }
-/**
- * Threads open with a small tail (`ClientOptions.openTail`). A store that holds only a tail is
- * completed by subscribing again with neither a cursor nor a tail: the daemon's full snapshot
- * replaces it, as an open without a tail gets. `delay` paces retries of a completion that fails.
- */
-export interface TailOpen {
-  tail: OpenTail;
-  delay(milliseconds: number, run: () => void): () => void;
-}
+/** Runs `run` after `milliseconds`; the returned function cancels it. Paces retries. */
+export type Delay = (milliseconds: number, run: () => void) => () => void;
 export interface ThreadSubscription {
   store: ThreadStore;
   release(): void;
@@ -76,16 +72,24 @@ export class Subscriptions {
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
   #ready: () => boolean;
-  #tail: TailOpen | undefined;
+  /**
+   * Threads open with a small tail (`ClientOptions.openTail`). A store that holds only a tail is
+   * completed by subscribing again with neither a cursor nor a tail: the daemon's full snapshot
+   * replaces it, as an open without a tail gets.
+   */
+  #tail: OpenTail | undefined;
+  #delay: Delay;
   constructor(
     limits: Limits,
     send: (message: ClientMessage) => boolean,
     id: () => string,
     ready: () => boolean,
+    delay: Delay,
     persistence?: Persistence,
-    tail?: TailOpen,
+    tail?: OpenTail,
   ) {
     this.#tail = tail;
+    this.#delay = delay;
     this.#persistence = persistence;
     this.#limits = limits;
     this.#send = send;
@@ -134,7 +138,7 @@ export class Subscriptions {
         database: undefined,
         restored: false,
         loading: false,
-        completions: 0,
+        failures: 0,
         retry: undefined,
       };
       entry.binding = this.#bind(entry);
@@ -175,6 +179,9 @@ export class Subscriptions {
             this.#starting.delete(owned.subscriptionId);
           }
           owned.subscriptionId = undefined;
+          owned.retry?.();
+          owned.retry = undefined;
+          owned.failures = 0;
           // Unfollowed from here on: a view painting from it shows that it may be behind.
           if (owned.store.cursor !== undefined) {
             owned.store.setSyncing(true);
@@ -228,6 +235,8 @@ export class Subscriptions {
    */
   #preempt(threadId: string, entry: Cached): void {
     entry.preempted = true;
+    entry.retry?.();
+    entry.retry = undefined;
     if (entry.subscriptionId) {
       this.#send({ type: "unsubscribe", subscriptionId: entry.subscriptionId });
       this.#wires.delete(entry.subscriptionId);
@@ -365,7 +374,7 @@ export class Subscriptions {
       // Only a store holding nothing opens from a small tail: one holding a copy resumes or
       // takes a full snapshot, so nothing it keeps outlives what a full snapshot answers. The
       // same before the welcome (a subscribe in the hello's flight) as after it.
-      ...(this.#tail && entry.store.cursor === undefined ? { tail: this.#tail.tail } : {}),
+      ...(this.#tail && entry.store.cursor === undefined ? { tail: this.#tail } : {}),
     });
   }
   /**
@@ -459,11 +468,16 @@ export class Subscriptions {
     entry.rejected = true;
     entry.store.setSyncing(false);
     entry.store.fail(error);
-    // A tail-only copy never rests as if complete: its completion is tried again, with backoff,
-    // while the thread stays held (and on the next connection, which subscribes it afresh).
-    if (this.#tail && entry.store.filling && entry.refs && !entry.retry) {
-      const wait = Math.min(30_000, 500 * 2 ** entry.completions++);
-      entry.retry = this.#tail.delay(wait, () => {
+    // A refusal never rests while someone holds the thread: a daemon can refuse a thread it
+    // doesn't have yet (a child another machine is still starting), or one it can't serve this
+    // moment. It is tried again with backoff while held (and on the next connection, which
+    // subscribes it afresh), and the error clears once a subscription lands. A tail-only copy
+    // whose completion fails retries the same way, so it never rests as if complete. A full
+    // thread too large for this client fails the same way every time: it rests.
+    const settled = error.code === "limit" && !entry.store.filling;
+    if (entry.refs && !entry.retry && !settled) {
+      const wait = Math.min(30_000, 500 * 2 ** entry.failures++);
+      entry.retry = this.#delay(wait, () => {
         entry.retry = undefined;
         entry.rejected = false;
         this.#pump();
@@ -476,6 +490,7 @@ export class Subscriptions {
       const entry = this.#wires.get(message.subscriptionId);
       if (!entry) return;
       if (entry.store.cursor === message.seq) entry.store.recover();
+      if (!entry.store.filling) entry.failures = 0;
       entry.store.setSyncing(false);
       // Caught up by replay or snapshot: the daemon has confirmed what the store holds.
       entry.store.setUnconfirmed(false);
@@ -511,7 +526,7 @@ export class Subscriptions {
         this.#complete(entry);
         return;
       }
-      entry.completions = 0;
+      entry.failures = 0;
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);

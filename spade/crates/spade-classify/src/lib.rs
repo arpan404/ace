@@ -10,7 +10,10 @@
 //!
 //! Pure and deterministic: the same input gives the same output, with no I/O and no network.
 
+mod ambient;
+mod harden;
 mod hash;
+mod math;
 mod model;
 mod shape;
 mod shell;
@@ -21,9 +24,13 @@ use std::borrow::Cow;
 use std::sync::OnceLock;
 
 use serde_json::Value;
+pub use spade_core::autonomy::ConfigTools;
 pub use spade_core::effect::{Effect, Mcp};
 
+pub use ambient::{Files, Found as FileRead, inspect};
+pub use harden::{Hardening, hardening, names as hardening_names};
 pub use hash::{BUCKETS, KNOWN_BITS, probes};
+pub use math::exp;
 pub use model::{Header, Invalid, Model, encode, known_bits, quantize, softmax};
 
 /// The effects the model tells apart, in the order of its outputs. `unknown` is a declaration's
@@ -87,6 +94,13 @@ pub struct Features {
     pub keys: Vec<u64>,
     /// Structural input was past a feature bound, so part of it was not examined: never settled.
     pub dropped: bool,
+    /// It may reach another machine: never settled while untrusted content is in view.
+    pub network: bool,
+    /// The tools it runs whose configuration could name a program for them to run.
+    pub config: ConfigTools,
+    /// It has a form that ignores configuration that could run a program ([`hardening`]): a
+    /// command without one is never settled. Always true for a tool call, which never settles.
+    pub hardened: bool,
 }
 
 pub fn features(subject: &Subject<'_>) -> Features {
@@ -106,6 +120,12 @@ pub fn features(subject: &Subject<'_>) -> Features {
         hides: found.hides,
         keys,
         dropped: found.dropped,
+        network: found.network,
+        config: found.config,
+        hardened: match *subject {
+            Subject::Shell { command, .. } => hardening(command).is_some(),
+            Subject::Tool { .. } => true,
+        },
     }
 }
 
@@ -120,6 +140,12 @@ pub struct Prediction {
     pub known: bool,
     /// Part of the input was past a feature bound and not examined.
     pub dropped: bool,
+    /// It may reach another machine.
+    pub network: bool,
+    /// The tools it runs whose configuration could name a program for them to run.
+    pub config: ConfigTools,
+    /// It has a form that ignores configuration that could run a program.
+    pub hardened: bool,
 }
 
 impl Prediction {
@@ -127,7 +153,7 @@ impl Prediction {
     /// the bot's folders, hides nothing, and is made only of parts the model knows as low-risk
     /// (`npm install` is known; `npm install -g`, a flag never seen in a low-risk command, isn't).
     pub fn plain(&self) -> bool {
-        !self.reaches_outside && !self.hides && self.known && !self.dropped
+        !self.reaches_outside && !self.hides && self.known && !self.dropped && self.hardened
     }
 
     /// The most likely effect and its probability.
@@ -150,7 +176,9 @@ impl Prediction {
         LOW_RISK.iter().map(|e| self.of(*e)).sum()
     }
 
-    /// The most likely person-only effect and its probability.
+    /// The most likely person-only effect, and the probability that it is any of them: the
+    /// person decides whichever one it is, so a call read as half a send and half a payment is
+    /// still theirs.
     pub fn person_only(&self) -> (Effect, f32) {
         let mut best = (PERSON_ONLY[0], self.of(PERSON_ONLY[0]));
         for effect in PERSON_ONLY {
@@ -159,7 +187,7 @@ impl Prediction {
                 best = (effect, p);
             }
         }
-        best
+        (best.0, PERSON_ONLY.iter().map(|e| self.of(*e)).sum())
     }
 }
 
@@ -197,6 +225,9 @@ impl Model {
             hides: features.hides,
             dropped: features.dropped,
             known: self.knows(&features.keys),
+            network: features.network,
+            config: features.config,
+            hardened: features.hardened,
         }
     }
 
@@ -220,6 +251,76 @@ impl Model {
             raised => raised,
         }
     }
+
+    /// For a plain command with untrusted content in view: the person first, then low-risk only
+    /// when it is clearly low-risk, clearly only reads (its read probability alone over its own
+    /// threshold, above every validation call that isn't a read) and can reach no other machine,
+    /// so nothing it was shown can be sent anywhere or change anything.
+    pub fn screen_read(&self, prediction: &Prediction) -> Screen {
+        match self.raise(prediction) {
+            Screen::Abstain
+                if prediction.plain()
+                    && !prediction.network
+                    && prediction.low_risk() >= self.header().low
+                    && prediction.of(Effect::Read) >= self.header().read =>
+            {
+                Screen::LowRisk
+            }
+            raised => raised,
+        }
+    }
+
+    /// The decision for a call the gate sent to review: it may settle only a shell command the
+    /// gate lets it settle (a plain one, and with untrusted content in view only a read that
+    /// reaches nothing); anything else it can only raise to the person or leave to the reviewer.
+    /// A command that doesn't start in a known bot's folder is never settled: its paths can't be
+    /// placed against it.
+    ///
+    /// `config_clean` is the tools whose configuration around the command's folder the gate
+    /// inspected ([`inspect`]) and found naming no program to run. A settled command comes with
+    /// the [`Hardening`] it must run in; the gate records it and the launch applies it.
+    pub fn decide(
+        &self,
+        subject: &Subject<'_>,
+        reviewing: Reviewing,
+        config_clean: ConfigTools,
+    ) -> Decision {
+        let prediction = self.predict(subject);
+        let command = match subject {
+            Subject::Shell {
+                command,
+                workspace: Some(_),
+            } => Some(*command),
+            _ => None,
+        };
+        // A tool whose configuration could run a program settles only where the gate found its
+        // configuration runs nothing (ADR 0172, amendment 2), and only in its hard form
+        // (amendment 3).
+        let form = command
+            .filter(|_| prediction.config.within(config_clean))
+            .and_then(hardening);
+        let screen = if form.is_some() && reviewing.may_settle() {
+            self.screen(&prediction)
+        } else if form.is_some() && reviewing.may_settle_read() {
+            self.screen_read(&prediction)
+        } else {
+            self.raise(&prediction)
+        };
+        Decision {
+            prediction,
+            screen,
+            hardening: form.filter(|_| screen == Screen::LowRisk),
+        }
+    }
+}
+
+/// What [`Model::decide`] came to.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Decision {
+    pub prediction: Prediction,
+    pub screen: Screen,
+    /// For a settled command, the form it must run in.
+    pub hardening: Option<Hardening>,
 }
 
 /// What the gate knows about a call it sent to the reviewer, for whether the model may settle it.
@@ -244,5 +345,13 @@ impl Reviewing {
     /// deterministic decision.
     pub fn may_settle(self) -> bool {
         self.plain_command && !self.tainted && !self.runs_files && !self.standing && !self.concern
+    }
+
+    /// Whether the model may settle the call as a read only ([`Model::screen_read`]): the same,
+    /// except that untrusted content may be in view. A plain read in the bot's folder that can
+    /// reach no other machine neither sends nor changes anything; what it shows joins content
+    /// that is already untrusted.
+    pub fn may_settle_read(self) -> bool {
+        self.plain_command && !self.runs_files && !self.standing && !self.concern
     }
 }
