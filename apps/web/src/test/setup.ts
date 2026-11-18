@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { markitWasmFile } from "@ace/markit-web/assets";
+import { markitGrammarWasmFile, markitWasmFile } from "@ace/markit-web/assets";
 import { preloadMarkit } from "@ace/markit-web/react";
 import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
@@ -33,6 +33,7 @@ if (typeof HTMLElement !== "undefined") {
   preloadMarkit({
     worker: "inline",
     wasm: readFileSync(markitWasmFile()),
+    grammarWasm: readFileSync(markitGrammarWasmFile()),
   });
 }
 

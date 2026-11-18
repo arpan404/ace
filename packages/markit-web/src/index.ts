@@ -77,3 +77,7 @@ function decodedPath(path: string): string {
     return path;
   }
 }
+
+/** markit's incremental grammar highlighter, for the Files editor. */
+export { LineHighlighter } from "@markit/web";
+export type { CodeToken } from "@markit/web";

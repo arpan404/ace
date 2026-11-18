@@ -15,3 +15,8 @@ export function markitPackageDirectory(): string {
 export function markitWasmFile(): string {
   return join(markitPackageDirectory(), "pkg", "markit_wasm_bg.wasm");
 }
+
+/** markit's grammar Wasm module, as installed; LineHighlighter loads it lazily. */
+export function markitGrammarWasmFile(): string {
+  return join(markitPackageDirectory(), "pkg-grammars", "markit_wasm_bg.wasm");
+}
