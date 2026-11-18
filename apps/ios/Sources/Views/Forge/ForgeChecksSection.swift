@@ -105,29 +105,30 @@ struct ForgeChecksSection: View {
                     .foregroundStyle(local.tone == "idle" ? AceTheme.Colours.mutedForeground : AceTone(local.tone).text)
                     .contentTransition(.opacity)
             }
-            HStack(spacing: AceTheme.Spacing.lg) {
+            if local.needsCommand == true, client.canOperate, setCheckCommand != nil {
+                // Project defaults can set it from the phone: say so and go there.
+                Text("This project has no check command.").meta()
+            } else if let note = local.note { Text(note).meta() }
+            HStack(spacing: AceDesign.Space.related) {
                 if let action = local.action, client.canOperate {
-                    Button(action.label) { action.kind == "cancel" ? (stopping = true) : localWrite(stop: false) }
-                        .foregroundStyle(action.kind == "cancel" ? AceTone.failed.text : AceTheme.Colours.foreground)
-                        .disabled(writing || action.disabled)
-                        .accessibilityIdentifier("forge.local.action")
+                    Button(action.label, role: action.kind == "cancel" ? .destructive : nil) {
+                        action.kind == "cancel" ? (stopping = true) : localWrite(stop: false)
+                    }
+                    .disabled(writing || action.disabled)
+                    .accessibilityIdentifier("forge.local.action")
+                }
+                if local.needsCommand == true, client.canOperate, let setCommand = setCheckCommand {
+                    Button("Set check command") { setCommand(route.machineId, route.project) }
+                        .accessibilityIdentifier("forge.local.setCommand")
                 }
                 if local.runId != nil {
                     Button("Log") { showingLog = true }.accessibilityIdentifier("forge.local.log")
                 }
             }
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-            .buttonStyle(.forgeWord)
-            if local.needsCommand == true, client.canOperate, let setCommand = setCheckCommand {
-                // Project defaults can set it from the phone: say so and go there.
-                Text("This project has no check command.").meta()
-                Button("Set check command") { setCommand(route.machineId, route.project) }
-                    .buttonStyle(.forgeWord)
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .accessibilityIdentifier("forge.local.setCommand")
-            } else if let note = local.note { Text(note).meta() }
+            .buttonStyle(.secondaryAction).controlSize(.small)
+            .padding(.top, AceDesign.Space.tight)
         }
-        .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.xs)
+        .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("forge.local")
     }

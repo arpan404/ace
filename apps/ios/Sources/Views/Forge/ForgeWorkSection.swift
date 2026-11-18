@@ -43,13 +43,7 @@ struct ForgeWorkSection: View {
             if let work, work.open { section(work) }
             else if work == nil, let failure {
                 ForgeSection(title: "Work") {
-                    HStack(spacing: AceTheme.Spacing.sm) {
-                        Text(failure).meta(AceTone.failed.text).accessibilityIdentifier("forge.work.failure")
-                        Spacer(minLength: AceTheme.Spacing.sm)
-                        Button("Try again") { Task { await load(fresh: true) } }.buttonStyle(.forgeWord)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    }
-                    .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
+                    ProblemRow(failure, id: "forge.work.failure") { Task { await load(fresh: true) } }
                 }
                 .transition(.opacity)
             }
@@ -69,16 +63,14 @@ struct ForgeWorkSection: View {
         ForgeSection(title: "Work") {
             ForEach(work.threads, id: \.id) { thread in threadRow(thread, work) }
             if work.threads.isEmpty {
-                HStack {
-                    Text("No thread is working on this pull request.").meta()
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    if let startThread, client.canOperate {
-                        Button("Start a thread") { start(work) }.buttonStyle(.forgeWord)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .accessibilityIdentifier("forge.work.start")
-                    }
+                if startThread != nil, client.canOperate {
+                    Button { start(work) } label: { AddRow("Start a thread") }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, AceDesign.Space.margin)
+                        .accessibilityIdentifier("forge.work.start")
+                } else {
+                    QuietSectionRow { QuietRowText(title: "No thread is working on this pull request.", tone: AceDesign.Ink.muted) }
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
             }
             if !work.threads.isEmpty {
                 ForgeLinkRow(title: "Merge conflicts", detail: "Resolve in the thread's checkout", identifier: "forge.pull.conflicts") { push(pushed(.conflicts)) }
@@ -91,26 +83,26 @@ struct ForgeWorkSection: View {
         ForgeOutcomeLine(outcome: outcome, identifier: "forge.work.outcome")
     }
 
+    /// The thread's row opens it; checking out the pull request's head is the button beside it.
     private func threadRow(_ thread: ForgeWorkPage.Thread, _ work: ForgeWorkPage) -> some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(thread.title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                Text(state(thread)).meta().contentTransition(.opacity)
+        HStack(spacing: AceDesign.Space.related) {
+            Button { openThread(InboxKey(machineId: route.machineId, id: thread.id)) } label: {
+                QuietRowText(title: thread.title, detail: state(thread))
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowDetail, alignment: .leading)
+                    .contentShape(Rectangle())
             }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            .buttonStyle(.row)
+            .accessibilityIdentifier("forge.work.open")
+            if writing == thread.id { ProgressView().controlSize(.small).transition(.opacity) }
             if thread.checkout != "current", client.canOperate, work.blocked == nil {
                 Button(thread.checkout == "older" ? "Update checkout" : "Check out") { checkOut(thread.id, work.headSha) }
+                    .buttonStyle(.secondaryAction).controlSize(.small)
                     .disabled(writing != nil)
                     .accessibilityIdentifier("forge.work.checkout")
             }
-            if writing == thread.id { ProgressView().controlSize(.small).transition(.opacity) }
-            Button("Open") { openThread(InboxKey(machineId: route.machineId, id: thread.id)) }
-                .accessibilityIdentifier("forge.work.open")
+            RowCaret()
         }
-        .buttonStyle(.forgeWord)
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.rowDetail)
+        .padding(.horizontal, AceDesign.Space.margin)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("forge.work.thread.\(thread.id)")
     }
