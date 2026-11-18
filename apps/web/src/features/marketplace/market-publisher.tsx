@@ -63,7 +63,7 @@ function Group(props: {
   if (!props.entries.length) return null;
   return (
     <Section title={props.title}>
-      <Cards cols={props.cols} label={props.title}>
+      <Cards cols={props.cols} entries={props.entries} label={props.title}>
         {props.entries.map((entry) => (
           <CardItem key={key(entry)}>
             <Card entry={entry} showKind={props.kinds === true} />
@@ -99,10 +99,10 @@ export function PublisherPage(props: { handle: string }) {
       />
       {page.pinned.length > 0 && (
         <Section title="Pinned">
-          <Cards cols={2} label="Pinned">
+          <Cards cols={3} entries={page.pinned} label="Pinned">
             {page.pinned.map((entry) => (
               <CardItem key={key(entry)}>
-                <Card entry={entry} big />
+                <Card entry={entry} showKind />
               </CardItem>
             ))}
           </Cards>
@@ -135,7 +135,7 @@ export function CollectionPage(props: { id: string }) {
         <span className="mk-meta">{collection.entries.length} entries · Chosen by ace</span>
       </div>
       <div style={{ marginTop: 40 }}>
-        <Cards cols={4} phone="grid" label={collection.title}>
+        <Cards cols={4} entries={collection.entries} phone="grid" label={collection.title}>
           {collection.entries.map((entry) => (
             <CardItem key={key(entry)}>
               <Card entry={entry} />

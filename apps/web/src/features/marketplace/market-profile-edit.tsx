@@ -143,7 +143,12 @@ export function ProfileEditor(props: { profile: MarketProfile; onDone(): void })
     <div className="mk-profile-head">
       <div style={{ display: "grid", gap: 12, justifyItems: "center" }}>
         <Avatar name={name || profile.displayName} size={96} picture={picture} />
-        <button type="button" className="mk-quiet" onClick={() => file.current?.click()}>
+        <button
+          type="button"
+          {...part("link")}
+          className="mk-quiet"
+          onClick={() => file.current?.click()}
+        >
           Change picture
         </button>
         <input
@@ -187,7 +192,12 @@ export function ProfileEditor(props: { profile: MarketProfile; onDone(): void })
             {links.map((link, at) => (
               <div
                 key={link.id}
-                style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8 }}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "140px minmax(0, 1fr) auto",
+                  gap: 8,
+                  alignItems: "center",
+                }}
               >
                 <input
                   className="mk-field"
@@ -204,11 +214,22 @@ export function ProfileEditor(props: { profile: MarketProfile; onDone(): void })
                   value={link.url}
                   onChange={(event) => setLink(at, { url: event.target.value })}
                 />
+                <button
+                  type="button"
+                  {...part("link")}
+                  className="mk-quiet"
+                  style={{ margin: 0 }}
+                  aria-label={`Remove link ${at + 1}`}
+                  onClick={() => setLinks((before) => before.filter((_, index) => index !== at))}
+                >
+                  Remove
+                </button>
               </div>
             ))}
             {links.length < 5 && (
               <button
                 type="button"
+                {...part("link")}
                 className="mk-quiet"
                 style={{ justifySelf: "start" }}
                 onClick={() =>

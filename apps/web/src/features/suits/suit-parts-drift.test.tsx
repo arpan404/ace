@@ -505,7 +505,7 @@ const marketScreen = [
   "market-try",
 ] as const;
 
-test("the Marketplace modal names its bar, titles, hero, stages and Try it's bar", async () => {
+test("the Marketplace modal names its bar, titles, hero, stages, lockups and Try it's bar", async () => {
   const history = createMemoryHistory({ initialEntries: ["/chats?market=discover"] });
   const app = harness({ history });
   app.daemon.seedServices({
@@ -528,6 +528,23 @@ test("the Marketplace modal names its bar, titles, hero, stages and Try it's bar
             supported: true,
           },
         },
+        {
+          summary: {
+            source: "market",
+            type: "skill",
+            name: "weekly-review",
+            title: "Weekly review",
+            line: "Sums up the week's threads.",
+            categories: [],
+            keywords: [],
+            version: "1.0.0",
+            reviewed: true,
+            byAce: false,
+            updated: 2,
+            downloads: 1,
+            supported: true,
+          },
+        },
       ],
       featured: [{ type: "suit", name: "harbour-dusk" }],
     },
@@ -539,7 +556,13 @@ test("the Marketplace modal names its bar, titles, hero, stages and Try it's bar
   const picks = [
     ...document.querySelectorAll('[data-part="list-row"][data-variant="market-pick"]'),
   ];
-  expect(picks.map((pick) => pick.getAttribute("data-state"))).toEqual(["selected"]);
+  expect(picks.map((pick) => pick.getAttribute("data-state"))).toEqual(["selected", null]);
+  // A shelf holding an entry with no picture draws small lockups, and says so to a Suit.
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-part="card"][data-variant="market-lockup"]'),
+    ).not.toBeNull(),
+  );
 });
 
 const coverage = [

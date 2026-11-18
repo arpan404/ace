@@ -80,10 +80,9 @@
     margin-top: 4px;
   }
   .mk-profile-links a {
-    color: var(--mk-muted);
+    color: var(--ring-text);
   }
   .mk-profile-links a:hover {
-    color: var(--foreground);
     text-decoration: underline;
     text-underline-offset: 3px;
   }
@@ -115,8 +114,6 @@
   .mk-field[data-big] {
     font: 600 var(--mk-display-sm) / 1.15 var(--font-sans);
     letter-spacing: var(--mk-tracking-display);
-    padding: 2px 8px;
-    margin-left: -8px;
   }
   .mk-label {
     font-size: var(--text-ui);
@@ -133,17 +130,25 @@
   }
   .mk-mine-row {
     display: grid;
-    grid-template-columns: 112px minmax(0, 1fr) auto;
+    grid-template-columns: 56px minmax(0, 1fr) auto;
     gap: 20px;
     align-items: start;
     padding: 16px 0;
     border-top: 1px solid var(--border-soft);
   }
+  .mk-mine-row[data-kind="version"] {
+    grid-template-columns: 80px minmax(0, 1fr) auto;
+  }
+  /* A ghost action ending a row lands its word on the right edge, as an outlined one does. */
+  .mk-mine-row > .mk-actions > [data-variant="ghost"]:last-child {
+    margin-right: -10px;
+  }
   .mk-section-head + .mk-mine-row {
     border-top: 0;
   }
   .mk-mine-row > .mk-stage {
-    border-radius: var(--radius);
+    aspect-ratio: 1;
+    border-radius: var(--radius-lg);
   }
   .mk-versions {
     display: grid;
@@ -232,6 +237,44 @@
       0 0 0 2px var(--background),
       0 0 0 4px var(--ring);
   }
+  /* A choice with no picture: its mark beside its words, chosen on the row's fill. */
+  .mk-choice[data-form="lockup"] {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 12px;
+    border-radius: var(--radius-lg);
+    transition: background-color var(--motion-fast) var(--ease-out);
+  }
+  .mk-choice[data-form="lockup"]:hover {
+    background: var(--hover);
+  }
+  .mk-choice[data-form="lockup"][aria-pressed="true"] {
+    background: var(--active);
+  }
+  .mk-choice[data-form="lockup"] .mk-stage {
+    width: 56px;
+    flex: none;
+    aspect-ratio: 1;
+    border-radius: var(--radius);
+    box-shadow: none;
+  }
+  .mk-choice[data-form="lockup"] .mk-stage > .mk-mark {
+    width: 40%;
+  }
+  .mk-choice[data-form="lockup"]:hover .mk-stage {
+    transform: none;
+  }
+  .mk-choice[data-form="lockup"] .mk-name {
+    font-size: var(--text-md);
+    font-weight: 500;
+    letter-spacing: normal;
+  }
+  .mk-cards[data-form="lockup"]:has(> .mk-choice) {
+    gap: 8px 16px;
+    margin-left: -12px;
+    margin-right: -12px;
+  }
   .mk-choice .mk-name {
     font-size: var(--text-lg);
     font-weight: 600;
@@ -280,9 +323,25 @@
     gap: 48px;
     align-items: start;
   }
-  .mk-describe .mk-form {
+  /* A form's fields, one under another; a page section's controls and their sentence. */
+  .mk-form {
     display: grid;
+    gap: 20px;
+  }
+  .mk-describe .mk-form {
     gap: 24px;
+  }
+  .mk-section-body {
+    display: grid;
+    gap: 12px;
+    justify-items: start;
+  }
+  .mk-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
   .mk-chips {
     display: flex;

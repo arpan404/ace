@@ -10,6 +10,7 @@ import {
   Cards,
   EntryByline,
   Section,
+  shelfCount,
   entryVerified,
   publisherHandle,
   publisherName,
@@ -194,13 +195,14 @@ export function MoreFrom(props: { entry: MarketEntrySummary; title?: string | un
         (other.byAce ? "ace" : other.publisher?.id) === by &&
         !(other.type === entry.type && other.name === entry.name),
     )
-    .slice(0, 4);
-  if (!by || !more.length) return null;
+    .slice(0, 8);
+  const shown = more.slice(0, shelfCount(4, more));
+  if (!by || !shown.length) return null;
   const title = props.title ?? `More from ${publisherName(entry) ?? ""}`;
   return (
     <Section title={title}>
-      <Cards cols={4} shelf label={title}>
-        {more.map((other) => (
+      <Cards cols={4} entries={shown} shelf label={title}>
+        {shown.map((other) => (
           <CardItem key={`${other.type}/${other.name}`}>
             <Card entry={other} />
           </CardItem>

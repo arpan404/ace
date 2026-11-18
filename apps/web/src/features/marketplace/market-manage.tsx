@@ -113,7 +113,12 @@ function VersionRow(props: {
   const live = version.status === "live" || version.status === "not-reviewed";
   const appealable = version.status === "blocked" || (version.status === "waiting" && version.held);
   return (
-    <div className="mk-mine-row" aria-label={`Version ${version.version}`} role="listitem">
+    <div
+      className="mk-mine-row"
+      data-kind="version"
+      aria-label={`Version ${version.version}`}
+      role="listitem"
+    >
       <span className="mk-v" style={{ fontVariantNumeric: "tabular-nums" }}>
         {version.version}
       </span>
@@ -234,7 +239,7 @@ function Manage(props: { entry: MarketOwnEntry }) {
           entry={{ source: "market", ...key, previews: entry.listing.previews }}
           size="small"
         />
-        <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 0 }}>
           <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
             {summary.title}
           </h1>
@@ -249,6 +254,13 @@ function Manage(props: { entry: MarketOwnEntry }) {
               .join(" · ")}
           </span>
         </div>
+        <Button
+          variant="secondary"
+          disabled={!live.length || summary.visibility === "unlisted"}
+          onClick={() => nav.push({ kind: "entry", entry: { source: "market", ...key } })}
+        >
+          Open its page
+        </Button>
       </div>
       {said && (
         <p role="status" className="mk-line" style={{ marginTop: 16 }}>
@@ -302,80 +314,80 @@ function Manage(props: { entry: MarketOwnEntry }) {
         onSave={(listing) => act({ action: "listing", listing })}
       />
       <Section title="Who can find it">
-        <div className="mk-word-choice" role="group" aria-label="Visibility">
-          {(["listed", "unlisted"] as const).map((visibility) => (
-            <button
-              key={visibility}
-              type="button"
-              aria-pressed={summary.visibility === visibility}
-              onClick={() =>
-                summary.visibility !== visibility && act({ action: "visibility", visibility })
-              }
-            >
-              {visibility === "listed" ? "Listed" : "Unlisted"}
-            </button>
-          ))}
-        </div>
-        <p className="mk-line">
-          {summary.visibility === "unlisted"
-            ? "Only people with its link find it; search and Discover leave it out."
-            : "Anyone finds it in search and Discover."}
-        </p>
-        <div className="mk-actions" style={{ justifyContent: "flex-start" }}>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => act({ action: "archive", archived: !summary.archived })}
+        <div className="mk-section-body">
+          <div
+            {...part("tabs", undefined, "words")}
+            className="mk-word-choice"
+            role="group"
+            aria-label="Visibility"
           >
-            {summary.archived ? "Unarchive" : "Archive"}
-          </Button>
-          {live.length > 0 && (
+            {(["listed", "unlisted"] as const).map((visibility) => (
+              <button
+                key={visibility}
+                type="button"
+                {...part("tab", summary.visibility === visibility && "selected")}
+                aria-pressed={summary.visibility === visibility}
+                onClick={() =>
+                  summary.visibility !== visibility && act({ action: "visibility", visibility })
+                }
+              >
+                {visibility === "listed" ? "Listed" : "Unlisted"}
+              </button>
+            ))}
+          </div>
+          <p className="mk-line">
+            {summary.visibility === "unlisted"
+              ? "Only people with its link find it; search and Discover leave it out."
+              : "Anyone finds it in search and Discover."}
+          </p>
+          <div className="mk-actions" style={{ justifyContent: "flex-start" }}>
             <Button
-              variant="ghost"
-              tone="danger"
+              variant="secondary"
               size="sm"
-              onClick={() => setAsking({ kind: "withdraw" })}
+              onClick={() => act({ action: "archive", archived: !summary.archived })}
             >
-              Withdraw every version
+              {summary.archived ? "Unarchive" : "Archive"}
             </Button>
-          )}
+            {live.length > 0 && (
+              <Button
+                variant="ghost"
+                tone="danger"
+                size="sm"
+                onClick={() => setAsking({ kind: "withdraw" })}
+              >
+                Withdraw every version
+              </Button>
+            )}
+          </div>
         </div>
       </Section>
       <Section title="Hand it to another publisher">
-        <div style={{ display: "flex", gap: 8, alignItems: "end", maxWidth: 480 }}>
-          <div style={{ flex: 1 }}>
-            <label className="mk-label" htmlFor="mk-transfer">
-              Their handle
-            </label>
-            <input
-              id="mk-transfer"
-              className="mk-field"
-              value={handle}
-              autoComplete="off"
-              onChange={(event) => setHandle(event.target.value.toLowerCase())}
-            />
+        <div className="mk-section-body">
+          <div style={{ display: "flex", gap: 8, alignItems: "end", width: "100%", maxWidth: 480 }}>
+            <div style={{ flex: 1 }}>
+              <label className="mk-label" htmlFor="mk-transfer">
+                Their handle
+              </label>
+              <input
+                id="mk-transfer"
+                className="mk-field"
+                value={handle}
+                autoComplete="off"
+                onChange={(event) => setHandle(event.target.value.toLowerCase())}
+              />
+            </div>
+            <Button
+              variant="secondary"
+              disabled={!MarketPublisherName.safeParse(handle).success || action.isPending}
+              onClick={() => act({ action: "transfer", to: handle })}
+            >
+              Offer it
+            </Button>
           </div>
-          <Button
-            variant="secondary"
-            disabled={!MarketPublisherName.safeParse(handle).success || action.isPending}
-            onClick={() => act({ action: "transfer", to: handle })}
-          >
-            Offer it
-          </Button>
+          <p className="mk-line">It moves once they accept, within a week.</p>
         </div>
-        <p className="mk-line">It moves once they accept, within a week.</p>
       </Section>
       <SignalsSection type={summary.type} name={summary.name} />
-      <div style={{ marginTop: 40 }}>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!live.length || summary.visibility === "unlisted"}
-          onClick={() => nav.push({ kind: "entry", entry: { source: "market", ...key } })}
-        >
-          Open its page
-        </Button>
-      </div>
     </div>
   );
 }

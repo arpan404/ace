@@ -1,6 +1,6 @@
 import type { MarketDiscover, MarketTopPublisher } from "@ace/protocol/marketplace";
 import { part } from "@/lib/suit-part.ts";
-import { Card, CardItem, Cards, Section, publisherName } from "./market-card.tsx";
+import { Card, CardItem, Cards, Section, publisherName, shelfCount } from "./market-card.tsx";
 import { typeWord } from "./market-model.ts";
 import { Avatar, Move, Verified } from "./market-marks.tsx";
 import { openEntry, useMarketNav } from "./market-nav.ts";
@@ -137,26 +137,26 @@ export function RankedSections(props: {
   const discover = props.discover;
   if (!discover) return null;
   const shown = (type: string) => !props.spade || type !== "suit";
-  if (props.where === "top")
+  if (props.where === "top") {
+    const fresh = discover.fresh.filter((entry) => shown(entry.type));
+    const newest = fresh.slice(0, shelfCount(4, fresh));
     return (
       <>
         <TrendingSection rows={discover.trending.filter((row) => shown(row.entry.type))} />
-        {discover.fresh.some((entry) => shown(entry.type)) && (
+        {newest.length > 0 && (
           <Section title="New and notable">
-            <Cards cols={4} shelf label="New and notable">
-              {discover.fresh
-                .filter((entry) => shown(entry.type))
-                .slice(0, 4)
-                .map((entry) => (
-                  <CardItem key={`${entry.type}/${entry.name}`}>
-                    <Card entry={entry} />
-                  </CardItem>
-                ))}
+            <Cards cols={4} entries={newest} shelf label="New and notable">
+              {newest.map((entry) => (
+                <CardItem key={`${entry.type}/${entry.name}`}>
+                  <Card entry={entry} />
+                </CardItem>
+              ))}
             </Cards>
           </Section>
         )}
       </>
     );
+  }
   if (props.where === "collections")
     return discover.collections.length ? (
       <Section title="Collections">

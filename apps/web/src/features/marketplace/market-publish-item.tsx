@@ -38,6 +38,7 @@ function SuitChoices(props: {
         <button
           key={each.name}
           type="button"
+          {...part("card", props.chosen?.name === each.name && "checked", "market-choice")}
           className="mk-choice"
           aria-pressed={props.chosen?.name === each.name}
           onClick={() => props.onChoose(each)}

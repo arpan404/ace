@@ -103,7 +103,7 @@ function OtherSlide(props: { entry: MarketEntrySummary; on: boolean }) {
       className="mk-slide"
       data-on={props.on ? "" : undefined}
       aria-hidden={!props.on}
-      data-type="tinted"
+      data-type={face ? "tinted" : undefined}
       style={tint}
     >
       <SlideWords entry={props.entry} />

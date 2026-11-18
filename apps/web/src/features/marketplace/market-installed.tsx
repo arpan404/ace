@@ -31,12 +31,23 @@ export function InstalledPage() {
   return (
     <div className="mk-inner" data-width="read">
       <div className="mk-installed-head">
-        <div className="mk-word-choice" role="group" aria-label="Show">
-          <button type="button" aria-pressed={!updatesOnly} onClick={() => nav.setInstalled("all")}>
+        <div
+          {...part("tabs", undefined, "words")}
+          className="mk-word-choice"
+          role="group"
+          aria-label="Show"
+        >
+          <button
+            type="button"
+            {...part("tab", !updatesOnly && "selected")}
+            aria-pressed={!updatesOnly}
+            onClick={() => nav.setInstalled("all")}
+          >
             All <span style={{ color: "var(--mk-subtle)", fontWeight: 400 }}>{all.length}</span>
           </button>
           <button
             type="button"
+            {...part("tab", updatesOnly && "selected")}
             aria-pressed={updatesOnly}
             onClick={() => nav.setInstalled("updates")}
           >
@@ -46,7 +57,12 @@ export function InstalledPage() {
             )}
           </button>
         </div>
-        <button type="button" className="mk-quiet" onClick={() => nav.push({ kind: "catalogs" })}>
+        <button
+          type="button"
+          {...part("link")}
+          className="mk-quiet"
+          onClick={() => nav.push({ kind: "catalogs" })}
+        >
           Catalogs
         </button>
       </div>

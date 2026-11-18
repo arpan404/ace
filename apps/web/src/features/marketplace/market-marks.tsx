@@ -168,12 +168,7 @@ export function Move(props: { move: TrendMove }) {
         New
       </span>
     );
-  if (move.kind === "same")
-    return (
-      <span className="mk-move" aria-label="No change">
-        –
-      </span>
-    );
+  if (move.kind === "same") return <span className="mk-move" aria-label="No change" />;
   const Glyph = move.kind === "up" ? ArrowUpIcon : ArrowDownIcon;
   return (
     <span className="mk-move" aria-label={`${move.kind === "up" ? "Up" : "Down"} ${move.by}`}>

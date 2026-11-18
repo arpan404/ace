@@ -457,11 +457,12 @@
 }
 
 /*
- * The Marketplace: an entry is a picture with its words under it, so the bevel goes on the
+ * The Marketplace: an entry is a picture or a small mark with its words, so the bevel goes on the
  * picture, not round the words. The pick beside the hero is pressed in like the open row.
  */
 [data-part="card"]:is(
   [data-variant="market-entry"],
+  [data-variant="market-lockup"],
   [data-variant="market-collection"],
   [data-variant="market-publisher"]
 ) {
