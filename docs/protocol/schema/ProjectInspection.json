@@ -26,6 +26,9 @@
       "const": "git_quarantined",
       "type": "string"
     },
+    "marker": {
+      "$ref": "https://ace.local/protocol/v1/ProjectMarker.json"
+    },
     "path": {
       "maxLength": 4096,
       "minLength": 1,

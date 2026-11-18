@@ -43,3 +43,28 @@ export function machinePaths(
   }
   return paths;
 }
+
+/**
+ * The paths a paired machine is told in `describe` (ADR 0182): `machinePaths` while networks
+ * are reported; for a daemon whose network comes from launch options (`ACE_LISTEN`,
+ * `ACE_RELAY_URL`, no `networks`), its TLS listener as a LAN path and its relay.
+ */
+export function pairedMachinePaths(
+  status: RemoteAccessStatus,
+  pairing: { origin?: string | undefined; fingerprint?: string | undefined } | undefined,
+): MachinePath[] {
+  if (status.networks) return machinePaths(status, pairing?.fingerprint);
+  const candidates: unknown[] = [];
+  if (pairing?.origin && pairing.fingerprint)
+    candidates.push({ kind: "lan", url: pairing.origin, fingerprint: pairing.fingerprint });
+  if (status.relay?.fingerprint && status.relay.url)
+    candidates.push({
+      kind: "relay",
+      url: status.relay.url,
+      relayHostId: status.relay.fingerprint,
+    });
+  return candidates.flatMap((candidate) => {
+    const path = MachinePath.safeParse(candidate);
+    return path.success ? [path.data] : [];
+  });
+}

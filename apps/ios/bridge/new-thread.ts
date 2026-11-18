@@ -21,6 +21,7 @@ import { z } from "zod";
 import { submitCommand } from "./commands.ts";
 import { joinContext, messageContent, References } from "./composer-references.ts";
 import { readProjects } from "./project-list.ts";
+import { logicalIds } from "./project-logical.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 import { NewThreadAccessReader, knownProvider } from "./new-thread-access.ts";
 import { ModelFavorites, starProblem } from "./model-favorites.ts";
@@ -199,11 +200,15 @@ export class NewThread {
           ? [{ workspaceId: entry.workspaceId, at: entry.activityAt ?? entry.updatedAt }]
           : [];
       });
+      const logical = logicalIds(listed);
       const projects = newThreadProjects(listed.slice(0, maxProjects), activity).map((row) => ({
         id: row.id,
         name: this.#preview(row.name, 256),
         path: this.#preview(row.path, 1024),
         recent: row.recent,
+        // Its logical project's ids (ADR 0180): moving to another machine opens its checkout
+        // there, the one whose ids meet these. Empty: a project of its own.
+        logical: logical.get(row.id) ?? [],
       }));
       const patch = { type: "compose.projects", state: "ready", projects };
       this.#put("compose:projects", patch);

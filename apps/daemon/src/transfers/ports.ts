@@ -9,6 +9,7 @@ export type TransferGit = Pick<
   GitTransfer,
   | "sourceCheckout"
   | "transferOrigin"
+  | "checkoutFacts"
   | "ignoredPaths"
   | "bundleRefs"
   | "captureChanges"

@@ -8,7 +8,13 @@ import { hostedWebOrigin } from "./web-origins.ts";
  * or a self-hosted relay and the host key it pins there.
  */
 export type PairingConnection =
-  | { origin: string; fingerprint: string; relay?: undefined }
+  | {
+      origin: string;
+      fingerprint: string;
+      relay?: undefined;
+      /** The person's own relay the daemon is also on: a second way in (ADR 0182). */
+      alsoRelay?: { url: string; hostId: string } | undefined;
+    }
   | { relay: { url: string; hostId: string }; origin?: undefined; fingerprint?: undefined };
 export interface IssuedPairing {
   id: string;
@@ -65,6 +71,7 @@ export function issuePairing(
         code,
         scopes,
         app,
+        alsoRelay: connection.alsoRelay,
       });
   return { id, url, code, expiresAt };
 }

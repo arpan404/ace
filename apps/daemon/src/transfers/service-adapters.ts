@@ -50,7 +50,10 @@ export function targetProjects(context: ServiceContext): TargetProjects {
     list: () =>
       store
         .statement(
-          "SELECT id,path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 256",
+          // Every registration, most recently used first: a same-origin match prefers it.
+          `SELECT w.id,w.path FROM workspaces w LEFT JOIN workspace_recent r ON r.workspace_id=w.id
+          WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)
+          ORDER BY r.opened_at IS NULL,r.opened_at DESC,w.rowid DESC`,
         )
         .all()
         .map((row) => ({

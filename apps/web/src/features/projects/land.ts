@@ -7,6 +7,7 @@ import { newThreadOn } from "@/lib/machine-routes.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { useOrganizer } from "@/features/organize/index.ts";
 import { projectFailure, useProjectCommands, type Added } from "./project-commands.ts";
+import { useProjectDialogsIfHosted } from "./projects-context.ts";
 
 /**
  * Where a project opens: `thread` starts a new thread in it; `open` shows it, which is its
@@ -51,9 +52,19 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
   const commands = useProjectCommands();
   const organizer = useOrganizer();
   const sidebar = useSidebarStore();
+  const dialogs = useProjectDialogsIfHosted();
   return useCallback(
     (result: Added, verb = "Added", options: LandOptions = {}) => {
       const { machine } = options;
+      // A folder that carries a project marker asks before it joins that project (ADR 0181).
+      const marker = result.marker;
+      if (marker)
+        dialogs?.open({
+          kind: "marker",
+          projectId: result.project.id,
+          machineId: machine && !machine.primary ? machine.id : undefined,
+          marker,
+        });
       if (machine && !machine.primary) {
         // Opening it there is the confirmation: the composer's strip names the machine.
         void navigate({ ...newThreadIn(result.project.id, machine), replace: !!options.replace });
@@ -103,6 +114,6 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
       };
       land(result, verb, options.replace);
     },
-    [navigate, router, toast, commands, organizer, sidebar],
+    [navigate, router, toast, commands, organizer, sidebar, dialogs],
   );
 }

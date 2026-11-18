@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutboxParcel.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "from": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "parcel": {
+      "$ref": "https://ace.local/protocol/v1/ParcelFacts.json"
+    },
+    "to": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "from",
+    "to",
+    "parcel"
+  ],
+  "type": "object"
+}

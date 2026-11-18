@@ -43,6 +43,12 @@ export interface ServerOptions {
   agentControl?: import("./services/types.ts").Services["agentControl"];
   /** Agent calls from other paired machines (ADR 0078). */
   machineCalls?: import("./machines/target.ts").MachineTarget;
+  /** Set by the server: the paths this machine serves now, for `describe` (ADR 0182). */
+  servedPaths?: (() => import("@ace/protocol").MachinePath[]) | undefined;
+  /** Set by the server: a device grant for ace's relay, while signed in (ADR 0182). */
+  relayDeviceGrant?:
+    | ((deviceId: string, url: string, signal: AbortSignal) => Promise<string | undefined>)
+    | undefined;
   /** Projects and threads this machine sends to other machines (ADR 0101). */
   transfers?: import("./transfers/service.ts").DaemonTransfers;
   /** Projects and threads other machines send here (ADR 0101). */

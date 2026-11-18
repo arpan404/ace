@@ -101,6 +101,24 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
       configurable: true,
       get: () => services[key],
     });
+  // The server knows which paths this machine serves and holds its ace account; machine calls
+  // and parcels read them from the registry (ADR 0182).
+  Object.defineProperty(serverOptions, "servedPaths", {
+    enumerable: true,
+    configurable: true,
+    get: () => services.servedPaths,
+    set: (value: Services["servedPaths"]) => {
+      services.servedPaths = value;
+    },
+  });
+  Object.defineProperty(serverOptions, "relayDeviceGrant", {
+    enumerable: true,
+    configurable: true,
+    get: () => services.relayDeviceGrant,
+    set: (value: Services["relayDeviceGrant"]) => {
+      services.relayDeviceGrant = value;
+    },
+  });
   // ace's relay forwards outside MCP requests to the outside endpoint once it runs (ADR 0122).
   Object.defineProperty(serverOptions, "outsideMcpHttp", {
     enumerable: true,

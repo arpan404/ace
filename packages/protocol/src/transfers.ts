@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommandId, HostId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
+import { ProjectIdentityId } from "./project-identity.ts";
 
 /**
  * Carrying a project, or a thread with its project, to another of the person's machines
@@ -139,6 +140,11 @@ export const Transfer = z.object({
       keptFiles: z.number().int().nonnegative().optional(),
       /** The work landed only on `branch`, not in the project's checkout; see above. */
       branchOnly: z.boolean().optional(),
+      /**
+       * The project there already belongs to another logical project (ADR 0180): its identity
+       * is kept, never overwritten, and the person may link the two.
+       */
+      identityConflict: z.object({ identityId: ProjectIdentityId }).optional(),
     })
     .optional(),
   /** Set once failed, in words a person acts on. */

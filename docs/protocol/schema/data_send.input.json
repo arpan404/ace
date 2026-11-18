@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/data_send.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/ParcelName.json",
+      "description": "The name it arrives under. Default: the file's name."
+    },
+    "note": {
+      "description": "What it is, for the receiver.",
+      "maxLength": 2000,
+      "type": "string"
+    },
+    "path": {
+      "description": "A file in your project, relative to its folder. Or pass text.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "text": {
+      "description": "Text to send instead of a file.",
+      "maxLength": 262144,
+      "minLength": 1,
+      "type": "string"
+    },
+    "to": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        {
+          "const": "parent",
+          "type": "string"
+        }
+      ],
+      "description": "A thread id from delegate or agents_status, or \"parent\"."
+    }
+  },
+  "required": [
+    "to"
+  ],
+  "type": "object"
+}

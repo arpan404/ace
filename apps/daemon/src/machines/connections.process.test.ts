@@ -25,7 +25,7 @@ import { MachineDirectory } from "./directory.ts";
 import { SavedPairings } from "./saved-pairings.ts";
 import { FleetLinks } from "./fleet-links.ts";
 import { Profiles } from "../cli/profiles.ts";
-import { TransferClient } from "../transfers/client.ts";
+import { TransferClient, transferTransport } from "../transfers/client.ts";
 import { MachineFailure, MachineNotSent, machineRequest, pinnedRequest } from "./transport.ts";
 import { machineCallsHttp } from "./http.ts";
 
@@ -821,7 +821,7 @@ test("a transfer client holding a pairing removed since reaches nothing when it 
   const [profile] = saved.list();
   if (!profile) throw new Error("No pairing saved");
   const client = new TransferClient(
-    (asked, route, options) => pinnedRequest(asked, route, { ...options, connections }),
+    (asked, route, options) => transferTransport(asked, route, { ...options, connections }),
     profile,
   );
   await expect(client.chunk("transfer-1", 0, Buffer.from("data"))).resolves.toBe(4);

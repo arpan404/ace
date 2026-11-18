@@ -22,15 +22,20 @@ export async function projectOrigin(
   }
 }
 
-/** The project whose `origin` is the same repository as `url`, on the machine `client` reaches. */
+/**
+ * The project whose `origin` is the same repository as `url`, on the machine `client` reaches:
+ * the one at `subpath` inside it when there is one, else its most recently used (a daemon older
+ * than subpaths ignores it and answers as before).
+ */
 export async function projectWithOrigin(
   client: ClientApi,
   url: string,
+  subpath = "",
 ): Promise<string | undefined> {
   try {
     const reply = await client.request({
       type: "workspace.request",
-      operation: { op: "workspaces.match", url },
+      operation: { op: "workspaces.match", url, ...(subpath ? { subpath } : {}) },
     });
     return reply.result.kind === "match" ? (reply.result.workspaceId ?? undefined) : undefined;
   } catch {

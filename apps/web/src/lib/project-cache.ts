@@ -1,4 +1,9 @@
-import type { ProjectBadgeStyle, ProjectDefaults, ProjectNote } from "@ace/protocol";
+import type {
+  ProjectBadgeStyle,
+  ProjectDefaults,
+  ProjectIdentity,
+  ProjectNote,
+} from "@ace/protocol";
 import { useClient } from "@ace/client-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -21,6 +26,10 @@ export interface Project {
   path: string;
   /** `chat`: the hidden project of a chat started with no project (ADR 0099). */
   kind?: "chat" | undefined;
+  /** Its logical project across machines (ADR 0180); absent: one of its own. */
+  identity?: ProjectIdentity | undefined;
+  /** When work last started in it here (ms). */
+  openedAt?: number | undefined;
 }
 
 export const projectsKey = ["projects"];

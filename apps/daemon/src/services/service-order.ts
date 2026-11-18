@@ -162,11 +162,27 @@ export const serviceOrder = [
     after: ["machines", "projects", "workspaceActions", "settings", "agentControl"],
   },
   {
+    // Data between agents (ADR 0182): machine calls dispatch parcels here, results go as turns.
+    name: "parcels",
+    phase: "listener",
+    requires: ["engine", "agentControl"],
+    after: ["machines", "agentControl", "settings"],
+  },
+  {
     name: "externalMcp",
     phase: "listener",
     requires: ["agentControl"],
     // Outside clients start work: machines' and transfers' hooks must be on the engine first.
-    after: ["agentControl", "browser", "screen", "models", "settings", "machines", "transfers"],
+    after: [
+      "agentControl",
+      "browser",
+      "screen",
+      "models",
+      "settings",
+      "machines",
+      "transfers",
+      "parcels",
+    ],
   },
   {
     // Spade's grant acts as its host thread on the MCP endpoint, stored beside the outside

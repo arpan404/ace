@@ -117,6 +117,7 @@ export function machineAccount(options: {
     hostId: string,
     purpose: "spade-cloud" | "market-publish" | undefined,
     signal?: AbortSignal,
+    kind: "machine" | "device" = "machine",
   ): Promise<string> {
     const current = active();
     if (!current) throw new Error("Sign in to ace on this machine to use ace's relay.");
@@ -124,7 +125,7 @@ export function machineAccount(options: {
     try {
       const grant = await client(current.origin).grant(
         current.token,
-        { kind: "machine", subject: hostId, ...(purpose ? { purpose } : {}) },
+        { kind, subject: hostId, ...(purpose ? { purpose } : {}) },
         signal ? AbortSignal.any([signal, limit]) : limit,
       );
       return grant.token;
@@ -379,6 +380,13 @@ export function machineAccount(options: {
     /** A fresh machine grant for ace's relay `/host`. */
     machineGrant(hostId: string, signal?: AbortSignal): Promise<string> {
       return obtainGrant(hostId, undefined, signal);
+    },
+    /**
+     * A device grant naming `deviceId`, this machine's paired device on another machine of the
+     * same account, so it may open a stream to that machine through ace's relay (ADR 0182).
+     */
+    deviceGrant(deviceId: string, signal?: AbortSignal): Promise<string> {
+      return obtainGrant(deviceId, undefined, signal, "device");
     },
     /** A credential restricted to Spade Cloud, rejected by the relay. */
     cloudGrant(hostId: string, signal?: AbortSignal): Promise<string> {

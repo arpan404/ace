@@ -86,6 +86,12 @@ export type DaemonOptions = {
     /** Redeems another machine's pairing link when Settings links to it. */
     redeem?: import("../machines/fleet-links.ts").FleetLinkDeps["redeem"];
   };
+  /** Data between agents (ADR 0182): the relay dialer, the pinned request and the pull pace. */
+  parcels?: {
+    connectRelay?: import("../parcels/relay-link.ts").RelayLinkDeps["connect"];
+    pinned?: import("../parcels/link.ts").ParcelLinkDeps["pinned"];
+    pollMs?: number;
+  };
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;

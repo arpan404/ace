@@ -14,6 +14,7 @@ import { MachineConnections } from "../machines/connections.ts";
 import { SavedPairings } from "../machines/saved-pairings.ts";
 import { TransferCommands } from "./commands.ts";
 import { IncomingTransfers } from "./incoming.ts";
+import { transferIdentities } from "./identity.ts";
 import { OutgoingTransfers } from "./outgoing.ts";
 import { TransferError } from "./ports.ts";
 import { threadGone } from "../thread-gone.ts";
@@ -85,6 +86,7 @@ export function startTransfers(context: ServiceContext): void {
   const transport: TransferTransport = (profile, route, callOptions) =>
     base(profile, route, { ...callOptions, connections });
 
+  const identities = transferIdentities(store, () => services.projects?.catalog, randomUUID, now);
   const incoming = new IncomingTransfers({
     store,
     directory: join(directory, "incoming"),
@@ -93,6 +95,7 @@ export function startTransfers(context: ServiceContext): void {
     archive,
     projects: targetProjects(context),
     threads: targetThreads(context),
+    identities,
     now,
     log: record("info"),
   });
@@ -119,6 +122,7 @@ export function startTransfers(context: ServiceContext): void {
     now,
     sleep: options.transfers?.sleep ?? sleep,
     nextId: randomUUID,
+    identities,
     log: record("info"),
     ...(options.transfers?.offlineMs ? { offlineMs: options.transfers.offlineMs } : {}),
   });
