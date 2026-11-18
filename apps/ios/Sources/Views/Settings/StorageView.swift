@@ -30,9 +30,13 @@ struct StorageView: View {
         List {
             if page?.usage == nil, let message = page?.usageProblem ?? problem {
                 ProblemRow(message, id: "storage.problem") { model.retry(); Task { await refresh() } }
+            } else if page?.usage != nil, model.connection != "ready" {
+                ProblemRow("Can’t reach this machine.", detail: "Sizes are from the last read. Cleanup needs it online.",
+                           id: "storage.offline") { model.retry(); Task { await refresh() } }
             }
             Group {
-                usage
+                // With nothing read and a problem above, an empty Usage header would only add noise.
+                if page?.usage != nil || (page?.usageProblem == nil && problem == nil) { usage }
                 if model.canOperate, page?.usage != nil { actions }
                 if let plan { planSection(plan).transition(.opacity) }
                 if let settings = page?.settings {
