@@ -92,7 +92,10 @@ function tagExists(tag: string): boolean {
   return capture("gh", ["release", "view", tag, "--repo", releaseRepository]).ok;
 }
 
-async function build(wanted: { version?: string; tag?: string }): Promise<void> {
+async function build(wanted: {
+  version?: string | undefined;
+  tag?: string | undefined;
+}): Promise<void> {
   const host = betaHostProblem(process.platform, process.arch);
   if (host) throw new Error(host);
   if (!worktreeClean()) throw new Error("Commit your changes first: a beta is built from main.");

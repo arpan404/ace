@@ -60,8 +60,8 @@ step(async () => {
   } else say(`${tag} is already published`);
 
   if (state.exists)
-    for (const asset of state.assets.filter((asset) => isManifestAsset(asset.name)))
-      gh(["release", "delete-asset", tag, asset.name, "--yes"]);
+    for (const { name } of state.assets)
+      if (isManifestAsset(name)) gh(["release", "delete-asset", tag, name, "--yes"]);
   const url = gh(["release", "view", tag, "--json", "url", "--jq", ".url"]).trim();
   summary(`**${tag}** is live: ${url}`);
 });

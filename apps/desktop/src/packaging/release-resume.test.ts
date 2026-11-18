@@ -91,10 +91,10 @@ describe("what a release run builds", () => {
   });
 });
 
-describe("whether a draft can go live", () => {
-  const verdict = (manifests: ReadonlyMap<ReleasePlatform, StagedRelease>, assets = allAssets) =>
-    publishVerdict({ assets, commit, version: "0.0.24", manifests });
+const verdict = (manifests: ReadonlyMap<ReleasePlatform, StagedRelease>, assets = allAssets) =>
+  publishVerdict({ assets, commit, version: "0.0.24", manifests });
 
+describe("whether a draft can go live", () => {
   it("publishes every platform's files with one SHA256SUMS listing ace-data.json once", () => {
     const result = verdict(all);
     expect(result.ok).toBe(true);
@@ -130,7 +130,9 @@ describe("whether a draft can go live", () => {
 
   it("refuses when an uploaded file's bytes differ from the build's", () => {
     const tampered = allAssets.map((asset) =>
-      asset.name === "ace-0.0.24-linux-x64.pkg" ? { ...asset, digest: `sha256:${hash(7)}` } : asset,
+      asset.name === "ace-0.0.24-linux-x64.pkg"
+        ? { name: asset.name, size: asset.size, digest: `sha256:${hash(7)}` }
+        : asset,
     );
     expect(verdict(all, tampered)).toEqual({
       ok: false,
