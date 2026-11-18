@@ -244,6 +244,15 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     }
   });
 
+  it("reports a path under a file as the same failure on both paths", async () => {
+    for (const operation of [
+      { op: "stat", path: "notes.md/under" },
+      { op: "read", path: "notes.md/under" },
+    ]) {
+      expect(await both(operation)).toMatchObject({ ok: false, code: "NOT_DIRECTORY" });
+    }
+  });
+
   it("answers a stale read validator with the current version", async () => {
     const stale = failure(await both({ op: "read", path: "notes.md", validator: "1:2:3:4:5" }));
     expect(stale.code).toBe("CONFLICT");

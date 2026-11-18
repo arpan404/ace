@@ -14,7 +14,7 @@ function stagingId(): string {
 
 /** A path that is not there: the caller decides whether that is `null` or a failure. */
 function absent(error: unknown): boolean {
-  return ["ENOENT", "NOT_FOUND", "NOT_DIRECTORY"].includes(codeOf(error));
+  return ["ENOENT", "NOT_FOUND"].includes(codeOf(error));
 }
 
 /**

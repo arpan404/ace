@@ -134,7 +134,7 @@ function privatePath(path: string): boolean {
 /** The daemon's kinds for ace-files' tagged kind. */
 /** A path that is not there, which the port reports as `null`. */
 function missing(error: unknown): boolean {
-  return error instanceof FilesRequestError && ["NOT_FOUND", "NOT_DIRECTORY"].includes(error.code);
+  return error instanceof FilesRequestError && error.code === "NOT_FOUND";
 }
 
 /** ace-files' failure in the daemon's own error shape, version included on a conflict. */
