@@ -252,7 +252,14 @@ impl Worker {
                 Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 Ok(Command::Event(Ok(event))) => {
                     let now = Instant::now();
-                    let mut translation = {
+                    // A pending rescan covers everything until it is sent, so a lookup would
+                    // only be discarded with the change. Skipping it also lets a large backlog
+                    // drain quickly, so the rescan is sent soon after the burst ends.
+                    let mut translation = if coalescer.is_rescanning() {
+                        translate::translate(event, &self.root, &self.excluder, &|_| {
+                            translate::Presence::Unknown
+                        })
+                    } else {
                         let look = |path: &str| translate::look(&self.root, path);
                         translate::translate(event, &self.root, &self.excluder, &look)
                     };

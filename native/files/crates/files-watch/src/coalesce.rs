@@ -142,6 +142,12 @@ impl Coalescer {
         }
     }
 
+    /// Whether the window will close with a rescan. Everything that arrives until then is
+    /// covered by it, so the worker can translate those events without asking the disk.
+    pub(crate) fn is_rescanning(&self) -> bool {
+        self.scope.is_some()
+    }
+
     /// How long to wait for the next event, or `None` when the window is empty.
     pub(crate) fn wait(&self, now: Instant) -> Option<Duration> {
         let first = self.first?;
