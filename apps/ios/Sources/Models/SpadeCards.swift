@@ -12,8 +12,16 @@ import Observation
         let callId: String
     }
 
-    /// Cards sent and not yet settled, with the standing each was sent from.
-    private var sent: [Key: SpadeQuestionCard.Standing] = [:]
+    /// One reply sent: its own id, so only its own refusal unlocks it, and the standing the card
+    /// was sent from.
+    private struct Submission {
+        let id: Int
+        let from: SpadeQuestionCard.Standing
+    }
+
+    /// Cards sent and not yet settled.
+    private var sent: [Key: Submission] = [:]
+    private var submissions = 0
     /// The cards on screen now, as Spade last put them.
     private var shown: [Key: SpadeQuestionCard] = [:]
 
@@ -27,9 +35,12 @@ import Observation
     func send(_ conversation: String, callId: String, via post: () async -> SpadeOutcome) async -> SpadeOutcome {
         let key = Key(conversation: conversation, callId: callId)
         guard sent[key] == nil else { return SpadeOutcome(ok: false) }
-        sent[key] = shown[key]?.standing ?? .open
+        submissions += 1
+        let mine = Submission(id: submissions, from: shown[key]?.standing ?? .open)
+        sent[key] = mine
         let outcome = await post()
-        if !outcome.ok { sent[key] = nil }
+        // Refused: unlocked, unless the card moved on and was sent again meanwhile.
+        if !outcome.ok, sent[key]?.id == mine.id { sent[key] = nil }
         return outcome
     }
 
@@ -38,7 +49,7 @@ import Observation
         let key = Key(conversation: conversation, callId: card.callId)
         // A settled card is done: only open and later ones are kept.
         if card.standing == .settled { shown[key] = nil } else if shown[key] != card { shown[key] = card }
-        if let from = sent[key], from != card.standing { sent[key] = nil }
+        if let out = sent[key], out.from != card.standing { sent[key] = nil }
     }
 
     /// Another machine's runtime: nothing of this one's cards applies.
