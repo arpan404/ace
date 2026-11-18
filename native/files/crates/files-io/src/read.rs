@@ -49,7 +49,9 @@ pub struct Read {
 /// A file that changes while it is being read is a `CONFLICT`, not a mix of old and new bytes:
 /// the caller re-reads from the version in the error, as a download does.
 pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
-    let (dir, name) = crate::handle::target_parent(root, path)?;
+    let parent = crate::handle::target_parent_stored(root, path)?;
+    crate::policy::refuse_components(&parent.folders, &parent.name, path)?;
+    let (dir, name) = (parent.dir, parent.name);
     let mut file = dir.open(&name)?;
     let opened = file.metadata()?;
     if !opened.is_file() {
@@ -89,15 +91,18 @@ pub fn read(root: &Root, path: &str, range: ReadRange) -> Result<Read, Error> {
 
 /// The version the path names now, or `None` when the path no longer names a file.
 fn current_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
-    let (dir, name) = match crate::handle::target_parent(root, path) {
+    let parent = match crate::handle::target_parent_stored(root, path) {
         Ok(found) => found,
         Err(error) if error.code() == "NOT_FOUND" => return Ok(None),
         Err(error) => return Err(error),
     };
-    match dir.symlink_metadata(&name) {
-        Ok(metadata) if metadata.is_file() => {
-            Ok(Some(version::version_of_entry(&dir, &name, &metadata)?))
-        }
+    crate::policy::refuse_components(&parent.folders, &parent.name, path)?;
+    match parent.dir.symlink_metadata(&parent.name) {
+        Ok(metadata) if metadata.is_file() => Ok(Some(version::version_of_entry(
+            &parent.dir,
+            &parent.name,
+            &metadata,
+        )?)),
         Ok(_) => Ok(None),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),

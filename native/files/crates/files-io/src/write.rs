@@ -57,7 +57,11 @@ fn save(
     expected: Option<&str>,
     before_publish: &dyn Fn(),
 ) -> Result<String, Error> {
-    let (dir, name) = handle::target_parent(root, path)?;
+    // The daemon's client policy is part of the save, not a step before it: no reserved name, no
+    // link on the way, and no link as the target, so bytes never land where the client did not
+    // name.
+    let parent = crate::policy::client_parent(root, path)?;
+    let (dir, name) = (parent.dir, parent.name);
     let existing = guard(root, &dir, &name, path, expected)?;
     let permissions = existing.as_ref().map(copied_permissions);
     let mut staged = Staged::new(&dir, bytes, permissions)?;

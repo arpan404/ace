@@ -205,9 +205,17 @@ fn transfer_temporaries_never_appear_in_listings_or_quick_open() {
 
     assert_eq!(names(&mut client, ""), vec!["docs".to_owned()]);
     assert_eq!(names(&mut client, "docs"), vec!["a.md".to_owned()]);
-    assert!(
-        names(&mut client, ".ace-upload-trash-1").is_empty(),
-        "a transfer temporary has no contents to show"
+    let trash = client.request(Op::List {
+        root,
+        dir: ".ace-upload-trash-1".to_owned(),
+        limit: 100,
+        cursor: None,
+        hide: hide(),
+    });
+    assert_eq!(
+        client.error(trash).code,
+        "INVALID_PATH",
+        "a transfer temporary is never listed, even when it is named"
     );
 
     await_index(&mut client, root);

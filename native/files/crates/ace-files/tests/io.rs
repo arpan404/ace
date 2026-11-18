@@ -164,6 +164,8 @@ fn creates_moves_and_removes_a_folder() {
         from: "notes/a.txt".to_owned(),
         to: "notes/b.txt".to_owned(),
         overwrite: false,
+        expected: None,
+        own: None,
     });
     assert_eq!(client.reply(moved), Reply::Done);
     let stat = client.request(Op::Stat {
@@ -193,6 +195,7 @@ fn describes_a_file_and_a_folder_the_way_the_daemon_does() {
     let request = client.request(Op::Describe {
         root,
         path: "docs/a.md".to_owned(),
+        full: false,
     });
     let file = client.reply(request);
     let Reply::Description(file) = file else {
@@ -205,6 +208,7 @@ fn describes_a_file_and_a_folder_the_way_the_daemon_does() {
     let request = client.request(Op::Describe {
         root,
         path: "docs".to_owned(),
+        full: false,
     });
     let folder = client.reply(request);
     let Reply::Description(folder) = folder else {
@@ -220,6 +224,7 @@ fn describes_a_file_and_a_folder_the_way_the_daemon_does() {
     let missing = client.request(Op::Describe {
         root,
         path: "docs/gone.md".to_owned(),
+        full: false,
     });
     assert_eq!(client.error(missing).code, "NOT_FOUND");
 }
@@ -264,6 +269,7 @@ fn describes_an_entry_without_walking_its_folder() {
     let request = client.request(Op::Describe {
         root,
         path: "docs".to_owned(),
+        full: false,
     });
     let Reply::Description(folder) = client.reply(request) else {
         panic!("describe answered");
@@ -300,6 +306,7 @@ fn a_describe_over_the_walk_budget_says_it_is_shallow() {
     let request = client.request(Op::Describe {
         root,
         path: "big".to_owned(),
+        full: false,
     });
     let Reply::Description(description) = client.reply(request) else {
         panic!("describe answered");
@@ -319,8 +326,11 @@ fn a_describe_over_the_walk_budget_says_it_is_shallow() {
     let Reply::Measure { bytes, shallow } = client.reply(request) else {
         panic!("measure answered");
     };
-    assert!(shallow);
-    assert_eq!(bytes, 10, "ten one-byte files were counted before the stop");
+    assert!(
+        !shallow,
+        "the trash quota counts every byte, so its measure has no walk budget"
+    );
+    assert_eq!(bytes, 25, "every one-byte file is counted");
 }
 
 #[test]
@@ -336,6 +346,7 @@ fn cancel_stops_a_describe_of_a_large_folder() {
     let id = client.request(Op::Describe {
         root,
         path: "many".to_owned(),
+        full: false,
     });
     client.send(&Message::Cancel { id });
 
@@ -343,7 +354,7 @@ fn cancel_stops_a_describe_of_a_large_folder() {
 }
 
 #[test]
-fn a_mutation_check_refuses_a_link_on_the_way() {
+fn a_mutation_refuses_a_link_on_the_way_in_one_step() {
     let checkout = checkout(&[("docs/a.md", "a\n")]);
     let outside = tempfile::tempdir().expect("outside dir");
     std::fs::write(outside.path().join("secret"), "secret").expect("write");
@@ -366,17 +377,152 @@ fn a_mutation_check_refuses_a_link_on_the_way() {
         ("gone/new.md", "NOT_FOUND"),
         ("docs/a.md/below", "NOT_DIRECTORY"),
     ] {
-        let id = client.request(Op::CheckMutation {
+        let id = client.request(Op::CreateDir {
             root,
             path: path.to_owned(),
         });
         assert_eq!(client.error(id).code, code, "{path}");
     }
-    for path in ["docs/new.md", "docs/a.md"] {
-        let id = client.request(Op::CheckMutation {
-            root,
-            path: path.to_owned(),
-        });
-        assert_eq!(client.reply(id), Reply::Done, "{path}");
+    let created = client.request(Op::CreateDir {
+        root,
+        path: "docs/new".to_owned(),
+    });
+    assert_eq!(client.reply(created), Reply::Done);
+}
+
+#[test]
+fn trashes_and_restores_through_the_generated_endpoint() {
+    let checkout = checkout(&[("docs/a.md", "kept\n")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+    let request = client.request(Op::Describe {
+        root,
+        path: "docs".to_owned(),
+        full: true,
+    });
+    let description = match client.reply(request) {
+        Reply::Description(description) => description,
+        other => panic!("describe answered {other:?}"),
+    };
+
+    let trashed = client.request(Op::Trash {
+        root,
+        path: "docs".to_owned(),
+        endpoint: ".ace-upload-trash-wire".to_owned(),
+        expected: description.version.clone(),
+        own: description.own_version.clone(),
+    });
+    assert_eq!(client.reply(trashed), Reply::Done);
+    assert!(!checkout.path().join("docs").exists());
+
+    let restored = client.request(Op::Untrash {
+        root,
+        endpoint: ".ace-upload-trash-wire".to_owned(),
+        path: "docs".to_owned(),
+    });
+    assert_eq!(client.reply(restored), Reply::Done);
+    assert_eq!(
+        std::fs::read(checkout.path().join("docs/a.md")).expect("the restored file"),
+        b"kept\n"
+    );
+}
+
+#[test]
+fn a_read_and_a_listing_never_serve_a_link_into_the_daemons_names() {
+    let checkout = checkout(&[("notes.md", "notes\n")]);
+    std::fs::create_dir_all(checkout.path().join(".git")).expect("git");
+    std::fs::write(checkout.path().join(".git/config"), "[core]\n").expect("write");
+    common::write_file(checkout.path(), ".ace-upload-trash-9/kept.md", "deleted\n");
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(".git/config", checkout.path().join("config-link"))
+            .expect("link");
+        std::os::unix::fs::symlink(".git", checkout.path().join("git-link")).expect("link");
+        std::os::unix::fs::symlink(".ace-upload-trash-9", checkout.path().join("trash-link"))
+            .expect("link");
     }
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_file(".git/config", checkout.path().join("config-link"))
+            .expect("link");
+        std::os::windows::fs::symlink_dir(".git", checkout.path().join("git-link")).expect("link");
+    }
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    for operation in [
+        Op::Read {
+            root,
+            path: "config-link".to_owned(),
+            offset: 0,
+            length: 16,
+            max_size: None,
+        },
+        Op::Stat {
+            root,
+            path: "config-link".to_owned(),
+        },
+        Op::Stat {
+            root,
+            path: "git-link".to_owned(),
+        },
+        Op::Describe {
+            root,
+            path: "config-link".to_owned(),
+            full: false,
+        },
+        Op::List {
+            root,
+            dir: "git-link".to_owned(),
+            limit: 10,
+            cursor: None,
+            hide: Vec::new(),
+        },
+        Op::List {
+            root,
+            dir: "trash-link".to_owned(),
+            limit: 10,
+            cursor: None,
+            hide: Vec::new(),
+        },
+    ] {
+        let id = client.request(operation);
+        assert_eq!(client.error(id).code, "INVALID_PATH");
+    }
+}
+
+// The budget comes from the binary's `test-hooks` feature, so this test runs only with it.
+#[cfg(feature = "test-hooks")]
+#[test]
+fn a_full_describe_walks_past_the_display_budget() {
+    let checkout = checkout(&[]);
+    for index in 0..25 {
+        common::write_file(checkout.path(), &format!("big/{index}.md"), "x");
+    }
+    let mut client = Client::launch(&[("ACE_FILES_WALK_BUDGET", "10")], false);
+    client.hello();
+    let root = client.open_root(checkout.path());
+
+    let request = client.request(Op::Describe {
+        root,
+        path: "big".to_owned(),
+        full: false,
+    });
+    let display = match client.reply(request) {
+        Reply::Description(description) => description,
+        other => panic!("describe answered {other:?}"),
+    };
+    assert!(display.shallow, "a display stat keeps the budget");
+
+    let request = client.request(Op::Describe {
+        root,
+        path: "big".to_owned(),
+        full: true,
+    });
+    let guard = match client.reply(request) {
+        Reply::Description(description) => description,
+        other => panic!("describe answered {other:?}"),
+    };
+    assert!(!guard.shallow, "a guarded describe walks the whole tree");
+    assert!(guard.version.starts_with("tree:"), "{guard:?}");
 }

@@ -21,11 +21,6 @@ pub(crate) fn listing_hide(mut hide: Vec<String>) -> Vec<String> {
     hide
 }
 
-/// Whether `path` names, or sits inside, one of the daemon's transfer temporaries.
-pub(crate) fn temporary(path: &str) -> bool {
-    path.split('/').any(|part| part.starts_with(".ace-upload-"))
-}
-
 /// The index options every build and rebuild of this binary uses.
 pub(crate) fn index_options() -> IndexOptions {
     let mut options = IndexOptions::default();

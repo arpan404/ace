@@ -118,19 +118,17 @@ fn create_refuses_existing_file() {
 
 #[cfg(unix)]
 #[test]
-fn writing_through_a_symlink_keeps_the_link() {
+fn writing_onto_a_symlink_is_refused_and_keeps_the_link() {
     let fixture = Fixture::new();
     fixture.write("target.md", b"one\n");
     std::os::unix::fs::symlink("target.md", fixture.path("link.md")).expect("symlink");
     let version = fixture.version("link.md");
 
-    write(fixture.root(), "link.md", b"two\n", Some(&version)).expect("save through the link");
+    let error = write(fixture.root(), "link.md", b"two\n", Some(&version))
+        .expect_err("a save never crosses a link");
 
+    assert_eq!(error.code(), "PATH_ESCAPE");
     let link = std::fs::symlink_metadata(fixture.path("link.md")).expect("stat the link");
     assert!(link.file_type().is_symlink(), "the link is still a link");
-    assert_eq!(
-        std::fs::read_link(fixture.path("link.md")).expect("read the link"),
-        std::path::Path::new("target.md")
-    );
-    assert_eq!(fixture.read("target.md"), b"two\n");
+    assert_eq!(fixture.read("target.md"), b"one\n");
 }

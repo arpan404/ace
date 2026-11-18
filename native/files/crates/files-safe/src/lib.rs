@@ -22,6 +22,7 @@ mod walk;
 mod windows;
 
 pub use crate::error::Error;
+pub use crate::walk::Parent;
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -129,6 +130,35 @@ impl Root {
     /// operation lands on the entry a case-insensitive volume would match.
     pub fn open_parent(&self, rel: &str) -> Result<(cap_std::fs::Dir, String), Error> {
         walk::open_parent(self, rel)
+    }
+
+    /// [`Root::open_parent`], with the stored spelling of every folder on the way.
+    ///
+    /// The caller's spelling can differ from the one on disk even on a plain checkout: a
+    /// case-insensitive volume answers `.GIT` for `.git`, a normalizing volume folds two Unicode
+    /// spellings together, and Windows answers an 8.3 alias with the long name. A policy that
+    /// reads [`Parent::folders`] therefore sees what the disk stores, and cannot be bypassed by
+    /// picking another spelling of the same entry.
+    pub fn open_parent_stored(&self, rel: &str) -> Result<Parent, Error> {
+        walk::open_parent_stored(self, rel)
+    }
+
+    /// [`Root::open_parent_stored`], refusing any link between the root and the leaf.
+    ///
+    /// This is the walk a mutation uses: operations act through the returned handle and name, so
+    /// no link can redirect one, and the stored names let the caller apply its policy to the entry
+    /// the disk will actually change.
+    pub fn open_parent_unlinked(&self, rel: &str) -> Result<Parent, Error> {
+        walk::open_parent_unlinked(self, rel)
+    }
+
+    /// The stored names of every component of `rel`, with every link followed.
+    ///
+    /// Read-only callers use this to hold a path to a name policy before serving it. The result
+    /// names the entry the disk would read: a link that leads into a protected folder reports the
+    /// protected folder's name, never the link's spelling.
+    pub fn stored_path(&self, rel: &str) -> Result<Vec<String>, Error> {
+        walk::stored_path(self, rel)
     }
 
     /// The relative form of `absolute`, the inverse of [`Root::resolve`]; `None` outside the root.

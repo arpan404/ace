@@ -24,6 +24,9 @@ pub enum Error {
     LimitExceeded(String),
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
+    /// The operating system or filesystem cannot make this change atomically.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
     /// The caller's cancel flag went up before the walk finished.
     #[error("aborted")]
     Aborted,
@@ -40,6 +43,7 @@ impl Error {
             Error::Conflict { .. } => "CONFLICT",
             Error::LimitExceeded(_) => "LIMIT_EXCEEDED",
             Error::InvalidArgument(_) => "INVALID_ARGUMENT",
+            Error::Unsupported(_) => "UNSUPPORTED",
             Error::Aborted => "ABORTED",
             Error::Io(error) => io_code(error),
         }

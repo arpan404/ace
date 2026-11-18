@@ -129,8 +129,8 @@ pub(crate) fn rename_noclobber(
     }
 }
 
-/// Windows has no rename-without-replace: a hard link is the atomic no-clobber step for a file,
-/// and Windows itself refuses to replace a folder.
+/// Windows renames without replacing through `MoveFileExW` with no flags: the call either moves
+/// the entry or leaves the destination alone, in one step. Files and folders alike.
 #[cfg(not(unix))]
 pub(crate) fn rename_noclobber(
     from_dir: &Dir,
@@ -138,18 +138,7 @@ pub(crate) fn rename_noclobber(
     to_dir: &Dir,
     to: &str,
 ) -> Result<Noclobber, Error> {
-    if from_dir.symlink_metadata(from)?.is_file() {
-        return match from_dir.hard_link(from, to_dir, to) {
-            Ok(()) => {
-                from_dir.remove_file(from)?;
-                Ok(Noclobber::Done)
-            }
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(Noclobber::Exists),
-            Err(error) => Err(error.into()),
-        };
-    }
-    // Windows refuses to replace an existing folder, so a checked rename is the caller's job.
-    Ok(Noclobber::Unsupported)
+    windows::move_without_replace(from_dir, from, to_dir, to)
 }
 
 /// Swaps two names in `dir` in one step, so neither ever stops existing. Returns false where the
@@ -222,10 +211,111 @@ pub(crate) fn target_parent(root: &Root, path: &str) -> Result<(Dir, String), Er
     Ok(root.open_parent(&inside)?)
 }
 
+/// The folder holding `path` and the stored names on the way, with a final link followed.
+///
+/// Reads use this: the folder chain and the leaf are the names the disk reports, so a policy
+/// applied to them covers a link that leads into a protected folder as surely as the spelling
+/// that names it directly.
+pub(crate) fn target_parent_stored(root: &Root, path: &str) -> Result<files_safe::Parent, Error> {
+    let first = root.open_parent_stored(path)?;
+    let linked = match first.dir.symlink_metadata(&first.name) {
+        Ok(metadata) => metadata.file_type().is_symlink(),
+        Err(error) if error.kind() == ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    if !linked {
+        return Ok(first);
+    }
+    let resolved = root.resolve(path)?;
+    let inside = root
+        .relative(&resolved)
+        .ok_or_else(|| files_safe::Error::PathEscape(path.to_owned()))?;
+    Ok(root.open_parent_stored(&inside)?)
+}
+
 /// A folder handle seen as a file, which is what the Windows version reader needs.
 #[cfg(windows)]
 pub(crate) fn dir_handle(dir: &Dir) -> Result<File, Error> {
     Ok(File::from_std(dir.try_clone()?.into_std_file()))
+}
+
+/// The one place this crate names a path on Windows: `MoveFileExW` takes a path, and a handle's
+/// own final path is the only spelling that cannot be redirected between the walk and the call.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows {
+    use std::path::{Path, PathBuf};
+
+    use cap_std::fs::Dir;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+
+    use super::{Error, Noclobber};
+
+    /// Windows reports a taken name as already existing; a cross-volume move is not one this
+    /// checkout can make without copying, so it is unsupported rather than a replace.
+    const ALREADY_EXISTS: u32 = 183;
+    const FILE_EXISTS: u32 = 80;
+    const NOT_SAME_DEVICE: u32 = 17;
+
+    pub(super) fn move_without_replace(
+        from_dir: &Dir,
+        from: &str,
+        to_dir: &Dir,
+        to: &str,
+    ) -> Result<Noclobber, Error> {
+        let source = join(&folder_path(from_dir)?, from);
+        let destination = join(&folder_path(to_dir)?, to);
+        let source = wide(&source);
+        let destination = wide(&destination);
+        // SAFETY: both arguments are NUL-terminated UTF-16 buffers that outlive the call, and no
+        // pointer is kept. Flags 0 never replace an existing destination and never copy across
+        // volumes, so a taken name is refused rather than overwritten.
+        let moved = unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), 0) };
+        if moved != 0 {
+            return Ok(Noclobber::Done);
+        }
+        let error = std::io::Error::last_os_error();
+        match error.raw_os_error().map(|code| code as u32) {
+            Some(ALREADY_EXISTS | FILE_EXISTS) => Ok(Noclobber::Exists),
+            Some(NOT_SAME_DEVICE) => Ok(Noclobber::Unsupported),
+            _ => Err(Error::Io(error)),
+        }
+    }
+
+    /// The final path of an open folder, which is the spelling its entries live under.
+    fn folder_path(dir: &Dir) -> Result<PathBuf, Error> {
+        let file = dir.try_clone()?.into_std_file();
+        Ok(winx::file::get_file_path(&file)?)
+    }
+
+    fn join(folder: &Path, name: &str) -> PathBuf {
+        folder.join(name)
+    }
+
+    /// A path in the `\\?\` form, so the call reaches past MAX_PATH.
+    fn wide(path: &Path) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+
+        let text = path.as_os_str().encode_wide().collect::<Vec<u16>>();
+        let prefixed = text.starts_with(&[
+            u16::from(b'\\'),
+            u16::from(b'\\'),
+            u16::from(b'?'),
+            u16::from(b'\\'),
+        ]);
+        let mut wide = if prefixed {
+            Vec::new()
+        } else if text.starts_with(&[u16::from(b'\\'), u16::from(b'\\')]) {
+            "\\\\?\\UNC\\"
+                .encode_utf16()
+                .chain(text.into_iter().skip(2))
+                .collect()
+        } else {
+            "\\\\?\\".encode_utf16().chain(text).collect()
+        };
+        wide.push(0);
+        wide
+    }
 }
 
 /// A handle that carries an entry's identity without asking for read or write access, so even a
