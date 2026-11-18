@@ -1,6 +1,12 @@
 import { readFile, type ClientCore } from "@ace/client";
 import { downloadFile } from "@ace/client/files";
-import { GitStatusFile, ThreadId, WorkspaceFileChange, type FileOperation } from "@ace/protocol";
+import {
+  FolderPage,
+  GitStatusFile,
+  ThreadId,
+  WorkspaceFileChange,
+  type FileOperation,
+} from "@ace/protocol";
 import {
   ArchivePreview,
   CheckoutError,
@@ -25,14 +31,13 @@ import { z } from "zod";
 import { base64, gather } from "./bytes.ts";
 import { changedLines, highlightLanguage } from "./checkout-marks.ts";
 import {
-  Listing,
   Stat,
   Trash,
   type FilesOperation,
   type FilesScope,
   type NativeFilesRequest,
 } from "./checkout-request.ts";
-import { checkoutTree, searchRows } from "./checkout-tree.ts";
+import { searchRows } from "./checkout-tree.ts";
 import { readPage } from "./checkout-pages.ts";
 import { partFileLimit, writePart } from "./checkout-part-write.ts";
 
@@ -60,6 +65,8 @@ export type RecentFiles = (scope: FilesScope) => Promise<readonly string[]>;
 
 /** The most Share or a linked file carries to the phone. */
 export const shareLimit = 16 * 1024 * 1024;
+/** One folder page's entries: the phone's list draws them as they arrive. */
+const folderPageLimit = 500;
 const searchLimit = 50;
 type Scope = FilesScope;
 type Operation = FilesOperation;
@@ -93,7 +100,6 @@ export class CheckoutFiles {
   }
 
   async #run(scope: Scope, op: Operation, signal: AbortSignal): Promise<Record<string, unknown>> {
-    if (op.op === "tree") return this.#tree(scope, signal);
     if (op.op === "search") return this.#search(scope, op.query, signal);
     if (op.op === "quick") return this.#quick(scope, op.text, signal);
     if (op.op === "read") return this.#read(scope, op.path, signal);
@@ -209,19 +215,31 @@ export class CheckoutFiles {
     return reply.result;
   }
 
-  async #tree(scope: Scope, signal: AbortSignal) {
-    const [listing, status] = await Promise.all([
-      this.#files(scope, { op: "list", path: "", limit: 1000 }, signal).then((value) =>
-        Listing.parse(value),
+  /** One folder's page for the live tree (`checkout-tree-live.ts`): `""` is the checkout's root. */
+  async listFolder(
+    scope: Scope,
+    folder: string,
+    cursor: string | undefined,
+    signal: AbortSignal,
+  ): Promise<FolderPage> {
+    return FolderPage.parse(
+      await this.#files(
+        scope,
+        {
+          op: "list.folder",
+          path: folder,
+          limit: folderPageLimit,
+          ...(cursor === undefined ? {} : { cursor }),
+        },
+        signal,
       ),
-      // The marks are extra: a checkout git can't read still lists its files.
-      "threadId" in scope
-        ? this.#workspace(scope.threadId, "git.status", signal).catch(() => undefined)
-        : Promise.resolve(undefined),
-    ]);
-    const changes =
-      status?.kind === "gitStatus" ? z.array(GitStatusFile).catch([]).parse(status.files) : [];
-    return { ...checkoutTree(listing.paths, changes), truncated: listing.truncated };
+    );
+  }
+
+  /** The checkout's uncommitted files and the marks the tree letters them with. */
+  async status(threadId: string, signal: AbortSignal): Promise<readonly GitStatusFile[]> {
+    const status = await this.#workspace(threadId, "git.status", signal);
+    return status.kind === "gitStatus" ? z.array(GitStatusFile).catch([]).parse(status.files) : [];
   }
 
   async #search(scope: Scope, query: string, signal: AbortSignal) {

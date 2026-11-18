@@ -1,14 +1,15 @@
 # Files on the phone: bridge contract
 
-What the SwiftUI Files screens send the bridge and what comes back, for four things: saving a
-file or a folder to the phone, sending picked files into a checkout, quick open, and the recent
-and open files that stand in for tabs. The older Files requests (tree, read, write, rename, …)
-are unchanged and live in `checkout-request.ts`.
+What the SwiftUI Files screens send the bridge and what comes back, for five things: saving a
+file or a folder to the phone, sending picked files into a checkout, quick open, the recent and
+open files that stand in for tabs, and the live tree that lists a folder at a time. The other
+Files requests (read, write, rename, …) are unchanged and live in `checkout-request.ts`.
 
 Code: `checkout-request.ts` (request schemas), `checkout-files.ts` (requests),
-`checkout-downloads.ts`, `checkout-uploads.ts`, `checkout-memory.ts` (actions),
-`checkout-actions.ts` (routing). Shared rules come from `@ace/ui-core`
-(`checkout-quick-open.ts`, `checkout-transfer-words.ts`), which the web uses too.
+`checkout-tree-live.ts` (the live tree), `checkout-downloads.ts`, `checkout-uploads.ts`,
+`checkout-memory.ts` (actions), `checkout-actions.ts` (routing). Shared rules come from
+`@ace/ui-core` (`folder-tree.ts`, `checkout-quick-open.ts`, `checkout-transfer-words.ts`), which
+the web uses too.
 
 Two ways in:
 
@@ -201,6 +202,54 @@ uploaded (`upload.begin` with `expected: version`) a 64 KiB chunk at a time; the
 twice, to hash and to send, and are never held whole. Answers `{ version }` once saved, or
 `{ conflict: <current version> }` when the file changed since the part was read (nothing is
 written; the phone reads the file again). Over 64 MiB is refused with the shared sentence.
+
+## 3c. The live tree
+
+The Files tree lists one folder at a time and follows changes. The bridge holds the pages it has
+listed and the folders the person opened; Swift draws the rows it sends (`FileTree` in
+`ThreadFilesModel.swift`). Actions, each answering in a `files.tree` patch:
+
+```json
+{ "type": "files.tree.show",    "scope": <Scope> }
+{ "type": "files.tree.hide",    "scope": <Scope> }
+{ "type": "files.tree.opened",  "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.closed",  "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.more",    "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.retry",   "scope": <Scope>, "path": "src/" }
+{ "type": "files.tree.refresh", "scope": <Scope> }
+```
+
+- `show` when the screen appears or comes back from the background: the root and every open
+  folder are listed from their first page. On a scope's first show the folders holding an
+  uncommitted change open, as the web's tree opens them.
+- `hide` when it closes or the app goes to the background: runs stop and `files.watch` sends
+  `[]` at once.
+- `opened` lists the folder's first page; `closed` stops it and hides its rows. `more` asks for
+  the next page (`nextCursor`), and `retry` lists a failed folder again from the start. `refresh`
+  lists everything open again after a change made from the phone.
+- Open thread folders are watched with `files.watch`, sent 150 ms after the set settles and
+  naming the root and every open folder. A `files.folders_changed` lists the folders it names
+  again (every open folder on `rescan`); a reconnected socket re-sends the set and lists the open
+  folders again. A project's own folder has no watcher, so it lists again on the checkout's
+  change messages.
+
+Patch, key `files.tree:<key>`:
+
+```json
+{
+  "type": "files.tree",
+  "key": "thread:<id>" | "project:<id>",
+  "rows": [
+    { "key": "src/", "kind": "folder", "name": "src", "depth": 0,
+      "expanded": true, "ignored": false, "mark": "M", "markLabel": "Modified" }
+  ]
+}
+```
+
+`kind` is `file`, `folder`, `loading`, `more` or `error`. Entry rows carry the checkout path in
+`key` (folders end in "/"); `ignored` marks a gitignored entry, drawn dimmed; `mark` and
+`markLabel` are the web's git letter and word. A `loading`, `more` or `error` row names its
+`folder` (`""` for the root), and an error row also carries `error`, the sentence to show.
 
 ## 4. Recent and open files (in place of tabs)
 
