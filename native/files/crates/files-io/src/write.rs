@@ -7,6 +7,7 @@
 //! inspects the file it displaced. The expected version is deleted; anything else was written by
 //! another program and goes back to the name, so an outside save is never lost.
 
+use std::fmt;
 use std::io::ErrorKind;
 
 use cap_std::fs::{Dir, Metadata, Permissions};
@@ -17,10 +18,50 @@ use crate::describe::Walks;
 use crate::handle::{self, Noclobber, Staged};
 use crate::version;
 
+/// What a save did.
+///
+/// A save that passed its commit point is committed even when something after it fails: the
+/// bytes are in place. The warning says what could not be done, so a caller reports it without
+/// telling the person the save failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Saved {
+    /// The version the published file has, read through a handle to it. `None` when the file
+    /// could not be read afterwards; ask `stat_version` again.
+    pub version: Option<String>,
+    /// What could not be completed after the file was committed.
+    pub warning: Option<SaveWarning>,
+}
+
+/// Something that went wrong after a save's commit point.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SaveWarning {
+    /// The file is published, but its folder could not be synced, so a crash might lose the
+    /// new name.
+    NotDurable(String),
+    /// The file is published, but its version could not be read from its handle.
+    NoVersion(String),
+    /// The file is published, but a staging or displaced file could not be removed. Its name is
+    /// left beside the target so a later cleanup can retry.
+    NotCleanedUp(String),
+}
+
+impl fmt::Display for SaveWarning {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SaveWarning::NotDurable(message) => write!(formatter, "not durable: {message}"),
+            SaveWarning::NoVersion(message) => write!(formatter, "version unavailable: {message}"),
+            SaveWarning::NotCleanedUp(message) => {
+                write!(formatter, "cleanup incomplete: {message}")
+            }
+        }
+    }
+}
+
 /// What publishing a staged copy came to.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum Published {
-    Done,
+    /// The copy is published; anything in the warning happened after the commit point.
+    Done(Option<SaveWarning>),
     Conflict,
 }
 
@@ -39,24 +80,26 @@ pub fn write(
     path: &str,
     bytes: &[u8],
     expected: Option<&str>,
-) -> Result<String, Error> {
-    save(root, path, bytes, expected, &|| {})
+) -> Result<Saved, Error> {
+    save(root, path, bytes, expected, &|| {}, &|| {})
 }
 
-/// Creates a file that must not exist yet and returns its version.
-pub fn create_file(root: &Root, path: &str, bytes: &[u8]) -> Result<String, Error> {
+/// Creates a file that must not exist yet and returns its outcome.
+pub fn create_file(root: &Root, path: &str, bytes: &[u8]) -> Result<Saved, Error> {
     write(root, path, bytes, None)
 }
 
-/// The save itself, with the point just before publishing exposed so a test can slip another
-/// writer in there. Nothing in production passes anything but an empty closure.
+/// The save itself, with the points just before publishing and just after committing exposed so
+/// a test can slip another writer in or break the steps after the commit. Nothing in production
+/// passes anything but empty closures.
 fn save(
     root: &Root,
     path: &str,
     bytes: &[u8],
     expected: Option<&str>,
     before_publish: &dyn Fn(),
-) -> Result<String, Error> {
+    after_commit: &dyn Fn(),
+) -> Result<Saved, Error> {
     let (dir, name) = handle::target_parent(root, path)?;
     let existing = guard(root, &dir, &name, path, expected)?;
     let permissions = existing.as_ref().map(copied_permissions);
@@ -72,15 +115,44 @@ fn save(
         None => publish_new(&dir, &name, &mut staged)?,
         Some(expected) => publish_versioned(&dir, &name, expected, &mut staged, existing.as_ref())?,
     };
-    if published == Published::Conflict {
-        return Err(Error::Conflict {
-            path: path.to_owned(),
-            current: version_of(root, &dir, &name, path)?,
-        });
+    let mut warning = match published {
+        Published::Conflict => {
+            return Err(Error::Conflict {
+                path: path.to_owned(),
+                current: version_of(root, &dir, &name, path)?,
+            });
+        }
+        Published::Done(warning) => warning,
+    };
+    after_commit();
+    // Past the commit point the save is committed. A failure from here on is reported beside
+    // the success, never as a failed save.
+    if let Err(error) = syncable.sync() {
+        warning = warning.or(Some(SaveWarning::NotDurable(error.to_string())));
     }
-    syncable.sync()?;
-    let metadata = dir.symlink_metadata(&name)?;
-    version::version_of_entry(&dir, &name, &metadata)
+    let version = match published_version(&dir, &name) {
+        Ok(version) => Some(version),
+        Err(error) => {
+            warning = warning.or(Some(SaveWarning::NoVersion(error.to_string())));
+            None
+        }
+    };
+    Ok(Saved { version, warning })
+}
+
+/// The version of the file just published, read once through a handle to it (the metadata alone
+/// is enough on Unix).
+#[cfg(unix)]
+fn published_version(dir: &Dir, name: &str) -> Result<String, Error> {
+    let metadata = dir.symlink_metadata(name)?;
+    version::version_of(None, &metadata)
+}
+
+#[cfg(windows)]
+fn published_version(dir: &Dir, name: &str) -> Result<String, Error> {
+    let handle = handle::attribute_handle(dir, name)?;
+    let metadata = handle.metadata()?;
+    version::version_of(Some(&handle), &metadata)
 }
 
 /// The version a conflict reports, without walking a folder for a digest.
@@ -135,10 +207,8 @@ fn guard(
 fn publish_new(dir: &Dir, name: &str, staged: &mut Staged) -> Result<Published, Error> {
     staged.close();
     match handle::rename_noclobber(dir, staged.name(), dir, name)? {
-        Noclobber::Done => {
-            staged.release();
-            Ok(Published::Done)
-        }
+        // The rename or hard link is the commit; removing the staging name is cleanup.
+        Noclobber::Done => Ok(Published::Done(staged.cleanup())),
         Noclobber::Exists => Ok(Published::Conflict),
         Noclobber::Unsupported => link_into_place(dir, name, staged),
     }
@@ -148,11 +218,7 @@ fn publish_new(dir: &Dir, name: &str, staged: &mut Staged) -> Result<Published, 
 /// take a name that exists, so the new copy either appears whole or not at all.
 fn link_into_place(dir: &Dir, name: &str, staged: &mut Staged) -> Result<Published, Error> {
     match dir.hard_link(staged.name(), dir, name) {
-        Ok(()) => {
-            let _ = dir.remove_file(staged.name());
-            staged.release();
-            Ok(Published::Done)
-        }
+        Ok(()) => Ok(Published::Done(staged.cleanup())),
         Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(Published::Conflict),
         Err(error) => Err(error.into()),
     }
@@ -185,7 +251,7 @@ fn publish_here(
     // No atomic exchange here: publish the way the daemon does without one.
     handle::replace(dir, staged.name(), name)?;
     staged.release();
-    Ok(Published::Done)
+    Ok(Published::Done(None))
 }
 
 #[cfg(windows)]
@@ -210,20 +276,49 @@ fn exchange_publish(
         return Ok(None);
     }
     let displaced_name = staged.release();
+    // Our copy holds the target from here on. Every failure below is about the file that the
+    // exchange displaced, never about the save: report it beside the committed outcome and
+    // leave that file beside the target so a later cleanup can retry.
     let displaced = match dir.symlink_metadata(&displaced_name) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Some(Published::Conflict)),
-        Err(error) => return Err(error.into()),
+        Err(error) => {
+            return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
+                format!("{displaced_name}: {error}"),
+            )))));
+        }
     };
-    let displaced_version = version::version_of(None, &displaced)?;
+    let displaced_version = match version::version_of(None, &displaced) {
+        Ok(version) => version,
+        Err(error) => {
+            return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
+                format!("{displaced_name}: {error}"),
+            )))));
+        }
+    };
     if displaced.is_file()
         && version::without_change_time(&displaced_version)
             == version::without_change_time(expected)
     {
         // Re-check right before unlinking: a name that changed again is never removed.
-        if version::still(dir, &displaced_name, &displaced)? {
-            dir.remove_file(&displaced_name)?;
-            return Ok(Some(Published::Done));
+        match version::still(dir, &displaced_name, &displaced) {
+            Ok(true) => match dir.remove_file(&displaced_name) {
+                Ok(()) => return Ok(Some(Published::Done(None))),
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    return Ok(Some(Published::Done(None)));
+                }
+                Err(error) => {
+                    return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
+                        format!("{displaced_name}: {error}"),
+                    )))));
+                }
+            },
+            Ok(false) => {}
+            Err(error) => {
+                return Ok(Some(Published::Done(Some(SaveWarning::NotCleanedUp(
+                    format!("{displaced_name}: {error}"),
+                )))));
+            }
         }
     }
     // Something else was at the destination: put it back, and if that is no longer possible keep
@@ -271,7 +366,7 @@ fn replace_windows(
         return Err(error);
     }
     staged.release();
-    Ok(Published::Done)
+    Ok(Published::Done(None))
 }
 
 #[cfg(windows)]
@@ -332,9 +427,16 @@ mod tests {
                 .expect("stat")
                 .expect("a version");
 
-            let result = save(root, "doc.md", b"ours\n", Some(&version), &|| {
-                std::fs::write(&target, b"outside save\n").expect("outside save");
-            });
+            let result = save(
+                root,
+                "doc.md",
+                b"ours\n",
+                Some(&version),
+                &|| {
+                    std::fs::write(&target, b"outside save\n").expect("outside save");
+                },
+                &|| {},
+            );
 
             let error = result.expect_err("a changed file must conflict");
             assert_eq!(error.code(), "CONFLICT");
@@ -354,14 +456,44 @@ mod tests {
     fn create_never_overwrites_a_file_that_appears() {
         with_root(|root, dir| {
             let target = dir.join("new.md");
-            let result = save(root, "new.md", b"ours\n", None, &|| {
-                std::fs::write(&target, b"appeared first\n").expect("appeared");
-            });
+            let result = save(
+                root,
+                "new.md",
+                b"ours\n",
+                None,
+                &|| {
+                    std::fs::write(&target, b"appeared first\n").expect("appeared");
+                },
+                &|| {},
+            );
 
             let error = result.expect_err("the appeared file must win");
             assert_eq!(error.code(), "CONFLICT");
             assert_eq!(std::fs::read(&target).expect("read"), b"appeared first\n");
             assert!(temporaries(dir).is_empty());
+        });
+    }
+
+    #[test]
+    fn a_version_that_cannot_be_read_after_the_commit_keeps_the_save_committed() {
+        with_root(|root, dir| {
+            let target = dir.join("doc.md");
+            std::fs::write(&target, b"first\n").expect("seed");
+            let version = crate::stat_version(root, "doc.md")
+                .expect("stat")
+                .expect("a version");
+
+            // The file is gone by the time the version is read, after the rename published it.
+            let result = save(root, "doc.md", b"ours\n", Some(&version), &|| {}, &|| {
+                let _ = std::fs::remove_file(&target);
+            });
+
+            let saved = result.expect("a committed save is a success even without its version");
+            assert!(saved.version.is_none());
+            assert!(matches!(
+                saved.warning,
+                Some(super::SaveWarning::NoVersion(_))
+            ));
         });
     }
 }
