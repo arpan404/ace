@@ -401,17 +401,17 @@ describe("reducer reliability", () => {
   });
 });
 
-describe("browser help across turn ends", () => {
-  /** The host's browser-help request, as the daemon opens it for `agent`'s tool call. */
-  const help = (agent: string) => ({
-    type: "interaction.opened",
-    agent,
-    interaction: "help",
-    blocking: true,
-    request: { kind: "browser_help", tabId: "tab-1", reason: "login", message: "Sign in" },
-    raw: [{ type: "ace.browser_help", data: { key: "help", tabId: "tab-1" } }],
-  });
+/** The host's browser-help request, as the daemon opens it for `agent`'s tool call. */
+const help = (agent: string) => ({
+  type: "interaction.opened",
+  agent,
+  interaction: "help",
+  blocking: true,
+  request: { kind: "browser_help", tabId: "tab-1", reason: "login", message: "Sign in" },
+  raw: [{ type: "ace.browser_help", data: { key: "help", tabId: "tab-1" } }],
+});
 
+describe("browser help across turn ends", () => {
   it("a subagent's browser help stays open after its turn ends while the main agent runs", () => {
     const h = harness();
     h.see();
