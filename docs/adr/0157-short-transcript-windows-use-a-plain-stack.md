@@ -57,9 +57,11 @@ ADR 0062's window bounds and paging stay as they are.
 
 - Short threads, the common case on the phone, no longer depend on the lazy stack's estimates.
 - A switch costs one full layout of the window; the hysteresis keeps it to about one per window.
-- Not verified: whether a long window (lazy, above the limit) can still hit the loop. The
-  windows that stalled were short; a long one has many measured rows, so a one-row change moves
-  the estimate far less, but that is untested (#2124).
+- Long windows, still lazy, did not hit the loop when checked (#2124, 2026-11-16, iPhone 17 Pro
+  simulator, iOS 26.1, UI automation attached): `ios-stream`'s 201-row live tail swiped fast the
+  moment it opened, and a history window swiped the moment a third older page landed, settled in
+  6 of 6 runs each, every swipe in under 4 s. VoiceOver itself doesn't run in the simulator, so it
+  wasn't part of that check.
 - The limit came from two measurements; a measured reason can move it.
 
 ## Tests
@@ -70,3 +72,6 @@ ADR 0062's window bounds and paging stay as they are.
 - `AceUITests/TranscriptAccessibilityUITests/testSwipingTheMomentALongFinishedThreadOpensStaysResponsive`
   and `ThreadUITests/testASwipeAlongTheTranscriptsTrailingEdgeScrollsIt` (no longer an
   expected failure) swipe `ios-log-long` the moment it opens.
+- `AceUITests/TranscriptAccessibilityUITests/testSwipingTheMomentALongLiveWindowOpensStaysResponsive`
+  and `testSwipingTheMomentAHistoryWindowPagesInStaysResponsive` swipe long, lazy windows the
+  same way: `ios-stream`'s live tail as it opens, and a history window as an older page lands.
