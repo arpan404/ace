@@ -74,15 +74,30 @@ installed runtime and daemon, and answering `--version`), and the AppImage's con
    platform built and before publish, so the cloud is ready when apps update. That entry point
    deploys straight to 100%, smoke-tests, and rolls back to the previous Worker version on a
    failed smoke test. Its own checks decide what is already deployed.
-7. **publish** (omarchy) needs every platform's manifest from the tag's commit and version, a
+7. **deploy-web** (omarchy) deploys the web app to Cloudflare Pages (below), after production's
+   Workers and before publish.
+8. **publish** (omarchy) needs every platform's manifest from the tag's commit and version, a
    signed and notarized macOS build, every listed file on the draft with its recorded bytes
    (size, and GitHub's SHA-256 digest when reported), and the notes. It adds `SHA256SUMS` and
    makes the release live for everyone at once: a stable release is marked latest, a beta is a
    prerelease that only the Beta line picks up (ADR 0177). Then it removes the staged manifests.
-8. **notify** (omarchy, always) tells the owner the release is live or which step stopped it.
+9. **notify** (omarchy, always) tells the owner the release is live or which step stopped it.
 
 Betas now ship every platform too: `betaHostProblem` accepts darwin-arm64, linux-x64,
 linux-arm64 and win32-x64.
+
+**The web app follows releases.** app.acehq.dev (Pages project `ace-web`) serves the latest
+stable release's web app, no longer `main`: Pages' automatic production deploys from Git are
+off. The deploy-web job builds `apps/web` from the release's commit with the existing build
+script and `ACE_VERSION=<version>`, so the app names itself `web/<version>` to ace cloud
+([ADR 0189](0189-cloud-features-gated-by-client-version.md)), and runs `wrangler pages deploy`
+with the commit and the message `ace <tag>`. A stable tag deploys to the production branch
+(`main`, app.acehq.dev); a beta to the Pages branch `beta` (beta.ace-web.pages.dev), leaving
+app.acehq.dev alone. `webDeployPlan` (`web-deploy.ts`) skips the deploy when a later release of
+the same line is already published. A rerun deploys again rather than reading what Pages
+serves: Pages uploads only files it lacks, so it is cheap and serves the same build. Only the
+deploy step holds the Cloudflare token, which needs Pages edit. Setup and rollback:
+`docs/release/web.md`.
 
 **Resumable.** Every step checks what the tag's release already holds before acting. A
 platform whose manifest is on the draft, from the tag's commit, with all its files, is not

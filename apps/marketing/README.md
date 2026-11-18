@@ -12,7 +12,10 @@ SITE_URL=https://your.domain bun run --filter @ace/marketing build   # output in
 
 ## Deploy
 
-Cloudflare Pages builds and deploys both public sites from `main`; there is no deploy script.
+Cloudflare Pages builds and deploys the marketing site from `main`; there is no deploy script. The
+web app (`ace-web`, app.acehq.dev) follows releases instead: the release pipeline builds and deploys
+it from each release tag ([docs/release/web.md](../../docs/release/web.md)), and Pages' automatic
+production deploys for it are off. The table lists the build each runs.
 
 | Pages project   | Domains                  | Build command (repo root)                                                                                   | Output                |
 | --------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- | --------------------- |
