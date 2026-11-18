@@ -1,4 +1,4 @@
-import { contact } from "../site.ts";
+import { contact, links } from "../site.ts";
 
 /*
  * The privacy policy and terms of service. The facts here follow the account and relay design
@@ -265,4 +265,46 @@ export const termsOfService: LegalDocument = {
   ],
 };
 
-export const legalDocuments = [privacyPolicy, termsOfService];
+export const support: LegalDocument = {
+  path: "/support/",
+  headline: "Support",
+  title: "ace support: get help, delete your account",
+  description:
+    "How to get help with ace, delete your ace account, and what ace does and doesn't see. Email the founders or open an issue on GitHub.",
+  updated,
+  updatedIso,
+  intro:
+    "ace is built by a small team and open source. Here is where to ask for help, how to delete an account, and answers to the questions we hear most.",
+  sections: [
+    {
+      heading: "Get help",
+      body: [
+        {
+          list: [
+            `Email ${contact.email}. Include what you were doing and which app you use (Mac, Windows, Linux, iPhone or iPad).`,
+            `Open an issue on GitHub: ${links.source}/issues. Bugs and feature requests are public there, so leave out anything private.`,
+          ],
+        },
+      ],
+    },
+    {
+      heading: "Delete your account",
+      body: [
+        "In the iPhone or iPad app, open Profile and choose Delete account. It deletes your account, its sessions and its machine list right away, and your user at WorkOS.",
+        `You can also email ${contact.email} from the address on your account. We delete it within 30 days.`,
+        "Deleting your account doesn't touch your machines. Your code, threads and settings stay on them.",
+      ],
+    },
+    {
+      heading: "Questions",
+      body: [
+        "Does ace see my code or prompts? No. They stay on your machines. Traffic through our relay is end-to-end encrypted, so the relay can't read it.",
+        "Do I need an account? No. An account is only for reaching your machines through our hosted relay.",
+        "Can I pair my phone without an account? Yes. Pairing over your local network or Tailscale, or through your own relay, works without one.",
+        "More answers are on the FAQ page, and the details of what we store are in the privacy policy.",
+      ],
+    },
+  ],
+};
+
+export const legalDocuments = [privacyPolicy, termsOfService, support];
