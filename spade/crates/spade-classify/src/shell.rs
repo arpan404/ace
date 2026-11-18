@@ -57,7 +57,203 @@ pub(crate) struct Found {
     /// part of it was not examined: it is never settled, since what was dropped could be an
     /// outside path or an unknown program.
     pub dropped: bool,
+    /// It may reach another machine: a program that can, or an argument naming a place on the
+    /// network (a URL, a host, an address). Never settled while untrusted content is in view.
+    pub network: bool,
 }
+
+/// Programs that can reach another machine, whatever their arguments say. With untrusted content
+/// in view a command running one is never settled, so text it read can't be sent anywhere
+/// without a review. This list only ever makes the model more careful; it routes nothing.
+const NETWORK: &[&str] = &[
+    "curl",
+    "wget",
+    "http",
+    "https",
+    "xh",
+    "httpie",
+    "aria2c",
+    "ssh",
+    "scp",
+    "sftp",
+    "rsync",
+    "nc",
+    "ncat",
+    "netcat",
+    "socat",
+    "telnet",
+    "ftp",
+    "ping",
+    "dig",
+    "nslookup",
+    "host",
+    "whois",
+    "mtr",
+    "traceroute",
+    "gh",
+    "glab",
+    "hub",
+    "tea",
+    "aws",
+    "gcloud",
+    "gsutil",
+    "az",
+    "doctl",
+    "heroku",
+    "vercel",
+    "netlify",
+    "fly",
+    "flyctl",
+    "wrangler",
+    "firebase",
+    "supabase",
+    "railway",
+    "render",
+    "kubectl",
+    "helm",
+    "terraform",
+    "tofu",
+    "pulumi",
+    "docker",
+    "podman",
+    "npm",
+    "npx",
+    "pnpm",
+    "pnpx",
+    "yarn",
+    "bun",
+    "bunx",
+    "deno",
+    "pip",
+    "pip3",
+    "uv",
+    "uvx",
+    "poetry",
+    "pipenv",
+    "conda",
+    "mamba",
+    "cargo",
+    "rustup",
+    "go",
+    "gem",
+    "bundle",
+    "composer",
+    "brew",
+    "apt",
+    "apt-get",
+    "pacman",
+    "yay",
+    "paru",
+    "dnf",
+    "yum",
+    "snap",
+    "flatpak",
+    "nix",
+    "rclone",
+    "s3cmd",
+    "mail",
+    "mailx",
+    "sendmail",
+    "mutt",
+    "msmtp",
+    "osascript",
+    "open",
+    "xdg-open",
+    "stripe",
+    "op",
+    "vault",
+    "ollama",
+    "mvn",
+    "gradle",
+    "dotnet",
+    "swift",
+    "flutter",
+    "dart",
+    "jj",
+    "hg",
+    "svn",
+    "python",
+    "python3",
+    "node",
+    "perl",
+    "ruby",
+    "php",
+    "lua",
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "ksh",
+    "fish",
+    "pwsh",
+    "powershell",
+    "make",
+    "just",
+    "task",
+    "xargs",
+    "parallel",
+    "socket",
+];
+
+/// `git` subcommands that reach a remote.
+const GIT_NETWORK: &[&str] = &[
+    "fetch",
+    "pull",
+    "push",
+    "clone",
+    "ls-remote",
+    "submodule",
+    "remote",
+    "send-email",
+    "request-pull",
+    "archive",
+    "lfs",
+    "credential",
+];
+
+/// Options that make a program run another program it names, by program: a command with one
+/// hides what it runs, so it is never settled (`rg --pre`, `tar --to-command`, `rsync -e`).
+const RUNS_ANOTHER: &[(&str, &[&str])] = &[
+    ("rg", &["--pre"]),
+    (
+        "tar",
+        &[
+            "-I",
+            "--use-compress-program",
+            "--to-command",
+            "--checkpoint-action",
+            "--info-script",
+            "--new-volume-script",
+            "-F",
+        ],
+    ),
+    ("sort", &["--compress-program"]),
+    ("rsync", &["-e", "--rsh", "--rsync-path"]),
+    (
+        "git",
+        &[
+            "-c",
+            "--config-env",
+            "--exec-path",
+            "--upload-pack",
+            "--receive-pack",
+            "--ext-diff",
+            "--textconv",
+        ],
+    ),
+    ("zip", &["-TT", "--unzip-command"]),
+    ("man", &["-P", "--pager", "-H"]),
+    ("less", &["--lesskey-src", "-k"]),
+    ("find", &["-exec", "-execdir", "-ok", "-okdir"]),
+    ("fd", &["-x", "--exec", "-X", "--exec-batch"]),
+    ("ssh", &["-o", "-F"]),
+    ("dpkg", &["--root"]),
+    ("vim", &["-c", "--cmd", "-S"]),
+    ("nvim", &["-c", "--cmd", "-S"]),
+    ("emacs", &["--eval", "-l", "--load"]),
+    ("watch", &["-x"]),
+    ("entr", &[]),
+];
 
 /// Programs whose first word is a subcommand (`git push`, `npm publish`): for them the
 /// subcommand is a key part of what the command is, so one never seen in a low-risk command
@@ -141,12 +337,86 @@ const SUBCOMMANDS: &[&str] = &[
     "railway",
     "render",
     "pulumi",
+    "hyprctl",
+    "omarchy",
+    "journalctl",
+    "nmcli",
+    "tmux",
+    "zellij",
 ];
 
 /// Of those, the ones whose second word is a subcommand too (`gh pr create`, `aws s3 cp`).
 const TWO_LEVELS: &[&str] = &[
-    "gh", "aws", "gcloud", "az", "kubectl", "docker", "podman", "stripe", "op", "glab", "doctl",
-    "heroku", "firebase", "supabase",
+    "gh",
+    "aws",
+    "gcloud",
+    "az",
+    "kubectl",
+    "docker",
+    "podman",
+    "stripe",
+    "op",
+    "glab",
+    "doctl",
+    "heroku",
+    "firebase",
+    "supabase",
+    "jj",
+    "rustup",
+    "terraform",
+    "pulumi",
+    "dotnet",
+    "flutter",
+    "dart",
+    "vault",
+    "minikube",
+    "colima",
+    "multipass",
+];
+
+/// Subcommands whose next word says what they do (`git remote add`, `git stash drop`, `git bisect
+/// run`, `brew services start`, `npm config set`): that word is a key part too. Other programs'
+/// second words are data (a branch, a file, a package), so they aren't keys.
+const NESTED: &[(&str, &str)] = &[
+    ("git", "remote"),
+    ("git", "stash"),
+    ("git", "worktree"),
+    ("git", "submodule"),
+    ("git", "bisect"),
+    ("git", "notes"),
+    ("git", "lfs"),
+    ("git", "config"),
+    ("git", "credential"),
+    ("git", "reflog"),
+    ("hg", "bookmark"),
+    ("brew", "services"),
+    ("brew", "tap"),
+    ("npm", "config"),
+    ("npm", "token"),
+    ("npm", "access"),
+    ("npm", "owner"),
+    ("npm", "dist-tag"),
+    ("npm", "pkg"),
+    ("pnpm", "config"),
+    ("yarn", "config"),
+    ("yarn", "npm"),
+    ("bun", "pm"),
+    ("uv", "tool"),
+    ("uv", "pip"),
+    ("uv", "self"),
+    ("poetry", "config"),
+    ("poetry", "self"),
+    ("cargo", "owner"),
+    ("go", "mod"),
+    ("go", "env"),
+    ("helm", "repo"),
+    ("helm", "plugin"),
+    ("conda", "env"),
+    ("conda", "config"),
+    ("nix", "profile"),
+    ("hyprctl", "keyword"),
+    ("hyprctl", "dispatch"),
+    ("omarchy", "theme"),
 ];
 
 /// Programs that decode text.
@@ -204,6 +474,8 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
     // Every word as written, wrappers included: the parser takes `sudo`, `env` or `nohup` off
     // what it reads, and the model should still see them.
     text::tokens(&lower, MOST_TOKENS, |t| bag.add("T", &[t]));
+    // A device that is a network socket (`/dev/tcp/host/port`).
+    found.network |= lower.contains("/dev/tcp") || lower.contains("/dev/udp");
     match shell::read(&folded.text) {
         Some(commands) => {
             let count = commands.len();
@@ -237,6 +509,7 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
                 if shape::is_path(word) && shape::place(word, workspace).outside() {
                     found.outside = true;
                 }
+                found.network = true;
                 text::tokens(word, 8, |t| bag.add("W", &[t]));
             }
         }
@@ -291,6 +564,23 @@ fn one(
     let program = program_name(first);
     let p = program.as_str();
     bag.key("P", &[p]);
+    if NETWORK.contains(&p) || p == "$var" {
+        found.network = true;
+    }
+    if let Some((_, options)) = RUNS_ANOTHER.iter().find(|(name, _)| *name == p) {
+        let runs = simple.words[1..].iter().any(|w| {
+            options.iter().any(|o| {
+                w == o
+                    || w.starts_with(&format!("{o}="))
+                    || (o.len() == 2
+                        && w.starts_with(o)
+                        && !o.starts_with("--")
+                        && !w.starts_with("--"))
+            })
+        });
+        // `entr` runs whatever it is given.
+        found.hides |= runs || options.is_empty();
+    }
     // Names that run other text: what runs isn't the word the command shows.
     if matches!(
         p,
@@ -327,6 +617,9 @@ fn one(
     let mut positional = rest.iter().filter(|w| !w.starts_with('-'));
     if let Some(sub) = positional.next().filter(|w| wordish(w)) {
         let sub = sub.to_ascii_lowercase();
+        if p == "git" && GIT_NETWORK.contains(&sub.as_str()) {
+            found.network = true;
+        }
         if SUBCOMMANDS.contains(&p) {
             bag.key("PS", &[p, &sub]);
         } else {
@@ -344,7 +637,7 @@ fn one(
         }
         if let Some(next) = positional.next().filter(|w| wordish(w)) {
             let next = next.to_ascii_lowercase();
-            if TWO_LEVELS.contains(&p) {
+            if TWO_LEVELS.contains(&p) || NESTED.contains(&(p, sub.as_str())) {
                 bag.key("PSS", &[p, &sub, &next]);
             } else {
                 bag.add("PSS", &[p, &sub, &next]);
@@ -358,18 +651,24 @@ fn one(
             bag.key("PF", &[p, &format!("--{name}")]);
             bag.add("F", &[&format!("--{name}")]);
             if !value.is_empty() {
-                argument(value, p, workspace, bag, &mut found.outside);
+                argument(value, p, workspace, bag, found);
             }
         } else if word.len() > 1 && word.starts_with('-') && word.parse::<f64>().is_err() {
             let cluster: String = word.chars().take(12).collect();
             bag.add("PF", &[p, &cluster]);
             // Every option character is a key, so an unknown flag anywhere in a cluster is
-            // caught by the known-parts check, not only the first few.
+            // caught by the known-parts check, not only the first few. A digit after an option
+            // letter starts that option's value (`-A5`, `-j8`, `-n20`), as getopt reads it.
+            let mut letters = false;
             for c in word.chars().skip(1) {
+                if letters && c.is_ascii_digit() {
+                    break;
+                }
+                letters |= c.is_ascii_alphabetic();
                 bag.key("PF", &[p, &format!("-{c}")]);
             }
         } else {
-            argument(word, p, workspace, bag, &mut found.outside);
+            argument(word, p, workspace, bag, found);
         }
         let room = MOST_TOKENS.saturating_sub(tokens);
         text::tokens(word, room, |t| {
@@ -404,12 +703,14 @@ fn one(
 }
 
 /// An argument's shape, under its program too.
-fn argument(word: &str, program: &str, workspace: Option<&str>, bag: &mut Bag, outside: &mut bool) {
+fn argument(word: &str, program: &str, workspace: Option<&str>, bag: &mut Bag, found: &mut Found) {
     let shape = shape::of(word, workspace, "PA", bag);
     if shape.starts_with("path_") {
-        *outside |= shape::place(word, workspace).outside();
+        found.outside |= shape::place(word, workspace).outside();
     }
-    *outside |= shape::elsewhere(word, shape);
+    found.outside |= shape::elsewhere(word, shape);
+    // A place on the network, or something that may name one (`host:port`, an address).
+    found.network |= matches!(shape, "url" | "remote" | "email") || shape::names_host(word);
     bag.add("A", &[shape]);
     bag.add("PA", &[program, shape]);
     if let Some((key, _)) = word.split_once('=')

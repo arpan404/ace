@@ -501,9 +501,19 @@ impl Tool for ShellTool {
             Commands::OneShot(_) => None,
         }
         .unwrap_or_else(|| workspace.clone());
+        // The folder the classifier places paths against, when the command starts in it.
+        // As Spade names it to the bot, so the paths the bot writes match it.
+        let folder = std::fs::canonicalize(&workspace)
+            .ok()
+            .filter(|root| std::fs::canonicalize(&start).is_ok_and(|start| start.starts_with(root)))
+            .map(|_| workspace.clone());
         let classed = match super::place::FsPlace::new(start, &workspace) {
             Some(place) => classify_shell(arguments, &place),
             None => classify_shell(arguments, &Lexical),
+        };
+        let classed = spade_core::autonomy::Classed {
+            workspace: folder.map(|root| root.to_string_lossy().into_owned()),
+            ..classed
         };
         // Asking to run outside: what it would run there is read now, so the request is bound
         // to those files and a script it reads secrets in is refused.

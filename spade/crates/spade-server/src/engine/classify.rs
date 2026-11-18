@@ -67,7 +67,7 @@ fn subject<'a>(s: &'a Screening<'_>) -> Option<Subject<'a>> {
     {
         return Some(Subject::Shell {
             command,
-            workspace: None,
+            workspace: s.classed.workspace.as_deref(),
         });
     }
     s.hints.map(|hints| Subject::Tool {
@@ -77,17 +77,9 @@ fn subject<'a>(s: &'a Screening<'_>) -> Option<Subject<'a>> {
     })
 }
 
-/// The model's decision: it may settle only a shell command the gate lets it settle; anything
-/// else it can only raise or leave to the reviewer.
+/// The model's decision (`spade_classify::Model::decide`).
 pub fn decide(model: &Model, subject: &Subject<'_>, reviewing: Reviewing) -> (Prediction, Screen) {
-    let prediction = model.predict(subject);
-    let shell = matches!(subject, Subject::Shell { .. });
-    let screen = if shell && reviewing.may_settle() {
-        model.screen(&prediction)
-    } else {
-        model.raise(&prediction)
-    };
-    (prediction, screen)
+    model.decide(subject, reviewing)
 }
 
 impl Engine {

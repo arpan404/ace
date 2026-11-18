@@ -152,6 +152,10 @@ pub struct Classed {
     pub shown: Vec<shell::Shown>,
     /// What it runs (a script, a package script) reads sign-ins or credentials.
     pub credentials: bool,
+    /// The bot's folder, for a command with no sandbox that starts inside it: Spade's classifier
+    /// places the command's paths against it (ADR 0172). `None` when it starts elsewhere or the
+    /// folder is unknown, and then the classifier never settles it.
+    pub workspace: Option<String>,
 }
 
 impl Classed {
@@ -201,6 +205,7 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         class,
         shown: assessed.shown,
         credentials,
+        workspace: None,
     }
 }
 
