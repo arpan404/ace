@@ -32,7 +32,9 @@ struct StorageWorktreeSection: View {
             Button("Delete all settled worktrees", role: .destructive, action: previewAll)
                 .buttonStyle(.rowAction)
                 .disabled(busy).accessibilityIdentifier("storage.worktrees.deleteAll")
-            ServiceProblem(message: problem ?? previewProblem)
+            // A setting's refusal and the preview's failure are separate; neither hides the other.
+            ServiceProblem(message: problem)
+            ServiceProblem(message: previewProblem)
         } header: { InsetHeader("Worktrees") } footer: {
             Text("Automatic deletion only removes clean worktrees merged into origin/main. Back up commits everything not in .gitignore, .env included, and pushes it to origin.")
         }
