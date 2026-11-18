@@ -7,6 +7,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { ThreadOwnership } from "./live/ownership.ts";
 import { continueOn, op, sentTo, workingThread } from "./transfer-live-support.ts";
 import { git, transferMachines } from "./transfer-test-support.ts";
 
@@ -47,6 +48,16 @@ it("moves a working thread: stopped here, started there by itself, and only then
   );
   expect(await git(landed, "status", "--porcelain")).toBe("?? late.txt\n?? wip.txt");
 
+  // Exactly one machine owns it: the target, from the machine it left.
+  expect(new ThreadOwnership(m.target.daemon.store).get(newId)).toMatchObject({
+    state: "owned",
+    epoch: 1,
+    peer: { name: "MacBook", threadId },
+  });
+  expect(new ThreadOwnership(m.source.daemon.store).get(threadId)).toMatchObject({
+    state: "moved",
+    peer: { name: "Studio", threadId: newId },
+  });
   // Here it reads moved, never done, and takes no new turn.
   expect(m.source.daemon.store.getThread(threadId)?.status).toEqual({
     state: "moved",
