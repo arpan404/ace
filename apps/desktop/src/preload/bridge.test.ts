@@ -92,6 +92,10 @@ describe("window.ace bridge", () => {
     await expect(ace.shell.reveal("relative/path")).rejects.toBeInstanceOf(BridgeError);
     await expect(ace.shell.openExternal("file:///etc/passwd")).rejects.toBeInstanceOf(BridgeError);
     await expect(ace.shell.openExternal("javascript:alert(1)")).rejects.toBeInstanceOf(BridgeError);
+    // Addresses that won't parse are refused like any other bad request, not thrown (#2250).
+    await expect(ace.shell.openExternal("not a url")).rejects.toBeInstanceOf(BridgeError);
+    await expect(ace.daemon.expected("not a url")).rejects.toBeInstanceOf(BridgeError);
+    await expect(ace.daemon.authorize("")).rejects.toBeInstanceOf(BridgeError);
     await expect(ace.notifications.setBadge(-1)).rejects.toBeInstanceOf(BridgeError);
     await expect(ace.settings.update({ globalShortcut: "x".repeat(200) })).rejects.toBeInstanceOf(
       BridgeError,

@@ -9,7 +9,10 @@ import { AceSignInReturnStatus } from "@ace/protocol/ace-account";
  */
 
 const Hex64 = z.string().regex(/^[0-9a-f]{64}$/);
-export const SocketUrl = z.url().refine((value) => /^wss?:$/.test(new URL(value).protocol));
+// The refine runs even when `z.url()` failed, so it checks the address parses before reading it.
+export const SocketUrl = z
+  .url()
+  .refine((value) => URL.canParse(value) && /^wss?:$/.test(new URL(value).protocol));
 export const AbsolutePath = z
   .string()
   .min(1)
