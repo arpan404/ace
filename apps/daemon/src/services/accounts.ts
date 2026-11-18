@@ -55,7 +55,7 @@ export async function startAccounts(context: ServiceContext) {
     })
     .catch(() => {});
   services.accountRegistry = registry;
-  services.accounts = new AccountService({
+  const accounts = new AccountService({
     registry,
     now,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -76,6 +76,9 @@ export async function startAccounts(context: ServiceContext) {
     freshen: (signal) =>
       services.accountManagement?.limits.fresh(freshLimitsWaitMs, signal) ?? Promise.resolve(),
   });
+  // Copied above; a daemon started on a saved PATH gets the login shell's before any session.
+  options.loginPath?.onChange((path) => accounts.usePath(path));
+  services.accounts = accounts;
 }
 export function startAccountManagement(context: ServiceContext): void {
   const { services, resources, config, now, id, options } = context;

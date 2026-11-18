@@ -11,6 +11,7 @@ import { accessRequest } from "./client-access.ts";
 import { Client } from "./socket-test-support.ts";
 import { startDaemon, readConfig } from "./index.ts";
 import { retainNotifications } from "./notification-test-support.ts";
+import { encodeLoginPathLine } from "@ace/service/login-path";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -257,18 +258,19 @@ it("a provider discovery that never settles leaves the engine starting while the
   expect((await daemon.exited)[0]).toBe(0);
 });
 
-it("a daemon the app started on a saved PATH reads providers only on the login shell's PATH", async () => {
+/** A daemon entry whose provider discovery reports the PATH it read CLIs on. */
+function discoveryReporter() {
   const index = new URL("./index.ts", import.meta.url).href;
-  const daemon = await launch(
-    `
+  return `
     import { startDaemon } from ${JSON.stringify(index)};
     let seen;
     const discovered = new Promise((settle) => (seen = settle));
     const daemon = await startDaemon({
       engine: {
-        adapterDiscovery: () => {
+        adapterDiscovery: async () => {
           seen(process.env.PATH);
-          return new Promise(() => {});
+          // Settled, so the daemon stops at once.
+          throw new Error("No provider CLIs here");
         },
       },
     });
@@ -277,21 +279,52 @@ it("a daemon the app started on a saved PATH reads providers only on the login s
     );
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
     process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
-  `,
-    undefined,
-    undefined,
-    { PATH: "/saved/bin", ACE_LOGIN_PATH_PENDING: "1" },
-  );
+  `;
+}
+
+const startedOnSavedPath = {
+  PATH: "/bundled:/saved/bin",
+  ACE_LOGIN_PATH_PENDING: JSON.stringify({ prefix: "/bundled", inherited: "/usr/bin:/bin" }),
+};
+
+it("a daemon the app started on a saved PATH reads providers only on the login shell's PATH", async () => {
+  const daemon = await launch(discoveryReporter(), undefined, undefined, startedOnSavedPath);
   // Listening and serving already, on the saved PATH; providers wait for the login shell's.
   expect(daemon.status.ready).toBe(true);
   const answer = once(daemon.child, "message");
-  daemon.child.stdin?.end("/login/bin:/saved/bin\n");
   daemon.child.send("discovered?");
-  expect((await answer)[0]).toEqual({ discoveredOn: "/login/bin:/saved/bin" });
+  daemon.child.stdin?.end(encodeLoginPathLine("/bundled:/login/bin:/saved/bin"));
+  expect((await answer)[0]).toEqual({ discoveredOn: "/bundled:/login/bin:/saved/bin" });
   await daemon.client.close();
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
 });
+
+it.skipIf(process.platform === "win32")(
+  "a daemon whose app never sends the login PATH asks the login shell itself, never reading providers on the saved one",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-startup-shell-"));
+    cleanups.push(() => rm(root, { recursive: true, force: true }));
+    const shell = join(root, "shell");
+    await writeFile(shell, "#!/bin/sh\nprintf '__ACE_PATH__/shell/bin__ACE_PATH__'\n", {
+      mode: 0o755,
+    });
+    const daemon = await launch(discoveryReporter(), undefined, undefined, {
+      ...startedOnSavedPath,
+      SHELL: shell,
+    });
+    const answer = once(daemon.child, "message");
+    daemon.child.send("discovered?");
+    // The app quit before its shell answered.
+    daemon.child.stdin?.end();
+    expect((await answer)[0]).toEqual({
+      discoveredOn: ["/bundled", "/shell/bin", "/usr/bin", "/bin"].join(":"),
+    });
+    await daemon.client.close();
+    daemon.child.kill("SIGTERM");
+    expect((await daemon.exited)[0]).toBe(0);
+  },
+);
 
 it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-signal-"));

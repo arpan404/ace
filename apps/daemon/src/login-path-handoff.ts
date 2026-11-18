@@ -1,41 +1,114 @@
 import type { Readable } from "node:stream";
+import {
+  decodeLoginPathLine,
+  loginPathPending,
+  PendingLoginPath,
+  prefixedPath,
+} from "@ace/service/login-path";
 
-/**
- * Set by the desktop app when it started this daemon on the PATH it saved last session, before
- * the login shell answered. The shell's PATH then follows as one line on stdin.
- */
-export const loginPathPending = "ACE_LOGIN_PATH_PENDING";
-
-/** The login shell may take its full 10 s; past this the daemon keeps the PATH it started on. */
+/** The app's own login shell may take its full 10 s; past this the daemon asks the shell itself. */
 export const loginPathWaitMs = 15_000;
 
 /**
- * The PATH this daemon runs provider CLIs on, made final. With `ACE_LOGIN_PATH_PENDING` set it
- * waits for the desktop's line (`read`), at most until `timeout` settles, and puts it in
- * `env.PATH`. Resolves whether the PATH changed. Never rejects: an unreadable line, an early end
- * of input or a timeout all keep the PATH the daemon started with.
+ * The PATH of a daemon the desktop app started on last launch's saved PATH, before the login
+ * shell answered (`@ace/service/login-path`). The saved PATH is never used to read provider
+ * CLIs: `final` waits for the login shell's, from the app or, when the app's never comes, from
+ * the daemon's own lookup.
  */
-export async function receiveLoginPath(input: {
+export interface LoginPath {
+  /** Settles once PATH is final, with whether it changed; never rejects. */
+  final: Promise<boolean>;
+  /**
+   * Called with the final PATH, if it changed, before `final` settles: environments copied
+   * before then take it too.
+   */
+  onChange(apply: (path: string) => void): void;
+}
+
+/** Keeps `copy`'s PATH the daemon's final one; returns `copy`. */
+export function followLoginPath(
+  loginPath: LoginPath | undefined,
+  copy: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  loginPath?.onChange((path) => {
+    copy.PATH = path;
+  });
+  return copy;
+}
+
+/**
+ * Undefined for a daemon nobody promised a PATH to: it never waits. Otherwise the first login
+ * shell PATH to arrive becomes final, and the other is ignored, so providers are read once:
+ * the app's line on stdin (`read`), or, once stdin ends without one or `timeout` passes, the
+ * daemon's own `lookup` of the login shell, exactly as the app would have asked it.
+ */
+export function receiveLoginPath(input: {
   env: NodeJS.ProcessEnv;
   read: () => Promise<string | undefined>;
-  timeout: Promise<void>;
-}): Promise<boolean> {
+  timeout: () => Promise<void>;
+  lookup: (pending: PendingLoginPath) => Promise<string>;
+  log?: (message: string) => void;
+}): LoginPath | undefined {
   const { env } = input;
-  if (env[loginPathPending] !== "1") return false;
+  const raw = env[loginPathPending];
+  if (raw === undefined) return undefined;
   // Children of this daemon must not think a PATH is still on its way to them.
   delete env[loginPathPending];
-  const line = await Promise.race([
-    input.read().catch(() => undefined),
-    input.timeout.then(() => undefined),
-  ]);
-  const path = line?.trim();
-  if (!path || path === env.PATH) return false;
-  env.PATH = path;
-  return true;
+  const pending = parsePending(raw) ?? { inherited: env.PATH ?? "" };
+  const listeners: ((path: string) => void)[] = [];
+  let settled: { changed: boolean } | undefined;
+  const final = Promise.withResolvers<boolean>();
+  const settle = (path: string) => {
+    if (settled) return;
+    const changed = path !== env.PATH;
+    settled = { changed };
+    if (changed) {
+      env.PATH = path;
+      for (const listener of listeners) listener(path);
+    }
+    final.resolve(changed);
+  };
+  let looking = false;
+  const lookUp = (reason: string) => {
+    if (settled || looking) return;
+    looking = true;
+    input.log?.(`Reading the login shell's PATH: ${reason}`);
+    input.lookup(pending).then(settle, (error: unknown) => {
+      // The lookup answers the app's own PATH when the shell fails, as the app would have used;
+      // a rejection is a defect, answered the same way. Never the saved PATH.
+      input.log?.(`The login shell's PATH could not be read: ${String(error)}`);
+      settle(prefixedPath(pending.prefix, pending.inherited));
+    });
+  };
+  input.read().then(
+    (line) => {
+      const path = line === undefined ? undefined : decodeLoginPathLine(line);
+      if (path) settle(path);
+      else lookUp(line === undefined ? "the app sent none" : "the app's line was unreadable");
+    },
+    () => lookUp("the app's line was unreadable"),
+  );
+  void input.timeout().then(() => lookUp("the app did not send it in time"));
+  return {
+    final: final.promise,
+    onChange(apply) {
+      if (!settled) listeners.push(apply);
+      else if (settled.changed) apply(env.PATH ?? "");
+    },
+  };
+}
+
+function parsePending(raw: string): PendingLoginPath | undefined {
+  try {
+    const parsed = PendingLoginPath.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The first line of `stream`, without its newline; undefined if it ends before one. */
-export function firstLine(stream: Readable, maxBytes = 262_144): Promise<string | undefined> {
+export function firstLine(stream: Readable, maxBytes = 1_048_576): Promise<string | undefined> {
   return new Promise((resolve) => {
     let text = "";
     stream.setEncoding("utf8");

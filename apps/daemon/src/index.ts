@@ -75,12 +75,8 @@ export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
 import { MaintenanceGate } from "@ace/service";
 import { keepUserPause } from "./user-pause.ts";
-import {
-  firstLine,
-  loginPathPending,
-  loginPathWaitMs,
-  receiveLoginPath,
-} from "./login-path-handoff.ts";
+import { firstLine, loginPathWaitMs, receiveLoginPath } from "./login-path-handoff.ts";
+import { daemonLoginPath } from "@ace/service/login-path";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
 export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
@@ -121,16 +117,17 @@ export async function startDaemon(options: DaemonOptions = {}) {
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };
-  // Started by the desktop app on last session's PATH: the login shell's follows on stdin.
-  if (!options.loginPath && process.env[loginPathPending] === "1")
-    options = {
-      ...options,
-      loginPath: receiveLoginPath({
-        env: process.env,
-        read: () => firstLine(process.stdin),
-        timeout: new Promise((settle) => setTimeout(settle, loginPathWaitMs).unref()),
-      }),
-    };
+  // Started by the desktop app on last launch's PATH: the login shell's follows on stdin, or
+  // the daemon asks the shell itself (`login-path-handoff.ts`).
+  if (!options.loginPath) {
+    const loginPath = receiveLoginPath({
+      env: process.env,
+      read: () => firstLine(process.stdin),
+      timeout: () => new Promise((settle) => setTimeout(settle, loginPathWaitMs).unref()),
+      lookup: (pending) => daemonLoginPath(pending, process.env),
+    });
+    if (loginPath) options = { ...options, loginPath };
+  }
   // Reject test path escapes before optional-service failures can be downgraded to degraded startup.
   if (process.env.ACE_TEST_REAL_HOME) {
     // The home boundary above owns ambient HOME; this check owns other path selectors.
