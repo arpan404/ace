@@ -54,6 +54,7 @@ export function MarketBar(props: {
   const installedTab = (className: string) => (
     <button
       type="button"
+      {...part("tab", current("installed") && "selected", "installed")}
       className={`mk-tab ${className}`}
       aria-current={current("installed")}
       onClick={() => nav.go("installed")}
@@ -71,7 +72,7 @@ export function MarketBar(props: {
       className="mk-bar"
       data-edge={props.edge ? "" : undefined}
     >
-      <h2 className="mk-bar-title" id="market-title">
+      <h2 {...part("page-title", undefined, "market")} className="mk-bar-title" id="market-title">
         Marketplace
       </h2>
       <nav className="mk-tabs" aria-label="Marketplace">

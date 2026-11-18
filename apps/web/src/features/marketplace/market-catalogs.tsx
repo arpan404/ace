@@ -5,6 +5,7 @@ import { useNow } from "@/lib/time.ts";
 import { useAddSource, useMarketSources, useRemoveSource } from "./market-api.ts";
 import { Empty } from "./market-card.tsx";
 import { count, failureSentence, readAtText } from "./market-model.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * Where the marketplace reads from, pushed from Installed: ace's own market, then the git
@@ -29,7 +30,11 @@ export function CatalogsPage() {
   };
   return (
     <div className="mk-inner" data-width="read">
-      <h1 className="mk-display-sm" style={{ marginTop: 8 }}>
+      <h1
+        {...part("page-title", undefined, "market")}
+        className="mk-display-sm"
+        style={{ marginTop: 8 }}
+      >
         Catalogs
       </h1>
       {sources.isError && !sources.data ? (

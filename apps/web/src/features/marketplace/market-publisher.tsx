@@ -4,6 +4,7 @@ import { Card, CardItem, Cards, Empty, Section } from "./market-card.tsx";
 import { failureSentence, MarketFailure } from "./market-model.ts";
 import { Avatar, Verified } from "./market-marks.tsx";
 import { useMarketDiscover, useMarketPicture, useMarketPublisher } from "./market-publishing.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * A collection, and a publisher's page (ADR 0174 §3, §6): their head (picture, name and seal,
@@ -27,7 +28,7 @@ export function ProfileHead(props: {
     <div className="mk-profile-head">
       <Avatar name={profile.displayName} size={96} ace={props.official} picture={picture} />
       <div className="mk-profile-words">
-        <h1 className="mk-display-sm">
+        <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
           {profile.displayName}
           {profile.verified && <Verified />}
         </h1>
@@ -127,7 +128,9 @@ export function CollectionPage(props: { id: string }) {
   return (
     <div className="mk-inner">
       <div style={{ display: "grid", gap: 8, maxWidth: 640, marginTop: 8 }}>
-        <h1 className="mk-display">{collection.title}</h1>
+        <h1 {...part("page-title", undefined, "market")} className="mk-display">
+          {collection.title}
+        </h1>
         <p className="mk-lead">{collection.line}</p>
         <span className="mk-meta">{collection.entries.length} entries · Chosen by ace</span>
       </div>

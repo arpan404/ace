@@ -45,6 +45,7 @@ export function Hero(props: { featured: readonly MarketEntrySummary[] }) {
             role="tab"
             aria-selected={at === shown}
             tabIndex={at === shown ? 0 : -1}
+            {...part("list-row", at === shown && "selected", "market-pick")}
             className="mk-pick"
             onClick={() => setShown(at)}
           >
@@ -126,7 +127,9 @@ function SlideWords(props: { entry: MarketEntrySummary }) {
   return (
     <div className="mk-slide-words">
       <span className="mk-kind">{typeWord(entry.type)}</span>
-      <h2 className="mk-display">{entry.title}</h2>
+      <h2 {...part("page-title", undefined, "hero")} className="mk-display">
+        {entry.title}
+      </h2>
       <p className="mk-lead">{entry.line}</p>
       <EntryByline entry={entry} />
       <div className="mk-slide-actions">

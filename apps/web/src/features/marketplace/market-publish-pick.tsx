@@ -4,6 +4,7 @@ import { keyOf } from "./market-publish-parts.tsx";
 import type { MarketPublishItem } from "./market-publish-port.ts";
 import { fromWords, pickedItem, samePick, usePublishables } from "./market-publish-pick.ts";
 import { BotPicture, Stage } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * The Item step's lists: the person's own bots (face, name, task), skills (Spade's and ace's
@@ -53,6 +54,7 @@ export function PickChoices(props: {
               <button
                 key={JSON.stringify(each.source)}
                 type="button"
+                {...part("card", samePick(props.chosen, each) && "checked", "market-choice")}
                 className="mk-choice"
                 data-form={bots ? "stage" : "lockup"}
                 aria-pressed={samePick(props.chosen, each)}

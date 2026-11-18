@@ -115,6 +115,19 @@ describe("ace's guard over a Suit's CSS", () => {
     // The Suit's colour still reaches parts it may restyle.
     expect(find("sidebar").color).toBe("rgb(255, 0, 255)");
   });
+
+  it("rings a focused field, and leaves a sheet's search field to its caret", () => {
+    render("");
+    document.body.innerHTML = `
+      <input data-part="input" aria-label="Name" />
+      <div data-part="search-field"><input data-part="input" data-variant="search" /></div>`;
+    const [name, search] = document.querySelectorAll("input");
+    if (!name || !search) throw new Error("no fields");
+    name.focus();
+    expect(getComputedStyle(name).outlineOffset).toBe("2px");
+    search.focus();
+    expect(getComputedStyle(search).outlineOffset).not.toBe("2px");
+  });
 });
 
 /** A custom property on the root, following `var(--x)` the way a browser would. */

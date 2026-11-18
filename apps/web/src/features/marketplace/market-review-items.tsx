@@ -1,5 +1,6 @@
 import type { MarketReviewItem } from "@ace/protocol/marketplace";
 import { flaggedWord, sizeText } from "./market-model.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * A review's pages, as the review page lists them under quiet heads: what changed in an update,
@@ -41,7 +42,9 @@ export function ReviewItems(props: { items: readonly MarketReviewItem[] }) {
     <>
       {changes.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">What changed</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            What changed
+          </h3>
           {changes.map((item) => (
             <div key={`${item.section}/${item.path}`} className="mk-fact-row">
               <span className="mk-words">
@@ -56,7 +59,9 @@ export function ReviewItems(props: { items: readonly MarketReviewItem[] }) {
       )}
       {runs.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">What it runs</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            What it runs
+          </h3>
           {runs.map((item) => (
             <div
               key={`${item.section}/${runTitle(item.execution)}/${runDetail(item.execution)}`}
@@ -89,7 +94,9 @@ export function ReviewTexts(props: { items: readonly MarketReviewItem[] }) {
   return props.items.map((item) =>
     item.kind === "text" ? (
       <div key={`${item.section}/${item.path}/${item.before}`} className="mk-review-text">
-        <h3 className="mk-quiet-head">{item.before ? `${item.path} before` : item.path}</h3>
+        <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+          {item.before ? `${item.path} before` : item.path}
+        </h3>
         <pre className="mk-pre">{item.text}</pre>
       </div>
     ) : null,
@@ -103,7 +110,9 @@ export function ReviewFiles(props: { items: readonly MarketReviewItem[] }) {
     <>
       {files.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Files</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Files
+          </h3>
           {files.map((item) => (
             <div
               key={`${item.section}/${item.file.path}`}

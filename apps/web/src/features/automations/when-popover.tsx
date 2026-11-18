@@ -34,6 +34,7 @@ import { dateLabel } from "@/components/ui/date-grid.ts";
 import { DateTimePicker, type DateTime } from "@/components/ui/date-time-picker.tsx";
 import { displayTime, TimePicker } from "@/components/ui/time-picker.tsx";
 import { cityOf } from "@/components/ui/zone-search.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * When an automation runs, as the strip's first control: a list of the kinds, then the
@@ -66,6 +67,7 @@ export function WhenPopover(props: {
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
       <PopoverTrigger
         aria-label={`When: ${summary}`}
+        {...part("select", undefined, "when")}
         className={cn(composerStrip, "max-w-64 text-foreground")}
       >
         <span className="min-w-0 truncate">{summary}</span>

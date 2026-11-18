@@ -32,6 +32,7 @@ import { reviewFailure, ReviewFoot, type ReviewFailure } from "./market-review-f
 import { ReviewItems, ReviewTexts } from "./market-review-items.tsx";
 import { ShowFiles, SuitLooks } from "./market-review-suit.tsx";
 import { AppMark, BotPicture } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * The review before an install or an update (ADR 0168 §8), as a form page: what it is, in plain
@@ -56,7 +57,11 @@ export function ReviewPage(props: { entry: EntryKey; update: boolean }) {
   if (block || scanned)
     return (
       <div className="mk-inner" data-width="form">
-        <h1 className="mk-display-sm" style={{ marginTop: 8 }}>
+        <h1
+          {...part("page-title", undefined, "market")}
+          className="mk-display-sm"
+          style={{ marginTop: 8 }}
+        >
           {title}
         </h1>
         <p role="alert" className="mk-withdrawn-line" style={{ marginTop: 16 }}>
@@ -160,7 +165,9 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
           />
         )}
         <div style={{ display: "grid", gap: 4 }}>
-          <h1 className="mk-display-sm">{review.title}</h1>
+          <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
+            {review.title}
+          </h1>
           <span className="mk-line">
             {[typeWord(review.type), who, review.version].filter(Boolean).join(" · ")}
           </span>
@@ -181,7 +188,9 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
       </ul>
       {found.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">What ace's scan found</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            What ace's scan found
+          </h3>
           <div className="mk-sentences" aria-label="What ace's scan found">
             {found.map((line) => (
               <p key={line}>{line}</p>
@@ -259,7 +268,9 @@ function BotChoice(props: { chosen: readonly string[]; onChange(bots: readonly s
     ) : null;
   return (
     <>
-      <h3 className="mk-quiet-head">Bots that get it</h3>
+      <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+        Bots that get it
+      </h3>
       {bots.map((bot) => (
         <div key={bot.id} className="mk-fact-row">
           <span className="mk-words">
@@ -296,7 +307,9 @@ function RecipeChoices(props: {
     <>
       {recipe.needs.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Apps</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Apps
+          </h3>
           {recipe.needs.map((need) => (
             <div key={need.key} className="mk-fact-row">
               <AppMark name={need.label} size={32} />
@@ -317,7 +330,9 @@ function RecipeChoices(props: {
       )}
       {recipe.routines.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Routines</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Routines
+          </h3>
           {recipe.routines.map((routine) => (
             <div key={routine.name} className="mk-fact-row">
               <span className="mk-words">

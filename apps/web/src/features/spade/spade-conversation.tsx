@@ -45,6 +45,7 @@ import { useSpadeStatus } from "./use-spade-status.ts";
 import { spadeWorks } from "./spade-works.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
+import { panelReveal } from "@/components/ui/rules.ts";
 
 /** Below 680px the profile takes the window (docs/design/spade.md §1). */
 const coverQuery = "(max-width: 42.49rem)";
@@ -370,6 +371,7 @@ export function Conversation(props: {
             style={covering ? undefined : { width, maxWidth: `calc(100% - ${chatMin}px)` }}
             className={cn(
               "bg-panel",
+              panelReveal,
               covering ? "absolute inset-0 z-20" : "relative shrink-0 border-l border-border",
             )}
           >
