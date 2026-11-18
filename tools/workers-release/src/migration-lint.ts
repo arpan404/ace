@@ -45,6 +45,9 @@ function isRule(value: string): value is MigrationRule {
   return (migrationRules as readonly string[]).includes(value);
 }
 
+/** The text as spaces, its newlines kept. */
+const blank = (text: string) => text.replace(/[^\n]/g, " ");
+
 /**
  * The SQL with comments blanked and string literals emptied, each character kept in place (so
  * offsets still map to lines) and newlines kept.
@@ -52,7 +55,6 @@ function isRule(value: string): value is MigrationRule {
 function blankCommentsAndStrings(sql: string): string {
   let out = "";
   let index = 0;
-  const blank = (text: string) => text.replace(/[^\n]/g, " ");
   while (index < sql.length) {
     const rest = sql.slice(index);
     if (rest.startsWith("--")) {
@@ -178,7 +180,7 @@ export function lintMigration(file: string, sql: string): MigrationProblem[] {
       message: `the opt-out for ${rule} allows nothing in this file; remove it`,
     });
   }
-  return problems.sort((a, b) => a.line - b.line);
+  return problems.toSorted((a, b) => a.line - b.line);
 }
 
 /** Every problem in a set of migration files. */

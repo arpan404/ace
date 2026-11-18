@@ -88,11 +88,19 @@ describe("a Worker release", () => {
     expect(worker.migratedWhenDeployed).toEqual(["ACCOUNTS", "OTHER"]);
   });
 
-  it("does nothing when this release already serves all traffic", async () => {
+  it("does nothing when this release already serves all traffic and passes", async () => {
     const worker = new FakeWorker({ id: "same", tag: release.tag, message: release.message });
-    const result = await runDeploy(input(), deps(worker, new Set()));
+    const result = await runDeploy(input(), deps(worker, new Set(["same"])));
     expect(result.code).toBe(exitCodes.deployed);
     expect(result.summary).toContain("nothing to do");
+    expect(worker.liveId).toBe("same");
+    expect(worker.migrated).toEqual([]);
+  });
+
+  it("asks for a human when this release already serves but fails its smoke", async () => {
+    const worker = new FakeWorker({ id: "same", tag: release.tag, message: release.message });
+    const result = await runDeploy(input(), deps(worker, new Set()));
+    expect(result.code).toBe(exitCodes.needsHuman);
     expect(worker.liveId).toBe("same");
     expect(worker.migrated).toEqual([]);
   });

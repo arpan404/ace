@@ -3,6 +3,9 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "exports": {
+    "./migration-lint": "./src/migration-lint.ts"
+  },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "deploy": "node src/deploy.ts",

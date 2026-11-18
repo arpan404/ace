@@ -26,7 +26,7 @@ async function sqlFiles(directory: string): Promise<string[]> {
       return entry.name.endsWith(".sql") ? [path] : [];
     }),
   );
-  return nested.flat().sort();
+  return nested.flat().toSorted();
 }
 
 /** Every problem under these directories, with paths relative to the repository. */

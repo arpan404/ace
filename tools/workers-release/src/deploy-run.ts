@@ -36,6 +36,8 @@ export interface SmokePolicy {
 
 export const defaultSmokePolicy: SmokePolicy = { settleMs: 20_000, attempts: 3, betweenMs: 15_000 };
 
+const settle = (deps: RunDeps) => (deps.policy ?? defaultSmokePolicy).settleMs;
+
 export interface RunInput {
   worker: string;
   environment: "staging" | "production";
@@ -65,9 +67,13 @@ export interface RunResult {
 const describe = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** Whether every origin passes, retrying the whole set a few times while a deploy propagates. */
-async function healthy(origins: readonly string[], deps: RunDeps): Promise<boolean> {
+async function healthy(
+  origins: readonly string[],
+  deps: RunDeps,
+  settleMs: number,
+): Promise<boolean> {
   const policy = deps.policy ?? defaultSmokePolicy;
-  await deps.sleep(policy.settleMs);
+  await deps.sleep(settleMs);
   for (let attempt = 1; attempt <= policy.attempts; attempt += 1) {
     let passed = true;
     for (const origin of origins) {
@@ -102,7 +108,7 @@ async function rollBack(
       summary: `${name}: ${why}, and the rollback to ${previous} failed: ${describe(error)}. A Durable Object class change blocks rollbacks past it.`,
     };
   }
-  if (!(await healthy(input.origins, deps)))
+  if (!(await healthy(input.origins, deps, settle(deps))))
     return {
       code: exitCodes.needsHuman,
       summary: `${name}: ${why}; rolled back to ${previous}, which fails its smoke too`,
@@ -153,11 +159,18 @@ export async function runDeploy(input: RunInput, deps: RunDeps): Promise<RunResu
   if (input.origins.length === 0) return unchanged("the environment has no custom domain to smoke");
 
   const start = decideStart(await deps.port.live(), input.release);
-  if (start.action === "skip")
+  if (start.action === "skip") {
+    // Nothing to deploy, but a run that left this release live and failing mustn't pass now.
+    if (await healthy(input.origins, deps, 0))
+      return {
+        code: exitCodes.deployed,
+        summary: `${name}: ${input.release.tag} already serves all traffic (${start.versionId}) and passes its smoke; nothing to do`,
+      };
     return {
-      code: exitCodes.deployed,
-      summary: `${name}: ${input.release.tag} already serves all traffic (${start.versionId}); nothing to do`,
+      code: exitCodes.needsHuman,
+      summary: `${name}: ${input.release.tag} already serves all traffic (${start.versionId}) but fails its smoke`,
     };
+  }
   if (start.action === "refuse") return unchanged(start.reason);
 
   if (deps.staging) {
@@ -189,7 +202,7 @@ export async function runDeploy(input: RunInput, deps: RunDeps): Promise<RunResu
   if (after.state === "unknown")
     return rollBack(input, deps, start.previous, `the deploy left an unexpected version live`);
 
-  if (await healthy(input.origins, deps))
+  if (await healthy(input.origins, deps, settle(deps)))
     return {
       code: exitCodes.deployed,
       summary: `${name}: ${input.release.tag} is live (${after.versionId}) and passes its smoke`,
