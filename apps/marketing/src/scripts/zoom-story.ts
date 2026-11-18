@@ -98,12 +98,20 @@ export function startZoomStory(root: HTMLElement): void {
   let size: Size = { width: 1, height: 1 };
   let cameras: Camera[] = [];
   let boxes: Record<string, Rect> = {};
+  let tops: Record<string, Rect> = {};
   let mids: { x: number; y: number }[] = [];
   let promptBox: Rect | undefined;
 
   function measure(): void {
     size = { width: stage.clientWidth, height: stage.clientHeight };
     boxes = Object.fromEntries(things.map((thing) => [thing.dataset.thing ?? "", rectOf(thing)]));
+    // A label stands over the screen's corner; on a laptop that is narrower than its body.
+    tops = Object.fromEntries(
+      things.map((thing) => [
+        thing.dataset.thing ?? "",
+        rectOf(thing.querySelector<HTMLElement>("[data-lid]") ?? thing),
+      ]),
+    );
     const { mac, build, workstation, phone } = boxes;
     if (!mac || !build || !workstation || !phone) return;
 
@@ -146,8 +154,9 @@ export function startZoomStory(root: HTMLElement): void {
     cameras = shotOrder.map((id) => frame(shots[id], size));
 
     mids = paths.map((path) => {
-      const from = boxes[path.dataset.from ?? ""];
-      const to = boxes[path.dataset.to ?? ""];
+      // Lines run between screens, not between the wider bodies under them.
+      const from = tops[path.dataset.from ?? ""];
+      const to = tops[path.dataset.to ?? ""];
       if (!from || !to) return { x: 0, y: 0 };
       path.setAttribute("d", link(from, to));
       const half = path.getPointAtLength(path.getTotalLength() / 2);
@@ -207,7 +216,7 @@ export function startZoomStory(root: HTMLElement): void {
       grid.style.backgroundPosition = `${camera.x * 0.18}px ${camera.y * 0.18}px`;
     }
     for (const label of labels) {
-      const box = boxes[label.dataset.label ?? ""];
+      const box = tops[label.dataset.label ?? ""];
       if (!box) continue;
       const at = project(camera, box);
       label.style.transform = `translate(${at.x}px, ${at.y}px)`;

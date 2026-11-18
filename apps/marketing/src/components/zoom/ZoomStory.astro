@@ -4,11 +4,11 @@
  * visitor scrolls, to the thread it became, the app around it, the machines it reached and the
  * phone it calls. Everything is drawn once in one coordinate space (the "world", in the app's
  * own pixels) and scripts/zoom-story.ts moves a camera over it. Labels and captions sit
- * outside the world, so they keep their size at every zoom. Each drawing carries its place
+ * outside the world, so they keep their size at every zoom. The machines are drawn as hardware
+ * (components/devices) with their own desktops on screen. Each drawing carries its place
  * twice: side by side for wide screens (`--x`, `--y`) and stacked for narrow ones (`--tx`,
  * `--ty`). Without the script the story reads as the headline and its captions, in order.
  */
-import { providerIcon } from "@ace/ui-core/provider-icons";
 import { delegates, rows } from "../../content/stage.ts";
 import { product } from "../../content/product.ts";
 import {
@@ -20,25 +20,28 @@ import {
 } from "../../content/zoom.ts";
 import { shotOrder } from "../../scripts/zoom-camera.ts";
 import { links } from "../../site.ts";
-import BrandMark from "../BrandMark.astro";
 import DownloadButton from "../DownloadButton.astro";
 import Icon from "../Icon.astro";
+import Laptop from "../devices/Laptop.astro";
+import LinuxScreen from "../devices/LinuxScreen.astro";
+import MacBook from "../devices/MacBook.astro";
+import Monitor from "../devices/Monitor.astro";
+import WindowsScreen from "../devices/WindowsScreen.astro";
 import MacDesktop from "../mac/MacDesktop.astro";
 import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
 
 /* Where each drawing stands: side by side on wide screens, stacked on narrow ones. */
 const places: Record<CastId, { wide: [number, number]; tall: [number, number] }> = {
   mac: { wide: [0, 0], tall: [0, 0] },
-  build: { wide: [1592, 0], tall: [0, 1100] },
-  workstation: { wide: [1592, 560], tall: [692, 1100] },
-  phone: { wide: [-660, 2], tall: [470, 1650] },
+  build: { wide: [1856, -36], tall: [40, 1190] },
+  workstation: { wide: [1886, 540], tall: [876, 1190] },
+  phone: { wide: [-560, 46], tall: [602, 1810] },
 };
 const place = (id: CastId) => {
   const { wide, tall } = places[id];
   return `--x: ${wide[0]}; --y: ${wide[1]}; --tx: ${tall[0]}; --ty: ${tall[1]}`;
 };
 
-const codex = providerIcon({ provider: "codex" }).brand;
 const soak = delegates.find((agent) => agent.machine === "build-server");
 const sweep = rows.find((row) => row.machine === "workstation");
 const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
@@ -54,34 +57,16 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
         {zoomLinks.map((line) => <path data-link data-from={line.from} data-to={line.to} />)}
       </svg>
 
-      <div class="thing mac" data-thing="mac" style={place("mac")}>
-        <MacDesktop />
+      <div class="thing" data-thing="mac" style={place("mac")}>
+        <MacBook><MacDesktop /></MacBook>
       </div>
 
-      <div class="thing screen far" data-thing="build" style={place("build")}>
-        <div class="bar">
-          <span class="dots"><i></i><i></i><i></i></span>
-          <span class="who">{codex && <BrandMark brand={codex} size={16} />}{soak?.name}</span>
-        </div>
-        <pre class="term"><span class="dim">codex@build-server:~/ace$</span> bun run soak --clients 2000
-<span class="dim">resuming every client from a cold start</span>
-
-<span class="meter"><i></i></span>
-<span class="running">{soak?.detail}</span><span class="finished">2,000 of 2,000 clients resumed</span>
-<span class="finished ok">held: each replay capped at 200 events</span></pre>
+      <div class="thing far" data-thing="build" style={place("build")}>
+        <Laptop><LinuxScreen task={soak?.name ?? ""} progress={soak?.detail ?? ""} /></Laptop>
       </div>
 
-      <div class="thing screen far short" data-thing="workstation" style={place("workstation")}>
-        <div class="bar">
-          <span class="dots"><i></i><i></i><i></i></span>
-          <span class="who">{codex && <BrandMark brand={codex} size={16} />}{sweep?.title}</span>
-        </div>
-        <pre class="term"><span class="dim">codex@workstation:~/billing-api$</span> bun run test --repeat 5
-<span class="dim">started by an automation, every night</span>
-
-checkout.spec.ts <span class="warn">fails 1 run in 5</span>
-cart.spec.ts <span class="ok">passes</span>
-webhooks.spec.ts <span class="ok">passes</span></pre>
+      <div class="thing far" data-thing="workstation" style={place("workstation")}>
+        <Monitor><WindowsScreen task={sweep?.title ?? ""} /></Monitor>
       </div>
 
       <div class="thing phone" data-thing="phone" data-phone-shown style={place("phone")}>
@@ -231,124 +216,8 @@ webhooks.spec.ts <span class="ok">passes</span></pre>
     }
   }
 
-  /* The Mac: its display, with the desktop drawn inside at the Mac's own points. */
-  .mac {
-    width: 1352px;
-    height: 880px;
-    overflow: hidden;
-    border-radius: 20px;
-    box-shadow:
-      0 0 0 1px var(--frame-edge),
-      0 0 0 10px var(--frame),
-      0 0 0 11px var(--frame-edge),
-      0 60px 120px -50px var(--frame-shadow);
-  }
-
   .far {
     opacity: var(--machines);
-  }
-
-  /* Another machine's screen: a terminal, in the app's own dark. */
-  .screen {
-    width: 660px;
-    height: 420px;
-    overflow: hidden;
-    border-radius: 16px;
-    background: #0b0c0e;
-    color: #d6d8dc;
-    box-shadow:
-      0 0 0 1px var(--frame-edge),
-      0 0 0 8px var(--frame),
-      0 0 0 9px var(--frame-edge),
-      0 40px 80px -40px var(--frame-shadow);
-  }
-
-  .short {
-    height: 320px;
-  }
-
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    height: 44px;
-    padding: 0 16px;
-    border-bottom: 1px solid #1e2024;
-    font-size: 14px;
-    color: #a9adb4;
-  }
-
-  .dots {
-    display: flex;
-    gap: 7px;
-  }
-
-  .dots i {
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    background: #2c2f34;
-  }
-
-  .who {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .term {
-    margin: 0;
-    padding: 22px 24px;
-    font-family: var(--font-mono);
-    font-size: 15px;
-    line-height: 1.75;
-    white-space: pre-wrap;
-  }
-
-  .dim {
-    color: #7b8088;
-  }
-
-  .ok {
-    color: #57bd9b;
-  }
-
-  .warn {
-    color: #edc070;
-  }
-
-  .meter {
-    display: block;
-    width: 62%;
-    height: 6px;
-    margin: 6px 0 10px;
-    border-radius: 3px;
-    background: #1e2024;
-  }
-
-  .meter i {
-    display: block;
-    width: 62%;
-    height: 100%;
-    border-radius: 3px;
-    background: #6a8fd8;
-    transition:
-      width 0.6s var(--ease-out),
-      background-color 0.3s;
-  }
-
-  .finished,
-  .zoom[data-done] .running {
-    display: none;
-  }
-
-  .zoom[data-done] .finished {
-    display: inline;
-  }
-
-  .zoom[data-done] .meter i {
-    width: 100%;
-    background: #57bd9b;
   }
 
   /* The phone is drawn a quarter larger than life, so its Lock Screen reads from further back. */
@@ -568,8 +437,7 @@ webhooks.spec.ts <span class="ok">passes</span></pre>
   @media (prefers-reduced-motion: reduce) {
     .zoom :global(.ace .thread > *),
     .zoom :global(.ace .dock .strip),
-    .captions li,
-    .meter i {
+    .captions li {
       transition: none !important;
     }
   }

@@ -1,0 +1,183 @@
+---
+/*
+ * A Linux desktop, 640 × 400: the top bar and one terminal where an agent's command runs. The
+ * home story's build server shows the soak test here; it reads as finished once the story is
+ * done (`data-done` on the story).
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import BrandMark from "../BrandMark.astro";
+
+interface Props {
+  /** The task the agent on this machine is doing, as the terminal's title. */
+  task: string;
+  /** What the run reports while it is still going. */
+  progress: string;
+}
+
+const { task, progress } = Astro.props;
+const codex = providerIcon({ provider: "codex" }).brand;
+---
+
+<div class="linux">
+  <div class="topbar">
+    <span>Activities</span>
+    <b>Tue 3 Nov&nbsp;&nbsp;09:41</b>
+    <span class="tray"><i></i><i></i><i class="power"></i></span>
+  </div>
+  <div class="window">
+    <div class="title">
+      <span>{codex && <BrandMark brand={codex} size={13} />}{task}</span>
+      <i></i>
+    </div>
+    <pre><span class="dim">dev@build-server</span>:<span class="path">~/ace</span>$ bun run soak --clients 2000
+<span class="dim">resuming every client from a cold start</span>
+<span class="meter"><i></i></span><span class="running">{progress}</span><span class="finished">2,000 of 2,000 clients resumed</span>
+<span class="finished ok">held: each replay capped at 200 events</span></pre>
+  </div>
+</div>
+
+<style>
+  .linux {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(90% 80% at 85% 100%, #3b2c5e 0%, transparent 60%),
+      radial-gradient(80% 70% at 0% 0%, #1f3a5c 0%, transparent 62%), #14161f;
+    color: #e6e7ea;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+  }
+
+  .topbar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    height: 26px;
+    padding: 0 12px;
+    background: #000;
+  }
+
+  .topbar b {
+    font-weight: 600;
+  }
+
+  .tray {
+    justify-self: end;
+    display: flex;
+    gap: 9px;
+  }
+
+  .tray i {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: #d0d2d6;
+  }
+
+  .tray .power {
+    border-radius: 50%;
+    background: none;
+    box-shadow: inset 0 0 0 1.5px #d0d2d6;
+  }
+
+  .window {
+    position: absolute;
+    left: 28px;
+    top: 48px;
+    width: 584px;
+    height: 322px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #1d1e22;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.08),
+      0 24px 50px -16px rgb(0 0 0 / 0.8);
+  }
+
+  .title {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    height: 36px;
+    padding: 0 12px 0 36px;
+    background: #2a2b30;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .title span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+
+  /* The header bar's close button. */
+  .title i {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #3c3d43;
+  }
+
+  pre {
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+  }
+
+  .dim {
+    color: #8a8e97;
+  }
+
+  .path {
+    color: #7fa8f5;
+  }
+
+  .ok {
+    color: #57bd9b;
+  }
+
+  .meter {
+    display: block;
+    width: 64%;
+    height: 6px;
+    margin: 8px 0 8px;
+    border-radius: 3px;
+    background: #2d2f35;
+  }
+
+  .meter i {
+    display: block;
+    width: 62%;
+    height: 100%;
+    border-radius: 3px;
+    background: #6a8fd8;
+    transition:
+      width 0.6s var(--ease-out),
+      background-color 0.3s;
+  }
+
+  .finished,
+  :global([data-done]) .running {
+    display: none;
+  }
+
+  :global([data-done]) .finished {
+    display: inline;
+  }
+
+  :global([data-done]) .meter i {
+    width: 100%;
+    background: #57bd9b;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .meter i {
+      transition: none;
+    }
+  }
+</style>

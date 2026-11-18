@@ -30,6 +30,11 @@
   --line: #8d9bff;
   --dot: rgb(255 255 255 / 0.13);
   /* A drawn screen's bezel, its hairline and the shadow under it. */
+  /* A drawn MacBook's aluminium: its lit top edge, its face, its underside and the lid's rim. */
+  --metal-hi: #5c5e63;
+  --metal: #34363a;
+  --metal-lo: #17181b;
+  --metal-rim: #3d3f44;
   --frame: #1a1e24;
   --frame-edge: rgb(255 255 255 / 0.1);
   --frame-shadow: rgb(0 0 0 / 0.9);
@@ -80,6 +85,10 @@ html[data-theme="light"] {
 
   --line: #2540ff;
   --dot: rgb(16 20 24 / 0.2);
+  --metal-hi: #f1f2f4;
+  --metal: #c9cbcf;
+  --metal-lo: #8b8d92;
+  --metal-rim: #a9abb0;
   --frame: #101418;
   --frame-edge: rgb(16 20 24 / 0.16);
   --frame-shadow: rgb(30 40 80 / 0.5);
