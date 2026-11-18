@@ -80,25 +80,26 @@ struct InsetRow<Trailing: View>: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// At accessibility sizes the row stacks: the glyph stays at the leading edge, the title
-    /// wraps at word breaks across the row's width and the trailing view goes under it, so a
-    /// value or a switch never squeezes a word apart.
+    /// At accessibility sizes the row stacks: the decorative glyph steps aside so the title has
+    /// the row's whole width and wraps only at word breaks, and the trailing view goes under it,
+    /// so neither a value nor a glyph squeezes a word apart or overlaps it.
     var body: some View {
-        HStack(alignment: stacked ? .firstTextBaseline : .center, spacing: AceDesign.Space.groupGlyphGap) {
-            glyphView
-            if stacked {
-                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                    words
-                    trailing()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
+        if stacked {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                words
+                trailing()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        } else {
+            HStack(spacing: AceDesign.Space.groupGlyphGap) {
+                glyphView
                 words
                 Spacer(minLength: AceDesign.Space.related)
                 trailing()
             }
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
     }
 
     private var stacked: Bool { typeSize.isAccessibilitySize }

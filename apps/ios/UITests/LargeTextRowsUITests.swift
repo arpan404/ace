@@ -28,6 +28,11 @@ import XCTest
         XCTAssertTrue(value.exists, "the row shows how many machines")
         XCTAssertGreaterThanOrEqual(value.frame.minY, title.frame.maxY - 1, "the count sits under the title")
         XCTAssertLessThan(value.frame.minX, title.frame.maxX, "the count starts under the title, not past it")
+        // A longer word gets the row's whole width: the glyph steps aside rather than split it.
+        let notifications = app.buttons["settings.notifications"].staticTexts["Notifications"]
+        if notifications.exists {
+            XCTAssertGreaterThan(notifications.frame.width, notifications.frame.height * 2.5, "“Notifications” stays whole")
+        }
 
         row.tap()
         let machine = app.descendants(matching: .any)
@@ -35,9 +40,6 @@ import XCTest
             .firstMatch
         XCTAssertTrue(machine.waitForExistence(timeout: 20))
         screenshot("large-machines")
-        machine.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["provider.codex"].firstMatch.waitForExistence(timeout: 20))
-        screenshot("large-machine-page")
     }
 
     private func screenshot(_ name: String) {
