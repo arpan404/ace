@@ -120,14 +120,13 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   const child = spawn(launch.command, launch.args, {
     cwd: dirname(options.resources.entry),
     env: daemonEnvironment(options, program.env),
-    stdio: [options.appKey ? "pipe" : "ignore", "pipe", "pipe"],
+    // Stdin carries the app's key and then closes; without a key it closes at once.
+    stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
-  if (options.appKey && child.stdin) {
-    // A daemon that exits before reading it closes the pipe: that failure is its exit's.
-    child.stdin.on("error", () => {});
-    child.stdin.end(appKeyLine(options.appKey));
-  }
+  // A daemon that exits before reading it closes the pipe: that failure is its exit's.
+  child.stdin.on("error", () => {});
+  child.stdin.end(options.appKey ? appKeyLine(options.appKey) : undefined);
   for (const [name, stream] of [
     ["stdout", child.stdout],
     ["stderr", child.stderr],

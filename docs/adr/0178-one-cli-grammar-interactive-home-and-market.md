@@ -645,7 +645,7 @@ sentence` and exit 1 before anything is uploaded.
 - **Sensitive actions** (install, withdraw, transfer and accepting one, changing the handle,
   deleting an entry, editing a verified profile, applying for or checking verification) need a
   sign-in within ten minutes (`reauth`, ADR 0174 §2). The market checks its share on the grant;
-  the daemon checks install and the rest when they arrive over the host token (§12.7). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
+  the daemon checks install and the rest when they arrive over the host token alone (§12.7, §12.8). On a terminal: "Sign in again to do this." and the sign-in link, then the action runs
   once the new session is recorded. Without a terminal: exit 2, code `reauth`. The CLI never holds
   a grant: the daemon mints one per request and drops it, as ADR 0174 requires.
 - `suspended`, `quota`, `forbidden` and `conflict` exit 4 with the market's sentence.
@@ -698,7 +698,8 @@ person's tool and the fallback for a shell.
 - **The thread field is the caller's word.** `marketplace.request` names a thread when an agent
   asks, and the daemon can't verify that a host-token caller who names none is the person. So a
   request without a thread isn't trusted as the person's: over the host token, its person-only
-  actions need a fresh sign-in (§12.7).
+  actions need a fresh sign-in (§12.7). The app's own page is not "the host token" here: it proves
+  it is the app's (§12.8).
   How a coding agent publishes, in its own words:
 
 ```
@@ -732,7 +733,7 @@ follow:
 
 | Who asks                                              | Answers a request                                                                   | Person-only market action  | "Ask me before agents publish" |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------- | ------------------------------ |
-| The app, a paired device                              | Yes                                                                                 | Yes                        | Yes                            |
+| The app's page (§12.8), a paired device               | Yes                                                                                 | Yes                        | Yes                            |
 | The host-token CLI, a person at a terminal            | Typed confirmation; a market request also needs a fresh sign-in                     | Fresh sign-in              | Fresh sign-in                  |
 | The host-token CLI off a terminal                     | Never (exit 2, `confirm`)                                                           | Fresh sign-in              | Fresh sign-in                  |
 | An agent's shell (`ACE_THREAD_ID` or `ACE_NO_INPUT`)  | Never (exit 2, `person_only`)                                                       | A request for the person   | Never                          |
@@ -743,7 +744,8 @@ follow:
   and its `authAt`, both on the account backend's clock, so this machine's clock can't make a
   stale sign-in look fresh. The sign-in happens in a browser, which an agent can't do for the
   person. Refusals are `reauth`, saying to use the app or a paired device, or `ace login` and try
-  again within ten minutes.
+  again within ten minutes. "The app" is the page that proved it is the app's (§12.8); holding
+  the host token is not enough.
 - **Typed confirmation.** Answering from the CLI needs a person at a terminal (stdin and stdout
   both terminals, no `--json`, `--quiet` or `--no-input`) who types the verb (`allow`, `deny`,
   `answer`); Enter alone doesn't confirm. Off a terminal nothing is answered, `ace chat`'s piped
@@ -754,6 +756,81 @@ follow:
   token. The typed confirmation and the agent checks raise the bar for honest agents and
   mistakes; the fresh sign-in and the app are the boundary. A request or setting that matters
   more than the host token goes behind them.
+
+#### 12.8 How the app's page shows it is the app (amended 2026-11-17)
+
+The desktop app's page reached its daemon with the host token, read from `ACE_HOME/daemon-token`
+like any other local client's. So the daemon counted it as the host token alone and refused install
+and the rest of §12.7 with `reauth`, the opposite of the table above. The token can't tell them
+apart: anything that reads ACE_HOME holds the same bytes. The app therefore proves itself with
+something only it and its daemon hold.
+
+- **A key per daemon the app starts.** Each time the app spawns `ace start` it makes 32 random
+  bytes, sets `ACE_APP_KEY=stdin` and writes the key as one hex line on the daemon's stdin, then
+  closes it (`@ace/service/app-key`, `apps/desktop/src/main/daemon/spawn.ts`). The daemon reads at
+  most 128 bytes within 5 seconds, before it listens, removes the flag from its environment and
+  keeps the key in memory only (`apps/daemon/src/app-key-input.ts`). No key, a malformed line or a
+  stdin that stays open means a daemon without one. A crash restart is a new spawn with a new key.
+- **The page's proof.** The supervisor makes it for its own child only, never for a daemon it
+  adopted: base64url HMAC-SHA256 of `ace-app/v1\n<port>`, keyed by that child's key, for the
+  port the page will dial. It reaches the page with the token in the connection hand-off
+  (`appProof`), and the page sends it in its hello next to the token. It is never stored. The
+  page follows each new hand-off, so the proof follows the daemon's restarts.
+- **What the daemon does with it.** It checks the proof against the port the socket actually
+  reached. A good proof marks the socket as the app's. It keeps the host's authority
+  (`hostCredential`, which the CLI's MCP calls, previews and fleet checks read), but it is not
+  `hostTokenOnly`. The §12.7 checks read `hostTokenOnly`: person-only market actions, answering a
+  person-only market request, and changing "Ask me before agents publish". A missing or wrong proof never
+  refuses a hello; the socket is then the host token alone, as before.
+
+Who now does person-only market actions without a fresh sign-in: the page in the desktop app,
+connected to the daemon that app started; paired devices; account devices (ADR 0111). Everyone
+else on the host token (the CLI, a browser tab opened with the token, the app's own background
+link, any process that read ACE_HOME) still needs the fresh sign-in. A browser tab gets the app's
+standing by pairing.
+
+Why an agent that reads ACE_HOME still can't: the key is never in a file, an argument or the
+environment, only the flag that says it's on stdin. On macOS and Linux that stdin is a socket
+pair, which can't be opened again through `/proc`. The daemon reads it to the end before it
+listens, so before any agent runs; a process it starts that inherits stdin finds nothing left. The proof lives in
+the app's main process and its page. Because a proof is bound to a port, a process that rewrites
+`daemon-endpoint` and listens somewhere else collects a proof that is worthless at the daemon's
+port. And a key lasts one daemon run.
+
+Options considered:
+
+- **The `desktop` bearer** (`browser-desktop.json`, the embedded browser's local credential). It is a file
+  in ACE_HOME, so reading it is as easy as reading the token. Rejected.
+- **A lasting app credential in the OS keychain** (Electron `safeStorage`), which would work with a
+  daemon the app didn't start too. Linux's secret service and Windows' DPAPI hand it to any
+  process of the same user, and a lasting credential is worse to leak than one daemon run's key.
+  Rejected for now.
+- **Checking the connecting process** (its pid and code signature). It differs on every platform,
+  and an agent can start the app's own binary. Rejected.
+- **The daemon minting the key and sending it to the app.** It needs a channel back that no child
+  of the daemon can write to; stdout is shared with children that inherit it. Rejected.
+
+What this leaves:
+
+- **A daemon the app didn't start** (`ace start` from a terminal, the login service, development's
+  `bun run daemon`). The app attaches with no key, its page is the host token alone, and
+  person-only actions need a fresh sign-in; the `reauth` sentence says to sign in. Stopping a
+  daemon started from a terminal and opening the app gives the app its own daemon and key. With
+  the login service installed, the app starts the service's daemon and never its own, so a
+  person-only action there always takes a fresh sign-in.
+- **The market's own check** (ADR 0174 §2). Withdraw, transfers, handle changes and
+  verified-profile edits need a sign-in from the last ten minutes at the market itself, from the
+  app too. Its refusal keeps the code `reauth` and says to sign in and try again.
+- **A process that can read the app's or the daemon's memory** (a debugger, ptrace where the OS
+  allows it) gets the key, as it gets everything else. "What this doesn't stop" in §12.7 holds.
+
+Tests: `cli-market-agent.process.test.ts` (the app's page installs, answers a person-only request
+and changes the setting with a stale sign-in, while the host token alone and a proof made with
+another key get `reauth`); `app-key.test.ts` (a proof is bound to its port and key);
+`app-key-input.test.ts` (the key is read only when flagged, and a stdin left open or overlong gives
+none); `supervisor-app-key.test.ts` (a proof only for the app's own child, new on each restart);
+`spawn.process.test.ts` (the key is on stdin and in no environment variable);
+`app-proof-hello.test.ts` and `remote-credential.test.ts` (the page's hello carries it).
 
 ### 13. ADR 0092 still holds
 

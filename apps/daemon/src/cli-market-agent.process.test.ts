@@ -74,14 +74,10 @@ async function world(options: { signedInAt?: () => number; appKey?: Uint8Array }
     else return false;
     return true;
   });
-  const f = await daemonFixture(
-    undefined,
-    options.appKey ? { appKey: options.appKey } : {},
-    {
-      ACE_MARKET_URL: market.origin,
-      ACE_ACCOUNT_URL: backend.origin,
-    },
-  );
+  const f = await daemonFixture(undefined, options.appKey ? { appKey: options.appKey } : {}, {
+    ACE_MARKET_URL: market.origin,
+    ACE_ACCOUNT_URL: backend.origin,
+  });
   cleanup.push(() => f.daemon.close());
   await f.daemon.settings.set("beta.marketplace", true, { kind: "global" });
   // Signing in starts ace's relay registration, which this fake account doesn't serve; remote
