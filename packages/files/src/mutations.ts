@@ -212,7 +212,7 @@ export class Mutations {
    */
   async change(applied: Applied): Promise<WorkspaceFileChange> {
     const path = applied.destination ?? applied.path;
-    const after = await this.io.describe(this.root(), path, { full: true }).catch(() => null);
+    const after = await this.io.describe(this.root(), path, { full: true });
     return { ...applied, version: after?.version ?? null };
   }
   /** Forget a trash entry: delete the bytes it kept, then its row. */
@@ -236,7 +236,7 @@ export class Mutations {
       await this.exclusive.move(join(this.options.dataDir, "trash", id), destination.path);
     } catch (error) {
       if (error instanceof FileError && error.code === "CONFLICT") {
-        const current = await this.io.describe(this.root(), path).catch(() => null);
+        const current = await this.io.describe(this.root(), path, { full: true });
         throw new FileError(
           "CONFLICT",
           "Restore destination must be absent",
