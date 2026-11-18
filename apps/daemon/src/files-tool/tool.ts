@@ -71,6 +71,7 @@ export type FilesToolClient = {
     options: {
       limit?: number | undefined;
       cursor?: string | undefined;
+      snapshot?: boolean | undefined;
       signal?: AbortSignal | undefined;
     },
   ): Promise<PageReply>;
@@ -281,6 +282,8 @@ export class FilesTool {
     options: {
       limit?: number | undefined;
       cursor?: string | undefined;
+      /** Pin the listing for a multi-page traversal that must not fail on a changing folder. */
+      snapshot?: boolean | undefined;
       signal?: AbortSignal | undefined;
     } = {},
   ): Promise<FolderPage> {
@@ -293,6 +296,7 @@ export class FilesTool {
       client.list(root, dir, {
         limit,
         ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+        ...(options.snapshot === undefined ? {} : { snapshot: options.snapshot }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       }),
     );

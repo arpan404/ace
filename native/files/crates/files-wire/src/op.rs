@@ -34,6 +34,11 @@ pub(crate) fn knows(tag: &str) -> bool {
     TAGS.contains(&tag)
 }
 
+/// Keeps the default `false` off the wire.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 /// One request. `root` is the number `openRoot` handed out, not a path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -61,6 +66,10 @@ pub enum Op {
         cursor: Option<String>,
         /// Glob patterns that are never listed, such as `.git`.
         hide: Vec<String>,
+        /// Page through one pinned listing instead of a folder's stamp, so a traversal that walks
+        /// a whole checkout can page a folder that just changed. Internal callers only.
+        #[serde(default, skip_serializing_if = "is_false")]
+        snapshot: bool,
     },
     /// Describe one path.
     Stat {
@@ -210,6 +219,7 @@ mod tests {
                 limit: 1,
                 cursor: None,
                 hide: Vec::new(),
+                snapshot: false,
             },
             Op::Stat {
                 root: 0,

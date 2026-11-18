@@ -36,6 +36,7 @@ fn pages_through_a_folder_in_vs_code_order() {
         limit: 2,
         cursor: None,
         hide: hide(),
+        snapshot: false,
     });
     let page = match client.reply(first) {
         Reply::Page(page) => page,
@@ -64,6 +65,7 @@ fn pages_through_a_folder_in_vs_code_order() {
         limit: 2,
         cursor: Some(cursor),
         hide: hide(),
+        snapshot: false,
     });
     let page = match client.reply(second) {
         Reply::Page(page) => page,
@@ -93,6 +95,7 @@ fn refuses_a_page_larger_than_the_contract_allows() {
         limit: 5_001,
         cursor: None,
         hide: hide(),
+        snapshot: false,
     });
     assert_eq!(client.error(too_big).code, "INVALID_ARGUMENT");
 
@@ -102,6 +105,7 @@ fn refuses_a_page_larger_than_the_contract_allows() {
         limit: 0,
         cursor: None,
         hide: hide(),
+        snapshot: false,
     });
     assert_eq!(client.error(empty).code, "INVALID_ARGUMENT");
 }
@@ -192,6 +196,7 @@ fn transfer_temporaries_never_appear_in_listings_or_quick_open() {
             limit: 100,
             cursor: None,
             hide: hide(),
+            snapshot: false,
         });
         match client.reply(id) {
             Reply::Page(page) => page
@@ -284,6 +289,7 @@ fn a_folder_deleted_after_the_build_leaves_no_paths_behind() {
         limit: 100,
         cursor: None,
         hide: hide(),
+        snapshot: false,
     });
     let Reply::Page(page) = client.reply(id) else {
         panic!("list answered");

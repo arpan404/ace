@@ -243,6 +243,7 @@ pub fn list(wire: &mut Wire, root: u64, dir: &str, limit: u64) -> Result<Page, W
         limit,
         cursor: None,
         hide: vec![".git".to_owned(), ".DS_Store".to_owned()],
+        snapshot: false,
     })? {
         Reply::Page(page) => Ok(page),
         other => Err(WireError::failed(format!("list answered {other:?}"))),

@@ -190,3 +190,46 @@ fn a_cursor_is_not_trusted_while_the_folder_is_racy() {
         .unwrap();
     assert_eq!(support::names(&second.entries), ["f2.txt", "f3.txt"]);
 }
+
+#[test]
+fn a_pinned_listing_pages_a_folder_that_changed_between_pages() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    for index in 0..6 {
+        support::write(root, &format!("f{index}.txt"), "x");
+    }
+    // The folder is inside the racy window, so a plain cursor can never prove it is unchanged.
+    let clock = std::sync::Arc::new(support::FakeClock::new(std::time::SystemTime::now()));
+    let lister = support::lister_with(root, clock);
+
+    let first = lister.list_pinned("", &options(2)).unwrap();
+    assert_eq!(support::names(&first.entries), ["f0.txt", "f1.txt"]);
+    let cursor = first.next_cursor.unwrap();
+
+    // A file lands while the traversal is between pages: its pinned listing still holds the
+    // folder as the traversal first read it, so nothing is skipped or repeated.
+    support::write(root, "late.txt", "x");
+    let second = lister
+        .list_pinned(
+            "",
+            &ListOptions {
+                cursor: Some(cursor.clone()),
+                ..options(2)
+            },
+        )
+        .unwrap();
+    assert_eq!(support::names(&second.entries), ["f2.txt", "f3.txt"]);
+    assert_eq!(second.total, 6);
+
+    // The same cursor means nothing to a person-facing listing, which needs the folder's stamp.
+    let refused = lister
+        .list(
+            "",
+            &ListOptions {
+                cursor: Some(cursor),
+                ..options(2)
+            },
+        )
+        .unwrap_err();
+    assert_eq!(refused.code(), "INVALID_CURSOR");
+}

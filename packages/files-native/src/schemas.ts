@@ -127,6 +127,8 @@ export const opSchema = z.discriminatedUnion("op", [
     limit: u64,
     cursor: z.string().optional(),
     hide: z.array(z.string()),
+    /** Page one pinned listing; a traversal of the whole checkout sets it. */
+    snapshot: z.boolean().optional(),
   }),
   z.object({ op: z.literal("stat"), root: u64, path: z.string() }),
   z.object({ op: z.literal("describe"), root: u64, path: z.string() }),
