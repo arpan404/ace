@@ -184,9 +184,9 @@ export function localFilesIo(
       const safe = await safeRoot(root);
       if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
       const source = await safe.target(from);
+      if (expected !== null) checkVersion(await observed(safe, from), expected);
       if (process.platform === "win32" && (await caseOnlyRename(safe, from, to, source))) return;
       const destination = await safe.target(to);
-      if (expected !== null) checkVersion(await observed(safe, from), expected);
       await source.verify();
       await destination.verify();
       await exclusive.move(source.path, destination.path);
