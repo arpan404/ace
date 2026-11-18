@@ -31,30 +31,42 @@ impl Hardening {
     }
 }
 
-/// Programs that read no configuration (file or variable) that can make them run a program.
+/// Programs that read no configuration (file or variable) that can make them run a program, as
+/// their documentation describes them (the audit, with the line each rests on, is in
+/// `spade/docs/autonomy.md`, "Programs a settled command may run"). Each option that runs, pipes
+/// to or loads a program is refused in [`settleable`].
 const PLAIN: &[&str] = &[
+    // Shell builtins (bash(1) "SHELL BUILTIN COMMANDS"): no configuration.
+    "echo",
+    "printf",
+    "true",
+    "false",
+    "test",
+    "[",
+    "pwd",
+    "type",
+    "cd",
+    "pushd",
+    "popd",
+    "exit",
+    "return",
+    "shift",
+    "wait",
+    "umask",
+    // GNU coreutils: their variables set formats and locales only (ls(1) TIME_STYLE, LS_COLORS;
+    // du(1)/df(1) BLOCK_SIZE; sort(1) TMPDIR); none names a program.
     "cat",
     "head",
     "tail",
     "wc",
     "ls",
-    "pwd",
-    "echo",
-    "printf",
     "sleep",
-    "true",
-    "false",
-    "test",
-    "[",
     "date",
-    "which",
-    "type",
     "basename",
     "dirname",
     "realpath",
     "readlink",
     "stat",
-    "file",
     "du",
     "df",
     "sort",
@@ -64,43 +76,25 @@ const PLAIN: &[&str] = &[
     "comm",
     "join",
     "paste",
-    "column",
     "nl",
     "fold",
     "fmt",
     "expand",
     "unexpand",
-    "rev",
     "tac",
     "od",
-    "xxd",
-    "hexdump",
-    "strings",
     "sha256sum",
     "sha1sum",
     "sha512sum",
     "md5sum",
-    "md5",
-    "shasum",
     "cksum",
     "b2sum",
     "seq",
     "id",
     "whoami",
-    "hostname",
     "uname",
-    "uptime",
     "nproc",
-    "free",
-    "ps",
-    "pgrep",
     "printenv",
-    "diff",
-    "cmp",
-    "find",
-    "tree",
-    "fd",
-    "jq",
     "mkdir",
     "touch",
     "cp",
@@ -111,69 +105,33 @@ const PLAIN: &[&str] = &[
     "chmod",
     "tee",
     "truncate",
-    "split",
-    "csplit",
-    "cd",
-    "pushd",
-    "popd",
-    "export",
-    "unset",
-    "set",
-    "read",
-    "exit",
-    "return",
-    "shift",
-    "local",
-    "declare",
-    "wait",
-    "hash",
-    "umask",
-    "getconf",
-    "lsblk",
-    "lscpu",
-    "dmesg",
-    "ip",
-    "ss",
-    "netstat",
-    "lsof",
-    "hyprctl",
-    "gzip",
-    "gunzip",
-    "zcat",
-    "xz",
-    "unxz",
-    "bzip2",
-    "bunzip2",
-    "zstd",
-    "unzstd",
     "base32",
     "numfmt",
     "factor",
     "expr",
     "yes",
-    "env",
-    "tokei",
-    "cloc",
-    "wl-paste",
+    // GNU diffutils diff(1) and cmp(1), GNU which(1), binutils strings(1).
+    "diff",
+    "cmp",
+    "which",
+    "strings",
+    // util-linux: colour schemes only (terminal-colors.d).
+    "rev",
+    "column",
+    "hexdump",
+    // procps uptime(1) and free(1).
+    "uptime",
+    "free",
+    // findutils find(1), fd(1), jq(1) (`~/.jq` is jq code, which can't run a program), file(1).
+    "find",
+    "fd",
+    "jq",
+    "file",
 ];
 
-/// Programs neutralised by [`ENV`] (named here for the variables that cover them).
+/// Programs neutralised by [`ENV`], for the uses [`settleable`] allows.
 const HARDENED: &[&str] = &[
-    "git",
-    "rg",
-    "grep",
-    "egrep",
-    "fgrep",
-    "less",
-    "more",
-    "tar",
-    "zip",
-    "unzip",
-    "awk",
-    "gawk",
-    "mawk",
-    "sed",
-    "journalctl",
+    "git", "rg", "grep", "egrep", "fgrep", "less", "more", "tar", "awk", "gawk", "mawk", "sed",
 ];
 
 /// What every settled command runs with. `GIT_CONFIG_COUNT` entries are command-line scope:
@@ -194,6 +152,12 @@ const GIT_KEYS: &[(&str, &str)] = &[
     ("gpg.ssh.defaultKeyCommand", "false"),
     ("log.showSignature", "false"),
     ("core.untrackedCache", "false"),
+    // Files git would read or write by a path the configuration names.
+    ("core.excludesFile", "/dev/null"),
+    ("core.attributesFile", "/dev/null"),
+    ("mailmap.file", "/dev/null"),
+    ("mailmap.blob", ""),
+    ("log.mailmap", "false"),
 ];
 
 const ENV: &[(&str, &str)] = &[
@@ -209,25 +173,33 @@ const ENV: &[(&str, &str)] = &[
     ("GIT_TERMINAL_PROMPT", "0"),
     ("GIT_NO_LAZY_FETCH", "1"),
     ("GIT_OPTIONAL_LOCKS", "0"),
+    ("GIT_TRACE", "0"),
+    ("GIT_TRACE2", "0"),
+    ("GIT_TRACE2_EVENT", "0"),
+    ("GIT_TRACE2_PERF", "0"),
+    ("GIT_TRACE_PACKET", "0"),
+    ("GIT_TRACE_PERFORMANCE", "0"),
+    ("GIT_TRACE_SETUP", "0"),
     ("PAGER", "cat"),
     ("MANPAGER", "cat"),
-    ("SYSTEMD_PAGER", "cat"),
     ("EDITOR", "false"),
     ("VISUAL", "false"),
     ("RIPGREP_CONFIG_PATH", ""),
     ("GREP_OPTIONS", ""),
+    ("LESS", ""),
+    ("LESSSECURE", "1"),
     ("LESSOPEN", ""),
     ("LESSCLOSE", ""),
     ("LESSKEYIN", "/dev/null"),
     ("LESSKEY", "/dev/null"),
     ("LESSKEYIN_SYSTEM", "/dev/null"),
+    ("LESSHISTFILE", "-"),
+    ("MORE", ""),
+    ("MORESECURE", "1"),
+    ("PAGERSECURE", "1"),
     ("TAR_OPTIONS", ""),
-    ("ZIPOPT", ""),
-    ("UNZIP", ""),
-    ("UNZIPOPT", ""),
     ("AWKPATH", ""),
     ("AWKLIBPATH", ""),
-    ("POSIXLY_CORRECT", ""),
 ];
 
 /// The names [`hardening`] sets: a terminal never carries them to the next command.
@@ -261,6 +233,11 @@ pub fn hardening(command: &str) -> Option<Hardening> {
     if cfg!(windows) {
         return None;
     }
+    // Text built at run time anywhere in it (`$(…)`, backticks, `${…}`, `$((…))`) can set
+    // variables or run something, and the parser reads a substitution as a command of its own.
+    if command.contains("$(") || command.contains('`') || command.contains("${") {
+        return None;
+    }
     let commands = shell::read(command)?;
     if commands.is_empty() {
         return None;
@@ -273,20 +250,54 @@ fn base(word: &str) -> &str {
 }
 
 fn settleable(simple: &Simple) -> bool {
+    // A variable it sets (`VAR=x cmd`, `env VAR=x cmd`, a bare `VAR=x`) can change what any
+    // program reads (`TAR_OPTIONS`, `LESSOPEN`, `PATH`…): never settled.
+    if simple.assigns {
+        return false;
+    }
+    // Text built at run time (`$(…)`, backticks, `${…}`, `$((…))`) can set variables or run
+    // something.
+    if simple
+        .words
+        .iter()
+        .chain(&simple.writes_to)
+        .chain(&simple.reads_from)
+        .any(|w| w.contains("$(") || w.contains('`') || w.contains("${"))
+    {
+        return false;
+    }
     let Some(first) = simple.words.first() else {
+        // A bare redirect.
         return true;
     };
     let program = base(first);
     let args = &simple.words[1..];
+    let short = |a: &str, letters: &str| {
+        a.starts_with('-') && !a.starts_with("--") && a.chars().skip(1).any(|c| letters.contains(c))
+    };
     if PLAIN.contains(&program) {
         return match program {
+            // find(1) ACTIONS: these run a command.
             "find" => !args
                 .iter()
                 .any(|a| matches!(a.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir")),
-            "fd" => !args
-                .iter()
-                .any(|a| matches!(a.as_str(), "-x" | "--exec" | "-X" | "--exec-batch")),
+            // fd(1): -x/--exec and -X/--exec-batch run a command.
+            "fd" => !args.iter().any(|a| {
+                a.starts_with("--exec")
+                    || a == "-x"
+                    || a == "-X"
+                    || (short(a, "xX") && !a.contains('='))
+            }),
+            // sort(1) --compress-program=PROG.
             "sort" => !args.iter().any(|a| a.starts_with("--compress-program")),
+            // file(1): -z/-Z run external decompressing programs; -C writes a magic file.
+            "file" => !args.iter().any(|a| {
+                a.starts_with("--uncompress") || a.starts_with("--compile") || short(a, "zZC")
+            }),
+            // printf -v sets a variable.
+            "printf" => !args.iter().any(|a| a == "-v"),
+            // date -s sets the clock.
+            "date" => !args.iter().any(|a| a.starts_with("--set") || short(a, "s")),
             _ => true,
         };
     }
@@ -297,26 +308,38 @@ fn settleable(simple: &Simple) -> bool {
         "git" => git(args),
         "awk" | "gawk" | "mawk" => awk(args),
         "sed" => sed(args),
-        "rg" => !args.iter().any(|a| a.starts_with("--pre")),
-        "tar" => !args.iter().any(|a| {
+        // rg(1): --pre=COMMAND and --hostname-bin=COMMAND run a program; -z/--search-zip runs
+        // decompressors.
+        "rg" => !args.iter().any(|a| {
+            a.starts_with("--pre")
+                || a.starts_with("--hostname-bin")
+                || a.starts_with("--search-zip")
+                || short(a, "z")
+        }),
+        // tar(1): --to-command, -I/--use-compress-program, -F/--info-script,
+        // --new-volume-script, --checkpoint-action, --rsh-command and --rmt-command run a
+        // program; an archive name with a colon is on another machine, reached through rsh.
+        "tar" => !args.iter().enumerate().any(|(i, a)| {
             a.starts_with("--to-command")
                 || a.starts_with("--use-compress-program")
                 || a.starts_with("--checkpoint-action")
                 || a.starts_with("--info-script")
                 || a.starts_with("--new-volume-script")
-                || a == "-I"
-                || a == "-F"
+                || a.starts_with("--rsh-command")
+                || a.starts_with("--rmt-command")
+                || a.contains(':')
+                || short(a, "FI")
+                // The old style (`tar xFf a.tar`): a first word of option letters.
+                || (i == 0 && !a.starts_with('-') && (a.contains('F') || a.contains('I')))
         }),
-        "zip" => !args
-            .iter()
-            .any(|a| a.starts_with("-TT") || a.starts_with("--unzip-command")),
-        // A `+` command can run a shell (`+!cmd`), save to a file or open an editor: only a
-        // line number is allowed.
+        // less(1) and more(1): a `+` command can run a shell (`+!cmd`), save to a file or open
+        // an editor, so only a line number is allowed; LESSSECURE and MORESECURE are set too.
         "less" | "more" => !args.iter().any(|a| {
             a.starts_with("--lesskey")
                 || a == "-k"
                 || a.starts_with('+') && !a[1..].chars().all(|c| c.is_ascii_digit())
         }),
+        // grep(1): its variables set colours and locales.
         _ => true,
     }
 }
@@ -740,6 +763,7 @@ mod tests {
             "sed -e 's/a/b/g' -e '/x/d' notes.txt",
             "awk -F, '{print $2}' data.csv",
             "tar tzf out.tgz",
+            "less notes.txt",
             "find . -name '*.rs' -newer Cargo.toml",
             "less +42 notes.txt",
         ] {
@@ -787,6 +811,36 @@ mod tests {
             "rg --pre ./x TODO",
             "find . -exec rm {} ;",
             "less '+!rm -rf x' notes.txt",
+            // Any variable it sets, and text built at run time.
+            "TAR_OPTIONS='--checkpoint=1 --checkpoint-action=exec=./evil' tar -tf a.tar",
+            "env TAR_OPTIONS=x tar -tf a.tar",
+            "LESSOPEN='|./x %s' less notes.txt",
+            "X=1",
+            "X=1; ls",
+            "export PATH=.:$PATH",
+            "declare -x LESS=x",
+            "readonly X=1",
+            "typeset X=1",
+            "set -a",
+            "read x",
+            "printf -v x '%s' y",
+            "echo ${X:=y}",
+            "echo $((x=1))",
+            "ls $(pwd)",
+            "sh -c 'X=1 ls'",
+            // Programs removed by the audit.
+            "cloc .",
+            "tree -L 2",
+            "ps aux",
+            "split --filter='sh' x",
+            "env",
+            "file -z a.gz",
+            "rg -z TODO",
+            "rg --hostname-bin=./h TODO",
+            "tar -xf host:/tmp/a.tar",
+            "tar --rsh-command=./r -tf a.tar",
+            "tar tFf ./script a.tar",
+            "fd -x rm",
             "more +line notes.txt",
         ] {
             assert!(!settles(command), "{command}");
