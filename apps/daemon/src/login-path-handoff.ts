@@ -124,15 +124,22 @@ function parsePending(raw: string): PendingLoginPath | undefined {
   }
 }
 
-/** The first line of `stream`, without its newline; undefined if it ends before one. */
-export function firstLine(stream: Readable, maxBytes = 1_048_576): Promise<string | undefined> {
+/**
+ * The first line of `stream`, without its newline; undefined if it ends before one, or once
+ * `signal` aborts (a stopping daemon). Either way the stream is released: its listeners are
+ * removed and it is destroyed, so a writer that keeps it open can't keep the process alive.
+ */
+export function firstLine(
+  stream: Readable,
+  { maxBytes = 1_048_576, signal }: { maxBytes?: number; signal?: AbortSignal } = {},
+): Promise<string | undefined> {
   return new Promise((resolve) => {
     let text = "";
-    stream.setEncoding("utf8");
     const finish = (line: string | undefined) => {
       stream.off("data", data);
       stream.off("end", end);
       stream.off("error", end);
+      signal?.removeEventListener("abort", end);
       // Nothing else is read from it: let the process exit without waiting on it.
       stream.destroy();
       resolve(line);
@@ -144,8 +151,26 @@ export function firstLine(stream: Readable, maxBytes = 1_048_576): Promise<strin
       else if (text.length > maxBytes) finish(undefined);
     };
     const end = () => finish(undefined);
+    if (signal?.aborted) return finish(undefined);
+    stream.setEncoding("utf8");
     stream.on("data", data);
     stream.once("end", end);
     stream.once("error", end);
+    signal?.addEventListener("abort", end, { once: true });
   });
+}
+
+/**
+ * Runs `run` once the daemon's PATH is final, unless the daemon stopped meanwhile: a stopping
+ * daemon settles its PATH unchanged, never confirmed, so `run` (which reads CLIs on PATH) is
+ * then refused with an error instead of started.
+ */
+export async function onFinalPath<T>(
+  final: Promise<unknown> | undefined,
+  stopped: AbortSignal,
+  run: () => Promise<T>,
+): Promise<T> {
+  await final;
+  if (stopped.aborted) throw new Error("ace is stopping");
+  return run();
 }

@@ -1,7 +1,7 @@
 import { PassThrough } from "node:stream";
 import { encodeLoginPathLine, type PendingLoginPath } from "@ace/service/login-path";
 import { expect, test } from "vitest";
-import { firstLine, followLoginPath, receiveLoginPath } from "./login-path-handoff.ts";
+import { firstLine, followLoginPath, onFinalPath, receiveLoginPath } from "./login-path-handoff.ts";
 
 const never = () => new Promise<never>(() => {});
 const pending = JSON.stringify({ prefix: "/bundled", inherited: "/usr/bin:/bin" });
@@ -149,4 +149,36 @@ test("a daemon that stops while waiting settles its PATH unchanged and starts no
   expect(await loginPath?.final).toBe(false);
   expect(env.PATH).toBe("/bundled:/saved/bin");
   expect(lookups).toBe(0);
+});
+
+test("a doctor request waiting on the PATH when the daemon stops is refused and runs no discovery", async () => {
+  const final = Promise.withResolvers<boolean>();
+  const stopped = new AbortController();
+  let discoveries = 0;
+  const request = onFinalPath(final.promise, stopped.signal, async () => {
+    discoveries++;
+    return "report";
+  });
+  // Shutdown aborts first, then settles the PATH unchanged.
+  stopped.abort();
+  final.resolve(false);
+  await expect(request).rejects.toThrow("ace is stopping");
+  expect(discoveries).toBe(0);
+});
+
+test("a doctor request runs once the PATH is final", async () => {
+  expect(
+    await onFinalPath(Promise.resolve(true), new AbortController().signal, async () => "report"),
+  ).toBe("report");
+});
+
+test("a stopping daemon lets go of a stdin the app keeps open without a line", async () => {
+  const input = new PassThrough();
+  const stop = new AbortController();
+  const line = firstLine(input, { signal: stop.signal });
+  input.write("/partial");
+  stop.abort();
+  expect(await line).toBeUndefined();
+  expect(input.destroyed).toBe(true);
+  expect(input.listenerCount("data")).toBe(0);
 });

@@ -75,7 +75,7 @@ export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
 import { MaintenanceGate } from "@ace/service";
 import { keepUserPause } from "./user-pause.ts";
-import { firstLine, loginPathWaitMs, receiveLoginPath } from "./login-path-handoff.ts";
+import { firstLine, loginPathWaitMs, onFinalPath, receiveLoginPath } from "./login-path-handoff.ts";
 import { daemonLoginPath } from "@ace/service/login-path";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
@@ -118,7 +118,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   if (!options.loginPath) {
     const loginPath = receiveLoginPath({
       env: process.env,
-      read: () => firstLine(process.stdin),
+      read: () => firstLine(process.stdin, { signal: loginPathStop.signal }),
       timeout: () => new Promise((settle) => setTimeout(settle, loginPathWaitMs).unref()),
       lookup: (pending) => daemonLoginPath(pending, process.env, { signal: loginPathStop.signal }),
       signal: loginPathStop.signal,
@@ -128,14 +128,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
   // The doctor and toolchains find CLIs on PATH: only on the final one.
   const pathFinal = options.loginPath?.final;
   const diagnostics = options.diagnostics ?? {
-    doctor: async () => {
-      await pathFinal;
-      return connectedDoctorReport(config, process.env, now);
-    },
-    toolchains: async () => {
-      await pathFinal;
-      return daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir));
-    },
+    doctor: () =>
+      onFinalPath(pathFinal, loginPathStop.signal, () =>
+        connectedDoctorReport(config, process.env, now),
+      ),
+    toolchains: () =>
+      onFinalPath(pathFinal, loginPathStop.signal, () =>
+        daemonToolchains(process.env, process.platform, daemonServeSim(config.dataDir)),
+      ),
   };
   const sharedDiagnostics = shareDiagnostics(diagnostics);
   options = { ...options, diagnostics: sharedDiagnostics };

@@ -406,6 +406,27 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
+it("a daemon stopped while the app keeps its stdin open without a line exits on its own within its budget", async () => {
+  const index = new URL("./index.ts", import.meta.url).href;
+  const daemon = await launch(
+    `
+    import { startDaemon } from ${JSON.stringify(index)};
+    const daemon = await startDaemon();
+    process.stdout.write("ace daemon: " + daemon.url + "\\n");
+    process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
+  `,
+    undefined,
+    undefined,
+    startedOnSavedPath,
+  );
+  // The app is still waiting on its shell: stdin stays open and no line comes.
+  await daemon.client.close();
+  const stopping = performance.now();
+  daemon.child.kill("SIGTERM");
+  expect((await daemon.exited)[0]).toBe(0);
+  expect(performance.now() - stopping).toBeLessThan(3_000);
+});
+
 it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-signal-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
