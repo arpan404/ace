@@ -54,20 +54,31 @@ pub(crate) enum Walk {
 }
 
 impl Walk {
-    /// The walk that covers both requests: the same folder, or the whole tree.
+    /// The walk that covers both requests: the broader of two overlapping folders, or the whole
+    /// tree when they are unrelated.
     fn merge(self, other: Walk) -> Walk {
         match (&self, &other) {
-            (Walk::Folder(left), Walk::Folder(right)) if left == right => self,
-            _ => Walk::Tree,
+            (Walk::Tree, _) | (_, Walk::Tree) => Walk::Tree,
+            (Walk::Folder(left), Walk::Folder(right)) => {
+                if left == right || under(right, left) {
+                    Walk::Folder(left.clone())
+                } else if under(left, right) {
+                    Walk::Folder(right.clone())
+                } else {
+                    Walk::Tree
+                }
+            }
         }
     }
 
-    /// Whether a change in `folder` can make this walk's result stale: the folder it walks, one
-    /// below it, or a folder above it that may have moved it.
-    fn touches(&self, folder: &str) -> bool {
+    /// Whether a change in `folder` can make this walk's result stale: the folder it walks or one
+    /// below it, or, for a folder that changed itself, a folder above it that may have moved it.
+    fn touches(&self, folder: &str, directory: bool) -> bool {
         match self {
             Walk::Tree => true,
-            Walk::Folder(walk) => folder == walk || under(folder, walk) || under(walk, folder),
+            Walk::Folder(walk) => {
+                folder == walk || under(folder, walk) || (directory && under(walk, folder))
+            }
         }
     }
 }
@@ -297,9 +308,9 @@ impl RootEntry {
     }
 
     /// Record that a batch touched `folder` (the folder a changed path sits in, or a folder that
-    /// changed itself). A walk running over it is one generation behind and runs again when it
-    /// publishes.
-    pub fn note_touch(self: &Arc<Self>, folder: &str) {
+    /// changed itself, which `directory` says). A walk running over it is one generation behind
+    /// and runs again when it publishes.
+    pub fn note_touch(self: &Arc<Self>, folder: &str, directory: bool) {
         let Ok(mut book) = guard::lock(&self.book) else {
             return;
         };
@@ -309,7 +320,7 @@ impl RootEntry {
         let Some(walking) = book.walking.clone() else {
             return;
         };
-        if !walking.touches(folder) {
+        if !walking.touches(folder, directory) {
             return;
         }
         book.again = Some(match book.again.take() {

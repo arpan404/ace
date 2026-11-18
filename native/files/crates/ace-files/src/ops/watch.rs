@@ -64,7 +64,7 @@ pub fn deliver(
             // A walk running over a folder this batch touched may have passed it before the
             // batch landed, so it runs once more when it publishes.
             for change in &changes {
-                entry.note_touch(folder_of(change));
+                entry.note_touch(folder_of(change), change.directory);
             }
             // An ignore-rule edit changes which paths belong in the index without changing those
             // files, so the folders it governs are walked again in the background.
