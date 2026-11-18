@@ -7,6 +7,7 @@ import Testing
     static func card(_ standing: SpadeQuestionCard.Standing) -> SpadeQuestionCard {
         SpadeQuestionCard(callId: "q1", label: "Planner asks: Go?", standing: standing, questions: [], answers: nil, line: nil)
     }
+    static let read: () async -> SpadeOutcome = { SpadeOutcome(ok: true) }
     private func card(_ standing: SpadeQuestionCard.Standing) -> SpadeModel.Bubble {
         .question(SpadeCardsTests.card(standing))
     }
@@ -15,7 +16,7 @@ import Testing
         let spade = SpadeModel()
         spade.apply(.row(conversation: "c1", key: "k", bubble: card(.open)))
         var posts = 0
-        let outcome = await spade.cards.send("c1", callId: "q1") { posts += 1; return SpadeOutcome(ok: true) }
+        let outcome = await spade.cards.send("c1", callId: "q1", readBack: SpadeCardsTests.read) { posts += 1; return SpadeOutcome(ok: true) }
         #expect(outcome.ok)
         #expect(spade.cards.isSending("c1", callId: "q1"))
 
@@ -23,7 +24,7 @@ import Testing
         spade.apply(.row(conversation: "c2", key: "k", bubble: card(.open)))
         spade.apply(.row(conversation: "c1", key: "k", bubble: card(.open)))
         #expect(spade.cards.isSending("c1", callId: "q1"))
-        _ = await spade.cards.send("c1", callId: "q1") { posts += 1; return SpadeOutcome(ok: true) }
+        _ = await spade.cards.send("c1", callId: "q1", readBack: SpadeCardsTests.read) { posts += 1; return SpadeOutcome(ok: true) }
         #expect(posts == 1)
         // The same call in another conversation is another card.
         #expect(!spade.cards.isSending("c2", callId: "q1"))
@@ -35,7 +36,7 @@ import Testing
     @Test func aRefusedCardUnlocksAtOnce() async {
         let spade = SpadeModel()
         spade.apply(.row(conversation: "c1", key: "k", bubble: card(.open)))
-        let outcome = await spade.cards.send("c1", callId: "q1") { SpadeOutcome(ok: false, message: "At most 14.") }
+        let outcome = await spade.cards.send("c1", callId: "q1", readBack: SpadeCardsTests.read) { SpadeOutcome(ok: false, message: "At most 14.") }
         #expect(!outcome.ok)
         #expect(!spade.cards.isSending("c1", callId: "q1"))
     }
@@ -44,16 +45,89 @@ import Testing
         let cards = SpadeCards()
         cards.saw(SpadeCardsTests.card(.open), in: "c1")
         let older = Gate()
-        let first = Task { await cards.send("c1", callId: "q1") { await older.wait(); return SpadeOutcome(ok: false, message: "Not open.") } }
+        let first = Task { await cards.send("c1", callId: "q1", readBack: SpadeCardsTests.read) { await older.wait(); return SpadeOutcome(ok: false, message: "Not open.") } }
         while !cards.isSending("c1", callId: "q1") { await Task.yield() }
         // Spade moves the card on (another device left it for later), and it is sent again.
         cards.saw(SpadeCardsTests.card(.later), in: "c1")
-        #expect(await cards.send("c1", callId: "q1") { SpadeOutcome(ok: true) }.ok)
+        #expect(await cards.send("c1", callId: "q1", readBack: SpadeCardsTests.read) { SpadeOutcome(ok: true) }.ok)
 
         older.open()
         #expect(await !first.value.ok)
         #expect(cards.isSending("c1", callId: "q1"))
     }
+
+    @Test func anAcceptedCardWhoseUpdateNeverComesIsReadBackAndUnlocked() async {
+        let clock = ManualClock()
+        let cards = SpadeCards(wait: { await clock.sleep($0) })
+        cards.saw(SpadeCardsTests.card(.open), in: "c1")
+        let reads = Count()
+        #expect(await cards.send("c1", callId: "q1", readBack: { reads.add(); return SpadeOutcome(ok: true) }) { SpadeOutcome(ok: true) }.ok)
+        await clock.untilWaiting()
+        #expect(clock.asked == [.seconds(10)])
+        #expect(cards.isSending("c1", callId: "q1"))
+        #expect(reads.value == 0)
+
+        clock.advance()
+        for _ in 0..<1000 where cards.isSending("c1", callId: "q1") { await Task.yield() }
+        #expect(reads.value == 1)
+        #expect(!cards.isSending("c1", callId: "q1"))
+    }
+
+    @Test func aReadBackThatFailsIsTriedAgainBeforeTheCardUnlocks() async {
+        let clock = ManualClock()
+        let cards = SpadeCards(wait: { await clock.sleep($0) })
+        cards.saw(SpadeCardsTests.card(.open), in: "c1")
+        let reads = Count()
+        _ = await cards.send("c1", callId: "q1", readBack: { reads.add(); return SpadeOutcome(ok: reads.value > 1) }) { SpadeOutcome(ok: true) }
+        await clock.untilWaiting()
+        clock.advance()
+        for _ in 0..<1000 where reads.value == 0 { await Task.yield() }
+        await clock.untilWaiting()
+        #expect(reads.value == 1)
+        #expect(cards.isSending("c1", callId: "q1"))
+        clock.advance()
+        for _ in 0..<1000 where cards.isSending("c1", callId: "q1") { await Task.yield() }
+        #expect(reads.value == 2)
+        #expect(!cards.isSending("c1", callId: "q1"))
+    }
+
+    @Test func aCardSettledBeforeTheWaitEndsIsNotReadBack() async {
+        let clock = ManualClock()
+        let cards = SpadeCards(wait: { await clock.sleep($0) })
+        cards.saw(SpadeCardsTests.card(.open), in: "c1")
+        let reads = Count()
+        _ = await cards.send("c1", callId: "q1", readBack: { reads.add(); return SpadeOutcome(ok: true) }) { SpadeOutcome(ok: true) }
+        await clock.untilWaiting()
+        cards.saw(SpadeCardsTests.card(.settled), in: "c1")
+        clock.advance()
+        for _ in 0..<100 { await Task.yield() }
+        #expect(reads.value == 0)
+        #expect(!cards.isSending("c1", callId: "q1"))
+    }
+}
+
+/// A clock the test moves: each wait holds until `advance`.
+@MainActor final class ManualClock {
+    private(set) var asked: [Duration] = []
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    func sleep(_ duration: Duration) async {
+        asked.append(duration)
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    /// Returns once something waits on the clock.
+    func untilWaiting() async {
+        for _ in 0..<1000 where waiting.isEmpty { await Task.yield() }
+    }
+    func advance() {
+        let all = waiting
+        waiting = []
+        for each in all { each.resume() }
+    }
+}
+
+@MainActor final class Count {
+    private(set) var value = 0
+    func add() { value += 1 }
 }
 
 /// Holds a send until the test lets it go.

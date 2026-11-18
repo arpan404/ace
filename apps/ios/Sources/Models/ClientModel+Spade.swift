@@ -43,6 +43,11 @@ extension ClientModel {
         await spadeRequest(["type": "spade.question", "conversationId": conversation, "callId": callId, "reply": reply],
                            failing: "Couldn't answer")
     }
+    /// A sent card not yet settled: the conversation's events since the last one shown, read again.
+    func spadeQuestionRead(_ conversation: String, callId: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.question.read", "conversationId": conversation, "callId": callId],
+                           failing: "Couldn't read the conversation")
+    }
     func spadeTurnOn() async -> SpadeOutcome {
         await spadeRequest(["type": "spade.enable"], failing: "Couldn't turn on Spade")
     }
