@@ -69,6 +69,7 @@ export const privacyPolicy: LegalDocument = {
         {
           list: [
             "Your account id, email address and name.",
+            "The address of your profile picture at WorkOS, if your sign-in has one. The apps fetch the picture through us; we don't keep a copy.",
             "Your ace sessions, stored only as one-way hashes, so a database copy can't be used to sign in.",
             "WorkOS refresh tokens, encrypted, so your sessions can be renewed.",
             "Sign-ins in progress, which expire after ten minutes and are deleted within the hour.",
@@ -88,6 +89,7 @@ export const privacyPolicy: LegalDocument = {
       heading: "The hosted relay",
       body: [
         "When a device and a machine can't reach each other directly, ace connects them through our relay on Cloudflare. The connection is end-to-end encrypted between the two ends, so the relay forwards data it can't read: never your prompts, code, transcripts, files or screens.",
+        "One path works differently, and it is off unless you turn it on for a machine: an outside MCP client, such as a hosted AI assistant, reaching that machine through ace's hosted address. Those clients speak plain HTTPS, so Cloudflare ends the encryption and the relay sees their requests and replies, tokens included, while passing them on. It stores and logs none of it. To avoid this, connect such clients through Tailscale Funnel or your own address instead.",
         "To route a connection, the relay sees the IP addresses of both ends, the machine's host id, a short-lived signed pass (valid for five minutes) showing that the device and the machine belong to the same account, when the connection opens and closes, and the size of the encrypted messages. It keeps none of this after the connection ends, and it logs no messages, passes or addresses.",
       ],
     },
@@ -166,7 +168,7 @@ export const privacyPolicy: LegalDocument = {
       heading: "Your choices",
       body: [
         "You can use ace without an account. You can change your name in Settings, and sign a machine out in its Settings or with `ace logout`. Signing out ends that session at once; a removed device loses access to your machines within five minutes.",
-        "In ace for iPhone and iPad you can delete your account yourself: open Profile and choose Delete account. It deletes your account, its sessions and its machine list right away, and your user at WorkOS.",
+        "In ace for iPhone and iPad you can delete your account yourself: open Profile and choose Delete account. It deletes your account, its sessions and its machine list from our live database right away, and your user at WorkOS. Our database provider keeps point-in-time backups for up to 30 days, after which no copy remains.",
         `To see the data we hold about you, correct it, remove machines from your account, or delete your account by email, write to ${contact.email} from the address on your account. We delete your account, its machines and sessions from our database, and your user from WorkOS, within 30 days. Depending on where you live, you may have further rights under laws such as the GDPR or CCPA; write to us and we will honour them.`,
       ],
     },
@@ -308,7 +310,7 @@ export const support: LegalDocument = {
     {
       heading: "Delete your account",
       body: [
-        "In the iPhone or iPad app, open Profile and choose Delete account. It deletes your account, its sessions and its machine list right away, and your user at WorkOS.",
+        "In the iPhone or iPad app, open Profile and choose Delete account. It deletes your account, its sessions and its machine list right away, and your user at WorkOS. Database backups that still hold them expire within 30 days.",
         `You can also email ${contact.email} from the address on your account. We delete it within 30 days.`,
         "Deleting your account doesn't touch your machines. Your code, threads and settings stay on them.",
       ],
@@ -316,7 +318,7 @@ export const support: LegalDocument = {
     {
       heading: "Questions",
       body: [
-        "Does ace see my code or prompts? No. They stay on your machines. Traffic through our relay is end-to-end encrypted, so the relay can't read it.",
+        "Does ace see my code or prompts? No. They stay on your machines. Traffic between ace's apps and your machines is end-to-end encrypted through our relay, so the relay can't read it. The one exception is an outside MCP client you choose to connect through ace's hosted address: the privacy policy explains what the relay sees then.",
         "Do I need an account? No. An account is only for reaching your machines through our hosted relay.",
         "Can I pair my phone without an account? Yes. Pairing over your local network or Tailscale, or through your own relay, works without one.",
         "More answers are on the FAQ page, and the details of what we store are in the privacy policy.",

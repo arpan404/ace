@@ -32,12 +32,18 @@ Sign-in offers Google and GitHub, so App Review expects an equivalent option.
       an Apple Services ID and a Sign in with Apple key from the Apple Developer account.
 - [ ] Check that the Apple button appears in the app's sign-in and that the privacy policy names
       Apple as a sign-in provider (it lists Google and GitHub only).
+- [ ] Deleting an account that signed in with Apple must revoke its Apple tokens (Apple TN3194).
+      WorkOS's Delete User may not do this: check with a test Apple account before submitting,
+      and add the revocation call if WorkOS doesn't make it.
 
 ## Account deletion (guideline 5.1.1(v))
 
 - [ ] The app offers deletion in-app: Profile, then Delete account. Confirm the build you submit
       has it and that it deletes the account, sessions and machine list, and the WorkOS user.
 - [ ] The privacy policy and the support page describe the same steps.
+- [ ] The cloud Worker with `DELETE /v1/account` is deployed to production (it deploys from a
+      `v*` tag, not from `main`). Delete a throwaway account from a Release build against
+      production before you submit.
 
 ## Export compliance
 
