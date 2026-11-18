@@ -1,5 +1,5 @@
 import type { EditorDocument, Position } from "@ace/editor";
-import { useCallback, useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { lineHeight, visualColumn } from "./geometry.ts";
 import type { RowLayout } from "./wrap-index.ts";
 import { rowOfColumn, rowOffset } from "./wrap.ts";
@@ -43,22 +43,22 @@ export function useReveal(options: {
   gutter: number;
   cell: number;
   wrap: boolean;
-  /** The primary caret's side of a hard break, so its box sits where it is drawn. */
-  before: boolean;
   viewport: { width: number; height: number };
   onScroll(scroll: { top: number; left: number }): void;
 }): {
-  caretBox(position: Position): { left: number; top: number };
-  reveal(position: Position): void;
+  caretBox(position: Position, side: boolean): { left: number; top: number };
+  reveal(position: Position, side: boolean): void;
 } {
-  const { doc, layout, scroller, gutter, cell, wrap, before, viewport, onScroll } = options;
+  const { doc, layout, scroller, gutter, cell, wrap, viewport, onScroll } = options;
   const box = useCallback(
-    (position: Position, side = before): { left: number; top: number } =>
+    (position: Position, side: boolean): { left: number; top: number } =>
       caretBox(doc, layout, position, gutter, cell, side),
-    [doc, layout, gutter, cell, before],
+    [doc, layout, gutter, cell],
   );
+  // Every caller says which side of a hard break it wants, so the callback does not change when
+  // a caret's stored side does: a jump that already ran must not run again for a move.
   const reveal = useCallback(
-    (position: Position, side = before) => {
+    (position: Position, side: boolean) => {
       const element = scroller.current;
       if (!element) return;
       const caret = box(position, side);
@@ -79,7 +79,7 @@ export function useReveal(options: {
       // Read back what the browser allowed: a scroll past either end clamps.
       onScroll({ top: element.scrollTop, left: element.scrollLeft });
     },
-    [box, scroller, gutter, wrap, before, viewport.height, viewport.width, onScroll],
+    [box, scroller, gutter, wrap, viewport.height, viewport.width, onScroll],
   );
   return { caretBox: box, reveal };
 }
@@ -101,29 +101,37 @@ export function useAnnouncement(): {
   return { announcement, announce };
 }
 
-/** Brings the editor to the line its tab asked for, and to the current find hit. */
+/**
+ * Brings the editor to the line its tab asked for, and to the current find hit. A jump runs once
+ * per request: the same line or hit arriving again in a render, or a scroll callback changing
+ * because a caret's side did, never re-runs the scroll the reader has already moved away from.
+ */
 export function useRevealJump(options: {
   line: number | undefined;
   hit: { line: number; column: number } | undefined;
-  reveal(position: Position): void;
+  reveal(position: Position, side: boolean): void;
   announce(position: Position): void;
 }): void {
   const { line, hit, reveal, announce } = options;
+  const jumpedTo = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!line || line <= 0) return;
+    if (!line || line <= 0 || jumpedTo.current === line) return;
+    jumpedTo.current = line;
     const position = { line: line - 1, column: 0 };
-    reveal(position);
+    reveal(position, false);
     announce(position);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- a go-to-line is a jump, announced once.
-  }, [line, reveal]);
+  }, [line, reveal, announce]);
 
   const hitLine = hit?.line;
   const hitColumn = hit?.column;
+  const jumpedHit = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (hitLine === undefined || hitColumn === undefined) return;
+    const request = `${hitLine}:${hitColumn}`;
+    if (jumpedHit.current === request) return;
+    jumpedHit.current = request;
     const position = { line: hitLine, column: hitColumn };
-    reveal(position);
+    reveal(position, false);
     announce(position);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- a find hit is a jump, announced once.
-  }, [hitLine, hitColumn, reveal]);
+  }, [hitLine, hitColumn, reveal, announce]);
 }

@@ -49,7 +49,7 @@ export interface EditorKeyOptions {
   /** Records every caret's side of a hard break after a move. */
   onBefore(affinity: Affinity): void;
   /** Brings a position into view, drawn on the side of a hard break the move asked for. */
-  reveal(position: Position, before?: boolean): void;
+  reveal(position: Position, before: boolean): void;
 }
 
 export function useEditorKeys(options: EditorKeyOptions) {
@@ -212,7 +212,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       const last = documentEnd(doc.lenLines(), line(lastLine()));
       options.onBefore(noAffinity);
       state.select([{ anchor: { line: 0, column: 0 }, head: last }]);
-      options.reveal(last);
+      options.reveal(last, false);
       return;
     }
     if (mod && key.toLowerCase() === "f") {
@@ -246,14 +246,14 @@ export function useEditorKeys(options: EditorKeyOptions) {
     if (!options.readOnly && key === "Tab") {
       event.preventDefault();
       state.edit((target) => (event.shiftKey ? target.outdentLines() : target.indentLines()));
-      options.reveal(head());
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     if (!options.readOnly && event.altKey && event.shiftKey && key === "ArrowDown") {
       event.preventDefault();
       goal.current = undefined;
       state.edit((target) => target.duplicateLines());
-      options.reveal(head());
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     if (
@@ -266,7 +266,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       event.preventDefault();
       goal.current = undefined;
       state.edit((target) => (key === "ArrowUp" ? target.moveLinesUp() : target.moveLinesDown()));
-      options.reveal(head());
+      options.reveal(head(), isBefore(options.affinity, doc.primarySelection()));
       return;
     }
     if (key === "Escape") {
@@ -276,7 +276,7 @@ export function useEditorKeys(options: EditorKeyOptions) {
       goal.current = undefined;
       options.onBefore(noAffinity);
       state.select([caret(position.line, position.column)]);
-      options.reveal(position);
+      options.reveal(position, false);
       return;
     }
     if (key === "ArrowUp" || key === "ArrowDown") {

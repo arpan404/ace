@@ -164,6 +164,29 @@ test("a side of a hard break does not survive the edit that replaced the selecti
   expect(caretTops()).toEqual(["22px", `${5 * 22}px`]);
 });
 
+test("a go-to-line jump does not run again when a caret's side changes", async () => {
+  const text = Array.from({ length: 200 }, () => "中".repeat(240)).join("\n");
+  const scrollTo = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(() => undefined);
+  try {
+    const { ref } = await openView({ text, wrap: true, line: 100 });
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+    const jump = scrollTo.mock.calls.at(-1)?.[0] as ScrollToOptions | undefined;
+    act(() => ref.current?.setSelections([caret(0, 0)]));
+    act(() => ref.current?.focus());
+    scrollTo.mockClear();
+
+    // End stops at a row's end, a hard break, and stores that caret's new side.
+    await userEvent.keyboard("{End}");
+    await waitFor(() => expect(caretTop()).toBe("0px"));
+
+    const calls = scrollTo.mock.calls.map(([options]) => options as ScrollToOptions);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.top).not.toBe(jump?.top);
+  } finally {
+    scrollTo.mockRestore();
+  }
+});
+
 test("revealing a caret at a hard break scrolls to the side the move asked for", async () => {
   const { ref } = await openView({ text: "中".repeat(240), wrap: true });
   const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");

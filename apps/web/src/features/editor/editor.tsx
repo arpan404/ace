@@ -151,7 +151,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     gutter,
     cell,
     wrap,
-    before: isBefore(affinity, state.primary),
     viewport,
     onScroll: setScroll,
   });
@@ -178,7 +177,8 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       state.select([{ anchor: range.start, head: range.end }]);
     },
     reveal: (position) => {
-      reveal(position);
+      // A find hit starts afresh: its caret has no side of a hard break yet.
+      reveal(position, false);
       announce(position);
     },
     focusEditor: () => field.current?.focus({ preventScroll: true }),
@@ -246,7 +246,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     },
   }));
 
-  const caret = caretBox({ line: caretLine, column: caretColumn });
+  const caret = caretBox(
+    { line: caretLine, column: caretColumn },
+    isBefore(affinity, state.primary),
+  );
   const textareaLeft = caret.left - scroll.left;
   const textareaTop = caret.top - scroll.top;
 

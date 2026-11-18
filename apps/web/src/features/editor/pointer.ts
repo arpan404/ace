@@ -22,7 +22,7 @@ export function usePointerSelection(options: {
   layout: RowLayout | undefined;
   element: { current: HTMLDivElement | null };
   focus(): void;
-  reveal(position: Position, before?: boolean): void;
+  reveal(position: Position, before: boolean): void;
   /** Each caret's side of a hard break as the last move left it. */
   affinity: Affinity;
   /** Records every caret's side of a hard break after the click moved them. */
