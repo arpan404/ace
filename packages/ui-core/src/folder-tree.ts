@@ -103,17 +103,26 @@ export function toggledFolders(
 }
 
 /**
- * The open folders that are actually on screen: a folder shows only while every folder above
- * it is open too. Root is always visible; a folder whose parent was folded is neither listed
- * nor watched until its parent opens again, though what it loaded is kept.
+ * The open folders that are on screen: a folder shows only while every folder above it is open
+ * too. Root is always visible; a folder whose parent was folded is neither listed nor watched
+ * until its parent opens again, though what it loaded is kept.
  */
-export function visibleFolders(open: Iterable<string>): ReadonlySet<string> {
+export function visibleOpenFolders(open: Iterable<string>): ReadonlySet<string> {
   const all = new Set([""]);
   for (const folder of open) if (folder) all.add(folderKey(folder));
   const visible = new Set([""]);
   for (const folder of all)
     if (folder && ancestorFolders(folder).every((parent) => all.has(parent))) visible.add(folder);
   return visible;
+}
+
+/** @deprecated Use `visibleOpenFolders`. */
+export const visibleFolders = visibleOpenFolders;
+
+/** A folder's depth: the root is 0, "a/" is 1, "a/b/" is 2. */
+export function folderDepth(folder: string): number {
+  const path = folderRequestPath(folder);
+  return path ? path.split("/").length : 0;
 }
 
 /** Start listing `folder`: a first page forgets the old cursor, a later page keeps it. */
@@ -201,12 +210,95 @@ export function folderStopped(folders: FolderStates, folder: string): FolderStat
  * What Try again asks for after a failure: the page that failed. A failed next page keeps its
  * cursor, so it asks for that page; a failed first page (or a folder with no error) starts over.
  */
-export function folderRetry(
+export function retryPage(
   state: FolderState | undefined,
 ): { mode: "first" } | { mode: "more"; cursor: string } {
   if (state?.error && typeof state.nextCursor === "string")
     return { mode: "more", cursor: state.nextCursor };
   return { mode: "first" };
+}
+
+/** @deprecated Use `retryPage`. */
+export const folderRetry = retryPage;
+
+/** The page size a re-list asks for: what the folder already shows, at least 500, at most 5000. */
+export function relistLimit(state: FolderState | undefined): number {
+  return Math.min(5000, Math.max(500, state?.entries.length ?? 0));
+}
+
+/** What is on its way for each folder: the request's token, and a re-list asked for meanwhile. */
+export interface FolderRequestState {
+  readonly requests: Readonly<Record<string, { token: number; dirty: boolean }>>;
+}
+
+export const noFolderRequests: FolderRequestState = { requests: {} };
+
+/** A request for `folder` started with `token`; it waits for that reply and no re-list is due. */
+export function folderRequestStarted(
+  state: FolderRequestState,
+  folder: string,
+  token: number,
+): FolderRequestState {
+  return { requests: { ...state.requests, [folder]: { token, dirty: false } } };
+}
+
+/**
+ * Another listing of `folder` was asked for while its request is on its way: remember it, so it
+ * lists once when that request ends (never aborting and starting again in a loop). A folder
+ * with no request on its way is left alone: the caller starts it.
+ */
+export function folderRequestRepeated(
+  state: FolderRequestState,
+  folder: string,
+): FolderRequestState {
+  const current = state.requests[folder];
+  if (!current || current.dirty) return state;
+  return { requests: { ...state.requests, [folder]: { ...current, dirty: true } } };
+}
+
+/**
+ * The request for `folder` ended with `token`. A reply for a token the folder moved past is
+ * stale and changes nothing; the current one settles the folder and says whether the re-list
+ * asked for meanwhile is due (`relist`).
+ */
+export function folderRequestSettled(
+  state: FolderRequestState,
+  folder: string,
+  token: number,
+): { state: FolderRequestState; relist: boolean } {
+  const current = state.requests[folder];
+  if (!current || current.token !== token) return { state, relist: false };
+  const requests: Record<string, { token: number; dirty: boolean }> = { ...state.requests };
+  delete requests[folder];
+  return { state: { requests }, relist: current.dirty };
+}
+
+/** The most folder listings a client keeps on their way at once. */
+export const folderRequestLimit = 6;
+
+export interface FolderRequest {
+  folder: string;
+  mode: "first" | "more";
+}
+
+/**
+ * The order to start pending folder requests in: folders on screen before hidden ones,
+ * shallower before deeper, then by path so every client makes the same choice.
+ */
+export function orderedFolderRequests(
+  waiting: readonly FolderRequest[],
+  visible: ReadonlySet<string>,
+): FolderRequest[] {
+  const rank = (request: FolderRequest): [number, number, string] => [
+    visible.has(folderKey(request.folder)) ? 0 : 1,
+    folderDepth(request.folder),
+    folderRequestPath(request.folder),
+  ];
+  return [...waiting].toSorted((a, b) => {
+    const [shownA, depthA, pathA] = rank(a);
+    const [shownB, depthB, pathB] = rank(b);
+    return shownA - shownB || depthA - depthB || pathA.localeCompare(pathB);
+  });
 }
 
 /** A row of the tree the virtual list draws. Entry rows carry a checkout path. */
