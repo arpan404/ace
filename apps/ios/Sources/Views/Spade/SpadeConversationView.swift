@@ -54,8 +54,10 @@ struct SpadeConversationView: View {
                         }, unfolded: unfolded, fold: { callId, open in
                             if open { unfolded.insert(callId) } else { unfolded.remove(callId) }
                         }, reply: { callId, body in
-                            await client.spadeQuestion(conversation, callId: callId, reply: body)
-                        })
+                            await spade.send(conversation, callId: callId) {
+                                await client.spadeQuestion(conversation, callId: callId, reply: body)
+                            }
+                        }, sending: { spade.isSending(conversation, callId: $0) })
                         .id(key)
                     }
                 }

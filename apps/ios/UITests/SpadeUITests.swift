@@ -133,7 +133,7 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["spade.question.folded"].waitForExistence(timeout: 5))
     }
 
-    func testASentCardStaysLockedUntilSpadesUpdateSettlesIt() async throws {
+    func testASentCardStaysLockedThroughReopeningUntilSpadesUpdateSettlesIt() async throws {
         // Spade takes the answer at once but sends its update only on `release`.
         try await stage("hold")
         let app = launch()
@@ -159,6 +159,15 @@ import XCTest
         XCTAssertTrue(send.exists)
         XCTAssertFalse(send.isEnabled)
         screenshot("spade-11-question-sending")
+
+        // Left and reopened before the update: the card is drawn again, and stays locked.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(planner.waitForExistence(timeout: 10))
+        planner.tap()
+        let next = app.buttons["spade.question.next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 15))
+        XCTAssertFalse(next.isEnabled)
+        XCTAssertFalse(app.buttons["spade.question.dismiss"].isEnabled)
 
         try await stage("release")
         XCTAssertTrue(app.descendants(matching: .any)["You: 5 nights"].waitForExistence(timeout: 15))

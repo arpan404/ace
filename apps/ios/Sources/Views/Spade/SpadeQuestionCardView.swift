@@ -10,13 +10,17 @@ struct SpadeQuestionCardView: View {
     let card: SpadeQuestionCard
     /// A card for later shows open: opened from its line or from the top bar's count.
     let unfolded: Bool
+    /// Its reply is out and Spade hasn't settled it: locked, wherever it is drawn
+    /// (`SpadeModel.send`).
+    let sending: Bool
     let fold: (Bool) -> Void
     let reply: ([String: Any]) async -> SpadeOutcome
 
     var body: some View {
         switch card.standing {
         case .later where !unfolded: laterLine
-        case .open, .later: SpadeOpenQuestionCard(card: card, fold: card.standing == .later ? { fold(false) } : nil, reply: reply)
+        case .open, .later:
+            SpadeOpenQuestionCard(card: card, sending: sending, fold: card.standing == .later ? { fold(false) } : nil, reply: reply)
         case .settled: settled
         }
     }
@@ -92,12 +96,12 @@ private struct SpadeAnswerBubble: View {
 
 private struct SpadeOpenQuestionCard: View {
     let card: SpadeQuestionCard
+    let sending: Bool
     /// A card already for later folds back to its line instead of being left for later again.
     let fold: (() -> Void)?
     let reply: ([String: Any]) async -> SpadeOutcome
     @State private var drafts: [SpadeQuestionCard.Draft] = []
     @State private var page = 0
-    @State private var sending = false
     @State private var problem: String?
     @State private var answered = 0
 
@@ -136,8 +140,6 @@ private struct SpadeOpenQuestionCard: View {
         .accessibilityLabel(card.label)
         .accessibilityIdentifier("spade.question")
         .onAppear { if drafts.count != count { drafts = card.questions.map(SpadeQuestionCard.Draft.empty) } }
-        // Sent, the card stays locked until Spade's update moves it on.
-        .onChange(of: card.standing) { sending = false }
     }
 
     private func draftBinding(_ index: Int) -> Binding<SpadeQuestionCard.Draft> {
@@ -198,16 +200,14 @@ private struct SpadeOpenQuestionCard: View {
     }
 
     /// Out to the bridge, which checks the drafts first: a card that needs more turns to the
-    /// question that does, with why under it. Taken, it stays locked until the card settles, so
-    /// a second tap before Spade's update can't send it twice.
+    /// question that does, with why under it. The lock is the model's, so a second tap, or the
+    /// card drawn again before Spade's update, can't send it twice.
     private func send(_ body: [String: Any]) {
         guard !sending else { return }
-        sending = true
         problem = nil
         Task {
             let outcome = await reply(body)
             if outcome.ok { answered += 1; return }
-            sending = false
             problem = outcome.problem
             if let named = outcome.at, named >= 0, named < count { page = named }
         }

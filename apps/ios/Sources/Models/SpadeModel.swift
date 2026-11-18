@@ -129,6 +129,38 @@ import Observation
     /// The conversation `order` and `bubbles` belong to.
     private var bubblesOf: String?
 
+    /// A card of questions by its conversation and call.
+    struct CardKey: Hashable, Sendable {
+        let conversation: String
+        let callId: String
+    }
+    /// Cards sent from the phone that Spade hasn't settled yet, with the standing they were sent
+    /// from. Kept here, not in the card's view, so a card drawn again (the conversation left and
+    /// reopened) stays locked and can't be sent twice.
+    private var sentCards: [CardKey: SpadeQuestionCard.Standing] = [:]
+
+    /// Whether Send, Answer later and Never mind are off on this card.
+    func isSending(_ conversation: String, callId: String) -> Bool {
+        sentCards[CardKey(conversation: conversation, callId: callId)] != nil
+    }
+
+    /// Sends a card's reply through `post`, once: locked from the tap until Spade's update moves
+    /// the card on, or at once again when the reply is refused. A card already out isn't sent.
+    func send(_ conversation: String, callId: String, via post: () async -> SpadeOutcome) async -> SpadeOutcome {
+        let key = CardKey(conversation: conversation, callId: callId)
+        guard sentCards[key] == nil else { return SpadeOutcome(ok: false) }
+        sentCards[key] = card(callId, in: conversation)?.standing ?? .open
+        let outcome = await post()
+        if !outcome.ok { sentCards[key] = nil }
+        return outcome
+    }
+
+    private func card(_ callId: String, in conversation: String) -> SpadeQuestionCard? {
+        guard bubblesOf == conversation else { return nil }
+        for bubble in bubbles.values { if case let .question(card) = bubble, card.callId == callId { return card } }
+        return nil
+    }
+
     /// Whether the Spade tab shows, and the conversation it follows: sent again to a new
     /// runtime (`ClientModel.spadeResume`).
     var watching = false
@@ -150,6 +182,10 @@ import Observation
         case .row(let id, let key, let bubble):
             belong(to: id)
             if bubbles[key] != bubble { bubbles[key] = bubble }
+            if case let .question(card) = bubble {
+                let sent = CardKey(conversation: id, callId: card.callId)
+                if let from = sentCards[sent], from != card.standing { sentCards[sent] = nil }
+            }
         }
     }
 
@@ -165,6 +201,7 @@ import Observation
     /// Another machine's runtime: nothing of this one's Spade applies.
     func reset() {
         shown = nil; line = nil; bots = nil; listFailed = false
+        sentCards = [:]
         belong(to: nil)
     }
 }

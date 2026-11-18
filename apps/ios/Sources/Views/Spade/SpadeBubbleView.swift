@@ -13,6 +13,8 @@ struct SpadeBubbleView: View {
     var fold: (String, Bool) -> Void = { _, _ in }
     /// A card's reply: its call and what it sends.
     var reply: (String, [String: Any]) async -> SpadeOutcome = { _, _ in SpadeOutcome(ok: false) }
+    /// Whether a card's reply is out and not yet settled, by call.
+    var sending: (String) -> Bool = { _ in false }
 
     var body: some View {
         switch bubble {
@@ -55,7 +57,7 @@ struct SpadeBubbleView: View {
                 await answer(callId, allowed, forever)
             }
         case let .question(card):
-            SpadeQuestionCardView(card: card, unfolded: unfolded.contains(card.callId),
+            SpadeQuestionCardView(card: card, unfolded: unfolded.contains(card.callId), sending: sending(card.callId),
                                   fold: { fold(card.callId, $0) }, reply: { await reply(card.callId, $0) })
         case let .note(text):
             Text(text)
