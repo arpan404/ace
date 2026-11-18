@@ -2,7 +2,8 @@ import { columns } from "./provider-columns.ts";
 
 interface Profile {
   readonly name: string;
-  readonly origin: string;
+  readonly origin?: string | undefined;
+  readonly relay?: { readonly url: string } | undefined;
   readonly label?: string | undefined;
 }
 
@@ -13,7 +14,7 @@ export function remoteListLines(value: {
 }): string[] {
   const rows: (string | undefined)[][] = [[mark("local", value.active), "local", "this machine"]];
   for (const profile of value.profiles)
-    rows.push([mark(profile.name, value.active), profile.name, profile.origin, profile.label]);
+    rows.push([mark(profile.name, value.active), profile.name, where(profile), profile.label]);
   return [
     ...columns(rows),
     ...(value.profiles.length
@@ -27,7 +28,12 @@ export function remoteNames(value: { readonly profiles: readonly Profile[] }): s
 }
 
 export function remoteAddedLine(profile: Profile): string {
-  return `Added ${profile.name} (${profile.origin}). Use it with ace remote use ${profile.name}, or --remote ${profile.name}.`;
+  return `Added ${profile.name} (${where(profile)}). Use it with ace remote use ${profile.name}, or --remote ${profile.name}.`;
+}
+
+/** Where the machine is reached: its address, or the relay it was linked through. */
+function where(profile: Profile): string {
+  return profile.origin ?? (profile.relay ? `through ${profile.relay.url}` : "");
 }
 
 function mark(name: string, active: string): string {

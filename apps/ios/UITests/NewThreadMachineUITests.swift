@@ -19,13 +19,13 @@ import XCTest
         screenshot("first-machine")
 
         choose(app, second)
-        XCTAssertEqual(app.buttons["newThread.project"].label, "Choose a project", "a machine never used has no project yet")
+        XCTAssertEqual(app.buttons["newThread.project"].value as? String, "Choose a project", "a machine never used has no project yet")
         pickProject(app)
         screenshot("second-machine")
 
         choose(app, first)
         screenshot("back-on-first-machine")
-        XCTAssertEqual(app.buttons["newThread.project"].label, "Project, ace-next", "the machine's last project comes back")
+        XCTAssertEqual(app.buttons["newThread.project"].value as? String, "ace-next", "the machine's last project comes back")
 
         choose(app, second)
         app.terminate()
@@ -60,7 +60,7 @@ import XCTest
         app.buttons["newThread.project"].tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
         app.buttons["project.ace"].tap()
-        let named = NSPredicate(format: "label == %@", "Project, ace-next")
+        let named = NSPredicate(format: "value == %@", "ace-next")
         wait(for: [expectation(for: named, evaluatedWith: app.buttons["newThread.project"])], timeout: 10)
     }
     private func screenshot(_ name: String) {

@@ -54,7 +54,10 @@ const None = z.undefined();
 const Count = z.number().int().min(0).max(100_000);
 const ExternalUrl = z
   .url()
-  .refine((value) => ["https:", "http:", "mailto:"].includes(new URL(value).protocol));
+  .refine(
+    (value) =>
+      URL.canParse(value) && ["https:", "http:", "mailto:"].includes(new URL(value).protocol),
+  );
 
 /** What the renderer asks of this computer's daemon about its ace account (`daemon.account`). */
 export const MachineAccountRequest = z.discriminatedUnion("op", [

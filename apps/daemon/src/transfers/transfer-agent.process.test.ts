@@ -74,3 +74,33 @@ it("refuses an agent's transfer while the setting is off, leaving the person's o
   expect(receipt.ok).toBe(true);
   expect((await m.settled()).phase).toBe("completed");
 });
+
+it("an agent's transfer that settles after its thread was deleted and purged is never retried", async () => {
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
+  const m = await transferMachines({
+    transport: (inner) => async (profile, route, options) => {
+      if (route.method === "PUT") await held;
+      return inner(profile, route, options);
+    },
+  });
+  await project(m);
+  const caller = m.source.caller.threadId;
+  const { daemon } = m.source;
+  const started = await m.source.call({ op: "transfer", machine: "studio", project: "app" });
+  expect(started).toMatchObject({ ok: true });
+  await daemon.engine?.flush();
+  // The person deletes the thread while its transfer runs, and storage purges it.
+  daemon.store.appendEvents(caller, [{ type: "thread.client.updated", changes: { deletedAt: 5 } }]);
+  daemon.store.atomic(() => daemon.store.purgeThreadData(caller));
+  daemon.engine?.forgetPurged(caller);
+
+  release();
+  const transfer = await m.settled();
+  expect(transfer.phase).toBe("completed");
+  // Nothing is left to deliver to, so the result isn't kept back for every start to try again.
+  await vi.waitFor(() => expect(daemon.transfers?.outgoing.undelivered()).toEqual([]), {
+    timeout: 5_000,
+    interval: 50,
+  });
+  expect(daemon.store.getThread(caller)?.deletedAt).toBe(5);
+}, 30_000);

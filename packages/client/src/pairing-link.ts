@@ -10,6 +10,12 @@ export interface PairingLink {
    * `redeemPairingViaRelay`, pinning `hostId`.
    */
   relay?: { url: string; hostId: string };
+  /**
+   * A direct link's second way in: the person's own relay the daemon is also on, and the host
+   * key to pin there. A machine that can't reach the address redeems the same code through it
+   * (ADR 0182). Readers that don't know it ignore it.
+   */
+  alsoRelay?: { url: string; hostId: string };
   code: string;
   /** The daemon's public-key pin; empty when the link has none. */
   fingerprint: string;
@@ -59,12 +65,34 @@ export function parsePairingLink(text: string): PairingLink {
     (host !== null && daemon.href !== `${daemon.origin}/`)
   )
     throw new Error("This pairing link doesn't name a valid computer address.");
+  const alsoRelay = relayOf(fragment.get("viaRelay"), fragment.get("viaRelayHostId"));
   return {
     daemon: `${daemon.origin}/`,
+    ...(alsoRelay ? { alsoRelay } : {}),
     code: fragment.get("code") ?? "",
     fingerprint: fragment.get("fingerprint") ?? "",
     scopes: (fragment.get("scopes") ?? "").split(",").filter((scope) => scope !== ""),
   };
+}
+
+/** A relay route named in a fragment, or undefined when it isn't a valid one. */
+function relayOf(
+  address: string | null,
+  hostId: string | null,
+): { url: string; hostId: string } | undefined {
+  if (address === null || hostId === null) return undefined;
+  const relay = URL.parse(address);
+  if (
+    !relay ||
+    (relay.protocol !== "wss:" && relay.protocol !== "ws:") ||
+    relay.username ||
+    relay.password ||
+    relay.search ||
+    relay.hash ||
+    !/^[A-Z2-7]{52}$/.test(hostId)
+  )
+    return undefined;
+  return { url: relay.href, hostId };
 }
 
 /**
@@ -80,6 +108,8 @@ export function pairingLinkUrl(
         scopes: readonly string[];
         /** Origin of a separately served web app; the daemon's own web app when absent. */
         app?: string | undefined;
+        /** The person's own relay the daemon is also on, as a second way in (ADR 0182). */
+        alsoRelay?: { url: string; hostId: string } | undefined;
       }
     | {
         relay: { url: string; hostId: string };
@@ -106,6 +136,9 @@ export function pairingLinkUrl(
     fingerprint: input.fingerprint,
     code: input.code,
     scopes: input.scopes.join(","),
+    ...(input.alsoRelay
+      ? { viaRelay: input.alsoRelay.url, viaRelayHostId: input.alsoRelay.hostId }
+      : {}),
   }).toString();
   return url.toString();
 }

@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import {
   Project,
+  ProjectIdentityId,
   ProjectBadgeStyle,
   ProjectDefaults,
   ProjectNote,
@@ -13,6 +15,17 @@ import {
 import type { Store } from "./store.ts";
 import { ProjectError } from "./project-policy.ts";
 import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
+import {
+  decodeIdentity,
+  identityColumns,
+  identityJoin,
+  identityOf,
+  mergeIdentity,
+  migrateProjectIdentity,
+  resolveIdentity,
+  setIdentity,
+} from "./project-identity.ts";
+import { retireThread, type DeletionPolicy } from "./thread-gone.ts";
 
 const recentRow = z.object({ path: Project.shape.path, opened_at: z.number().nonnegative() });
 const folderRow = z.object({ opened_at: z.number().nonnegative().nullable() });
@@ -46,6 +59,7 @@ export function migrateProjects(db: DatabaseSync): void {
   // A project's saved repository choices (ADR 0120); NULL is "no choices".
   if (!columns.has("repositories"))
     db.exec("ALTER TABLE workspace_metadata ADD COLUMN repositories TEXT");
+  migrateProjectIdentity(db);
 }
 
 /**
@@ -60,8 +74,9 @@ export function isSpadeProject(store: Pick<Store, "statement">, id: string): boo
 }
 
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
-export const projectSelect =
-  "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";
+export const projectSelect = `SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes,m.kind,${identityColumns},
+  (SELECT opened_at FROM workspace_recent wr WHERE wr.workspace_id=w.id) AS openedAt
+  FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id ${identityJoin}`;
 
 /** What a project edit changes besides its name; each omitted field keeps the saved value. */
 export interface ProjectEdit {
@@ -80,9 +95,12 @@ export class ProjectStorage {
   private store: Store;
   private now: () => number;
   private listeners = new Set<(change: WorkspaceChanged) => void>();
-  constructor(store: Store, now: () => number) {
+  private newIdentity: () => string;
+  /** `newIdentity` mints logical project ids (ADR 0180): a new registration's, an unlink's. */
+  constructor(store: Store, now: () => number, newIdentity: () => string = randomUUID) {
     this.store = store;
     this.now = now;
+    this.newIdentity = newIdentity;
   }
   subscribe(listener: (change: WorkspaceChanged) => void): () => void {
     this.listeners.add(listener);
@@ -125,6 +143,9 @@ export class ProjectStorage {
           db.prepare("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?").get(existingId),
         );
       const id = existingId ?? this.store.createWorkspace(path, name, this.now());
+      // A registration ace makes now starts its own logical project; an older one keeps none.
+      if (existingId === undefined && identityOf(db, id) === undefined)
+        setIdentity(db, id, ProjectIdentityId.parse(this.newIdentity()), "created", this.now());
       db.prepare("UPDATE workspaces SET path=? WHERE id=?").run(path, id);
       if (icon !== undefined || defaultIcon !== undefined)
         this.saveMetadata(db, id, { icon, defaultIcon });
@@ -280,6 +301,81 @@ export class ProjectStorage {
     this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
     return workspace;
   }
+  /**
+   * Put the registration in logical project `identity`; the same one again changes nothing.
+   * `marker`: the person confirmed the folder's marker (ADR 0181).
+   */
+  link(
+    id: WorkspaceId,
+    identity: ProjectIdentityId,
+    source: "linked" | "marker" = "linked",
+  ): Project {
+    const { workspace, changed } = this.store.atomic((db) => {
+      const before = this.get(id);
+      // An id merged here into another is that other one here.
+      const target = resolveIdentity(db, identity);
+      if (before.identity?.id === target) return { workspace: before, changed: false };
+      setIdentity(db, id, target, source, this.now());
+      return { workspace: this.get(id), changed: true };
+    });
+    if (changed)
+      this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+    return workspace;
+  }
+  /** Whether `other` stands here for logical project `id`: it or an id merged into it. */
+  sameIdentity(other: string, id: ProjectIdentityId): boolean {
+    const parsed = ProjectIdentityId.safeParse(other);
+    return parsed.success && this.store.atomic((db) => resolveIdentity(db, parsed.data)) === id;
+  }
+  /** The registration's logical project id, minting one (`created`) when it has none. */
+  ensureIdentity(id: WorkspaceId): ProjectIdentityId {
+    let minted = false;
+    const identity = this.store.atomic((db) => {
+      const kept = this.get(id).identity?.id;
+      if (kept) return kept;
+      const fresh = ProjectIdentityId.parse(this.newIdentity());
+      setIdentity(db, id, fresh, "created", this.now());
+      minted = true;
+      return fresh;
+    });
+    if (minted) this.announce(id);
+    return identity;
+  }
+  /** Tell every client a registration changed, after a write elsewhere (a transfer's identity). */
+  announce(id: WorkspaceId): void {
+    const workspace = this.get(id);
+    this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+  }
+  /** Split the registration off into a fresh logical project; its old one's aliases stay. */
+  unlink(id: WorkspaceId): Project {
+    const workspace = this.store.atomic((db) => {
+      this.get(id);
+      setIdentity(db, id, ProjectIdentityId.parse(this.newIdentity()), "created", this.now());
+      return this.get(id);
+    });
+    this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+    return workspace;
+  }
+  /** Merge logical project `from` into `into` here, in one transaction (`mergeIdentity`). */
+  merge(from: ProjectIdentityId, into: ProjectIdentityId): void {
+    const changed = this.store.atomic((db) =>
+      mergeIdentity(db, from, into, this.now()).flatMap((workspaceId) => {
+        const row = db
+          .prepare(
+            `${projectSelect} WHERE w.id=? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)`,
+          )
+          .get(workspaceId);
+        return row ? [decodeProjectRow(row)] : [];
+      }),
+    );
+    for (const workspace of changed)
+      this.emit({
+        type: "workspace.changed",
+        change: "updated",
+        workspaceId: workspace.id,
+        workspace,
+      });
+  }
   rename(id: WorkspaceId, name: string): Project {
     return this.update(id, name, {}, "renamed");
   }
@@ -352,7 +448,12 @@ export class ProjectStorage {
    * on screen. Its threads were already deleted through the thread lifecycle where it runs; one
    * that started since is refused while it runs unless the person chose to stop running ones.
    */
-  remove(id: WorkspaceId, stopRunning: boolean, hasOwnedWork: (id: ThreadId) => boolean): void {
+  remove(
+    id: WorkspaceId,
+    stopRunning: boolean,
+    hasOwnedWork: (id: ThreadId) => boolean,
+    policy: DeletionPolicy | undefined,
+  ): void {
     this.store.atomic((db) => {
       const workspace = this.get(id);
       this.store.workspaceReservations.assertAvailable(
@@ -363,16 +464,7 @@ export class ProjectStorage {
         if (!thread || thread.deletedAt !== undefined) return;
         if (!stopRunning && running(thread.status.state, hasOwnedWork(threadId)))
           throw new ProjectError("workspace_threads_running");
-        this.store.appendEvents(
-          threadId,
-          [
-            {
-              type: "thread.client.updated",
-              changes: { deletedAt: this.now(), autoSettleAt: null },
-            },
-          ],
-          this.now(),
-        );
+        retireThread(this.store, threadId, this.now(), policy, `project-removed:${id}:${threadId}`);
       });
       db.prepare(
         "INSERT INTO workspace_unregistered VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET removed_at=excluded.removed_at",
@@ -388,6 +480,7 @@ export class ProjectStorage {
   deleteLeftoverThreads(
     after: string,
     hasOwnedWork: (id: ThreadId) => boolean,
+    policy: DeletionPolicy | undefined,
   ): string | undefined {
     const rows = this.store
       .statement(
@@ -403,16 +496,7 @@ export class ProjectStorage {
         const thread = this.store.getThread(threadId);
         if (!thread || thread.deletedAt !== undefined) continue;
         if (running(thread.status.state, hasOwnedWork(threadId))) continue;
-        this.store.appendEvents(
-          threadId,
-          [
-            {
-              type: "thread.client.updated",
-              changes: { deletedAt: this.now(), autoSettleAt: null },
-            },
-          ],
-          this.now(),
-        );
+        retireThread(this.store, threadId, this.now(), policy, `project-leftover:${threadId}`);
       }
     });
     return rows.length === 64 ? rows[63] : undefined;
@@ -437,11 +521,15 @@ export class ProjectStorage {
 const running = (state: string, ownsWork: boolean) =>
   ownsWork || !["new", "done", "failed"].includes(state);
 
-const storedRow = Project.extend({
+const storedRow = Project.omit({ identity: true }).extend({
   kind: Project.shape.kind.nullable().catch(null),
   badge: z.unknown().optional(),
   defaults: z.unknown().optional(),
   notes: z.unknown().optional(),
+  openedAt: z.number().nonnegative().nullable().optional().catch(null),
+  identityId: z.unknown().optional(),
+  identitySource: z.unknown().optional(),
+  identityAliases: z.unknown().optional(),
 });
 
 /** A saved JSON column, or undefined when it is empty or no longer reads as `schema`. */
@@ -457,7 +545,18 @@ function stored<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
 
 /** Projects omit unset optional fields rather than adding null fields to their wire shape. */
 export function decodeProjectRow(row: unknown): Project {
-  const { badge, defaults, notes, kind, ...project } = storedRow.parse(row);
+  const {
+    badge,
+    defaults,
+    notes,
+    kind,
+    openedAt,
+    identityId,
+    identitySource,
+    identityAliases,
+    ...project
+  } = storedRow.parse(row);
+  const identity = decodeIdentity({ identityId, identitySource, identityAliases });
   if (project.icon === null) delete project.icon;
   if (project.defaultIcon === null) delete project.defaultIcon;
   const style = stored(ProjectBadgeStyle, badge);
@@ -469,5 +568,7 @@ export function decodeProjectRow(row: unknown): Project {
     ...(style ? { badge: style } : {}),
     ...(preferences ? { defaults: preferences } : {}),
     ...(facts?.length ? { notes: facts } : {}),
+    ...(identity ? { identity } : {}),
+    ...(typeof openedAt === "number" ? { openedAt } : {}),
   };
 }

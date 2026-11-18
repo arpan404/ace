@@ -11,7 +11,7 @@ import {
   type TransferCommit,
 } from "@ace/protocol";
 import { TargetRefusal } from "../machines/target-refusal.ts";
-import { sameOriginProject } from "../project-origin.ts";
+import { OriginCache, sameOriginProject } from "../project-origin.ts";
 import { IncomingRows, type IncomingRecord } from "./incoming-rows.ts";
 import {
   appendAt,
@@ -31,6 +31,7 @@ import {
 } from "./landing.ts";
 import { TransferError, type TransferArchive, type TransferGit } from "./ports.ts";
 import type { Store } from "../store.ts";
+import type { TransferIdentities } from "./identity.ts";
 
 export interface IncomingDeps {
   store: Store;
@@ -41,11 +42,15 @@ export interface IncomingDeps {
   archive: TransferArchive;
   projects: TargetProjects;
   threads: TargetThreadStarter;
+  /** Logical project identity (ADR 0180); without it, this target says it keeps none. */
+  identities?: TransferIdentities | undefined;
   now(): number;
   log(message: string, fields: Record<string, unknown>): void;
 }
 
 const retentionMs = 24 * 60 * 60 * 1000;
+/** The most registrations, most recently used first, a begin reads origins of. */
+const originBudget = 256;
 const settled = new Set(["completed", "failed", "cancelled"]);
 
 /** Git failures a person can act on, in their words; the rest are `import_failed`. */
@@ -103,9 +108,12 @@ export class IncomingTransfers {
   private closed = false;
   private writes = new Map<string, Promise<unknown>>();
   private held = new Set<string>();
+  /** Origins and remotes read for begins, kept briefly so repeated begins don't ask Git again. */
+  private origins: OriginCache;
   constructor(deps: IncomingDeps) {
     this.deps = deps;
     this.rows = new IncomingRows(deps.store);
+    this.origins = new OriginCache(deps.git, () => deps.now());
   }
   /** After a restart: imports that were running start again from the file that is still here. */
   async recover(): Promise<void> {
@@ -154,6 +162,7 @@ export class IncomingTransfers {
       // Always present: this machine takes ignored files.
       ignoredOffset: receiving ? await fileBytes(this.ignoredFile(record.transferId)) : 0,
       ...(record.hasOrigin === undefined ? {} : { hasOrigin: record.hasOrigin }),
+      ...(this.deps.identities ? { identity: true as const } : {}),
       ...(record.result ? { result: record.result } : {}),
       ...(record.error ? { error: record.error } : {}),
     };
@@ -224,9 +233,48 @@ export class IncomingTransfers {
     if (!begin.sourceWorkspaceId) return undefined;
     return { hostId: begin.origin.hostId, workspaceId: begin.sourceWorkspaceId, deviceId };
   }
-  /** A project here whose origin is the same repository. */
+  /**
+   * A registration here in the sender's logical project that the method can land in: for
+   * `remote`, one whose origin is the source's; for a bundle, a repository; for an archive, a
+   * plain folder. None that fits leaves the earlier rules (same origin, earlier copy) to choose.
+   */
+  private async identityLanding(
+    record: IncomingRecord,
+    identity: NonNullable<TransferCommit["identity"]>,
+  ): Promise<WorkspaceId | undefined> {
+    const holders = this.deps.identities?.holders(identity) ?? [];
+    for (const holder of holders) {
+      try {
+        if (record.method === "remote") {
+          const wanted = record.begin.remote?.normalized;
+          const origin = await this.deps.git.transferOrigin(holder.path);
+          if (wanted && origin?.normalized === wanted) return holder.workspaceId;
+          continue;
+        }
+        const checkout = await this.deps.git.sourceCheckout(holder.path);
+        // A bundle lands only at a repository's top, never in a folder inside another one.
+        const fits =
+          record.method === "bundle"
+            ? checkout.kind === "checkout" && checkout.root === holder.path
+            : checkout.kind === "folder";
+        if (fits) return holder.workspaceId;
+      } catch {
+        /* One that can't be read is not a landing. */
+      }
+    }
+    return undefined;
+  }
+  /**
+   * A project here whose origin is the same repository: the most recently used of the first
+   * `originBudget` registrations, read through a short-lived cache, so a begin answers well
+   * within the sender's wait however many projects there are.
+   */
   private sameOrigin(normalized: string): Promise<WorkspaceId | undefined> {
-    return sameOriginProject(this.deps.git, this.deps.projects.list(), normalized);
+    return sameOriginProject(
+      this.origins,
+      this.deps.projects.list().slice(0, originBudget),
+      normalized,
+    );
   }
   /** One piece of the upload at `offset`; out of order answers what is held, unchanged. */
   async chunk(
@@ -295,7 +343,15 @@ export class IncomingTransfers {
         return this.view(this.owned(device, call.transferId));
       }
     }
-    this.rows.update(call.transferId, { state: "importing", commit: call }, this.deps.now());
+    // The sender's logical project lands in its registration here, where that fits the method.
+    const byIdentity = call.identity
+      ? await this.identityLanding(record, call.identity)
+      : undefined;
+    this.rows.update(
+      call.transferId,
+      { state: "importing", commit: call, ...(byIdentity ? { workspaceId: byIdentity } : {}) },
+      this.deps.now(),
+    );
     const importing = this.owned(device, call.transferId);
     this.import(importing);
     return this.view(importing);
@@ -411,8 +467,19 @@ export class IncomingTransfers {
     }
   }
   /** Completes an import past its cutoff: the thread's setup and the row in one transaction. */
-  private finish(record: IncomingRecord, result: NonNullable<IncomingRecord["result"]>): void {
+  private finish(record: IncomingRecord, landed: NonNullable<IncomingRecord["result"]>): void {
     const source = this.landingSource(record.deviceId, record.begin);
+    const identity = record.commit?.identity;
+    // Made by this landing: it takes the sender's identity; a reused one keeps any it has.
+    const conflict =
+      identity && this.deps.identities
+        ? this.deps.identities.adopt(
+            landed.workspaceId,
+            identity,
+            record.registeredId === landed.workspaceId,
+          )
+        : undefined;
+    const result = conflict ? { ...landed, identityConflict: conflict } : landed;
     // The row and the record of where the project landed commit together.
     const complete = () =>
       this.deps.store.atomic(() => {

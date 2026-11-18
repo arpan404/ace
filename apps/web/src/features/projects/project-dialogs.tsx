@@ -5,6 +5,7 @@ import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { useLandInProject } from "./land.ts";
 import { RemoveProjectDialog } from "./manage-dialogs.tsx";
 import { EditProjectDialog } from "./edit-project-dialog.tsx";
+import { MarkerLinkDialog } from "./marker-link-dialog.tsx";
 import { projectFailure, useProjectCommands } from "./project-commands.ts";
 import type { ProjectRequest } from "./requests.ts";
 
@@ -96,6 +97,17 @@ export default function ProjectDialogs(props: {
         open={open}
         onOpenChange={onOpenChange}
         onRequest={onRequest}
+      />
+    ) : null;
+  if (request.kind === "marker")
+    return open ? (
+      <MarkerLinkDialog
+        key={`${request.machineId ?? ""}/${request.projectId}`}
+        projectId={request.projectId}
+        machineId={request.machineId}
+        marker={request.marker}
+        open={open}
+        onOpenChange={onOpenChange}
       />
     ) : null;
   if (request.kind === "remove")

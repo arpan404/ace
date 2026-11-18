@@ -115,6 +115,51 @@ import XCTest
             XCTAssertLessThan(slowest, 15, "a swipe right after opening didn't settle")
         }
     }
+    /// A window past `TranscriptStackChoice`'s limit stays in the lazy stack (ADR 0157), whose
+    /// estimate flipping by a point pinned short windows. Swiped the moment it appears, a long
+    /// one settles: `ios-stream`'s 201-row live tail (#2124).
+    func testSwipingTheMomentALongLiveWindowOpensStaysResponsive() {
+        let app = launchProbed()
+        XCTAssertTrue(app.openThread("ios-stream"))
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        swipesSettle(transcript, "right after the live tail opened")
+    }
+    /// The same for a history window read in behind the live tail: older pages land, and the
+    /// window that holds them is swiped the moment the last one does (#2124).
+    func testSwipingTheMomentAHistoryWindowPagesInStaysResponsive() {
+        let app = launchProbed()
+        XCTAssertTrue(app.openThread("ios-stream"))
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        var flings = 0
+        while (app.probeValue("pages.older") ?? 0) < 3, flings < 120 {
+            // Each paging fling waits for the app to go idle too, so a page that stalls layout
+            // when it lands fails here instead of clearing before the timed swipes begin.
+            let started = Date()
+            transcript.fling(older: true)
+            XCTAssertLessThan(Date().timeIntervalSince(started), 15, "an older page didn't settle as it landed")
+            flings += 1
+        }
+        XCTAssertGreaterThanOrEqual(app.probeValue("pages.older") ?? 0, 3, "older pages read in \(flings) flings")
+        swipesSettle(transcript, "right after an older page landed")
+    }
+    private func launchProbed() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--perf-probe"]
+        app.launchWithArguments()
+        return app
+    }
+    /// Six fast swipes toward older rows; each query waits for the app to go idle first, so a
+    /// swipe that never settles is one the main thread is caught in.
+    private func swipesSettle(_ transcript: XCUIElement, _ when: String) {
+        for _ in 0..<6 {
+            let started = Date()
+            transcript.swipeDown(velocity: .fast)
+            // A settled swipe takes about three seconds, its fling included.
+            XCTAssertLessThan(Date().timeIntervalSince(started), 15, "a swipe \(when) didn't settle")
+        }
+    }
     private func message(_ text: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text)).firstMatch
     }

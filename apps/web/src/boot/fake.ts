@@ -257,7 +257,11 @@ export function bootFake(): {
   ]);
   // One project there already, so New thread can start on the build server.
   if (!empty) {
-    server.projects.command({ type: "workspace.add", path: "/home/ci/src/relay-ci" });
+    const relay = server.projects.command({ type: "workspace.add", path: "/home/ci/src/relay-ci" });
+    // Linked to This Mac's relay (ADR 0180): New thread in lists them as one project.
+    const relayProject = "5e1f0c2a-7d1b-4c7e-9a0e-2f6b8d4c1a90";
+    if (relay?.workspace) server.projects.identities.set(relay.workspace.id, relayProject);
+    daemon.projects.identities.set("relay", relayProject);
     const added = server.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
     // A thread there, so Continue on… runs from the build server too.
     if (added?.workspace)

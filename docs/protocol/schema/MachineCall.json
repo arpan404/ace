@@ -329,6 +329,23 @@
         "request"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "parcel",
+          "type": "string"
+        },
+        "parcel": {
+          "$ref": "https://ace.local/protocol/v1/ParcelCall.json"
+        }
+      },
+      "required": [
+        "op",
+        "parcel"
+      ],
+      "type": "object"
     }
   ]
 }

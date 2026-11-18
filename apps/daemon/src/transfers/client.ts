@@ -4,8 +4,9 @@ import {
   TransferProbe,
   type MachineTransferCall,
 } from "@ace/protocol";
-import type { RemoteProfile } from "../cli/profiles.ts";
+import { directOf, type RemoteProfile } from "../cli/profiles.ts";
 import {
+  MachineFailure,
   pinnedRequest,
   type MachineTransportOptions,
   type PinnedRequest,
@@ -18,7 +19,18 @@ export type TransferTransport = (
   options: MachineTransportOptions,
 ) => Promise<unknown>;
 
-export const transferTransport: TransferTransport = pinnedRequest;
+/** Projects move only over the pinned TLS link (ADR 0101): a relay-only link sends nothing. */
+export const transferTransport: TransferTransport = async (profile, route, options) => {
+  const direct = directOf(profile);
+  if (!direct)
+    throw new MachineFailure(
+      "refused",
+      "not_supported",
+      "That machine is linked through a relay only, and projects and threads move only over a direct link (LAN or Tailscale). Link it again where its address answers.",
+      true,
+    );
+  return pinnedRequest(direct, route, options);
+};
 
 /**
  * Stops waiting for `call` once `signal` aborts, whatever the transport does: a cancel or a

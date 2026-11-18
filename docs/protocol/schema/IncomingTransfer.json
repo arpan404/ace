@@ -23,6 +23,10 @@
     "hasOrigin": {
       "type": "boolean"
     },
+    "identity": {
+      "const": true,
+      "type": "boolean"
+    },
     "ignoredOffset": {
       "maximum": 9007199254740991,
       "minimum": 0,
@@ -44,6 +48,9 @@
         },
         "branchOnly": {
           "type": "boolean"
+        },
+        "identityConflict": {
+          "$ref": "https://ace.local/protocol/v1/TransferIdentityConflict.json"
         },
         "ignoredSkipped": {
           "maximum": 9007199254740991,

@@ -107,6 +107,8 @@ export * from "./message-arrival.ts";
 export * from "./message-limits.ts";
 export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
+export * from "./machine-relay.ts";
+export * from "./parcels.ts";
 export * from "./machine-grants.ts";
 export * from "./fleet.ts";
 export * from "./outside-clients.ts";
@@ -151,6 +153,7 @@ export * from "./history.ts";
 
 export * from "./badge-color.ts";
 export * from "./projects.ts";
+export * from "./project-identity.ts";
 export * from "./project-notes.ts";
 export * from "./project-repositories.ts";
 export * from "./forge-capabilities.ts";

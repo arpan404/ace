@@ -11,13 +11,14 @@ afterEach(() => {
   for (const close of cleanup.splice(0).toReversed()) close();
 });
 
-function held() {
+function heldWithStore() {
   const home = mkdtempSync(join(tmpdir(), "ace-held-messages-"));
   const store = new Store(join(home, "events.sqlite"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
   cleanup.push(() => store.close());
-  return new HeldMessages(store);
+  return { store, messages: new HeldMessages(store) };
 }
+const held = () => heldWithStore().messages;
 const message = (requestId: string, text = "x") =>
   ({
     op: "message",
@@ -58,3 +59,36 @@ test("the machine as a whole holds at most its count and its bytes, across devic
   const counted = { perDevice: { count: 10, bytes: 100_000 }, total: { count: 3, bytes: 1e9 } };
   expect(messages.hold("d4", "d4", message("d4"), counted)).toBe("full");
 });
+
+test.each([
+  ["a field this build no longer knows", JSON.stringify({ ...message("old"), urgency: "high" })],
+  ["a call that isn't a message", JSON.stringify({ op: "status", threadIds: ["child"] })],
+  ["text that isn't JSON", "{"],
+])(
+  "a held message this build can't read (%s) is kept and passed over, never holding back the rest",
+  (_case, call) => {
+    const { store, messages } = heldWithStore();
+    store.atomic((db) =>
+      db
+        .prepare(
+          "INSERT INTO machine_held_messages (request_key,device_id,thread_id,call) VALUES ('old','laptop','child',?)",
+        )
+        .run(call),
+    );
+    for (const key of ["a1", "a2", "a3"]) messages.hold(key, "laptop", message(key));
+    const unreadable: string[] = [];
+    expect(messages.oldest(2, (key) => unreadable.push(key)).map((kept) => kept.key)).toEqual([
+      "a1",
+      "a2",
+    ]);
+    expect(unreadable).toEqual(["old"]);
+    // Told once; still kept, so a build that reads it can deliver it.
+    expect(messages.oldest(32, (key) => unreadable.push(key)).map((kept) => kept.key)).toEqual([
+      "a1",
+      "a2",
+      "a3",
+    ]);
+    expect(unreadable).toEqual(["old"]);
+    expect(messages.waiting("child")).toBe(true);
+  },
+);

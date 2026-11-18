@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectIdentitySuggestion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "marker": {
+      "const": true,
+      "type": "boolean"
+    },
+    "sameRemotes": {
+      "type": "boolean"
+    },
+    "shared": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "workspaceId",
+    "shared",
+    "sameRemotes"
+  ],
+  "type": "object"
+}

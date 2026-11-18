@@ -7,6 +7,7 @@ import { SpaceReclaim } from "../storage/space-reclaim.ts";
 import { SPACE_RECLAIMER } from "../storage/space-reclaim-policy.ts";
 import type { ServiceContext } from "./types.ts";
 import { backgroundFailure } from "./background.ts";
+import { IDLE_PURGE, resumePurges } from "../thread-gone.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export async function startStorage(context: ServiceContext): Promise<void> {
@@ -52,6 +53,14 @@ export async function startStorage(context: ServiceContext): Promise<void> {
         : reviewer !== "storage:scheduler" || scheduled,
   );
   context.services.storage = storage;
+  // A thread purge a restart cut short finishes in the background, a batch at a time (ADR 0183).
+  let purging = true;
+  context.resources.onShutdown(() => {
+    purging = false;
+  });
+  void resumePurges(context.store, context.now, { ...IDLE_PURGE, going: () => purging }, (id) =>
+    context.services.engine?.forgetPurged(id),
+  ).catch(backgroundFailure(context, "Thread purge not finished"));
   storage.startUsage();
   const schedule = new ScheduledStorageCleanup(
     owner,

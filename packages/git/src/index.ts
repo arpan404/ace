@@ -97,6 +97,7 @@ export type { BundleCloneOptions } from "./transfer-clone.ts";
 export type { BundleRefs } from "./transfer-refs.ts";
 export { gitAbove } from "./transfer-source.ts";
 export type { SourceCheckout } from "./transfer-source.ts";
+export type { CheckoutFacts } from "./checkout-facts.ts";
 export type { CheckoutState } from "./transfer-checkout.ts";
 
 export class GitService {

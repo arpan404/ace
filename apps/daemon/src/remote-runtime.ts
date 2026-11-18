@@ -260,9 +260,14 @@ export function remoteRuntime(
      */
     /** Fetches a failed Tailscale certificate again before a link is made (`refreshCertificate`). */
     beforePairing: () => direct.refreshCertificate(pairingCertificateWaitMs),
-    pairing: () =>
-      direct.connection() ??
-      (relays.selfHosted() && options.relay ? relayPairing(options.relay) : undefined),
+    pairing: () => {
+      const own = relays.selfHosted() && options.relay ? relayPairing(options.relay) : undefined;
+      const address = direct.connection();
+      // A direct link also names the person's own relay, so a machine that can't reach the
+      // address can still redeem it there (ADR 0182).
+      if (address) return own ? { ...address, alsoRelay: own.relay } : address;
+      return own;
+    },
     status: () => {
       const config = options.remoteConfig;
       const networks = remoteNetworksStatus({

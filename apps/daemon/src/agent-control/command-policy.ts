@@ -1,6 +1,7 @@
 import type { Command, CommandResult, ThreadId } from "@ace/protocol";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
+import { threadGone } from "../thread-gone.ts";
 import { messagedChildStatus } from "./child-status.ts";
 import type { DelegationJournal } from "./journal.ts";
 
@@ -81,6 +82,23 @@ export function delegationCommandPolicy(deps: {
       return accepted;
     }
     if (!deps.admits()) return fail("Admission closed");
+    const settled = deps.journal.get(p.threadId);
+    // A child whose parent is gone is the person's own thread now (ADR 0183): their explicit
+    // work carries it on, unfenced by the tree it left. An agent's never does. Its edge stays settled and nothing
+    // reaches the parent. Work still being cancelled from the deletion stays cancelled.
+    if (
+      fromPerson(command, deps.requestingAgent?.()) &&
+      explicit &&
+      settled?.phase === "settled" &&
+      threadGone((id) => deps.store.getThread(id), deps.engine, settled.parentId)
+    ) {
+      const accepted = accept();
+      if (!accepted.ok) return accepted;
+      deps.journal.resumeMember(p.threadId, deps.now());
+      if (carryOn) deps.resumeRestartHeld?.(p.threadId, command.id);
+      deps.changed();
+      return accepted;
+    }
     if (!explicit && deps.journal.stopped(p.threadId)) return fail("cancelled");
     if (
       deps.journal.get(p.threadId)?.phase === "cancelling" ||
@@ -95,6 +113,11 @@ export function delegationCommandPolicy(deps: {
     if (!accepted.ok) return accepted;
     if (explicit) deps.journal.resumeMember(p.threadId, deps.now());
     if (carryOn) deps.resumeRestartHeld?.(p.threadId, command.id);
+    // Automatic work on a child whose parent is gone reaches nothing there either.
+    if (threadGone((id) => deps.store.getThread(id), deps.engine, edge.parentId)) {
+      deps.changed();
+      return accepted;
+    }
     // Only the parent agent's own message makes the new work its turn's; the person's is theirs.
     if (edge.phase === "settled")
       deps.journal.reopen(
@@ -117,4 +140,20 @@ export function delegationCommandPolicy(deps: {
     deps.changed();
     return accepted;
   };
+}
+
+/** Devices ace's own agents, automations and outside clients send commands as. */
+const agentDevices = new Set(["ace-agent", "agent-automation", "automation"]);
+/**
+ * The command is the person's: sent from their own client, not by an agent's tool (whatever
+ * device it goes through), an automation or an outside client's grant.
+ */
+function fromPerson(command: Command, requestingAgent: string | undefined): boolean {
+  const p = command.payload;
+  return (
+    requestingAgent === undefined &&
+    !agentDevices.has(command.deviceId) &&
+    !command.deviceId.startsWith("mcp-grant:") &&
+    !(p.type === "thread.send" && p.trigger === "parent_agent")
+  );
 }

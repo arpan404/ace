@@ -15,6 +15,7 @@ export async function daemonFixture(
     | "devices"
     | "projects"
     | "transfers"
+    | "parcels"
     | "screen"
     | "computer"
     | "outsideClients"
@@ -62,6 +63,7 @@ export async function daemonFixture(
       ...(options.outsideClients ? { outsideClients: options.outsideClients } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(options.transfers ? { transfers: options.transfers } : {}),
+      ...(options.parcels ? { parcels: options.parcels } : {}),
       ...(options.spade ? { spade: options.spade } : {}),
       workspaceActions: {
         forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),

@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
-import { Profiles, RemoteProfile } from "../cli/profiles.ts";
+import { Profiles, RemoteProfile, directOf } from "../cli/profiles.ts";
 import { connectionKey } from "./connections.ts";
 
 /** How long a look may wait for another writer's lock on the file: it blocks the event loop. */
@@ -111,7 +111,12 @@ export class SavedPairings {
   }
   private set(profiles: RemoteProfile[]) {
     this.profiles = profiles;
-    this.known = new Set(profiles.map(connectionKey));
+    this.known = new Set(
+      profiles.flatMap((profile) => {
+        const direct = directOf(profile);
+        return direct ? [connectionKey(direct)] : [];
+      }),
+    );
   }
   private closeDb() {
     try {

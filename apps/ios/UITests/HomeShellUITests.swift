@@ -94,8 +94,10 @@ import XCTest
 
     func testUsageAutomationsHistoryAndArchivedEachOpenFromHome() {
         let app = launch()
+        // Open Search once: closing a place returns to it, and tapping Search again while it
+        // shows focuses its field (#2215) instead of opening it.
+        app.openSearch()
         for (place, title) in [("usage", "Usage"), ("automations", "Automations"), ("history", "History"), ("archived", "Archived")] {
-            app.openSearch()
             let capsule = app.buttons["search.place.\(place)"]
             XCTAssertTrue(capsule.waitForExistence(timeout: 10), "\(place) is missing from Places")
             capsule.tap()
@@ -291,31 +293,78 @@ import XCTest
         capture("ipad-search-focused")
     }
 
-    func testCodeReviewIsAHomeTabForPullRequestsAndIssues() {
+    func testCodeReviewOpensFromTheProjectsTopBarNotTheTabBar() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
         let app = launch()
-        let review = app.tabBars.firstMatch.buttons["Code review"]
-        XCTAssertTrue(review.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(bar.buttons["Projects"].exists)
+        XCTAssertTrue(bar.buttons["Chats"].exists)
+        XCTAssertFalse(bar.buttons["Code review"].exists)
+        let review = app.buttons["inbox.review"]
+        XCTAssertTrue(review.waitForExistence(timeout: 10))
+        XCTAssertEqual(review.label, "Code review")
+        // Beside the scope button, to its left.
+        XCTAssertLessThan(review.frame.midX, app.buttons["inbox.projects"].frame.midX)
+        capture("projects-top-bar")
         review.tap()
-        XCTAssertTrue(review.isSelected)
         let issues = app.buttons["forge.kind.issues"]
         XCTAssertTrue(issues.waitForExistence(timeout: 20))
         capture("code-review-pulls")
         issues.tap()
         XCTAssertTrue(issues.isSelected)
         capture("code-review-issues")
-        app.tabBars.firstMatch.buttons["Projects"].tap()
+        // Closed and opened again, it keeps the list the person chose.
+        app.buttons["review.close"].tap()
         XCTAssertTrue(app.buttons["threads.tab.inbox"].waitForExistence(timeout: 10))
+        app.buttons["inbox.review"].tap()
+        XCTAssertTrue(app.buttons["forge.kind.issues"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["forge.kind.issues"].isSelected)
+    }
+
+    func testCodeReviewClosedAndOpenedAgainKeepsItsSearchAndOpenPullRequest() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
+        let app = launch()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        app.buttons["inbox.review"].tap()
+        let row = app.buttons["forge.pull.245"]
+        XCTAssertTrue(row.waitForExistence(timeout: 25))
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        search.tap()
+        search.typeText("settings")
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        let header = app.descendants(matching: .any)["forge.pull.header"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 20))
+        // A pushed page shows Back, not Close: the sheet is dragged down from its top.
+        let bar = app.navigationBars.firstMatch
+        let top = bar.exists ? bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            : app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+        top.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
+        // Opened again on the pull request the person had open, with the search behind it.
+        app.buttons["inbox.review"].tap()
+        XCTAssertTrue(header.waitForExistence(timeout: 20))
+        app.tapBack()
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertEqual(app.searchFields.firstMatch.value as? String, "settings")
+        capture("code-review-reopened")
     }
 
     func testCodeReviewWithNoComputerPairedOffersPairing() {
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        // A regular-width iPad holds Code review in the sidebar rather than the top bar.
+        if !phone { XCUIDevice.shared.orientation = .landscapeLeft }
         let app = XCUIApplication()
         // A fresh install: no computer paired, no fixture connected.
         app.launchArguments = ["--spike", "--spike-unpaired"]
         app.launchWithArguments()
         defer { app.terminate() }
-        let review = app.tabBars.firstMatch.buttons["Code review"]
+        let review = app.buttons[phone ? "inbox.review" : "sidebar.review"]
         XCTAssertTrue(review.waitForExistence(timeout: 30))
         review.tap()
+        if phone { XCTAssertTrue(app.buttons["review.close"].waitForExistence(timeout: 10)) }
         // Never skeletons forever: the way to pair a computer.
         XCTAssertTrue(app.buttons["inbox.empty.pair"].waitForExistence(timeout: 20))
         capture("code-review-unpaired")

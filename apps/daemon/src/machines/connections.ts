@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import type { Agent } from "node:https";
 import { pinnedAgent, pinnedKeepAliveAgent, type PinnedSessions } from "../client-access.ts";
-import type { RemoteProfile } from "../cli/profiles.ts";
+import { directOf, type RemoteProfile } from "../cli/profiles.ts";
 
 /** What a connection is opened for: where, the key it must present, and the token it carries. */
-export type ConnectionProfile = Pick<RemoteProfile, "origin" | "fingerprint" | "token">;
+/** A pairing's pinned TLS address and token: what a kept-open connection is for. */
+export type ConnectionProfile = { origin: string; fingerprint: string; token: string };
 
 /**
  * Which connections a call uses, so no kind of call can wait behind another that may itself
@@ -198,8 +199,16 @@ export class MachineConnections {
     }
   }
   /** Drops connections to machines no longer paired as they were (unpaired, new pin or token). */
-  retain(profiles: readonly ConnectionProfile[]): void {
-    this.retainKeys(new Set(profiles.map(connectionKey)));
+  retain(profiles: readonly Pick<RemoteProfile, "origin" | "fingerprint" | "token">[]): void {
+    // A machine linked through a relay only has no connections here.
+    this.retainKeys(
+      new Set(
+        profiles.flatMap((profile) => {
+          const direct = directOf(profile);
+          return direct ? [connectionKey(direct)] : [];
+        }),
+      ),
+    );
   }
   private retainKeys(keep: ReadonlySet<string>): void {
     this.known = keep;

@@ -3,7 +3,24 @@ import { MachineCall } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
 type Message = Extract<MachineCall, { op: "message" }>;
-const Row = z.object({ request_key: z.string(), device_id: z.string(), call: z.string() });
+const Row = z.object({
+  seq: z.number(),
+  request_key: z.string(),
+  device_id: z.string(),
+  call: z.string(),
+});
+
+function readHeld(
+  row: z.infer<typeof Row>,
+): { ok: true; held: HeldMessage } | { ok: false; error: unknown } {
+  try {
+    const call = MachineCall.parse(JSON.parse(row.call));
+    if (call.op !== "message") throw new Error("A held machine call is not a message");
+    return { ok: true, held: { key: row.request_key, deviceId: row.device_id, call } };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
 
 /** A message another machine sent while admission here was closed, kept to deliver later. */
 export interface HeldMessage {
@@ -33,6 +50,8 @@ export const heldLimits: HeldLimits = {
  */
 export class HeldMessages {
   private store: Store;
+  /** Held messages already reported unreadable by this process. */
+  private unreadable = new Set<string>();
   constructor(store: Store) {
     this.store = store;
     store.atomic((db) =>
@@ -92,21 +111,36 @@ export class HeldMessages {
       ),
     );
   }
-  /** The oldest held messages, in the order they arrived. */
-  oldest(limit = 32): HeldMessage[] {
-    return this.store.atomic((db) =>
-      db
-        .prepare(
-          "SELECT request_key,device_id,call FROM machine_held_messages ORDER BY seq LIMIT ?",
-        )
-        .all(limit)
-        .map((raw) => {
+  /**
+   * The oldest held messages this build can read, in the order they arrived. One it can't read
+   * (written by another build, say) is passed over and kept, told to `unreadable` once per
+   * process, so it never holds back the messages after it.
+   */
+  oldest(limit = 32, unreadable?: (key: string, error: unknown) => void): HeldMessage[] {
+    return this.store.atomic((db) => {
+      const found: HeldMessage[] = [];
+      let after = -1;
+      while (found.length < limit) {
+        const page = db
+          .prepare(
+            "SELECT seq,request_key,device_id,call FROM machine_held_messages WHERE seq>? ORDER BY seq LIMIT ?",
+          )
+          .all(after, limit);
+        for (const raw of page) {
           const row = Row.parse(raw);
-          const call = MachineCall.parse(JSON.parse(row.call));
-          if (call.op !== "message") throw new Error("A held machine call is not a message");
-          return { key: row.request_key, deviceId: row.device_id, call };
-        }),
-    );
+          after = row.seq;
+          const message = readHeld(row);
+          if (message.ok) found.push(message.held);
+          else if (!this.unreadable.has(row.request_key)) {
+            this.unreadable.add(row.request_key);
+            unreadable?.(row.request_key, message.error);
+          }
+          if (found.length === limit) break;
+        }
+        if (page.length < limit) break;
+      }
+      return found;
+    });
   }
   remove(key: string): void {
     this.store.atomic((db) =>

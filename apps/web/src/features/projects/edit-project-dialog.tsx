@@ -22,6 +22,7 @@ import { ProjectIconChooser } from "./project-icon-chooser.tsx";
 import { ProjectNotesFields } from "./project-notes-fields.tsx";
 import { ProjectPathRow } from "./project-path-row.tsx";
 import { ProjectRepositoriesFields } from "./project-repositories-fields.tsx";
+import { ProjectIdentityFields } from "./project-identity-fields.tsx";
 import type { ProjectRequest } from "./requests.ts";
 
 /**
@@ -109,6 +110,9 @@ export function EditProjectDialog(props: {
                   projectId={project.id}
                   onLeave={() => props.onOpenChange(false)}
                 />
+              )}
+              {project.kind !== "chat" && (
+                <ProjectIdentityFields projectId={project.id} path={project.path} />
               )}
               <ProjectDefaultsFields
                 projectId={project.id}

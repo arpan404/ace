@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectIdentityId.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "5e1f0c2a-7d1b-4c7e-9a0e-2f6b8d4c1a90"
+  ],
+  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+  "type": "string",
+  "x-ace-constraint": "A UUID in lower-case canonical form."
+}
