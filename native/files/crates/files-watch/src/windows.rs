@@ -24,8 +24,8 @@ use std::thread::JoinHandle;
 use files_safe::Root;
 use notify::Event;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_NOTIFY_ENUM_DIR, ERROR_OPERATION_ABORTED, HANDLE, INVALID_HANDLE_VALUE,
-    WAIT_FAILED, WAIT_OBJECT_0,
+    CloseHandle, ERROR_IO_PENDING, ERROR_NOTIFY_ENUM_DIR, ERROR_OPERATION_ABORTED, HANDLE,
+    INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
@@ -188,12 +188,16 @@ fn run(root: &Path, directory: Handle, stop: Handle, completion: Handle, events:
         };
         if started == 0 {
             let error = std::io::Error::last_os_error();
-            if error.raw_os_error() == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
+            let code = error.raw_os_error();
+            if code == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
                 events.lost_events();
                 continue;
             }
-            events.failed(&format!("cannot watch {}: {error}", root.display()));
-            break;
+            // A queued overlapped read is a success that has not completed yet; wait for it.
+            if code != Some(ERROR_IO_PENDING as i32) {
+                events.failed(&format!("cannot watch {}: {error}", root.display()));
+                break;
+            }
         }
         let handles = [stop.0, completion.0];
         // SAFETY: both handles stay open until this thread returns, and the array holds the
