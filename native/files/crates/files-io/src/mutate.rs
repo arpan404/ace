@@ -403,9 +403,12 @@ fn same_version(expected: &str, own: Option<&str>, current: &str) -> bool {
 }
 
 /// The version a conflict reports for an entry, from the folder that holds it.
+///
+/// A folder reports its full digest: a conflict is what the client guards its next attempt with,
+/// and a shallow own version would not be accepted as a guard.
 fn version_at(root: &Root, dir: &Dir, name: &str, path: &str) -> Result<Option<String>, Error> {
     Ok(
-        crate::version::entry_version(root, dir, name, path, &Walks::unbounded())?
+        crate::version::entry_version(root, dir, name, path, &Walks::complete())?
             .map(|found| found.version),
     )
 }

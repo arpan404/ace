@@ -84,10 +84,10 @@ fn save(
     version::version_of_entry(&dir, &name, &metadata)
 }
 
-/// The version a conflict reports, without walking a folder for a digest.
+/// The version a conflict reports, with a folder's full digest.
 fn version_of(root: &Root, dir: &Dir, name: &str, path: &str) -> Result<Option<String>, Error> {
     Ok(
-        version::entry_version(root, dir, name, path, &Walks::unbounded())?
+        version::entry_version(root, dir, name, path, &Walks::complete())?
             .map(|found| found.version),
     )
 }
