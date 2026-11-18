@@ -72,7 +72,7 @@ export interface SettingsOptions {
 }
 export class SettingsService {
   private cache = new FileCache();
-  private workspaces = new WorkspaceGuards();
+  private workspaces: WorkspaceGuards;
   private index = new Map<SettingsFile, Map<SettingsKey, Set<Subscription>>>();
   private subscriptions = new Set<Subscription>();
   private options: SettingsOptions;
@@ -82,6 +82,7 @@ export class SettingsService {
   private overrides: Partial<SettingsValues>;
   constructor(options: SettingsOptions) {
     this.options = options;
+    this.workspaces = new WorkspaceGuards([resolve(options.dataDir, "settings.json")]);
     const overrides: Partial<Record<SettingsKey, unknown>> = {};
     for (const [key, value] of Object.entries(options.overrides ?? {})) {
       const parsed = SettingsKey.parse(key);
