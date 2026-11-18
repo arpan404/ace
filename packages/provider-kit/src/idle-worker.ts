@@ -19,9 +19,11 @@ export interface IdleWorkerRuntime {
   /** Monotonic milliseconds. Without it the idle window stays fixed. */
   now?(): number;
   /**
-   * A background worker never keeps the process alive, idle or busy. Its isolate is unref'd
-   * after this class attaches its listeners: a `message` listener attached later refs a worker
-   * again, on Node and Bun alike.
+   * A background worker keeps the process alive only while it has work: from a request until
+   * its owner calls `idle()`, through a restart or retirement in between. Idle, it never does.
+   * Its isolate is unref'd after this class attaches its listeners (a `message` listener
+   * attached later refs a worker again, on Node and Bun alike), and a referenced keep-alive
+   * stands for the work instead.
    */
   background?: boolean;
 }
@@ -64,6 +66,8 @@ export class IdleWorker extends EventEmitter {
   private cancelRestart: (() => void) | undefined;
   private resumeRestart: (() => void) | undefined;
   private retirementFailure: Error | undefined;
+  /** Set while a background worker has work: the process stays alive for its replies. */
+  private releaseWork: (() => void) | undefined;
   constructor(entry: URL, options: WorkerOptions, runtime = systemRuntime, idleMs = 5000) {
     super();
     if (!Number.isSafeInteger(idleMs) || idleMs < 1) throw new Error("Invalid worker idle timeout");
@@ -129,6 +133,10 @@ export class IdleWorker extends EventEmitter {
     this.cancelIdle?.();
     this.cancelIdle = undefined;
     this.start();
+    if (this.runtime.background && !this.releaseWork) {
+      const work = setInterval(() => {}, 2 ** 30);
+      this.releaseWork = () => clearInterval(work);
+    }
     if (this.stopping) {
       // Clients admit bounded RPCs before sending. Keep one extra slot for close.
       if (this.deferred.length >= 129) throw new Error("Worker restart queue full");
@@ -136,6 +144,8 @@ export class IdleWorker extends EventEmitter {
     } else this.worker?.postMessage(message, transfer);
   }
   idle(): void {
+    this.releaseWork?.();
+    this.releaseWork = undefined;
     this.cancelIdle?.();
     if (!this.worker || this.closing) return;
     this.cancelIdle = this.runtime.delay(() => {
@@ -168,6 +178,8 @@ export class IdleWorker extends EventEmitter {
   }
   terminate(): Promise<number> {
     if (!this.closing) {
+      this.releaseWork?.();
+      this.releaseWork = undefined;
       this.cancelIdle?.();
       this.cancelRestart?.();
       this.resumeRestart?.();

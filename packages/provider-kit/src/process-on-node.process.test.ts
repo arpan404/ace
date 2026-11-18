@@ -201,3 +201,35 @@ test.runIf(process.platform === "win32")(
     expect(await tree.stop({ graceMs: 0 })).toMatchObject({ reason: "stopped" });
   },
 );
+
+test.runIf(posix)(
+  "on Node a program awaiting a probe with nothing else to keep it alive gets its answer, then exits at once",
+  async () => {
+    const threadModule = new URL("./probe-thread.ts", import.meta.url).href;
+    // No timer, socket or other handle: only the probe's own work keeps the program running.
+    const child = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `const { createProbeThread } = await import(${JSON.stringify(threadModule)});
+         const exit = await createProbeThread().run(
+           { command: "/bin/sh", args: ["-c", "/bin/sleep 0.3; printf done"], env: { PATH: "/usr/bin:/bin" }, maxBytes: 1024 },
+           new AbortController().signal,
+         );
+         console.log(JSON.stringify(exit));
+         const answeredAt = performance.now();
+         process.on("exit", () => console.log("after " + Math.round(performance.now() - answeredAt)));`,
+      ],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    let output = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (output += chunk));
+    const [code] = await once(child, "exit");
+    const [answer, after] = output.trim().split("\n");
+    expect(code).toBe(0);
+    expect(JSON.parse(answer ?? "{}")).toMatchObject({ code: 0, stdout: "done" });
+    // Idle, the probe thread no longer holds the program for its 5 s idle window.
+    expect(Number(after?.replace("after ", ""))).toBeLessThan(1_000);
+  },
+);

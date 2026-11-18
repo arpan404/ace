@@ -87,6 +87,8 @@ export function createProbeThread(
       end(flight);
       flight.done.reject(error);
     }
+    // No work is left for the process to stay alive for.
+    worker.idle();
   };
   // One thread serves every caller. Each reply is handled in the context of the caller whose
   // probe it answers, never the context of whoever first started the thread.
@@ -169,6 +171,7 @@ export function createProbeThread(
       } catch (error) {
         end(flight);
         done.reject(error instanceof Error ? error : new Error("Probe worker unavailable"));
+        if (!flights.size) worker.idle();
       }
       return done.promise.finally(() => signal.removeEventListener("abort", abort));
     },
