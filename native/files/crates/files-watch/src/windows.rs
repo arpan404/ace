@@ -19,7 +19,9 @@
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
+use std::sync::mpsc::{self, SyncSender};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use files_safe::Root;
 use notify::Event;
@@ -49,6 +51,9 @@ use records::{kind, parse};
 
 /// The kernel buffer for one delivery, as the plan asks.
 const BUFFER_BYTES: usize = 64 * 1024;
+
+/// How long [`Watch::start`] waits for the thread to issue its first read.
+const ARMING: Duration = Duration::from_secs(5);
 
 /// What the watch asks the kernel to report; the same set `notify` requests.
 const FILTER: u32 = FILE_NOTIFY_CHANGE_FILE_NAME
@@ -84,21 +89,40 @@ impl Watch {
             }
         };
         let watched = root.path().to_path_buf();
-        match std::thread::Builder::new()
+        // The first read must be issued before `start` returns: a change made before the call
+        // is up is a change nobody hears about, and a caller that writes immediately after
+        // `start` would miss its own file.
+        let (started, armed) = mpsc::sync_channel(1);
+        let worker = std::thread::Builder::new()
             .name("files-watch-windows".to_owned())
-            .spawn(move || run(&watched, directory, stop, completion, events))
-        {
-            Ok(worker) => Ok(Watch {
-                stop,
-                worker: Some(worker),
-            }),
+            .spawn(move || run(&watched, directory, stop, completion, events, started));
+        let worker = match worker {
+            Ok(worker) => worker,
             Err(error) => {
                 directory.close();
                 stop.close();
                 completion.close();
-                Err(Error::Unsupported(format!(
+                return Err(Error::Unsupported(format!(
                     "cannot start the file watching thread: {error}"
-                )))
+                )));
+            }
+        };
+        match armed.recv_timeout(ARMING) {
+            Ok(Ok(())) => Ok(Watch {
+                stop,
+                worker: Some(worker),
+            }),
+            failed => {
+                // SAFETY: the stop event is open until it is closed below; signalling it
+                // wakes the thread's wait so it can finish and be joined.
+                unsafe { SetEvent(stop.0) };
+                let _ = worker.join();
+                stop.close();
+                let message = match failed {
+                    Ok(Err(message)) => message,
+                    _ => "the file watch did not start in time".to_owned(),
+                };
+                Err(Error::Unsupported(message))
             }
         }
     }
@@ -162,19 +186,30 @@ impl Handle {
 }
 
 /// The watch thread: issue one overlapped read at a time and translate what it returns.
-fn run(root: &Path, directory: Handle, stop: Handle, completion: Handle, events: Events) {
+///
+/// Reports `Ok` through `started` once the first read is up, so the caller knows the watch is
+/// armed, or the reason it never was.
+fn run(
+    root: &Path,
+    directory: Handle,
+    stop: Handle,
+    completion: Handle,
+    events: Events,
+    started: SyncSender<Result<(), String>>,
+) {
     let mut buffer = vec![0u8; BUFFER_BYTES];
     let mut overlapped = OVERLAPPED {
         hEvent: completion.0,
         ..OVERLAPPED::default()
     };
+    let mut armed = false;
     loop {
         let mut returned = 0u32;
         // SAFETY: the directory handle stays open until this thread returns; the buffer is
         // writable for its whole length and is not touched again until the operation below
         // completes; `overlapped` is a valid structure whose event stays open until then; and
         // a null completion routine is what an overlapped caller passes.
-        let started = unsafe {
+        let read = unsafe {
             ReadDirectoryChangesW(
                 directory.0,
                 buffer.as_mut_ptr().cast(),
@@ -186,7 +221,7 @@ fn run(root: &Path, directory: Handle, stop: Handle, completion: Handle, events:
                 None,
             )
         };
-        if started == 0 {
+        if read == 0 {
             let error = std::io::Error::last_os_error();
             let code = error.raw_os_error();
             if code == Some(ERROR_NOTIFY_ENUM_DIR as i32) {
@@ -195,9 +230,18 @@ fn run(root: &Path, directory: Handle, stop: Handle, completion: Handle, events:
             }
             // A queued overlapped read is a success that has not completed yet; wait for it.
             if code != Some(ERROR_IO_PENDING as i32) {
-                events.failed(&format!("cannot watch {}: {error}", root.display()));
+                let message = format!("cannot watch {}: {error}", root.display());
+                if armed {
+                    events.failed(&message);
+                } else {
+                    let _ = started.send(Err(message));
+                }
                 break;
             }
+        }
+        if !armed {
+            armed = true;
+            let _ = started.send(Ok(()));
         }
         let handles = [stop.0, completion.0];
         // SAFETY: both handles stay open until this thread returns, and the array holds the
