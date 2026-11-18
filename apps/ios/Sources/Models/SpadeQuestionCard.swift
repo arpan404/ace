@@ -50,7 +50,14 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             }
         }
 
-        var payload: [String: Any] {
+        /// What the card sends for `question`: a number as Spade reads one, whatever the
+        /// keyboard's locale typed (`1,5` from a decimal-comma keypad is `1.5`).
+        func payload(for question: Question, in locale: Locale = .current) -> [String: Any] {
+            guard question.kind == "number", case let .field(typed) = self else { return payload }
+            return Draft.field(SpadeQuestionCard.numberText(typed, in: locale)).payload
+        }
+
+        private var payload: [String: Any] {
             switch self {
             case let .text(text): ["kind": "text", "text": text]
             case let .picks(picked, other): ["kind": "picks", "picked": picked, "other": other]
@@ -77,6 +84,18 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             guard case let .picks(picked, other) = self else { return 0 }
             return picked.count + (other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : 1)
         }
+    }
+
+    /// A number typed in `locale` with a point for its decimal mark, as Spade reads numbers.
+    /// Text that isn't a number in that locale goes as typed, so the shared rules say why.
+    static func numberText(_ typed: String, in locale: Locale) -> String {
+        let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reader = NumberFormatter()
+        reader.locale = locale
+        reader.numberStyle = .decimal
+        reader.generatesDecimalNumbers = true
+        guard !text.isEmpty, let number = reader.number(from: text) as? NSDecimalNumber else { return text }
+        return number.stringValue
     }
 
     /// A date question's answer as Spade takes it: `2026-11-17`, or with the time and the zone's

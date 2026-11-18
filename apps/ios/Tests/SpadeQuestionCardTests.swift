@@ -33,4 +33,14 @@ import Testing
         let east = try #require(TimeZone(secondsFromGMT: 5 * 3600 + 45 * 60))
         #expect(SpadeQuestionCard.dateText(date, time: true, in: east) == "2026-11-17T21:15:00+05:45")
     }
+
+    @Test func aNumberTypedOnADecimalCommaKeypadIsSentWithAPoint() {
+        let nights = SpadeQuestionCard.Question(prompt: "How many nights?", kind: "number", placeholder: nil, options: [],
+                                                other: false, most: nil, unit: "nights", time: false)
+        let german = Locale(identifier: "de_DE")
+        #expect(SpadeQuestionCard.Draft.field("1,5").payload(for: nights, in: german)["text"] as? String == "1.5")
+        #expect(SpadeQuestionCard.Draft.field("1.5").payload(for: nights, in: Locale(identifier: "en_US"))["text"] as? String == "1.5")
+        // Not a number in that locale: sent as typed, so the shared rules say why.
+        #expect(SpadeQuestionCard.Draft.field("lots").payload(for: nights, in: german)["text"] as? String == "lots")
+    }
 }

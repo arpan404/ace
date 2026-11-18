@@ -194,11 +194,12 @@ private struct SpadeOpenQuestionCard: View {
 
     private func answer(_ these: [SpadeQuestionCard.Draft]) {
         let all = these.count == count ? these : card.questions.map(SpadeQuestionCard.Draft.empty)
-        send(["drafts": all.map(\.payload)])
+        send(["drafts": zip(card.questions, all).map { question, draft in draft.payload(for: question) }])
     }
 
     /// Out to the bridge, which checks the drafts first: a card that needs more turns to the
-    /// question that does, with why under it.
+    /// question that does, with why under it. Taken, it stays locked until the card settles, so
+    /// a second tap before Spade's update can't send it twice.
     private func send(_ body: [String: Any]) {
         guard !sending else { return }
         sending = true
