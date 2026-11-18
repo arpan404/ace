@@ -62,6 +62,8 @@ export function useEditorDocument(options: {
    * measured: the one moment a view can read its own rows without racing the new text.
    */
   onBeforeEdit?: (() => void) | undefined;
+  /** Called when an operation that remembered a position changed nothing, as an empty undo. */
+  onNoEdit?: (() => void) | undefined;
   /**
    * Called with one batch of spans for every applied edit, synchronously, before React renders
    * the document that edit produced: a layout that reads text must hear about the edit while
@@ -91,6 +93,7 @@ export function useEditorDocument(options: {
   const onEdit = useRef(options.onEdit);
   const onTextDispose = useRef(options.onTextDispose);
   const onBeforeEdit = useRef(options.onBeforeEdit);
+  const onNoEdit = useRef(options.onNoEdit);
   const onApplied = useRef(options.onApplied);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const commitAfter = options.commitAfter ?? 1_000;
@@ -99,8 +102,15 @@ export function useEditorDocument(options: {
     onEdit.current = options.onEdit;
     onTextDispose.current = options.onTextDispose;
     onBeforeEdit.current = options.onBeforeEdit;
+    onNoEdit.current = options.onNoEdit;
     onApplied.current = options.onApplied;
-  }, [options.onEdit, options.onTextDispose, options.onBeforeEdit, options.onApplied]);
+  }, [
+    options.onEdit,
+    options.onTextDispose,
+    options.onBeforeEdit,
+    options.onNoEdit,
+    options.onApplied,
+  ]);
 
   useEffect(() => {
     let live = true;
@@ -166,9 +176,10 @@ export function useEditorDocument(options: {
           const inserted = doc.lines(span.firstLine, span.firstLine + span.insertedLines);
           highlighter?.edit(span.firstLine, span.removedLines, inserted);
         }
-      onEdit.current?.();
-      // Before React redraws: a layout that measures the new text must already know the edit.
+      // Before React redraws: a layout that measures the new text must already know the edit,
+      // and the page's own callback only hears about it once that layout has the new rows.
       onApplied.current?.(batch);
+      onEdit.current?.();
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
@@ -182,7 +193,11 @@ export function useEditorDocument(options: {
       if (!doc || !editable) return false;
       onBeforeEdit.current?.();
       const applied = run(doc);
-      if (!applied) return false;
+      if (!applied) {
+        // Nothing landed: a position remembered for this operation described no change.
+        onNoEdit.current?.();
+        return false;
+      }
       after({
         spans: applied.spans,
         replacements: applied.replacements,

@@ -91,6 +91,11 @@ export class ScrollAnchor {
     this.#pending = { line, column: rows.at(at)?.start ?? 0, pixels: top - row * lineHeight };
   }
 
+  /** Forgets a position remembered for an operation that changed nothing. */
+  discard(): void {
+    this.#pending = undefined;
+  }
+
   /** Maps the remembered position through the ranges a transaction replaced. */
   mapThrough(replacements: readonly TextReplacement[]): void {
     if (this.#pending && replacements.length)

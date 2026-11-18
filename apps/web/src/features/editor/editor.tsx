@@ -53,6 +53,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     original: props.marks ? undefined : props.text,
     editable: !readOnly,
     onBeforeEdit: () => appliedRef.current?.before(),
+    onNoEdit: () => appliedRef.current?.discard(),
     onApplied: (batch) => {
       appliedRef.current?.after(batch);
       // An edit or an undo replaces the document's selections: a side measured against the old

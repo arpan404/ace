@@ -119,6 +119,26 @@ test("restoring a row start keeps that row at the top instead of the row before 
   expect(element.scrollTop).toBe(10 * lineHeight);
 });
 
+test("a change that landed nothing forgets the position it remembered", () => {
+  const rows = Array.from({ length: 40 }, (_, at) => ({
+    start: at * 10,
+    end: (at + 1) * 10,
+    indent: 0,
+  }));
+  const layout = wrappingLayout(rows, 1);
+  const element = document.createElement("div");
+  element.scrollTop = 5 * lineHeight;
+
+  const scroll = new ScrollAnchor({ current: element }, () => undefined);
+  scroll.remember(layout);
+  // The operation changed nothing, so the remembered top describes no change; the reader scrolled.
+  scroll.discard();
+  element.scrollTop = 20 * lineHeight;
+  scroll.restore(layout);
+
+  expect(element.scrollTop).toBe(20 * lineHeight);
+});
+
 test("a remembered row start restored twice never walks the view back a row", () => {
   const rows = Array.from({ length: 40 }, (_, at) => ({
     start: at * 10,
