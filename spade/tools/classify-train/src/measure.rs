@@ -285,6 +285,27 @@ pub fn report(
         }
         let _ = std::fs::write(path, lines);
     }
+    // Pin the identical retained real-session selection for the `main` baseline (ADR 0172,
+    // amendment 6): the no-folder set's distinct calls that survive the fit hold-out, written as
+    // opaque ids (`real::identity`), never as command text. The baseline keeps exactly these, so
+    // both evaluators measure the same calls.
+    if let (Some(path), Some(calls)) = (std::env::var_os("CLASSIFY_REAL_KEEP"), real) {
+        let mut ids = String::new();
+        let mut seen = BTreeSet::new();
+        for call in calls {
+            let Kind::Shell(command) = &call.kind else {
+                continue;
+            };
+            if !seen.insert((command.clone(), call.workspace.clone())) {
+                continue;
+            }
+            if fit.has(crate::overlap::command_signature(command, None)) {
+                continue;
+            }
+            let _ = writeln!(ids, "{}", real::identity(command, &call.workspace));
+        }
+        let _ = std::fs::write(path, ids);
+    }
     let _ = writeln!(
         r,
         "\nHeld out of the fit set by folded signature (ADR 0172, amendment 6): {}.",

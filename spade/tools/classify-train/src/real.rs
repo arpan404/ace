@@ -79,3 +79,19 @@ pub fn relative_to(command: &str, workspace: &str) -> String {
     }
     command.replace(workspace, "/workspace")
 }
+
+/// A stable, privacy-preserving id for a distinct real call: FNV-1a over the command and its
+/// workspace. Only this 64-bit number is ever written out to pin the evaluation set shared with
+/// the `main` baseline (ADR 0172, amendment 6); the command text never leaves the process.
+pub fn identity(command: &str, workspace: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in command
+        .bytes()
+        .chain(std::iter::once(0))
+        .chain(workspace.bytes())
+    {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}

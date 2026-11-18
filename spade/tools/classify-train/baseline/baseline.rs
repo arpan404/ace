@@ -129,7 +129,14 @@ fn tldr_items(examples: &[tldr::Example]) -> Vec<(String, Effect)> {
         .collect()
 }
 
-fn real_items(calls: &[Call]) -> Vec<(String, Effect)> {
+/// The distinct real calls, keeping exactly the selection the shipped build pinned (ADR 0172,
+/// amendment 6): when a keep-set of `real::identity` ids is given, a call is kept only if its id is
+/// in it, so this baseline measures the identical real-session set the shipped report does. No
+/// command text crosses the boundary, only the opaque ids.
+fn real_items(
+    calls: &[Call],
+    keep: Option<&std::collections::HashSet<u64>>,
+) -> Vec<(String, Effect)> {
     let mut seen = std::collections::BTreeSet::new();
     let mut out = Vec::new();
     for call in calls {
@@ -138,6 +145,11 @@ fn real_items(calls: &[Call]) -> Vec<(String, Effect)> {
         };
         if !seen.insert((command.clone(), call.workspace.clone())) {
             continue;
+        }
+        if let Some(keep) = keep {
+            if !keep.contains(&real::identity(command, &call.workspace)) {
+                continue;
+            }
         }
         out.push((
             command.clone(),
@@ -354,14 +366,24 @@ fn main() {
     let mut tldr_dir = None;
     let mut real_dir = None;
     let mut public = None;
+    let mut real_keep = None;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--tldr" => tldr_dir = args.next(),
             "--real" => real_dir = args.next(),
             "--eval-public" => public = args.next(),
+            "--real-keep" => real_keep = args.next(),
             _ => {}
         }
     }
+    // The exact real-session selection the shipped build retained (opaque `real::identity` ids).
+    let keep: Option<std::collections::HashSet<u64>> = real_keep.as_deref().map(|f| {
+        std::fs::read_to_string(f)
+            .expect("real-keep")
+            .lines()
+            .filter_map(|l| l.trim().parse().ok())
+            .collect()
+    });
     let model = Model::embedded().expect("main's built-in model");
     println!("Main baseline, model `{}`.\n", model.id());
     println!(
@@ -387,7 +409,7 @@ fn main() {
         let calls = real::read(Path::new(dir)).expect("real");
         println!(
             "{}",
-            row("real sessions, distinct commands", &measure(model, &real_items(&calls)))
+            row("real sessions, distinct commands", &measure(model, &real_items(&calls, keep.as_ref())))
         );
         let o = e2e(&calls, model);
         println!("\nEnd to end (as recorded):");

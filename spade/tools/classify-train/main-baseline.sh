@@ -19,9 +19,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(git -C "$here" rev-parse --show-toplevel)"
 work="$(mktemp -d /var/tmp/spade-main-baseline.XXXX)"
 eval_public="$work/eval-public.tsv"
+real_keep="$work/real-keep.ids"
 
-# The deduped public eval sets, from the shipped build.
-CLASSIFY_EVAL_OUT="$eval_public" CLASSIFY_SKIP_MLP=1 \
+# The deduped public eval sets and the retained real-session ids (opaque `real::identity`
+# numbers, never command text), from the shipped build, so the baseline measures the same calls.
+CLASSIFY_EVAL_OUT="$eval_public" CLASSIFY_REAL_KEEP="$real_keep" CLASSIFY_SKIP_MLP=1 \
   cargo run --release -q -p classify-train -- \
   --out "$work/shipped" --tldr "$tldr" --real "$real" > /dev/null
 
@@ -40,7 +42,8 @@ path = "src/baseline.rs"
 TOML
 
 ( cd "$work/main/spade" && CARGO_TARGET_DIR="$work/target" \
-    cargo run --release -q --bin baseline -- --eval-public "$eval_public" --real "$real" )
+    cargo run --release -q --bin baseline -- \
+    --eval-public "$eval_public" --real "$real" --real-keep "$real_keep" )
 
 git -C "$repo" worktree remove --force "$work/main"
 rm -rf "$work"
