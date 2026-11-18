@@ -42,7 +42,11 @@ private struct ChangesActions<Header: View>: ViewModifier {
     /// A step that can't run yet stays in the menu with its reason, never greyed here.
     @ViewBuilder private var trailing: some View {
         menu
-        if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
+        if let step = runnable { stepButton(step) }
+    }
+    private var runnable: ChangesSummary.Step? {
+        guard let step, step.kind != "none", step.blocked == nil, model.canOperate else { return nil }
+        return step
     }
 
     func body(content: Content) -> some View {
@@ -50,14 +54,18 @@ private struct ChangesActions<Header: View>: ViewModifier {
             if inPage {
                 // A page of the thread: the thread's own bar stays the thread's, so the scope and
                 // the actions ride one row at the page's top.
+                // The menu and the next step are real buttons here (ADR 0184): ⋯ in clear glass,
+                // the step as the page's one way forward.
                 content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
                     HStack(spacing: AceDesign.Space.related) {
-                        header
+                        header.buttonStyle(.plain)
                         Spacer(minLength: AceDesign.Space.related)
-                        trailing.frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
+                        menu.buttonStyle(.secondaryAction).buttonBorderShape(.circle)
+                        if let step = runnable { stepButton(step).buttonStyle(.primaryAction) }
                     }
-                    .buttonStyle(.plain)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .padding(.horizontal, AceDesign.Space.margin)
+                    .padding(.vertical, AceDesign.Space.tight)
                     .background(AceTheme.Colours.background)
                 }
             } else {

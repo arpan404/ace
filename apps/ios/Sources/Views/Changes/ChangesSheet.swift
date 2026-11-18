@@ -120,7 +120,7 @@ struct ChangesSheet: View {
                 }
             }
         }
-        .tint(AceTheme.Colours.foreground)
+        .tint(AceDesign.Ink.action)
         .onAppear {
             var opening: [String: Any] = ["kind": "changes", "open": true]
             if let scope { opening["scope"] = scope }
@@ -179,13 +179,15 @@ struct ChangesSheet: View {
         }
     }
 
-    /// Under the title: the file count, then Files (the tree) and Expand all or Collapse all.
+    /// Under the title: the file count, then Review, Files (the tree) and Expand all or Collapse
+    /// all as small glass buttons (ADR 0184), so none reads as a label.
     private func toolbarRow(_ summary: ChangesSummary) -> some View {
-        HStack(spacing: AceTheme.Spacing.lg) {
+        HStack(spacing: AceDesign.Space.related) {
             Text(summary.totals.files == 1 ? "1 file" : "\(summary.totals.files.formatted()) files")
-                .foregroundStyle(AceTheme.Colours.mutedForeground).monospacedDigit()
+                .aceFont(AceDesign.TextRole.meta)
+                .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
             if let review = model.sheets.review, review.refreshing { ProgressView().controlSize(.mini) }
-            Spacer(minLength: AceTheme.Spacing.sm)
+            Spacer(minLength: AceDesign.Space.related)
             if summary.scope?.workingTree != false {
                 Button("Review") { presented = .review }
                     .accessibilityIdentifier("changes.review")
@@ -203,10 +205,10 @@ struct ChangesSheet: View {
                 .accessibilityIdentifier("changes.expand")
             }
         }
-        .buttonStyle(.plain)
-        .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
-        .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceTheme.Spacing.lg)
+        .buttonStyle(.secondaryAction)
+        .controlSize(.small)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.tight)
         .frame(minHeight: AceDesign.Size.rowLine)
     }
 
@@ -248,7 +250,7 @@ struct ChangesSheet: View {
 
     @ViewBuilder private func footer(_ summary: ChangesSummary) -> some View {
         if summary.hidden > 0 {
-            Button("Show more files") { model.sheet(["kind": "changes.files.more"]) }.buttonStyle(.textAction())
+            Button("Show more files") { model.sheet(["kind": "changes.files.more"]) }.buttonStyle(.rowAction)
                 .padding(.horizontal, AceDesign.Space.margin)
         }
         if summary.hidden > 0 || summary.partial {
