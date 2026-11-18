@@ -27,6 +27,12 @@ import Observation
     private(set) var plans: [String: MachineRoutePlan] = [:]
     /// The machine the last pairing from this phone added, for its first run (`FirstRunView`).
     private(set) var lastPaired: String?
+    #if ACE_FIXTURE
+    /// Pairing links sent to a machine to redeem since launch. Fixture UI tests read it to prove
+    /// nothing is sent before the person confirms (`PairingAttemptsProbe`); release builds
+    /// neither keep nor count it.
+    private(set) var pairAttempts = 0
+    #endif
     let inbox: MachineInbox
     /// The SDK directory's paired machines; `machines` is these plus unpaired account machines.
     @ObservationIgnored private var paired: [MachineEntry] = []
@@ -199,6 +205,9 @@ import Observation
     /// Redeem a confirmed link, store the device, then connect it beside the others.
     func pair(_ link: PairingLink, name: String) async -> ProblemNotice? {
         guard !Task.isCancelled else { return .cancelled }
+        #if ACE_FIXTURE
+        pairAttempts += 1
+        #endif
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
