@@ -135,32 +135,58 @@ so a bot whose person wants it to work without a reviewer can do that without th
      money, passwords, sign-in and account pages, the system's settings, social sites, a browser
      driven through the screen), on a simulator or device or an app that shows one (amendment 3
      of ADR 0171's device rule: every step there is the person's), in a place Spade can't name,
-     or one ace can't hold the step to; and a command asking to leave the sandbox this once.
+     or one ace can't hold the step to; a command asking to leave the sandbox this once; and a
+     tool that declares nothing, outside the sandbox, on its first call (ADR 0171: the person's
+     answer is kept for the bot; a "yes" lets later calls run as a declared write does below,
+     never past the classifier, and untrusted content in view brings it back to the person).
    - **Stays refused:** an undeclared tool the person declined for the bot.
+   - **Goes to the reviewer:** a connector's or plugin's tool that writes (anything not
+     read-only, outside the sandbox: it runs on a server, often with the person's sign-in, where
+     no sandbox holds it) while untrusted content is in view, or while Spade's classifier is off
+     or can't be loaded.
    - **Runs, with no reviewer and no request:** everything else: reads, local writes, file writes
      with or without a checkpoint, commands in the sandbox, commands outside it when the bot's
-     `commands` is `outside` (or the machine has no sandbox), `network` and `publish` effects
-     (app and connector writes, other bots, ace's tools, releases), routines, undeclared tools
-     (no first-call ask), and driving steps in any other app or site, granted or not.
-   - **Untrusted content in view adds no ask** in Full access, but every hard stop above is
-     decided before taint is read, so taint can never turn one into a run.
-4. **The classifier only raises.** In Full access no call reaches the reviewer, so ADR 0172's
-   classifier settles nothing. On a call the gate let run outside the sandbox (a command with no
-   sandbox, an app's tool), it may still raise to the person a call it reads as a payment, a
-   send, an access change, a secret or a step in an app it can't place; the raise is stored as
-   the call's verdict, as today. The ADR 0135 model review is skipped too.
+     `commands` is `outside` (or the machine has no sandbox), `network` and `publish` effects of
+     Spade's and ace's own tools (other bots, ace's threads, releases), an app's declared write
+     when the classifier is on and doesn't raise it and nothing untrusted is in view, routines,
+     tools that declare nothing inside the sandbox, and driving steps in any other app or site,
+     granted or not.
+   - **Untrusted content in view adds no ask** in Full access, except for an app's write (above),
+     and every hard stop is decided before taint is read, so taint never turns one into a run.
+4. **The classifier only raises.** ADR 0172's classifier settles nothing in Full access. On a
+   call the gate let run outside the sandbox (a command with no sandbox, an app's tool), it may
+   still raise to the person a call it reads as a payment, a send, an access change, a secret or
+   a step in an app it can't place; the raise is stored as the call's verdict, as today. For an
+   app's write it is required: with it off, those calls go to the reviewer (above). An abstain
+   lets the call run. The ADR 0135 model review is skipped.
 5. **The sandbox is unchanged.** Full access widens nothing: sandboxed commands stay in the
    sandbox, a per-call request to run outside still asks, and a driving step the gate let run is
    held to its place right before it runs as strictly as one the reviewer alone let run.
-6. **Shown.** The bot's profile has "How it decides": Auto-review or Full access, with one
+6. **Only the person turns it on.** Spade's bearer token is held by anything ace lets talk to
+   Spade, so it can't tell the person from another process. A change that raises a bot to Full
+   access (to `full_access`, or `null` when following its parent or the machine would raise it)
+   and turning the machine's default on need the person's stamp: `x-ace-person:
+v1.<ms>.<nonce>.<HMAC-SHA256>`, keyed with `<ACE_HOME>/spade-person.key` (written by ace's
+   daemon, read by Spade from `SPADE_ACE_HOME`, never the bearer token), over the bot (or
+   `machine`), the value, the time (within a minute) and a nonce Spade takes once. Without it
+   Spade answers `403`; `full_access_confirmed` is set only by a stamped raise. Going back to the
+   auto-review never needs one. The daemon's `spade.http` proxy stamps a raise only from a caller
+   with the person's standing: the app and paired devices as they are, the host token only with
+   an ace sign-in from the last ten minutes (as the market's person-only actions, ADR 0178
+   §12.5), and never an agent's device (`ace-agent`, `ace-reviewer`); a raise in parts is
+   refused. Nothing in Spade calls the setter but its person API: no tool, routine, note or
+   skill. The key and Spade's token are in the credential places a bot's arguments are refused
+   for, and the sandbox denies ace's data. What is left: a process outside any sandbox running
+   as the person can read the key file, as it can the daemon's own token.
+7. **Shown.** The bot's profile has "How it decides": Auto-review or Full access, with one
    sentence under Full access listing what still asks. Turning it on asks first, in words, the
    first time for a bot (and each time for the machine's default). The conversation's pill and
    the profile's head say "Full access" quietly while it is on. Every step still shows in the
    chat's step lines.
 
-Consequences: a Full access bot's ordinary work outside the sandbox (a write in an app, a publish,
-a command run outside) is not looked at by any model before it runs; the person chose that for
-that bot. The hard stops are deterministic and come first. A command outside the sandbox is held
+Consequences: a Full access bot's ordinary work outside the sandbox (a publish, a command run
+outside, an app's write the classifier doesn't raise) is not looked at by a reviewer before it
+runs; the person chose that for that bot. The hard stops are deterministic and come first. A command outside the sandbox is held
 to them only by the shell classifier's lists and Spade's classifier, which are guard rails: a
 command written to pay or send without words they know runs. Keep commands sandboxed (the
 default) where that matters.
@@ -170,8 +196,14 @@ payment, a send as the person, an access change and an unknown effect still ask;
 still refused; a step on a simulator, in Mail, in a password manager or on a bank's checkout still
 asks; a step Spade can't place or hold still asks; the sandbox is never widened), `security::
 settings` (auto-review stays the default for new bots and bots stored before; per bot over the
-machine; never freer than the bot above), `spade-server/tests/full_access.rs` through the API, and
-the web's `spade-full-access.test.tsx`.
+machine; never freer than the bot above), `security::attest` (a stamp counts only for its bot,
+value and time, once, with the shared key), `spade-server/tests/full_access.rs` through the API
+(a raise with Spade's token alone is refused, a person's stamp is taken, lowering always works, a
+Full access bot holding Spade's token can't raise another bot; an undeclared sending app tool asks
+first and a `network`-declared one is reviewed with the classifier off or under untrusted
+content), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a host-token raise
+without a fresh sign-in and an agent's raise are refused, a paired device's is stamped, lowering
+is never held), and the web's `spade-full-access.test.tsx`.
 
 ## Options considered
 

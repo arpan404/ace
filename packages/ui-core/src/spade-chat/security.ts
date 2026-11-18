@@ -33,7 +33,7 @@ export type SpadeAutonomy = "auto_review" | "full_access";
  * list Spade's gate keeps, `spade_core::effect::full_access`).
  */
 export const spadeFullAccessSentence =
-  "It works without the reviewer and without asking you, except that it still asks before it pays, sends anything in your name, changes sign-ins or who has access, or acts on a device or in mail, chat, banking, password, sign-in, settings or social apps and sites, and it never reads your secrets.";
+  "It works without asking you or the reviewer, except that it still asks before it pays, sends anything in your name, changes sign-ins or who has access, first uses an app tool that doesn't say what it does, or acts on a device or in mail, chat, banking, password, sign-in, settings or social apps and sites; an app's writes are still reviewed after it reads something untrusted; and it never reads your secrets.";
 
 /** What every bot inherits unless it sets its own. */
 export interface SpadeBotDefaults {

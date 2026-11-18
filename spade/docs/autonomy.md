@@ -26,14 +26,18 @@ effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effec
 A security setting per bot (`autonomy` in `security:<bot>`, `PUT
 /v1/agents/{id}/security/autonomy`), with a machine default (`PUT /v1/security/autonomy`). A
 worker without its own follows its parent and is never freer than a bot above it; a helper
-decides as its bot. The gate reads it as `effect::Call::mode`: after the hard stops (a secret
-refused; `pay`, `send_as_person`, `change_access` and `unknown` to the person, a granted push
-under untrusted content too), `effect::full_access` asks only for a driving step in a sensitive
-place, on a device, unplaced or unheld, a command outside the sandbox the shell classifier reads
-as a payment, a send or an access change, and a request to leave the sandbox; a tool the person
-declined stays declined. Everything else runs with no reviewer and no request, and untrusted
-content adds no ask. Spade's classifier may still raise a call it let run outside the sandbox
-(`engine.raise_only`); the ADR 0135 review is skipped. The sandbox is unchanged.
+decides as its bot. Raising a bot (or the machine) to Full access needs the person's stamp from
+ace's daemon (`x-ace-person`, `security::attest`); going back never does. The gate reads the mode
+as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as_person`,
+`change_access` and `unknown` to the person, a granted push under untrusted content too),
+`effect::full_access` asks for a driving step in a sensitive place, on a device, unplaced or
+unheld, a command outside the sandbox the shell classifier reads as a payment, a send or an
+access change, a request to leave the sandbox, and a tool that declares nothing outside the
+sandbox (once, as on the auto-review); a tool the person declined stays declined. An app's tool
+that writes goes to the reviewer under untrusted content or while Spade's classifier is off
+(`Call::remote`, `Call::classifier`). Everything else runs with no reviewer and no request.
+Spade's classifier may still raise a call it let run outside the sandbox (`engine.raise_only`);
+the ADR 0135 review is skipped. The sandbox is unchanged.
 
 ### Effects
 
