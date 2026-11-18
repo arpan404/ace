@@ -144,9 +144,10 @@ so a bot whose person wants it to work without a reviewer can do that without th
    - **Goes to the reviewer:** a connector's or plugin's tool that writes (anything not
      read-only) and can reach the network, sandboxed or not, while untrusted content is in view,
      or while Spade's classifier is off or can't be loaded. Containing a server's files doesn't
-     contain what it does over the network with a token from its configuration: only a plugin
-     server held in the sandbox with its network off and no environment of its own (where tokens
-     go) is exempt, and its tools run as the sandbox decides. The same holds for a tool that
+     contain what it does over the network with a token from its configuration ([ADR
+     0171](0171-spade-decides-on-effects.md), amendment 4, which applies on the auto-review too):
+     only a plugin server held in the sandbox with its network off and no environment of its own
+     (where tokens go) is exempt, and its tools run as the sandbox decides. The same holds for a tool that
      declares nothing: it asks on its first call unless its server is sealed that way.
    - **Runs, with no reviewer and no request:** everything else: reads, local writes, file writes
      with or without a checkpoint, commands in the sandbox, commands outside it when the bot's
@@ -208,7 +209,7 @@ value and time, once, with the shared key, and stays used after a restart), `spa
 Full access bot holding Spade's token can't raise another bot; an undeclared sending app tool asks
 first and a `network`-declared one is reviewed with the classifier off or under untrusted
 content; a stamp taken before a restart is refused after it), `spade-server/tests/
-full_access_plugins.rs` (a contained plugin server with a token and its network on keeps the
+sandboxed_plugin_tools.rs` (a contained plugin server with a token and its network on keeps the
 app-tool rules; one sealed offline with no token runs), the daemon's `person-stamp.test.ts` and `spade-person-only.test.ts` (a host-token raise
 without a fresh sign-in and an agent's raise are refused, a paired device's is stamped, lowering
 is never held), and the web's `spade-full-access.test.tsx`.

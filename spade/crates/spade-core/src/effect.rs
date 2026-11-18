@@ -361,6 +361,18 @@ impl Route {
 const FILE_WRITES: &[&str] = &["workspace_write", "workspace_edit"];
 
 pub fn route(call: Call<'_>) -> Route {
+    // The sandbox holds files, not what an app's tool does on its server with the person's
+    // sign-in or a token (ADR 0171, amendment 4): one that can reach the network is decided as if
+    // it ran on the host, in every mode. Only a plugin server sealed offline with no credentials
+    // of its own (`remote` false) keeps the sandbox's decision.
+    let call = if call.remote && matches!(call.place, Place::Sandbox | Place::Unprotected) {
+        Call {
+            place: Place::Host,
+            ..call
+        }
+    } else {
+        call
+    };
     // What the person allowed always, as the rule gate saw it (taint still holds it).
     let allowed = call.always && call.rule == Decision::Run;
     // Secrets and the person-only effects come first, wherever the call runs and whatever else

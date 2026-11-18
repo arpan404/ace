@@ -54,15 +54,7 @@ pub(super) fn route(call: Call<'_>) -> Route {
     // A tool that declares nothing asks once, as on the auto-review; the person's "yes" lets it
     // run below like a declared write, never past the classifier.
     if call.effect.is_none() {
-        // A sandbox that holds an app tool's files doesn't hold what it does on its server.
-        let route = super::undeclared(if call.remote {
-            Call {
-                place: Place::Host,
-                ..call
-            }
-        } else {
-            call
-        });
+        let route = super::undeclared(call);
         if route != Route::Run {
             return route;
         }

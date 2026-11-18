@@ -1,8 +1,8 @@
-//! Full access and a plugin's local server (ADR 0163, amendment 2): a sandbox that holds a
-//! server's files doesn't hold what it does with an API token over the network, so its tools keep
-//! the app-tool rules: a first-call ask when they declare nothing, the reviewer with the
-//! classifier off. Only a server sealed offline with no token of its own runs as the sandbox
-//! decides.
+//! A plugin's local server in the sandbox (ADR 0171, amendment 4; ADR 0163, amendment 2): the
+//! sandbox holds the server's files, not what it does with an API token over the network, so in
+//! both modes its tools keep the app-tool rules: a first-call ask when they declare nothing, the
+//! reviewer for a write (in Full access, when the classifier is off). Only a server sealed offline
+//! with no token of its own runs as the sandbox decides.
 #![cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 
 mod support;
@@ -68,8 +68,15 @@ while IFS= read -r line; do
 done
 "#;
 
-/// A Full access bot allowed the `mail` plugin, its server held as `holds` says, with `env`.
-async fn mail_world(holds: Holds, env: Value, root: &Path, scripts: Vec<Script>) -> Result<World> {
+/// A bot allowed the `mail` plugin, in Full access when `full_access`, its server held as `holds`
+/// says, with `env`.
+async fn mail_world(
+    full_access: bool,
+    holds: Holds,
+    env: Value,
+    root: &Path,
+    scripts: Vec<Script>,
+) -> Result<World> {
     std::fs::write(root.join("server.sh"), SERVER)?;
     let mail = plugin(
         "mail",
@@ -98,16 +105,18 @@ async fn mail_world(holds: Holds, env: Value, root: &Path, scripts: Vec<Script>)
     // Started as a tool search would, so the bot is offered its tools.
     let plugins = w.spade.engine.plugins().cloned().ok_or("no plugins")?;
     plugins.start_servers(&w.bot).await;
-    let stamp = w.stamp(&w.bot, "full_access");
-    let (status, body) = w
-        .spade
-        .put_with(
-            &format!("/v1/agents/{}/security/autonomy", w.bot),
-            json!({ "autonomy": "full_access" }),
-            &[(HEADER, &stamp)],
-        )
-        .await?;
-    assert_eq!(status, 200, "{body}");
+    if full_access {
+        let stamp = w.stamp(&w.bot, "full_access");
+        let (status, body) = w
+            .spade
+            .put_with(
+                &format!("/v1/agents/{}/security/autonomy", w.bot),
+                json!({ "autonomy": "full_access" }),
+                &[(HEADER, &stamp)],
+            )
+            .await?;
+        assert_eq!(status, 200, "{body}");
+    }
     Ok(w)
 }
 
@@ -118,11 +127,12 @@ fn asked(events: &[Value]) -> Vec<&Value> {
         .collect()
 }
 
-#[tokio::test]
-async fn in_full_access_a_contained_plugin_server_with_a_token_and_network_keeps_the_app_tool_rules()
--> Result {
+/// A contained server with a token and its network on: the undeclared send asks first; declined,
+/// the declared post goes to the reviewer; nothing is sent.
+async fn a_contained_server_with_a_token_keeps_the_app_tool_rules(full_access: bool) -> Result {
     let root = tempfile::tempdir()?;
     let w = mail_world(
+        full_access,
         Holds { online: true },
         json!({ "MAIL_TOKEN": "tok-123" }),
         root.path(),
@@ -132,7 +142,8 @@ async fn in_full_access_a_contained_plugin_server_with_a_token_and_network_keeps
         ],
     )
     .await?;
-    // The classifier is off here, as in every test that doesn't turn it on.
+    // The classifier is off here, as in every test that doesn't turn it on; on the auto-review
+    // it would only ever raise to the person.
     w.spade.say(&w.conversation, "Tell Bob").await?;
     let events = w
         .spade
@@ -170,11 +181,11 @@ async fn in_full_access_a_contained_plugin_server_with_a_token_and_network_keeps
     Ok(())
 }
 
-#[tokio::test]
-async fn in_full_access_a_plugin_server_sealed_offline_with_no_token_runs_as_the_sandbox_decides()
--> Result {
+/// A server sealed offline with no token: its undeclared tool runs as the sandbox decides.
+async fn a_sealed_server_runs_as_the_sandbox_decides(full_access: bool) -> Result {
     let root = tempfile::tempdir()?;
     let w = mail_world(
+        full_access,
         Holds { online: false },
         json!({}),
         root.path(),
@@ -195,4 +206,28 @@ async fn in_full_access_a_plugin_server_sealed_offline_with_no_token_runs_as_the
         "{events:?}"
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn on_the_auto_review_a_contained_plugin_server_with_a_token_and_network_never_runs_unreviewed()
+-> Result {
+    a_contained_server_with_a_token_keeps_the_app_tool_rules(false).await
+}
+
+#[tokio::test]
+async fn in_full_access_a_contained_plugin_server_with_a_token_and_network_keeps_the_app_tool_rules()
+-> Result {
+    a_contained_server_with_a_token_keeps_the_app_tool_rules(true).await
+}
+
+#[tokio::test]
+async fn on_the_auto_review_a_plugin_server_sealed_offline_with_no_token_runs_as_the_sandbox_decides()
+-> Result {
+    a_sealed_server_runs_as_the_sandbox_decides(false).await
+}
+
+#[tokio::test]
+async fn in_full_access_a_plugin_server_sealed_offline_with_no_token_runs_as_the_sandbox_decides()
+-> Result {
+    a_sealed_server_runs_as_the_sandbox_decides(true).await
 }

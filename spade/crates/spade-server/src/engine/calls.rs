@@ -292,7 +292,7 @@ pub(super) async fn handle_calls(
                         // The sandbox's deny-list holds a sandboxed call; anything else that
                         // names a credential place, or a script it runs that reads one, is
                         // refused on every level.
-                        credentials: place != Place::Sandbox
+                        credentials: (place != Place::Sandbox || remote)
                             && (classed.credentials || autonomy::reaches_credentials(&arguments)),
                         standing: autonomy::STANDING.contains(&name.as_str()),
                         fits: autonomy::fits_review(&arguments, &classed.shown),
@@ -458,7 +458,7 @@ pub(super) async fn handle_calls(
                     // In Full access the person chose no reviewer (ADR 0163, amendment 2).
                     if rule_ran
                         && mode == Mode::AutoReview
-                        && place != Place::Sandbox
+                        && (place != Place::Sandbox || remote)
                         && review::reviewed(def.risk, decision)
                         && engine.review_on(id)
                     {
