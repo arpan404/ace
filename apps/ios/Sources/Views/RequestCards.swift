@@ -361,11 +361,13 @@ struct BrowserHelpCard: View {
             if let detail = interaction.help?.detail, !detail.isEmpty {
                 Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
-            if let openBrowser {
+            // A request mirrored from another machine waits on a tab there: this thread's browser
+            // isn't it, so there's nothing to open here.
+            if let openBrowser, interaction.help?.elsewhere != true {
                 CardButton(title: "Open browser", action: openBrowser)
                     .accessibilityIdentifier("help.open")
             } else {
-                Text("The tab is open on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
+                Text(interaction.help?.elsewhere == true ? "The tab is open on the machine that asked." : "The tab is open on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
             }
             RequestActions {
                 CardButton(title: "Skip") { answer(["kind": "help", "outcome": "skipped"]) }
