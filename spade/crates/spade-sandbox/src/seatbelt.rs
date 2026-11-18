@@ -81,15 +81,25 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
         "(allow process-exec process-fork)\n\
          (allow signal (target same-sandbox))\n\
          (allow process-info* (target same-sandbox))\n\
-         (allow sysctl-read)\n\
-         (allow ipc-posix-sem)\n\
-         (allow ipc-posix-shm-read-data (ipc-posix-name \"apple.shm.notification_center\"))\n",
+         (allow sysctl-read)\n",
     );
-    rule(
-        &mut out,
-        "allow mach-lookup",
-        SERVICES.iter().map(|s| global(s)),
-    );
+    // A read-only settled run is minimal and offline (ADR 0172, amendment 7): it gets no POSIX
+    // semaphore or notification-center shared memory, and no named Mach service — the kept read
+    // programs start without any (user and group lookups degrade like a missing `/etc/passwd`; a
+    // normal run keeps `opendirectoryd` for them, `trustd` for TLS revocation, the logger and
+    // notification services). If a settled program is found to need one exact service, add only
+    // that one here with the reason.
+    if !read_only {
+        out.push_str(
+            "(allow ipc-posix-sem)\n\
+             (allow ipc-posix-shm-read-data (ipc-posix-name \"apple.shm.notification_center\"))\n",
+        );
+        rule(
+            &mut out,
+            "allow mach-lookup",
+            SERVICES.iter().map(|s| global(s)),
+        );
+    }
     // Reads: the system's own folders and what the policy opens, nothing else. The home folders,
     // `/Users/Shared`, other volumes and the person's temporary storage (`/private/var/folders`,
     // `/private/tmp`) are outside every rule. `/` itself is listed (the loader reads it).
@@ -115,6 +125,19 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
         "allow file-read-metadata",
         ancestors(policy).iter().map(|p| literal(p)),
     );
+    // `/System` is a firmlink union: `/System/Volumes/Data` is the Data volume (every user's home
+    // and files), and `/System/Volumes/Preboot`, `VM`, `Update`… are the other raw volumes. The
+    // sealed system content a command needs is `/System/Library`, `/System/Cryptexes` and the rest,
+    // never `/System/Volumes`. A read-only run must not reach the folder's own files (or anyone's)
+    // by their real path under `/System/Volumes/Data`, so that subtree is denied after the `/System`
+    // read above (ADR 0172, amendment 7). The workspace is opened by its normal `/Users…` path.
+    if read_only {
+        rule(
+            &mut out,
+            "deny file-read* file-write*",
+            std::iter::once(subpath(Path::new("/System/Volumes"))),
+        );
+    }
     // Writes: granted folders (the workspace comes after the deny-list). A read-only run
     // (ADR 0172, amendment 7) writes nowhere.
     if !read_only {
@@ -421,6 +444,47 @@ mod tests {
                 "{absent} should be closed to a read-only run"
             );
         }
+    }
+
+    #[test]
+    fn read_only_omits_the_semaphore_notification_and_mach_services() {
+        let normal = profile(&policy(), false);
+        // A normal run keeps them.
+        assert!(normal.contains("(allow ipc-posix-sem)"));
+        assert!(normal.contains("(allow mach-lookup"));
+        assert!(normal.contains("apple.shm.notification_center"));
+        // A read-only run gets none of them.
+        let text = profile(&policy(), true);
+        for absent in [
+            "ipc-posix-sem",
+            "mach-lookup",
+            "notification_center",
+            "opendirectoryd",
+            "trustd",
+        ] {
+            assert!(
+                !text.contains(absent),
+                "{absent} should be absent read-only"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_denies_the_system_volumes_firmlinks() {
+        let text = profile(&policy(), true);
+        // `/System` is readable for the sealed system content, but the Data/Preboot/… firmlinks
+        // under `/System/Volumes` (every user's files) are denied after it.
+        assert!(text.contains("(subpath \"/System\")"));
+        assert!(text.contains("(deny file-read* file-write*\n  (subpath \"/System/Volumes\"))"));
+        // The deny comes after the `/System` read, so it wins.
+        let allow = position(&text, "(subpath \"/System\")");
+        let deny = position(&text, "(subpath \"/System/Volumes\")");
+        assert!(
+            allow < deny,
+            "the /System/Volumes deny must come after the /System read"
+        );
+        // A normal run has no such deny (its firmlink handling is a separate concern).
+        assert!(!profile(&policy(), false).contains("(subpath \"/System/Volumes\")"));
     }
 
     #[test]

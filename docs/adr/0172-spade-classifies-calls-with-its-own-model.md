@@ -610,12 +610,18 @@ now the narrowest one that still lets each settled program start.
    shared cache under `/System`), and nothing else. `/etc` (but the loader's files), `/opt`,
    `/var/lib`, `/sys` and macOS's `/Library` are closed: a read-only run has no reason to read them
    and they can hold the person's data. The kept list was derived by running every settled program
-   under the profile; none failed to start, so none left the settled set.
-3. **It is offline: no socket at all.** The launcher's seccomp filter denies `socket`/`socketpair`
+   under the profile; none failed to start, so none left the settled set. On macOS `/System` is a
+   firmlink union, so reading it is allowed for the sealed system content but `/System/Volumes` is
+   denied after it — `/System/Volumes/Data` is every user's files, and a read-only run must not reach
+   the folder's own files (or anyone's) by their real path there (`seatbelt.rs`).
+3. **It is offline and minimal.** The launcher's seccomp filter denies `socket`/`socketpair`
    outright for a read-only run (`linux/seccomp.rs`), so it can reach no machine, bind no port and
    open no Unix socket — not even on loopback or inside the folder. macOS emits no network rule for
-   the profile. Its one device is `/dev/null`; `/dev/tty*`, `/dev/fd/*` and the other sinks a normal
-   run may open are closed.
+   the profile, and drops the POSIX semaphore, notification shared memory and named Mach services
+   (`opendirectoryd`, `trustd`, the logger…) a normal run keeps — the settled read programs start
+   without any (user/group lookups degrade like a missing `/etc/passwd`); if one is ever found to
+   need a service, only that exact one is added back. Its one device is `/dev/null`; `/dev/tty*`,
+   `/dev/fd/*` and the other sinks a normal run may open are closed.
 4. **Enforced fully or not at all.** A read-only command settles only where the whole boundary
    holds: the file ABI that contains truncation, the loaded seccomp filter, and process and IPC
    isolation (`Status::contains`). Admission checks this (`Confine::read_only_available` →
@@ -657,8 +663,10 @@ PATH doesn't settle. `spade-server` `classifier.rs`
 `with_no_read_only_sandbox_a_plain_read_goes_to_the_reviewer` (the fail-closed gate) and
 `classifier_git.rs` (a settled read launches confined). These ran on Linux here. For macOS, the
 Seatbelt read-only profile text is asserted (`seatbelt.rs`: narrow reads, the shell and developer-dir
-links alone, `/dev/null` only, no network), and a `#[cfg(target_os = "macos")]` process test
-(`security/read_only.rs::macos::containment_holds_and_the_settled_programs_still_run`) is provided
-for a Mac: it runs the probe cases (symlink/recursive/credential reads, writes, `/dev/tty`, loopback
-and `/Users` all refused) and checks that `git --version` and `git log -1` succeed under read-only
-once the developer dir is resolved. Windows has no read-only profile.
+links alone, `/dev/null` only, no network, no POSIX semaphore/notification/Mach services, and the
+`/System/Volumes` firmlink denied after the `/System` read), and a `#[cfg(target_os = "macos")]`
+process test (`security/read_only.rs::macos::containment_holds_and_the_settled_programs_still_run`)
+is provided for a Mac: it runs the probe cases (symlink/recursive/credential reads, writes,
+`/dev/tty`, loopback, `/Users`, and a file reached by its real path under `/System/Volumes/Data`,
+all refused) and checks that `git --version` and `git log -1` succeed under read-only once the
+developer dir is resolved. Windows has no read-only profile.

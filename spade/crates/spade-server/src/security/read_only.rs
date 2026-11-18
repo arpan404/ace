@@ -323,6 +323,23 @@ mod macos {
             assert!(!out.status.success(), "{target} was read: {}", text(&out));
         }
 
+        // The firmlink bypass: a file outside the folder, reached by its real path under
+        // `/System/Volumes/Data/...`, is refused (the Data volume is every user's files). The
+        // secret lives in a temp dir on the Data volume, so the firmlink path maps to it; the case
+        // is skipped if this Mac maps it differently (the unsandboxed read wouldn't see the secret).
+        std::fs::write(w.root.join("firm.txt"), "FIRMLINK-SECRET")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let firmlink = format!("/System/Volumes/Data{}", w.root.join("firm.txt").display());
+        if std::fs::read_to_string(&firmlink).is_ok_and(|t| t.contains("FIRMLINK-SECRET")) {
+            let out = run(&runner, &w, &format!("cat '{firmlink}'"))
+                .unwrap_or_else(|| panic!("should settle"));
+            assert!(
+                !text(&out).contains("FIRMLINK-SECRET") && !out.status.success(),
+                "a read reached the Data volume through /System/Volumes/Data: {}",
+                text(&out)
+            );
+        }
+
         // A recursive read through a symlinked directory out of the folder sees nothing outside.
         std::fs::create_dir_all(w.root.join("secrets")).unwrap_or_else(|e| panic!("{e}"));
         std::fs::write(w.root.join("secrets/key.txt"), "SECRET-xyz")
