@@ -1,7 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { releasePlan, timestampBuildNumber } from "./release-plan.ts";
 
@@ -14,6 +11,11 @@ const key = {
 };
 const plan = (argv: string[], env: Record<string, string>) =>
   releasePlan({ argv, env, root, nowMs });
+/** A timestamp build number as one number, ordered as App Store Connect orders its parts. */
+const rank = (ms: number) => {
+  const [day = 0, time = 0] = timestampBuildNumber(ms).split(".").map(Number);
+  return day * 1_000_000 + time;
+};
 /** The value after `flag` in an argument list. */
 const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
 
@@ -23,6 +25,7 @@ describe("uploading to App Store Connect", () => {
     expect(upload.archiveArgs).toEqual(
       expect.arrayContaining([
         "archive",
+        "CODE_SIGNING_ALLOWED=YES",
         "DEVELOPMENT_TEAM=TEAM123456",
         "CODE_SIGN_STYLE=Automatic",
         "-allowProvisioningUpdates",
@@ -44,11 +47,11 @@ describe("uploading to App Store Connect", () => {
 
   test("numbers the build from the UTC time, so every upload is higher than the last", () => {
     const upload = plan(["--upload"], { ACE_IOS_TEAM_ID: "TEAM123456", ...key });
-    expect(upload.buildNumber).toBe("202611172005");
-    expect(upload.archiveArgs).toContain("CURRENT_PROJECT_VERSION=202611172005");
-    expect(Number(timestampBuildNumber(nowMs + 60_000))).toBeGreaterThan(
-      Number(timestampBuildNumber(nowMs)),
-    );
+    expect(upload.buildNumber).toBe("20261117.200500");
+    expect(upload.archiveArgs).toContain("CURRENT_PROJECT_VERSION=20261117.200500");
+    // App Store Connect compares each dotted part as a number.
+    for (const step of [1_000, 60_000, 86_400_000])
+      expect(rank(nowMs + step)).toBeGreaterThan(rank(nowMs));
   });
 
   test("takes the version from a release tag and a build number when given", () => {
@@ -72,26 +75,53 @@ describe("uploading to App Store Connect", () => {
       /all of APPLE_API_KEY/,
     ],
     [
+      "a version without a patch number",
+      { ACE_IOS_TEAM_ID: "TEAM123456", ACE_IOS_VERSION: "ios-v1.2", ...key },
+      /ACE_IOS_VERSION/,
+    ],
+    [
+      "a tag with no version",
+      { ACE_IOS_TEAM_ID: "TEAM123456", ACE_IOS_VERSION: "ios-v", ...key },
+      /ACE_IOS_VERSION/,
+    ],
+    [
+      "an archive path that isn't an archive",
+      { ACE_IOS_TEAM_ID: "TEAM123456", ACE_IOS_ARCHIVE: "..", ...key },
+      /ACE_IOS_ARCHIVE/,
+    ],
+    [
       "a version that isn't one",
       { ACE_IOS_TEAM_ID: "TEAM123456", ACE_IOS_VERSION: "next", ...key },
       /ACE_IOS_VERSION/,
     ],
     [
       "a build number that isn't a number",
-      { ACE_IOS_TEAM_ID: "TEAM123456", ACE_IOS_BUILD_NUMBER: "1.0", ...key },
+      { ACE_IOS_TEAM_ID: "TEAM123456", ACE_IOS_BUILD_NUMBER: "1.x", ...key },
       /ACE_IOS_BUILD_NUMBER/,
     ],
   ])("refuses to start with %s", (_, env, message) => {
     expect(() => plan(["--upload"], env)).toThrow(message);
   });
 
-  test.skipIf(process.platform !== "darwin")("writes export options plutil accepts", () => {
-    const upload = plan(["--upload"], { ACE_IOS_TEAM_ID: "TEAM123456", ...key });
-    const file = join(mkdtempSync(join(tmpdir(), "ace-export-")), "ExportOptions.plist");
-    writeFileSync(file, upload.upload?.options ?? "");
-    const lint = spawnSync("plutil", ["-lint", file], { encoding: "utf8" });
-    expect(lint.status, lint.stdout + lint.stderr).toBe(0);
-  });
+  test.skipIf(process.platform !== "darwin")(
+    "writes export options Apple's plist parser reads",
+    () => {
+      const upload = plan(["--upload"], { ACE_IOS_TEAM_ID: "TEAM123456", ...key });
+      const parsed = spawnSync("plutil", ["-convert", "json", "-o", "-", "--", "-"], {
+        input: upload.upload?.options ?? "",
+        encoding: "utf8",
+      });
+      expect(parsed.status, parsed.stderr).toBe(0);
+      expect(JSON.parse(parsed.stdout)).toEqual({
+        method: "app-store-connect",
+        destination: "upload",
+        teamID: "TEAM123456",
+        signingStyle: "automatic",
+        uploadSymbols: true,
+        manageAppVersionAndBuildNumber: false,
+      });
+    },
+  );
 });
 
 describe("archiving without uploading", () => {

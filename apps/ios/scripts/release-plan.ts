@@ -21,12 +21,17 @@ export interface ReleasePlan {
   buildNumber: string;
 }
 
-const semver = /^\d+\.\d+(\.\d+)?$/;
-const buildNumber = /^\d{1,18}$/;
+const semver = /^\d+\.\d+\.\d+$/;
+/** One to three whole numbers joined by dots, as CFBundleVersion takes. */
+const buildNumber = /^\d{1,9}(\.\d{1,9}){0,2}$/;
 
-/** `YYYYMMDDHHmm` in UTC: increases with every build, from any Mac or CI run. */
+/**
+ * `YYYYMMDD.HHmmss` in UTC: App Store Connect compares each part as a number, so a later build
+ * is always higher, from any Mac or CI run, and two differ unless started in the same second.
+ */
 export function timestampBuildNumber(nowMs: number): string {
-  return new Date(nowMs).toISOString().slice(0, 16).replace(/[-T:]/g, "");
+  const stamp = new Date(nowMs).toISOString().slice(0, 19).replace(/[-:]/g, "");
+  return stamp.replace("T", ".");
 }
 
 /** The App Store Connect API key, when all three parts are set; an error when only some are. */
@@ -101,9 +106,10 @@ export function releasePlan(input: {
       "--upload needs an App Store Connect API key: set APPLE_API_KEY (the .p8 file's path), APPLE_API_KEY_ID and APPLE_API_ISSUER.",
     );
 
-  const version = env.ACE_IOS_VERSION?.trim().replace(/^ios-v|^v/, "") || undefined;
-  if (version && !semver.test(version))
-    throw new Error(`ACE_IOS_VERSION must look like 1.2 or 1.2.3, not "${version}".`);
+  const versionInput = env.ACE_IOS_VERSION?.trim() ?? "";
+  const version = versionInput.replace(/^ios-v|^v/, "") || undefined;
+  if (versionInput && !(version && semver.test(version)))
+    throw new Error(`ACE_IOS_VERSION must look like 1.2.3 or ios-v1.2.3, not "${versionInput}".`);
   const build =
     env.ACE_IOS_BUILD_NUMBER?.trim() ||
     (mode === "upload" ? timestampBuildNumber(input.nowMs) : "1");
@@ -116,7 +122,10 @@ export function releasePlan(input: {
   if (push !== "YES" && push !== "NO")
     throw new Error(`ACE_PUSH must be YES or NO, not "${push}".`);
 
-  const archivePath = env.ACE_IOS_ARCHIVE ?? `${root}/.build/Ace.xcarchive`;
+  // archive.ts replaces whatever is at this path, so it must name an archive.
+  const archivePath = env.ACE_IOS_ARCHIVE?.trim() || `${root}/.build/Ace.xcarchive`;
+  if (!archivePath.endsWith(".xcarchive"))
+    throw new Error(`ACE_IOS_ARCHIVE must end in .xcarchive, not "${archivePath}".`);
   const archiveArgs = [
     "-project",
     "Ace.xcodeproj",
@@ -142,7 +151,8 @@ export function releasePlan(input: {
   if (mode !== "upload" || !key)
     return { mode, archivePath, archiveArgs, buildNumber: build, version };
 
-  const exportPath = env.ACE_IOS_EXPORT ?? `${root}/.build/export`;
+  // The script's own folders, which it replaces on every run.
+  const exportPath = `${root}/.build/export`;
   const optionsPath = `${root}/.build/ExportOptions.plist`;
   return {
     mode,
