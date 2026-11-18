@@ -5,6 +5,7 @@ import { expect, onTestFinished, test } from "vitest";
 import type { WorkspaceId } from "@ace/protocol";
 import { ProjectStorage } from "./project-storage.ts";
 import { RemoteKeyReader } from "./project-remote-key-reader.ts";
+import { pageQuery } from "./project-remote-key.ts";
 import { Store } from "./store.ts";
 
 const ace = "github.com/arpan/ace";
@@ -14,7 +15,7 @@ const P = "11111111-1111-4111-8111-111111111111";
 type Facts = { remotes: string[]; subpath: string } | undefined | Error;
 
 /** A daemon's registrations over a real store, with Git's answers set per folder. */
-async function daemon(options: { batch?: number } = {}) {
+async function daemon(options: { batch?: number; pageSize?: number } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-remote-key-")));
   let clock = 1_000;
   const now = () => clock;
@@ -46,6 +47,7 @@ async function daemon(options: { batch?: number } = {}) {
     wait: () => Promise.resolve(),
     ttlMs: 60_000,
     ...(options.batch ? { batch: options.batch } : {}),
+    ...(options.pageSize ? { pageSize: options.pageSize } : {}),
   });
   onTestFinished(async () => {
     reader.close();
@@ -53,6 +55,7 @@ async function daemon(options: { batch?: number } = {}) {
     await rm(root, { recursive: true, force: true });
   });
   return {
+    store,
     catalog,
     reader,
     reads,
@@ -146,4 +149,41 @@ test("a sweep reads a few registrations at a time, never ones removed or chats",
   expect(home.widest()).toBeLessThanOrEqual(3);
   expect(home.reads).toHaveLength(9);
   expect(home.reads).not.toContain(gone.path);
+});
+
+test("a sweep walks every registration in pages, reading each due one once", async () => {
+  const home = await daemon({ pageSize: 4 });
+  const added = [];
+  for (let index = 0; index < 11; index++)
+    added.push(await home.add(`p${index}`, { remotes: [`host/r${index}`], subpath: "" }));
+  await home.reader.poke();
+  expect(home.reads.toSorted()).toEqual(added.map((each) => each.path).toSorted());
+  expect(added.every((each) => home.catalog.get(each.id).remoteKey !== undefined)).toBe(true);
+});
+
+test("each page of the walk is a range read on the primary key: no table scan, no sort", async () => {
+  const home = await daemon();
+  for (let index = 0; index < 3; index++)
+    await home.add(`p${index}`, { remotes: [ace], subpath: "" });
+  const plan = home.store
+    .atomic((db) => db.prepare(`EXPLAIN QUERY PLAN ${pageQuery}`).all("", 64))
+    .map((row) => String(row.detail));
+  expect(
+    plan.some((step) =>
+      /SEARCH w USING (INTEGER PRIMARY KEY|INDEX sqlite_autoindex_workspaces)/.test(step),
+    ),
+  ).toBe(true);
+  expect(plan.filter((step) => /^SCAN|TEMP B-TREE/.test(step))).toEqual([]);
+});
+
+test("remotes on this machine's own disk never group checkouts on two machines", async () => {
+  const home = await daemon();
+  const mirror = await home.add("mirror", {
+    remotes: ["/srv/git/app.git", "C:\\repos\\app"],
+    subpath: "",
+  });
+  const mixed = await home.add("mixed", { remotes: [ace, "/srv/git/ace.git"], subpath: "" });
+  await home.reader.poke();
+  expect(home.catalog.get(mirror.id).remoteKey).toBeUndefined();
+  expect(home.catalog.get(mixed.id).remoteKey).toEqual({ remotes: [ace], subpath: "" });
 });

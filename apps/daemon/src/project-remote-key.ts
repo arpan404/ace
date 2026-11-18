@@ -57,33 +57,54 @@ export interface DueRead {
 }
 
 /**
- * Up to `limit` registered, ordinary projects whose key was never read or was read before
- * `staleBefore`, never read first. Bounded by `limit`, not by how many projects there are.
+ * One page of the sweep's walk: the next `limit` registrations by id after `after`, a range read
+ * on the primary key with one key lookup per joined table, so a page costs the same however many
+ * projects there are (ADR 0170). `due` is those of them that are registered, ordinary projects
+ * whose key was never read or was read before `staleBefore`; `next` is the cursor past the page,
+ * undefined once the walk is done.
  */
-export function dueReads(db: DatabaseSync, staleBefore: number, limit: number): DueRead[] {
-  return db
-    .prepare(
-      `SELECT w.id,w.path,rk.remotes,rk.subpath,rk.apart FROM workspaces w
-      LEFT JOIN workspace_metadata m ON m.workspace_id=w.id ${remoteKeyJoin}
-      WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id)
-      AND m.kind IS NULL AND (rk.read_at IS NULL OR rk.read_at<?)
-      ORDER BY rk.read_at IS NOT NULL,rk.read_at,w.id LIMIT ?`,
-    )
-    .all(staleBefore, limit)
-    .map((row) => ({
-      workspaceId: WorkspaceId.parse(row.id),
-      path: String(row.path),
-      before: keyText(row.remotes, row.subpath),
-      apart: row.apart === 1,
-    }));
+export const pageQuery = `SELECT w.id,w.path,rk.remotes,rk.subpath,rk.apart,rk.read_at,m.kind,
+  EXISTS (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id) AS gone
+  FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id ${remoteKeyJoin}
+  WHERE w.id>? ORDER BY w.id LIMIT ?`;
+
+export function duePage(
+  db: DatabaseSync,
+  after: string,
+  staleBefore: number,
+  limit: number,
+): { due: DueRead[]; next: string | undefined } {
+  const rows = db.prepare(pageQuery).all(after, limit);
+  const due = rows.flatMap((row): DueRead[] => {
+    const fresh = typeof row.read_at === "number" && row.read_at >= staleBefore;
+    if (row.gone === 1 || row.kind !== null || fresh) return [];
+    return [
+      {
+        workspaceId: WorkspaceId.parse(row.id),
+        path: String(row.path),
+        before: keyText(row.remotes, row.subpath),
+        apart: row.apart === 1,
+      },
+    ];
+  });
+  const last = rows.at(-1)?.id;
+  return { due, next: rows.length < limit || last === undefined ? undefined : String(last) };
 }
+
+/**
+ * Whether a remote key names a path on this machine (`/srv/git/app.git`, a `file://` URL, a
+ * drive or a share): the same path on two machines is two unrelated repositories, so it never
+ * groups anything.
+ */
+export const isLocalRemote = (key: string) => key.startsWith("/") || /^[a-z]:[\\/]/i.test(key);
 
 const keyText = (remotes: unknown, subpath: unknown) =>
   typeof remotes === "string" ? `${remotes}\n${String(subpath ?? "")}` : null;
 
 /**
  * Keep what a read found at `at`: `remotes` empty for a folder outside Git or without a
- * remote. Whether the stored key changed, so the caller tells clients.
+ * remote. Remotes on this machine's own disk are left out (`isLocalRemote`); a checkout with
+ * only those has no key. Whether the stored key changed, so the caller tells clients.
  */
 export function saveRead(
   db: DatabaseSync,
@@ -91,7 +112,8 @@ export function saveRead(
   found: { remotes: readonly string[]; subpath: string },
   at: number,
 ): boolean {
-  const remotes = found.remotes.length ? JSON.stringify([...found.remotes].toSorted()) : null;
+  const shared = [...new Set(found.remotes.filter((key) => !isLocalRemote(key)))].toSorted();
+  const remotes = shared.length ? JSON.stringify(shared) : null;
   const subpath = remotes === null ? null : found.subpath;
   db.prepare(
     `INSERT INTO workspace_remote_key(workspace_id,remotes,subpath,read_at) VALUES (?,?,?,?)
