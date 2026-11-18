@@ -27,8 +27,8 @@ struct ProjectDefaultsSheet: View {
                 if let project {
                     EditProjectView(model: model, project: project) { _ in done() }
                 } else if let problem {
-                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem) {
-                        Button("Retry") { Task { await load() } }.buttonStyle(.textAction())
+                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem, failed: true) {
+                        Button("Retry") { Task { await load() } }
                     }
                 } else {
                     SkeletonPage(label: "Opening the project")
@@ -38,7 +38,7 @@ struct ProjectDefaultsSheet: View {
                 if project == nil { ToolbarItem(placement: .cancellationAction) { Button("Close", action: done) } }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .task { await load() }
     }

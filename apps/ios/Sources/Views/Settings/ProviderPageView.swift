@@ -149,7 +149,7 @@ struct ProviderPageView<Extra: View>: View {
         switch fix.action {
         case "sign_in":
             NavigationLink { ProviderSignInView(model: model, provider: provider, name: page.name) } label: {
-                Text(fix.label).foregroundStyle(AceDesign.Ink.accent)
+                Text(fix.label).foregroundStyle(AceDesign.Ink.action)
             }
             .accessibilityIdentifier("provider.fix")
         case "turn_on":

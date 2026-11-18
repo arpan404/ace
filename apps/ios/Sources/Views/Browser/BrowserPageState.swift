@@ -22,13 +22,13 @@ struct BrowserPageState: View {
         guard let view = browser.view else { return AnyView(SkeletonPage(label: "Opening the browser")) }
         guard let state = view.state, !state.closed else {
             return AnyView(EmptyState(icon: .compass, title: "No page open") {
-                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.textAction()).frame(maxWidth: AceDesign.Size.loneAction) }
+                if model.canOperate { Button("Open a page", action: openAddress).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         if state.disconnected == true {
             return AnyView(EmptyState(icon: .warning, title: "The browser disconnected",
-                                      line: state.reason ?? "Reopen it to continue where it left off.") {
-                if model.canOperate { Button("Reopen") { model.browserReopen() }.buttonStyle(.textAction(.prominent)).frame(maxWidth: AceDesign.Size.loneAction) }
+                                      line: state.reason ?? "Reopen it to continue where it left off.", failed: true) {
+                if model.canOperate { Button("Reopen") { model.browserReopen() }.frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         if let certificate = state.certificate, let tabId = state.activeTabId {
@@ -48,7 +48,7 @@ struct BrowserPageState: View {
         }
         if state.blank == true && !state.loading {
             return AnyView(EmptyState(icon: .compass, title: "New tab") {
-                if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.textAction()).frame(maxWidth: AceDesign.Size.loneAction) }
+                if model.canOperate { Button("Open a page", action: openAddress).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
         // The subscribe's poster stands in for the page until its first live picture.

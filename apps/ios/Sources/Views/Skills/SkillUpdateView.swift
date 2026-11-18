@@ -92,7 +92,7 @@ struct SkillUpdateReviewView: View {
                     } else if problem == nil {
                         SkeletonRows(count: 4, label: "Fetching the update")
                     }
-                    if let problem { QuietProblem(message: problem, id: "skill.update.review.problem") }
+                    if let problem { ProblemRow(problem, id: "skill.update.review.problem") }
                     if review != nil {
                         Button(busy ? "Updating…" : "Update") { Task { await apply() } }
                             .buttonStyle(.textAction(.prominent))

@@ -364,7 +364,7 @@ struct BrowserStrip<Actions: View>: View {
                 .contentShape(Rectangle())
         }
         .font(AceDesign.Typeface.body)
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .padding(.horizontal, AceDesign.Space.margin)
         .frame(minHeight: AceDesign.Size.tap)
         .overlay(alignment: .top) {
