@@ -12,7 +12,7 @@ struct KeyboardSettingsView: View {
         let keymap = PhoneKeymap(stored: stored)
         List {
             Section {
-                InsetRow(systemImage: "return", title: "Send with Return") {
+                InsetRow(systemImage: nil, title: "Send with Return") {
                     Toggle("Send with Return", isOn: $returnSends).labelsHidden()
                 }
                 .accessibilityElement(children: .combine)
@@ -30,7 +30,7 @@ struct KeyboardSettingsView: View {
             if !keymap.overrides.isEmpty {
                 Section {
                     Button("Reset all shortcuts", role: .destructive) { confirmReset = true }
-                        .foregroundStyle(AceTheme.Status.failed)
+                        .buttonStyle(.rowAction)
                         .accessibilityIdentifier("keyboard.resetAll")
                 }
                 .insetRowBackground()
@@ -98,7 +98,7 @@ struct ShortcutEditor: View {
                         .accessibilityIdentifier("shortcut.keys")
                     Text(message(problem))
                         .font(AceDesign.Typeface.meta)
-                        .foregroundStyle(problem == nil ? AceDesign.Ink.muted : AceDesign.Ink.primary)
+                        .foregroundStyle(problem == nil ? AceDesign.Ink.muted : AceTheme.StatusText.failed)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("shortcut.problem")
                 }
@@ -131,7 +131,7 @@ struct ShortcutEditor: View {
                         stored = keymap.binding(entry.id, to: nil).stored
                         dismiss()
                     }
-                    .foregroundStyle(AceDesign.Ink.primary)
+                    .buttonStyle(.rowAction)
                     .accessibilityIdentifier("shortcut.reset")
                 }
                 .insetRowBackground()

@@ -54,10 +54,8 @@ struct AppearanceView: View {
                 }
                 .pickerRow()
                 if let accentProblem {
-                    ServiceProblem(message: accentProblem).listRowBackground(Color.clear)
-                    Button("Retry") { accentRetry += 1 }.buttonStyle(.textAction())
-                        .disabled(inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true)
-                        .listRowBackground(Color.clear)
+                    ProblemRow(accentProblem, id: "appearance.accent.problem",
+                               disabled: inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true) { accentRetry += 1 }
                 }
             } header: { InsetHeader("Accent") } footer: {
                 if inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true {
@@ -81,13 +79,13 @@ struct AppearanceView: View {
             } header: { InsetHeader("Transcript size") }
             .insetRowBackground()
             Section {
-                InsetRow(systemImage: "figure.walk.motion", title: "Reduce motion") {
+                InsetRow(systemImage: nil, title: "Reduce motion") {
                     Toggle("Reduce motion", isOn: Binding(get: { reduceMotion || systemReduceMotion }, set: { reduceMotion = $0 }))
                         .labelsHidden().disabled(systemReduceMotion)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("appearance.reduceMotion")
-                InsetRow(systemImage: "square.on.square.intersection.dashed", title: "Translucency") {
+                InsetRow(systemImage: nil, title: "Translucency") {
                     Toggle("Translucency", isOn: Binding(get: { !solid && !systemReduceTransparency }, set: { solid = !$0 }))
                         .labelsHidden().disabled(systemReduceTransparency)
                 }
@@ -100,9 +98,9 @@ struct AppearanceView: View {
             if let palette, !palette.palette.colours.isEmpty {
                 Section {
                     Button("Use the standard colours") { change { palette.reset() } }
-                        .foregroundStyle(AceDesign.Ink.primary)
+                        .buttonStyle(.rowAction)
                         .accessibilityIdentifier("appearance.resetColours")
-                } footer: { Text("This phone uses colours from an earlier custom theme.") }
+                } footer: { Text("This iPhone uses colours from an earlier custom theme.") }
                 .insetRowBackground()
             }
         }
