@@ -4,7 +4,10 @@
 //!
 //! One watcher per root serves every subscription. Each batch first makes the cached folder
 //! listings stale and folds the changes into the quick-open index, then reaches every subscriber
-//! as an `event`, so a client that just asked for a folder sees what the batch changed.
+//! as an `event`, so a client that just asked for a folder sees what the batch changed. A batch
+//! that edits an ignore rule file also walks the folders those rules govern again in the
+//! background, because such an edit changes which paths belong in the index without touching
+//! them.
 //!
 //! This module's sink runs on the watcher's own thread, never on a runtime worker: it writes
 //! through [`Out::send_blocking`], so a daemon that stops reading slows the watcher instead of
@@ -58,6 +61,15 @@ pub fn deliver(
         Batch::Changes(changes) => {
             invalidate(entry, &changes);
             entry.apply_changes(&index_changes(&changes));
+            // An ignore-rule edit changes which paths belong in the index without changing those
+            // files, so the folders it governs are walked again in the background.
+            for folder in crate::rules::changed(entry.root(), &changes) {
+                if folder.is_empty() {
+                    entry.rescan_index();
+                } else {
+                    entry.rebuild_folder(folder);
+                }
+            }
             EventPayload::Changes {
                 changes: changes.into_iter().map(convert::change).collect(),
             }

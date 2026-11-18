@@ -9,7 +9,7 @@ use files_safe::Root;
 use crate::arena::PathArena;
 use crate::error::Error;
 use crate::membership::Membership;
-use crate::walk::{self, Filters, Walk};
+use crate::walk::{self, Collected, Filters, Walk};
 use crate::{IndexOptions, PathIndex};
 
 pub(crate) fn build(
@@ -33,6 +33,55 @@ pub(crate) fn build(
         recheck: filters.has_ancestors(),
         progress,
     })?;
+    finish(options, cancel, filters, collected)
+}
+
+/// Walk one folder of the checkout with the rules that apply to it, keeping paths relative to
+/// the root. An ignore-rule edit can both hide paths that were indexed and reveal paths that were
+/// not, and only a walk of the folder reconciles both.
+pub(crate) fn build_folder(
+    root: &Root,
+    folder: &str,
+    options: &IndexOptions,
+    cancel: &AtomicBool,
+) -> Result<PathIndex, Error> {
+    if options.max_files == 0 {
+        return Err(Error::InvalidArgument(
+            "max_files must be at least 1".to_owned(),
+        ));
+    }
+    let filters = Filters::new(root, &options.hide, options.include_ignored)?;
+    if folder.is_empty() {
+        return build(root, options, cancel, None);
+    }
+    if Root::check(folder).is_err() {
+        return Err(Error::InvalidArgument(format!(
+            "not a checkout-relative folder: {folder}"
+        )));
+    }
+    // A folder that vanished while the rules changed has nothing left to index; the watch batch
+    // itself drops its paths, and an empty walk keeps the rebuild harmless.
+    let Ok(start) = root.resolve(folder) else {
+        return finish(options, cancel, filters, Collected::empty());
+    };
+    let collected = walk::run(Walk {
+        root,
+        filters: &filters,
+        max_files: options.max_files,
+        cancel,
+        start: &start,
+        recheck: true,
+        progress: None,
+    })?;
+    finish(options, cancel, filters, collected)
+}
+
+fn finish(
+    options: &IndexOptions,
+    cancel: &AtomicBool,
+    filters: Filters,
+    collected: Collected,
+) -> Result<PathIndex, Error> {
     if collected.cancelled || cancel.load(Ordering::Relaxed) {
         return Err(Error::Aborted);
     }

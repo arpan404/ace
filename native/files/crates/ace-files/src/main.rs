@@ -16,6 +16,7 @@ mod ops;
 mod quick_open;
 mod requests;
 mod roots;
+mod rules;
 mod subscriptions;
 mod writer;
 

@@ -13,6 +13,7 @@ dependencies = [
  "files-search",
  "files-watch",
  "files-wire",
+ "ignore",
  "regex",
  "tempfile",
  "thiserror",
