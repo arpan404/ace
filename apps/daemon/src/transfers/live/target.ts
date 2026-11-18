@@ -79,11 +79,13 @@ export class LiveTarget {
     const bundle = join(folder, "delta.bundle");
     if (!(await present(bundle))) return;
     const head = commit.branch ? `refs/heads/${commit.branch}` : headRef(transferId);
+    // A branch that didn't move since the bulk isn't in the delta: Git leaves out excluded tips.
+    const moved = commit.head !== commit.live?.bulk?.head;
     const refspecs = [
-      `+${head}:${commit.branch ? incomingRef(transferId) : head}`,
+      ...(moved ? [`+${head}:${commit.branch ? incomingRef(transferId) : head}`] : []),
       ...(commit.changes ? [`+${commit.changes.ref}:${commit.changes.ref}`] : []),
     ];
-    await this.ports.git.fetchBundle(path, bundle, refspecs, held);
+    if (refspecs.length) await this.ports.git.fetchBundle(path, bundle, refspecs, held);
   }
   /** The bulk's own capture ref, which the landing doesn't know to delete. */
   async tidy(live: Live, path: string): Promise<void> {

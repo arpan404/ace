@@ -111,6 +111,12 @@ describe("the moved thread's first turn on the target", () => {
     });
   });
 
+  it("doesn't count a message still waiting in the queue as a started turn", () => {
+    expect(turnStart({ state: "waiting", on: "queue" }, { native: false, waitedMs: 10 })).toEqual({
+      kind: "wait",
+    });
+  });
+
   it("waits for a turn that hasn't shown yet, within a bound", () => {
     expect(turnStart({ state: "new" }, { native: false, waitedMs: 10 })).toEqual({ kind: "wait" });
     expect(turnStart({ state: "new" }, { native: false, waitedMs: turnStartMs })).toEqual({

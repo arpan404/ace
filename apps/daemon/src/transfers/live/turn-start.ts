@@ -2,7 +2,8 @@ import type { ThreadStatus } from "@ace/protocol";
 
 /*
  * Whether the moved thread's first turn started on the target (ADR 0190). Pure. Any status but
- * new and failed means the turn ran: it works, waits, needs the person, or already ended.
+ * new, failed and a message still queued means the turn ran: it works, waits, needs the person,
+ * or already ended.
  */
 
 export type TurnStart =
@@ -20,7 +21,9 @@ export function turnStart(
   status: ThreadStatus,
   attempt: { native: boolean; waitedMs: number },
 ): TurnStart {
-  if (status.state !== "new" && status.state !== "failed") return { kind: "running" };
+  // A message still waiting in the queue hasn't reached the agent yet.
+  const queued = status.state === "waiting" && status.on === "queue";
+  if (status.state !== "new" && status.state !== "failed" && !queued) return { kind: "running" };
   const stuck = status.state === "failed" || attempt.waitedMs >= turnStartMs;
   if (!stuck) return { kind: "wait" };
   return attempt.native ? { kind: "retry_with_summary" } : { kind: "failed" };
