@@ -451,12 +451,12 @@
   :root[data-scheme="light"] .mk-avatar {
     color: color-mix(in srgb, var(--tone, var(--mk-muted)) 58%, #000);
   }
+  /* ace's own publisher: the logo draws its own tile, so the disc gives way to it. */
   .mk-avatar[data-ace],
   :root[data-scheme="light"] .mk-avatar[data-ace] {
-    background: var(--foreground);
-    color: var(--background);
-    font-size: calc(var(--size) * 0.36);
-    letter-spacing: -0.03em;
+    border-radius: 0;
+    background: none;
+    display: block;
   }
   .mk-verified {
     width: 14px;
