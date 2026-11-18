@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The pairing pages' buttons, as real controls rather than words: the one way forward is a
 /// prominent glass capsule in the accent, the others plain glass capsules. Before iOS 26, the
-/// bordered equivalents. These stay local to pairing until the shared button styles land, and
-/// then call them.
+/// bordered equivalents. Local until the shared styles of ADR 0184 (#2268) merge; then each
+/// becomes `.buttonStyle(.primaryAction)` or `.buttonStyle(.secondaryAction)` with the same
+/// capsule and size, and this file goes.
 extension View {
     @ViewBuilder func pairingPrimaryButton() -> some View {
         if #available(iOS 26, *) {
