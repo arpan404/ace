@@ -32,7 +32,11 @@ fn main() {
         }),
     )
     .unwrap();
-    println!("watcher armed at {:?}", start.elapsed());
+    println!(
+        "watcher armed at {:?}, mode {:?}",
+        start.elapsed(),
+        watcher.mode()
+    );
     for index in 0..count {
         std::fs::write(dir.path().join(format!("flood/file{index}")), b"x").unwrap();
         if index % 5_000 == 0 || count < 5_000 {

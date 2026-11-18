@@ -72,6 +72,7 @@ pub(crate) struct Watch {
 impl Watch {
     /// Opens the root and starts the thread that owns the recursive watch.
     pub(crate) fn start(root: &Root, _excluder: &Excluder, events: Events) -> Result<Watch, Error> {
+        println!("windows watch start for {}", root.path().display());
         let directory = open_directory(root.path())?;
         let stop = match create_event() {
             Ok(event) => event,
@@ -234,7 +235,7 @@ fn run(
             if code != Some(ERROR_IO_PENDING as i32) {
                 let message = format!("cannot watch {}: {error}", root.display());
                 if armed {
-                    eprintln!("[{:?}] read failed: {message}", born.elapsed());
+                    println!("[{:?}] read failed: {message}", born.elapsed());
                     events.failed(&message);
                 } else {
                     let _ = started.send(Err(message));
@@ -280,13 +281,13 @@ fn run(
             }
         } else if bytes == 0 {
             // A completion with nothing in it is the kernel saying its buffer ran out.
-            eprintln!("[{:?}] completion {completions}: overflow", born.elapsed());
+            println!("[{:?}] completion {completions}: overflow", born.elapsed());
             events.lost_events();
         } else {
             completions += 1;
             if completions <= 5 || completions % 500 == 0 {
                 let records = parse(&buffer[..bytes as usize]).len();
-                eprintln!(
+                println!(
                     "[{:?}] completion {completions}: {bytes} bytes, {records} records",
                     born.elapsed()
                 );
