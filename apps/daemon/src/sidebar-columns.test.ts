@@ -293,19 +293,76 @@ function statementsAtOpen(path: string): string[] {
   return ran;
 }
 
-/** Statements whose query plan reads all of `threads` or `sidebar_thread_columns`. */
-function fullScans(path: string, statements: string[]): string[] {
+/**
+ * Split SQL text into its statements: semicolons inside quotes, comments and a trigger's
+ * BEGIN ... END body don't end one. Comments are dropped.
+ */
+function splitStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let index = 0;
+  const flush = () => {
+    const statement = current.trim();
+    current = "";
+    if (statement) statements.push(statement);
+  };
+  while (index < sql.length) {
+    const char = sql.charAt(index);
+    if (char === "-" && sql.charAt(index + 1) === "-") {
+      const end = sql.indexOf("\n", index);
+      index = end < 0 ? sql.length : end;
+      continue;
+    }
+    if (char === "/" && sql.charAt(index + 1) === "*") {
+      const end = sql.indexOf("*/", index + 2);
+      index = end < 0 ? sql.length : end + 2;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      const end = sql.indexOf(char, index + 1);
+      const stop = end < 0 ? sql.length : end + 1;
+      current += sql.slice(index, stop);
+      index = stop;
+      continue;
+    }
+    index++;
+    if (char !== ";") {
+      current += char;
+      continue;
+    }
+    // A trigger body's statements end in semicolons too; the trigger ends at END.
+    if (
+      /^\s*CREATE\s+(TEMP\s+|TEMPORARY\s+)?TRIGGER\b/i.test(current) &&
+      !/\bEND\s*$/i.test(current)
+    )
+      current += char;
+    else flush();
+  }
+  flush();
+  return statements;
+}
+
+/** Statements that read or write rows, as opposed to schema, pragmas and transaction control. */
+const dataStatement = /^(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)\b/i;
+
+/**
+ * Data statements among `ran` whose query plan reads all of `threads` or
+ * `sidebar_thread_columns`. Throws on any data statement it can't plan, so none goes unchecked.
+ */
+function fullScans(path: string, ran: string[]): string[] {
   const db = new DatabaseSync(path);
   try {
+    const statements = ran.flatMap(splitStatements).filter((sql) => dataStatement.test(sql));
+    expect(statements.length).toBeGreaterThan(0);
     return statements.filter((sql) => {
       let plan: string[];
       try {
         plan = db
           .prepare(`EXPLAIN QUERY PLAN ${sql}`)
-          .all(...Array.from({ length: (sql.match(/\?/g) ?? []).length }, () => null))
+          .all()
           .map((row) => String(row.detail));
-      } catch {
-        return false; // Several statements or schema changes: no plan to read.
+      } catch (error) {
+        throw new Error(`No query plan for a statement the open ran: ${sql}`, { cause: error });
       }
       return plan.some((step) => /^SCAN (threads|sidebar_thread_columns)\b/.test(step));
     });
@@ -327,7 +384,9 @@ it("a later open lists every thread correctly without reading every thread", () 
   expect(fullScans(path, statements)).toEqual([]);
 });
 
-it("an open stopped while clearing the repair marker repairs at the next open", () => {
+// Recovery coverage: an open that fails part way leaves nothing a later open would trust.
+// (The Store opens the facts table inside its own transaction, so a failure here rolls back.)
+it("an open that fails while clearing the repair marker still repairs at the next open", () => {
   const { store, raw, open } = setup();
   const projects = seed(store, 6);
   const db = raw();
