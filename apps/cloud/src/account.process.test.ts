@@ -127,6 +127,27 @@ it("ace keeps no usable token at rest and sign-out ends the session at once", as
   expect((await request("/v1/account/session", bearer(grant.token))).status).toBe(401);
 });
 
+it("an app's ace-client name, garbled or missing, never changes how its session is served", async () => {
+  const grant = await signedIn();
+  for (const client of [undefined, "desktop/0.0.24-beta.1", "ios/development", "garbled"]) {
+    const session = await request("/v1/account/session", {
+      headers: {
+        Authorization: `Bearer ${grant.token}`,
+        ...(client ? { "ace-client": client } : {}),
+      },
+    });
+    expect(session.status, client).toBe(200);
+    expect(AceAccountSession.parse(await session.json()).account.id, client).toBe("user_a");
+  }
+  const preflight = await request("/v1/account/session", {
+    method: "OPTIONS",
+    headers: { Origin: "app://ace", "Access-Control-Request-Headers": "authorization,ace-client" },
+  });
+  expect(preflight.headers.get("access-control-allow-headers")?.toLowerCase()).toContain(
+    "ace-client",
+  );
+});
+
 it("WorkOS revocation ends an ace session while WorkOS outages leave it retryable", async () => {
   const grant = await signedIn();
   const read = () => request("/v1/account/session", bearer(grant.token));

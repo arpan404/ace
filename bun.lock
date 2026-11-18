@@ -68,6 +68,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/relay": "workspace:*",
         "@ace/secure-channel": "workspace:*",
+        "@ace/service": "workspace:*",
         "@noble/ciphers": "2.0.1",
         "@noble/curves": "2.0.1",
         "@noble/hashes": "2.0.1",
@@ -232,6 +233,7 @@
         "@ace/account-grant": "workspace:*",
         "@ace/marketplace": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/service": "workspace:*",
         "zod": "^4.6.5",
       },
       "devDependencies": {
