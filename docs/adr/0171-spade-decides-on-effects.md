@@ -238,6 +238,12 @@ Spade checked it.`) and the bot looks again, so the gate decides on where it act
   field an operation ignores (a `url` on a tab's `close`) never moves the place; a tool or
   operation missing from the table has none. Closing the whole browser (`browser_settings
 close`) has no place either, so the person decides it.
+- **Checked where input leaves, and a script is the person's.** The place is checked in each
+  backend's transport, for every input command of every session it holds, inside the held
+  command's own async context, so the person's input and other commands are never held to it. A
+  gesture's end whose press moved the page isn't sent. `browser_evaluate` runs any script the page
+  allows, which no check on its calls confines: unrestricted, it always goes to the person; only
+  ace's side-effect-free mode (`mode: read-only`) may be left to the reviewer.
 - **A dialog's answer acts where the dialog is.** ace sends an answer to the tab that raised
   the dialog, whichever tab the call names, so Spade places it in that tab (the one whose
   `pending_dialog` has the call's `dialogId`); a dialog no tab shows asks.
