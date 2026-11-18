@@ -1,0 +1,147 @@
+---
+/*
+ * An inner page's story: a drawing that stays in view while its steps scroll past, one caption
+ * at a time. The drawing goes in the `art` slot and changes with the step the reader is on: the
+ * root carries `data-step` (0, 1, 2…), so the art's own styles can answer it, and fires a
+ * `scrollstory:step` event for a script that wants to act. On a wide screen the steps run down
+ * the left and the drawing holds on the right; on a narrow one the drawing holds at the top.
+ * Without the script every step shows and the drawing stays on its first.
+ */
+interface Props {
+  steps: { title: string; body: string; href?: string }[];
+  /** Names the story for assistive technology. */
+  label: string;
+}
+
+const { steps, label } = Astro.props;
+---
+
+<section class="page story" data-scroll-story data-step="0" aria-label={label}>
+  <ol class="steps">
+    {
+      steps.map((step, index) => (
+        <li class:list={{ on: index === 0 }} data-scroll-step={index}>
+          <span class="ticks" aria-hidden="true">
+            {steps.map((_, at) => (
+              <i class:list={{ on: at === index }} />
+            ))}
+          </span>
+          <h2>{step.title}</h2>
+          <p>
+            {step.body} {step.href && <a href={step.href}>More</a>}
+          </p>
+        </li>
+      ))
+    }
+  </ol>
+  <div class="art" aria-hidden="true">
+    <slot name="art" />
+  </div>
+</section>
+
+<style>
+  .story {
+    display: grid;
+    gap: 0 clamp(32px, 6vw, 88px);
+    margin-top: var(--section);
+  }
+
+  /* The drawing holds under the header while the steps pass. */
+  .art {
+    position: sticky;
+    top: 84px;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    height: min(46svh, 420px);
+    order: -1;
+  }
+
+  .steps li {
+    display: grid;
+    align-content: center;
+    min-height: 62svh;
+    padding-block: 24px;
+    opacity: 0.3;
+    transition: opacity 0.4s var(--ease-out);
+  }
+
+  .steps li.on {
+    opacity: 1;
+  }
+
+  /* Without the script nothing is dimmed and the steps close up. */
+  .story:not([data-live]) .steps li {
+    min-height: 0;
+    opacity: 1;
+  }
+
+  .story:not([data-live]) .art {
+    position: static;
+  }
+
+  @media (min-width: 900px) {
+    .story {
+      grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    }
+
+    .art {
+      top: 96px;
+      height: calc(100svh - 128px);
+      order: 0;
+    }
+
+    .steps li {
+      min-height: 86svh;
+    }
+  }
+
+  .ticks {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 16px;
+  }
+
+  .ticks i {
+    width: 22px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border-strong);
+  }
+
+  .ticks .on {
+    background: var(--foreground);
+  }
+
+  h2 {
+    max-width: 14em;
+    font-size: clamp(28px, 3.6vw, 48px);
+    letter-spacing: -0.045em;
+    line-height: 1.02;
+  }
+
+  p {
+    margin-top: 14px;
+    max-width: 32em;
+    color: var(--muted);
+    font-size: clamp(15px, 1.3vw, 18px);
+    line-height: 1.5;
+  }
+
+  p a {
+    color: var(--foreground);
+    text-underline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .steps li {
+      transition: none;
+    }
+  }
+</style>
+
+<script>
+  import { startScrollStory } from "../../scripts/scroll-story.ts";
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-scroll-story]")) startScrollStory(root);
+</script>
