@@ -34,6 +34,7 @@ import { spikePoster } from "./spike-poster.ts";
 import { spikeMedia, type PhoneMain, type SpikeSocketData } from "./spike-media.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { SpikeAccount } from "./spike-account.ts";
+import { SpikePerfProbe } from "./spike-perf-probe.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
 import { seedWorkLogs } from "./worklog-scenario.ts";
@@ -370,6 +371,8 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
 const lostReceipt = new LostReceipt();
 // The account backend `--spike-account` signs in to, on this same port.
 const spikeAccount = new SpikeAccount(() => Date.now());
+// The app's `--perf-probe` numbers, for the performance UI tests.
+const perfProbe = new SpikePerfProbe();
 const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,
@@ -510,6 +513,8 @@ const server = Bun.serve<SpikeSocketData>({
     if (devicesReply) return devicesReply;
     const readMarkReply = await readMarks.control(request);
     if (readMarkReply) return readMarkReply;
+    const perfProbeReply = await perfProbe.handle(request);
+    if (perfProbeReply) return perfProbeReply;
     if (path === "/health")
       return Response.json({
         head: daemon.head,
