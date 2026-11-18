@@ -4,7 +4,7 @@ import {
   PermissionPolicyIdentity as importPermissionPolicyIdentity,
   AcpIdentity as importAcpIdentity,
 } from "@ace/protocol";
-import { liveAceCall } from "./ace-approvals.ts";
+import { aceCaller, liveAceCall } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
@@ -845,6 +845,11 @@ export class Engine {
     return (
       own ?? (state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.activeRun)
     );
+  }
+  /** The agent making a live call to ace's `tool` with matching arguments (`aceCaller`). */
+  aceCaller(threadId: ThreadId, tool: string, matches: (args: unknown) => boolean) {
+    const state = this.repo.state(threadId);
+    return state ? aceCaller(state, tool, matches) : undefined;
   }
   openHostApproval(
     threadId: ThreadId,

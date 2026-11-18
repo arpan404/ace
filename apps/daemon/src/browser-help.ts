@@ -158,9 +158,21 @@ export class BrowserHelp {
       ...(tab.url ? { url: tab.url.slice(0, 8192) } : {}),
       ...(tab.title ? { title: tab.title.slice(0, 1024) } : {}),
     };
-    const interactionId = engine.openHostApproval(threadId, key, request, [
-      { type: "ace.browser_help", data: { key, tabId: input.tabId } },
-    ]);
+    // The subagent that asked owns the request, so it shows in that agent's lane; the root
+    // when the call can't be told apart.
+    const caller = engine.aceCaller(
+      threadId,
+      "browser_request_help",
+      (args) =>
+        typeof args === "object" && args !== null && "tabId" in args && args.tabId === input.tabId,
+    );
+    const interactionId = engine.openHostApproval(
+      threadId,
+      key,
+      request,
+      [{ type: "ace.browser_help", data: { key, tabId: input.tabId } }],
+      caller,
+    );
     const summary = `${input.message} (tab ${input.tabId}${tab.url ? `, ${tab.url}` : ""})`;
     this.deps.store.atomic((db) =>
       db

@@ -24,6 +24,29 @@ export function liveAceCall(
   return named.length === 1 ? named[0]?.key : undefined;
 }
 
+/**
+ * The agent making a live call to ace's `tool` whose arguments `matches`: its key when exactly
+ * one agent is, so a request the call opens (browser help, say) belongs to the subagent that asked
+ * and shows in its lane. Undefined when none is, or several are and the caller can't be told.
+ */
+export function aceCaller(
+  state: ThreadState,
+  tool: string,
+  matches: (args: unknown) => boolean,
+): string | undefined {
+  const callers = new Set<string>();
+  for (const key of Object.keys(state.indexes.liveTools)) {
+    const item = state.items[key];
+    if (item?.type !== "tool_call") continue;
+    const detail = item.call.detail;
+    if (detail.kind !== "mcp" || detail.server !== "ace" || detail.tool !== tool) continue;
+    if (!matches(detail.arguments)) continue;
+    const agent = state.indexes.agentKeysById[item.agentId];
+    if (agent !== undefined) callers.add(agent);
+  }
+  return callers.size === 1 ? [...callers][0] : undefined;
+}
+
 /** Only daemon catalog entries with validated arguments earn ace action metadata. */
 export function attributeAceAction(
   state: ThreadState,
