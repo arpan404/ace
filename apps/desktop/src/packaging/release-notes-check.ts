@@ -5,7 +5,8 @@
  *
  * The app shows notes as lines with headings hidden (`apps/desktop/src/main/os/release-notes.ts`),
  * so a note holds only `## ` section headings and `- ` bullets: anything else would show as a
- * line of its own.
+ * line of its own. A note is plain text: PR bodies can be edited after merge, so a link, URL or
+ * HTML in the notes could have been planted there, and none is let through.
  */
 
 export interface NotesLimits {
@@ -19,7 +20,7 @@ export interface NotesLimits {
 
 export interface NotesRules {
   kind: "beta" | "stable";
-  /** The PRs merged in the release's range: a New, Improved or Fixed bullet cites one of them. */
+  /** The PRs the notes were written from: every bullet cites only these. */
   prs: ReadonlySet<number>;
   limits: NotesLimits;
   /** Names a note never mentions: other products and AI tools, matched as whole words. */
@@ -35,6 +36,19 @@ function bannedIn(text: string, terms: readonly string[]): string[] {
   return terms.filter((term) =>
     new RegExp(`(^|[^\\p{L}\\p{N}])${escape(term)}($|[^\\p{L}\\p{N}])`, "iu").test(text),
   );
+}
+
+/** A URL with or without a scheme, a Markdown link, an autolink, or an HTML tag or comment. */
+const linkOrHtml = [
+  /[a-z][a-z0-9+.-]*:\/\//i,
+  /\bwww\.[a-z0-9-]/i,
+  /\[[^\]]*\]\([^)]*\)/,
+  /<[a-z!/][^>]*>/i,
+  /\bmailto:/i,
+];
+
+function hasLinkOrHtml(text: string): boolean {
+  return linkOrHtml.some((pattern) => pattern.test(text));
 }
 
 interface Bullet {
@@ -54,6 +68,10 @@ export function notesProblems(notes: string, rules: NotesRules): string[] {
     const heading = /^## (.+)$/.exec(line);
     if (heading) {
       const name = (heading[1] ?? "").trim();
+      if (hasLinkOrHtml(name))
+        problems.push(
+          `Heading "${name.slice(0, 60)}" holds a link, URL or HTML; notes are plain text`,
+        );
       if (!required.includes(name)) problems.push(`Unknown section "${name}" on line ${index + 1}`);
       else if (seen.includes(name)) problems.push(`Section "${name}" appears twice`);
       seen.push(name);
@@ -82,15 +100,15 @@ export function notesProblems(notes: string, rules: NotesRules): string[] {
     const label = `"${bullet.text.slice(0, 60)}"`;
     if (bullet.text.length > limits.bulletChars)
       problems.push(`${label} is ${bullet.text.length} characters; at most ${limits.bulletChars}`);
+    if (hasLinkOrHtml(bullet.text))
+      problems.push(`${label} holds a link, URL or HTML; notes are plain text`);
     const cited = [...bullet.text.matchAll(/#(\d+)\b/g)].map((match) => Number(match[1]));
+    const unknown = cited.filter((number) => !rules.prs.has(number));
     if (cited.length === 0) problems.push(`${label} cites no PR (#<number>)`);
-    else if (bullet.section !== "Known issues") {
-      const unknown = cited.filter((number) => !rules.prs.has(number));
-      if (unknown.length)
-        problems.push(
-          `${label} cites ${unknown.map((n) => `#${n}`).join(", ")}, not in this release`,
-        );
-    }
+    else if (unknown.length)
+      problems.push(
+        `${label} cites ${unknown.map((n) => `#${n}`).join(", ")}, not in this release`,
+      );
   }
   const banned = bannedIn(notes, rules.bannedTerms);
   if (banned.length) problems.push(`Mentions ${banned.join(", ")}`);

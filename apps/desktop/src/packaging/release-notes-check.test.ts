@@ -35,12 +35,16 @@ describe("release notes the pipeline accepts", () => {
     expect(notesProblems(notes, rules())).toEqual([]);
   });
 
-  it("requires Known issues on a beta, where a bullet may cite an issue outside the range", () => {
+  it("requires Known issues on a beta, citing a PR in the range like every other bullet", () => {
     expect(notesProblems(stable, rules({ kind: "beta" }))).toEqual([
       "Missing sections: Known issues",
     ]);
-    const beta = `${stable}\n## Known issues\n\n- **Sign-in can loop once.** Restart to fix it. (#90)\n`;
-    expect(notesProblems(beta, rules({ kind: "beta" }))).toEqual([]);
+    const known = (pr: number) =>
+      `${stable}\n## Known issues\n\n- **Sign-in can loop once.** Restart to fix it. (#${pr})\n`;
+    expect(notesProblems(known(101), rules({ kind: "beta" }))).toEqual([]);
+    expect(notesProblems(known(90), rules({ kind: "beta" }))).toEqual([
+      expect.stringMatching(/cites #90, not in this release$/),
+    ]);
   });
 });
 
@@ -77,6 +81,20 @@ describe("release notes the pipeline refuses", () => {
     expect(notesProblems(`${stable}\n---\n`, rules())).toHaveLength(1);
     expect(notesProblems(`- Early (#101)\n${stable}`, rules())).toEqual([
       "Line 1 comes before the first section",
+    ]);
+  });
+
+  it.each([
+    ["a bare URL", "See https://example.com/update for more."],
+    ["a URL without a scheme", "Download it from www.example.com today."],
+    ["a Markdown link", "Read [the guide](/docs/guide) first."],
+    ["an autolink", "Mail <help@example.com> for help."],
+    ["HTML", "Now <b>faster</b> than before."],
+    ["an HTML comment", "Faster. <!-- hidden -->"],
+  ])("refuses %s, which a PR body could have planted", (_kind, text) => {
+    const notes = stable.replace("Results appear as you type.", text);
+    expect(notesProblems(notes, rules())).toEqual([
+      expect.stringMatching(/holds a link, URL or HTML; notes are plain text$/),
     ]);
   });
 

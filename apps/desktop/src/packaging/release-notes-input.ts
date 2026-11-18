@@ -6,12 +6,16 @@ import type { NotesLimits } from "./release-notes-check.ts";
 /**
  * What the release-notes agent is given (ADR 0188), as pure decisions: the config in
  * `release/notes.json`, the range of the release (the previous published release up to this
- * tag), the PRs merged in it, the prompt, and the read-only command that runs the agent on the
- * machine's own logged-in CLI (ADR 0002).
+ * tag), the PRs merged in it and how much of each the agent may read, the prompt, and the
+ * command that runs Claude with no tools on the machine's own logged-in CLI (ADR 0002).
  */
 
 export const NotesConfig = z.object({
-  provider: z.enum(["claude", "codex"]),
+  /**
+   * Only Claude: it runs with no tools at all. An agent that can read files or run commands,
+   * even sandboxed read-only, could be talked by a PR body into reading the runner's secrets.
+   */
+  provider: z.literal("claude"),
   model: z.string().min(1),
   effort: z.enum(["low", "medium", "high", "xhigh"]).default("medium"),
   /** The prompt, relative to the repository root, with `{{…}}` placeholders. */
@@ -25,13 +29,53 @@ export const NotesConfig = z.object({
 });
 export type NotesConfig = z.infer<typeof NotesConfig>;
 
+/** A PR as `gh pr view --json number,title,body,labels,author,mergedAt,baseRefName` gives it. */
 export const PullRequest = z.object({
   number: z.number().int().positive(),
   title: z.string(),
   body: z.string().nullish(),
   labels: z.array(z.looseObject({ name: z.string() })).default([]),
+  author: z.looseObject({ login: z.string() }).nullish(),
+  mergedAt: z.string().nullish(),
+  baseRefName: z.string().nullish(),
 });
 export type PullRequest = z.infer<typeof PullRequest>;
+
+/** What the agent is shown of one PR. */
+export interface PromptPullRequest {
+  number: number;
+  title: string;
+  /** Only for an author who can write to the repository. */
+  body?: string;
+  labels: { name: string }[];
+}
+
+const writers = new Set(["admin", "maintain", "write"]);
+
+/**
+ * The PRs the agent reads: only those merged into main, and only the title of one whose author
+ * can't write to the repository (`permissions`: login to the collaborator permission GitHub
+ * reports; an unknown login can't). Bodies and labels stay editable after merge, so only people
+ * already trusted with the code get to put text in front of the agent.
+ */
+export function promptPullRequests(
+  prs: readonly PullRequest[],
+  permissions: ReadonlyMap<string, string>,
+): PromptPullRequest[] {
+  return prs
+    .filter((pr) => Boolean(pr.mergedAt) && pr.baseRefName === "main")
+    .map((pr) => {
+      const login = pr.author?.login;
+      const trusted = login !== undefined && writers.has(permissions.get(login) ?? "none");
+      if (!trusted) return { number: pr.number, title: pr.title, labels: [] };
+      return {
+        number: pr.number,
+        title: pr.title,
+        body: pr.body ?? "",
+        labels: pr.labels.map((label) => ({ name: label.name })),
+      };
+    });
+}
 
 /** A published release's tag as an orderable version: `v1.2.3` or a beta's `1.2.3-beta.N`. */
 function versionOf(tag: string): string | undefined {
@@ -76,7 +120,7 @@ export function prNumbersFromLog(subjects: readonly string[]): number[] {
 
 const bodyLimit = 3000;
 
-function describePr(pr: PullRequest): string {
+function describePr(pr: PromptPullRequest): string {
   const labels = pr.labels.map((label) => label.name).join(", ");
   const body = (pr.body ?? "").trim();
   const clipped = body.length > bodyLimit ? `${body.slice(0, bodyLimit)}\n[…]` : body;
@@ -90,7 +134,7 @@ export function notesPrompt(input: {
   template: string;
   title: string;
   kind: "beta" | "stable";
-  prs: readonly PullRequest[];
+  prs: readonly PromptPullRequest[];
   limits: NotesLimits;
   /** Problems the previous attempt's notes had, for the one retry. */
   problems?: readonly string[];
@@ -114,43 +158,26 @@ export function notesPrompt(input: {
 }
 
 /**
- * The provider CLI, run non-interactively with no way to change anything: Claude with no tools
- * and no MCP servers, Codex in its read-only sandbox. The prompt goes on stdin and the notes come
- * back on stdout.
+ * Claude, run non-interactively with no way to act: no tools, no MCP servers, plan mode. The
+ * prompt goes on stdin and the notes come back on stdout.
  */
 export function notesAgentCommand(config: NotesConfig): { command: string; args: string[] } {
-  if (config.provider === "claude")
-    return {
-      command: "claude",
-      args: [
-        "--print",
-        "--model",
-        config.model,
-        "--effort",
-        config.effort,
-        "--tools",
-        "",
-        "--strict-mcp-config",
-        "--permission-mode",
-        "plan",
-        "--no-session-persistence",
-        "--output-format",
-        "text",
-      ],
-    };
   return {
-    command: "codex",
+    command: "claude",
     args: [
-      "exec",
-      "--sandbox",
-      "read-only",
-      "--ephemeral",
-      "--skip-git-repo-check",
+      "--print",
       "--model",
       config.model,
-      "--config",
-      `model_reasoning_effort="${config.effort}"`,
-      "-",
+      "--effort",
+      config.effort,
+      "--tools",
+      "",
+      "--strict-mcp-config",
+      "--permission-mode",
+      "plan",
+      "--no-session-persistence",
+      "--output-format",
+      "text",
     ],
   };
 }

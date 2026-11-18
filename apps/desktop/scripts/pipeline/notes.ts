@@ -14,20 +14,34 @@ import {
   notesFromReply,
   notesPrompt,
   previousReleaseTag,
+  promptPullRequests,
   prNumbersFromLog,
   PullRequest,
 } from "../../src/packaging/release-notes-input.ts";
+import { releaseRepository } from "../../src/packaging/release-plan.ts";
 import { repo } from "../common.ts";
-import { gh, releaseState, run, say, step, summary, tagArgument, tagCommit } from "./github.ts";
+import {
+  attempt,
+  gh,
+  releaseState,
+  run,
+  say,
+  step,
+  summary,
+  tagArgument,
+  tagCommit,
+} from "./github.ts";
 
 /**
  * Writes the release's notes with an agent and puts them on the draft (ADR 0188), on omarchy:
  *
  *   node apps/desktop/scripts/pipeline/notes.ts <tag> <title>
  *
- * Gathers the PRs merged since the previous published release, asks the agent configured in
- * `release/notes.json` for notes (read-only, through this machine's own logged-in CLI), checks
- * them, and retries once with the problems found. Notes already on the draft that pass the same
+ * Gathers the PRs merged into main since the previous published release (a PR's body and
+ * labels only when its author can write to the repository, else its title), asks Claude as
+ * configured in `release/notes.json` for notes (no tools, an empty folder, an environment
+ * without the job's tokens, through this machine's own logged-in CLI), checks them, and retries
+ * once with the problems found. Notes already on the draft that pass the same
  * checks are kept, so a rerun doesn't write them again. Fails when the second try fails too.
  */
 const agentTimeoutMs = 15 * 60 * 1000;
@@ -50,12 +64,33 @@ step(async () => {
   const head = tagCommit(tag);
   const range = base ? `${base}..${head}` : head;
   const subjects = run("git", ["log", "--first-parent", "--format=%s", range]).split("\n");
-  const prs = prNumbersFromLog(subjects).map((number) =>
+  const merged = prNumbersFromLog(subjects).map((number) =>
     PullRequest.parse(
-      JSON.parse(gh(["pr", "view", String(number), "--json", "number,title,body,labels"])),
+      JSON.parse(
+        gh([
+          "pr",
+          "view",
+          String(number),
+          "--json",
+          "number,title,body,labels,author,mergedAt,baseRefName",
+        ]),
+      ),
     ),
   );
-  say(`${prs.length} PRs since ${base ?? "the first commit"}`);
+  const permissions = new Map<string, string>();
+  for (const login of new Set(merged.flatMap((pr) => (pr.author ? [pr.author.login] : [])))) {
+    const permission = attempt("gh", [
+      "api",
+      `repos/${releaseRepository}/collaborators/${login}/permission`,
+      "--jq",
+      ".permission",
+    ]);
+    // Not a collaborator (GitHub answers 404) reads as no permission.
+    permissions.set(login, permission.ok ? permission.out : "none");
+  }
+  const prs = promptPullRequests(merged, permissions);
+  const trusted = prs.filter((pr) => pr.body !== undefined).length;
+  say(`${prs.length} PRs since ${base ?? "the first commit"}, ${trusted} with their bodies`);
   const rules: NotesRules = {
     kind: parseBetaTag(tag) ? "beta" : "stable",
     prs: new Set(prs.map((pr) => pr.number)),
