@@ -21,7 +21,7 @@ struct ConnectAppSection: View {
             if let addresses {
                 ForEach(addresses.rows) { row in address(row) }
                 enroll(addresses.enroll)
-            } else if problem == nil {
+            } else if problem == nil, model.connection == "ready" {
                 SkeletonRows(count: 2, label: "Reading this machine's addresses").listRowInsets(EdgeInsets())
             }
             ServiceProblem(message: problem)
