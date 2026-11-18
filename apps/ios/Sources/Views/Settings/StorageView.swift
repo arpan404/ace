@@ -15,6 +15,9 @@ struct StorageView: View {
     @State private var compaction: StorageCompactionReply?
     @State private var busy = false
     @State private var actionProblem: String?
+    /// Why the last preview of every settled worktree failed: shown in Worktrees, beside its
+    /// button, which can be there while usage (and so the actions group) couldn't be read.
+    @State private var worktreeProblem: String?
     @State private var removals = 0
     @State private var measuring = false
     @State private var readRevision = 0
@@ -34,14 +37,16 @@ struct StorageView: View {
                 ProblemRow("Can’t reach this machine.", detail: "Sizes are from the last read. Cleanup needs it online.",
                            id: "storage.offline") { model.retry(); Task { await refresh() } }
             }
+            // A cleanup that failed while the actions group is hidden (usage unread) still says why.
+            if !showsActions, let actionProblem { ProblemRow(actionProblem, id: "storage.action.problem") }
             Group {
                 // With nothing read and a problem above, an empty Usage header would only add noise.
                 if page?.usage != nil || (page?.usageProblem == nil && problem == nil) { usage }
-                if model.canOperate, page?.usage != nil { actions }
+                if showsActions { actions }
                 if let plan { planSection(plan).transition(.opacity) }
                 if let settings = page?.settings {
                     Group {
-                        StorageWorktreeSection(settings: settings, busy: busy, save: save) { preview(worktrees: true) }
+                        StorageWorktreeSection(settings: settings, busy: busy, previewProblem: worktreeProblem, save: save) { preview(worktrees: true) }
                         StorageWindowSection(settings: settings, save: save)
                         StorageKindsSection(settings: settings, save: save)
                     }
@@ -172,15 +177,19 @@ struct StorageView: View {
             if !Task.isCancelled, revision == readRevision { problem = error.localizedDescription }
         }
     }
-    private func run(_ work: @escaping @MainActor () async throws -> Void) {
-        busy = true; actionProblem = nil
+    private var showsActions: Bool { model.canOperate && page?.usage != nil }
+    /// Runs one action; a failure shows beside the button that started it.
+    private func run(worktrees: Bool = false, _ work: @escaping @MainActor () async throws -> Void) {
+        busy = true; actionProblem = nil; worktreeProblem = nil
         Task {
             defer { busy = false }
-            do { try await work() } catch is CancellationError {} catch { actionProblem = error.localizedDescription }
+            do { try await work() } catch is CancellationError {} catch {
+                if worktrees { worktreeProblem = error.localizedDescription } else { actionProblem = error.localizedDescription }
+            }
         }
     }
     private func preview(worktrees: Bool) {
-        run {
+        run(worktrees: worktrees) {
             let reply = try await model.service(["type": "host.storage.preview", "worktrees": worktrees, "forceItems": Array(forced)], as: StoragePlanReply.self, timeout: .seconds(70))
             forced = []
             worktreePreview = worktrees

@@ -8,6 +8,8 @@ typealias StorageSave = @MainActor ([String: Any]) async throws -> Void
 struct StorageWorktreeSection: View {
     let settings: StoragePage.Settings
     let busy: Bool
+    /// Why the last Delete all settled worktrees preview failed.
+    var previewProblem: String? = nil
     let save: StorageSave
     let previewAll: () -> Void
     @State private var problem: String?
@@ -30,7 +32,7 @@ struct StorageWorktreeSection: View {
             Button("Delete all settled worktrees", role: .destructive, action: previewAll)
                 .buttonStyle(.rowAction)
                 .disabled(busy).accessibilityIdentifier("storage.worktrees.deleteAll")
-            ServiceProblem(message: problem)
+            ServiceProblem(message: problem ?? previewProblem)
         } header: { InsetHeader("Worktrees") } footer: {
             Text("Automatic deletion only removes clean worktrees merged into origin/main. Back up commits everything not in .gitignore, .env included, and pushes it to origin.")
         }
