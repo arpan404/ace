@@ -110,13 +110,15 @@ released months ago keep calling both Workers. So **a migration only adds**:
 `bun run check:migrations` (part of `bun run check`, and of every deploy) refuses statements
 that break an older version:
 
-| Rule                       | Refuses                                                   |
-| -------------------------- | --------------------------------------------------------- |
-| `drop-table`               | `DROP TABLE`                                              |
-| `drop-view`                | `DROP VIEW`                                               |
-| `drop-column`              | `ALTER TABLE … DROP [COLUMN]`                             |
-| `rename`                   | `ALTER TABLE … RENAME [TO / COLUMN]`                      |
-| `not-null-without-default` | `ALTER TABLE … ADD [COLUMN] … NOT NULL` without `DEFAULT` |
+| Rule                       | Refuses                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| `drop-table`               | `DROP TABLE`                                                       |
+| `drop-view`                | `DROP VIEW`                                                        |
+| `drop-column`              | `ALTER TABLE … DROP [COLUMN]`                                      |
+| `rename`                   | `ALTER TABLE … RENAME [TO / COLUMN]`                               |
+| `not-null-without-default` | `ALTER TABLE … ADD [COLUMN] … NOT NULL` without `DEFAULT`          |
+| `delete-without-where`     | `DELETE FROM …` without a top-level `WHERE` (also after `WITH …`)  |
+| `update-without-where`     | `UPDATE … SET …` without a top-level `WHERE` (also after `WITH …`) |
 
 A contract migration opts out explicitly, in its own file, one line per rule, with a reason of at
 least 20 characters:
@@ -126,7 +128,9 @@ least 20 characters:
 ALTER TABLE sessions DROP COLUMN legacy_token;
 ```
 
-An opt-out that allows nothing in its file is itself an error, so stale markers don't pile up.
+Only a real `--` line comment counts as a marker: the same text inside a string or a `/* */`
+comment is ignored. A `DELETE` or `UPDATE` inside a `CREATE TRIGGER` body is not checked, since
+it runs per row later. An opt-out that allows nothing in its file is itself an error, so stale markers don't pile up.
 D1 migrations are never rolled back by a Worker rollback. To undo a contract, use D1 Time Travel
 (`bunx wrangler d1 time-travel restore <database> --timestamp <before> --env production`), which
 also loses every write since.

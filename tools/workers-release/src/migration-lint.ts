@@ -2,10 +2,13 @@
  * The migration lint for ace cloud's and the market's D1 databases (docs/release/workers.md).
  * A release applies its migrations before its Worker goes live, the old Worker keeps serving
  * until then, and app builds already out in the world keep calling it for months. So a migration
- * may only add: a statement that removes or renames something the running code reads, or adds a
- * column old code can't insert into, is refused unless the file says, with a reason, why it is
- * safe. Pure: SQL text in, problems out.
+ * may only add: a statement that removes or renames something the running code reads, adds a
+ * column old code can't insert into, or deletes or rewrites a whole table is refused unless the
+ * file says, with a reason, why it is safe. It reads SQLite tokens (sql-tokens.ts), so quoted
+ * names, strings and comments can't hide or fake a statement. Pure: SQL text in, problems out.
  */
+
+import { isWord, statements, tokenize, type Token } from "./sql-tokens.ts";
 
 export const migrationRules = [
   "drop-table",
@@ -13,6 +16,8 @@ export const migrationRules = [
   "drop-column",
   "rename",
   "not-null-without-default",
+  "delete-without-where",
+  "update-without-where",
 ] as const;
 export type MigrationRule = (typeof migrationRules)[number];
 
@@ -30,93 +35,84 @@ const explanations: Record<MigrationRule, string> = {
   rename: "renames a table or column out from under the running Worker",
   "not-null-without-default":
     "adds a NOT NULL column without a DEFAULT, so an older Worker's inserts fail",
+  "delete-without-where": "deletes every row of a table the running Worker reads",
+  "update-without-where": "rewrites every row of a table the running Worker reads",
 };
 
 /** The shortest reason an opt-out may give. */
 export const minimumReasonLength = 20;
 
 /**
- * `-- migration-lint allow <rule>: <reason>` on a line of its own. One marker per rule; it allows
+ * `-- migration-lint allow <rule>: <reason>`, a real line comment (not text inside a string or a
+ * block comment). One marker per rule; it allows
  * every statement in the file that breaks that rule.
  */
-const marker = /^\s*--\s*migration-lint\s+allow\s+([a-z-]+)\s*:?\s*(.*)$/;
+const marker = /^--\s*migration-lint\s+allow\s+([a-z-]+)\s*:?\s*(.*)$/;
 
 function isRule(value: string): value is MigrationRule {
   return (migrationRules as readonly string[]).includes(value);
 }
 
-/** The text as spaces, its newlines kept. */
-const blank = (text: string) => text.replace(/[^\n]/g, " ");
+const nameKinds: ReadonlySet<Token["kind"]> = new Set(["word", "quoted", "string"]);
 
-/**
- * The SQL with comments blanked and string literals emptied, each character kept in place (so
- * offsets still map to lines) and newlines kept.
- */
-function blankCommentsAndStrings(sql: string): string {
-  let out = "";
-  let index = 0;
-  while (index < sql.length) {
-    const rest = sql.slice(index);
-    if (rest.startsWith("--")) {
-      const end = sql.indexOf("\n", index);
-      const stop = end === -1 ? sql.length : end;
-      out += blank(sql.slice(index, stop));
-      index = stop;
-    } else if (rest.startsWith("/*")) {
-      const end = sql.indexOf("*/", index + 2);
-      const stop = end === -1 ? sql.length : end + 2;
-      out += blank(sql.slice(index, stop));
-      index = stop;
-    } else if (sql[index] === "'") {
-      let stop = index + 1;
-      while (stop < sql.length) {
-        if (sql[stop] === "'" && sql[stop + 1] === "'") stop += 2;
-        else if (sql[stop] === "'") break;
-        else stop += 1;
-      }
-      out += `'${blank(sql.slice(index + 1, stop))}'`;
-      index = stop + 1;
-    } else {
-      out += sql[index];
-      index += 1;
-    }
+/** The index just past a name, schema-qualified or not, starting at `at`; -1 if none is there. */
+function afterName(tokens: readonly Token[], at: number): number {
+  if (!nameKinds.has(tokens[at]?.kind ?? "other")) return -1;
+  const dot = tokens[at + 1];
+  if (dot?.kind === "other" && dot.text === "." && nameKinds.has(tokens[at + 2]?.kind ?? "other"))
+    return at + 3;
+  return at + 1;
+}
+
+/** Each token's index paired with its parenthesis depth, from `from`. */
+function* atDepth(tokens: readonly Token[], from: number): Generator<[number, number]> {
+  let depth = 0;
+  for (let index = from; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token?.kind === "other" && token.text === ")") depth -= 1;
+    yield [index, depth];
+    if (token?.kind === "other" && token.text === "(") depth += 1;
   }
-  return out;
 }
 
-interface Statement {
-  line: number;
-  text: string;
-}
+const verbs = new Set(["DELETE", "UPDATE", "INSERT", "REPLACE", "SELECT", "VALUES"]);
 
-function statements(sql: string): Statement[] {
-  const cleaned = blankCommentsAndStrings(sql);
-  const found: Statement[] = [];
-  let start = 0;
-  for (const piece of cleaned.split(";")) {
-    const lead = piece.length - piece.trimStart().length;
-    const text = piece.trim().replace(/\s+/g, " ").toUpperCase();
-    if (text) found.push({ line: cleaned.slice(0, start + lead).split("\n").length, text });
-    start += piece.length + 1;
+/** Where the statement's own verb is, past any `WITH …` common table expressions. */
+function mainVerb(tokens: readonly Token[]): number {
+  if (!isWord(tokens[0], "WITH")) return 0;
+  for (const [index, depth] of atDepth(tokens, 1)) {
+    const token = tokens[index];
+    if (depth === 0 && token?.kind === "word" && verbs.has(token.text)) return index;
   }
-  return found;
+  return -1;
 }
 
-const table = String.raw`(?:IF EXISTS )?(?:"[^"]+"|\[[^\]]+\]|\x60[^\x60]+\x60|[\w.]+)`;
-const patterns: [MigrationRule, RegExp][] = [
-  ["drop-table", new RegExp(String.raw`^DROP TABLE\b`)],
-  ["drop-view", new RegExp(String.raw`^DROP VIEW\b`)],
-  ["drop-column", new RegExp(String.raw`^ALTER TABLE ${table} DROP\b`)],
-  ["rename", new RegExp(String.raw`^ALTER TABLE ${table} RENAME\b`)],
-];
-const addColumn = new RegExp(String.raw`^ALTER TABLE ${table} ADD\b`);
+function alterRules(tokens: readonly Token[]): MigrationRule[] {
+  const at = afterName(tokens, 2);
+  const action = tokens[at];
+  if (isWord(action, "DROP")) return ["drop-column"];
+  if (isWord(action, "RENAME")) return ["rename"];
+  if (!isWord(action, "ADD")) return [];
+  const column = tokens.slice(at + 1);
+  const notNull = column.some((token, i) => isWord(token, "NOT") && isWord(column[i + 1], "NULL"));
+  const defaulted = column.some((token) => isWord(token, "DEFAULT"));
+  return notNull && !defaulted ? ["not-null-without-default"] : [];
+}
 
-/** Which rules one normalized statement breaks. */
-function brokenRules(text: string): MigrationRule[] {
-  const broken = patterns.filter(([, pattern]) => pattern.test(text)).map(([rule]) => rule);
-  if (addColumn.test(text) && /\bNOT NULL\b/.test(text) && !/\bDEFAULT\b/.test(text))
-    broken.push("not-null-without-default");
-  return broken;
+/** Which rules one statement breaks. */
+function brokenRules(tokens: readonly Token[]): MigrationRule[] {
+  const [first, second] = tokens;
+  if (isWord(first, "DROP") && isWord(second, "TABLE")) return ["drop-table"];
+  if (isWord(first, "DROP") && isWord(second, "VIEW")) return ["drop-view"];
+  if (isWord(first, "ALTER") && isWord(second, "TABLE")) return alterRules(tokens);
+  // A trigger's DELETE or UPDATE runs per row later, not over the table now.
+  if (isWord(first, "CREATE")) return [];
+  const verb = mainVerb(tokens);
+  const isDelete = isWord(tokens[verb], "DELETE");
+  if (!isDelete && !isWord(tokens[verb], "UPDATE")) return [];
+  for (const [index, depth] of atDepth(tokens, verb + 1))
+    if (depth === 0 && isWord(tokens[index], "WHERE")) return [];
+  return [isDelete ? "delete-without-where" : "update-without-where"];
 }
 
 interface OptOut {
@@ -124,13 +120,13 @@ interface OptOut {
   reason: string;
 }
 
-function optOuts(file: string, sql: string, problems: MigrationProblem[]) {
+function optOuts(file: string, comments: readonly Token[], problems: MigrationProblem[]) {
   const allowed = new Map<MigrationRule, OptOut>();
-  sql.split("\n").forEach((text, index) => {
-    const match = marker.exec(text);
-    if (!match) return;
+  for (const comment of comments) {
+    const match = marker.exec(comment.text);
+    if (!match) continue;
     const [, rule = "", reason = ""] = match;
-    const line = index + 1;
+    const line = comment.line;
     if (!isRule(rule)) {
       problems.push({
         file,
@@ -148,17 +144,19 @@ function optOuts(file: string, sql: string, problems: MigrationProblem[]) {
     } else {
       allowed.set(rule, { line, reason: reason.trim() });
     }
-  });
+  }
   return allowed;
 }
 
 /** Every problem in one migration file. */
 export function lintMigration(file: string, sql: string): MigrationProblem[] {
   const problems: MigrationProblem[] = [];
-  const allowed = optOuts(file, sql, problems);
+  const tokens = tokenize(sql);
+  const comments = tokens.filter((token) => token.kind === "comment");
+  const allowed = optOuts(file, comments, problems);
   const used = new Set<MigrationRule>();
-  for (const statement of statements(sql)) {
-    for (const rule of brokenRules(statement.text)) {
+  for (const statement of statements(tokens)) {
+    for (const rule of brokenRules(statement.tokens)) {
       if (allowed.has(rule)) {
         used.add(rule);
         continue;

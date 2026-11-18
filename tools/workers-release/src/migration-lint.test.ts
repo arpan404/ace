@@ -29,6 +29,69 @@ describe("migration lint", () => {
     expect(rulesOf(sql)).toEqual([rule]);
   });
 
+  it.each([
+    ["DELETE FROM sessions;", "delete-without-where"],
+    ["delete from main.sessions returning id;", "delete-without-where"],
+    ["UPDATE sessions SET signed_in = NULL;", "update-without-where"],
+    [
+      "UPDATE OR REPLACE sessions SET made = (SELECT 1 FROM x WHERE x.id = 1);",
+      "update-without-where",
+    ],
+    [
+      "WITH old AS (SELECT id FROM sessions WHERE made < 5) DELETE FROM logins;",
+      "delete-without-where",
+    ],
+    ["WITH RECURSIVE n(i) AS (SELECT 1) UPDATE counts SET total = 0;", "update-without-where"],
+  ])("refuses the unqualified %j as %s", (sql, rule) => {
+    expect(rulesOf(sql)).toEqual([rule]);
+  });
+
+  it("passes qualified deletes and updates, and DML that only runs in a trigger", () => {
+    const sql = `
+      DELETE FROM sessions WHERE expires < 100;
+      WITH stale AS (SELECT id FROM logins) DELETE FROM logins WHERE id IN (SELECT id FROM stale);
+      UPDATE sessions SET signed_in = 0 WHERE signed_in IS NULL;
+      INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO UPDATE SET id = excluded.id;
+      CREATE TRIGGER publishers_reserve AFTER INSERT ON publishers
+      BEGIN
+        DELETE FROM handle_reservations;
+        UPDATE publishers SET revision = revision + 1;
+      END;
+    `;
+    expect(rulesOf(sql)).toEqual([]);
+  });
+
+  it.each([
+    ['ALTER TABLE sessions ADD COLUMN "default" TEXT NOT NULL;'],
+    ["ALTER TABLE sessions ADD COLUMN [default] TEXT NOT NULL;"],
+    ["ALTER TABLE sessions ADD COLUMN `default` TEXT NOT NULL;"],
+  ])("isn't fooled by a column named default: %j", (sql) => {
+    expect(rulesOf(sql)).toEqual(["not-null-without-default"]);
+  });
+
+  it.each([
+    ["ALTER TABLE 'sessions' RENAME TO old;", "rename"],
+    ["ALTER TABLE [sessions] DROP COLUMN made;", "drop-column"],
+    ["ALTER TABLE `sessions` RENAME COLUMN a TO b;", "rename"],
+    ['ALTER TABLE "my ""odd"" table" DROP made;', "drop-column"],
+    ["ALTER TABLE main.'sessions' RENAME TO old;", "rename"],
+  ])("sees every quoting of a table name: %j", (sql, rule) => {
+    expect(rulesOf(sql)).toEqual([rule]);
+  });
+
+  it("ignores an opt-out written inside a string literal or a block comment", () => {
+    const sql = [
+      "INSERT INTO notes (body) VALUES ('",
+      "-- migration-lint allow drop-table: this text is data inside a string literal",
+      "');",
+      "/*",
+      "-- migration-lint allow drop-table: this text is inside a block comment, not a marker",
+      "*/",
+      "DROP TABLE legacy_tokens;",
+    ].join("\n");
+    expect(rulesOf(sql)).toEqual(["drop-table"]);
+  });
+
   it("refuses each destructive statement in a table rebuild, at its own line", () => {
     const sql = [
       "CREATE TABLE sessions_new (id TEXT PRIMARY KEY);",
