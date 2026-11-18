@@ -22,7 +22,8 @@ function scrollToEnd(tree: HTMLElement) {
   });
 }
 
-test("a big folder pages with Show more, and the last entry follows", async () => {
+/** Files with a folder of 505 entries open in the panel, ready to page. */
+async function openBig() {
   const app = harness();
   const folders = folderFixture(app.client, thread);
   app.play(coldStartReplay()).runThrough("turn-2");
@@ -38,13 +39,39 @@ test("a big folder pages with Show more, and the last entry follows", async () =
   const tree = await within(panel).findByRole("tree", { name: "Checkout files" });
   await userEvent.click(await within(tree).findByRole("treeitem", { name: "big" }));
   await within(tree).findByRole("treeitem", { name: "entry-0000.txt" });
+  return { folders, tree };
+}
 
+test("a big folder pages with Show more, and the last entry follows", async () => {
+  const { folders, tree } = await openBig();
   // The first page is 500 entries, so the folder offers the rest at its end.
   scrollToEnd(tree);
   const more = await within(tree).findByRole("treeitem", { name: "Show more" });
   await userEvent.click(more);
   await waitFor(() => expect(folders.count("big")).toBe(2));
   expect(within(tree).queryByRole("treeitem", { name: "Show more" })).toBeNull();
+  scrollToEnd(tree);
+  expect(await within(tree).findByRole("treeitem", { name: "entry-0504.txt" })).toBeTruthy();
+});
+
+test("← from Show more returns to its folder, and a failed page retries with its cursor", async () => {
+  const { folders, tree } = await openBig();
+  scrollToEnd(tree);
+  const more = await within(tree).findByRole("treeitem", { name: "Show more" });
+  more.focus();
+  await userEvent.keyboard("{ArrowLeft}");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(tree).getByRole("treeitem", { name: "big" })),
+  );
+
+  scrollToEnd(tree);
+  folders.failNext("big", "IO_ERROR");
+  await userEvent.click(within(tree).getByRole("treeitem", { name: "Show more" }));
+  const retry = await within(tree).findByRole("button", { name: "Try again" });
+  await userEvent.click(retry);
+  await waitFor(() => expect(folders.count("big")).toBe(3));
+  const requests = folders.requests.filter((request) => request.path === "big");
+  expect(requests.at(-1)?.cursor).toBe("500");
   scrollToEnd(tree);
   expect(await within(tree).findByRole("treeitem", { name: "entry-0504.txt" })).toBeTruthy();
 });

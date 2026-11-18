@@ -44,11 +44,16 @@ export function fileManagement(client: ClientApi, threadId: string) {
   };
   return {
     /** One folder of the checkout, a page at a time; `cursor` is the last page's next one. */
-    async listFolder(path: string, cursor: string | undefined, signal?: AbortSignal) {
+    async listFolder(
+      path: string,
+      cursor: string | undefined,
+      limit: number,
+      signal?: AbortSignal,
+    ) {
       return decode(
         FolderPage,
         await request(
-          { op: "list.folder", path, limit: 500, ...(cursor === undefined ? {} : { cursor }) },
+          { op: "list.folder", path, limit, ...(cursor === undefined ? {} : { cursor }) },
           signal,
         ),
       );
