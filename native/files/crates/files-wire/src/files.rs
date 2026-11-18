@@ -178,7 +178,7 @@ pub struct Summary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hit {
-    /// Root-relative path of a file.
+    /// Root-relative path: a file, or a folder ending in `/`.
     pub path: String,
     /// Higher is a better match.
     pub score: u32,
@@ -192,9 +192,9 @@ pub struct Hit {
 pub struct IndexResult {
     /// The best matches, in rank order.
     pub hits: Vec<Hit>,
-    /// How many files the index holds.
+    /// How many paths the index holds, folders included.
     pub total: u64,
-    /// True when the index stopped at its file cap and misses paths.
+    /// True when the index stopped at its cap and misses paths.
     pub truncated: bool,
     /// True when the index finished building and answers every query.
     pub ready: bool,

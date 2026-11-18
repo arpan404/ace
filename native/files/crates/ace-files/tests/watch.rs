@@ -120,8 +120,9 @@ fn a_burst_of_twenty_thousand_files_ends_up_in_quick_open() {
                 .any(|hit| hit.path.ends_with("final_burst_marker.txt"))
         {
             assert_eq!(
-                burst.total, BURST as u64,
-                "every burst file is in the index exactly once"
+                burst.total,
+                (BURST + 1 + BURST.div_ceil(SET)) as u64,
+                "every burst file is in the index exactly once, beside the burst's own folders"
             );
             return;
         }

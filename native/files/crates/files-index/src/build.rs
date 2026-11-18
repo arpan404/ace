@@ -64,7 +64,7 @@ pub(crate) fn build_folder(
     let Ok(start) = root.resolve(folder) else {
         return finish(options, cancel, filters, Collected::empty());
     };
-    let collected = walk::run(Walk {
+    let mut collected = walk::run(Walk {
         root,
         filters: &filters,
         max_files: options.max_files,
@@ -73,6 +73,11 @@ pub(crate) fn build_folder(
         recheck: true,
         progress: None,
     })?;
+    // A rebuild of one folder replaces its subtree, and the walk starts at its inside: the folder
+    // itself is still a quick-open candidate, so it joins the replacement.
+    if !collected.cancelled {
+        collected.paths.push(format!("{folder}/"));
+    }
     finish(options, cancel, filters, collected)
 }
 

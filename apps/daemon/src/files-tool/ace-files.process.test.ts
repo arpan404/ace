@@ -109,6 +109,19 @@ describe.skipIf(!binary)("ace-files behind the daemon's tool", () => {
     expect((await tool.quickOpen(checkout, "README", 20)).paths).toContain("README.md");
   });
 
+  it("@ offers a folder with its slash and a bare @ suggests shallow paths", async () => {
+    await until(async () => (await tool.quickOpen(checkout, "main", 20)).ready);
+    const typed = await tool.quickOpen(checkout, "src", 20);
+    expect(typed.paths).toContain("src/");
+    expect(typed.paths).toContain("src/main.ts");
+
+    const bare = await tool.quickOpen(checkout, "", 20);
+    expect(bare.paths.length).toBeGreaterThan(0);
+    expect(bare.paths).toContain("src/");
+    // Nothing typed is the same list every time.
+    expect((await tool.quickOpen(checkout, "", 20)).paths).toEqual(bare.paths);
+  });
+
   it("answers the quick-open shapes the panel sends", async () => {
     await tool.listFolder(checkout, "");
     // The Rust index ranks like VS Code's quick open; the paths a person expects are the

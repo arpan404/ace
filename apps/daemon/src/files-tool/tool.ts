@@ -304,8 +304,9 @@ export class FilesTool {
   }
 
   /**
-   * Quick-open paths from the checkout's index. `ready: false` means the index is still building
-   * and the client keeps its loading state; there is no TypeScript index to fall back to.
+   * Quick-open paths from the checkout's index, files and folders together; a folder's path ends
+   * in `/`. `ready: false` means the index is still building and the client keeps its loading
+   * state; there is no TypeScript index to fall back to. No query is the shallowest paths.
    */
   async quickOpen(
     path: string,

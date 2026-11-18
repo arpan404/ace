@@ -86,7 +86,8 @@ fn parent_gitignore_inside_the_repo_applies() {
 fn skips_dot_git() {
     let (_dir, root) = checkout(&[".git/config", "src/.git/HEAD", "src/main.rs"]);
     let index = build_index(&root, &IndexOptions::default());
-    assert_eq!(index.len(), 1);
+    // `src/` is an entry of its own now; nothing under either git store is.
+    assert_eq!(index.len(), 2);
     assert!(index.search("config", 5).is_empty());
     assert!(index.search("head", 5).is_empty());
     assert_eq!(paths(&index.search("mainrs", 5)), ["src/main.rs"]);
@@ -126,7 +127,7 @@ fn indexes_symlinks_to_files_inside_the_root() {
     .expect("outside link");
 
     let index = build_index(&root, &IndexOptions::default());
-    assert_eq!(index.len(), 2, "the folder link is not followed");
+    assert_eq!(index.len(), 3, "the folder link is not followed");
     assert_eq!(paths(&index.search("link.rs", 5)), ["link.rs"]);
     assert!(index.search("escape.rs", 5).is_empty());
     assert!(index.search("secret.rs", 5).is_empty());
@@ -149,7 +150,7 @@ fn stops_at_max_files_and_reports_truncated() {
     assert!(!index.is_empty());
 
     let uncapped = build_index(&root, &IndexOptions::default());
-    assert_eq!(uncapped.len(), 40);
+    assert_eq!(uncapped.len(), 41);
     assert!(!uncapped.truncated());
 }
 

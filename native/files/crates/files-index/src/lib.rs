@@ -2,8 +2,9 @@
 
 //! The quick-open path index for one checkout.
 //!
-//! A build walks the checkout once, in parallel, with git's ignore rules, and stores every file
-//! path in a single byte arena. A search matches a query against every path with the same fuzzy
+//! A build walks the checkout once, in parallel, with git's ignore rules, and stores every path
+//! in a single byte arena: files, and folders with a trailing `/` so `@` can offer them. A search
+//! matches a query against every path with the same fuzzy
 //! matcher quick open uses, ranks the matches (file-name matches first, contiguous runs next,
 //! shorter paths for ties), and keeps only the best `limit` through a bounded heap per parallel
 //! batch.
@@ -229,19 +230,21 @@ impl PathIndex {
         })
     }
 
-    /// Search for `query`, best first. An empty or all-whitespace query returns nothing. Case is
-    /// ignored, whitespace separates terms, every term must appear in order though not adjacently,
-    /// and positions are byte offsets at character boundaries.
+    /// Search for `query`, best first. An empty or all-whitespace query returns the shallowest
+    /// paths, then by path, so bare `@` opens on the checkout's top-level files and folders. Case
+    /// is ignored, whitespace separates terms, every term must appear in order though not
+    /// adjacently, and positions are byte offsets at character boundaries. A folder is stored and
+    /// returned with a trailing `/`.
     pub fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
         query::search(&self.arena, query, limit)
     }
 
-    /// Files currently indexed.
+    /// Paths currently indexed, folders included.
     pub fn len(&self) -> usize {
         self.arena.live_len()
     }
 
-    /// Whether the checkout has no indexable files.
+    /// Whether the checkout has no indexable paths.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
