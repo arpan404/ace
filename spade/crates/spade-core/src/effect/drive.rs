@@ -152,6 +152,19 @@ pub fn site(url: &str) -> Option<Target> {
     Some(Target::Site { host, path })
 }
 
+/// The browser tools whose answers ace words itself, page address first. Never `browser_evaluate`
+/// (its answer is whatever the page's script returns) or a history or log.
+const REPORTS_PAGE: &[&str] = &[
+    "browser_open",
+    "browser_act",
+    "browser_tabs",
+    "browser_snapshot",
+    "browser_find",
+];
+
+/// The `screen_*` tools whose answers start with the app ace opened.
+const REPORTS_APP: &[&str] = &["screen_state", "screen_act"];
+
 /// The page ace last reported for `tab` (or for any tab, when the call names none): a browser
 /// tool's `"url"` (with its `"tabId"`), or a snapshot's `Page: <url> [tab=<id>]` line.
 fn last_page(events: &[Event], tab: Option<&str>) -> Option<String> {
@@ -161,7 +174,7 @@ fn last_page(events: &[Event], tab: Option<&str>) -> Option<String> {
             content,
             is_error: false,
             ..
-        }) if name.starts_with("browser_") => reported_page(content, tab),
+        }) if REPORTS_PAGE.contains(&name.as_str()) => reported_page(content, tab),
         _ => None,
     })
 }
@@ -200,7 +213,7 @@ fn resolved(given: &str, events: &[Event]) -> Option<Resolved> {
         else {
             return None;
         };
-        if !name.starts_with("screen_") {
+        if !REPORTS_APP.contains(&name.as_str()) {
             return None;
         }
         let named = called_app(events, call_id)?;

@@ -198,6 +198,17 @@ fn a_step_names_its_app_or_page_or_the_session_says_which_page_is_open() {
         target("browser_act", &json!({"ref": "e1", "tabId": "t9"}), &events),
         Target::Unknown
     );
+    // A script's answer is the page's words, not ace's: it never says where the tab is.
+    let mut evaluated = events.to_vec();
+    evaluated.push(finished(
+        "c",
+        "browser_evaluate",
+        r#"{"url":"https://harmless.example/"}"#,
+    ));
+    assert_eq!(
+        target("browser_act", &json!({"ref": "e1"}), &evaluated).shown(),
+        Some("mail.google.com")
+    );
 }
 
 #[test]
