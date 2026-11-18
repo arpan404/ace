@@ -35,19 +35,16 @@ export interface EditorDocumentState {
   replaceText(text: string): void;
   /** Replaces the selections and ends the current typing run. */
   select(next: readonly Selection[]): void;
-  /**
-   * Takes the edits applied since the last call, one batch each. A batch's spans are in the
-   * line coordinates that edit produced, so a caller applies them in order.
-   */
-  takeChanges(): readonly EditBatch[];
   /** Tries the Wasm load again after a failure. */
   retry(): void;
 }
 
-/** One applied edit's changed lines, with the document's line count after it. */
+/** One applied edit's changed lines, with the document's line count and version after it. */
 export interface EditBatch {
   spans: readonly LineEdit[];
   lines: number;
+  /** The document's version once the spans were applied. */
+  version: number;
 }
 
 export function useEditorDocument(options: {
@@ -57,6 +54,12 @@ export function useEditorDocument(options: {
   original?: string | undefined;
   /** Called after each applied edit, with no text: ask `doc.text()` only when needed. */
   onEdit?: (() => void) | undefined;
+  /**
+   * Called with one batch of spans for every applied edit, synchronously, before React renders
+   * the document that edit produced: a layout that reads text must hear about the edit while
+   * its own rows still describe the text before it.
+   */
+  onApplied?: ((batch: EditBatch) => void) | undefined;
   /** The last text, read once as the document goes away (a draft keeps what was typed). */
   onTextDispose?: ((text: string) => void) | undefined;
   /** Read-only editors drop every edit, including the browser's beforeinput paths. */
@@ -79,14 +82,15 @@ export function useEditorDocument(options: {
   const [marks, setMarks] = useState<ReadonlyMap<number, LineMark>>();
   const onEdit = useRef(options.onEdit);
   const onTextDispose = useRef(options.onTextDispose);
+  const onApplied = useRef(options.onApplied);
   const commitTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const changed = useRef<EditBatch[]>([]);
   const commitAfter = options.commitAfter ?? 1_000;
 
   useEffect(() => {
     onEdit.current = options.onEdit;
     onTextDispose.current = options.onTextDispose;
-  }, [options.onEdit, options.onTextDispose]);
+    onApplied.current = options.onApplied;
+  }, [options.onEdit, options.onTextDispose, options.onApplied]);
 
   useEffect(() => {
     let live = true;
@@ -153,7 +157,12 @@ export function useEditorDocument(options: {
           highlighter?.edit(span.firstLine, span.removedLines, inserted);
         }
       onEdit.current?.();
-      changed.current.push({ spans: applied.spans, lines: doc.lenLines() });
+      // Before React redraws: a layout that measures the new text must already know the edit.
+      onApplied.current?.({
+        spans: applied.spans,
+        lines: doc.lenLines(),
+        version: applied.version,
+      });
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
@@ -208,12 +217,6 @@ export function useEditorDocument(options: {
     [doc, commit],
   );
 
-  const takeChanges = useCallback((): readonly EditBatch[] => {
-    const batches = changed.current;
-    changed.current = [];
-    return batches;
-  }, []);
-
   useEffect(() => {
     if (!doc || !original) return;
     let cancelled = false;
@@ -252,7 +255,6 @@ export function useEditorDocument(options: {
     edit,
     replaceText,
     select,
-    takeChanges,
     retry: () => {
       setFailed(false);
       setAttempt((value) => value + 1);

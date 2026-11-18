@@ -14,7 +14,7 @@ import type { Token } from "./highlighter.ts";
 import { CaretLayers } from "./layers.tsx";
 import { EditorLine, sliceTokens } from "./line.tsx";
 import { usePointerSelection } from "./pointer.ts";
-import { useEditorDocument } from "./use-editor.ts";
+import { useEditorDocument, type EditBatch } from "./use-editor.ts";
 import { selectedLineSpan } from "./cursor.ts";
 import { useEditorInput } from "./use-editor-input.ts";
 import { useCellWidth, useEditorWidth, useMirrorLine } from "./use-editor-metrics.ts";
@@ -42,11 +42,14 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   "use no memo";
   const readOnly = props.readOnly ?? false;
   const wrap = props.wrap ?? false;
+  /** The wrap index hears each edit as the document applies it, before React renders it. */
+  const appliedRef = useRef<((batch: EditBatch) => void) | undefined>(undefined);
   const state = useEditorDocument({
     text: props.text,
     path: props.path,
     original: props.marks ? undefined : props.text,
     editable: !readOnly,
+    onApplied: (batch) => appliedRef.current?.(batch),
     ...(props.onEdit ? { onEdit: props.onEdit } : {}),
     ...(props.onTextDispose ? { onTextDispose: props.onTextDispose } : {}),
     ...(props.commitAfter === undefined ? {} : { commitAfter: props.commitAfter }),
@@ -79,8 +82,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     doc,
     wrap,
     columns,
-    version: state.version,
-    takeChanges: state.takeChanges,
+    appliedRef,
     visible,
     anchor,
   });

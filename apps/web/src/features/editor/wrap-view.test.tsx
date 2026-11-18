@@ -5,6 +5,7 @@ import { beforeEach, expect, test } from "vitest";
 import { CodeEditor } from "./editor.tsx";
 import { fallbackCharWidth, gutterWidth } from "./geometry.ts";
 import type { CodeEditorProps, EditorHandle } from "./types.ts";
+import { wrapLine } from "./wrap.ts";
 
 /*
  * Word wrap as the Files tab draws it: rows in the virtual list, the gutter on a line's first
@@ -370,6 +371,27 @@ test("a width change re-wraps the whole file in the background, not only the lin
     timeout: 10_000,
   });
   expect(document.querySelectorAll("[data-row]").length).toBeLessThan(200);
+});
+
+test("an edit above the view keeps every line where its own rows put it", async () => {
+  // Every other line fills three visual rows: one line inserted above the rest moves the row
+  // counts of every line below it, so a count measured for the wrong line shows as a gap.
+  const lines = Array.from({ length: 300 }, (_, at) => "x".repeat(at % 2 ? 100 : 300));
+  const { ref } = await openView({ text: lines.join("\n"), wrap: true });
+  await waitFor(() => expect(rowTexts()[0]).toHaveLength(columns));
+
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() => expect(rowTexts()[0]).toBe(""));
+
+  const after = ["", ...lines];
+  const top = (line: number) =>
+    after.slice(0, line).reduce((rows, text) => rows + wrapLine(text, columns).length, 0);
+  for (let line = 0; line < 6; line++) {
+    expect(document.querySelector<HTMLElement>(`[data-line="${line}"]`)?.style.top).toBe(
+      `${top(line) * 22}px`,
+    );
+  }
 });
 
 test("a 50,000-line file with wrap mounts only the rows near the view", async () => {
