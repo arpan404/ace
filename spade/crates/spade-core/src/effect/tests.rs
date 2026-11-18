@@ -886,3 +886,83 @@ fn every_kind_of_device_place_is_the_persons_alone() {
         assert_eq!(place.grant(), None, "{place:?}");
     }
 }
+
+/// The route of a screen step on `app` (by name or id), as the engine would find it: ace lists
+/// the app for the name, the person allowed the tool always and allowed the app for the bot.
+fn screen_route(tool: &str, arguments: serde_json::Value, listed: &str) -> Route {
+    let step = drive::read(tool, &arguments, Some(listed));
+    let call = Call {
+        always: true,
+        rule: Decision::Run,
+        drive: Drive {
+            target: step
+                .place
+                .as_ref()
+                .map(drive::Place::shown)
+                .map_err(|why| *why),
+            sensitive: step.sensitive,
+            granted: true,
+            bound: true,
+        },
+        ..call(tool, Some(Effect::Drive))
+    };
+    route(call)
+}
+
+#[test]
+fn an_app_that_shows_another_device_asks_on_every_screen_path_despite_always_allow_and_a_grant() {
+    let viewers = [
+        ("Simulator", "com.apple.iphonesimulator"),
+        ("Xcode", "com.apple.dt.Xcode"),
+        ("qemu-system-aarch64", "qemu-system-aarch64"),
+        ("Android Emulator", "com.google.android.emulator"),
+        ("scrcpy", "scrcpy"),
+        ("iPhone Mirroring", "com.apple.ScreenContinuity"),
+        ("QuickTime Player", "com.apple.QuickTimePlayerX"),
+        ("Vysor", "com.koushikdutta.vysor"),
+        ("Genymotion", "com.genymobile.genymotion"),
+        ("Duet", "com.kairos.duet"),
+        ("Screen Sharing", "com.apple.ScreenSharing"),
+        ("VNC Viewer", "com.realvnc.vncviewer"),
+        ("Windows App", "com.microsoft.rdc.macos"),
+        ("UTM", "com.utmapp.UTM"),
+        ("Parallels Desktop", "com.parallels.desktop.console"),
+        ("VMware Fusion", "com.vmware.fusion"),
+        ("VirtualBox", "org.virtualbox.app.VirtualBox"),
+        ("Remmina", "org.remmina.Remmina"),
+        ("AnyDesk", "com.philandro.anydesk"),
+        ("TeamViewer", "com.teamviewer.TeamViewer"),
+    ];
+    for (name, id) in viewers {
+        let listed = format!("Running:\n{name} ({id}), frontmost");
+        let paths = [
+            (
+                "screen_act",
+                json!({"app": id, "actions": [{"type": "click", "id": 3}]}),
+            ),
+            (
+                "screen_act",
+                json!({"app": name, "actions": [{"type": "type", "text": "hi"}]}),
+            ),
+            ("screen_state", json!({"app": name})),
+            // Another machine's screen tools, routed there.
+            (
+                "screen_act",
+                json!({"app": name, "machine": "mini", "actions": []}),
+            ),
+            // The older screen toolkit opens it by its id.
+            ("screen_open_app", json!({"bundleId": id})),
+        ];
+        for (tool, arguments) in paths {
+            let route = screen_route(tool, arguments.clone(), &listed);
+            asked_about_driving(&route);
+        }
+        // It can't be allowed for a bot, and a grant stored for it covers nothing.
+        assert!(drive::grantable_app(id).is_err(), "{name}");
+        let grant = crate::grant::Scope::DriveApp { app: id.to_owned() };
+        assert!(
+            !crate::grant::covers(&grant, &crate::grant::Action::DriveApp { app: id }),
+            "{name}"
+        );
+    }
+}

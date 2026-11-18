@@ -12,6 +12,10 @@ pub(super) const SETTINGS: &str =
 pub(super) const SIGN_IN: &str = "a sign-in or account page, where it can enter or change sign-ins";
 pub(super) const SOCIAL: &str = "a social site, where it can post in your name";
 pub(super) const BROWSER: &str = "a web browser, where Spade can't see which site it acts in";
+/// An app whose window is another device's or computer's screen: input there acts on that
+/// device, where Spade can't see what it acts in.
+pub const SHOWS_DEVICE: &str =
+    "an app that shows another device or computer, where every step is yours";
 
 /// A sensitive app: the word that finds it in a name or id, its full names, and why.
 pub struct App {
@@ -90,6 +94,100 @@ pub const APPS: &[App] = &[
     app("vivaldi", &["Vivaldi"], BROWSER),
     app("arc", &["Arc"], BROWSER),
     app("browser", &["Tor Browser"], BROWSER),
+    // Simulators, emulators and device mirrors: their window is a phone's or tablet's screen.
+    app(
+        "simulator",
+        &["Simulator", "com.apple.iphonesimulator"],
+        SHOWS_DEVICE,
+    ),
+    // Its Devices window drives a connected device; Spade binds an app, not one of its windows.
+    app("xcode", &["Xcode", "com.apple.dt.Xcode"], SHOWS_DEVICE),
+    app(
+        "emulator",
+        &["Android Emulator", "com.google.android.emulator"],
+        SHOWS_DEVICE,
+    ),
+    app(
+        "qemu",
+        &["qemu-system-x86_64", "qemu-system-aarch64"],
+        SHOWS_DEVICE,
+    ),
+    app("scrcpy", &["scrcpy"], SHOWS_DEVICE),
+    app("mirroring", &["iPhone Mirroring"], SHOWS_DEVICE),
+    app(
+        "screencontinuity",
+        &["com.apple.ScreenContinuity"],
+        SHOWS_DEVICE,
+    ),
+    // Its screen recording mirrors a connected iPhone; Spade can't tell that window apart.
+    app(
+        "quicktime",
+        &["QuickTime Player", "com.apple.QuickTimePlayerX"],
+        SHOWS_DEVICE,
+    ),
+    app("vysor", &["Vysor"], SHOWS_DEVICE),
+    app(
+        "genymotion",
+        &["Genymotion", "com.genymobile.genymotion"],
+        SHOWS_DEVICE,
+    ),
+    app("sidecar", &["Sidecar"], SHOWS_DEVICE),
+    app(
+        "universalcontrol",
+        &["com.apple.universalcontrol"],
+        SHOWS_DEVICE,
+    ),
+    app("duet", &["Duet Display", "Duet"], SHOWS_DEVICE),
+    app("luna display", &["Luna Display"], SHOWS_DEVICE),
+    // Remote desktops and virtual machines: their window is another computer's screen.
+    app("screensharing", &["com.apple.ScreenSharing"], SHOWS_DEVICE),
+    app("screen sharing", &["Screen Sharing"], SHOWS_DEVICE),
+    app(
+        "remote desktop",
+        &["Microsoft Remote Desktop", "Chrome Remote Desktop"],
+        SHOWS_DEVICE,
+    ),
+    app("rdc", &["com.microsoft.rdc.macos"], SHOWS_DEVICE),
+    app("rdp", &["Remote Desktop (rdp)"], SHOWS_DEVICE),
+    app("xfreerdp", &["xfreerdp"], SHOWS_DEVICE),
+    app("msrdc", &["msrdc.exe"], SHOWS_DEVICE),
+    app("mstsc", &["mstsc.exe"], SHOWS_DEVICE),
+    app("vnc", &["VNC Viewer", "RealVNC Viewer"], SHOWS_DEVICE),
+    app("tigervnc", &["TigerVNC"], SHOWS_DEVICE),
+    app("vncviewer", &["vncviewer"], SHOWS_DEVICE),
+    app("remmina", &["Remmina", "org.remmina.Remmina"], SHOWS_DEVICE),
+    app("krdc", &["KRDC", "org.kde.krdc"], SHOWS_DEVICE),
+    app("anydesk", &["AnyDesk"], SHOWS_DEVICE),
+    app("teamviewer", &["TeamViewer"], SHOWS_DEVICE),
+    app("rustdesk", &["RustDesk"], SHOWS_DEVICE),
+    app("parsec", &["Parsec"], SHOWS_DEVICE),
+    app("jump desktop", &["Jump Desktop"], SHOWS_DEVICE),
+    app("utm", &["UTM", "com.utmapp.UTM"], SHOWS_DEVICE),
+    app(
+        "parallels",
+        &["Parallels Desktop", "com.parallels.desktop.console"],
+        SHOWS_DEVICE,
+    ),
+    app(
+        "vmware",
+        &["VMware Fusion", "com.vmware.fusion"],
+        SHOWS_DEVICE,
+    ),
+    app(
+        "virtualbox",
+        &["VirtualBox", "org.virtualbox.app.VirtualBox"],
+        SHOWS_DEVICE,
+    ),
+    app("vmconnect", &["vmconnect.exe"], SHOWS_DEVICE),
+    app("virt-manager", &["virt-manager"], SHOWS_DEVICE),
+    app("virt-viewer", &["virt-viewer"], SHOWS_DEVICE),
+    app("remote-viewer", &["remote-viewer"], SHOWS_DEVICE),
+    app("boxes", &["GNOME Boxes", "org.gnome.Boxes"], SHOWS_DEVICE),
+    app(
+        "connections",
+        &["GNOME Connections", "org.gnome.Connections"],
+        SHOWS_DEVICE,
+    ),
 ];
 
 /// Why an app, by a name or id, is the person's: a word of the table in it.

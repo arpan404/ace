@@ -182,7 +182,14 @@ fn part_of_a_sensitive_apps_name_is_that_app() {
             "{given} may open a sensitive app"
         );
     }
-    for given in ["TextEdit", "Calculator", "Notes", "Pages", "Figma", "Xcode"] {
+    for given in [
+        "TextEdit",
+        "Calculator",
+        "Notes",
+        "Pages",
+        "Figma",
+        "Keynote",
+    ] {
         assert_eq!(sensitive::app_given(given), None, "{given}");
     }
 }
