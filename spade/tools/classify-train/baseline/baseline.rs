@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! The true `main` baseline (ADR 0172, amendment 6): main's shipped model (`99f56e23`) run with
 //! main's own decision logic, on the same evaluation sets as the shipped weights, so the
 //! before/after comparison is honest. Built in a clean `origin/main` worktree against main's

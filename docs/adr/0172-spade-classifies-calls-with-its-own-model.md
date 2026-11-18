@@ -250,17 +250,17 @@ Measured on `main`'s model and wiring, with the same labeller:
    pages, unnamed calls counted unsafe) alone the threshold would be far lower, since few risky
    calls have a hard form at all (`REPORT.md` gives it), so the floor stays and binds.
 6. **Not mainly the model's capacity.** A small MLP (one hidden layer of 16 ReLU units, the same
-   data, calibration and checks) settles up to 2.3 points more of the low-risk calls in the
-   untouched sets, but settles one tldr-pages call that isn't low-risk where the linear model
-   settles none, at about 1.8× the work and 2 MB of weights, and with 12 units it once settled a
-   risky held-out command. What binds now is which commands have a hard form
+   data, calibration and checks) settles a point or two more of the low-risk calls in the untouched
+   sets, but settles one tldr-pages call that isn't low-risk where the linear model settles none,
+   at about 1.8× the work and 2 MB of weights, and with 12 units it once settled a risky held-out
+   command. What binds now is which commands have a hard form
    (amendment 3), not capacity. The linear model stays; `REPORT.md` reruns the comparison.
 
 ### Decision
 
 1. **Reads under untrusted content.** A plain command (decision 2's conditions, except taint) may
    be settled while untrusted content is in view only as a read: P(read or write_local) over the
-   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.848: above
+   low-risk threshold, P(read) alone over a read threshold of its own (`Header::read`, 0.800: above
    every calibration call that isn't a read and could be settled there, by 0.02, never below 0.8),
    and nothing in it that can reach another machine (`Prediction::network`: a program that can,
    or a URL, host or address argument). A read in the bot's folder that reaches nothing neither
@@ -292,41 +292,44 @@ Measured on `main`'s model and wiring, with the same labeller:
 
 ### Measures, before and after
 
-Every "after" number is for the exact shipped weights (`spade-classify/eec1a717`), calibrated and
-measured as amendments 2 to 5 set out, on sets their fit never touched, with the gate's checks as
-it runs them: a command settles only in its hard form, which now covers reads only (amendment 5).
-`main` is `spade-classify/99f56e23` as wired on `main`, measured with the same labeller on the same
-sets.
+Both columns are measured the same way (ADR 0172, amendment 6): the reference labeller as oracle,
+the same held-out evaluation sets, with fit overlaps removed by folded signature. "after" is the
+shipped weights (`spade-classify/54b8d47a`) with this build's logic; "before" is **main's own
+model** (`spade-classify/99f56e23`) run with **main's own decision logic**, reproduced in a pinned
+`origin/main` worktree by `tools/classify-train/main-baseline.sh` (not by passing the shipped model
+to a main-shaped gate, which the earlier rounds mistakenly did). The realistic sets are external to
+both models (hand-written, public, or real), so both see identical inputs.
 
-| Set                                                           | Low-risk recall   | False low-risk                        | Person precision  | Person recall     |
-| ------------------------------------------------------------- | ----------------- | ------------------------------------- | ----------------- | ----------------- |
-| Fresh, clean                                                  | 0.118 → 0.094     | 0 of 1,920 → **0 of 1,920**           | 0.983 → 0.977     | 0.942 → **0.951** |
-| Fresh, adversarial                                            | 0.032 → 0.031     | 0 of 5,139 → **0 of 5,139**           | 0.973 → 0.970     | 0.842 → **0.880** |
-| Held-out tricks and tools (main: its own 4,849; after: 5,871) | 0.070 → 0.002     | 0 of 3,312 → **0 of 3,751**           | 1.000 → 1.000     | 0.895 → **0.953** |
-| Hand-labelled hard set                                        | 0.449 → 0.263     | 0 of 95 → **0 of 95**                 | 0.979 → **1.000** | 0.920 → **0.960** |
-| tldr-pages, held-out pages                                    | 0.053 → 0.020     | 3 → **0** of 7,000 (risky or unnamed) | 0.201 → **0.280** | 0.189 → **0.494** |
-| Real sessions, distinct commands, model alone                 | 0.024 → **0.027** | 1 → **0** of 2,310 (risky or unnamed) | 0.136 → **0.833** | 0.070 → 0.039     |
-| Hand-labelled connector calls (raise only)                    | –                 | –                                     | 0.900 → 0.889     | 0.857 → 0.762     |
+| Set                                           | Low-risk recall | False low-risk              | Person precision  | Person recall     |
+| --------------------------------------------- | --------------- | --------------------------- | ----------------- | ----------------- |
+| Hand-labelled hard set (175, deduped)         | 0.404 → 0.242   | **0 of 76 → 0 of 76**       | 0.972 → **1.000** | 0.897 → **0.949** |
+| tldr-pages, held-out pages (8,198, deduped)   | 0.042 → 0.016   | **3 of 6,823 → 0 of 6,823** | 0.190 → **0.288** | 0.176 → **0.472** |
+| Real sessions, distinct commands, model alone | 0.024 → 0.027   | **1 of 2,310 → 0 of 2,309** | 0.136 → **0.833** | 0.070 → 0.039     |
+| Hand-labelled connector calls (raise only)    | –               | –                           | 0.900 → 0.889     | 0.857 → 0.762     |
 
-Low-risk recall is lower than `main`'s and than the earlier rounds': only reads with a hard form
-settle now, so builds, installs, every write (`cp`, `mkdir`, `touch`, a redirect), `git status`,
-`git diff`, the script languages and plain `curl` stay with the reviewer. The hard set's drop (0.347
-→ 0.263) is almost all writes. Every measure counts a call the labeller can't name as risky, and
-none of those is settled.
+The headline is the false-low column: **main settled four risky calls as low-risk across the
+held-out sets (three on tldr-pages, one on a real session); the shipped build settles none, on any
+set.** `REPORT.md` shows the same zero on the fresh and held-out-trick adversarial sets (0 of 5,136
+and 0 of 3,706). The cost is recall: only reads with a hard form settle now, so builds, installs,
+every write (`cp`, `mkdir`, `touch`, a redirect), `git status`, `git diff`, the script languages
+and plain `curl` stay with the reviewer. Person precision and recall rise sharply on real sessions
+(0.136 → 0.833, and the raises are right).
 
-End to end, real sessions (shares of 6,708 calls):
+End to end, real sessions (shares of 6,708 calls); "before" is main's model with main's rules and
+gate:
 
 | Replay                                                 | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer  | Decided without the reviewer | False low-risk |
 | ------------------------------------------------------ | --------------------- | --------------------------------------------------- | --------- | ---------------------------- | -------------- |
-| As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 57)                                      | 78.1%     | 21.9%                        | 0              |
-| As recorded, this build                                | **1.7%**              | 0.1% (4 of 4)                                       | **77.3%** | **22.7%**                    | **0**          |
-| Placed in the folder each thread worked in, `main`     | 0.1%                  | 0.8% (1 of 57)                                      | 79.1%     | 20.9%                        | 0              |
-| Placed in the folder each thread worked in, this build | **14.2%**             | 0.1% (5 of 5)                                       | **65.8%** | **34.2%**                    | **0**          |
+| As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 55)                                      | 77.9%     | 22.1%                        | 0              |
+| As recorded, this build                                | **1.8%**              | 0.1% (4 of 55)                                      | **77.2%** | **22.8%**                    | **0**          |
+| Placed in the folder each thread worked in, this build | **14.2%**             | 0.1% (5 of 55)                                      | **65.7%** | **34.3%**                    | **0**          |
 
 A false low-risk here is a settled call the labeller doesn't name as low-risk, or, with untrusted
-content in view, one it doesn't name as a read. Run by the rules (12.0%), asked by the rules (7.8%,
-6.8% placed) and refused (1.1%) are the same in every row. Of the 55 person-only real calls the
-rules sent to review, the classifier raises 4 or 5 (before: 1), and every call it raises is one.
+content in view, one it doesn't name as a read. Of the 55 person-only real calls the rules sent to
+review, the classifier raises 4 (before: 1), and every call it raises is one. Main's rules send
+8.1% to the person against this build's 7.8%: this build also changed the shell parser slightly
+(amendment 4), so the rule layer differs a little, which is why the baseline's shares aren't a
+clean subtraction.
 
 One classification on this Linux machine (`cargo bench -p spade-classify`, features, inference and
 the hard-form check): p50 2.8 µs → 5.3 µs, p99 65 µs → 127 µs. The configuration inspection is a
@@ -346,7 +349,7 @@ fixed environment. The file is 1,310,824 bytes.
   and text the shell parser can't read; only the rules can open that up.
 - Settling fewer commands than the earlier rounds is the deliberate cost of a provable settled
   set: reads with a hard form only.
-- Person recall on real calls is 4 or 5 of 55; raising on the connector set is a little below
+- Person recall on real calls is 4 of 55; raising on the connector set is a little below
   `main`'s.
 - The labeller can't name 67% of tldr-pages' held-out pages and 29% of real commands; every
   measure counts those as risky.
@@ -539,3 +542,36 @@ Tests: `harden.rs` `what_no_override_covers_has_no_form` (writes, redirects, `aw
 and `a_command_settles_only_with_the_form_it_runs_in`; `spade-server`
 `a_settled_command_never_sees_variables_an_earlier_terminal_command_exported` (a real terminal, a
 real exported `GAWK_PERSIST_FILE`/`TAR_OPTIONS`/`LESSOPEN`/`PATH`).
+
+## Amendment 6 (2026-11-18): an honest evaluation
+
+Decided by: the owner, after sub-reviews found the evaluation, not the classifier, overstated the
+case. None of this changes what settles; it changes what the numbers mean.
+
+1. **The `main` baseline is main.** The before/after had passed the shipped model to a
+   main-shaped gate and called it `main`, so it measured the new model twice. The true baseline is
+   main's own model (`99f56e23`) run with main's own decision logic, reproduced in a pinned
+   `origin/main` worktree by `tools/classify-train/main-baseline.sh` (vendored
+   `baseline/baseline.rs`, built against main's crates, using no API this PR added), on the same
+   held-out sets. The shipped build exports its deduped public evaluation sets so both measure
+   identical calls. This reconciled the end-to-end row: main raises **1 of 55** person-only real
+   calls and settles **0.1%**, not the 9 the mislabelled row showed.
+2. **Fit and the held-out sets are disjoint.** Two calls the classifier folds to the same features
+   are the same call to it, so a disguised tool clone or a `pwd` that recurs verbatim in fit is not
+   held out. An evaluation call is kept now only when its folded signature
+   (`classify-train/src/overlap.rs`) is in no fit call; the calibration and test corpus is deduped,
+   and so are the hand-labelled, tldr and real sets. A corpus-wide check fails the build on any
+   remaining overlap. Removed: 1,028 corpus calls, 38 of 213 hand-set, 214 of 8,412 tldr held-out,
+   2 real. The thresholds are chosen on the deduped calibration set, so the shipped weights changed.
+3. **The threshold sweep** labels its columns as probability crossings before the code checks, not
+   settlements. **The MLP comparison** calibrates like the shipped weights (the low-risk and read
+   thresholds on the whole calibration set).
+4. **The labeller parses short options explicitly** (`classify-train/src/label.rs`): an attached
+   value (`sort -oout`), the value-taking options so a value's letters aren't read as flags
+   (`sort -to`), and a short option's output path for the outside-the-folder check.
+5. **Real-session commands are never printed.** The end-to-end replay prints no command text, and
+   command-level dumps are gated to the synthetic sets; real sessions are reported only as
+   aggregates.
+
+Tests: `classify-train` the labeller's short-option cases, the overlap build-failing assert (any
+leftover overlap panics the run); `main-baseline.sh` reproduces the baseline table.
