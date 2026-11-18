@@ -56,13 +56,7 @@ export function AutonomyChoice(props: {
     <>
       <SettingRow
         title={props.title}
-        description={
-          refusal ? (
-            <Refusal>{refusal}</Refusal>
-          ) : (
-            props.value === "full_access" && spadeFullAccessSentence
-          )
-        }
+        description={refusal && <Refusal>{refusal}</Refusal>}
         density="compact"
         inline
       >
@@ -74,6 +68,12 @@ export function AutonomyChoice(props: {
           onValueChange={pick}
         />
       </SettingRow>
+      {/* What still asks, the row's width: too long for the description beside the choice. */}
+      {props.value === "full_access" && !refusal && (
+        <p data-setting-slot="" className="pb-3 text-xs text-muted-foreground">
+          {spadeFullAccessSentence}
+        </p>
+      )}
       <Dialog open={asking} onOpenChange={(open) => !open && setAsking(false)}>
         <DialogContent>
           <DialogHeader>
