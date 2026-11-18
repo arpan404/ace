@@ -110,6 +110,35 @@ fn an_edited_gitignore_walks_again_so_quick_open_follows_it() {
 }
 
 #[test]
+fn a_failed_walk_still_starts_the_walk_a_batch_asked_for() {
+    let checkout = checkout(&[("a.txt", "")]);
+    let mut client = Client::launch(
+        &[
+            ("ACE_FILES_HOLD_INDEX_MS", "600"),
+            ("ACE_FILES_REBUILD_AFTER_MS", "100"),
+            ("ACE_FILES_PANIC_INDEX_ONCE", "1"),
+            ("ACE_FILES_INDEX_EVENTS", "1"),
+        ],
+        true,
+    );
+    client.hello();
+    let root = client.open_root(checkout.path());
+    client.await_index_published(1);
+    let subscription = watch(&mut client, root);
+
+    // The scheduled rebuild is walking and held now, so the change below asks for a walk that
+    // has to follow the running one.
+    std::thread::sleep(Duration::from_millis(250));
+    write_file(checkout.path(), "late.txt", "found me\n");
+    await_reported(&mut client, checkout.path(), subscription, "late.txt");
+
+    // That rebuild then fails on purpose. Its failure says nothing about the walk the batch
+    // asked for, which must still run and publish an index that has the file.
+    client.await_index_published(2);
+    await_hits(&mut client, root, "late", "late.txt", true);
+}
+
+#[test]
 fn refuses_a_quick_open_page_above_a_thousand_hits() {
     let checkout = checkout(&[("a.txt", "")]);
     let mut client = Client::greeted();
