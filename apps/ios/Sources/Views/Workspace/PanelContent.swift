@@ -42,7 +42,7 @@ struct PanelContent: View {
             }
         case .browser:
             NavigationStack {
-                let help = thread.approvals.first { $0.kind == "browser_help" }
+                let help = BrowserHelpPick.help(in: thread.approvals, chosen: thread.chosenHelp)
                 BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
         case .visualization:

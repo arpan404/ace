@@ -22,8 +22,11 @@ struct RequestCard: View {
         case "elicitation":
             FormRequestCard(interaction: request, submission: submission, canAct: model.canOperate) { model.resolve(request, answer: $0) }.id(request.id)
         case "browser_help":
+            // The browser's Done and Skip answer this request, not the first one open.
             BrowserHelpCard(interaction: request, submission: submission, canAct: model.canOperate,
-                            openBrowser: openBrowser) { model.resolve(request, answer: $0) }.id(request.id)
+                            openBrowser: openBrowser.map { open in { model.thread?.chosenHelp = request.id; open() } }) {
+                model.resolve(request, answer: $0)
+            }.id(request.id)
         default:
             ApprovalCard(approval: request, submission: submission, canAct: model.canOperate) { model.approve(request, option: $0) }.id(request.id)
         }

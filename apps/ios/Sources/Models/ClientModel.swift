@@ -21,6 +21,8 @@ import QuartzCore
     var items: [String: ItemModel] = [:]
     var order: [String] = []
     var interactions: [String: ApprovalRow] = [:]
+    /// The browser-help request whose card last opened the browser (`BrowserHelpPick`).
+    var chosenHelp: String?
     var cursor = 0
     var loaded = false
     let screen = ThreadScreenModel()
