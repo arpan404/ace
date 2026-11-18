@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { grantPublicKey } from "@ace/account-grant";
 import { contentHash, hashFiles, readArchive, typeLimits } from "@ace/marketplace";
 import type { MarketDraft, MarketMe } from "@ace/protocol/marketplace";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
@@ -71,10 +72,16 @@ export async function marketWorld(
     else return false;
     return true;
   });
-  const f = await daemonFixture(undefined, options.appKey ? { appKey: options.appKey } : {}, {
-    ACE_MARKET_URL: market.origin,
-    ACE_ACCOUNT_URL: backend.origin,
-  });
+  const f = await daemonFixture(
+    undefined,
+    {
+      ...(options.appKey ? { appKey: options.appKey } : {}),
+      // This build trusts the fake backend's key for the person's standing, as a real one trusts
+      // cloud.acehq.dev's (ADR 0178 §12.8). In code, never through the environment.
+      personGrantKeys: { keys: [grantPublicKey(backend.signingKey)] },
+    },
+    { ACE_MARKET_URL: market.origin, ACE_ACCOUNT_URL: backend.origin },
+  );
   cleanup.push(() => f.daemon.close());
   // The account backend signs grants on the wall clock and the daemon verifies them on its own
   // (ADR 0178 §12.8), so the two agree here, as on a real machine.

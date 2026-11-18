@@ -6,6 +6,7 @@ import { accountBackend } from "./backend.ts";
 import { deviceGrantVerdict } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
 import { MARKET_GRANT_ISSUER, type GrantKeySet } from "@ace/account-grant";
+import { shippedGrantKeys } from "@ace/account-grant/keys";
 import { verifiedSignInFresh } from "../marketplace/fresh-sign-in.ts";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
 import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machine-codes.ts";
@@ -14,7 +15,7 @@ import { readSession, writeSession, type StoredSession } from "./session-file.ts
 export type DeviceAdmission =
   /**
    * `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then.
-   * `person`: the grant also verifies against the account backend this daemon was started with,
+   * `person`: the grant also verifies against a key this build pins (`shippedGrantKeys`),
    * so the device counts as the person (ADR 0178 §12.8). A grant that verifies only against keys
    * from the session's origin, which a host-token holder can set, admits but never counts.
    */
@@ -63,6 +64,11 @@ export function machineAccount(options: {
   delay: (run: () => void, milliseconds: number) => () => void;
   /** Where `ace login` signs in when it names no origin (ACE_ACCOUNT_URL). */
   defaultOrigin?: string | undefined;
+  /**
+   * The grant keys that give the person's standing (ADR 0178 §12.8); `shippedGrantKeys` unless a
+   * test injects its own. Never read from the environment.
+   */
+  personKeys?: GrantKeySet | undefined;
   log?: (error: Error) => void;
 }) {
   const backend = accountBackend({ fetch: options.fetch });
@@ -86,16 +92,10 @@ export function machineAccount(options: {
       return backend.keys(session.origin, request());
     },
   });
-  // The keys a sign-in's freshness is checked with (ADR 0178 §12.8): the account backend this
-  // daemon was started with, never the session's origin, which the host token can set.
-  const trusted = options.defaultOrigin;
-  const trustedKeys = grantKeyCache({
-    now: options.now,
-    fetchKeys: () =>
-      trusted
-        ? backend.keys(trusted, request())
-        : Promise.reject(new Error("No trusted account backend")),
-  });
+  // The keys the person's standing is checked with (ADR 0178 §12.8): the ones this build pins,
+  // never ones fetched from the session's origin (the host token sets it) or from ACE_ACCOUNT_URL
+  // (whoever starts the daemon sets that).
+  const personKeys = options.personKeys ?? shippedGrantKeys;
   const active = () => (session && session.expiresAt > options.now() ? session : undefined);
   const notify = () => {
     for (const listener of listeners) {
@@ -205,7 +205,6 @@ export function machineAccount(options: {
   async function admitWith(
     published: GrantKeySet,
     hello: { grant: string; deviceId: string; machineCode?: string | undefined },
-    trustedKeySet: GrantKeySet | undefined,
   ): Promise<DeviceAdmission> {
     const verdict = deviceGrantVerdict(hello.grant, {
       keys: published,
@@ -216,14 +215,12 @@ export function machineAccount(options: {
     if (!verdict.accepted) return unauthorized();
     const account = verdict.claims.account;
     const expiresAt = verdict.claims.exp;
-    const person =
-      trustedKeySet !== undefined &&
-      deviceGrantVerdict(hello.grant, {
-        keys: trustedKeySet,
-        now: options.now(),
-        account,
-        deviceId: hello.deviceId,
-      }).accepted;
+    const person = deviceGrantVerdict(hello.grant, {
+      keys: personKeys,
+      now: options.now(),
+      account,
+      deviceId: hello.deviceId,
+    }).accepted;
     // One code check at a time, so concurrent wrong codes all count toward the lock.
     const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
       const code = options.codes.current();
@@ -438,21 +435,27 @@ export function machineAccount(options: {
     marketGrant,
     /**
      * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
-     * from a market grant taken for the check, whose signature and issuer verify against the
-     * account backend this daemon was started with (ADR 0178 §12.8). False when signed out,
-     * unreachable, or when the grant doesn't verify: a session a host-token holder handed in,
-     * pointing at a backend of its own, never makes a sign-in fresh.
+     * from a market grant taken for the check (ADR 0178 §12.8): signed by a key this build pins,
+     * a machine grant for this account and `hostId`, its sign-in time within ten minutes of this
+     * daemon's clock now. False when signed out, unreachable, or when the grant doesn't verify:
+     * a backend a host-token holder names, through the session or through ACE_ACCOUNT_URL, never
+     * makes a sign-in fresh.
      */
     async freshSignIn(hostId: string): Promise<boolean> {
+      const account = active()?.account.id;
+      if (account === undefined) return false;
       try {
         const grant = await marketGrant(hostId);
-        if (grant === undefined) return false;
-        const published = await trustedKeys.forGrant(grant);
-        return verifiedSignInFresh(grant, {
-          keys: published,
-          issuer: MARKET_GRANT_ISSUER,
-          now: options.now(),
-        });
+        return (
+          grant !== undefined &&
+          verifiedSignInFresh(grant, {
+            keys: personKeys,
+            issuer: MARKET_GRANT_ISSUER,
+            now: options.now(),
+            account,
+            subject: hostId,
+          })
+        );
       } catch {
         return false;
       }
@@ -471,8 +474,7 @@ export function machineAccount(options: {
       } catch {
         return unauthorized("Couldn't check this device's ace account. Try again.");
       }
-      const trustedKeySet = await trustedKeys.forGrant(hello.grant).catch(() => undefined);
-      return admitWith(published, hello, trustedKeySet);
+      return admitWith(published, hello);
     },
     /**
      * `admitDevice` that never waits on the network (an NK first message, ADR 0155): a grant
@@ -481,9 +483,7 @@ export function machineAccount(options: {
     async admitDeviceCached(hello: { grant: string; deviceId: string }): Promise<DeviceAdmission> {
       if (!active()) return unauthorized();
       const published = keys.cached(hello.grant);
-      return published
-        ? admitWith(published, hello, trustedKeys.cached(hello.grant))
-        : unauthorized();
+      return published ? admitWith(published, hello) : unauthorized();
     },
     /** Whether an admitted account device keeps access: same account, current code passed. */
     stillAdmitted(deviceId: string, account: string): boolean {

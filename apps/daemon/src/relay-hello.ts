@@ -14,7 +14,7 @@ export type RelayAdmission =
       account?: string;
       /** For an account device: when its grant runs out, unless the socket refreshes it. */
       grantExpiresAt?: number;
-      /** For an account device: its grant verified against the trusted backend (§12.8). */
+      /** For an account device: its grant verified against a pinned key (§12.8). */
       person?: boolean;
       refusal?: undefined;
     }
@@ -93,8 +93,8 @@ export async function accountHello(
 
 /**
  * An admitted account device: admin while it stays admitted, never revoked by device id. It
- * counts as the person for §12.7's checks only when its grant verified against the account
- * backend this daemon was started with (`person`, ADR 0178 §12.8). That ADR names the gap left:
+ * counts as the person for §12.7's checks only when its grant verified against a key this build
+ * pins (`person`, ADR 0178 §12.8). That ADR names the gap left:
  * any holder of a real ace session, the one a machine keeps in `ace-account.json` included, can
  * mint a device grant for any device id there.
  */
@@ -120,7 +120,7 @@ export function mainActor(
   admitted: { id: DeviceId; generation?: string | undefined },
   stillAdmitted: (() => boolean) | undefined,
   options: { auth: RemoteAuth; devices: Devices },
-  /** For an account device: its grant verified against the trusted backend (§12.8). */
+  /** For an account device: its grant verified against a pinned key (§12.8). */
   person = false,
 ): SessionActor | undefined {
   if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now(), person);

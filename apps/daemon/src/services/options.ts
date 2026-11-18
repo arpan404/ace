@@ -136,6 +136,11 @@ export type DaemonOptions = {
   preview?: DaemonPreviewOptions;
   /** The desktop app's key for this daemon, read from stdin by `ace start` (ADR 0178 §12.8). */
   appKey?: Uint8Array | undefined;
+  /**
+   * The account grant keys that give the person's standing, for tests with a backend of their
+   * own (ADR 0178 §12.8). `ace start` never sets it: a real daemon trusts `shippedGrantKeys`.
+   */
+  personGrantKeys?: import("@ace/account-grant").GrantKeySet | undefined;
   review?: DaemonReviewOptions;
   history?: DaemonHistoryOptions;
 };

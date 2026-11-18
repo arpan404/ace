@@ -24,6 +24,7 @@ import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
+import { appStandingAllowed } from "./daemon/app-standing.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
 import { healthy, reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
 import { appUpdateReport, UpdateReporter } from "./daemon/update-report.ts";
@@ -218,6 +219,8 @@ function main(target: DaemonTarget, crashDumps: string): void {
     log: logger("supervisor"),
     sinceLaunch: () => performance.now(),
     freezes: beat,
+    // Started so that another process could drive its pages: no key for its daemon (ADR 0178).
+    appStanding: appStandingAllowed((name) => app.commandLine.hasSwitch(name)),
     daemonOutput: operation.wrap("daemon output", (line: string, stream: "stdout" | "stderr") =>
       daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
     ),

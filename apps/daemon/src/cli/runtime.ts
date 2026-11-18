@@ -1,6 +1,7 @@
 import { setPriority } from "node:os";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { readAppKey } from "../app-key-input.ts";
+import { launcherIsApp } from "../app-launcher.ts";
 import { readHistoryInstances } from "../history.ts";
 import { readModelInstances } from "../models.ts";
 import { logPriority, raiseDaemonPriority } from "../process-priority.ts";
@@ -22,8 +23,8 @@ export async function runtimeCommand(args: Args, config: Config) {
     platform: process.platform,
     setPriority: (value) => setPriority(value),
   });
-  // The desktop app's key, when the app started this daemon (ADR 0178 §12.8): read before the
-  // listener opens, so the app's first hello can prove it.
+  // The desktop app's key, when the signed app started this daemon (ADR 0178 §12.8): read before
+  // the listener opens, so the app's first hello can prove it.
   const appKey = await readAppKey(
     process.env,
     () => process.stdin,
@@ -31,6 +32,7 @@ export async function runtimeCommand(args: Args, config: Config) {
       const timer = setTimeout(run, milliseconds);
       return () => clearTimeout(timer);
     },
+    { parent: () => process.ppid, isApp: (pid) => launcherIsApp(pid) },
   );
   // A daemon that cannot start (for example, another one holds the lock) failed; the
   // request itself was valid, so it is not a refusal.

@@ -74,6 +74,11 @@ export interface RuntimeOptions {
   sinceLaunch?: () => number;
   /** The app's one main-thread beat (`diagnostics/main-beat.ts`), read on `Date.now`'s clock. */
   freezes?: FreezeSignal;
+  /**
+   * False when this launch may not give its daemon a key (`app-standing.ts`, ADR 0178 §12.8):
+   * then its page is a host-token socket like any other client.
+   */
+  appStanding?: boolean;
 }
 
 /**
@@ -149,7 +154,9 @@ export class DaemonRuntime {
                   });
                 }
               : undefined,
-          appKey: () => new Uint8Array(randomBytes(32)),
+          ...(options.appStanding === false
+            ? {}
+            : { appKey: () => new Uint8Array(randomBytes(32)) }),
           prepareSpawn: async () => {
             const [path] = await Promise.all([this.path, launchPolicy.ready()]);
             this.resolvedPath = path;

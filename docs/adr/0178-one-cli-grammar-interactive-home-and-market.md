@@ -740,11 +740,12 @@ follow:
 | `ace-agent`, `ace-reviewer` (ace's own agent devices) | Never (`human_answer_required`), except a parent answering its own child's question | Only through the allowlist | Never                          |
 
 - **Fresh sign-in** means this machine's ace account signed in within the last ten minutes (ADR
-  0174 §2), read from a market grant the daemon takes for the check: the gap between its `iat`
-  and its `authAt`, both on the account backend's clock, so this machine's clock can't make a
-  stale sign-in look fresh. Those claims count only when the grant's signature verifies against
-  the keys of the account backend the daemon was started with, never the session's origin
-  (§12.8). The sign-in happens in a browser, which an agent can't do for the
+  0174 §2), read from a market grant the daemon takes for the check. The grant must be signed by
+  an account grant key this build pins (never one the session's origin or the environment names),
+  be a machine grant for this machine's account and host, and carry an `authAt` within ten minutes
+  of the daemon's clock at the check, with a minute's allowance for the backend's clock running
+  ahead (§12.8). Measured then, a grant held after it was taken can't stretch the ten minutes. A
+  same-user process can't move the system clock; a root one is past what this guards. The sign-in happens in a browser, which an agent can't do for the
   person. Refusals are `reauth`, saying to use the app or a paired device, or `ace login` and try
   again within ten minutes. "The app" is the page that proved it is the app's, and "a paired
   device" one paired from a link the person made (§12.8); holding the host token is not enough.
@@ -772,15 +773,20 @@ publish". A credential that isn't the person's still does everything else it did
 
 **The person's credentials:**
 
-- **The app's page on a daemon the app started.** Each time the app spawns `ace start` it makes 32
-  random bytes, sets `ACE_APP_KEY=stdin` and writes the key as one hex line on the daemon's stdin,
-  then closes it (`@ace/service/app-key`). The daemon reads at most 128 bytes within 5 seconds,
-  before it listens, removes the flag from its environment and keeps the key in memory only
-  (`app-key-input.ts`). The supervisor makes the page's proof for its own child only: base64url
-  HMAC-SHA256 of `ace-app/v1\n<port>`, checked against the port the socket reached. It reaches
-  the page with the token in the connection hand-off (`appProof`), and the page sends it in its
-  hello. A crash restart is a new spawn with a new key. The key dies with the daemon process, so
-  there is nothing to revoke.
+- **The app's page on a daemon the signed app started.** Each time the app spawns `ace start` it
+  makes 32 random bytes, sets `ACE_APP_KEY=stdin` and writes the key as one hex line on the
+  daemon's stdin, then closes it (`@ace/service/app-key`). The daemon reads at most 128 bytes
+  within 5 seconds, before it listens, and removes the flag from its environment
+  (`app-key-input.ts`). Any launcher can set that flag, so the key counts only when the daemon's
+  parent, read before the key and confirmed unchanged after the check, is the signed ace app
+  (`app-launcher.ts`). Otherwise the key is ignored, as if none came. The supervisor makes the
+  page's proof for its own child only: base64url HMAC-SHA256 of `ace-app/v1\n<port>`, checked
+  against the port the socket reached. It reaches the page with the token in the connection
+  hand-off (`appProof`), and the page sends it in its hello. A crash restart is a new spawn with a
+  new key. The key lives in memory only and dies with the daemon process, so there is nothing to
+  revoke. An app started with `--remote-debugging-port` or `--remote-debugging-pipe` gives its
+  daemon no key (`app-standing.ts`), because another process could then drive its page. The
+  app's fuses already turn off running it as Node, `NODE_OPTIONS` and the inspector.
 - **A device paired from a link the person made.** A link carries whether its maker was the
   person: the app's page, or a device that is itself the person's. A link made with the host token
   alone (`ace device pair`, `POST /v1/pairings` with the token) makes a device that, like the token,
@@ -788,23 +794,55 @@ publish". A credential that isn't the person's still does everything else it did
   pair itself in two requests and act as the person. Devices paired before this change keep the
   standing they had: the daemon can't tell who made their links. Revoking a device ends its
   sockets, as before (ADR 0115).
-- **An account device** (ADR 0111) whose grant verifies against the account backend this daemon
-  was started with (see below). One admitted only by keys from the session's origin is admitted
-  as before, but isn't the person.
+- **An account device** (ADR 0111) whose grant verifies against the pinned keys (below). One
+  admitted only by keys fetched from the session's origin is admitted as before, but isn't the
+  person.
 
-**A fresh sign-in is read only from claims the trusted backend signed.** Every freshness decision
-goes through `MachineAccount.freshSignIn` (`account-access/machine-account.ts`):
+**How strong the launcher check is, per OS:**
+
+- **macOS.** Apple's `codesign --verify -R=<requirement> <pid>` asks the Security framework to
+  validate the running parent process. The requirement is the app's designated one:
+  `anchor apple generic`, identifier `dev.ace.app`, team `5J88TLUP2J`. The hardened runtime and
+  library validation keep other code out of that process. Strong.
+- **Windows.** The Authenticode signer of the parent's executable must be the pinned publisher,
+  read by `Get-AuthenticodeSignature` with an empty environment. No publisher is pinned yet,
+  because Windows builds ship unsigned, so no launcher counts and the page is the host token
+  alone, as before. Once a certificate exists and its subject is pinned, the check holds as far as
+  Authenticode does.
+- **Linux.** There is no code signature to check. The parent's executable must be named
+  `ace-desktop`, live under `/opt/` or `/usr/`, and it and every directory above it must be owned
+  by root and writable by no one else (the deb installs `/opt/ace/ace-desktop`). The person's
+  processes can't put a binary there or change it. The AppImage and the tarball run from places
+  the person owns, so they don't count. This is weaker than a signature: it trusts whatever root
+  installed.
+- **A development build** accepts any launcher only when its bundler defines
+  `ACE_DEVELOPMENT_TRUST` as true. That is a build-time constant: no environment variable sets it,
+  and source runs and release bundles leave it undefined.
+
+**A fresh sign-in is read only from claims a pinned key signed, for this machine, now.** Every
+freshness decision goes through `MachineAccount.freshSignIn` (`account-access/machine-account.ts`):
 `hostMarketRefusal`, the answer gate, guarded settings, and a server without its market agent. It
-mints a market grant for the check, then verifies the grant's signature, lifetime and issuer
-(`cloud.acehq.dev`) with `verifiedSignInFresh` (`marketplace/fresh-sign-in.ts`). The keys come
-from the account backend the daemon was started with: `ACE_ACCOUNT_URL`, else ace's own. The
-session's origin is never used, because the host token can set it (`PUT /v1/ace-account` takes
-any origin). Before this, the daemon decoded `iat` and `authAt` without checking the signature. A
-host-token holder could hand the daemon a session at a loopback backend of its own that mints
-"signed in just now" grants, and every person-only action passed. An unsigned grant, one signed
-with another key, one from another issuer, an expired one, or a trusted backend that can't be
-reached: none of these is fresh. Account devices follow the same rule, checked by the same pinned
-keys.
+mints a market grant for the check and verifies it with `verifiedSignInFresh`
+(`marketplace/fresh-sign-in.ts`) against the grant keys this build pins (`shippedGrantKeys` in
+`@ace/account-grant/keys`). That list is `k20261102`, cloud.acehq.dev's key as its `/v1/keys`
+published it on 2026-11-18, and a rotation adds the next key a release ahead. The grant must:
+
+- be signed by a pinned key;
+- be unexpired, with the issuer `cloud.acehq.dev`;
+- be a machine grant for this machine's account and this host id;
+- carry a sign-in time no more than ten minutes before the daemon's clock now, and no more than a
+  minute after it (the backend's clock running ahead).
+
+Measuring the age at check time means a grant taken at 9m59s can't be replayed within its
+five-minute life. Neither the session's origin, which the host token sets (`PUT /v1/ace-account`),
+nor `ACE_ACCOUNT_URL`, which whoever starts the daemon sets, chooses the keys. `ACE_ACCOUNT_URL`
+may still point a daemon at another backend for development, but nothing from that backend
+carries the person's standing unless its key is pinned in source. Tests inject keys in code
+(`personGrantKeys`), never through the environment. Account devices count as the person by the
+same pinned keys. Before this, the daemon decoded `iat` and `authAt` without checking the
+signature, then checked them against keys from the session's origin or from `ACE_ACCOUNT_URL`. A
+host-token holder could name a backend of its own and pass. The age also used to be `iat - authAt`,
+which a held grant kept passing.
 
 **Not yet: the app's page on a daemon the app didn't start** (the login service's, `ace start` from
 a terminal, development's `bun run daemon`). The app attaches with no key, so its page is the host
@@ -822,10 +860,11 @@ alongside the `ace-account.json` gap below.
 
 Who now acts as the person without a fresh sign-in:
 
-| Daemon                                   | The app's page | Paired devices                       | Account devices                      | CLI, other host-token clients |
-| ---------------------------------------- | -------------- | ------------------------------------ | ------------------------------------ | ----------------------------- |
-| Started by the app                       | Yes            | Those paired from the person's links | Grants that verify with trusted keys | No                            |
-| Login service, terminal `ace start`, dev | No (not yet)   | Those paired from the person's links | Grants that verify with trusted keys | No                            |
+| Daemon                                      | The app's page                                              | Paired devices                       | Account devices                      | CLI, other host-token clients |
+| ------------------------------------------- | ----------------------------------------------------------- | ------------------------------------ | ------------------------------------ | ----------------------------- |
+| Started by the app                          | macOS: yes. Linux: the deb's /opt install only. Windows: no | Those paired from the person's links | Grants a pinned key signed           | No                            |
+| Login service, terminal `ace start`, dev    | No (not yet)                                                | Those paired from the person's links | Grants a pinned key signed           | No                            |
+| Any, started with ACE_ACCOUNT_URL elsewhere | As above                                                    | Those paired from the person's links | Only if that backend's key is pinned | No                            |
 
 **Open gap: the machine's own ace session.** When the app hands its ace sign-in to the daemon, the
 session is written to `ACE_HOME/ace-account.json` in the clear (mode 0600, readable by anything of
@@ -845,24 +884,29 @@ format the daemons parse strictly, so it is a separate, versioned change.
 - **A process that can read the app's or the daemon's memory** (a debugger, ptrace where the OS
   allows it) gets the spawn key, as it gets everything else. "What this doesn't stop" in §12.7
   holds.
-- **A self-hosted or development backend other than the one the daemon was started with** makes no
-  sign-in fresh, and none of its account devices the person.
+- **A backend whose key isn't pinned** (self-hosted, development, or one named by
+  `ACE_ACCOUNT_URL`) makes no sign-in fresh, and none of its account devices the person.
 
-Tests: `app-standing.process.test.ts` covers four cases against a real daemon:
+Tests: `app-standing.process.test.ts` covers six cases against a real daemon:
 
 - The started-daemon page acts as the person.
 - A device a host-token link paired gets `reauth`; one the person's link paired doesn't.
-- A session the host token points at a backend of its own, minting "signed in just now" grants
-  under its own key, makes nothing fresh.
-- An account device acts as the person by a trusted backend's grant, but not by a forged
-  backend's.
+- A session pointed at a forged backend makes nothing fresh.
+- An account device acts as the person by a pinned key's grant, but not by a forged backend's.
+- A daemon restarted on the same home with `ACE_ACCOUNT_URL` at an attacker's backend gives
+  neither fresh sign-ins nor account devices any standing.
+- A real `ace start` launched by a process that isn't the app ignores the key it wrote.
 
 Unit tests:
 
-- `fresh-sign-in.test.ts`: only a grant the trusted backend signed counts as fresh; unsigned,
-  wrongly signed, rewritten, other-issuer, expired and malformed grants don't.
-- `pairing-codes.process.test.ts`: who made a link reaches its device, across a restart.
-- `app-key.test.ts`, `app-key-input.test.ts`, `supervisor-app-key.test.ts`,
+- `fresh-sign-in.test.ts`: replay of a grant taken at 9m59s, an old sign-in, a clock skew, another
+  account, another machine, a device grant, another key, no signature, another issuer, and a
+  malformed grant.
+- `app-launcher.test.ts`: Linux install paths, owners and modes; the Windows signer, with nothing
+  counting while no publisher is pinned; the test runner as launcher.
+- `app-key-input.test.ts`: a key from another launcher, and a launcher that leaves while checked.
+- `app-standing.test.ts`: the remote-debugging switches.
+- `pairing-codes.process.test.ts`, `app-key.test.ts`, `supervisor-app-key.test.ts`,
   `spawn.process.test.ts`, `app-proof-hello.test.ts`, `remote-credential.test.ts`.
 
 ### 13. ADR 0092 still holds

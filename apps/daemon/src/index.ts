@@ -520,6 +520,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
         return () => clearTimeout(timer);
       },
       defaultOrigin: config.accountOrigin,
+      // In code only, for tests; a real daemon trusts the keys its build pins (ADR 0178 §12.8).
+      ...(options.personGrantKeys ? { personKeys: options.personGrantKeys } : {}),
       log: (error) => log.log("warn", "ace account", logError(error)),
     });
     await account.load();

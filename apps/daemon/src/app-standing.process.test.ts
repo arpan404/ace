@@ -1,8 +1,16 @@
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { grantPublicKey } from "@ace/account-grant";
+import { appKeyLine } from "@ace/service/app-key";
 import { afterEach, expect, test } from "vitest";
 import { z } from "zod";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
+import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { hostConnection } from "./cli/connection.ts";
+import { openCli } from "./cli-test-support.ts";
 import { hostSocket } from "./host-socket-test-support.ts";
 import { marketWorld } from "./market-world-test-support.ts";
 
@@ -134,4 +142,62 @@ test("an account device counts as the person only by a grant from the backend th
     hello: { token: undefined, grant: await deviceGrant(forged, "phone-2") },
   });
   expect(await impostor.market("forged", install)).toMatchObject(reauth);
+});
+
+test("restarting the daemon with ACE_ACCOUNT_URL at the restarter's own backend gives it no standing", async () => {
+  const { f, home, backend, market } = await world();
+  const trusted = { keys: [grantPublicKey(backend.signingKey)] };
+  // A process holding the host token stops the daemon and starts it again on the same home,
+  // naming a backend that publishes its own keys and signs grants as cloud.acehq.dev.
+  await f.daemon.close();
+  const forged = await startFakeAccountBackend(() => Date.now());
+  cleanup.push(() => forged.close());
+  const restarted = await daemonFixture(
+    undefined,
+    { personGrantKeys: trusted },
+    { ACE_MARKET_URL: market.origin, ACE_ACCOUNT_URL: forged.origin },
+    f.h,
+  );
+  cleanup.push(() => restarted.daemon.close());
+  const { origin, token } = hostConnection(home);
+  await accessRequest(origin, "/v1/ace-account", {
+    method: "PUT",
+    token,
+    body: { origin: forged.origin, token: forged.token },
+  });
+  const socket = await hostSocket(home, "ace-cli", cleanup);
+  expect(await socket.market("forged-fresh", install)).toMatchObject(reauth);
+  const impostor = await hostSocket(home, "phone-3", cleanup, {
+    hello: { token: undefined, grant: await deviceGrant(forged, "phone-3") },
+  });
+  expect(await impostor.market("forged-device", install)).toMatchObject(reauth);
+});
+
+test("ace start ignores an app key from a launcher that isn't the signed app", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-app-launcher-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "ace");
+  const emptyHome = join(root, "home");
+  await mkdir(emptyHome);
+  // This test is the launcher: it sets the flag and writes a key, as the app would.
+  const appKey = new Uint8Array(32).fill(9);
+  const { child, exited } = openCli(home, ["start"], {
+    HOME: emptyHome,
+    ACE_PORT: "0",
+    ACE_APP_KEY: "stdin",
+    ACE_LOG_LEVEL: "silent",
+  });
+  cleanup.push(async () => {
+    child.kill("SIGTERM");
+    await exited;
+  });
+  child.stdin.end(appKeyLine(appKey));
+  await expect
+    .poll(() => existsSync(join(home, "daemon-endpoint")), { timeout: 20_000 })
+    .toBe(true);
+  const page = await hostSocket(home, "desktop-page", cleanup, { appKey });
+  // With the key counted, this proof would make the page the person's and the change would run.
+  expect(await page.settings("ask-off", "market.askBeforeAgentPublish", true)).not.toMatchObject({
+    ok: true,
+  });
 });

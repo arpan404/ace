@@ -7,13 +7,7 @@ import {
   signMarketGrant,
 } from "@ace/account-grant";
 import type { MarketOperation } from "@ace/protocol/marketplace";
-import {
-  freshSignInMs,
-  hostMarketRefusal,
-  needsFreshSignIn,
-  signedInRecently,
-  verifiedSignInFresh,
-} from "./fresh-sign-in.ts";
+import { hostMarketRefusal, needsFreshSignIn, verifiedSignInFresh } from "./fresh-sign-in.ts";
 
 const entry = { type: "suit", name: "dusk-harbor" } as const;
 const publish = (
@@ -50,19 +44,6 @@ describe("which market actions need a sign-in from the last ten minutes", () => 
     ["preparing a review", { op: "prepare", source: "market", ...entry }],
   ])("%s doesn't", (_what, operation) => {
     expect(needsFreshSignIn(operation)).toBe(false);
-  });
-});
-
-describe("a sign-in counts as fresh for ten minutes before its grant", () => {
-  it.each([
-    [1_000, true],
-    [0, true],
-    [freshSignInMs, true],
-    [freshSignInMs + 1, false],
-    [-10 * 60_000, false],
-    [undefined, false],
-  ])("signed in %s ms before the grant: %s", (age, fresh) => {
-    expect(signedInRecently(age)).toBe(fresh);
   });
 });
 
@@ -110,56 +91,72 @@ describe("a person-only market action from the host token, with no thread", () =
   });
 });
 
-describe("a sign-in counts as fresh only from a grant the trusted backend signed", () => {
+describe("a sign-in counts as fresh only from a grant this build trusts, for this machine, now", () => {
   const trusted = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
   // A backend a host-token holder runs, publishing a key under the same id.
   const forger = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
-  const now = 1_000_000_000;
-  const trust = { keys: { keys: [grantPublicKey(trusted)] }, issuer: MARKET_GRANT_ISSUER, now };
+  const signedIn = 1_000_000_000;
+  const trust = (now: number) => ({
+    keys: { keys: [grantPublicKey(trusted)] },
+    issuer: MARKET_GRANT_ISSUER,
+    now,
+    account: "user_1",
+    subject: "host-1",
+  });
+  /** A market grant minted `at`, for a sign-in at `signedIn`. */
   const grant = (
-    key: typeof trusted,
-    claims: { authAt?: number; iss?: string; exp?: number } = {},
+    at: number,
+    claims: { key?: typeof trusted; iss?: string; account?: string; subject?: string } = {},
+    kind: "machine" | "device" = "machine",
   ) =>
     signMarketGrant(
       {
-        kind: "machine",
-        account: "user_1",
-        subject: "host",
-        iat: now,
-        exp: claims.exp ?? now + 60_000,
+        kind,
+        account: claims.account ?? "user_1",
+        subject: claims.subject ?? "host-1",
+        iat: at,
+        exp: at + 5 * 60_000,
         iss: claims.iss ?? MARKET_GRANT_ISSUER,
         emailVerified: true,
-        authAt: claims.authAt ?? now - 1_000,
+        authAt: signedIn,
       },
-      key,
+      claims.key ?? trusted,
     );
+  const minute = 60_000;
 
-  it("is fresh for a recent sign-in in a grant the trusted backend signed", () => {
-    expect(verifiedSignInFresh(grant(trusted), trust)).toBe(true);
+  it("is fresh for a grant taken and checked within ten minutes of the sign-in", () => {
+    expect(verifiedSignInFresh(grant(signedIn + minute), trust(signedIn + minute))).toBe(true);
+  });
+
+  it("isn't fresh for a grant taken at 9m59s and replayed 5 minutes later, still unexpired", () => {
+    const taken = signedIn + 9 * minute + 59_000;
+    expect(verifiedSignInFresh(grant(taken), trust(taken))).toBe(true);
+    expect(verifiedSignInFresh(grant(taken), trust(taken + 5 * minute - 1))).toBe(false);
   });
 
   it("isn't fresh for an old sign-in, however well signed", () => {
-    expect(verifiedSignInFresh(grant(trusted, { authAt: now - 11 * 60_000 }), trust)).toBe(false);
+    const later = signedIn + 11 * minute;
+    expect(verifiedSignInFresh(grant(later), trust(later))).toBe(false);
   });
 
+  it("allows the backend's clock a minute ahead of this daemon's, and no more", () => {
+    expect(verifiedSignInFresh(grant(signedIn), trust(signedIn - 59_000))).toBe(true);
+    expect(verifiedSignInFresh(grant(signedIn), trust(signedIn - 2 * minute))).toBe(false);
+  });
+
+  const now = signedIn + minute;
   it.each([
-    ["signed by another backend's key", () => grant(forger)],
+    ["for another account", () => grant(now, { account: "user_2" })],
+    ["for another machine", () => grant(now, { subject: "host-2" })],
+    ["a device's grant rather than this machine's", () => grant(now, {}, "device")],
+    ["signed by a key this build doesn't pin", () => grant(now, { key: forger })],
     [
       "carrying no valid signature",
-      () => `${grant(trusted).split(".")[0]}.${encodeBase64url(new Uint8Array(64))}`,
+      () => `${grant(now).split(".")[0]}.${encodeBase64url(new Uint8Array(64))}`,
     ],
-    [
-      "with its claims rewritten after signing",
-      () => {
-        const [, signature] = grant(trusted, { authAt: now - 11 * 60_000 }).split(".");
-        const body = grant(trusted).split(".")[0];
-        return `${body}.${signature}`;
-      },
-    ],
-    ["from another issuer", () => grant(trusted, { iss: "evil.example" })],
-    ["expired", () => grant(trusted, { exp: now - 1 })],
+    ["from another issuer", () => grant(now, { iss: "evil.example" })],
     ["not a grant at all", () => "not-a-grant"],
-  ])("isn't fresh for a recent-looking sign-in %s", (_what, make) => {
-    expect(verifiedSignInFresh(make(), trust)).toBe(false);
+  ])("isn't fresh for a grant %s", (_what, make) => {
+    expect(verifiedSignInFresh(make(), trust(now))).toBe(false);
   });
 });

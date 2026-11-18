@@ -68,7 +68,7 @@ export class MarketAgent {
 
   /**
    * Whether this machine's ace account signed in within the last ten minutes (ADR 0174 §2),
-   * from a market grant verified against the account backend this daemon was started with
+   * from a market grant verified against the keys this build pins
    * (`MachineAccount.freshSignIn`, ADR 0178 §12.8). False when signed out, unreachable, or
    * when the grant doesn't verify.
    */

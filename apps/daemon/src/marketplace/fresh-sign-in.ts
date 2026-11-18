@@ -44,27 +44,35 @@ export function needsFreshSignIn(operation: MarketOperation): boolean {
   }
 }
 
-/**
- * Whether a sign-in `age` milliseconds before its grant was issued counts as fresh. A small
- * negative age is the backend's own rounding; a large one is a malformed grant.
- */
-export function signedInRecently(age: number | undefined): boolean {
-  return age !== undefined && age <= freshSignInMs && age >= -60_000;
-}
+/** How far the backend's clock may run ahead of this daemon's for a sign-in time. */
+export const signInSkewMs = 60_000;
 
 /**
- * Whether market grant `grant` says the session behind it signed in within ten minutes, read
- * only from claims whose signature verifies against `keys` with `issuer`: the keys and issuer
- * of the account backend this daemon was started with, never ones a caller can name. A grant
- * that doesn't verify (unsigned, signed by another key, expired, another issuer) is not fresh.
+ * Whether market grant `grant` proves this machine's ace account signed in within ten minutes
+ * (ADR 0178 §12.8). Only claims whose signature verifies against `keys` count: the keys this
+ * build pins, never ones a caller or the environment can name. The grant must also be a machine
+ * grant for this machine's account (`account`) and host (`subject`), so a grant minted for
+ * another account or machine, or a device's, proves nothing here. The sign-in's age is measured
+ * on this daemon's clock now (`now - authAt`), so a grant taken near the end of the ten minutes
+ * can't be held for its five-minute life and replayed after them; a sign-in up to
+ * `signInSkewMs` in the future is the backend's clock running ahead.
  */
 export function verifiedSignInFresh(
   grant: string,
-  trust: { readonly keys: GrantKeySet; readonly issuer: string; readonly now: number },
+  trust: {
+    readonly keys: GrantKeySet;
+    readonly issuer: string;
+    readonly now: number;
+    readonly account: string;
+    readonly subject: string;
+  },
 ): boolean {
   try {
     const claims = verifyMarketGrant(grant, trust.keys, trust.now, trust.issuer);
-    return signedInRecently(claims.iat - claims.authAt);
+    if (claims.kind !== "machine") return false;
+    if (claims.account !== trust.account || claims.subject !== trust.subject) return false;
+    const age = trust.now - claims.authAt;
+    return age <= freshSignInMs && age >= -signInSkewMs;
   } catch {
     return false;
   }
