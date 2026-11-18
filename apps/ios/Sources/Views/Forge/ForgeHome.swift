@@ -90,7 +90,7 @@ struct ForgeHome: View {
     var body: some View {
         content
             // The chips pinned under the title, in the navigation bar's own region.
-            .pinnedTopBar(resetOn: "\(session?.hostId ?? "")|\(chosen ?? "")|\(kind)") { chips }
+            .pinnedTopBar(resetOn: shownList) { chips }
             // The system's large title (Pulls, Issues or Inbox), the project under it and the
             // machine and project pickers in its menu.
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
@@ -118,6 +118,13 @@ struct ForgeHome: View {
                     }
                 }
             }
+    }
+
+    /// The list on the page: another machine, project or list, or another Inbox filter (the
+    /// notifications read again from the top), puts the pinned bar's edge away.
+    private var shownList: String {
+        let base = "\(session?.hostId ?? "")|\(chosen ?? "")|\(kind)"
+        return kind == .inbox ? "\(base)|\(notificationsFilter)" : base
     }
 
     private var listKey: String {
