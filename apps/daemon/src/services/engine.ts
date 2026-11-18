@@ -162,6 +162,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   // Provider CLIs, the Cursor SDK and ace's skill folder are read after the engine is up
   // (ADR 0175): a CLI that never answers, or a slow disk, leaves the engine "starting" and
   // commands waiting for their provider instead of failing the daemon's start.
+  const activationBegan = context.now();
   const activation = activateProviders({
     signal: context.signal,
     captureSkillRoots: () => builtinSkillRecovery(config.dataDir),
@@ -436,6 +437,29 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     .catch(reportCleanup);
   const readEngine = engineReadiness(activation, engine.ready());
   context.readiness?.(readEngine);
+  // One line once providers are read and recovery has run: what kept the engine starting.
+  const settledAt = (step: Promise<void>) =>
+    step.then(
+      () => context.now() - activationBegan,
+      () => context.now() - activationBegan,
+    );
+  void Promise.all([settledAt(activation.settled), settledAt(engine.ready())]).then(
+    ([providersMs, recoveryMs]) => {
+      if (context.signal.aborted) return;
+      const state = readEngine();
+      log.log(
+        state.state === "degraded" ? "warn" : "info",
+        "Engine ready",
+        logFields([
+          ["state", state.state],
+          ["providersMs", Math.round(providersMs)],
+          ["recoveryMs", Math.round(recoveryMs)],
+          ...(state.state === "degraded" ? [["error", state.error] as const] : []),
+        ]),
+      );
+    },
+    (error: unknown) => log.log("warn", "Engine readiness line failed", logError(error)),
+  );
   // The reader changes on its own as providers and recovery settle: say so each time.
   for (const step of [activation.settled, engine.ready()])
     void step.then(
