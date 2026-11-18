@@ -54,6 +54,18 @@ fn empty_index() -> IndexResult {
 /// released its root rather than leaking the watcher that points back at it.
 static LIVE_ROOTS: AtomicUsize = AtomicUsize::new(0);
 
+/// Test-only: `ACE_FILES_HOLD_INDEX_MS` keeps a finished walk from being published for that many
+/// milliseconds, so a test can change the tree while the build is still in flight.
+fn hold_publish() {
+    let Some(ms) = std::env::var("ACE_FILES_HOLD_INDEX_MS")
+        .ok()
+        .and_then(|ms| ms.parse::<u64>().ok())
+    else {
+        return;
+    };
+    std::thread::sleep(Duration::from_millis(ms));
+}
+
 /// Every root the daemon has open, by the number `openRoot` handed out.
 #[derive(Default)]
 pub struct Roots {
@@ -73,6 +85,7 @@ impl Roots {
             root,
             lister,
             index: RwLock::new(None),
+            failure: Mutex::new(None),
             build: Arc::new(AtomicBool::new(false)),
             closed: AtomicBool::new(false),
             watcher: Mutex::new(None),
@@ -101,6 +114,8 @@ pub struct RootEntry {
     root: Root,
     lister: Arc<Lister>,
     index: RwLock<Option<PathIndex>>,
+    /// Why the last build failed, kept until a query reports it and a new build clears it.
+    failure: Mutex<Option<String>>,
     build: Arc<AtomicBool>,
     /// Set by `closeRoot` before anything is torn down. A watcher start or a subscription that
     /// races the close sees it and refuses, so a closed root leaves no thread or subscription.
@@ -172,9 +187,16 @@ impl RootEntry {
     }
 
     /// Build the quick-open index in the background, right after the root opens.
+    ///
+    /// The walk runs on a blocking thread and this task waits for it: a build whose worker panics
+    /// must be seen, not silently dropped, or quick open would say "still indexing" forever.
     pub fn start_index(self: &Arc<Self>) {
         let entry = Arc::clone(self);
-        tokio::task::spawn_blocking(move || entry.build_index());
+        tokio::spawn(async move {
+            let inner = Arc::clone(&entry);
+            let built = tokio::task::spawn_blocking(move || inner.build_index()).await;
+            entry.finish_index(crate::dispatch::joined(built));
+        });
     }
 
     /// Stop a build that is still walking, so closing a root does not leave it reading a tree
@@ -184,15 +206,30 @@ impl RootEntry {
     }
 
     /// Walk the checkout into a path index and publish it.
-    fn build_index(&self) {
-        match PathIndex::build(&self.root, &IndexOptions::default(), &self.build) {
-            Ok(index) => {
-                if let Ok(mut slot) = guard::write(&self.index) {
-                    *slot = Some(index);
+    fn build_index(&self) -> Result<(), Error> {
+        if std::env::var_os("ACE_FILES_PANIC_INDEX").is_some() {
+            panic!("test hook: the index build panics");
+        }
+        let index = PathIndex::build(&self.root, &IndexOptions::default(), &self.build)?;
+        hold_publish();
+        if let Ok(mut slot) = guard::write(&self.index) {
+            *slot = Some(index);
+        }
+        Ok(())
+    }
+
+    /// Record what a build did. A build the close stopped says nothing; any other failure, and a
+    /// worker that panicked, is kept so `indexQuery` can answer with it.
+    fn finish_index(&self, built: Result<(), Error>) {
+        match built {
+            Ok(()) => {}
+            Err(error) if error.code() == "ABORTED" => {}
+            Err(error) => {
+                eprintln!("ace-files: index for root {}: {error}", self.id);
+                if let Ok(mut failure) = guard::lock(&self.failure) {
+                    *failure = Some(error.failure().message);
                 }
             }
-            Err(files_index::Error::Aborted) => {}
-            Err(error) => eprintln!("ace-files: index for root {}: {error}", self.id),
         }
     }
 
@@ -231,15 +268,12 @@ impl RootEntry {
     }
 
     /// Answer a quick-open query. Before the build lands there is nothing to search, which the
-    /// daemon shows as an empty list rather than an error.
-    pub fn index_query(&self, query: &str, limit: usize) -> IndexResult {
-        let index = match guard::read(&self.index) {
-            Ok(index) => index,
-            Err(_) => return empty_index(),
-        };
-        match index.as_ref() {
-            None => empty_index(),
-            Some(index) => IndexResult {
+    /// daemon shows as an empty list rather than an error; a build that failed answers with why,
+    /// so quick open never waits forever on an index that will not arrive.
+    pub fn index_query(&self, query: &str, limit: usize) -> Result<IndexResult, Error> {
+        let index = guard::read(&self.index)?;
+        if let Some(index) = index.as_ref() {
+            return Ok(IndexResult {
                 hits: index
                     .search(query, limit)
                     .into_iter()
@@ -248,7 +282,13 @@ impl RootEntry {
                 total: u64::try_from(index.len()).unwrap_or(u64::MAX),
                 truncated: index.truncated(),
                 ready: true,
-            },
+            });
+        }
+        match guard::lock(&self.failure)?.take() {
+            Some(message) => Err(Error::System(std::io::Error::other(format!(
+                "the quick-open index could not be built: {message}"
+            )))),
+            None => Ok(empty_index()),
         }
     }
 

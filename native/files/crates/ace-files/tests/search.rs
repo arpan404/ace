@@ -134,6 +134,18 @@ fn unwatch_stops_a_long_search() {
 }
 
 #[test]
+fn a_panicking_search_worker_fails_the_subscription() {
+    let checkout = checkout(&[("a.txt", "cache\n")]);
+    let mut client = Client::launch(&[("ACE_FILES_PANIC_SEARCH", "boom")], false);
+    client.hello();
+    let root = client.open_root(checkout.path());
+
+    let subscription = subscribe(&mut client, root, query("boom"));
+    // A worker that panicked never walks, so the search can only end as a failure. It must end.
+    assert_eq!(await_failure(&mut client, subscription), "IO_ERROR");
+}
+
+#[test]
 fn an_invalid_regex_answers_one_error_reply() {
     let checkout = checkout(&[("a.txt", "cache\n")]);
     let mut client = Client::greeted();

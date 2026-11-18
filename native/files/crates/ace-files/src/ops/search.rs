@@ -2,13 +2,14 @@
 
 //! `search`: content search that streams one event per file and finishes with a summary.
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use files_search::Summary;
 use files_wire::{EventPayload, Message, Reply, SearchQuery};
 
 use crate::convert;
-use crate::dispatch::Shared;
+use crate::dispatch::{Shared, joined};
 use crate::error::Error;
 use crate::requests::Cancel;
 use crate::roots::RootEntry;
@@ -38,10 +39,23 @@ pub fn start(shared: &Shared, id: u64, cancel: Cancel, root: u64, query: SearchQ
         result: Reply::Subscription { subscription },
     });
     let job = shared.clone();
-    tokio::task::spawn_blocking(move || {
-        let outcome = run(&entry, &query, &cancel, &job, subscription);
-        job.finish_search(id, subscription, outcome);
+    tokio::spawn(async move {
+        let running = {
+            let entry = Arc::clone(&entry);
+            let cancel = cancel.clone();
+            let shared = job.clone();
+            tokio::task::spawn_blocking(move || run(&entry, &query, &cancel, &shared, subscription))
+        };
+        // A worker that panicked is a failure like any other: the subscription hears about it
+        // instead of waiting for a summary that will never come.
+        job.finish_search(id, subscription, joined(running.await));
     });
+}
+
+/// Test-only: a search for exactly this pattern panics on its worker thread, so a test can prove
+/// that a stopped worker becomes `searchFailed` rather than a request that never finishes.
+fn panics_on_purpose(query: &files_search::Query) -> bool {
+    std::env::var("ACE_FILES_PANIC_SEARCH").is_ok_and(|pattern| pattern == query.pattern)
 }
 
 /// Refuse a pattern the searcher could not compile, before any subscription exists.
@@ -71,6 +85,9 @@ fn run(
     shared: &Shared,
     subscription: u64,
 ) -> Result<Summary, Error> {
+    if panics_on_purpose(query) {
+        panic!("test hook: the search worker panics");
+    }
     let flag = cancel.flag();
     let stopped = cancel.flag();
     let out = shared.out.clone();

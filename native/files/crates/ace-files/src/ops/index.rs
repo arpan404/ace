@@ -8,9 +8,10 @@ use crate::dispatch::Shared;
 use crate::error::Error;
 
 /// Search the root's path index. Before the background build lands the answer is empty and says
-/// `ready: false`, which the daemon shows as "still indexing" rather than as "no match".
+/// `ready: false`, which the daemon shows as "still indexing" rather than as "no match". A build
+/// that failed answers with its error, so a root whose index will never arrive says so.
 pub fn query(shared: &Shared, root: u64, query: &str, limit: u64) -> Result<Reply, Error> {
     let entry = shared.roots.get(root)?;
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    Ok(Reply::Index(entry.index_query(query, limit)))
+    Ok(Reply::Index(entry.index_query(query, limit)?))
 }

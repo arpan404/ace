@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Quick open: the answer before the walk lands, and the answer after.
+//! Quick open: the answer before the walk lands, the answer after it, and the answer when the
+//! walk never finishes.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -23,11 +24,13 @@ fn answers_an_index_query_before_and_after_the_build() {
         write_file(checkout.path(), &format!("bulk/file{index:04}.txt"), "");
     }
 
-    let mut client = Client::greeted();
+    // The build publishes late on purpose, so "before" is a real state and not a race the test
+    // loses on a fast machine.
+    let mut client = Client::launch(&[("ACE_FILES_HOLD_INDEX_MS", "500")], false);
+    client.hello();
     let root = client.open_root(checkout.path());
     let deadline = Instant::now() + DEADLINE;
 
-    // The first query races the walk by design: it must say it is not ready rather than block.
     let first = client.request(Op::IndexQuery {
         root,
         query: "srvmain".to_owned(),
@@ -72,4 +75,45 @@ fn answers_an_index_query_before_and_after_the_build() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(ready, "the index finished within {DEADLINE:?}");
+}
+
+#[test]
+fn a_panicked_build_answers_an_error_instead_of_never_being_ready() {
+    let checkout = checkout(&[("a.txt", "")]);
+    let mut client = Client::launch(&[("ACE_FILES_PANIC_INDEX", "1")], false);
+    client.hello();
+    let root = client.open_root(checkout.path());
+    let deadline = Instant::now() + DEADLINE;
+
+    let mut failure = None;
+    while Instant::now() < deadline {
+        let id = client.request(Op::IndexQuery {
+            root,
+            query: "a".to_owned(),
+            limit: 10,
+        });
+        match client.answer(id) {
+            Ok(Reply::Index(index)) => {
+                assert!(
+                    !index.ready,
+                    "a build that panicked never publishes an index"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(other) => panic!("indexQuery answered {other:?}"),
+            Err(error) => {
+                failure = Some(error);
+                break;
+            }
+        }
+    }
+    let failure = failure.unwrap_or_else(|| {
+        panic!("a failed build is reported, not left saying 'not ready' forever")
+    });
+    assert_eq!(failure.code, "IO_ERROR");
+    assert!(
+        failure.message.contains("panicked") || failure.message.contains("stopped"),
+        "the error says the build never finished: {}",
+        failure.message
+    );
 }

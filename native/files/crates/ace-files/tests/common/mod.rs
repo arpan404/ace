@@ -232,17 +232,33 @@ impl Client {
 
     /// The reply to one request.
     pub fn reply(&mut self, id: u64) -> Reply {
+        match self.answer(id) {
+            Ok(reply) => reply,
+            Err(error) => panic!(
+                "request {id} failed: {}: {} ({:?})",
+                error.code, error.message, error.current
+            ),
+        }
+    }
+
+    /// The answer to one request, whether it succeeded or failed.
+    pub fn answer(&mut self, id: u64) -> Result<Reply, WireError> {
         match self.take_matching(|message| match message {
             Message::Response { id: got, .. } | Message::Error { id: got, .. } => *got == id,
             _ => false,
         }) {
-            Message::Response { result, .. } => result,
+            Message::Response { result, .. } => Ok(result),
             Message::Error {
                 code,
                 message,
                 current,
                 ..
-            } => panic!("request {id} failed: {code}: {message} ({current:?})"),
+            } => Err(WireError {
+                id,
+                code,
+                message,
+                current,
+            }),
             other => panic!("expected a reply to {id}, got {other:?}"),
         }
     }
