@@ -726,3 +726,70 @@ async fn a_command_cleared_as_contained_is_refused_when_the_sandbox_lapses_befor
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_classification_that_runs_out_of_time_never_lets_a_full_access_command_leave_the_sandbox()
+-> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            // Asks to run outside: what it would run there is read first, and that read hangs.
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": "sh hang.sh", "outside_sandbox": true }),
+            ),
+        ]
+    })
+    .await?;
+    let workspace = w.workspaces.of(&w.bot)?.path()?;
+    let fifo = workspace.join("hang.sh");
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status()?;
+    assert!(made.success());
+    // However the test ends, the hung reads are let go, so the runtime can stop.
+    let _release = Release(fifo.clone());
+    let stamp = w.stamp(&w.bot, "full_access");
+    let (status, body) = w
+        .spade
+        .put_with(
+            &format!("/v1/agents/{}/security/autonomy", w.bot),
+            json!({ "autonomy": "full_access" }),
+            &[(spade_server::security::attest::HEADER, &stamp)],
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    w.spade
+        .engine
+        .set_classify_time(std::time::Duration::from_millis(300));
+    w.spade.say(&w.conversation, "Run it").await?;
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .ok_or("not asked")?;
+    // The person decides whether it leaves the sandbox; nothing ran meanwhile.
+    assert_eq!(asked["ask"], "outside_sandbox", "{asked}");
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "tool_started" || e["type"] == "command_ran"),
+        "{:?}",
+        types(&events)
+    );
+    Ok(())
+}
+
+/// Opens a FIFO for writing and closes it when dropped: every reader blocked on it sees its end.
+struct Release(PathBuf);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        let fifo = self.0.clone();
+        std::thread::spawn(move || {
+            let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}

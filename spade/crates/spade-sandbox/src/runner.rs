@@ -92,6 +92,10 @@ impl Status {
 pub struct Launch {
     pub program: PathBuf,
     pub args: Vec<OsString>,
+    /// `program` is Spade's own, started outside the sandbox: start it with the run's
+    /// environment carried ([`crate::run_env::sealed`]), never as it is, so nothing a loader acts
+    /// on runs before the sandbox holds the command.
+    pub seals_env: bool,
 }
 
 /// Why a run can't be confined.
@@ -313,6 +317,7 @@ mod platform {
             (Mode::Normal, _) | (Mode::ReadOnly, None) => Ok(Launch {
                 program: PathBuf::from(seatbelt::SANDBOX_EXEC),
                 args: all,
+                seals_env: false,
             }),
             (Mode::Offline, None) => Err(Unavailable(
                 "Spade's own program is unknown, so a run can't be held offline".to_owned(),
@@ -326,6 +331,7 @@ mod platform {
                 Ok(Launch {
                     program: launcher.to_path_buf(),
                     args: sealed,
+                    seals_env: true,
                 })
             }
         }
@@ -481,6 +487,8 @@ mod platform {
         Ok(Launch {
             program: launcher.to_path_buf(),
             args: all,
+            // The launcher is Spade's own, outside the sandbox until it applies it.
+            seals_env: true,
         })
     }
 }
@@ -580,7 +588,12 @@ mod platform {
         );
         let (program, args) =
             windows::run::wrap(launcher, &plan, program, args).map_err(Unavailable)?;
-        Ok(Launch { program, args })
+        // Windows' loader reads no variable that runs code before the container holds the run.
+        Ok(Launch {
+            program,
+            args,
+            seals_env: false,
+        })
     }
 }
 

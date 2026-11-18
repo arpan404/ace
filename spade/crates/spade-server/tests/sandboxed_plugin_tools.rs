@@ -28,7 +28,11 @@ impl Confine for Holds {
         Ok(match kind {
             Kind::Plugin { .. } => Confinement::Contained(Box::new(Confined {
                 launch: Box::new(|program: &Path, args: &[std::ffi::OsString]| {
-                    Ok((program.to_path_buf(), args.to_vec()))
+                    Ok(spade_sandbox::Launch {
+                        program: program.to_path_buf(),
+                        args: args.to_vec(),
+                        seals_env: false,
+                    })
                 }),
                 env: Vec::new(),
                 path_first: Vec::new(),

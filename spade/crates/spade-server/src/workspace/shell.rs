@@ -204,9 +204,9 @@ pub trait Confine: Send + Sync {
     }
 }
 
-/// Wraps `program args` in a run's sandbox: the program and arguments to start instead.
-pub type Launcher =
-    Box<dyn Fn(&Path, &[OsString]) -> Result<(PathBuf, Vec<OsString>), String> + Send>;
+/// Wraps `program args` in a run's sandbox: the program and arguments to start instead, and
+/// whether its environment must be carried past Spade's own program (`Launch::seals_env`).
+pub type Launcher = Box<dyn Fn(&Path, &[OsString]) -> Result<spade_sandbox::Launch, String> + Send>;
 
 /// One run's sandbox: how to start it, what to add to its environment, and what to hold while
 /// it runs (its proxy ticket).
@@ -505,11 +505,14 @@ impl Shell {
         } else {
             self.environment(home)
         };
+        let mut seals_env = false;
         let mut shell = match &confined {
             None => platform::command(&self.env, command),
             Some(confined) => {
                 let (program, args) = platform::shell_args(&self.env, command);
-                let (program, args) = (confined.launch)(&program, &args)?;
+                let launched = (confined.launch)(&program, &args)?;
+                seals_env = launched.seals_env;
+                let (program, args) = (launched.program, launched.args);
                 if !confined.path_first.is_empty()
                     && let Some((_, path)) = environment.iter_mut().find(|(n, _)| n == "PATH")
                 {
@@ -522,13 +525,28 @@ impl Shell {
                 platform::wrapped(program, args)
             }
         };
+        // The run's environment, in order (a later value wins, as it would when set one by one).
+        let mut run_env: Vec<(String, String)> = Vec::new();
+        for (name, value) in environment
+            .into_iter()
+            .chain(job.env.iter().cloned())
+            .chain(confined.iter().flat_map(|c| c.env.iter().cloned()))
+            .chain(std::iter::once((platform::MARK.to_owned(), mark.clone())))
+        {
+            run_env.retain(|(had, _)| *had != name);
+            run_env.push((name, value));
+        }
+        shell.current_dir(dir).env_clear();
+        if seals_env {
+            // Spade's own program starts the command: it gets the environment carried, never as
+            // it is (ADR 0171, amendment 4), and the run's mark too, so its processes are found.
+            shell
+                .envs(spade_sandbox::run_env::sealed(run_env))
+                .env(platform::MARK, &mark);
+        } else {
+            shell.envs(run_env);
+        }
         let mut child = shell
-            .current_dir(dir)
-            .env_clear()
-            .envs(environment)
-            .envs(job.env.iter().cloned())
-            .envs(confined.iter().flat_map(|c| c.env.iter().cloned()))
-            .env(platform::MARK, &mark)
             .stdin(if job.stdin.is_some() {
                 Stdio::piped()
             } else {

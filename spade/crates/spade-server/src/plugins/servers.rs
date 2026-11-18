@@ -208,9 +208,10 @@ impl Servers {
                         let args: Vec<std::ffi::OsString> =
                             command.args.iter().map(Into::into).collect();
                         match (confined.launch)(Path::new(&command.program), &args) {
-                            Ok((program, args)) => {
-                                command.program = program.to_string_lossy().into_owned();
-                                command.args = args
+                            Ok(launched) => {
+                                command.program = launched.program.to_string_lossy().into_owned();
+                                command.args = launched
+                                    .args
                                     .iter()
                                     .map(|a| a.to_string_lossy().into_owned())
                                     .collect();
@@ -221,6 +222,22 @@ impl Servers {
                                     *path = format!("{}:{path}", confined.path_first.join(":"));
                                 }
                                 command.env.extend(confined.env);
+                                // Spade's own program starts the server: the plugin's environment
+                                // (its tokens, and any `LD_*` or `DYLD_*` it names) is carried
+                                // past it to the server inside the sandbox, never set on it.
+                                if launched.seals_env {
+                                    command.env = spade_sandbox::run_env::sealed(std::mem::take(
+                                        &mut command.env,
+                                    ))
+                                    .into_iter()
+                                    .map(|(name, value)| {
+                                        (
+                                            name.to_string_lossy().into_owned(),
+                                            value.to_string_lossy().into_owned(),
+                                        )
+                                    })
+                                    .collect();
+                                }
                                 offline = confined.offline;
                                 (Some(confined.hold), None)
                             }
