@@ -111,6 +111,46 @@ A request for a step outside those places offers "Allow \<app\> for this bot" (t
 told the person allowed the app, without asking. A drive grant is refused for a sensitive place,
 a `tool` grant never covers a driving tool, and the request never stores an Always allow.
 
+#### Where each operation acts
+
+One table decides (`spade_core::effect::drive::table`): a row per tool and operation, what that
+operation acts on in ace's own implementation, the only fields the gate reads to find it, and
+whether ace must hold it there (`expect`) before the reviewer alone may let it run. A field an
+operation ignores never moves the place, and a tool or operation missing from the table has no
+place, so the person decides. Read-only tools (`browser_snapshot`, `_wait_for`, `_find`,
+`_screenshot`, `_logs`, `screen_apps`, `screen_display`, `screen_windows`, `screen_ui_tree`,
+`screen_screenshot`, `sim_list`, `sim_ui`, `sim_screenshot`, `sim_logs`) are `read` and never
+reach the table.
+
+| Tool and operation                                  | What it acts on in ace                                         | How the gate finds it                                    | Held |
+| --------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------- | ---- |
+| `browser_open`                                      | navigates `tabId`, else the caller's own tab, to `url`         | `url`; without one, the tab ace lists (`tabId`, current) | no   |
+| `browser_tabs list`                                 | lists the tabs                                                 | the current tab (`tabId` ignored)                        | no   |
+| `browser_tabs open`                                 | a new tab at `url`                                             | `url`; without one, no place                             | no   |
+| `browser_tabs select`                               | makes `tabId` current, then opens `url` there if given         | `url` if given, else the tab `tabId` names               | yes  |
+| `browser_tabs keep`, `close`                        | the tab `tabId` names (`url` ignored); the last one closes all | the tab `tabId` names; without one, no place             | yes  |
+| `browser_act` (click … scroll)                      | input to `tabId`, else the caller's current tab                | the tab ace lists (`tabId`, else current)                | yes  |
+| `browser_act dialog`                                | the tab that raised `dialogId`, whatever `tabId` says          | the tab whose `pending_dialog` is `dialogId`             | yes  |
+| `browser_evaluate`                                  | a script in `tabId`, else current                              | the tab ace lists                                        | yes  |
+| `browser_history back`, `forward`, `reload`, `stop` | moves `tabId`, else current                                    | the tab ace lists                                        | yes  |
+| `browser_history` with no direction                 | reads the tab's history                                        | the tab ace lists                                        | no   |
+| `browser_measure`                                   | every repetition's input to `tabId`, else current              | the tab ace lists                                        | yes  |
+| `browser_settings resize`, `emulate`, `record_*`    | the tab's size, device or recording                            | the tab ace lists                                        | no   |
+| `browser_settings extensions`                       | lists the browser's extensions                                 | the current tab                                          | no   |
+| `browser_settings close`                            | the whole browser and every tab                                | no place: the person decides                             | —    |
+| `browser_request_help`                              | hands the tab to the person                                    | the tab ace lists                                        | no   |
+| `screen_state`, `screen_act`                        | the app ace opens for `app`; a batch goes to its id            | every app `screen_apps` lists for `app`                  | yes  |
+| `screen_open_app` (older toolkit)                   | opens `bundleId`                                               | the app `bundleId`                                       | no   |
+| `screen_ui_act`, `screen_input`, `screen_measure`   | a session's app (older toolkit)                                | no place: the person decides                             | —    |
+| `sim_start`, `sim_stop`                             | the device `simId`                                             | the device                                               | no   |
+| `sim_act open_app`, `open_url`                      | the app or address the device opens                            | `appId`, or `url` as the device's page (never a site's)  | no   |
+| `sim_act install`, `record_*`, `posture`            | the device                                                     | the device                                               | no   |
+| `sim_act ui`, `tap`, … `type`, `key`, `clipboard_*` | whatever app is in the device's foreground                     | no place: the person decides                             | —    |
+
+ace checks a held step in the tab's queue and before every input it sends, including each
+repetition of `browser_measure`, the move of `browser_history` after the history is read, and
+the tab a `browser_tabs select`, `keep` or `close` acts on.
+
 An answer to a request Spade asked for a reason of its own (`ask`) is never stored as an Always
 allow. On the outside card, Always for this bot sets the bot's `commands` to `outside` and runs
 that call; the next command is reviewed like any command outside the sandbox. A request to run

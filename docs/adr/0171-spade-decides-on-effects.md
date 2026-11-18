@@ -232,6 +232,12 @@ Spade checked it.`) and the bot looks again, so the gate decides on where it act
   `_state`) run only where ace's tool takes it: against an older ace the step goes to the person,
   with a line saying an update lets Spade act there with only its review, and right before it
   runs a step the reviewer alone let run doesn't run if ace can't hold it after all.
+- **One table of tools and operations.** Where each operation of ace's driving tools acts is
+  one table (`spade_core::effect::drive::table`, shown in spade/docs/autonomy.md): what it acts
+  on in ace, the only fields the gate reads to find it, and whether ace must hold it there. A
+  field an operation ignores (a `url` on a tab's `close`) never moves the place; a tool or
+  operation missing from the table has none. Closing the whole browser (`browser_settings
+close`) has no place either, so the person decides it.
 - **A dialog's answer acts where the dialog is.** ace sends an answer to the tab that raised
   the dialog, whichever tab the call names, so Spade places it in that tab (the one whose
   `pending_dialog` has the call's `dialogId`); a dialog no tab shows asks.
