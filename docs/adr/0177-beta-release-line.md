@@ -128,9 +128,12 @@ backups aside). It would leave stable without the person's data.
 - A beta build has the porcelain Dock icon: the stable master repainted with a light tile and
   graphite wings, rendered by `scripts/icons.ts` at build time. It has no lettering. (It first
   shipped with a "BETA" band across the tile's foot; the owner replaced that on 2026-11-18.)
-- The sidebar's foot shows the word **Beta**, as text beside the update button (no chip, no tint).
+- The sidebar's foot shows the beta mark beside the update button: the porcelain icon in
+  miniature, named "ace 0.0.24 beta 1" (or "ace beta" when the version is unknown) and opening
+  General, where the release line is chosen. (It first showed the word **Beta** there; the owner
+  replaced that on 2026-11-18.)
 - The daemon's hello reports its line, so the web app connected to a beta daemon shows the same
-  word. iOS follows later.
+  mark. iOS follows later.
 
 **Publishing.** `bun run release:beta build` stages the build under
 `dist/releases/<tag>` (`dist/releases/ace-0.0.24-beta-1`). `bun run release:beta publish` checks the staged hashes and that

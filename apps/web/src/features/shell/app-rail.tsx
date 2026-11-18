@@ -10,7 +10,7 @@ import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
-import { ReleaseLineWord } from "./release-line-word.tsx";
+import { ReleaseLineMark } from "./release-line-mark.tsx";
 import { UpdateButton } from "./update-button.tsx";
 import { usePlaceSignals } from "./use-place-signals.ts";
 import { useRailPlace } from "./use-rail-place.ts";
@@ -165,7 +165,7 @@ export function AppRail(props: {
         ))}
         {marketplace && props.market}
         <span className="flex-1" />
-        <ReleaseLineWord daemonLine={daemonLine} />
+        <ReleaseLineMark daemonLine={daemonLine} />
         <UpdateButton />
         {props.usage?.(current === "usage")}
         <Tip label="Settings" shortcut="settings">
