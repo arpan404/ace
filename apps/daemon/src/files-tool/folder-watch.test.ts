@@ -12,6 +12,8 @@ class FakeWatch {
   readonly failure: Error | undefined;
   /** When set, a starting watch waits for it before it counts as subscribed. */
   gate: Promise<void> | undefined;
+  /** When set, releasing a subscription waits for it, so a close can be caught draining. */
+  releaseGate: Promise<void> | undefined;
 
   constructor(failure?: Error) {
     this.failure = failure;
@@ -22,6 +24,7 @@ class FakeWatch {
     this.calls.push({ path, onBatch });
     const opening = this.gate ?? Promise.resolve();
     return opening.then(() => async () => {
+      if (this.releaseGate) await this.releaseGate;
       this.released.push(path);
     });
   }
@@ -103,12 +106,19 @@ it("a socket that closes while a watch starts releases that watch", async () => 
   expect(port.released).toEqual(["/w"]);
 });
 
-it("a watch that arrives after the socket closed starts nothing", async () => {
-  const { watch, port } = setup();
-  await watch.disconnect("phone");
+it("a watch that arrives while the socket's close drains starts nothing", async () => {
+  const { port, watch } = setup();
+  const gate = Promise.withResolvers<void>();
+  port.releaseGate = gate.promise;
   await watch.watch(client("phone", []), main, "/w", ["src"]);
-  expect(port.calls).toEqual([]);
-  expect(port.released).toEqual([]);
+  const closing = watch.disconnect("phone");
+  await Promise.resolve();
+  // The close is still releasing its checkout, so this late message finds the closed session.
+  await watch.watch(client("phone", []), main, "/w2", ["src"]);
+  gate.resolve();
+  await closing;
+  expect(port.calls.map((call) => call.path)).toEqual(["/w"]);
+  expect(port.released).toEqual(["/w"]);
 });
 
 it("replaces a client's folders instead of adding to them", async () => {
@@ -182,6 +192,16 @@ it("a watcher warning re-lists every watched folder", async () => {
   port.calls[0]?.onBatch({ type: "warning", message: "falling back to polling" });
   clock.advance(100);
   expect(inbox).toMatchObject([{ folders: ["docs", "src"], rescan: true }]);
+});
+
+it("ten thousand connect and disconnect cycles leave no session behind", async () => {
+  const { port, watch } = setup();
+  for (let index = 0; index < 10_000; index++) {
+    await watch.watch(client(`phone-${index}`, []), main, "/w", ["src"]);
+    await watch.disconnect(`phone-${index}`);
+  }
+  expect(watch.sessions).toBe(0);
+  expect(port.released).toHaveLength(10_000);
 });
 
 it("a watch that cannot start leaves no client behind", async () => {

@@ -32,6 +32,9 @@ type RootSubscription = {
   starting?: Promise<void> | undefined;
 };
 
+/** One socket's life in this book, kept only while work for it is queued or running. */
+type Session = { closed: boolean };
+
 /**
  * The daemon's folder watches: one ace-files watch per checkout, shared by every client and
  * thread on it, and each client's own folder sets for each thread. A batch names the folders it
@@ -46,9 +49,17 @@ export class FolderWatch {
   readonly #roots = new Map<string, RootSubscription>();
   readonly #watched = new Map<string, Map<ThreadId, string>>();
   readonly #tails = new Map<string, Promise<void>>();
-  /** Sockets that closed: nothing new may start for them, queued or otherwise. */
-  readonly #gone = new Set<string>();
+  /**
+   * Sockets with queued or running work. A closed flag lives here rather than in a set that
+   * outlives the socket, and the entry goes when the drop it queued has drained.
+   */
+  readonly #sessions = new Map<string, Session>();
   #closed = false;
+
+  /** Sessions this book still remembers; a closed socket must leave nothing behind. */
+  get sessions(): number {
+    return this.#sessions.size;
+  }
 
   constructor(ports: FolderWatchPorts, options: FolderWatchOptions) {
     this.#ports = ports;
@@ -69,21 +80,22 @@ export class FolderWatch {
     root: string,
     folders: readonly string[],
   ): Promise<void> {
-    if (this.#gone.has(client.id)) return Promise.resolve();
+    if (this.#session(client.id).closed) return Promise.resolve();
     this.#clients.set(client.id, client);
     return this.#enqueue(client.id, () => this.#apply(client.id, threadId, root, folders));
   }
 
   /** Stop watching one thread of one client. */
   stop(clientId: string, threadId: ThreadId): Promise<void> {
-    if (this.#gone.has(clientId)) return Promise.resolve();
+    if (this.#sessions.get(clientId)?.closed !== false) return Promise.resolve();
     return this.#enqueue(clientId, () => this.#stop(clientId, threadId));
   }
 
   /** The socket closed: after its queued work, drop its sets, pushes and subscriptions. */
   disconnect(clientId: string): Promise<void> {
-    if (this.#gone.has(clientId)) return Promise.resolve();
-    this.#gone.add(clientId);
+    const session = this.#session(clientId);
+    if (session.closed) return Promise.resolve();
+    session.closed = true;
     return this.#enqueue(clientId, () => this.#drop(clientId));
   }
 
@@ -105,7 +117,7 @@ export class FolderWatch {
     root: string,
     folders: readonly string[],
   ): Promise<void> {
-    if (this.#closed || this.#gone.has(clientId)) return;
+    if (this.#closed || this.#sessions.get(clientId)?.closed !== false) return;
     if (!folders.length) {
       await this.#stop(clientId, threadId);
       return;
@@ -145,11 +157,14 @@ export class FolderWatch {
   async #drop(clientId: string): Promise<void> {
     this.#clients.delete(clientId);
     this.#fanout.disconnect(clientId);
-    this.#tails.delete(clientId);
     const threads = this.#watched.get(clientId);
     this.#watched.delete(clientId);
-    if (!threads) return;
-    for (const root of threads.values()) await this.#release(root);
+    try {
+      if (!threads) return;
+      for (const root of threads.values()) await this.#release(root);
+    } finally {
+      this.#sessions.delete(clientId);
+    }
   }
 
   /** Drop an evicted thread's root too, unless another of its threads still uses it. */
@@ -252,13 +267,25 @@ export class FolderWatch {
     if (release) await release().catch(() => {});
   }
 
+  /** The session for a socket, opened on its first call. */
+  #session(clientId: string): Session {
+    let session = this.#sessions.get(clientId);
+    if (!session) {
+      session = { closed: false };
+      this.#sessions.set(clientId, session);
+    }
+    return session;
+  }
+
   #enqueue(clientId: string, task: () => Promise<void>): Promise<void> {
     const previous = this.#tails.get(clientId) ?? Promise.resolve();
     const next = previous.then(task);
-    this.#tails.set(
-      clientId,
-      next.catch(() => {}),
-    );
+    const settled = next.catch(() => {});
+    this.#tails.set(clientId, settled);
+    void settled.finally(() => {
+      // The queue drained: forget it, so a channel that stopped talking leaves no entry behind.
+      if (this.#tails.get(clientId) === settled) this.#tails.delete(clientId);
+    });
     return next;
   }
 }
