@@ -12,7 +12,7 @@ publish.workspace = true
 [features]
 # Test-only environment hooks, such as a panic in the index build or a held publish. Off by
 # default: a shipped binary must not change what it does because an environment variable is set.
-test-hooks = []
+test-hooks = ["files-io/test-hooks"]
 
 [lints]
 workspace = true

@@ -493,6 +493,41 @@ fn a_read_and_a_listing_never_serve_a_link_into_the_daemons_names() {
 // The budget comes from the binary's `test-hooks` feature, so this test runs only with it.
 #[cfg(feature = "test-hooks")]
 #[test]
+fn a_verified_delete_walks_the_moved_tree_past_the_display_budget() {
+    let checkout = checkout(&[]);
+    for index in 0..25 {
+        common::write_file(checkout.path(), &format!("big/{index}.md"), "x");
+    }
+    let mut client = Client::launch(&[("ACE_FILES_WALK_BUDGET", "10")], false);
+    client.hello();
+    let root = client.open_root(checkout.path());
+
+    let request = client.request(Op::Describe {
+        root,
+        path: "big".to_owned(),
+        full: true,
+    });
+    let description = match client.reply(request) {
+        Reply::Description(description) => description,
+        other => panic!("describe answered {other:?}"),
+    };
+    let trashed = client.request(Op::Trash {
+        root,
+        path: "big".to_owned(),
+        endpoint: ".ace-upload-trash-budget".to_owned(),
+        expected: description.version,
+        own: description.own_version,
+    });
+    assert_eq!(
+        client.reply(trashed),
+        Reply::Done,
+        "the post-move verification is not stopped by the display budget"
+    );
+    assert!(!checkout.path().join("big").exists());
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
 fn a_full_describe_walks_past_the_display_budget() {
     let checkout = checkout(&[]);
     for index in 0..25 {

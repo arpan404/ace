@@ -54,7 +54,7 @@ impl<'a> Walks<'a> {
     pub fn unbounded() -> Walks<'static> {
         Walks {
             cancel: &never,
-            max_entries: Self::DEFAULT_ENTRIES,
+            max_entries: unbounded_budget(),
         }
     }
 
@@ -95,6 +95,21 @@ impl<'a> Walks<'a> {
 
 fn never() -> bool {
     false
+}
+
+/// The budget a never-stopped walk uses; a test-hooks build can shrink it so a test can show a
+/// destructive guard walks past the display budget.
+#[cfg(not(feature = "test-hooks"))]
+fn unbounded_budget() -> usize {
+    Walks::DEFAULT_ENTRIES
+}
+
+#[cfg(feature = "test-hooks")]
+fn unbounded_budget() -> usize {
+    std::env::var("ACE_FILES_WALK_BUDGET")
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .unwrap_or(Walks::DEFAULT_ENTRIES)
 }
 
 /// The entry vanished while it was being described.
