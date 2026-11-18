@@ -82,7 +82,9 @@ stands in for the other. `POST /v1/grants` returns it as `standing` with every p
 - `exposed`: a session a machine was seen keeping. The backend marks a session exposed when it
   mints a `machine` grant with it (only a daemon does that: an older daemon with the session in its
   file), and when a daemon exchanges it from its session file (`exposed: true`). A legacy session a
-  daemon exchanges is exposed too. Exposed never changes back.
+  daemon exchanges is exposed too. Exposed never changes back. An older daemon that runs `ace login`
+  after the backend is deployed writes a `person` session to its file; it is exposed at the
+  daemon's first relay grant, seconds later. That window closes when the daemon is upgraded.
 
 A device grant's standing grant says `person` only for a `person` session. A machine credential's
 always says `machine`.
