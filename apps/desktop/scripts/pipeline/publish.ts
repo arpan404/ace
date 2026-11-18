@@ -16,7 +16,7 @@ import {
 } from "./github.ts";
 
 /**
- * Makes the tag's draft release live for everyone (ADR 0186), on omarchy:
+ * Makes the tag's draft release live for everyone (ADR 0188), on omarchy:
  *
  *   node apps/desktop/scripts/pipeline/publish.ts <tag> <version>
  *

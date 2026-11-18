@@ -38,7 +38,7 @@ import {
 /**
  * Beta releases of the desktop app (ADR 0177): a build of a commit on `origin/main` for each
  * release target (signed and notarized on macOS arm64; Linux x64 and arm64 and Windows x64 too,
- * ADR 0186), published as a GitHub prerelease tagged `ace-<X.Y.Z>-beta-<N>` and never marked
+ * ADR 0188), published as a GitHub prerelease tagged `ace-<X.Y.Z>-beta-<N>` and never marked
  * latest. Installed apps on the Beta line pick it up.
  *
  *   bun run release:beta build [--version 0.1.0 | --tag ace-0.1.0-beta-2]
@@ -49,7 +49,7 @@ import {
  * version for this build only (package.json is never edited), packages and verifies the app,
  * and stages the dmg, zip, `latest-mac.yml`, `ace-data.json` and their hashes under
  * `dist/releases/<tag>`. `--tag` builds a beta whose tag already exists, as the release
- * pipeline does after the owner pushes it (ADR 0186); the tag is checked by the same rules.
+ * pipeline does after the owner pushes it (ADR 0188); the tag is checked by the same rules.
  * `publish` (one Mac's build, by hand) checks the staged hashes and that the commit is on
  * `origin/main`, uploads a draft prerelease, then publishes it, so no app sees a half-uploaded
  * beta. There is no unsigned beta: Squirrel.Mac installs only what the running app's

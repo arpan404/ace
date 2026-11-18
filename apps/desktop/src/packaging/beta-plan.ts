@@ -16,7 +16,7 @@ import { isNewer } from "@ace/service/version";
  */
 
 /**
- * The hosts a beta is built on, one per release target (ADR 0186): macOS on Apple silicon,
+ * The hosts a beta is built on, one per release target (ADR 0188): macOS on Apple silicon,
  * Linux x64 and arm64 (each in its own Debian 12 container), and Windows x64.
  */
 const betaHosts = new Set(["darwin-arm64", "linux-x64", "linux-arm64", "win32-x64"]);

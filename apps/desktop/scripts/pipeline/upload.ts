@@ -19,7 +19,7 @@ import {
 } from "./github.ts";
 
 /**
- * Uploads the hosts' staged builds to the tag's draft release (ADR 0186), on omarchy:
+ * Uploads the hosts' staged builds to the tag's draft release (ADR 0188), on omarchy:
  *
  *   node apps/desktop/scripts/pipeline/upload.ts <tag> <platform>=<staged folder>...
  *

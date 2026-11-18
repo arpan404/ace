@@ -1,6 +1,6 @@
 name: Release
 
-# ace's release pipeline (ADR 0186). The owner pushes a tag and this does the rest, on ace's own
+# ace's release pipeline (ADR 0188). The owner pushes a tag and this does the rest, on ace's own
 # runners: omarchy (Linux) runs every step but two; the owner's Mac only builds, signs and
 # notarizes macOS; a Windows VM builds Windows. A run is resumable: every step first checks what
 # the tag's release already holds, so rerunning the failed jobs (or dispatching the same tag)

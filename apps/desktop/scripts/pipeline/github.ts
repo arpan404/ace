@@ -14,7 +14,7 @@ import {
 import { repo } from "../common.ts";
 
 /**
- * The GitHub and git I/O the release pipeline's steps share (ADR 0186): reading a tag's release
+ * The GitHub and git I/O the release pipeline's steps share (ADR 0188): reading a tag's release
  * and the staged manifests uploaded to it, and writing step outputs. Every decision is made by
  * the pure modules in `src/packaging`.
  */

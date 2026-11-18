@@ -4,7 +4,7 @@ import { isNewer } from "@ace/service/version";
 import type { NotesLimits } from "./release-notes-check.ts";
 
 /**
- * What the release-notes agent is given (ADR 0186), as pure decisions: the config in
+ * What the release-notes agent is given (ADR 0188), as pure decisions: the config in
  * `release/notes.json`, the range of the release (the previous published release up to this
  * tag), the PRs merged in it, the prompt, and the read-only command that runs the agent on the
  * machine's own logged-in CLI (ADR 0002).

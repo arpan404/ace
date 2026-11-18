@@ -62,7 +62,7 @@ export function releaseExists(version: string): boolean {
 }
 
 /**
- * Whether `tag`'s release is published. A draft doesn't count: the release pipeline (ADR 0186)
+ * Whether `tag`'s release is published. A draft doesn't count: the release pipeline (ADR 0188)
  * creates the draft before its hosts build into it.
  */
 export function releasePublished(tag: string): boolean {

@@ -7,7 +7,7 @@ import { desktop, repo } from "../common.ts";
 import { output, say, step, tagArgument } from "./github.ts";
 
 /**
- * Builds this host's part of a release (ADR 0186) and stages it under `dist/releases/<tag>`:
+ * Builds this host's part of a release (ADR 0188) and stages it under `dist/releases/<tag>`:
  *
  *   node apps/desktop/scripts/pipeline/build.ts <tag>
  *

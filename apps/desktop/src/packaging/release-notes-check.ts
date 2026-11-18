@@ -1,5 +1,5 @@
 /**
- * The checks a release's notes pass before the pipeline puts them on the release (ADR 0186).
+ * The checks a release's notes pass before the pipeline puts them on the release (ADR 0188).
  * Pure: the notes, the release's kind, the PRs in its range and the limits go in; every
  * problem comes out, so the agent can be told all of them when it retries.
  *

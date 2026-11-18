@@ -1,5 +1,5 @@
 /**
- * The one message the owner gets when a release run ends (ADR 0186): the release went live, or
+ * The one message the owner gets when a release run ends (ADR 0188): the release went live, or
  * the first step that failed. Pure: the jobs' results in pipeline order go in.
  */
 

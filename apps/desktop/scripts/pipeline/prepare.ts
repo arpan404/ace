@@ -18,7 +18,7 @@ import {
 } from "./github.ts";
 
 /**
- * The release pipeline's first step (ADR 0186), on omarchy with the tag checked out:
+ * The release pipeline's first step (ADR 0188), on omarchy with the tag checked out:
  *
  *   node apps/desktop/scripts/pipeline/prepare.ts <tag>
  *

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds one Linux architecture's part of a release in a fresh Debian 12 container, as the
-# release pipeline does on omarchy (ADR 0186), then checks the packages in a fresh Ubuntu 24.04
+# release pipeline does on omarchy (ADR 0188), then checks the packages in a fresh Ubuntu 24.04
 # container, the oldest supported system:
 #
 #   tools/release/linux/pipeline-build.sh <x64|arm64> <tag> <key folder>

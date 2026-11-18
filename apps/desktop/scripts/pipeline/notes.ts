@@ -21,7 +21,7 @@ import { repo } from "../common.ts";
 import { gh, releaseState, run, say, step, summary, tagArgument, tagCommit } from "./github.ts";
 
 /**
- * Writes the release's notes with an agent and puts them on the draft (ADR 0186), on omarchy:
+ * Writes the release's notes with an agent and puts them on the draft (ADR 0188), on omarchy:
  *
  *   node apps/desktop/scripts/pipeline/notes.ts <tag> <title>
  *

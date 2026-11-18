@@ -3,7 +3,7 @@ import { planBetaTag } from "./beta-plan.ts";
 import { releaseTag } from "./release-plan.ts";
 
 /**
- * Which release a pushed tag starts (ADR 0186), as a pure decision over facts the pipeline
+ * Which release a pushed tag starts (ADR 0188), as a pure decision over facts the pipeline
  * reads first: whether the tag's commit is on `origin/main`, `apps/desktop/package.json`'s
  * version at that commit, and the tags GitHub has.
  *

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { checksumList, combineStaged, type StagedRelease } from "./release-plan.ts";
 
 /**
- * Where a tag's release stands and what a run still has to do (ADR 0186), as pure decisions
+ * Where a tag's release stands and what a run still has to do (ADR 0188), as pure decisions
  * over what GitHub already holds. A rerun of the pipeline reads the same facts and continues
  * where the last run stopped: platforms already uploaded to the draft are not rebuilt, and a
  * published release is left alone.

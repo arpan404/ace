@@ -5,7 +5,7 @@ import { releaseSummary } from "../../src/packaging/release-summary.ts";
 import { say, step, summary } from "./github.ts";
 
 /**
- * Tells the owner how a release run ended (ADR 0186), on omarchy, whatever happened before:
+ * Tells the owner how a release run ended (ADR 0188), on omarchy, whatever happened before:
  *
  *   NEEDS='${{ toJSON(needs) }}' node apps/desktop/scripts/pipeline/notify.ts <tag> <run url> <job>...
  *
