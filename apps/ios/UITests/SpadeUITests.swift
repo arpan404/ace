@@ -2,7 +2,8 @@ import XCTest
 
 /// Spade on the spike fixture (`scripts/spade-scenario.ts`): its tab after Chats while the
 /// machine shows it, the bots in web's order, a conversation streaming a reply, an approval
-/// answered and a message sent, and the tab gone once Settings › Beta turns Spade off.
+/// answered and a message sent, a card of questions answered, and the tab gone once Settings ›
+/// Beta turns Spade off.
 @MainActor final class SpadeUITests: XCTestCase {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
     override func setUp() async throws {
@@ -85,6 +86,47 @@ import XCTest
         screenshot("spade-4-approval")
         allow.tap()
         XCTAssertTrue(allow.waitForNonExistence(timeout: 15))
+    }
+
+    func testACardOfQuestionsIsAnsweredAndOneForLaterOpensFromTheTopBar() {
+        let app = launch()
+        _ = openSpade(app)
+        let planner = app.buttons["spade.bot.planner"]
+        XCTAssertTrue(planner.waitForExistence(timeout: 20))
+        planner.tap()
+        let card = app.descendants(matching: .any)["spade.question"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Where to?"].exists)
+        app.buttons["spade.question.option.1"].tap()
+        XCTAssertTrue(app.buttons["spade.question.option.1"].isSelected)
+        screenshot("spade-7-question")
+
+        app.buttons["spade.question.next"].tap()
+        let nights = app.textFields["spade.question.number"]
+        XCTAssertTrue(nights.waitForExistence(timeout: 5))
+        nights.tap()
+        nights.typeText("30")
+        app.buttons["spade.question.send"].tap()
+        // The bridge checks the card before Spade sees it, and says why under the question.
+        XCTAssertTrue(app.staticTexts["At most 14."].waitForExistence(timeout: 10))
+        screenshot("spade-8-question-refused")
+        nights.tap()
+        nights.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2) + "3")
+        app.buttons["spade.question.send"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["You: 3 nights"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["You: Porto"].exists)
+        screenshot("spade-9-question-answered")
+
+        // The card left for later opens from the top bar's count, and folds back.
+        let later = app.buttons["spade.forLater"]
+        XCTAssertTrue(later.waitForExistence(timeout: 10))
+        XCTAssertEqual(later.label, "1 question for later")
+        later.tap()
+        XCTAssertTrue(app.staticTexts["Any places you'd rather skip?"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textFields["spade.question.text"].exists || app.textViews["spade.question.text"].exists)
+        screenshot("spade-10-question-for-later")
+        app.buttons["spade.question.later"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["spade.question.folded"].waitForExistence(timeout: 5))
     }
 
     func testTheTabGoesWhenBetaTurnsSpadeOff() async throws {

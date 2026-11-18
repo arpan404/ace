@@ -37,6 +37,12 @@ extension ClientModel {
         await spadeRequest(["type": "spade.answer", "conversationId": conversation, "callId": callId,
                             "allowed": allowed, "always": always], failing: "Couldn't answer")
     }
+    /// A card of questions: `reply` is its drafts (`["drafts": [...]]`), `["defer": true]` or
+    /// `["dismiss": true]`.
+    func spadeQuestion(_ conversation: String, callId: String, reply: [String: Any]) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.question", "conversationId": conversation, "callId": callId, "reply": reply],
+                           failing: "Couldn't answer")
+    }
     func spadeTurnOn() async -> SpadeOutcome {
         await spadeRequest(["type": "spade.enable"], failing: "Couldn't turn on Spade")
     }

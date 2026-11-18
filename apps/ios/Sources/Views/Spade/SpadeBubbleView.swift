@@ -2,11 +2,17 @@ import SwiftUI
 
 /// One bubble of a Spade conversation as the bridge put it (`bridge/spade-rows.ts`): the
 /// person's on the right in the accent, the bot's on the left on the page's fill with its words
-/// as markdown, an approval as a raised card with its answers, a quiet line for the rest.
+/// as markdown, an approval as a raised card with its answers, a card of questions, a quiet line
+/// for the rest.
 struct SpadeBubbleView: View {
     let bubble: SpadeModel.Bubble
     /// An approval's answer: its call, allowed or not, and whether always; true once it went.
     let answer: (String, Bool, Bool) async -> Bool
+    /// Cards for later the person opened, by call.
+    var unfolded: Set<String> = []
+    var fold: (String, Bool) -> Void = { _, _ in }
+    /// A card's reply: its call and what it sends.
+    var reply: (String, [String: Any]) async -> SpadeOutcome = { _, _ in SpadeOutcome(ok: false) }
 
     var body: some View {
         switch bubble {
@@ -48,6 +54,9 @@ struct SpadeBubbleView: View {
             SpadeApprovalCard(sentence: sentence, detail: detail, reason: reason, always: always) { allowed, forever in
                 await answer(callId, allowed, forever)
             }
+        case let .question(card):
+            SpadeQuestionCardView(card: card, unfolded: unfolded.contains(card.callId),
+                                  fold: { fold(card.callId, $0) }, reply: { await reply(card.callId, $0) })
         case let .note(text):
             Text(text)
                 .aceFont(AceDesign.TextRole.meta)
