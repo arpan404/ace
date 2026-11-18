@@ -40,6 +40,9 @@ export const addressCheckMs = 30_000;
  * shutdown never waits on the network (ADR 0170).
  */
 export const remoteCloseWaitMs = 2_000;
+/** What status says while the saved remote settings can't be read; access stays off meanwhile. */
+export const settingsUnreadable =
+  "Couldn't read the remote access settings, so remote access is off for now. ace tries again on its own; if this keeps up, restart ace.";
 const Stored = SettingsValues.pick({
   "remote.enabled": true,
   "remote.lan": true,
@@ -91,6 +94,11 @@ export function remoteRuntime(
   let stopAccount: (() => void) | undefined;
   let reconciling = false;
   let dirty = false;
+  // Whether the saved settings were read once: until then nothing opens, and status says why.
+  let loaded = false;
+  let unreadable: string | undefined;
+  // What the change under way brings up: each of its networks reads `waiting` until it serves.
+  let pending: RemotePlan | undefined;
   let closing: Promise<void> | undefined;
   const serialize = (run: () => Promise<void>) => {
     if (queued >= 64)
@@ -142,7 +150,7 @@ export function remoteRuntime(
     if (closed || retry) return;
     retry = delay(() => {
       retry = undefined;
-      void serialize(() => apply(preferences)).catch(recover);
+      void serialize(() => (loaded ? apply(preferences) : sync())).catch(recover);
     }, retryMs);
     retryMs = Math.min(retryMs * 2, 30000);
   };
@@ -159,6 +167,19 @@ export function remoteRuntime(
     if (closed) return;
     const wanted = plan(next);
     if (!wanted) return;
+    pending = wanted;
+    try {
+      await bringUp(wanted, next, refuseFrom, retryRefused);
+    } finally {
+      if (pending === wanted) pending = undefined;
+    }
+  };
+  const bringUp = async (
+    wanted: RemotePlan,
+    next: Preferences,
+    refuseFrom: Preferences | undefined,
+    retryRefused: boolean,
+  ): Promise<void> => {
     const began = now();
     const resolution = await direct.resolve(wanted.direct);
     if (refuseFrom) {
@@ -186,6 +207,7 @@ export function remoteRuntime(
     }
     if (closed) return;
     await relays.apply(wanted.relays, retryRefused);
+    if (!refuseFrom) firstPass = false;
     if (refuseFrom) {
       const before = plan(refuseFrom);
       const addedDirectNetworks = before
@@ -229,37 +251,58 @@ export function remoteRuntime(
     const parsed = Stored.safeParse(next);
     return parsed.success ? parsed.data : base;
   };
-  /** Reads the saved choice, brings the networks to it, then follows settings and the account. */
-  const begin = async () => {
-    preferences = await read(preferences);
-    await serialize(() => apply(preferences)).catch(recover);
-    firstPass = false;
-    directStarted.resolve();
-    networksStarted.resolve();
-    const reconcile = () => {
-      dirty = true;
-      if (reconciling || closed) return;
-      reconciling = true;
-      void serialize(async () => {
-        while (dirty) {
-          if (closed) break;
-          dirty = false;
-          await apply(await read(preferences));
-        }
-      })
-        .catch(recover)
-        .finally(() => {
-          reconciling = false;
-          if (dirty && !closed) reconcile();
-        });
-    };
-    if (closed) return;
-    const unsubscribe = await options.settings?.subscribe(
-      { keys: [...keys], scope: {} },
-      (event) => {
+  /**
+   * Reads the saved choice and brings the networks to it. Until a read succeeds once, remote
+   * access stays off, status says why, and the retry timer reads again.
+   */
+  const sync = async (retryRefused = false): Promise<void> => {
+    let next: Preferences;
+    try {
+      next = await read(preferences);
+    } catch (failure) {
+      if (loaded) throw failure;
+      if (unreadable === undefined)
+        options.log?.(new Error(settingsUnreadable, { cause: failure }));
+      unreadable = settingsUnreadable;
+      scheduleRetry();
+      return;
+    }
+    loaded = true;
+    unreadable = undefined;
+    await apply(next, undefined, retryRefused);
+  };
+  const reconcile = () => {
+    dirty = true;
+    if (reconciling || closed) return;
+    reconciling = true;
+    void serialize(async () => {
+      while (dirty) {
+        if (closed) break;
+        dirty = false;
+        await sync();
+      }
+    })
+      .catch(recover)
+      .finally(() => {
+        reconciling = false;
+        if (dirty && !closed) reconcile();
+      });
+  };
+  /**
+   * Follows settings, the account and the network's address. Installed before the first start,
+   * so a sign-in, sign-out or settings change while it waits on the network is applied, in
+   * order, once it ends.
+   */
+  const watch = async () => {
+    const unsubscribe = await Promise.resolve(
+      options.settings?.subscribe({ keys: [...keys], scope: {} }, (event) => {
         if (event.type === "changed") reconcile();
-      },
-    );
+      }),
+    ).catch((failure: unknown) => {
+      // The retry timer and the account still bring remote access up to date.
+      options.log?.(failure);
+      return undefined;
+    });
     // Closed while subscribing: nothing is left listening.
     if (closed) {
       unsubscribe?.();
@@ -272,12 +315,18 @@ export function remoteRuntime(
       if (closed) return;
       retry?.();
       retry = undefined;
-      void serialize(() => apply(preferences, undefined, true)).catch(recover);
+      void serialize(() => (loaded ? apply(preferences, undefined, true) : sync(true))).catch(
+        recover,
+      );
     });
-    if (!closed)
-      stopWatch = every(() => {
-        if (direct.open() && !closed) void serialize(() => apply(preferences)).catch(recover);
-      }, addressCheckMs);
+    stopWatch = every(() => {
+      if (direct.open() && !closed) void serialize(() => apply(preferences)).catch(recover);
+    }, addressCheckMs);
+  };
+  const begin = async () => {
+    await watch();
+    if (closed) return;
+    await serialize(() => sync()).catch(recover);
   };
   /** Waits on `task` while closing, at most `remoteCloseWaitMs`; overrunning is logged. */
   const bounded = (name: string, task: Promise<unknown>) =>
@@ -349,9 +398,12 @@ export function remoteRuntime(
           address: direct.address,
         },
         relays: relays.view(),
+        ...(pending ? { pending } : {}),
       });
+      const error = unreadable ?? networks.error;
       return {
         ...networks,
+        ...(error ? { error } : {}),
         listenOverride: config?.listenOverride ? config.listen : null,
         relayOverride: config?.relayUrl !== undefined,
         ...(options.relay ? relayRoute(options.relay, options.hostId) : {}),
@@ -366,8 +418,8 @@ export function remoteRuntime(
         else if (options.remoteConfig) await begin();
       } finally {
         lifetime?.removeEventListener("abort", giveUp);
-        // A start that failed (the saved settings unreadable) leaves nothing to wait for.
-        firstPass = false;
+        // A first pass that ended early (the saved settings unreadable) leaves nothing to wait
+        // for; its networks log their start once a later pass brings them up.
         directStarted.resolve();
         networksStarted.resolve();
       }
@@ -400,6 +452,14 @@ export function remoteRuntime(
       return serialize(async () => {
         retry?.();
         retry = undefined;
+        // Applied on top of the saved choice, never on the defaults standing in for it.
+        if (!loaded) {
+          preferences = await read(preferences).catch(() => {
+            throw new SettingsError("io", settingsUnreadable);
+          });
+          loaded = true;
+          unreadable = undefined;
+        }
         const before = preferences;
         // An older app's single network choice becomes the networks it meant.
         const change =
