@@ -125,17 +125,18 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
         "allow file-read-metadata",
         ancestors(policy).iter().map(|p| literal(p)),
     );
-    // `/System` is a firmlink union: `/System/Volumes/Data` is the Data volume (every user's home
-    // and files), and `/System/Volumes/Preboot`, `VM`, `Update`… are the other raw volumes. The
-    // sealed system content a command needs is `/System/Library`, `/System/Cryptexes` and the rest,
-    // never `/System/Volumes`. A read-only run must not reach the folder's own files (or anyone's)
-    // by their real path under `/System/Volumes/Data`, so that subtree is denied after the `/System`
-    // read above (ADR 0172, amendment 7). The workspace is opened by its normal `/Users…` path.
+    // `/System` is a firmlink union whose `/System/Volumes/Data` is the Data volume (every user's
+    // home and files). Seatbelt already matches a read by its resolved path, so a read of
+    // `/System/Volumes/Data/<outside the folder>` is refused by the allowlist today; this explicit
+    // deny after the `/System` read is defence in depth, so a future broad `/System` grant could
+    // not re-expose the person's files by their real path there (ADR 0172, amendment 7). The sealed
+    // system content a command needs is under `/System/Library` and `/System/Cryptexes`, not
+    // `/System/Volumes/Data`, and the workspace is opened by its normal `/Users…` path.
     if read_only {
         rule(
             &mut out,
             "deny file-read* file-write*",
-            std::iter::once(subpath(Path::new("/System/Volumes"))),
+            std::iter::once(subpath(Path::new("/System/Volumes/Data"))),
         );
     }
     // Writes: granted folders (the workspace comes after the deny-list). A read-only run
@@ -470,21 +471,23 @@ mod tests {
     }
 
     #[test]
-    fn read_only_denies_the_system_volumes_firmlinks() {
+    fn read_only_denies_the_data_volume_firmlink() {
         let text = profile(&policy(), true);
-        // `/System` is readable for the sealed system content, but the Data/Preboot/… firmlinks
-        // under `/System/Volumes` (every user's files) are denied after it.
+        // `/System` is readable for the sealed system content, but `/System/Volumes/Data` (every
+        // user's files, reachable by real path) is denied after it, as defence in depth.
         assert!(text.contains("(subpath \"/System\")"));
-        assert!(text.contains("(deny file-read* file-write*\n  (subpath \"/System/Volumes\"))"));
+        assert!(
+            text.contains("(deny file-read* file-write*\n  (subpath \"/System/Volumes/Data\"))")
+        );
         // The deny comes after the `/System` read, so it wins.
         let allow = position(&text, "(subpath \"/System\")");
-        let deny = position(&text, "(subpath \"/System/Volumes\")");
+        let deny = position(&text, "(subpath \"/System/Volumes/Data\")");
         assert!(
             allow < deny,
-            "the /System/Volumes deny must come after the /System read"
+            "the /System/Volumes/Data deny must come after the /System read"
         );
         // A normal run has no such deny (its firmlink handling is a separate concern).
-        assert!(!profile(&policy(), false).contains("(subpath \"/System/Volumes\")"));
+        assert!(!profile(&policy(), false).contains("(subpath \"/System/Volumes/Data\")"));
     }
 
     #[test]
