@@ -568,6 +568,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       defaultOrigin: config.accountOrigin,
       relayKeys: () => relayKeysFor(config.dataDir),
+      // In code only, for tests; a real daemon trusts the keys its build pins (ADR 0190).
+      ...(options.personGrantKeys ? { personKeys: options.personGrantKeys } : {}),
       log: (error) => log.log("warn", "ace account", logError(error)),
     });
     await account.load();

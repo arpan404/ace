@@ -14,6 +14,7 @@ import {
   relayGrant,
   startMarket,
   type Market,
+  personMarketGrant,
 } from "./testing/harness.ts";
 
 let market: Market;
@@ -178,13 +179,13 @@ describe("publishing", () => {
     const path = "/v1/publish/spade-skill/own-skill/versions/1.0.0/withdraw";
     const theirs = await market.fetch(path, {
       method: "POST",
-      headers: { authorization: `Bearer ${marketGrant("acct_b")}` },
+      headers: { authorization: `Bearer ${personMarketGrant("acct_b", `POST ${path}`)}` },
       body: JSON.stringify({ reason: "Not mine to pull." }),
     });
     expect(theirs.status).toBe(403);
     const mine = await market.fetch(path, {
       method: "POST",
-      headers: { authorization: `Bearer ${marketGrant("acct_a")}` },
+      headers: { authorization: `Bearer ${personMarketGrant("acct_a", `POST ${path}`)}` },
       body: JSON.stringify({ reason: "Broken on Linux." }),
     });
     expect(mine.status).toBe(202);

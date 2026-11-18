@@ -1,210 +1,273 @@
-# 0190: A machine keeps a machine credential, never the person's session
+# 0190: The person's standing comes only from proof a same-user process can't make
 
 Status: accepted. Date: 2026-11-18. Amends [ADR 0111](0111-account-machine-access.md) (who holds
-what, grants, a machine signing in) and the account-device row of ADR 0178 §12.7 and §12.8.
-Closes the gap §12.8 names as "the machine's own ace session".
+what, grants, a machine signing in), ADR 0115 (paired devices), ADR 0174 §2 (the market's
+sensitive actions) and the account-device and paired-device rows of ADR 0178 §12.7. Closes the gap
+ADR 0178 §12.8 names as "the machine's own ace session". Revised after review of #2310.
 
 ## Context
 
 When the person signed in to ace in the app, the app handed its ace session to its daemon, and
 `ace login` claimed one for the daemon itself. Either way the daemon wrote that session to
-`ACE_HOME/ace-account.json`: mode 0600, but readable by every process of that user, an
-unsandboxed coding agent included. The backend mints a device grant for any device id from any
-session (`POST /v1/grants`), and the daemon counts an admitted account device as the person. So a
-process that read the file could mint itself a genuine device grant, connect as an account device
-(on this machine or any other on the account) and act as the person for person-only actions:
-market installs and withdrawals, answering person-only requests, the guarded setting, and anything
-later built on the same standing. It couldn't make a sign-in fresh (`authAt` stays the person's
-real sign-in time), but it didn't need to.
+`ACE_HOME/ace-account.json`, readable by every process of that user, an unsandboxed coding agent
+included. The backend minted a device grant for any device id from any session, and every daemon
+counted an admitted account device as the person. So a process that read the file could mint
+itself a device grant and act as the person: market installs and withdrawals, answering
+person-only requests, the guarded setting.
 
-Two security reviews found it. The rule this ADR adopts: **nothing a machine stores can yield the
-person's standing.**
+Review found the same shape in five more places:
+
+- Pairing links any admin (or the host token) made paired devices that counted as the person.
+- The desktop app sent its raw session to whatever answered at the daemon address in ACE_HOME.
+- A person's grant was a bearer token any recipient could replay, and a format 1 refresh kept a
+  socket's standing.
+- Older daemons treat any format 1 device grant as the person, and a machine could still mint one.
+- The market took sensitive actions from a machine's grant.
+
+**The rule: the person's standing comes only from proof that a process of the same user can't
+produce or replay, end to end, across mixed versions.** Two proofs qualify:
+
+- **A browser sign-in, held by the client that made it**, used through a key that lives only in
+  that client's memory, on one socket at a time (§3).
+- **A browser sign-in in the last ten minutes** (ADR 0174 §2), read from a grant a pinned key
+  signed for this machine (§5).
+
+Everything else has a machine's standing: the host token, anything in ACE_HOME, a machine's
+credential, a device whose pairing link no person made. It has admin where it has admin, but
+person-only actions need one of the two proofs.
 
 ## Decision
 
-### 1. Two credentials
+### 1. Who holds what
 
-| Credential         | Who holds it                                                                                                                                        | What its grants may say                                                     |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Person's session   | The client the person signed in on, in its secure storage or memory: the desktop app (Electron `safeStorage`), the web app's window, the iPhone app | Device grants with the person's standing                                    |
-| Machine credential | The daemon, in `ace-account.json`                                                                                                                   | Machine grants for its own host id; device grants with a machine's standing |
+| Holder                             | Keeps                                                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An ace app the person signed in on | Its session: the desktop app in `safeStorage`, the web window in memory only (never `sessionStorage`), the iPhone app in the Keychain. A device key in memory (§3). |
+| The daemon                         | A **machine credential** bound to its relay host id, in `ace-account.json`; one it is asking for, in `ace-account.pending.json`. Never a session.                   |
+| The backend                        | Sessions with their `standing`; machine credentials and enrollment tickets as digests (migration 0004).                                                             |
 
-A **machine credential** is issued by the backend for one machine: its host id on ace's relay (the
-id its relay key proves in the Noise handshake, `relayHostIdFor`). It is an opaque 43-character
-token, like a session, stored only as its digest (`machine_credentials`, migration 0004).
+A session's `standing` is one of three values:
 
-- It can mint `machine` grants (relay, Spade Cloud, market) for its own host id only; another host
-  id is refused (`403 other_machine`).
-- It can mint `device` grants (ADR 0182, a machine reaching another machine of the account), but
-  their standing grant always says `machine`.
-- It can't be exchanged for another credential (`403 machine_credential`) and can't forget a
-  machine from the account's list.
-- It holds no WorkOS token. It lives on the session it was exchanged from: every read of the
-  credential reads that session, which refreshes it with WorkOS (ADR 0100), so a revoked or deleted
-  account loses its machines as it loses its sessions. A credential whose session is gone, or now
-  names another account, is removed.
+- `person`: an app's sign-in from this version on.
+- `exposed`: a session a machine keeps.
+- `legacy`: a session from before this version.
 
-### 2. The exchange
+A sign-in says who will hold it (`AceLoginRequest.holder`). `ace login` is `machine`, and so is any
+sign-in without a return address, which is how older daemons start one. A session is marked
+`exposed` when an older daemon asks for a machine grant with it, or when a daemon exchanges it from
+its session file. Only `person` speaks for the person. `ACE_LEGACY_PERSON_UNTIL` could extend that
+to `legacy` sessions for a transition; it is unset, and should stay so.
 
-`POST /v1/machine-credentials`, bearer an ace session, body `{ hostId, sole?, exposed? }`, answers
-an `AceAccountGrant` whose token is the credential.
+### 2. Machine credentials
 
-- **The app hands its session over** (`PUT /v1/ace-account`, unchanged for the app). The daemon
-  exchanges it in memory (`sole: false`) and writes only the credential. The app keeps its session,
-  which keeps the person's standing: it was never on the machine's disk.
-- **`ace login`**: the daemon claims the session from the browser sign-in, exchanges it at once
-  with `sole: true`, and writes only the credential. With `sole`, the backend moves the session to a
-  digest no token has, so the token the daemon held in memory stops working, and signing the
-  machine out removes that session too. If the exchange fails, the sign-in ends without writing
-  anything and the session is signed out; the person runs `ace login` again.
-- **A backend without machine credentials** (an older or self-hosted one) answers 404. The daemon
-  then keeps the session as before: such a backend has no standing to protect.
+`POST /v1/machine-credentials` issues a credential for one host id. It takes a session the daemon
+holds (`ace login`, an old session file), or an **enrollment ticket** the app got with its own
+session from `POST /v1/machine-enrollments`. A ticket is single use, lasts ten minutes and is bound
+to the host id. The app hands its daemon the ticket, never the session.
 
-### 3. Standing grants
+- **Host-key proof.** The request carries the relay host key and an HMAC over the host id and the
+  credential. The HMAC key is the X25519 secret between the relay host key and the backend's
+  published exchange key (`/v1/keys` `exchangeKey`, derived from the encryption key). A host id the
+  key doesn't name, or a proof any other key made, is refused (`@ace/account-grant/machine-proof`).
+- **The daemon chooses the credential** and writes it to `ace-account.pending.json` before it asks.
+  If the answer is lost, the daemon asks again with the same credential and gets the same answer,
+  or tries the credential on its next start.
+- **One guarded batch** does the whole issue:
+  1. Mark the session exposed if it was kept on a disk.
+  2. Insert the credential, only while the session's token is unretired or the ticket unspent.
+  3. Retire the token (`sole`) or spend the ticket.
 
-Format 1 grants (`v: 1`) are unchanged: the relay, older daemons and the market parse them
-strictly, so a new claim in them would break every older reader. Standing is a second grant
-beside the device grant:
+  Two exchanges racing for one session or ticket issue one credential.
+
+- **What a credential can do:**
+  - Machine grants for its own host only.
+  - Device grants only in format 2, with a machine's standing (§4).
+  - Market grants as `kind: machine` (§6).
+
+  It can't be exchanged again, can't forget machines, and can't ask for a person's grant. It lives
+  on its session, so a signed-out or deleted account loses its machines too.
+
+### 3. The person's standing on a socket
+
+A device grant request may name `host` (the daemon's relay host id) and `key` (the device's P-256
+public key). For a `person` session the backend then returns a **person's grant** beside the
+format 1 grant that older daemons need:
 
 ```
-{ v: 2, kid, kind: "device", standing: "person" | "machine", account, subject, iat, exp }
+{ v: 2, kid, kind: "device", aud: "ace-daemon", standing: "person",
+  account, subject, host, key, iat, exp }
 ```
 
-Signed with the same key, encoded the same way (`@ace/account-grant`: `signStandingGrant`,
-`verifyStandingGrant`). Format 1 parsers refuse it, and its parser refuses format 1, so neither
-stands in for the other. `POST /v1/grants` returns it as `standing` with every plain device grant.
+The daemon gives every account device's socket a fresh `standingNonce` in its welcome. The client
+proves standing with `account.standing { grant, proof }`. The `proof` is the device key's ECDSA
+P-256 signature of `ace-standing/v1\n<host>\n<nonce>\n<grant>`. The daemon accepts it only when all
+of these hold:
 
-**Which sessions speak for the person.** Sessions gain a `standing` column:
+- The grant verifies against the keys this build pins.
+- It says `person`.
+- It names this daemon's account, this host and the socket's device.
+- The signature verifies with the key the grant names.
 
-- `person`: every sign-in from this version on, held only by the client that signed in.
-- `legacy`: every session from before. Any of them may sit in an older daemon's
-  `ace-account.json`, and the backend can't tell which, so they have a machine's standing.
-- `exposed`: a session a machine was seen keeping. The backend marks a session exposed when it
-  mints a `machine` grant with it (only a daemon does that: an older daemon with the session in its
-  file), and when a daemon exchanges it from its session file (`exposed: true`). A legacy session a
-  daemon exchanges is exposed too. Exposed never changes back. An older daemon that runs `ace login`
-  after the backend is deployed writes a `person` session to its file; it is exposed at the
-  daemon's first relay grant, seconds later. That window closes when the daemon is upgraded.
+The standing lasts until that grant's `exp`. The client proves again after each
+`account.grant.refresh`; a refresh alone never extends it.
 
-A device grant's standing grant says `person` only for a `person` session. A machine credential's
-always says `machine`.
+- A grant captured on the way is worthless without the device key. A proof is worthless on any
+  other socket (another nonce) or daemon (another host).
+- The device key is made in WebCrypto with its private half non-extractable, kept in the window's
+  memory and never written anywhere (`apps/web/src/boot/standing-key.ts`).
 
-`ACE_LEGACY_PERSON_UNTIL` (an ISO date, unset by default) lets a deployment keep legacy sessions
-that no machine was seen keeping at the person's standing until then, so clients aren't asked to
-sign in again on the day this ships. It reopens the hole for a session copied from an older
-daemon's file that never connected since, so the default is none.
+### 4. Device grant formats, and older daemons
 
-### 4. The daemon
+Older daemons treat any format 1 device grant as the person. So the backend never mints a format 1
+device grant from anything a machine holds:
 
-An account device's hello may carry `standing` beside `grant` (also in `hello.early`, ADR 0155).
-The daemon admits the device on its format 1 grant as before, with admin (ADR 0111). It counts the
-device as **the person** only when the standing grant:
+| Principal                             | Device grant                                   | Person's grant        |
+| ------------------------------------- | ---------------------------------------------- | --------------------- |
+| `person` session                      | format 1 (for older daemons)                   | with `host` and `key` |
+| `legacy` session (an older app's)     | format 1                                       | never                 |
+| `exposed` session, machine credential | format 2, `standing: machine`, bound to `host` | never                 |
 
-- verifies against the grant keys this build pins (`shippedGrantKeys`, `@ace/account-grant/keys`;
-  never keys fetched from the session's origin, which the host token sets, or from
-  `ACE_ACCOUNT_URL`);
-- says `person`;
-- names the device grant's account (this daemon's) and the hello's device id;
-- hasn't expired.
+A format 1 parser refuses format 2, so a machine's device grant never reaches an older daemon as
+the person; older daemons simply can't be reached with one. Newer daemons admit format 1 or format
+2 with admin and no standing; a format 2 grant bound to another host is refused. The relay admits
+format 2 at `/client`, and a bound grant only for its own host.
 
-Anything else (no standing grant, a machine's, another key, another device) is a machine's
-standing: admin, but person-only actions need a fresh sign-in, exactly as over the host token
-(ADR 0178 §12.7). The standing is fixed for the socket at its hello; `account.grant.refresh` keeps
-the socket open as before.
+### 5. Fresh sign-in
 
-**No transition on the daemon.** A format 1 grant alone gives a machine's standing from the first
-release. A window in which a bare format 1 grant still counted as the person would let anything
-holding a machine credential leave the standing grant out and pass; the only safe transition is on
-the backend, and only if a deployment chooses it (§3).
+`MachineAccount.freshSignIn` mints a market grant for this machine's relay host id and verifies it
+against the pinned keys (`shippedGrantKeys`, `@ace/account-grant/keys`). The grant must be:
 
-**The standing grant never reaches the relay.** Clients offer only the format 1 grant in
-`Sec-WebSocket-Protocol`; the standing grant travels inside the end-to-end encrypted hello.
+- a machine grant;
+- for this account and this host;
+- signed in within ten minutes of the daemon's clock (`authAt`, with a minute ahead allowed).
 
-### 5. Migration
+This is what lets the host token do a person-only action, and what lets it make a person's pairing
+link (§7). A backend whose key isn't pinned makes nothing fresh.
 
-`ace-account.json` gains `kind: "machine"`. A file without it holds a session from before. On
-start (and on each renewal round until it works) the daemon exchanges it once, with
-`exposed: true` and `sole` when `ace login` made it, writes the credential in its place (an atomic
-rename, so the session's bytes are no longer in the file), and carries on with the same sign-in:
-no manual step, no sign-out, and no thread or local data is touched.
+### 6. The market
 
-- A backend that no longer knows the session (401) signs the machine out, as before.
-- Any other failure keeps the session and the daemon working; its grants already have a machine's
-  standing at the backend. `GET /v1/ace-account` says `signInAgain: true` until the exchange
-  succeeds, and signing in again in the app, or `ace login`, replaces it.
-- A copy taken before the upgrade: an `ace login` session's token is retired at the exchange, so the
-  copy is dead. A handed-over session is the app's own and keeps working for the app, but it is
-  exposed, so the copy (and the app) mint device grants with a machine's standing until the person
-  signs in again in the app.
+Market grants from anything but a `person` session are `kind: machine`. A sensitive action (ADR
+0174 §2) needs a `device` grant whose `action` claim names that request, `METHOD /path`, and a
+sign-in from the last ten minutes. The sensitive actions are withdraw, transfer and accepting one,
+handle changes, verification, and a verified profile's edits. Anything else is refused with
+`person_grant`, and only a `person` session may ask for a grant with `action`.
 
-### 6. Who acts as the person after this
+The daemon still runs the request:
+
+1. The market answers `person_grant`, and the daemon passes that on with the `action`.
+2. The app asks for a grant naming that request with its own session.
+3. The app sends the request again with that grant (`marketplace.request.personGrant`).
+
+A grant captured on the way can only repeat the request the person asked for. The CLI holds no
+session, so it says to do it in an app. The daemon's market grants name its relay host id, not the
+`host-id` file's UUID.
+
+### 7. Pairing
+
+A pairing link records whether its maker had the person's standing, and the device it pairs keeps
+that (`devices.person`, `pairing_codes.person`). The maker had it if either:
+
+- its socket was the person's: a person's paired device, or an account device that proved it on
+  that socket; or
+- it used the host token with a fresh sign-in (§5).
+
+Both ways of making links check this: `fleet.request pairing` and `POST /v1/pairings`. Devices
+paired before this change have no record of who made their links, so they are not the person's
+until they pair again from a link the person makes.
+
+### 8. Sign-in and migration
+
+- **The app** asks the backend for an enrollment ticket for its daemon's relay host id, and
+  `PUT /v1/ace-account` sends the daemon only the ticket. The desktop app derives the host id from
+  the home's `relay/noise-static.key`; a browser uses the one the daemon reports in its account
+  status. The app can't authenticate its local daemon against a process that reads the same files,
+  so what it sends is worth no more than those files: a machine credential.
+- **`ace login`** signs in as `machine` and exchanges at once with `sole`; nothing of the session is
+  written. If the exchange fails, the sign-in ends signed out.
+- **An old session file** is exchanged once on start (`exposed`, plus `sole` for `ace login`'s) and
+  rewritten. Until it is, the daemon keeps working with a machine's standing and reports
+  `signInAgain`. No thread or local data is touched.
+- **A backend without machine credentials** answers 404 or publishes no exchange key, and the
+  daemon keeps a session as before.
+
+### 9. Logs and dumps
+
+- Diagnostic redaction removes fields named `grant`, `*Grant`, `standing` and `*proof`, two-part
+  signed grant tokens, and `ace.grant.` subprotocol values.
+- Crash dumps stay on the machine (Crashpad never uploads).
+- After an exchange, nothing of the session stays in the daemon's memory.
+- Triage agents are told never to open the account files or the relay key.
+
+## Who acts as the person after this
 
 Without a fresh sign-in:
 
-- **A device on the account** whose client signed in in a browser after this backend version, and
-  whose client sends the standing grant (the desktop and web app from this release). Its session
-  lives only in that client.
-- **A paired device** (ADR 0115, and ADR 0178 §12.8 once it lands), unchanged by this ADR.
+- **An ace app's account device** that signed in in a browser on this backend version, on each
+  socket where it proves the person's grant with its in-memory key. Today that is the desktop app's
+  and the web app's windows.
+- **A paired device paired from a link the person made** (§7).
 
-Not: the host token or anything holding it, any process reading `ACE_HOME` (machine credential,
-legacy session file), a daemon's own device grants (ADR 0182), a client with a session from before
-this version (until it signs in again), and the iPhone app until it sends the standing grant.
+With a fresh sign-in, the host token too, for ten minutes: for person-only actions, and for making
+a person's pairing links.
 
-Anyone can still act as the person for §12.7's actions with a **fresh sign-in**: an `ace login`
-completed in a browser in the last ten minutes, which a process holding only machine files can't
-complete. The other route ADR 0178 §12.8 names, a browser-approved single-use challenge bound to a
-requesting device's key and this host id, is the follow-up that will give the app's page on a
-daemon the app didn't start its standing; it is not built here.
+Not the person:
+
+- the host token alone;
+- any process reading `ACE_HOME` (machine credential, pending credential, an old session file);
+- a daemon's own device grants;
+- an app session from before this version, until it signs in again;
+- any account device that doesn't prove on its socket;
+- devices paired before this change, or from a link the host token alone made.
+
+**The iPhone app:** on the account route (through ace's relay) it has a machine's standing until it
+sends `host` and `key` and proves on its sockets. Paired to a daemon from a link the person made,
+it is the person's.
 
 ## What this doesn't stop
 
-- **A client's own store.** The person's session is as safe as the client's storage. On macOS the
-  Keychain item is bound to the signed app. Linux's Secret Service and Windows DPAPI release it to
-  any process of the same user, so there a same-user process can still read the desktop app's
-  session (`ace-account.enc`) and act as the person. Closing that needs a device-bound key (Secure
-  Enclave, TPM) and is separate work.
-- **A process that can read another process's memory** (a debugger, ptrace where the OS allows
-  it), as ADR 0178 §12.7 says.
-- **Admin on the account's machines.** A machine credential still opens every machine on the
-  account as an account device (ADR 0111): that is the account model, and a machine code (ADR 0111) is what limits it. What it can't do is the person's part.
+- **A client's own store.** The desktop app's session is as safe as `safeStorage`. macOS binds the
+  Keychain item to the signed app, but Linux's Secret Service and Windows DPAPI give it to any
+  process of the same user, which can then sign in as the person. A browser profile is the same.
+  Closing that needs a device-bound key (Secure Enclave, TPM).
+- **Reading process memory** (a debugger, ptrace where allowed), as ADR 0178 §12.7 says.
+- **Admin.** A machine credential still opens every machine on the account with admin (ADR 0111);
+  the machine code limits that.
+- **Older daemons** stay exposed in two ways until they upgrade. A format 1 grant from a person's
+  session or an older app's still acts as the person there, and a process can get one only from
+  that app's store. Their own session files also stay on disk.
+- **An older daemon that runs `ace login`** before upgrading is covered: its session is `machine`
+  from birth, so its file yields no person's grant.
 
-## Compatibility
+## Mixed versions
 
-| Pairing                                      | Result                                                                                                                                                                                             |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Older daemon, new backend                    | Works as before: its session mints format 1 machine and device grants. The session is marked exposed on its first machine grant, so its device grants have a machine's standing.                   |
-| New daemon, older backend                    | The exchange answers 404: the daemon keeps the session as before. Device grants carry no standing grant, so no account device is the person until the backend is deployed.                         |
-| New client, older daemon                     | The hello's `grant` is format 1, and the older daemon ignores `standing`. Its strict `hello.early` parser refuses the field, so NK falls back to the XX attempt (ADR 0155), one round trip slower. |
-| Older client (or the iPhone app), new daemon | Admitted with a machine's standing until it sends the standing grant.                                                                                                                              |
-| Relay                                        | Unchanged: format 1 grants in the subprotocol.                                                                                                                                                     |
-
-Key rotation is unchanged (`ACE_GRANT_PREVIOUS_KEY`, `docs/relay/accounts.md`): standing grants are
-signed and published by the same keys, and the daemon checks them against the keys its build pins,
-so a rotation adds the next key to `shippedGrantKeys` a release ahead, as for fresh sign-ins.
+| Pairing                                   | Result                                                                                                                                                           |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Older daemon, new backend                 | Connects as before. Its session is `exposed` (or `machine` from birth): its device grants are format 2, which other older daemons refuse.                        |
+| New daemon, older backend                 | No exchange key, so it keeps a session as before. No person's grants exist, so no account device is the person.                                                  |
+| New app, older daemon                     | Format 1 grant in the hello, as before; the older daemon ignores the nonce flow. Sign-in hands it a ticket it can't read, so it stays signed out until upgraded. |
+| Older app (or the iPhone app), new daemon | Admitted with admin and a machine's standing. Its sensitive market actions fail with an error it can't read.                                                     |
+| Older backend, new market                 | Sensitive actions are refused until the backend can mint person's grants with `action`.                                                                          |
+| Relay                                     | Format 1 and format 2 at `/client`; format 1 machine grants at `/host`.                                                                                          |
 
 ## Deploy order
 
-1. Apply migration 0004 to the account D1, then deploy the Worker. Older daemons and clients keep
-   working (above). From then on, only new sign-ins speak for the person.
-2. Release the daemon and the desktop and web apps together.
-3. Ship the iPhone app sending `standing` beside `grant`.
+1. **ace cloud:** `wrangler d1 migrations apply ACCOUNTS --remote --env production` (0004), then
+   deploy the Worker. This only adds behaviour: older apps and daemons keep working, older daemons'
+   sessions become `exposed` at their next relay grant, and `ACE_LEGACY_PERSON_UNTIL` stays unset.
+2. **The market Worker.** From then on, sensitive actions need the person's grant.
+3. **The daemon with the desktop and web apps**, together: the desktop app signs its daemon in with
+   a ticket that only a new daemon reads.
+4. **The iPhone app**, with `host`, `key` and `account.standing` on its account route.
 
-Releasing the daemon before the backend leaves every account device without the person's standing
-until the backend is deployed (fail-closed, not broken).
+Releasing the daemon before step 1 fails closed: account devices lack the person's standing, and
+signing in from the app fails, until the backend is deployed.
 
 ## Tests
 
-- `apps/cloud/src/account-machine-credential.process.test.ts` (the Worker and D1 under Miniflare):
-  a browser sign-in's device grants have the person's standing; a machine credential's never do, it
-  speaks only for its machine and can't be traded up; a session an older daemon keeps, or one from
-  before, loses the person's standing; an `ace login` session exchanged by its only holder stops
-  working by its token; an older daemon still connects to the relay with format 1 grants and device
-  standing.
-- `apps/daemon/src/machine-credential.process.test.ts` (a real daemon through that Worker): a
-  process that reads `ace-account.json` can't act as the person, with or without the standing grant;
-  the person signed in in a browser does; a machine credential's device grants never give person
-  standing; an existing session file is exchanged once and removed; a handed-over one is exchanged
-  and its session never speaks for the person again.
-- Unit: `personStanding` (`device-grant.test.ts`), standing grant format (`grant.test.ts`), the
-  legacy window (`directory.test.ts`), and the client carrying the standing grant
-  (`machine-code-gate.test.ts`, `relay-nk.test.ts`, `grant-cache.test.ts`).
+- `apps/cloud/src/account-machine-credential.process.test.ts` (Worker and D1 under Miniflare).
+- `apps/daemon/src/machine-credential.process.test.ts` (a real daemon through that Worker).
+- `apps/market/src/me-auth.process.test.ts` (sensitive actions refuse a machine's grant, and a
+  person's grant for another request).
+- Unit tests: `device-grant.test.ts` (the proof), `grant.test.ts` (formats, host-key proof),
+  `fresh-sign-in.test.ts`, `directory.test.ts`, `grant-cache.test.ts`, `window-session.test.ts`,
+  `diagnostic.test.ts`.

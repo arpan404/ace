@@ -95,10 +95,10 @@ async function deviceGrant(token: string, host = hostId(keyPair().publicKey)) {
   } catch {
     format1 = false;
   }
-  const person = grant.standing
+  const personGrant = grant.standing
     ? verifyStandingGrant(grant.standing, published, Date.now())
     : undefined;
-  return { grant, format1, person };
+  return { grant, format1, person: personGrant };
 }
 
 it("the person signing in in a browser gets a person's grant bound to its daemon and device key", async () => {

@@ -16,15 +16,23 @@ export interface GrantOptions {
   authAt?: number;
   /** When the grant was minted; its lifetime runs from here. */
   iat?: number;
+  /**
+   * The one request a person's grant names, `METHOD /path` (ADR 0190). With it the grant is a
+   * `device` grant from the person's own session, as an ace app sends for a sensitive action.
+   */
+  action?: string;
+  /** Overrides the kind `action` implies: a machine's grant naming a request, say. */
+  kind?: "machine" | "device";
 }
 
 export function grantFor(account: string, options: GrantOptions = {}) {
   const iat = options.iat ?? Date.now();
   return signMarketGrant(
     {
-      kind: "machine",
+      kind: options.kind ?? (options.action === undefined ? "machine" : "device"),
       account,
-      subject: "host-a",
+      subject: options.action === undefined ? "host-a" : "phone",
+      ...(options.action === undefined ? {} : { action: options.action }),
       iss: options.iss ?? "cloud.acehq.dev",
       emailVerified: options.emailVerified ?? true,
       authAt: options.authAt ?? Date.now(),
@@ -60,10 +68,12 @@ export function asAccount(
   options?: GrantOptions,
 ) {
   const bytes = body instanceof Uint8Array;
+  // As the person's app: a grant naming this one request, which sensitive actions need.
+  const action = `${method} ${new URL(path, "http://market").pathname}`;
   const init: RequestInit = {
     method,
     headers: {
-      ...bearerOf(account, options),
+      ...bearerOf(account, { action, ...options }),
       ...(body === undefined
         ? {}
         : { "content-type": bytes ? "application/octet-stream" : "application/json" }),

@@ -1,3 +1,4 @@
+import { grantPublicKey } from "@ace/account-grant";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,8 +57,16 @@ const draft = (hash: string): MarketDraft => ({
 });
 
 /** A daemon with the marketplace on, signed in to a fake ace account, beside a fake market. */
-async function world(options: { signedInAt?: () => number } = {}) {
-  const backend = await startFakeAccountBackend(() => Date.now(), options);
+async function world(options: { signedInAgoMs?: number } = {}) {
+  // The account backend keeps the daemon's time: a fresh sign-in is measured on the daemon's
+  // clock (ADR 0190), and this daemon runs on its test clock.
+  let clock: () => number = Date.now;
+  const backend = await startFakeAccountBackend(
+    () => clock(),
+    options.signedInAgoMs === undefined
+      ? {}
+      : { signedInAt: () => clock() - (options.signedInAgoMs ?? 0) },
+  );
   cleanup.push(() => backend.close());
   const market = await fakeMarket();
   cleanup.push(() => market.close());
@@ -73,13 +82,15 @@ async function world(options: { signedInAt?: () => number } = {}) {
   });
   const f = await daemonFixture(
     undefined,
-    {},
+    // This test's account backend is the one whose fresh sign-ins count (ADR 0190).
+    { personGrantKeys: { keys: [grantPublicKey(backend.signingKey)] } },
     {
       ACE_MARKET_URL: market.origin,
       ACE_ACCOUNT_URL: backend.origin,
     },
   );
   cleanup.push(() => f.daemon.close());
+  clock = () => f.h.clock.now();
   await f.daemon.settings.set("beta.marketplace", true, { kind: "global" });
   // Signing in starts ace's relay registration, which this fake account doesn't serve; remote
   // access isn't what these tests are about, and left on it holds the daemon's shutdown.
@@ -175,7 +186,7 @@ test("the same withdrawal from the person's own terminal goes to the market", as
   expect(market.seen.some((seen) => seen.path.endsWith("/withdraw"))).toBe(true);
 });
 
-const elevenMinutesAgo = () => Date.now() - 11 * 60_000;
+const elevenMinutesAgo = 11 * 60_000;
 const install = {
   op: "install",
   id: "rv-unknown",
@@ -184,7 +195,7 @@ const install = {
 };
 
 test("a thread-less install over the host token needs a sign-in from the last ten minutes", async () => {
-  const stale = await world({ signedInAt: elevenMinutesAgo });
+  const stale = await world({ signedInAgoMs: elevenMinutesAgo });
   const socket = await hostSocket(stale.home, "ace-cli", cleanup);
   expect(await socket.market("stale", install)).toMatchObject({ op: "error", code: "reauth" });
   const fresh = await world();
@@ -198,7 +209,7 @@ test("a person-only market request is answered over the host token only after a 
     [elevenMinutesAgo, false],
     [undefined, true],
   ] as const) {
-    const { f, cli, home, market } = await world(signedInAt ? { signedInAt } : {});
+    const { f, cli, home, market } = await world(signedInAt ? { signedInAgoMs: signedInAt } : {});
     const asked = await cli(
       ["market", "withdraw", "spade-skill/triage-mail@1.0.0", "--reason", "Broken", "--json"],
       { ACE_THREAD_ID: f.caller.threadId },
@@ -229,7 +240,7 @@ test("a person-only market request is answered over the host token only after a 
 });
 
 test("the person's own terminal needs a fresh sign-in to withdraw, too", async () => {
-  const { market, cli } = await world({ signedInAt: elevenMinutesAgo });
+  const { market, cli } = await world({ signedInAgoMs: elevenMinutesAgo });
   const refused = await cli([
     "market",
     "withdraw",

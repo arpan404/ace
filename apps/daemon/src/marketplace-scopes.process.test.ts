@@ -1,3 +1,4 @@
+import type { Scope } from "./devices.ts";
 import { once } from "node:events";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
@@ -13,8 +14,13 @@ import { setup } from "./remote-test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
+/**
+ * A paired device's socket. Installing is the person's (ADR 0178 §12.7), so these devices are
+ * ones the person paired, from a link made with the person's standing (ADR 0190); this test is
+ * about scopes.
+ */
 async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
-  const device = await f.pair(scopes);
+  const device = f.store.devices.create("Phone", scopes as Scope[], 1000, null, undefined, true);
   const ticket = await f.ticket(device.token);
   const socket = new WebSocket(f.server.url);
   sockets.push(socket);

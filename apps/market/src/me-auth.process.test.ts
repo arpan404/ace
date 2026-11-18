@@ -232,6 +232,9 @@ const writes: [string, Write][] = [
   ["read signals", { method: "GET", path: () => `${entry}/signals`, owned: true }],
 ];
 
+/** The request a write makes, `METHOD /path`, which a person's grant for it names. */
+const actionOf = (write: Write) => `${write.method} ${write.path()}`;
+
 function send(write: Write, token: string | undefined) {
   const body = write.body?.();
   const bytes = body instanceof Uint8Array;
@@ -249,11 +252,11 @@ function send(write: Write, token: string | undefined) {
 }
 
 const now = Date.now();
-const refusals: [string, () => string | undefined, number, string][] = [
+const refusals: [string, (action: string) => string | undefined, number, string][] = [
   ["no grant", () => undefined, 401, "unauthorized"],
   [
     "an expired grant",
-    () => grantFor("acct_owner", { iat: now - 10 * 60_000 }),
+    (action) => grantFor("acct_owner", { iat: now - 10 * 60_000, action }),
     401,
     "unauthorized",
   ],
@@ -261,28 +264,28 @@ const refusals: [string, () => string | undefined, number, string][] = [
   ["a cloud grant (the wrong purpose)", () => cloudGrant("acct_owner"), 401, "unauthorized"],
   [
     "the wrong issuer",
-    () => grantFor("acct_owner", { iss: "cloud.evil.dev" }),
+    (action) => grantFor("acct_owner", { iss: "cloud.evil.dev", action }),
     401,
     "unauthorized",
   ],
   [
     "an unverified email",
-    () => grantFor("acct_owner", { emailVerified: false }),
+    (action) => grantFor("acct_owner", { emailVerified: false, action }),
     403,
     "email_unverified",
   ],
-  ["a suspended account", () => grantFor("acct_suspended"), 403, "suspended"],
+  ["a suspended account", (action) => grantFor("acct_suspended", { action }), 403, "suspended"],
 ];
 
 describe.each(writes)("%s", (_label, write) => {
   it.each(refusals)("refuses %s", async (_case, token, status, error) => {
-    const response = await send(write, token());
+    const response = await send(write, token(actionOf(write)));
     expect(response.status).toBe(status);
     expect(await jsonOf(response)).toMatchObject({ error, message: expect.any(String) });
   });
 
   it.runIf(write.owned === true)("refuses another account's entry", async () => {
-    const response = await send(write, grantFor("acct_intruder"));
+    const response = await send(write, grantFor("acct_intruder", { action: actionOf(write) }));
     expect(response.status).toBe(403);
     expect((await jsonOf(response)).error).toBe("forbidden");
   });
@@ -290,10 +293,27 @@ describe.each(writes)("%s", (_label, write) => {
   it.runIf(write.sensitive === true)("refuses a sign-in older than ten minutes", async () => {
     const response = await send(
       write,
-      grantFor("acct_owner", { authAt: Date.now() - 11 * 60_000 }),
+      grantFor("acct_owner", { authAt: Date.now() - 11 * 60_000, action: actionOf(write) }),
     );
     expect(response.status).toBe(401);
     expect((await jsonOf(response)).error).toBe("reauth");
+  });
+
+  // ADR 0190: only the person's own grant for this very request does a sensitive action.
+  it.runIf(write.sensitive === true).each<[string, () => string]>([
+    ["a machine's grant", () => grantFor("acct_owner")],
+    [
+      "a machine's grant naming the request",
+      () => grantFor("acct_owner", { action: actionOf(write), kind: "machine" }),
+    ],
+    [
+      "the person's grant for another request",
+      () => grantFor("acct_owner", { action: "PUT /v1/me/handle-x" }),
+    ],
+  ])("refuses %s", async (_case, token) => {
+    const response = await send(write, token());
+    expect(response.status).toBe(401);
+    expect((await jsonOf(response)).error).toBe("person_grant");
   });
 });
 

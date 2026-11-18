@@ -20,11 +20,11 @@ import {
 import { folder, keySetOf, sampleSkill } from "@ace/marketplace/testing";
 import {
   asSigner,
-  marketGrant,
   marketKey,
   publish,
   startMarket,
   type Market,
+  personMarketGrant,
 } from "./testing/harness.ts";
 import { approve } from "./testing/discover-harness.ts";
 
@@ -116,7 +116,10 @@ it("signs a publisher's withdrawal into the withdrawn list", async () => {
     {
       method: "POST",
       headers: {
-        authorization: `Bearer ${marketGrant("acct_a")}`,
+        authorization: `Bearer ${personMarketGrant(
+          "acct_a",
+          "POST /v1/publish/spade-skill/gone-skill/versions/1.0.0/withdraw",
+        )}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({ reason: "Sends mail without asking" }),

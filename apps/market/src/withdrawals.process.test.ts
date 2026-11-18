@@ -5,12 +5,12 @@ import { keySetOf, sampleRecipe, sampleSkill, signedWithdrawn } from "@ace/marke
 import {
   approveHeld,
   asSigner,
-  marketGrant,
   marketKey,
   publish,
   put,
   startMarket,
   type Market,
+  personMarketGrant,
 } from "./testing/harness.ts";
 
 /*
@@ -73,7 +73,10 @@ describe("withdrawals", () => {
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${marketGrant("acct_copier")}`,
+          authorization: `Bearer ${personMarketGrant(
+            "acct_copier",
+            "POST /v1/publish/spade-bot/same-bytes-copy/versions/1.0.0/withdraw",
+          )}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ reason: "Not mine to share" }),

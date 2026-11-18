@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MarketOperation } from "@ace/protocol/marketplace";
-import {
-  freshSignInMs,
-  hostMarketRefusal,
-  needsFreshSignIn,
-  verifiedSignInFresh,
-} from "./fresh-sign-in.ts";
+import { hostMarketRefusal, needsFreshSignIn, verifiedSignInFresh } from "./fresh-sign-in.ts";
 import {
   GRANT_LIFETIME_MS,
   MARKET_GRANT_ISSUER,

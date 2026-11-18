@@ -15,6 +15,17 @@ import { bearer, fail, json, jsonBody } from "./respond.ts";
 import type { SessionReader } from "./session.ts";
 import type { SessionStore } from "./sessions.ts";
 
+/** The issued credential, as the session it lives on: its account and expiry. */
+const answer = (
+  status: number,
+  token: string,
+  session: { account: AceAccountGrant["account"]; expiresAt: number },
+) =>
+  json(
+    status,
+    AceAccountGrant.parse({ token, expiresAt: session.expiresAt, account: session.account }),
+  );
+
 /**
  * Machine sign-in (ADR 0190).
  *
@@ -41,15 +52,6 @@ export function machineSignInRoutes(deps: {
   random: RandomBytes;
 }) {
   const { principals, sessions, credentials, enrollments, now } = deps;
-  const answer = (
-    status: number,
-    token: string,
-    session: { account: AceAccountGrant["account"]; expiresAt: number },
-  ) =>
-    json(
-      status,
-      AceAccountGrant.parse({ token, expiresAt: session.expiresAt, account: session.account }),
-    );
   return {
     async enroll(request: Request): Promise<Response> {
       const token = bearer(request);

@@ -137,10 +137,12 @@ async function nkWelcome(d: Daemon, early: Record<string, unknown>) {
 
 /** A welcome's fields, with the values that differ between any two connects made comparable. */
 function fields(welcome: Extract<ServerMessage, { type: "welcome" }>) {
-  const { headSeq, grantTtlMs, ticket, ...rest } = welcome;
+  const { headSeq, grantTtlMs, ticket, standingNonce, ...rest } = welcome;
   return {
     ...rest,
     headSeq: typeof headSeq,
+    // Every socket has its own nonce for proving the person's standing (ADR 0190).
+    standingNonce: standingNonce === undefined ? "absent" : "own",
     grantTtlMs: grantTtlMs === undefined ? "absent" : grantTtlMs > 60_000 ? "minutes" : "short",
     // XX hands the next ticket in the welcome; NK in `hello.confirmed`, after the confirmation.
     ticket: ticket === undefined ? "absent" : "handed",

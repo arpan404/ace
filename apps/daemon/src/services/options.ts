@@ -17,6 +17,11 @@ import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   /**
+   * The account grant keys that give the person's standing (ADR 0190), in code, for tests: a
+   * real daemon trusts only the keys its build pins, never any the environment names.
+   */
+  personGrantKeys?: import("@ace/account-grant").GrantKeySet;
+  /**
    * A daemon the app started on a saved PATH (`login-path-handoff.ts`): provider discovery, and
    * so restart recovery and sessions, waits for its final PATH, and environments copied at
    * start take it.

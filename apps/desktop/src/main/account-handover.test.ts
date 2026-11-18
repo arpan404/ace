@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import { handAccountToDaemon } from "./account-handover.ts";
+import { fakeEnrollments, relayHostId, ticket } from "./enrollment-test-support.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -30,11 +31,19 @@ async function daemon() {
 }
 
 const token = "c".repeat(64);
+// The app gets an enrollment ticket for its daemon from here, never handing over its session.
+fakeEnrollments("https://account.example");
 const session = "s".repeat(43);
 
 it("the local daemon gets the app's ace session on sign-in and forgets it on sign-out", async () => {
   const local = await daemon();
-  const connection = { mode: "daemon", url: local.url, token, localHostId: "host" } as const;
+  const connection = {
+    mode: "daemon",
+    url: local.url,
+    token,
+    localHostId: "host",
+    localRelayHostId: relayHostId,
+  } as const;
   await handAccountToDaemon(connection, "https://account.example", session);
   await handAccountToDaemon(connection, "https://account.example", null);
   expect(local.seen).toEqual([
@@ -42,7 +51,7 @@ it("the local daemon gets the app's ace session on sign-in and forgets it on sig
       method: "PUT",
       url: "/v1/ace-account",
       auth: `Bearer ${token}`,
-      body: JSON.stringify({ origin: "https://account.example", token: session }),
+      body: JSON.stringify({ origin: "https://account.example", ticket }),
     },
     { method: "DELETE", url: "/v1/ace-account", auth: `Bearer ${token}`, body: "" },
   ]);

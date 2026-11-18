@@ -61,9 +61,10 @@ machines run `ace login`, which prints the login URL). It asks the backend for a
 the hosted relay's `/host` with it. The relay's Durable Object checks the grant, completes the
 Noise handshake that proves the host key, and records host id → account in D1. Binding
 therefore rests on two proofs: the session proves the account, the handshake proves the
-machine. A machine signing in to another account moves to it. (Amended by ADR 0190: the daemon
-exchanges the session it is handed or claims for a machine credential and keeps only that; device
-grants come with a standing grant, and only a person's says the device is the person.)
+machine. A machine signing in to another account moves to it. (Amended by ADR 0190: the app hands
+its daemon a single-use enrollment ticket, never its session; the daemon redeems it, with proof of
+its host key, for a machine credential and keeps only that; an account device is the person only on
+a socket where it proves a person's grant with its device key.)
 
 **A device connects.** The client lists its machines (`GET /v1/machines`), gets a `device`
 grant, and connects to `/client?hostId=…`. The relay refuses unless the grant's account owns
