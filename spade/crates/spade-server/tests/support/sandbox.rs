@@ -47,6 +47,10 @@ impl Confine for Late {
     ) -> Option<Box<dyn FnOnce() -> std::result::Result<(), String> + Send>> {
         self.0.get()?.before(home, kind)
     }
+
+    fn review(&self, home: &Path, kind: &Kind) -> Option<String> {
+        self.0.get()?.review(home, kind)
+    }
 }
 
 pub struct World {
@@ -209,6 +213,13 @@ async fn world_built(
         key.iter().map(|b| format!("{b:02x}")).collect::<String>(),
     )?;
     let late = Arc::new(Late::default());
+    // Plugins with no sandbox of the test's own go through this world's security service, as in
+    // Spade: the real sandbox, over the same workspaces.
+    let mut options = options;
+    if options.plugins.is_some() && options.plugin_confine.is_none() {
+        options.plugin_confine = Some(late.clone());
+        options.workspaces.get_or_insert_with(|| workspaces.clone());
+    }
     let bots = EngineHandle::default();
     let shell = Shell::system().confined(wrap(late.clone()));
     let kept = (shell.clone(), workspaces.clone(), bots.clone());

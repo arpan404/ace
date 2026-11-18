@@ -184,6 +184,11 @@ pub struct Plan {
     /// truncation.
     #[serde(default)]
     pub offline: bool,
+    /// An offline run that may still make connected Unix socket pairs (`socketpair`), which reach
+    /// nothing outside it: a sealed plugin server (ADR 0171, amendment 4), whose runtime may need
+    /// them (Python's asyncio, libuv). Never a socket of its own, a connect, a bind or a listen.
+    #[serde(default)]
+    pub pairs: bool,
 }
 
 /// The plan for `policy`. Pure: what is opened, and around what, is decided by the launcher. When
@@ -271,6 +276,19 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes, read_only: 
         processes,
         sockets: policy.workspace.clone(),
         offline: read_only,
+        pairs: false,
+    }
+}
+
+/// The plan for a normal run that is held offline (ADR 0171, amendment 4): what [`plan`] opens,
+/// with no egress at all: no socket of its own, no connect, bind or listen (a Unix socket in the
+/// workspace or loopback included), only connected socket pairs. Its descendants inherit it.
+pub fn plan_offline(policy: &Policy, network: Network, processes: Processes) -> Plan {
+    Plan {
+        proxy_port: None,
+        offline: true,
+        pairs: true,
+        ..plan(policy, network, processes, false)
     }
 }
 
@@ -365,6 +383,32 @@ mod tests {
         assert_eq!(plan.proxy_port, Some(4100));
         // Unix sockets only in the workspace.
         assert_eq!(plan.sockets, Path::new("/h/spade/workspace/b1"));
+    }
+
+    #[test]
+    fn an_offline_plan_writes_as_a_normal_one_but_reaches_nothing() {
+        let policy = Policy::build(&crate::policy::Facts {
+            home: "/h".into(),
+            spade_data: "/h/spade".into(),
+            workspace: "/h/spade/workspace/b1".into(),
+            proxy_port: Some(4100),
+            ..Default::default()
+        });
+        let normal = plan(&policy, Network::Filtered, Processes::Private, false);
+        let offline = plan_offline(&policy, Network::Filtered, Processes::Private);
+        assert_eq!(offline.roots, normal.roots);
+        assert!(offline.offline && offline.pairs);
+        assert_eq!(offline.proxy_port, None);
+        // A read-only run stays as it was: offline, with no socket pairs either.
+        let read_only = plan(&policy, Network::Filtered, Processes::Private, true);
+        assert!(read_only.offline && !read_only.pairs);
+        // An older launcher reading a plan without `pairs` keeps it off.
+        let mut stored = serde_json::to_value(&normal).unwrap_or_default();
+        if let Some(fields) = stored.as_object_mut() {
+            fields.remove("pairs");
+        }
+        let read: Plan = serde_json::from_value(stored).unwrap_or_else(|_| std::process::abort());
+        assert!(!read.pairs);
     }
 
     #[test]

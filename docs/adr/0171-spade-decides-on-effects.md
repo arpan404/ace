@@ -325,11 +325,27 @@ send, post or pay as the person, and nothing looked.
   as usual; one declared read-only runs. The person's Always allow and a `tool` grant still apply
   as on the host, and sends, payments, access changes and secrets keep their rules. Its arguments
   are checked for credential places like any call outside the sandbox.
-- **Sealed is contained, offline and without credentials of its own.** A plugin server is sealed
-  when the sandbox holds it (`contained`), its run has no network (`Confined::online` false: the
-  bot's plugin network policy is off, or no proxy listens), and its entry injects no environment
-  of its own (where tokens go). Only a sealed server's tools keep decision 1's rule: the sandbox
-  decides, with no classifier and no reviewer. Connectors are never sealed: they are remote.
+- **Sealed is contained, held offline and without credentials of its own.** A plugin server is
+  sealed when the sandbox holds it (`contained`), it launches under the sandbox's enforced
+  offline policy, and its entry injects no environment of its own (where tokens go). `sealed`
+  comes from the policy its launch applies (`Confined::offline`), never from a network setting
+  or the absence of a proxy ticket: a run whose policy only lacks the proxy can still connect to
+  a Unix socket in the workspace, and a socket there can forward to any network service. A
+  plugin server whose network is off launches offline wherever the machine holds every boundary
+  (`Runner::holds_offline`):
+  - **Linux:** the launcher's plan is offline (`linux::plan_offline`): Landlock at ABI 3 or
+    later, the seccomp filter refusing `socket` (so nothing is connected, bound or listened on,
+    a workspace Unix socket and loopback included) and the supervisor refusing every address; it
+    may still make connected `socketpair(AF_UNIX)` pairs, which reach nothing outside the run and
+    which runtimes need (Python's asyncio, libuv). The launcher refuses to start an offline plan
+    it can't apply, and descendants inherit the filter.
+  - **macOS:** the normal Seatbelt profile with no network rule at all (`profile_offline`).
+  - **Windows**, and any machine whose sandbox is partial: no offline launch, so no plugin
+    server is sealed there.
+
+  Only a sealed server's tools keep decision 1's rule: the sandbox decides, with no classifier
+  and no reviewer. Connectors are never sealed: they are remote.
+
 - **Full access** ([ADR 0163](0163-spade-auto-review-only.md), amendment 2) applies the same
   rule, then its own: the classifier required for an app's write, the reviewer under untrusted
   content.
@@ -343,7 +359,10 @@ never runs unreviewed; a sealed plugin server's tools keep the sandbox's decisio
 `spade_core::effect::full_access` (the same in Full access), and through the API in
 `spade-server/tests/sandboxed_plugin_tools.rs` (a contained stdio server with an injected token
 and its network on asks on an undeclared tool's first call and has its declared write reviewed,
-in both modes; one sealed offline with no token runs, in both modes).
+in both modes; one sealed offline with no token runs, in both modes), and in the real Linux
+sandbox in `spade-server/tests/sealed_plugin_offline.rs` (a sealed server can't reach a workspace
+Unix socket that forwards to a TCP listener; a server with its network on reaches it and isn't
+sealed). `spade-sandbox` tests the offline plan and profile.
 
 ## Note: Full access (2026-11-18)
 
