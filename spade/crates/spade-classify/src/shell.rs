@@ -195,6 +195,63 @@ const NETWORK: &[&str] = &[
     "socket",
 ];
 
+/// Programs that run a command with the person's secrets put into its environment (`doppler run
+/// -- ls`, `op run -- …`, `aws-vault exec prod -- …`): the command they wrap is what the parser
+/// shows, but it runs with the person's sign-ins, so the whole is never settled.
+const SECRET_RUNNERS: &[&str] = &[
+    "doppler",
+    "aws-vault",
+    "infisical",
+    "chamber",
+    "envchain",
+    "teller",
+    "dotenvx",
+    "berglas",
+    "varlock",
+    "summon",
+    "with-secrets",
+];
+
+/// Of programs with other uses, the subcommands that do the same (`op run`, `sops exec-env`).
+const SECRET_SUBCOMMANDS: &[(&str, &str)] = &[
+    ("op", "run"),
+    ("sops", "exec-env"),
+    ("sops", "exec-file"),
+    ("vault", "exec"),
+    ("gopass", "env"),
+    ("pass", "env"),
+];
+
+/// Whether `lower` starts a command, anywhere in it, with a program that injects the person's
+/// secrets. Read from the words as written, since the parser takes such wrappers off.
+fn runs_with_secrets(lower: &str) -> bool {
+    lower
+        .split(['\n', ';', '|', '&', '(', ')', '`', '{', '}'])
+        .any(|segment| {
+            let mut words = segment.split_whitespace().skip_while(|w| {
+                w.contains('=')
+                    || matches!(
+                        *w,
+                        "sudo"
+                            | "env"
+                            | "exec"
+                            | "command"
+                            | "nohup"
+                            | "time"
+                            | "then"
+                            | "do"
+                            | "!"
+                    )
+            });
+            let Some(first) = words.next() else {
+                return false;
+            };
+            let first = first.rsplit('/').next().unwrap_or(first);
+            let next = words.find(|w| !w.starts_with('-')).unwrap_or("");
+            SECRET_RUNNERS.contains(&first) || SECRET_SUBCOMMANDS.contains(&(first, next))
+        })
+}
+
 /// `git` subcommands that reach a remote.
 const GIT_NETWORK: &[&str] = &[
     "fetch",
@@ -470,6 +527,11 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
                 "dollar_paren" | "backtick" | "hex_escape" | "unicode_escape" | "ansi_quote"
             );
         }
+    }
+    if runs_with_secrets(&lower) {
+        bag.add("M", &["secret_runner"]);
+        found.hides = true;
+        found.network = true;
     }
     // Every word as written, wrappers included: the parser takes `sudo`, `env` or `nohup` off
     // what it reads, and the model should still see them.

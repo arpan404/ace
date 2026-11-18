@@ -103,6 +103,11 @@ fn a_command_that_runs_another_program_through_an_option_is_never_settled() {
         "rsync -e ./tunnel -a src/ out/",
         "git -c core.pager=./run.sh log",
         "sort --compress-program=./x big.txt",
+        // It runs with the person's secrets in its environment.
+        "doppler run --watch ls",
+        "op run --env-file=.env -- cargo test",
+        "aws-vault exec prod -- ls",
+        "cd src && sops exec-env secrets.yaml 'ls'",
     ] {
         let prediction = model.predict(&shell(command));
         assert!(prediction.hides, "{command}");

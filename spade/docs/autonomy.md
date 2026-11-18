@@ -216,12 +216,18 @@ and a connector's or plugin's tool. For each it does one of three things:
 | low-risk (`read`, or `write_local` in the bot's folder), above its threshold, for a command it may settle   | runs                                                                         |
 | anything else                                                                                               | the reviewer, as without it                                                  |
 
-It may settle only a command the shell classifier found nothing in, that runs no file the
-reviewer would be shown, with nothing untrusted in view, no standing work and no concern named.
-It never settles a command that points outside the bot's folders (the home folder, an absolute
-path, `..`, a variable, another machine, a URL that isn't a web page), that hides what it runs
-(decoded text run as code, `eval`, a program from a variable, an alias or function defined in the
-command, escapes, look-alike or invisible letters, text that can't be read), or that has a
+It may settle only a command the shell classifier found nothing in, that starts in the bot's
+folder, runs no file the reviewer would be shown, sets up no standing work and has no concern
+named. With nothing untrusted in view it may settle a read or a write in the folder; with
+untrusted content in view (a command's own output is untrusted, so this is most of a session) only
+a read, above a read threshold of its own, that can reach no other machine (no program that can,
+no URL, host or address in it), so nothing it was shown can be sent anywhere or change anything
+(ADR 0172, amendment 1). It never settles a command that points outside the bot's folders (the
+home folder, an absolute path outside it, `..`, a variable, another machine, a URL that isn't a
+web page), that hides what it runs (decoded text run as code, `eval`, a program from a variable,
+an alias or function defined in the command, an option that runs another program such as
+`rg --pre` or `tar --to-command`, a wrapper that injects the person's secrets such as
+`doppler run`, escapes, look-alike or invisible letters, text that can't be read), or that has a
 program, subcommand or flag never seen in a low-risk training command.
 
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
