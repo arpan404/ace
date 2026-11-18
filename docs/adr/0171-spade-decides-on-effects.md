@@ -275,7 +275,10 @@ close`) has no place either, so the person decides it.
   it, or `drive_site {host}` for the site. An app grant never covers a site and a site grant
   never an app, whatever their words, and a device or simulator is never granted: a page a
   simulator opens (`sim_act open_url`) is the device's, so no site grant covers it or is made
-  from it, though it is still read for where it is. A step a drive grant covers is still reviewed, told the person allowed the app, and the
+  from it, though it is still read for where it is. Every step on a simulator or device goes to
+  the person, whatever the operation and whatever a grant or an Always allow says: a device place
+  is the person's alone by its kind, so an operation added later can't reach the reviewer. A step
+  ace can't hold to its place asks too, even under an Always allow. A step a drive grant covers is still reviewed, told the person allowed the app, and the
   review escalates only a send, a payment, a purchase, an access change or a password, so the
   rest of the session there runs without asking. A drive grant is refused at creation for a
   sensitive place, and one stored by hand covers nothing. The request's always never stores an
