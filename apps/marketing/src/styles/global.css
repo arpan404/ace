@@ -28,7 +28,9 @@
 
   /* The one colour that isn't a status: the drawing's lines and labels, and focus. */
   --line: #8d9bff;
-  --dot: rgb(255 255 255 / 0.13);
+  --dot: rgb(255 255 255 / 0.11);
+  /* The soft light at the top of every page. */
+  --glow: rgb(141 155 255 / 0.11);
   /* A drawn screen's bezel, its hairline and the shadow under it. */
   /* A drawn MacBook's aluminium: its lit top edge, its face, its underside and the lid's rim. */
   --metal-hi: #5c5e63;
@@ -84,7 +86,8 @@ html[data-theme="light"] {
   --focus: #2540ff;
 
   --line: #2540ff;
-  --dot: rgb(16 20 24 / 0.2);
+  --dot: rgb(16 20 24 / 0.17);
+  --glow: rgb(37 64 255 / 0.09);
   --metal-hi: #f1f2f4;
   --metal: #c9cbcf;
   --metal-lo: #8b8d92;
@@ -126,9 +129,20 @@ html {
   background: var(--background);
 }
 
+/*
+ * Every page stands on the same ground: paper with a fine grid of dots, and a soft blue light
+ * falling from the top right. Cards and drawings sit on it; nothing else paints a background.
+ */
 body {
   margin: 0;
-  background: var(--background);
+  background-color: var(--background);
+  background-image:
+    radial-gradient(80rem 38rem at 80% -10rem, var(--glow), transparent 70%),
+    radial-gradient(circle, var(--dot) 1px, transparent 1.6px);
+  background-repeat: no-repeat, repeat;
+  background-size:
+    auto,
+    28px 28px;
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 15px;
@@ -274,6 +288,21 @@ code {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--foreground);
+}
+
+/* The site's one kind of card: a rounded surface on the dotted ground. */
+.card {
+  border: 1px solid var(--border);
+  border-radius: clamp(20px, 3vw, 28px);
+  background: var(--surface);
+}
+
+/* A small blue label in the drawing's own type, for a group's name or a state such as "In beta". */
+.kicker {
+  color: var(--line);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .sr-only {

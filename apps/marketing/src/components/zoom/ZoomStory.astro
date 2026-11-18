@@ -51,8 +51,6 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
 
 <section class="zoom" data-zoom style={`--moves: ${shotOrder.length - 1}`}>
   <div class="stage" data-zoom-stage>
-    <div class="ground" data-zoom-grid></div>
-
     <div class="lens" data-zoom-lens>
     <div class="world" data-zoom-world aria-hidden="true">
       <svg class="links" width="1" height="1">
@@ -187,15 +185,8 @@ const cast = Object.entries(zoomCast) as [CastId, (typeof zoomCast)[CastId]][];
   }
 
   /* Without the script there is no camera: the drawing is left out and the story is its words. */
-  .zoom:not([data-live]) :is(.world, .marks, .ground) {
+  .zoom:not([data-live]) :is(.world, .marks) {
     display: none;
-  }
-
-  .ground {
-    position: absolute;
-    inset: 0;
-    background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.6px);
-    background-size: 28px 28px;
   }
 
   /* What the camera sees. It fades into the page above the captions, so nothing runs under them. */

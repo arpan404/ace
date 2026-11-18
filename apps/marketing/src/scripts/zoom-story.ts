@@ -51,7 +51,6 @@ export function startZoomStory(root: HTMLElement): void {
   const q = (selector: string) => root.querySelector<HTMLElement>(selector);
   const stage = q("[data-zoom-stage]");
   const world = q("[data-zoom-world]");
-  const grid = q("[data-zoom-grid]");
   const hero = q("[data-zoom-hero]");
   const edge = q("[data-zoom-edge]");
   const captions = q("[data-zoom-captions]");
@@ -284,12 +283,6 @@ export function startZoomStory(root: HTMLElement): void {
     const camera = between(from, to, leg.t, size);
     world.style.transform = `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`;
     zoom = camera.scale;
-    if (grid) {
-      // The dotted ground sits far behind the drawing: it grows and slides a fraction as much.
-      const step = 28 * camera.scale ** 0.3;
-      grid.style.backgroundSize = `${step}px ${step}px`;
-      grid.style.backgroundPosition = `${camera.x * 0.18}px ${camera.y * 0.18}px`;
-    }
     for (const label of labels) {
       const box = tops[label.dataset.label ?? ""];
       if (!box) continue;
