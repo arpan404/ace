@@ -37,8 +37,32 @@ target is refused with `machine_not_linked`; the app offers Settings › Fleet t
 The person starts transfers from the app, and agents start them with the `transfer` tool (below).
 The target requires the calling device to hold both `operate` and `projects` (ADR 0063: remote
 admin does not imply projects). A device without them gets `machine_forbidden` with a next step:
-link again with "Projects" allowed. The target's `remote.agentAccess` does not apply to
+allow projects for that link (see "Changing what a link allows" below). The target's `remote.agentAccess` does not apply to
 transfers; they are governed by the setting below.
+
+#### Changing what a link allows (amended 2026-11-18)
+
+Linking two machines in Settings › Fleet now grants `projects` with `operate`, so a new link
+takes the person's work both ways. Links made before this, and links someone narrowed, can
+change without pairing again:
+
+- `fleet.request` `scope` allows or stops allowing one scope (`read`, `operate`, `admin`,
+  `projects`, `accounts`) for a paired device on that machine. It needs `admin` there, like every
+  fleet request. Allowing a scope also needs the caller to hold it, the same ceiling as issuing a
+  pairing link, so an administrator without Projects can't hand Projects out. Local credentials
+  (`desktop`, `user-browser`) never change, and a device keeps at least one scope, since taking
+  away the last one is Remove.
+- The device keeps its id, credential and expiry. Every authority check reads the stored record,
+  so the next transfer call, socket message or lease check sees the new scopes; nothing reconnects.
+- The command is durable (ADR 0057): it carries a `commandId`, and the change and its receipt
+  commit in one transaction. A retry after a lost reply returns the first outcome.
+- A machine's page in Settings › Fleet lists each machine linked to it with "Allow projects" or
+  "Don't allow projects".
+- In "Continue on…" and "Open on…", a machine that doesn't allow projects can be chosen. The step
+  says in one sentence that it doesn't take projects from this machine yet. When the window manages
+  that machine and holds Projects there (or is that machine's own app), it offers "Allow projects
+  on <machine>", sends `scope` through the window's client of that machine, then goes on to the
+  options. Otherwise it offers "Open Settings › Fleet" at that machine's page.
 
 ### Agents
 
