@@ -1038,3 +1038,32 @@ fn on_the_auto_review_a_sealed_plugin_servers_tools_keep_the_sandboxs_decision()
         assert_eq!(route(sealed), Route::Run, "{effect:?}");
     }
 }
+
+#[test]
+fn a_tool_the_person_declined_stays_declined_once_its_server_is_sealed() {
+    use crate::autonomy::Mode;
+    for mode in [Mode::AutoReview, Mode::FullAccess] {
+        // Declined while its server could reach the network...
+        let asked = Call {
+            mode,
+            ..contained_app_tool(None)
+        };
+        assert!(matches!(route(asked), Route::Ask { .. }), "{mode:?}");
+        // ...and still declined once the server runs sealed (offline, no token), where a tool
+        // that declares nothing would otherwise run as the sandbox decides.
+        let sealed = Call {
+            remote: false,
+            ..asked
+        };
+        assert_eq!(route(sealed), Route::Run, "{mode:?}: never asked about");
+        let declined = Call {
+            remembered: Some(false),
+            ..sealed
+        };
+        assert_eq!(
+            route(declined),
+            Route::Refuse(DECLINED_TOOL.to_owned()),
+            "{mode:?}"
+        );
+    }
+}
