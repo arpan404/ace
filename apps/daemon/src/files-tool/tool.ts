@@ -80,7 +80,11 @@ export type FilesToolClient = {
     path: string,
     options?: { signal?: AbortSignal | undefined },
   ): Promise<DescriptionReply>;
-  measure(root: number, path: string, options?: { signal?: AbortSignal | undefined }): Promise<number>;
+  measure(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<number>;
   read(
     root: number,
     path: string,
@@ -103,7 +107,11 @@ export type FilesToolClient = {
     bytes: Uint8Array,
     options?: { signal?: AbortSignal | undefined },
   ): Promise<VersionReply>;
-  createDir(root: number, path: string, options?: { signal?: AbortSignal | undefined }): Promise<void>;
+  createDir(
+    root: number,
+    path: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<void>;
   rename(
     root: number,
     from: string,
@@ -248,7 +256,10 @@ export class FilesTool {
    * Run one task against a checkout's open root. The root is held for the task, so an idle sweep
    * never closes it underneath; a machine without ace-files fails here with `FILES_RESTARTING`.
    */
-  async run<T>(path: string, task: (client: FilesToolClient, root: number) => Promise<T>): Promise<T> {
+  async run<T>(
+    path: string,
+    task: (client: FilesToolClient, root: number) => Promise<T>,
+  ): Promise<T> {
     const client = await this.client();
     return this.#rootBook().use(path, (root) => task(client, root));
   }

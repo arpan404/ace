@@ -87,11 +87,7 @@ export class FilesClient {
     return reply;
   }
 
-  async measure(
-    root: number,
-    path: string,
-    options: FilesRequestOptions = {},
-  ): Promise<number> {
+  async measure(root: number, path: string, options: FilesRequestOptions = {}): Promise<number> {
     const { reply } = await this.#process.request({ op: "measure", root, path }, options);
     if (reply.type !== "measure") throw unexpected("measure", reply);
     return reply.bytes;

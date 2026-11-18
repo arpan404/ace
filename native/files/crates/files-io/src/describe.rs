@@ -103,9 +103,9 @@ fn permissions(metadata: &Metadata) -> u64 {
 
 /// The bytes of the files below `path`, which is what a delete reserves in the trash.
 ///
-/// Like the daemon's walk, `.git` and the daemon's own upload temporaries are left out, a link is
-/// followed only where it stays inside the root, and a link to a file counts its target's size. A
-/// file counts as itself. Anything else counts nothing.
+/// Everything a move would carry counts, git's object store and the daemon's transfer temporaries
+/// included: the trash holds the whole entry. A link is followed only where it stays inside the
+/// root and counts its target's size; a file counts as itself; anything else counts nothing.
 pub fn measure(root: &Root, path: &str) -> Result<u64, Error> {
     if path.is_empty() {
         return measure_folder(root, path, root.dir(), 0);
@@ -167,9 +167,6 @@ fn measure_folder(root: &Root, relative: &str, dir: &Dir, mut bytes: u64) -> Res
         } else {
             format!("{base}/{name}")
         };
-        if skipped(&path) {
-            continue;
-        }
         let folder = &stack[index].dir;
         let metadata = match folder.symlink_metadata(&name) {
             Ok(metadata) => metadata,
@@ -206,12 +203,6 @@ fn names(dir: &Dir) -> Result<Vec<String>, Error> {
         }
     }
     Ok(names)
-}
-
-/// What the daemon leaves out of a walk: git's object store and its own transfer temporaries.
-fn skipped(path: &str) -> bool {
-    path.split('/')
-        .any(|part| part == ".git" || part.starts_with(".ace-upload-"))
 }
 
 fn transient(code: &str) -> bool {
@@ -334,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn measures_a_folder_of_files_and_skips_git_and_upload_temporaries() {
+    fn measures_every_file_a_delete_would_carry() {
         let temp = tempfile::tempdir().expect("temp dir");
         fs::create_dir_all(temp.path().join("docs/nested")).expect("folders");
         fs::create_dir_all(temp.path().join(".git/objects")).expect("git");
@@ -346,7 +337,11 @@ mod tests {
 
         assert_eq!(measure(&root, "docs").expect("measure"), 6);
         assert_eq!(measure(&root, "docs/a.md").expect("measure"), 4);
-        assert_eq!(measure(&root, "").expect("measure"), 6);
+        assert_eq!(
+            measure(&root, "").expect("measure"),
+            6 + 9 + 7,
+            "git's objects and the transfer temporaries move into the trash too"
+        );
     }
 
     #[test]

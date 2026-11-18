@@ -211,8 +211,7 @@ export class FilesService {
       guard();
       return listing;
     }
-    if (operation.op === "read")
-      return readPart(this.workspaceIo, this.safe.root, operation);
+    if (operation.op === "read") return readPart(this.workspaceIo, this.safe.root, operation);
     if (operation.op === "stat") {
       const description = await this.lifetime.walk((signal) =>
         this.workspaceIo.describe(this.safe.root, operation.path, { signal }),

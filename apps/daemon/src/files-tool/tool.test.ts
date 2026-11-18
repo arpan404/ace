@@ -102,7 +102,8 @@ class FakeClient implements FilesToolClient {
     throw new Error("the fake lists folders, it does not remove");
   }
 
-  indexQuery(_root: number, _query: string, limit: number) {    this.indexLimits.push(limit);
+  indexQuery(_root: number, _query: string, limit: number) {
+    this.indexLimits.push(limit);
     return Promise.resolve({
       type: "index" as const,
       hits: [],

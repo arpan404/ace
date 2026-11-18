@@ -1,4 +1,10 @@
-import { FileError, type Description, type EntryKind, type FilesIo, type WalkEntry } from "@ace/files";
+import {
+  FileError,
+  type Description,
+  type EntryKind,
+  type FilesIo,
+  type WalkEntry,
+} from "@ace/files";
 import { FilesRequestError } from "@ace/files-native";
 import { filesListDefaults } from "@ace/files-native/client";
 import { FilesTool, type FilesToolClient } from "./tool.ts";
@@ -52,9 +58,7 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
     async write(root, path, bytes, expected) {
       try {
         const reply = await run(root, (client, number) =>
-          client.write(number, path, bytes, {
-            ...(expected === null ? {} : { expected }),
-          }),
+          client.write(number, path, bytes, expected === null ? {} : { expected }),
         );
         return reply.version;
       } catch (error) {
@@ -84,8 +88,9 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
     },
     async *walk(root, path, options = {}): AsyncGenerator<WalkEntry> {
       const pending: string[] = [path];
-      while (pending.length) {
-        const dir = pending.shift() ?? "";
+      let next = 0;
+      while (next < pending.length) {
+        const dir = pending[next++] ?? "";
         let cursor: string | undefined;
         do {
           const page = await tool.listFolder(root, dir, {

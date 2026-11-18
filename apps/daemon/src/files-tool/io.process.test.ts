@@ -1,6 +1,7 @@
 // Reason: a client must see byte-identical replies whether ace-files or the TypeScript path answers
 // its file operations, and only two real services over one real checkout prove that.
 import { mkdir, mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -51,7 +52,8 @@ function failure(answer: Answer): { code: string; current: string | null } {
   return answer;
 }
 
-function answer(error: unknown): Answer {
+/** A failure in the shape the comparisons use. */
+function failed(error: unknown): Answer {
   return {
     ok: false,
     code: error instanceof Error && "code" in error ? String(error.code) : "UNKNOWN",
@@ -66,10 +68,72 @@ function collected(): number {
   return process.memoryUsage().rss;
 }
 
+async function preview(
+  target: FilesService,
+  path: string,
+): Promise<{ previewId: string; bytes: number; entries: number; format: string }> {
+  return (await target.request("owner", {
+    op: "archive.preview",
+    path,
+    includeIgnored: false,
+  })) as {
+    previewId: string;
+    bytes: number;
+    entries: number;
+    format: string;
+  };
+}
+
+/** The tar's members, by name, so two archives compare whatever order they were written in. */
+async function archiveMembers(
+  target: FilesService,
+  previewId: string,
+): Promise<Map<string, string>> {
+  const archive = await target.download("owner", { op: "archive.download", previewId });
+  const tar = gunzipSync(await drain(archive));
+  const found = new Map<string, string>();
+  for (let offset = 0; offset + 512 <= tar.length;) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name = header.subarray(0, 100).toString().replaceAll("\0", "");
+    const size = Number.parseInt(
+      header.subarray(124, 136).toString().replaceAll("\0", "").trim() || "0",
+      8,
+    );
+    found.set(name, tar.subarray(offset + 512, offset + 512 + size).toString());
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  return found;
+}
+
 async function drain(download: Download): Promise<Buffer> {
   const parts: Buffer[] = [];
   for await (const part of download.chunks) parts.push(part);
   return Buffer.concat(parts);
+}
+
+/** A service over one checkout: `workspaceIo` left out means the TypeScript path answers. */
+function service(workspace: string, dataDir: string, options: object = {}): Promise<FilesService> {
+  return FilesService.create({
+    workspace,
+    dataDir,
+    now: Date.now,
+    id: () => crypto.randomUUID(),
+    authorize: () => true,
+    ...options,
+  });
+}
+
+function ask(target: FilesService, operation: unknown): Promise<Answer> {
+  return target
+    .request("owner", operation)
+    .then((result) => ({ ok: true as const, value: result as Record<string, unknown> }), failed);
+}
+
+function openDownload(target: FilesService, operation: unknown): Promise<Answer> {
+  return target
+    .download("owner", operation)
+    .then((opened) => ({ ok: true as const, value: { ...opened, chunks: undefined } }), failed);
 }
 
 describe.skipIf(!binary)("the daemon's file operations answered by ace-files", () => {
@@ -78,28 +142,6 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
   let root = "";
   let local: FilesService;
   let native: FilesService;
-
-  const service = (workspace: string, dataDir: string, options: object = {}) =>
-    FilesService.create({
-      workspace,
-      dataDir,
-      now: Date.now,
-      id: () => crypto.randomUUID(),
-      authorize: () => true,
-      ...options,
-    });
-
-  const ask = (target: FilesService, operation: unknown): Promise<Answer> =>
-    target.request("owner", operation).then(
-      (result) => ({ ok: true as const, value: result as Record<string, unknown> }),
-      answer,
-    );
-
-  const download = (target: FilesService, operation: unknown): Promise<Answer> =>
-    target.download("owner", operation).then(
-      (opened) => ({ ok: true as const, value: { ...opened, chunks: undefined } }),
-      answer,
-    );
 
   /** The same request through both services, one after the other: replies must be equal. */
   async function both(operation: unknown): Promise<Answer> {
@@ -111,8 +153,8 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
 
   /** The same download request through both services: replies must be equal. */
   async function bothDownloads(operation: unknown): Promise<Answer> {
-    const byTs = await download(local, operation);
-    const byRust = await download(native, operation);
+    const byTs = await openDownload(local, operation);
+    const byRust = await openDownload(native, operation);
     expect(byRust).toEqual(byTs);
     return byRust;
   }
@@ -195,10 +237,12 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
   });
 
   it("creates and writes with the reply the TypeScript path gives", async () => {
-    expect(value(await ask(local, { op: "create", path: "fresh.md", expected: null, text: "one\n" })))
-      .toMatchObject(recorded.created);
-    expect(value(await ask(native, { op: "create", path: "native.md", expected: null, text: "one\n" })))
-      .toMatchObject({ ...recorded.created, path: "native.md" });
+    expect(
+      value(await ask(local, { op: "create", path: "fresh.md", expected: null, text: "one\n" })),
+    ).toMatchObject(recorded.created);
+    expect(
+      value(await ask(native, { op: "create", path: "native.md", expected: null, text: "one\n" })),
+    ).toMatchObject({ ...recorded.created, path: "native.md" });
     expect(await readFile(join(root, "fresh.md"), "utf8")).toBe("one\n");
     expect(await readFile(join(root, "native.md"), "utf8")).toBe("one\n");
 
@@ -283,7 +327,12 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
       await writeFile(join(root, path), "keep me\n");
       const expected = await version(path);
       const deleted = value(await ask(target, { op: "delete", path, expected }));
-      expect(deleted).toMatchObject({ op: "delete", path, version: null, trashId: expect.any(String) });
+      expect(deleted).toMatchObject({
+        op: "delete",
+        path,
+        version: null,
+        trashId: expect.any(String),
+      });
       await expect(readFile(join(root, path))).rejects.toMatchObject({ code: "ENOENT" });
 
       const trash = (await target.request("owner", { op: "trash.list" })) as {
@@ -312,9 +361,7 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     const stale = await version("trash-rust.md");
     await writeFile(join(root, "trash-rust.md"), "changed\n");
     try {
-      const refused = failure(
-        await both({ op: "delete", path: "trash-rust.md", expected: stale }),
-      );
+      const refused = failure(await both({ op: "delete", path: "trash-rust.md", expected: stale }));
       expect(refused.code).toBe("CONFLICT");
       expect(refused).toMatchObject({ current: versioned });
     } finally {
@@ -329,9 +376,9 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     ]) {
       expect(failure(await both(operation))).toMatchObject({ code: "PATH_ESCAPE" });
     }
-    expect(failure(await bothDownloads({ op: "download", path: "escape", offset: 0 }))).toMatchObject(
-      { code: "PATH_ESCAPE" },
-    );
+    expect(
+      failure(await bothDownloads({ op: "download", path: "escape", offset: 0 })),
+    ).toMatchObject({ code: "PATH_ESCAPE" });
     expect(
       failure(await both({ op: "write", path: "escape", expected: null, text: "x" })),
     ).toMatchObject({ code: "PATH_ESCAPE" });
@@ -362,6 +409,60 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     expect(largest).toBeLessThanOrEqual(64 * 1024);
     expect(mid - before).toBeLessThan(16 * 1024 * 1024);
     expect(collected() - before).toBeLessThan(16 * 1024 * 1024);
+  });
+
+  it("deletes a folder into recently-deleted with the same reserved bytes", async () => {
+    for (const name of ["gone-ts", "gone-rust"]) {
+      await mkdir(join(root, name, ".git"), { recursive: true });
+      await mkdir(join(root, name, "nested"));
+      await writeFile(join(root, name, "a.md"), "aaaa");
+      await writeFile(join(root, name, ".git", "objects"), "git");
+      await writeFile(join(root, name, "nested", "b.md"), "bb");
+    }
+    for (const [target, path] of [
+      [local, "gone-ts"],
+      [native, "gone-rust"],
+    ] as const) {
+      const deleted = value(
+        await ask(target, { op: "delete", path, expected: await version(path) }),
+      );
+      expect(deleted).toMatchObject({
+        op: "delete",
+        path,
+        version: null,
+        trashId: expect.any(String),
+      });
+      const trash = (await target.request("owner", { op: "trash.list" })) as {
+        entries: { id: string; path: string; size: number }[];
+      };
+      expect(trash.entries).toContainEqual({
+        id: String(deleted.trashId),
+        path,
+        size: 9,
+        version: expect.any(String),
+        expires: expect.any(Number),
+      });
+      await target.request("owner", {
+        op: "restore",
+        trashId: String(deleted.trashId),
+        path,
+        expected: null,
+      });
+      expect(await readFile(join(root, path, "nested", "b.md"), "utf8")).toBe("bb");
+    }
+  });
+
+  it("previews and downloads a folder archive with the same members", async () => {
+    const byTs = await preview(local, "docs");
+    const byRust = await preview(native, "docs");
+    expect(byRust).toMatchObject({
+      bytes: byTs.bytes,
+      entries: byTs.entries,
+      format: byTs.format,
+    });
+    expect(await archiveMembers(native, byRust.previewId)).toEqual(
+      await archiveMembers(local, byTs.previewId),
+    );
   });
 
   it("fails retryably when this machine has no ace-files", async () => {

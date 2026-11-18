@@ -82,7 +82,11 @@ export class Mutations {
         // Replacing a target must never permanently discard it. Move to an absent path only.
         if (operation.destinationExpected !== null) {
           const target = await this.io.describe(root, operation.destination);
-          throw new FileError("CONFLICT", "Move destination must be absent", target?.version ?? null);
+          throw new FileError(
+            "CONFLICT",
+            "Move destination must be absent",
+            target?.version ?? null,
+          );
         }
         await this.io.move(root, operation.path, operation.destination);
         destination = operation.destination;

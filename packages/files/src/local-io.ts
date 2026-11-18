@@ -4,14 +4,13 @@ import { randomUUID } from "node:crypto";
 import { PinnedDirectory, GitIgnore, walkWorkspace, type SafeRoot } from "@ace/workspace";
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 import { atomicWrite, observed, treeVersion } from "./filesystem.ts";
-import type {
-  Description,
-  EntryKind,
-  FilesIo,
-  SafeRootSource,
-  ReadBytes,
-} from "./io.ts";
+import type { Description, EntryKind, FilesIo, SafeRootSource, ReadBytes } from "./io.ts";
 import { codeOf, FileError, version } from "./types.ts";
+
+/** A staging name for one save; `files-io` names its own copies the same way. */
+function stagingId(): string {
+  return randomUUID().replaceAll("-", "").slice(0, 24);
+}
 
 /** A path that is not there: the caller decides whether that is `null` or a failure. */
 function absent(error: unknown): boolean {
@@ -61,7 +60,6 @@ export function localFilesIo(
   safeRoot: SafeRootSource,
   exclusive: ExclusiveRename = createExclusiveRename(),
 ): FilesIo {
-  const stagingId = () => randomUUID().replaceAll("-", "").slice(0, 24);
   return {
     async describe(root, path, options = {}): Promise<Description | null> {
       const safe = await safeRoot(root);
@@ -124,8 +122,7 @@ export function localFilesIo(
     },
     async write(root, path, bytes, expected) {
       const safe = await safeRoot(root);
-      const id = stagingId();
-      await atomicWrite(safe, path, expected, bytes, id, exclusive);
+      await atomicWrite(safe, path, expected, bytes, stagingId(), exclusive);
       const current = await observed(safe, path);
       if (current === null) throw new FileError("NOT_FOUND", "The saved file vanished");
       return current;
@@ -146,8 +143,7 @@ export function localFilesIo(
       const safe = await safeRoot(root);
       if (from === to) throw new FileError("INVALID_PATH", "Source equals destination");
       const source = await mutationTarget(safe, from);
-      if (process.platform === "win32" && (await caseOnlyRename(safe, from, to, source)))
-        return;
+      if (process.platform === "win32" && (await caseOnlyRename(safe, from, to, source))) return;
       const destination = await mutationTarget(safe, to);
       await source.verify();
       await destination.verify();
