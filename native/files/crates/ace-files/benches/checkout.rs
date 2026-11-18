@@ -5,7 +5,12 @@
 //! Run with `cargo bench -p ace-files --bench checkout`; `-- --files 100000` measures a tenth of
 //! the tree for a quick check, `-- --dir PATH` picks where the tree lives (or set
 //! `ACE_FILES_BENCH_DIR`), and `-- --regenerate` replaces a tree at that path. The tree is left
-//! behind for the next run: the marker it ends with is what says it is complete.
+//! behind for the next run: the completion marker it ends with is what says it is complete, and
+//! the ownership marker written first is what lets a later run replace it.
+//!
+//! A run only ever empties a folder it created, or an empty one: `--regenerate` refuses a
+//! non-empty `--dir` that does not carry the bench's ownership marker, and refuses a `--dir` that
+//! is a symlink. `--files` must be at least one.
 //!
 //! Everything is measured over the wire against the release binary: the first folder page, the
 //! quick-open index, a literal content search sized to two gigabytes, watcher latency and a burst
@@ -33,6 +38,7 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, SystemTime};
 
 use report::Report;
 use units::{megabytes, thousands};
@@ -74,6 +80,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         ),
     );
     report.fact("load", load_average());
+    report.fact("memory", memory());
+    report.fact("cache", cache_conditions(&tree));
     report.fact("machine", machine());
     report.fact("binary", binary.display().to_string());
 
@@ -118,7 +126,11 @@ impl Options {
                         .map_err(|error| format!("--files {value}: {error}"))?;
                 }
                 "--dir" => {
-                    options.dir = PathBuf::from(args.next().ok_or("--dir needs a path")?);
+                    let value = args.next().ok_or("--dir needs a path")?;
+                    if value.is_empty() {
+                        return Err("--dir needs a path".into());
+                    }
+                    options.dir = PathBuf::from(value);
                 }
                 "--json" => {
                     options.json = PathBuf::from(args.next().ok_or("--json needs a path")?);
@@ -134,6 +146,9 @@ impl Options {
                 }
                 other => return Err(format!("unknown argument {other}").into()),
             }
+        }
+        if options.files == 0 {
+            return Err("--files needs at least one file".into());
         }
         Ok(options)
     }
@@ -191,4 +206,76 @@ fn machine() -> String {
     } else {
         format!("{cpu}, {cores} cores")
     }
+}
+
+/// How warm the OS's cache should be for this run, as far as the bench can say: a tree it just
+/// wrote is warm, and a reused tree is as old as its completion marker.
+fn cache_conditions(tree: &tree::Tree) -> String {
+    if tree.generated {
+        return "warm: this run wrote every file".to_owned();
+    }
+    let Some(completed) = tree.completed else {
+        return "reused: when the tree was written is unknown".to_owned();
+    };
+    match SystemTime::now().duration_since(completed) {
+        Ok(age) => format!("reused: files last written {} ago", age_phrase(age)),
+        Err(_) => "reused: the marker's time is in the future".to_owned(),
+    }
+}
+
+/// A short way to say an age, in the unit a person would use.
+fn age_phrase(age: Duration) -> String {
+    let seconds = age.as_secs();
+    if seconds < 120 {
+        format!("{seconds} s")
+    } else if seconds < 2 * 60 * 60 {
+        format!("{} min", seconds / 60)
+    } else if seconds < 2 * 24 * 60 * 60 {
+        format!("{} h", seconds / 3600)
+    } else {
+        format!("{} days", seconds / 86_400)
+    }
+}
+
+/// Free and inactive memory in MiB, the two numbers that say whether the OS has cache to spare.
+fn memory() -> String {
+    match memory_mib() {
+        Some((free, inactive)) => format!("{free} MiB free, {inactive} MiB inactive"),
+        None => "unknown".to_owned(),
+    }
+}
+
+/// Free and inactive memory in MiB, from `vm_stat`'s page counts.
+fn memory_mib() -> Option<(u64, u64)> {
+    let page = sysctl_number("hw.pagesize")?;
+    let output = Command::new("vm_stat").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut free = None;
+    let mut inactive = None;
+    for line in text.lines() {
+        let Some((label, value)) = line.split_once(':') else {
+            continue;
+        };
+        let Ok(pages) = value.trim().trim_end_matches('.').parse::<u64>() else {
+            continue;
+        };
+        match label.trim() {
+            "Pages free" => free = Some(pages.saturating_mul(page) / (1024 * 1024)),
+            "Pages inactive" => inactive = Some(pages.saturating_mul(page) / (1024 * 1024)),
+            _ => {}
+        }
+    }
+    Some((free?, inactive?))
+}
+
+/// One integer from `sysctl`.
+fn sysctl_number(name: &str) -> Option<u64> {
+    let output = Command::new("sysctl").args(["-n", name]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }

@@ -27,10 +27,22 @@ pub fn thousands(count: usize) -> String {
     grouped
 }
 
-/// The `percent`-th sample of a run, in milliseconds.
+/// The `percent`-th sample of a run, in milliseconds, by nearest rank: the smallest sample that at
+/// least `percent`% of the run is at or below.
+///
+/// Panics on an empty run, because a percentile of no samples is not a number, and on a percentage
+/// outside 1..=100.
 pub fn percentile(samples: &[Duration], percent: usize) -> f64 {
+    assert!(
+        !samples.is_empty(),
+        "a percentile needs at least one sample"
+    );
+    assert!(
+        (1..=100).contains(&percent),
+        "a percentile is a percentage, not {percent}"
+    );
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
-    let last = sorted.len().saturating_sub(1);
-    millis(sorted[(sorted.len() * percent / 100).min(last)])
+    let rank = (sorted.len() * percent).div_ceil(100);
+    millis(sorted[rank - 1])
 }
