@@ -17,6 +17,7 @@ class FakeWorker implements WorkerPort {
   failDeploy = false;
   failRollback = false;
   blindAfterDeploy = false;
+  staleReads = 0;
   #next = 0;
 
   constructor(live: VersionInfo | Live | undefined) {
@@ -28,8 +29,13 @@ class FakeWorker implements WorkerPort {
     }
   }
 
+  #beforeDeploy: Live | undefined;
   async live() {
     if (this.blindAfterDeploy && this.#next > 0) throw new Error("API unavailable");
+    if (this.#beforeDeploy && this.staleReads > 0) {
+      this.staleReads -= 1;
+      return this.#beforeDeploy;
+    }
     return this.current;
   }
   async applyMigrations(binding: string) {
@@ -42,6 +48,7 @@ class FakeWorker implements WorkerPort {
     const version = { id: `new-${this.#next}`, tag: next.tag, message: next.message };
     this.versions.set(version.id, version);
     this.migratedWhenDeployed = [...this.migrated];
+    this.#beforeDeploy = this.current;
     this.current = { kind: "single", version };
   }
   async rollback(versionId: string) {
@@ -157,6 +164,22 @@ describe("a Worker release", () => {
     const worker = new FakeWorker(old);
     worker.blindAfterDeploy = true;
     const result = await runDeploy(input(), deps(worker, new Set(["old"])));
+    expect(result.code).toBe(exitCodes.rolledBack);
+    expect(worker.liveId).toBe("old");
+  });
+
+  it("waits out a lagging status read after a deploy that reported success", async () => {
+    const worker = new FakeWorker(old);
+    worker.staleReads = 1;
+    const result = await runDeploy(input(), deps(worker, new Set(["new-1"])));
+    expect(result.code).toBe(exitCodes.deployed);
+    expect(worker.liveId).toBe("new-1");
+  });
+
+  it("never reports a deploy that reported success as unchanged", async () => {
+    const worker = new FakeWorker(old);
+    worker.staleReads = 5;
+    const result = await runDeploy(input(), deps(worker, new Set(["old", "new-1"])));
     expect(result.code).toBe(exitCodes.rolledBack);
     expect(worker.liveId).toBe("old");
   });

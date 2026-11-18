@@ -120,9 +120,11 @@ async function rollBack(
 }
 
 /**
- * What the deploy left live. If Cloudflare can't be asked, a deploy that reported success is
- * taken as live (and smoked), and one that failed as unknown (and rolled back): never as
- * unchanged, which would leave an unsmoked version serving.
+ * What the deploy left live. "Unchanged" only when the deploy failed and the previous version
+ * still serves: a deploy that reported success is re-read once (the API can lag), and if it
+ * still shows the previous version it is treated as unknown and rolled back to that version. If
+ * Cloudflare can't be asked, a deploy that reported success is taken as live (and smoked), one
+ * that failed as unknown. Never unchanged while an unsmoked version might serve.
  */
 async function afterDeploy(
   input: RunInput,
@@ -131,7 +133,11 @@ async function afterDeploy(
   deployError: string | undefined,
 ): Promise<AfterDeploy> {
   try {
-    return readAfterDeploy(await deps.port.live(), previous, input.release);
+    const first = readAfterDeploy(await deps.port.live(), previous, input.release);
+    if (first.state !== "unchanged" || deployError !== undefined) return first;
+    await deps.sleep(settle(deps));
+    const again = readAfterDeploy(await deps.port.live(), previous, input.release);
+    return again.state === "unchanged" ? { state: "unknown" } : again;
   } catch (error) {
     deps.log(`couldn't read what serves after the deploy: ${describe(error)}`);
     return deployError === undefined
