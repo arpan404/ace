@@ -103,6 +103,19 @@ export async function revokeDevice(client: ClientApi, deviceId: string): Promise
   await fleet(client, { op: "revoke", deviceId });
 }
 
+/**
+ * Allow or stop allowing `scope` for a device paired with that machine; its credential stays
+ * (ADR 0101). The command id makes a retry answer the first outcome.
+ */
+export async function setDeviceScope(
+  client: ClientApi,
+  change: { deviceId: string; scope: "projects"; allowed: boolean; commandId: string },
+): Promise<Device> {
+  const result = await fleet(client, { op: "scope", ...change });
+  if (result.kind !== "scoped") throw new Error("That machine didn't change the device.");
+  return result.device;
+}
+
 export type { LinkAccess } from "@ace/ui-core";
 
 const pairingProblem = (error: unknown, machine: Machine) =>
