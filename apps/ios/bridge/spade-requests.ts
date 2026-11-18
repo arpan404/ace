@@ -1,5 +1,5 @@
 import type { ClientCore } from "@ace/client";
-import { SpadeRequestError } from "@ace/ui-core/spade-chat";
+import { SpadeRequestError, parseSpadeEvents } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import {
   SpadeDraftWire,
@@ -43,6 +43,15 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
       z.object({ dismiss: z.literal(true) }),
     ]),
   }),
+  /**
+   * A sent card still not settled a while on: read the conversation's events since the last one
+   * shown, so an update the live stream missed still arrives.
+   */
+  z.object({
+    type: z.literal("spade.question.read"),
+    conversationId,
+    callId: z.string().min(1).max(256),
+  }),
   z.object({ type: z.literal("spade.enable") }),
 ]);
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
@@ -64,7 +73,7 @@ export async function answerSpade(
   deps: { id(): string },
   signal: AbortSignal,
 ): Promise<Outcome> {
-  const ask = (method: "POST" | "PUT", route: string, body?: unknown) =>
+  const ask = (method: "GET" | "POST" | "PUT", route: string, body?: unknown) =>
     spadeText(owner, deps.id, method, route, body, signal);
   switch (request.type) {
     case "spade.send":
@@ -95,6 +104,8 @@ export async function answerSpade(
       return question(spade, request, (body) =>
         ask("POST", `${path(request.conversationId)}/questions/${segment(request.callId)}`, body),
       );
+    case "spade.question.read":
+      return readBack(spade, request.conversationId, (route) => ask("GET", route));
     case "spade.enable":
       return enable(owner, spade, signal);
   }
@@ -127,6 +138,32 @@ async function question(
     const said = refused("", error);
     const at = open ? spadeRefusedAt(open, said.message) : undefined;
     return at === undefined ? said : { ...said, at };
+  }
+}
+
+/**
+ * The open conversation's events after the last one shown, folded in. Not open, there is nothing
+ * to correct: it is read afresh when it opens.
+ */
+async function readBack(
+  spade: NativeSpade,
+  conversation: string,
+  read: (route: string) => Promise<string>,
+): Promise<Outcome> {
+  const follow = spade.follow(conversation);
+  if (!follow) return { ok: true };
+  try {
+    for (;;) {
+      const after = follow.lastSeq;
+      const page = parseSpadeEvents(
+        await read(`${path(conversation)}/events?after=${after}&limit=200`),
+      );
+      if (!page) return { ok: false, title: "", message: "Couldn't read the conversation." };
+      for (const stored of page) follow.apply({ kind: "stored", stored });
+      if (page.length < 200 || follow.lastSeq === after) return { ok: true };
+    }
+  } catch (error) {
+    return refused("Couldn't read the conversation", error);
   }
 }
 

@@ -289,7 +289,7 @@ async function asked(questions: Record<string, unknown>[]) {
   const reply = (body: Extract<NativeSpadeRequest, { type: "spade.question" }>["reply"]) =>
     set.ask({ type: "spade.question", conversationId: conversation, callId: "q1", reply: body });
   const posted = () => set.api.sent("POST", `/v1/conversations/${conversation}/questions/q1`);
-  return { ...set, card, reply, posted };
+  return { ...set, card, reply, posted, conversation };
 }
 
 const trip = [
@@ -332,6 +332,31 @@ test("a card of questions waits with each question's inputs, and its answers set
   expect(posted()).toEqual([{ answers: ["Porto", 3] }]);
   await until(() => card()?.standing === "settled");
   expect(card()).toMatchObject({ answers: ["Porto", "3 nights"], line: null });
+});
+
+test("a card whose settling update was missed settles once the phone reads it back", async () => {
+  const { card, reply, ask, api, conversation } = await asked(trip);
+  api.missQuestionSettles = true;
+
+  expect(
+    await reply({
+      drafts: [
+        { kind: "picks", picked: ["Porto"], other: "" },
+        { kind: "field", text: "3" },
+      ],
+    }),
+  ).toEqual({ ok: true });
+  // Spade stored the answer, but the live stream never said so.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(card()?.standing).toBe("open");
+
+  expect(
+    await ask({ type: "spade.question.read", conversationId: conversation, callId: "q1" }),
+  ).toEqual({
+    ok: true,
+  });
+  await until(() => card()?.standing === "settled");
+  expect(card()).toMatchObject({ answers: ["Porto", "3 nights"] });
 });
 
 test("a card missing an answer never reaches Spade and names the question that needs it", async () => {

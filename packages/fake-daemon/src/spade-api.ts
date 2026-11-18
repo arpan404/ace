@@ -69,6 +69,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       held.resolve();
     };
   }
+  /** True: a card's settling event is stored but never sent live, so a follower misses it. */
+  missQuestionSettles = false;
   /** Settlements of question cards accepted while `holdQuestionSettles` holds them. */
   private heldSettles: (() => void)[] | undefined;
 
@@ -219,11 +221,17 @@ export class FakeSpadeApi implements FakeSpadeServer {
 
   /** Stores an event in a conversation and sends it to its live streams. */
   store(conversation: string, event: Json): void {
+    const stored = this.keep(conversation, event);
+    this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+  }
+
+  /** Stores an event without sending it live, as a stream that fell behind would miss it. */
+  private keep(conversation: string, event: Json): Json {
     const list = this.events.get(conversation) ?? [];
     const stored = { seq: list.length + 1, at: this.now(), event };
     list.push(stored);
     this.events.set(conversation, list);
-    this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
+    return stored;
   }
 
   /** The agent's state and its few words, on its row and its live stream. */
@@ -901,15 +909,17 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (body.defer !== true && body.dismiss !== true && !Array.isArray(body.answers))
         return problem(400, "Send exactly one of answers, defer or dismiss.");
       const settle = () => {
-        if (body.defer === true) this.store(id, { type: "question_deferred", call_id: subId });
+        const put = (event: Json) =>
+          this.missQuestionSettles ? this.keep(id, event) : this.store(id, event);
+        if (body.defer === true) put({ type: "question_deferred", call_id: subId });
         else if (body.dismiss === true)
-          this.store(id, {
+          put({
             type: "question_dismissed",
             call_id: subId,
             late: deferred || undefined,
           });
         else
-          this.store(id, {
+          put({
             type: "question_answered",
             call_id: subId,
             answers: body.answers,
