@@ -204,10 +204,18 @@ describe("asked again", () => {
     });
     c.stored({ type: "step_finished", reply: "r1", text: "The review stopped me." });
     c.stored({ type: "reply_finished", reply: "r1", text: "The review stopped me." });
-    expect(lines(c)).toEqual(["bot: The review stopped me."]);
+    expect(lines(c)).toEqual(["bot: The review stopped me.", "steps"]);
+    const steps = spadeBubbles(c.view()).find((bubble) => bubble.kind === "steps");
+    expect(steps?.kind === "steps" && steps.summary).toBe("Ran a command, didn't run a command");
+    expect(
+      steps?.kind === "steps" && steps.steps.map((step) => [step.detail, step.meta, step.notable]),
+    ).toEqual([
+      ["gh pr view 2076", [], false],
+      ["gh pr comment 2076", ["The review refused it: you asked about #2081, not #2076"], true],
+    ]);
   });
 
-  test("a step the review allowed leaves nothing in the chat", () => {
+  test("a step the review allowed folds into the quiet steps line", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "step_finished", reply: "r1", text: "", calls: [{ id: "a", name: "shell" }] });
@@ -222,7 +230,9 @@ describe("asked again", () => {
     });
     c.stored({ type: "tool_finished", reply: "r1", call_id: "a", name: "shell" });
     c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
-    expect(lines(c)).toEqual(["bot: Done."]);
+    expect(lines(c)).toEqual(["bot: Done.", "steps"]);
+    const steps = spadeBubbles(c.view()).find((bubble) => bubble.kind === "steps");
+    expect(steps?.kind === "steps" && steps.steps.map((step) => step.notable)).toEqual([false]);
   });
 
   test("the card asked again says so and leads with what was refused before", () => {

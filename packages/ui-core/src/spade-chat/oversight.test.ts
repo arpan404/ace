@@ -306,7 +306,7 @@ describe("the chat", () => {
     c.stored({ type: "step_finished", reply: "r1", text: "Saved your plan." });
     c.stored({ type: "reply_finished", reply: "r1", text: "Saved your plan." });
     expect(
-      c.bubbles().map((bubble) => (bubble.kind === "bot" ? [bubble.text, bubble.files] : [])),
+      c.bubbles().flatMap((bubble) => (bubble.kind === "bot" ? [[bubble.text, bubble.files]] : [])),
     ).toEqual([
       ["Writing it down.", undefined],
       ["Saved your plan.", ["notes/plan.md"]],

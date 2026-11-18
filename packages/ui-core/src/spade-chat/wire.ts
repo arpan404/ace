@@ -30,6 +30,14 @@ const files = z
 
 export type { SpadeImageRef } from "./media.ts";
 
+/** A host Spade's network policy refused a command (`command_ran`), with why. */
+const refusedHost = z.object({
+  host: z.string().min(1),
+  port: z.number().int().nonnegative().catch(0),
+  reason: z.string().catch(""),
+});
+export type SpadeRefusedHost = z.infer<typeof refusedHost>;
+
 /** The stored event types the person's view reads. Anything else is kept as `unknown`. */
 const known = z.discriminatedUnion("type", [
   z.object({
@@ -125,7 +133,14 @@ const known = z.discriminatedUnion("type", [
     allowed: z.boolean(),
     always: z.boolean().optional(),
   }),
-  z.object({ type: z.literal("tool_started"), reply, call_id: z.string(), name: z.string() }),
+  z.object({
+    type: z.literal("tool_started"),
+    reply,
+    call_id: z.string(),
+    name: z.string(),
+    /** How much the call could change (`read`, `write`, `memory`, `destructive`); missing from older events. */
+    risk: z.string().nullish().catch(undefined),
+  }),
   z.object({
     type: z.literal("tool_finished"),
     reply,
@@ -146,6 +161,36 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string().optional(),
     images: spadeImageList,
     documents: spadeDocumentList,
+  }),
+  /**
+   * Where a command ran and how, stored right after its `tool_finished` (harness.md): whether
+   * Spade's sandbox held it, its exit, and the hosts it reached and its network policy refused.
+   * A host this client can't read is left out; the step still shows.
+   */
+  z.object({
+    type: z.literal("command_ran"),
+    reply,
+    call_id: z.string(),
+    contained: z.boolean().optional().catch(undefined),
+    exit_code: z.number().int().nullish().catch(undefined),
+    timed_out: z.boolean().catch(false).default(false),
+    reached: z
+      .array(z.unknown())
+      .nullish()
+      .catch(undefined)
+      .transform((list) =>
+        (list ?? []).filter((host): host is string => typeof host === "string" && host !== ""),
+      ),
+    refused: z
+      .array(z.unknown())
+      .nullish()
+      .catch(undefined)
+      .transform((list) =>
+        (list ?? []).flatMap((each) => {
+          const parsed = refusedHost.safeParse(each);
+          return parsed.success ? [parsed.data] : [];
+        }),
+      ),
   }),
   /**
    * The bot asked the person a card of questions (ADR 0128, 0154). `question` is the prompts,

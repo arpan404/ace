@@ -70,7 +70,7 @@ describe("what a bot remembered", () => {
     expect(c.bubbles()).toEqual(["bot: Noted.", "remembered: Prefers aisle seats"]);
   });
 
-  test("a note that already existed, a failed save and other tools show nothing", () => {
+  test("a note that already existed, a failed save and other tools show no note", () => {
     for (const [name, content, error] of [
       ["memory_save", JSON.stringify({ exists: { id: "n_4", text: "Window", shared: false } })],
       [
@@ -84,7 +84,10 @@ describe("what a bot remembered", () => {
       const c = conversation();
       c.stored({ type: "reply_started", reply: "r1" });
       saved(c, name, content, error === true);
-      expect(c.bubbles()).toEqual(["bot: Noted."]);
+      // Its notes tools are never steps; any other tool is.
+      expect(c.bubbles()).toEqual(
+        name === "web_search" ? ["bot: Noted.", "steps"] : ["bot: Noted."],
+      );
     }
   });
 });

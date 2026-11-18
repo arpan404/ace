@@ -539,7 +539,7 @@ test("a job's end reads above the words that answer it", () => {
 });
 
 describe("the conversation as a chat", () => {
-  test("bubbles show both sides' words, each step's words its own bubble, nothing of tools, jobs or compaction", () => {
+  test("bubbles show both sides' words, each step's words its own bubble, its tools folded into one line, nothing of jobs or compaction", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Find me a flight" });
     c.stored({ type: "reply_started", reply: "r1" });
@@ -584,12 +584,14 @@ describe("the conversation as a chat", () => {
     ).toEqual([
       "person: Find me a flight",
       "bot: Looking.",
+      // Its search, under the words it said with it; the job's result carries the reply on.
+      "steps",
       "bot: The 9:40 is cheapest.",
       "Travel: Booked it for you.",
     ]);
   });
 
-  test("each step's words is its own bubble, in order, and no steps line stays once the reply ends", () => {
+  test("each step's words is its own bubble, in order, with its steps folded under the last", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     for (const [index, text] of ["First.", "Second.", "Third."].entries()) {
@@ -604,13 +606,13 @@ describe("the conversation as a chat", () => {
     }
     c.stored({ type: "reply_finished", reply: "r1", text: "Third." });
     const bubbles = spadeBubbles(c.view());
-    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["bot", "bot", "bot"]);
-    expect(bubbles.map((bubble) => (bubble.kind === "bot" ? bubble.text : ""))).toEqual([
-      "First.",
-      "Second.",
-      "Third.",
-    ]);
-    expect(new Set(bubbles.map((bubble) => bubble.key)).size).toBe(3);
+    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["bot", "bot", "bot", "steps"]);
+    expect(
+      bubbles.map((bubble) =>
+        bubble.kind === "bot" ? bubble.text : bubble.kind === "steps" ? bubble.summary : "",
+      ),
+    ).toEqual(["First.", "Second.", "Third.", "Ran 3 commands"]);
+    expect(new Set(bubbles.map((bubble) => bubble.key)).size).toBe(4);
   });
 
   test("streaming words grow a bubble of their own after the finished ones", () => {
@@ -638,7 +640,7 @@ describe("the conversation as a chat", () => {
     ]);
   });
 
-  test("an approval is the bot's bubble after the words that asked, and leaves the chat once answered", () => {
+  test("an approval is the bot's bubble after the words that asked, and once answered is one of the reply's steps", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
@@ -650,14 +652,22 @@ describe("the conversation as a chat", () => {
     c.stored({ type: "approval_requested", reply: "r1", call_id: "k9", name: "send_email" });
     const asked = () =>
       spadeBubbles(c.view()).map((bubble) =>
-        bubble.kind === "ask" ? `ask ${bubble.state}` : bubble.kind === "bot" ? bubble.text : "",
+        bubble.kind === "ask"
+          ? `ask ${bubble.state}`
+          : bubble.kind === "bot"
+            ? bubble.text
+            : bubble.kind === "steps"
+              ? bubble.steps.map((step) => `${step.line}: ${step.meta.join(", ")}`).join("; ")
+              : "",
       );
     expect(asked()).toEqual(["Drafted it.", "ask open"]);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "k9", name: "send_email" });
+    c.stored({ type: "tool_finished", reply: "r1", call_id: "k9", name: "send_email" });
     c.stored({ type: "step_finished", reply: "r1", text: "Sent." });
-    expect(asked()).toEqual(["Drafted it.", "Sent."]);
+    expect(asked()).toEqual(["Drafted it.", "Sent.", "Sent an email: You allowed it"]);
     c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
-    expect(asked()).toEqual(["Drafted it.", "Sent."]);
+    expect(asked()).toEqual(["Drafted it.", "Sent.", "Sent an email: You allowed it"]);
   });
 
   test("a request its reply ended before the person answered leaves nothing", () => {
