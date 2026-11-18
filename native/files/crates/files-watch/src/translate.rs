@@ -36,9 +36,20 @@ pub(crate) struct Translation {
 /// The leaf is opened through the root's handle without following it, so a link is reported
 /// as the link itself and never as the tree it points at.
 pub(crate) fn look(root: &Root, path: &str) -> Option<bool> {
-    let (folder, name) = root.open_parent(path).ok()?;
-    let metadata = folder.symlink_metadata(&name).ok()?;
-    Some(metadata.is_dir())
+    let (folder, name) = match root.open_parent(path) {
+        Ok(found) => found,
+        Err(error) => {
+            println!("LOOK-ERR {path}: {error}");
+            return None;
+        }
+    };
+    match folder.symlink_metadata(&name) {
+        Ok(metadata) => Some(metadata.is_dir()),
+        Err(error) => {
+            println!("LOOK-STAT-ERR {path}: {error}");
+            None
+        }
+    }
 }
 
 /// Translates one backend event, asking `look` what is on disk.
