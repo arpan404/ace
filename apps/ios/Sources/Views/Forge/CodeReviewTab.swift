@@ -32,12 +32,24 @@ struct CodeReviewTab: View {
         NavigationStack(path: Binding(get: { held.shown(scope.path) }, set: { held.write($0, into: &scope.path) })) {
             ForgeHome(inbox: inbox, machine: $scope.machine, project: $scope.project, query: scope.query, kind: $scope.kind,
                       filters: $scope.filters,
-                      actions: ForgeTabActions(open: { scope.path.append($0) }, openThread: openThread, startThread: startThread),
+                      actions: ForgeTabActions(open: { held.open($0, on: &scope.path) }, openThread: openThread, startThread: startThread),
                       openMachines: openMachines, pair: pair)
                 .searchable(text: $scope.query, prompt: Text(prompt))
                 .modifier(ProjectDefaultsHook(inbox: inbox))
+                // Laid out under its pages, the list meets its large title, search and pinned bar
+                // only on Back, and their insets then move it on every layout pass, without end.
+                // So the pages go on once the list has a real size on screen, a run-loop turn
+                // later, when that layout has been committed.
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                    guard held.rootLaidOut(size) else { return }
+                    Task { @MainActor in
+                        var instant = Transaction()
+                        instant.disablesAnimations = true
+                        withTransaction(instant) { held.release() }
+                    }
+                }
                 .navigationDestination(for: ForgeRoute.self) { route in
-                    ForgePage(inbox: inbox, route: route, open: { scope.path.append($0) }, openThread: openThread,
+                    ForgePage(inbox: inbox, route: route, open: { held.open($0, on: &scope.path) }, openThread: openThread,
                               startThread: inbox.canStartThreads ? startThread : nil)
                 }
                 .toolbar {
@@ -50,13 +62,6 @@ struct CodeReviewTab: View {
                 }
         }
         .tint(AceTheme.Colours.foreground)
-        .task {
-            // Laid out under its pages, the list meets its large title, search and pinned bar
-            // only on Back, and their insets then move it on every layout pass, without end.
-            var instant = Transaction()
-            instant.disablesAnimations = true
-            withTransaction(instant) { held.release() }
-        }
     }
 
     private var prompt: String {
@@ -70,9 +75,26 @@ struct CodeReviewTab: View {
 
 /// A navigation stack opened again on the pages it had pushed: it shows only its root until the
 /// root has been laid out on screen, then the pages. Until then the stack's writes (its root
-/// alone) never replace the saved pages. Pure.
+/// alone) never replace the saved pages, and a page the person opens from the root replaces
+/// them. Pure.
 struct HeldPath {
     private(set) var released = false
+    private var laidOut = false
+
+    /// The root was laid out at `size`: true the first time that is a real size, when the pages
+    /// may go on.
+    mutating func rootLaidOut(_ size: CGSize) -> Bool {
+        guard !laidOut, size.width > 0, size.height > 0 else { return false }
+        laidOut = true
+        return true
+    }
+
+    /// A page the person opened, on top of the pages the stack shows: before the hand-over that
+    /// is the root alone, so the held pages give way to it.
+    mutating func open<Page>(_ page: Page, on saved: inout [Page]) {
+        saved = shown(saved) + [page]
+        released = true
+    }
 
     func shown<Page>(_ saved: [Page]) -> [Page] { released ? saved : [] }
 
