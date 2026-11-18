@@ -140,7 +140,7 @@ struct InboxView: View {
     /// Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
     @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
         if showsSpade {
-            Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) { spade }
+            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade }
                 .accessibilityIdentifier("tab.spade")
         }
     }
