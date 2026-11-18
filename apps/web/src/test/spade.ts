@@ -119,6 +119,8 @@ export async function openNew(item: string) {
 /** The pill over the open conversation, which opens the bot's profile. */
 export async function openProfile(name: string) {
   await userEvent.click(
-    await screen.findByRole("button", { name: new RegExp(`^${name}( on .*)?: open its profile$`) }),
+    await screen.findByRole("button", {
+      name: new RegExp(`^${name}( on [^:,]*)?(, Full access)?: open its profile$`),
+    }),
   );
 }

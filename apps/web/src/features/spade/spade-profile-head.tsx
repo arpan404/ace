@@ -48,6 +48,7 @@ export function ProfileHead(props: { bot: RosterBot }) {
       ) : (
         <NameField bot={bot} />
       )}
+      {bot.fullAccess && <p className="-mt-1.5 text-ui text-muted-foreground">Full access</p>}
     </div>
   );
 }

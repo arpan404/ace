@@ -320,6 +320,10 @@ async fn run() -> Result<(), Failure> {
         home: person_home,
         spade_data: home.dir.clone(),
         ace_data: env("SPADE_ACE_HOME").map(std::path::PathBuf::from),
+        // Written by ace's daemon beside its own token; Spade only reads it.
+        person_key: env("SPADE_ACE_HOME").map(|home| {
+            std::path::PathBuf::from(home).join(spade_server::security::attest::KEY_FILE)
+        }),
         workspaces: home.dir.join("workspace"),
         log_dir: home.dir.join("egress"),
         clock: Arc::new(SystemClock),

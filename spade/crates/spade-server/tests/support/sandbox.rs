@@ -62,6 +62,21 @@ pub struct World {
     pub workspaces: Workspaces,
     /// The engine, for tools a test builds itself.
     pub bots: EngineHandle,
+    /// The key ace's daemon would share with Spade to stamp the person's own changes.
+    pub person_key: Vec<u8>,
+}
+
+impl World {
+    /// The daemon's stamp of the person's say on changing `target` to `value`, made now.
+    pub fn stamp(&self, target: &str, value: &str) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| {
+                i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+            });
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        spade_server::security::attest::sign(&self.person_key, target, value, now, &nonce)
+    }
 }
 
 /// Where a world's files are, for the scripts that name them.
@@ -154,6 +169,15 @@ async fn world_built(
     std::fs::create_dir_all(home.join("code/app"))?;
     std::fs::write(home.join("Documents/tax.txt"), "TAX-SECRET")?;
     let workspaces = Workspaces::new(data.join("workspace"));
+    // As ace's daemon writes it: hex, beside its own token, never in Spade's data.
+    let key: Vec<u8> = (0u8..32)
+        .map(|i| i.wrapping_mul(37).wrapping_add(11))
+        .collect();
+    let person_key = root.join(spade_server::security::attest::KEY_FILE);
+    std::fs::write(
+        &person_key,
+        key.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+    )?;
     let late = Arc::new(Late::default());
     let bots = EngineHandle::default();
     let shell = Shell::system().confined(wrap(late.clone()));
@@ -194,6 +218,7 @@ async fn world_built(
         clock: Arc::new(SystemClock),
         ids: Arc::new(CountingIds::default()),
         bots,
+        person_key: Some(person_key.clone()),
     })
     .await;
     let _ = late.0.set(security.clone());
@@ -210,6 +235,7 @@ async fn world_built(
         shell: kept.0,
         workspaces: kept.1,
         bots: kept.2,
+        person_key: key,
     })
 }
 

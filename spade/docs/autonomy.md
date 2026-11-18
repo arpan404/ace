@@ -7,9 +7,10 @@ Date: 2026-11-13, amended 2026-11-15. As built for
 [agents.md](agents.md). The pure rules are `spade_core::autonomy` and `spade_core::task`; the
 engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.rs`.
 
-## One level: the auto-review
+## How a bot decides: the auto-review, or Full access
 
-Every bot is on the auto-review (ADR 0163). Where a call goes is decided by what it does, its
+Every bot is on the auto-review (ADR 0163) unless the person puts it in Full access (ADR 0163,
+amendment 2; below). Where a call goes is decided by what it does, its
 effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md),
 `spade_core::effect::route`). The reviewer sees only what the table below sends it, and the ADR
 0135 review still checks calls the gate runs when it is switched on (never a sandboxed one).
@@ -19,6 +20,24 @@ effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effec
   conversation whose latest stored level is `ask` or `full_access` (`Store::latest_field`), then
   stores the setting `access_levels_retired` and removes `access_levels_pinned`.
 - Nothing else stores a level: creating or changing a bot never writes one.
+
+### Full access
+
+A security setting per bot (`autonomy` in `security:<bot>`, `PUT
+/v1/agents/{id}/security/autonomy`), with a machine default (`PUT /v1/security/autonomy`). A
+worker without its own follows its parent and is never freer than a bot above it; a helper
+decides as its bot. Raising a bot (or the machine) to Full access needs the person's stamp from
+ace's daemon (`x-ace-person`, `security::attest`); going back never does. The gate reads the mode
+as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as_person`,
+`change_access` and `unknown` to the person, a granted push under untrusted content too),
+`effect::full_access` asks for a driving step in a sensitive place, on a device, unplaced or
+unheld, a command outside the sandbox the shell classifier reads as a payment, a send or an
+access change, a request to leave the sandbox, and a tool that declares nothing outside the
+sandbox (once, as on the auto-review); a tool the person declined stays declined. An app's tool
+that writes goes to the reviewer under untrusted content or while Spade's classifier is off
+(`Call::remote`, `Call::classifier`). Everything else runs with no reviewer and no request.
+Spade's classifier may still raise a call it let run outside the sandbox (`engine.raise_only`);
+the ADR 0135 review is skipped. The sandbox is unchanged.
 
 ### Effects
 

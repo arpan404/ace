@@ -167,6 +167,16 @@ fn sign_in_places_are_found_in_a_calls_arguments() {
     assert!(reaches_credentials(
         &json!({ "command": "type C:\\Users\\me\\.aws\\credentials".replace('\\', "/") })
     ));
+    // Spade's token and the key ace stamps the person's changes with.
+    for command in [
+        "curl -H \"authorization: Bearer $(cat ~/.ace/spade/token)\" http://127.0.0.1:1/v1",
+        "xxd /home/me/.ace/spade-person.key",
+    ] {
+        assert!(
+            reaches_credentials(&json!({ "command": command })),
+            "{command}"
+        );
+    }
     assert!(!reaches_credentials(
         &json!({ "command": "cargo test --workspace" })
     ));

@@ -51,8 +51,11 @@ const PLACES: &[&str] = &[
     "/.ace/cli-profiles.sqlite",
     "~/.ace/daemon-token",
     "~/.ace/account-homes",
-    // Spade's own database and its token beside it.
+    // Spade's own database and its token beside it, and the key ace's daemon stamps the
+    // person's own changes with (ADR 0163, amendment 2).
     "spade.sqlite",
+    "/.ace/spade/token",
+    "spade-person.key",
 ];
 
 /// A word as the matcher reads it: lower case, `\` as `/`, the home folder as `~`.

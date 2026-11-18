@@ -48,6 +48,57 @@ impl<'de> Deserialize<'de> for Access {
     }
 }
 
+/// How a bot decides on the calls the gate would hold (ADR 0163, amendment 2). The auto-review is
+/// every bot's default. Full access is the person's opt-in for one bot (or the machine's default):
+/// nothing goes to the reviewer and ordinary work doesn't ask, but the hard stops (a secret is
+/// refused; a payment, a send in the person's name, an access change and a step in a place where
+/// those happen ask the person) are decided first and hold the same. A setting, not a level:
+/// stored `access` words never become it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    AutoReview,
+    FullAccess,
+}
+
+impl Mode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::AutoReview => "auto_review",
+            Self::FullAccess => "full_access",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<Self> {
+        match word.trim() {
+            "auto_review" => Some(Self::AutoReview),
+            "full_access" => Some(Self::FullAccess),
+            _ => None,
+        }
+    }
+
+    /// The mode of a bot that works under `above` (a worker under its parent): never freer than
+    /// the bot above it.
+    pub fn under(self, above: Self) -> Self {
+        if above == Self::AutoReview {
+            Self::AutoReview
+        } else {
+            self
+        }
+    }
+}
+
+/// A stored mode read leniently: a word this build doesn't know is the auto-review, never an
+/// error that would drop the rest of a bot's settings.
+pub fn lenient_mode<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Mode>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.map(|value| match value {
+        Value::String(word) => Mode::parse(&word).unwrap_or_default(),
+        _ => Mode::AutoReview,
+    }))
+}
+
 /// Calls Spade singles out. A payment and a message as the person always go to the person
 /// ([`Sensitive::persons`]); the reviewer is told to weigh the rest with care, the rule that
 /// singled each out going into its prompt (ADR 0163).

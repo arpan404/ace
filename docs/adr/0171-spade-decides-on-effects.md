@@ -307,6 +307,13 @@ the API, in `spade-server/tests/effects.rs` (a click in TextEdit is reviewed, ty
 asks, allowing TextEdit stops the asking, and a step whose page changed after its review doesn't
 run).
 
+## Note: Full access (2026-11-18)
+
+This ADR's routes are the auto-review's. [ADR 0163](0163-spade-auto-review-only.md) amendment 2
+adds Full access, opt-in per bot: the same effects and places, the person-only effects first, then
+no reviewer. What amendment 3 sends to the person (sensitive places, simulators and devices, a
+place Spade can't name or ace can't hold) still asks there; what it sends to the reviewer runs.
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

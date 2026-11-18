@@ -55,7 +55,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 3. Conversation
 
 - **The pill.** A `glass-regular` capsule floating at the top centre of the column, over the
-  transcript as the composer floats under it: the bot's 28px face and name. It opens the profile.
+  transcript as the composer floats under it: the bot's 28px face and name, and "Full access" in
+  the quiet ink while the bot is in it. It opens the profile.
   The transcript runs to the top under it.
 - **Bubbles.** The bot's on `--chat-bubble`, left, at most 64ch; the person's on `--chat-mine`
   (the accent) with `--chat-mine-foreground`, right, at most 56ch. Both 18 corners
@@ -103,8 +104,11 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 4. Profile
 
 - **Strip:** Share and close only. **Head:** the 96px face (its dot ringed at 14px), the name in
-  22/28 at 600, then Details · Library · Computer as a segmented control in the body.
-- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps,
+  22/28 at 600 ("Full access" under it, quiet, while the bot is in it), then Details · Library ·
+  Computer as a segmented control in the body.
+- **Details:** task, model (one picker, grouped by endpoint), machine, routines, apps, security
+  (first "How it decides": Auto-review or Full access, with one sentence under Full access saying
+  what still asks; turning it on asks first in a dialog, words only, the first time for that bot),
   spending, then Duplicate and Delete. The machine row carries Move to…, a menu of the other
   machines with Spade (an offline one named and not choosable); Spade read through a machine that
   isn't its host offers Move Spade to this machine (ADR 0187). A move, a failed move or what needs
@@ -125,8 +129,8 @@ Spade is one of ace's places. It adds no navigation of its own.
 ## 5. New bot and groups
 
 - **New bot** is a conversation, not a form: under the name, one quiet line that opens the
-  profile (model and machine live there; every bot is on the auto-review, so there is no access
-  choice). Import lives once, in +; a failed import is said
+  profile (model and machine live there; every bot starts on the auto-review, and Full access is
+  chosen in the profile, never here). Import lives once, in +; a failed import is said
   where the bot would have appeared.
 - **Clubs:** member runs with face and name, a profile with Members and Library, New club in
   place, and @ to address a member.

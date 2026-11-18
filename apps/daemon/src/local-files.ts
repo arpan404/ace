@@ -118,6 +118,26 @@ export function loadSuitUrlKey(dataDir: string): Uint8Array {
   }
   return Buffer.from(key, "hex");
 }
+/**
+ * The key the daemon stamps the person's own Spade changes with (ADR 0163, amendment 2): turning
+ * Full access on. Spade reads it from the same home (`SPADE_ACE_HOME`); its bearer token never
+ * makes a stamp. A missing or damaged file gets a new key; a stamp is good for a minute.
+ */
+export function loadSpadePersonKey(dataDir: string): Uint8Array {
+  const path = join(dataDir, "spade-person.key");
+  try {
+    writeFileSync(path, freshKey(), { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (!isExists(error)) throw error;
+  }
+  chmodSync(path, 0o600);
+  let key = readFileSync(path, "utf8");
+  if (!/^[0-9a-f]{64}$/.test(key)) {
+    key = freshKey();
+    writeFileSync(path, key, { mode: 0o600 });
+  }
+  return Buffer.from(key, "hex");
+}
 export function loadHostId(dataDir: string): string {
   const path = join(dataDir, "host-id");
   try {

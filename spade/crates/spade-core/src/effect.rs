@@ -7,11 +7,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::autonomy::{self, Class};
+use crate::autonomy::{self, Class, Mode};
 use crate::gate::Decision;
 use crate::tools::Risk;
 
 pub mod drive;
+mod full_access;
 
 /// What a tool does, from least to most serious (the order a set of declarations is read in).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -300,6 +301,14 @@ pub struct Call<'a> {
     pub target: Option<&'a str>,
     /// For a driving step, where it acts.
     pub drive: Drive<'a>,
+    /// How the bot decides (ADR 0163, amendment 2).
+    pub mode: Mode,
+    /// A connector's or plugin's MCP tool: it runs on a server outside Spade, often with the
+    /// person's sign-in.
+    pub remote: bool,
+    /// Spade's classifier (ADR 0172) is on and loaded, so a call the gate lets run can still be
+    /// raised to the person.
+    pub classifier: bool,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -363,6 +372,11 @@ pub fn route(call: Call<'_>) -> Route {
     {
         return route;
     }
+    // Full access is decided here: after the hard stops above, before anything that could reach
+    // the reviewer, so nothing it skips can come first.
+    if call.mode == Mode::FullAccess {
+        return full_access::route(call);
+    }
     if call.effect == Some(Effect::Drive) {
         return drive(call, allowed);
     }
@@ -371,20 +385,7 @@ pub fn route(call: Call<'_>) -> Route {
         return unsandboxed(call, class);
     }
     let Some(effect) = call.effect else {
-        if call.place == Place::Sandbox {
-            return Route::Run;
-        }
-        return match call.remembered {
-            // Allowed for the bot, but untrusted content could be steering this call: the
-            // person decides it, as they would an always-allowed write (ADR 0130).
-            Some(true) if call.tainted => Route::ask(UNDECLARED_TAINTED),
-            Some(true) => Route::Run,
-            Some(false) => Route::Refuse(DECLINED_TOOL.to_owned()),
-            None => Route::Ask {
-                line: UNDECLARED.to_owned(),
-                ask: Some(Ask::Undeclared),
-            },
-        };
+        return undeclared(call);
     };
     match call.place {
         Place::Sandbox => return Route::Run,
@@ -440,6 +441,24 @@ pub fn route(call: Call<'_>) -> Route {
     }
 }
 
+/// Where a tool that declares nothing goes: inside the sandbox it runs; elsewhere the person
+/// decides once for the bot, and their answer is kept, except that untrusted content in view
+/// brings an allowed one back to them (ADR 0130). Every mode: nothing says it doesn't send or pay.
+fn undeclared(call: Call<'_>) -> Route {
+    if call.place == Place::Sandbox {
+        return Route::Run;
+    }
+    match call.remembered {
+        Some(true) if call.tainted => Route::ask(UNDECLARED_TAINTED),
+        Some(true) => Route::Run,
+        Some(false) => Route::Refuse(DECLINED_TOOL.to_owned()),
+        None => Route::Ask {
+            line: UNDECLARED.to_owned(),
+            ask: Some(Ask::Undeclared),
+        },
+    }
+}
+
 /// Where a person-only effect goes: to the person unless their Always allow covers it, or, for a
 /// push or comment, a grant of its own kind. `None` for every other effect.
 fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
@@ -459,7 +478,8 @@ fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
         if !call.tainted {
             return Some(Route::Run);
         }
-        if call.fits {
+        // In full access no reviewer looks at it, so the person does.
+        if call.fits && call.mode == Mode::AutoReview {
             return Some(Route::Review(Some(GRANTED_TAINTED.to_owned())));
         }
     }
@@ -480,30 +500,18 @@ fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
 /// as the person, and only lightly once the person allowed the app for the bot. Their Always
 /// allow for the tool runs it, except in a sensitive place: that stays theirs step by step.
 fn drive(call: Call<'_>, allowed: bool) -> Route {
-    let ask = |line: String| Route::Ask {
-        line,
-        ask: Some(Ask::Drive),
-    };
-    // A sensitive place first: a name that may be Mail asks even when Spade can't tell which
-    // app ace would open for it.
-    if let Some(why) = call.drive.sensitive {
-        let place = call.drive.target.unwrap_or("a place");
-        return ask(format!("It acts in {place}, {why}, so you decide."));
-    }
-    let target = match call.drive.target {
+    let target = match persons_place(call) {
         Ok(target) => target,
-        Err(why) => return ask(why.to_owned()),
+        Err(asked) => return asked,
     };
-    // A step ace can't hold to its place asks whatever else says yes, the person's Always allow
-    // too: only the person, seeing this step, may let it run unheld.
-    if !call.drive.bound {
-        return ask(format!("It acts in {target}, and {}", drive::UNBOUND));
-    }
     if allowed {
         return Route::Run;
     }
     if !call.fits {
-        return ask(TOO_LONG.to_owned());
+        return Route::Ask {
+            line: TOO_LONG.to_owned(),
+            ask: Some(Ask::Drive),
+        };
     }
     let concern = match (call.drive.granted, call.tainted) {
         (true, false) => format!(
@@ -526,6 +534,29 @@ fn drive(call: Call<'_>, allowed: bool) -> Route {
         ),
     };
     Route::Review(Some(concern))
+}
+
+/// Where a driving step acts, when the person needn't see the step itself; else their request:
+/// in a place where a step could send, pay or change access, one Spade can't name, or one ace
+/// can't hold the step to. Every mode asks these.
+fn persons_place<'a>(call: Call<'a>) -> Result<&'a str, Route> {
+    let ask = |line: String| Route::Ask {
+        line,
+        ask: Some(Ask::Drive),
+    };
+    // A sensitive place first: a name that may be Mail asks even when Spade can't tell which
+    // app ace would open for it.
+    if let Some(why) = call.drive.sensitive {
+        let place = call.drive.target.unwrap_or("a place");
+        return Err(ask(format!("It acts in {place}, {why}, so you decide.")));
+    }
+    let target = call.drive.target.map_err(|why| ask(why.to_owned()))?;
+    // A step ace can't hold to its place asks whatever else says yes, the person's Always allow
+    // too: only the person, seeing this step, may let it run unheld.
+    if !call.drive.bound {
+        return Err(ask(format!("It acts in {target}, and {}", drive::UNBOUND)));
+    }
+    Ok(target)
 }
 
 /// To the reviewer, unless it can't read the call whole.

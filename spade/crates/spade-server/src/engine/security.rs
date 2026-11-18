@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use spade_core::autonomy::Mode;
 use spade_core::effect::{self, Effect, Granted};
 use spade_core::grant::Action;
 
@@ -24,11 +25,12 @@ impl Engine {
     /// `agent`'s parent bot, grandparent and so on, nearest first: the bots a worker's grants
     /// are narrowed by (ADR 0161, ADR 0167 decision 5).
     pub(crate) fn agent_ancestors(&self, agent: &str) -> Vec<String> {
-        let Ok(Some(view)) = self.agent_view(agent) else {
+        // The stored bot, not its view: the view shows how the bot decides, which reads these.
+        let Ok(Some(found)) = self.store.agent(agent) else {
             return Vec::new();
         };
-        let mut conversations = vec![view.agent.conversation.clone()];
-        conversations.extend(self.worker_ancestors(&view.agent.conversation));
+        let mut conversations = vec![found.conversation.clone()];
+        conversations.extend(self.worker_ancestors(&found.conversation));
         conversations
             .iter()
             .skip(1)
@@ -108,6 +110,18 @@ impl Engine {
         self.tools
             .get_for(conversation, tool)
             .and_then(|found| found.effect(&Value::Null))
+    }
+
+    /// How the bot `agent` decides; the auto-review where security isn't set up.
+    pub(crate) fn autonomy_of(&self, agent: &str) -> Mode {
+        self.security()
+            .map_or(Mode::AutoReview, |security| security.autonomy(agent))
+    }
+
+    /// How the bot `conversation` works for decides: its own, or a helper's bot's.
+    pub(super) fn autonomy(&self, conversation: &str) -> Mode {
+        self.workspace_owner(conversation)
+            .map_or(Mode::AutoReview, |agent| self.autonomy_of(&agent))
     }
 
     /// What an undeclared tool's answer is kept under for the bot `conversation` works for (its

@@ -13,7 +13,8 @@ const face = 28;
 /**
  * The pill floating at the top centre of a bot's conversation, over the transcript as the
  * composer floats under it, in the composer's glass: the bot's face (moving while it works) and
- * its name, and its machine only when that isn't this one. It opens the bot's profile.
+ * its name, its machine only when that isn't this one, and "Full access" when the bot is in it.
+ * It opens the bot's profile.
  */
 export function ConversationPill(props: { bot: RosterBot; onOpen(): void }) {
   const { bot } = props;
@@ -23,7 +24,7 @@ export function ConversationPill(props: { bot: RosterBot; onOpen(): void }) {
     <button
       type="button"
       onClick={props.onOpen}
-      aria-label={`${bot.name}${elsewhere ? ` on ${bot.machine.name}` : ""}: open its profile`}
+      aria-label={`${bot.name}${elsewhere ? ` on ${bot.machine.name}` : ""}${bot.fullAccess ? ", Full access" : ""}: open its profile`}
       {...part("header-title", undefined, "spade-pill")}
       className={conversationPill}
     >
@@ -31,6 +32,10 @@ export function ConversationPill(props: { bot: RosterBot; onOpen(): void }) {
       <span className="min-w-0 truncate">{bot.name}</span>
       {elsewhere && (
         <span className="shrink-0 font-normal text-subtle-foreground">on {bot.machine.name}</span>
+      )}
+      {/* Quietly: it decides without the reviewer (ADR 0163, amendment 2). */}
+      {bot.fullAccess && (
+        <span className="shrink-0 font-normal text-subtle-foreground">Full access</span>
       )}
     </button>
   );

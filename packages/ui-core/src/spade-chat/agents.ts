@@ -79,6 +79,11 @@ export interface SpadeAgent {
   move: SpadeMove | undefined;
   /** What needs the person since it arrived from another machine, until dismissed. */
   arrived: SpadeArrival | undefined;
+  /**
+   * It is in Full access (ADR 0163, amendment 2): no reviewer, and only the hard stops ask. False
+   * on the auto-review, every bot's default, and from a Spade before Full access.
+   */
+  fullAccess: boolean;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
 }
@@ -191,6 +196,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     parent: agent.parent ?? undefined,
     move: parseSpadeMove(record.move),
     arrived: parseSpadeArrival(record.arrived),
+    fullAccess: record.autonomy === "full_access",
     raw: record,
   };
 }

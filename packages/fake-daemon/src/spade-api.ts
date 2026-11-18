@@ -702,6 +702,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         agents: this.listed().map((agent) =>
           Object.assign({}, agent, this.work.rosterFields(agent), {
             computer: this.computer.of(agent.id),
+            autonomy: this.security.autonomy(agent.id),
           }),
         ),
       });
