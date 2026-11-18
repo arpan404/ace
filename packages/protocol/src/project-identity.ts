@@ -6,8 +6,9 @@ import { WorkspaceId } from "./ids.ts";
  * knows, above the machine-local registrations (`Project`, a daemon workspace) that check it
  * out. A registration's identity is a grouping its own daemon keeps, never an authority: it is
  * set by the daemon (on add, clone or create), by an explicit link, merge or unlink the person
- * confirmed, or by a transfer from one of the person's paired machines. Remotes only ever
- * suggest; nothing links on its own. A registration without an identity is its own project.
+ * confirmed, or by a transfer from one of the person's paired machines. Clients also group
+ * checkouts of the same remotes at the same folder (`ProjectRemoteKey`, ADR 0187); an unlinked
+ * registration reports none. A registration without either is its own project.
  */
 
 /** A logical project's id: a UUID in lower-case canonical form, so two spellings never differ. */
@@ -124,6 +125,18 @@ export const ProjectIdentityOperations = [
     limit: z.number().int().min(1).max(64).default(32),
   }),
 ] as const;
+
+/**
+ * What a registration is a checkout of, for grouping by remote (ADR 0187): every remote's
+ * `normalizeRemoteUrl` key, sorted, and its folder inside the repository. Clients put
+ * registrations with the same remotes at the same subpath in one logical project. A daemon
+ * reports it only for a Git checkout with a remote, and never for one the person unlinked.
+ */
+export const ProjectRemoteKey = z.object({
+  remotes: z.array(normalizedRemote).min(1).max(64),
+  subpath,
+});
+export type ProjectRemoteKey = z.infer<typeof ProjectRemoteKey>;
 
 export const ProjectCheckoutFacts = z.object({
   repository: z.boolean(),

@@ -25,6 +25,13 @@ import {
   resolveIdentity,
   setIdentity,
 } from "./project-identity.ts";
+import {
+  decodeRemoteKey,
+  keepApart,
+  migrateRemoteKeys,
+  remoteKeyColumns,
+  remoteKeyJoin,
+} from "./project-remote-key.ts";
 import { retireThread, type DeletionPolicy } from "./thread-gone.ts";
 
 const recentRow = z.object({ path: Project.shape.path, opened_at: z.number().nonnegative() });
@@ -60,6 +67,7 @@ export function migrateProjects(db: DatabaseSync): void {
   if (!columns.has("repositories"))
     db.exec("ALTER TABLE workspace_metadata ADD COLUMN repositories TEXT");
   migrateProjectIdentity(db);
+  migrateRemoteKeys(db);
 }
 
 /**
@@ -75,8 +83,9 @@ export function isSpadeProject(store: Pick<Store, "statement">, id: string): boo
 
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
 export const projectSelect = `SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes,m.kind,${identityColumns},
+  ${remoteKeyColumns},
   (SELECT opened_at FROM workspace_recent wr WHERE wr.workspace_id=w.id) AS openedAt
-  FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id ${identityJoin}`;
+  FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id ${identityJoin} ${remoteKeyJoin}`;
 
 /** What a project edit changes besides its name; each omitted field keeps the saved value. */
 export interface ProjectEdit {
@@ -346,11 +355,15 @@ export class ProjectStorage {
     const workspace = this.get(id);
     this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
   }
-  /** Split the registration off into a fresh logical project; its old one's aliases stay. */
+  /**
+   * Split the registration off into a fresh logical project; its old one's aliases stay. It is
+   * never grouped by remote again (ADR 0187): only a link puts it back with other checkouts.
+   */
   unlink(id: WorkspaceId): Project {
     const workspace = this.store.atomic((db) => {
       this.get(id);
       setIdentity(db, id, ProjectIdentityId.parse(this.newIdentity()), "created", this.now());
+      keepApart(db, id);
       return this.get(id);
     });
     this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
@@ -521,7 +534,7 @@ export class ProjectStorage {
 const running = (state: string, ownsWork: boolean) =>
   ownsWork || !["new", "done", "failed"].includes(state);
 
-const storedRow = Project.omit({ identity: true }).extend({
+const storedRow = Project.omit({ identity: true, remoteKey: true }).extend({
   kind: Project.shape.kind.nullable().catch(null),
   badge: z.unknown().optional(),
   defaults: z.unknown().optional(),
@@ -530,6 +543,9 @@ const storedRow = Project.omit({ identity: true }).extend({
   identityId: z.unknown().optional(),
   identitySource: z.unknown().optional(),
   identityAliases: z.unknown().optional(),
+  remoteKeyRemotes: z.unknown().optional(),
+  remoteKeySubpath: z.unknown().optional(),
+  remoteKeyApart: z.unknown().optional(),
 });
 
 /** A saved JSON column, or undefined when it is empty or no longer reads as `schema`. */
@@ -554,9 +570,13 @@ export function decodeProjectRow(row: unknown): Project {
     identityId,
     identitySource,
     identityAliases,
+    remoteKeyRemotes,
+    remoteKeySubpath,
+    remoteKeyApart,
     ...project
   } = storedRow.parse(row);
   const identity = decodeIdentity({ identityId, identitySource, identityAliases });
+  const remoteKey = decodeRemoteKey({ remoteKeyRemotes, remoteKeySubpath, remoteKeyApart });
   if (project.icon === null) delete project.icon;
   if (project.defaultIcon === null) delete project.defaultIcon;
   const style = stored(ProjectBadgeStyle, badge);
@@ -569,6 +589,7 @@ export function decodeProjectRow(row: unknown): Project {
     ...(preferences ? { defaults: preferences } : {}),
     ...(facts?.length ? { notes: facts } : {}),
     ...(identity ? { identity } : {}),
+    ...(remoteKey ? { remoteKey } : {}),
     ...(typeof openedAt === "number" ? { openedAt } : {}),
   };
 }
