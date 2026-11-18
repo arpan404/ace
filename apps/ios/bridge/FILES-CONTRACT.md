@@ -219,19 +219,32 @@ listed and the folders the person opened; Swift draws the rows it sends (`FileTr
 { "type": "files.tree.refresh", "scope": <Scope> }
 ```
 
-- `show` when the screen appears or comes back from the background: the root and every open
-  folder are listed from their first page. On a scope's first show the folders holding an
-  uncommitted change open, as the web's tree opens them.
-- `hide` when it closes or the app goes to the background: runs stop and `files.watch` sends
-  `[]` at once.
-- `opened` lists the folder's first page; `closed` stops it and hides its rows. `more` asks for
-  the next page (`nextCursor`), and `retry` lists a failed folder again from the start. `refresh`
-  lists everything open again after a change made from the phone.
-- Open thread folders are watched with `files.watch`, sent 150 ms after the set settles and
-  naming the root and every open folder. A `files.folders_changed` lists the folders it names
-  again (every open folder on `rescan`); a reconnected socket re-sends the set and lists the open
-  folders again. A project's own folder has no watcher, so it lists again on the checkout's
-  change messages.
+- `show` when the screen appears or comes back from the foreground. The first show for a scope
+  lists the root and every visible folder from its first page, and opens the folders holding an
+  uncommitted change, as the web's tree opens them. A show after a short hide lists only the
+  visible folders that went stale (a page that never arrived, or a folder a change named while
+  hidden), each at the size it already shows.
+- `hide` when the app goes to the background. It decrements this scope's visibility count; a
+  second Files screen showing the same scope keeps the tree alive. At zero the runs stop and
+  `files.watch` sends `[]` at once. The pages of the three most recently hidden trees are kept;
+  a fourth drops the oldest, which lists from the start when shown again.
+- `opened` lists the folder and any open folder under it that just became visible; `closed` stops
+  them and hides their rows. A folder counts as visible only while every folder above it is open:
+  a folded parent's descendants keep their pages but are not listed, watched or re-listed.
+- `more` asks for the next page (`nextCursor`). `retry` asks for the page that failed: a failed
+  Show more re-asks that page, and a failed first page starts over. `refresh` lists every visible
+  folder again after a change made from the phone.
+- A re-list keeps the pages already listed, asking for the number of entries it shows (at least
+  500, at most 5,000), so its rows stay put. A change that arrives while a folder is being listed
+  waits for that page and lists once when it ends; it never aborts and restarts in a loop.
+- At most four folder listings are on their way at once. The queue starts visible folders before
+  hidden ones, shallower before deeper, then by path.
+- Visible thread folders are watched with `files.watch`, sent 150 ms after the set settles and
+  naming the root and every visible open folder. A `files.folders_changed` lists the folders it
+  names again (every visible folder on `rescan`); a reconnected socket re-sends the set and lists
+  the visible folders again. A thread's `files.changed` lists only the parent folders of its
+  `path` and `destination`; a project's own folder has no watcher and follows
+  `workspace.files_changed` for that project.
 
 Patch, key `files.tree:<key>`:
 

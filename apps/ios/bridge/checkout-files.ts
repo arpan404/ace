@@ -65,8 +65,6 @@ export type RecentFiles = (scope: FilesScope) => Promise<readonly string[]>;
 
 /** The most Share or a linked file carries to the phone. */
 export const shareLimit = 16 * 1024 * 1024;
-/** One folder page's entries: the phone's list draws them as they arrive. */
-const folderPageLimit = 500;
 const searchLimit = 50;
 type Scope = FilesScope;
 type Operation = FilesOperation;
@@ -220,6 +218,7 @@ export class CheckoutFiles {
     scope: Scope,
     folder: string,
     cursor: string | undefined,
+    limit: number,
     signal: AbortSignal,
   ): Promise<FolderPage> {
     return FolderPage.parse(
@@ -228,7 +227,7 @@ export class CheckoutFiles {
         {
           op: "list.folder",
           path: folder,
-          limit: folderPageLimit,
+          limit,
           ...(cursor === undefined ? {} : { cursor }),
         },
         signal,
