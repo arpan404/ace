@@ -696,6 +696,8 @@ struct ConversationFeed: View {
             withTransaction(still) { revealed = true }
             TranscriptJumpHooks.revealed(after: CACurrentMediaTime() - started, capped: outcome == .capped)
             TranscriptJumpHooks.landed { Double(intent.metrics.bottom) }
+            // Paging waited for the feed to show: rows short of the screen page in from here.
+            pageIfNeeded(proxy)
         }
     }
     /// An older page is about to join above the reader's line. What is drawn is frozen over the
@@ -1099,7 +1101,9 @@ struct ConversationFeed: View {
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
-        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
+        // A hidden opening passes through the top of its lazy content on its way to the end; a
+        // page asked for there would land as a window the reader never scrolled to.
+        guard revealed, thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
             !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
