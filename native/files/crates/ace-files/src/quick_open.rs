@@ -224,6 +224,59 @@ impl RootEntry {
         self.start_index();
     }
 
+    /// Rebuild one folder after an ignore-rule file changed inside it.
+    ///
+    /// Editing a `.gitignore`, the repository's `info/exclude` or the user's global excludes file
+    /// changes which paths belong in the index without touching them, so the watcher cannot
+    /// describe the update file by file: the folder has to be walked again under the new rules,
+    /// which drops paths that just became ignored and finds paths that just became visible.
+    ///
+    /// The walk runs on a blocking thread while the index being served keeps answering, and its
+    /// result is merged into a copy that replaces the served index in one swap, like a rescan.
+    /// The root's "building" flag also holds watcher batches in `pending`, so a change that lands
+    /// mid-walk is replayed onto the new index rather than lost against the old one. A build that
+    /// is already walking may have read the old rules, so one full rebuild follows it.
+    pub fn rebuild_folder(self: &Arc<Self>, folder: String) {
+        match guard::lock(&self.book) {
+            Ok(mut book) => {
+                if book.building {
+                    book.again = true;
+                    return;
+                }
+                if self.is_closed() {
+                    return;
+                }
+                book.building = true;
+                book.failure = None;
+            }
+            Err(_) => return,
+        }
+        let entry = Arc::clone(self);
+        self.handle.spawn(async move {
+            let inner = Arc::clone(&entry);
+            let built = tokio::task::spawn_blocking(move || inner.build_one_folder(&folder)).await;
+            entry.finish_index(crate::dispatch::joined(built));
+        });
+    }
+
+    fn build_one_folder(self: &Arc<Self>, folder: &str) -> Result<(), Error> {
+        let served = match guard::read(&self.index) {
+            Ok(slot) => slot.as_ref().map(Arc::clone),
+            Err(error) => return Err(error),
+        };
+        let rebuilt = match served {
+            Some(index) => {
+                index.rebuilt_folder(&self.root, folder, &IndexOptions::default(), &self.build)?
+            }
+            // Nothing is being served yet, or the first build failed: a rule edit is a good
+            // reason to try the whole tree again.
+            None => PathIndex::build(&self.root, &IndexOptions::default(), &self.build)?,
+        };
+        #[cfg(feature = "test-hooks")]
+        hold_publish();
+        self.publish(rebuilt)
+    }
+
     /// Fold a watcher batch into the index.
     ///
     /// The batch goes to `pending` while a rebuild is walking, so the walk cannot publish an index

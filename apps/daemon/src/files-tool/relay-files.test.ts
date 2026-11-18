@@ -115,6 +115,24 @@ it("a closed channel pushes nothing more", async () => {
   expect(pushed).toEqual([]);
 });
 
+it("a channel whose read access is revoked while a listing runs answers a refusal", async () => {
+  let answer!: (value: FolderPage) => void;
+  let read = true;
+  const { files, pushed } = setup({
+    authorize: () => read,
+    tool: {
+      listFolder: () => new Promise<FolderPage>((resolve) => (answer = resolve)),
+    } as unknown as RelayFilesOptions["tool"],
+  });
+  files.accept(listing());
+  await settle();
+  read = false;
+  answer(page);
+  await settle();
+  expect(pushed).toMatchObject([{ type: "files.error", requestId: "list", code: "FORBIDDEN" }]);
+  expect(pushed).not.toMatchObject([{ type: "files.result" }]);
+});
+
 it("a refused binding answers its listing without asking ace-files", async () => {
   const { files, pushed } = setup({
     resolve: async () => ({

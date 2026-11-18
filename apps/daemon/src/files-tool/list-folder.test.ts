@@ -21,7 +21,7 @@ function tool() {
   return { calls, lister };
 }
 
-function scope(options: { allowed?: boolean; root?: string | undefined } = {}) {
+function scope(options: { allowed?: boolean | (() => boolean); root?: string | undefined } = {}) {
   const released: string[] = [];
   const calls: unknown[][] = [];
   const resolve: ListingScope = (thread, support, operation, workspace) => {
@@ -31,7 +31,8 @@ function scope(options: { allowed?: boolean; root?: string | undefined } = {}) {
       service: undefined as unknown as FilesService,
       root: "root" in options ? options.root : "/w",
       release: () => released.push("release"),
-      allowed: () => options.allowed ?? true,
+      allowed: () =>
+        typeof options.allowed === "function" ? options.allowed() : (options.allowed ?? true),
     });
   };
   return { calls, released, resolve };
@@ -77,6 +78,36 @@ it("refuses a thread the binding does not let it read", async () => {
     }),
   ).rejects.toMatchObject({ code: "FORBIDDEN" });
   expect(lister.calls).toEqual([]);
+  expect(bindings.released).toEqual(["release"]);
+});
+
+it("refuses a listing whose read access is revoked while ace-files lists", async () => {
+  const answer = Promise.withResolvers<FolderPage>();
+  let allowed = true;
+  const bindings = scope({ allowed: () => allowed });
+  const listingInFlight = listFolderPage(
+    bindings.resolve,
+    { listFolder: () => answer.promise },
+    {
+      threadId,
+      scope: undefined,
+      workspaceId: undefined,
+      operation: listing,
+    },
+  );
+  await Promise.resolve();
+  allowed = false;
+  answer.resolve({
+    entries: [
+      { name: "main.ts", path: "src/main.ts", kind: "file", size: 1, mtimeMs: 0, ignored: false },
+    ],
+    nextCursor: null,
+    total: 1,
+  });
+  await expect(listingInFlight).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    message: "File access denied",
+  });
   expect(bindings.released).toEqual(["release"]);
 });
 

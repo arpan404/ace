@@ -25,6 +25,7 @@ files-safe = { path = "../files-safe" }
 files-search = { path = "../files-search" }
 files-watch = { path = "../files-watch" }
 files-wire = { path = "../files-wire" }
+ignore = "0.4"
 regex = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

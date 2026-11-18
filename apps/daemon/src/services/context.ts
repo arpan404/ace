@@ -160,21 +160,32 @@ export function createContextSession(context: SocketContext): SocketService {
       switch (message.type) {
         case "context.request": {
           const scope = contextScope(message.operation);
-          if (
-            !authorize(scope) ||
-            ("threadId" in message.operation && !canReadThread(message.operation.threadId))
-          ) {
+          const requestId = message.requestId;
+          const thread = "threadId" in message.operation ? message.operation.threadId : undefined;
+          /**
+           * The live check the TypeScript service gets for every request. A queue, a quick-open
+           * walk and the reply itself all cross awaits, so a socket that closed, a device whose
+           * grant was revoked or a thread that stopped being readable must be asked again each
+           * time, not only when the message arrived.
+           */
+          const allowed = () =>
+            connected() &&
+            authorize(scope) &&
+            (thread === undefined || canReadThread(ThreadId.parse(thread)));
+          const refuse = () =>
             send({
               type: "context.result",
-              requestId: message.requestId,
+              requestId,
               result: { kind: "error", code: "forbidden", message: `${scope} scope required` },
             });
+          if (!allowed()) {
+            refuse();
             return true;
           }
           if (!options.context || pending >= 8) {
             send({
               type: "context.result",
-              requestId: message.requestId,
+              requestId,
               result: {
                 kind: "error",
                 code: options.context ? "busy" : "unsupported",
@@ -189,19 +200,27 @@ export function createContextSession(context: SocketContext): SocketService {
           pending++;
           const task = tail
             .then(async () => {
+              // The queue can hold a request while its socket closes or its device loses the
+              // grant: nothing starts for a request that may no longer have its answer.
+              if (!allowed()) {
+                refuse();
+                return;
+              }
               const quick = await nativeQuickOpen(message);
-              if (quick) return quick;
-              return service.handle(
-                device,
-                message,
-                (thread) =>
-                  connected() &&
-                  authorize(scope) &&
-                  (thread === undefined || canReadThread(ThreadId.parse(thread))) &&
-                  (!("threadId" in message.operation) || canReadThread(message.operation.threadId)),
+              if (quick) {
+                if (allowed()) send(quick);
+                else refuse();
+                return;
+              }
+              send(
+                await service.handle(
+                  device,
+                  message,
+                  (wanted) =>
+                    allowed() && (wanted === undefined || canReadThread(ThreadId.parse(wanted))),
+                ),
               );
             })
-            .then(send)
             .catch((error: unknown) => {
               options.log?.(error);
               send({

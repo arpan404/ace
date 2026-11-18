@@ -133,6 +133,17 @@ pub(crate) struct Collected {
     pub cancelled: bool,
 }
 
+impl Collected {
+    /// A walk that found nothing, such as one over a folder that has since vanished.
+    pub fn empty() -> Collected {
+        Collected {
+            paths: Vec::new(),
+            truncated: false,
+            cancelled: false,
+        }
+    }
+}
+
 /// Walk `root` and collect every file, up to `max_files`.
 ///
 /// Hidden files are included, because a person can open a dotfile. Nothing inside a `.git` folder is

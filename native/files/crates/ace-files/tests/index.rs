@@ -8,10 +8,11 @@
 
 mod common;
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
-use common::{Client, await_reported, checkout, watch, write_file};
-use files_wire::{Op, Reply};
+use common::{Client, WATCH_DEADLINE, await_reported, checkout, watch, write_file};
+use files_wire::{EventPayload, Op, Reply};
 
 /// How long the build may take before the test calls it hung.
 const DEADLINE: Duration = Duration::from_secs(10);
@@ -77,6 +78,35 @@ fn answers_an_index_query_before_and_after_the_build() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(ready, "the index finished within {DEADLINE:?}");
+}
+
+#[test]
+fn an_edited_gitignore_walks_again_so_quick_open_follows_it() {
+    let checkout = checkout(&[
+        (".gitignore", "generated/\n"),
+        ("generated/result.txt", "one\n"),
+        ("src/main.rs", "fn main() {}\n"),
+    ]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+    await_ready(&mut client, root);
+    await_hits(&mut client, root, "result", "generated/result.txt", false);
+    let subscription = watch(&mut client, root);
+
+    // The path exists all along; only the rules changed. Nothing in the tree tells the watcher
+    // that, so the index has to walk the folder again under the new rules.
+    write_file(checkout.path(), ".gitignore", "# nothing is ignored\n");
+    await_ignore_change(
+        &mut client,
+        checkout.path(),
+        subscription,
+        "# nothing is ignored\n",
+    );
+    await_hits(&mut client, root, "result", "generated/result.txt", true);
+
+    write_file(checkout.path(), ".gitignore", "generated/\n");
+    await_ignore_change(&mut client, checkout.path(), subscription, "generated/\n");
+    await_hits(&mut client, root, "result", "generated/result.txt", false);
 }
 
 #[test]
@@ -225,4 +255,72 @@ fn a_panicked_build_answers_an_error_instead_of_never_being_ready() {
         "the error says the build never finished: {}",
         failure.message
     );
+}
+
+/// Wait until the root serves a built index.
+fn await_ready(client: &mut Client, root: u64) {
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "the index never became ready before the rules changed"
+        );
+        let id = client.request(Op::IndexQuery {
+            root,
+            query: "main".to_owned(),
+            limit: 5,
+        });
+        if let Reply::Index(index) = client.reply(id)
+            && index.ready
+        {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Wait until quick open does or does not name `path`, as the rules now say.
+fn await_hits(client: &mut Client, root: u64, query: &str, path: &str, present: bool) {
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "quick open never {} {path}",
+            if present { "found" } else { "dropped" }
+        );
+        let id = client.request(Op::IndexQuery {
+            root,
+            query: query.to_owned(),
+            limit: 20,
+        });
+        if let Reply::Index(index) = client.reply(id)
+            && index.ready
+            && index.hits.iter().any(|hit| hit.path == path) == present
+        {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Wait for the watch to report the `.gitignore` rewrite, writing the same rules again if the
+/// stream started too late to see it. `await_reported` cannot be used: its retry writes its own
+/// contents, which would replace the rules under test.
+fn await_ignore_change(client: &mut Client, base: &Path, subscription: u64, contents: &str) {
+    let deadline = Instant::now() + WATCH_DEADLINE;
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "the watch never reported the .gitignore rewrite"
+        );
+        match client.try_event(subscription, Duration::from_millis(500)) {
+            Some(EventPayload::Changes { changes })
+                if changes.iter().any(|change| change.path == ".gitignore") =>
+            {
+                return;
+            }
+            Some(_) => {}
+            None => write_file(base, ".gitignore", contents),
+        }
+    }
 }

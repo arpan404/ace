@@ -39,6 +39,7 @@ mod walk;
 pub use error::Error;
 
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use files_safe::Root;
 
@@ -161,6 +162,73 @@ impl PathIndex {
         self.commit(prepared);
     }
 
+    /// This index with everything under one folder walked again, or `folder` empty to walk the
+    /// whole checkout.
+    ///
+    /// An edited `.gitignore`, the repository's `info/exclude` or the user's global excludes file
+    /// changes which paths belong in the index without touching a single file the watcher could
+    /// report, so neither adding nor deleting paths is enough: the folder must be judged by the
+    /// new rules. The walk happens here, on the caller's thread, while the index being served
+    /// keeps answering; the caller swaps the result in when it is done, as it does a rescan.
+    pub fn rebuilt_folder(
+        &self,
+        root: &Root,
+        folder: &str,
+        options: &IndexOptions,
+        cancel: &AtomicBool,
+    ) -> Result<PathIndex, Error> {
+        let replacement = build::build_folder(root, folder, options, cancel)?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err(Error::Aborted);
+        }
+        let filters = Filters::new(root, &options.hide, options.include_ignored)?;
+        let mut arena = PathArena::with_capacity(self.len() + replacement.len(), 0);
+        let mut members = Membership::with_capacity(self.len() + replacement.len());
+        let mut truncated = false;
+        for slot in 0..self.arena.slots() {
+            if !self.arena.is_live(slot) {
+                continue;
+            }
+            let Some(path) = self.arena.get(slot) else {
+                continue;
+            };
+            if under(path, folder) {
+                continue;
+            }
+            if arena.live_len() >= self.max_files || !insert(&mut arena, &mut members, path) {
+                truncated = true;
+                break;
+            }
+        }
+        if !truncated {
+            for slot in 0..replacement.arena.slots() {
+                if !replacement.arena.is_live(slot) {
+                    continue;
+                }
+                let Some(path) = replacement.arena.get(slot) else {
+                    continue;
+                };
+                if arena.live_len() >= self.max_files || !insert(&mut arena, &mut members, path) {
+                    truncated = true;
+                    break;
+                }
+            }
+        }
+        if replacement.truncated {
+            truncated = true;
+        }
+        if truncated && arena.live_len() < self.max_files {
+            truncated = false;
+        }
+        Ok(PathIndex {
+            arena,
+            members,
+            filters,
+            max_files: self.max_files,
+            truncated,
+        })
+    }
+
     /// Search for `query`, best first. An empty or all-whitespace query returns nothing. Case is
     /// ignored, whitespace separates terms, every term must appear in order though not adjacently,
     /// and positions are byte offsets at character boundaries.
@@ -229,4 +297,13 @@ pub(crate) fn insert(arena: &mut PathArena, members: &mut Membership, path: &str
         }
         None => false,
     }
+}
+
+/// Whether a path is the folder itself or sits inside it. The empty folder is the whole root.
+fn under(path: &str, folder: &str) -> bool {
+    folder.is_empty()
+        || path == folder
+        || path
+            .strip_prefix(folder)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
