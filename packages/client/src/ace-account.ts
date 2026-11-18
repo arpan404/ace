@@ -97,7 +97,7 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
       );
     },
     /**
-     * Exchange an ace session for a credential of this machine's own (ADR 0189), bound to
+     * Exchange an ace session for a credential of this machine's own (ADR 0190), bound to
      * `hostId`. The daemon keeps the credential and never the session.
      */
     async machineCredential(

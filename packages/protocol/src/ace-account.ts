@@ -139,7 +139,7 @@ export const AceGrantResponse = z.object({
   token: z.string().min(1).max(2048),
   expiresAt: z.number().int().positive(),
   /**
-   * With a device grant: the standing grant (format 2, ADR 0189) saying whose session asked.
+   * With a device grant: the standing grant (format 2, ADR 0190) saying whose session asked.
    * A client sends it in its hello beside `token`, never to the relay. Absent from backends that
    * predate it.
    */
@@ -148,7 +148,7 @@ export const AceGrantResponse = z.object({
 export type AceGrantResponse = z.infer<typeof AceGrantResponse>;
 
 /**
- * `POST /v1/machine-credentials` (ADR 0189), authenticated by an ace session: a credential of
+ * `POST /v1/machine-credentials` (ADR 0190), authenticated by an ace session: a credential of
  * this machine's own, bound to its host id, which the daemon keeps instead of the session. The
  * answer is an `AceAccountGrant` whose token is the machine credential.
  */

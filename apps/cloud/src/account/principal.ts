@@ -3,7 +3,7 @@ import type { MachineCredentialStore } from "./credentials.ts";
 import type { ActiveSession, SessionReader } from "./session.ts";
 
 /**
- * Who a bearer token is (ADR 0189): an ace session, or a machine credential, which lives on the
+ * Who a bearer token is (ADR 0190): an ace session, or a machine credential, which lives on the
  * session it was exchanged from. `hash` is the token's digest.
  */
 export type Principal =

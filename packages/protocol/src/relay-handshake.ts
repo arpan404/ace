@@ -71,7 +71,7 @@ export const HelloEarly = z
       .optional(),
     /** The account device grant, as the relay upgrade already offered it. */
     grant: z.string().min(1).max(2048).optional(),
-    /** With a grant: its standing grant (ADR 0189), as in a hello. */
+    /** With a grant: its standing grant (ADR 0190), as in a hello. */
     standing: z.string().min(1).max(2048).optional(),
     trims: Names16,
     framing: Names8,

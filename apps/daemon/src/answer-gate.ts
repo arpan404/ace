@@ -33,7 +33,7 @@ export function agentAnswerRefusal(
 export interface HostAnswerFacts {
   /**
    * The socket's credential isn't the person's: the host token, or an account device whose
-   * standing grant didn't say person (ADR 0189).
+   * standing grant didn't say person (ADR 0190).
    */
   readonly unproven: boolean;
   /** The interaction is an open person-only market request (`market_person_pending`). */

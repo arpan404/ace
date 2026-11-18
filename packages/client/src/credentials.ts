@@ -4,7 +4,7 @@ import { ClientError } from "./errors.ts";
 
 /**
  * What a hello presents: a device token, a one-use ticket, or a device grant from the ace
- * account backend (ADR 0111) with its standing grant (ADR 0189), the machine code when the
+ * account backend (ADR 0111) with its standing grant (ADR 0190), the machine code when the
  * daemon asked for one, and the proof of this install's paired credential on that machine
  * (`link`, ADR 0115) when it has one. The standing grant goes in the hello only, never to the
  * relay.
@@ -40,7 +40,7 @@ export function parseCredential(credential: Credential):
 export function relayGrant(credential: Credential): string | undefined {
   return typeof credential === "object" && "grant" in credential ? credential.grant : undefined;
 }
-/** The standing grant beside an account grant (ADR 0189): for the hello, never the relay. */
+/** The standing grant beside an account grant (ADR 0190): for the hello, never the relay. */
 export function helloStanding(credential: Credential): string | undefined {
   return typeof credential === "object" && "grant" in credential ? credential.standing : undefined;
 }

@@ -15,7 +15,7 @@ export type DeviceAdmission =
   /**
    * `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then.
    * `person`: the hello's standing grant says person and a key this build pins signed it (ADR
-   * 0189); without it the device has a machine's standing.
+   * 0190); without it the device has a machine's standing.
    */
   | { admitted: true; account: string; expiresAt: number; person: boolean }
   | { admitted: false; code: "unauthorized" | MachineCodeRefusal; message: string };
@@ -64,12 +64,12 @@ export function machineAccount(options: {
   defaultOrigin?: string | undefined;
   /**
    * This machine's host id on ace's relay (`relayHostIdFor`): its machine credential is bound to
-   * it (ADR 0189).
+   * it (ADR 0190).
    */
   relayHostId: () => Promise<string>;
   /**
    * The grant keys whose standing grants give an account device the person's standing (ADR
-   * 0189); `shippedGrantKeys` unless a test injects its own. Never read from the environment.
+   * 0190); `shippedGrantKeys` unless a test injects its own. Never read from the environment.
    */
   personKeys?: GrantKeySet | undefined;
   log?: (error: Error) => void;
@@ -144,7 +144,7 @@ export function machineAccount(options: {
     login = undefined;
   };
   /**
-   * This machine's credential for an ace session (ADR 0189), or undefined from a backend that
+   * This machine's credential for an ace session (ADR 0190), or undefined from a backend that
    * has none (404). `sole`: this daemon was the session's only holder, so the backend retires
    * its token. `onDisk`: the session was written to this machine's disk, so the backend never
    * lets it speak for the person again.
@@ -192,7 +192,7 @@ export function machineAccount(options: {
     });
 
   /**
-   * A session file from before machine credentials (ADR 0189) holds an ace session. Exchanged
+   * A session file from before machine credentials (ADR 0190) holds an ace session. Exchanged
    * once for this machine's credential, the file then holds only that. Until it is, the daemon
    * keeps working with it (its grants have a machine's standing at the backend) and tries again
    * on the next renewal round; a session the backend no longer knows signs the machine out.
@@ -403,7 +403,7 @@ export function machineAccount(options: {
     },
     /**
      * Take over the ace sign-in of another ace app on this machine: the daemon exchanges the
-     * app's session for this machine's credential (ADR 0189) and keeps only that; the session
+     * app's session for this machine's credential (ADR 0190) and keeps only that; the session
      * itself stays in memory for the exchange and is never written. A backend without machine
      * credentials vouches for the session, which is kept as before. With `condition`, only while
      * the daemon still holds that session and no sign-in from this machine is under way (412
@@ -489,7 +489,7 @@ export function machineAccount(options: {
               login = undefined;
               const { token, account: who, expiresAt } = result.session;
               // This daemon is the session's only holder: it keeps this machine's credential
-              // instead, and the session's token is retired (ADR 0189). If that fails, the
+              // instead, and the session's token is retired (ADR 0190). If that fails, the
               // sign-in ends without writing the session; the person signs in again.
               let credential;
               try {

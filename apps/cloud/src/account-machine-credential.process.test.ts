@@ -9,7 +9,7 @@ import { startWorker } from "./testing/harness.ts";
 import { signInThroughWorker } from "./testing/sign-in.ts";
 
 /*
- * ADR 0189 against the real Worker and D1 under Miniflare: what a machine keeps can never mint a
+ * ADR 0190 against the real Worker and D1 under Miniflare: what a machine keeps can never mint a
  * grant that speaks for the person. A real Worker because the rules live in its routes, its SQL
  * and its migration together.
  */

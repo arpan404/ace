@@ -35,6 +35,6 @@ export interface Env {
   ACE_GRANT_KEY?: string;
   /** The replaced key's `/v1/keys` entry, `<id>:<public key>`, during a rotation. */
   ACE_GRANT_PREVIOUS_KEY?: string;
-  /** ADR 0189: until when sessions from before machine credentials speak for the person. */
+  /** ADR 0190: until when sessions from before machine credentials speak for the person. */
   ACE_LEGACY_PERSON_UNTIL?: string;
 }

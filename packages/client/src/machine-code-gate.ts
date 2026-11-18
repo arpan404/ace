@@ -2,7 +2,7 @@ import { MachineCode, type MachineCodeRefusal } from "@ace/protocol";
 
 /**
  * An account device's credential for one machine (ADR 0111): a fresh device grant for every
- * connection, with the standing grant the backend gave with it (`standingOf`, ADR 0189), plus
+ * connection, with the standing grant the backend gave with it (`standingOf`, ADR 0190), plus
  * the machine code the person typed when the daemon asks for it. Wire `credential`, `refused`
  * and `welcomed` into a channel; a UI reads `asking` and calls `enter`, then opens the channel
  * again. The code is kept only until the daemon answers it.

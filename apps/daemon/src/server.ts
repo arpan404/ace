@@ -406,7 +406,7 @@ export async function startServer(options: ServerOptions): Promise<{
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
-    // Whether this socket's credential is the person's for person-only actions (ADR 0189): an
+    // Whether this socket's credential is the person's for person-only actions (ADR 0190): an
     // account device only when its standing grant said person; the host token never.
     const personProven = () =>
       !hostCredential() &&

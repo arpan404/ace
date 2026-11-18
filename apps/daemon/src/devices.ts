@@ -44,7 +44,7 @@ export type SessionActor = Device & {
   generation?: string | undefined;
   /**
    * For an account device: its standing grant said person and verified against a key this build
-   * pins (ADR 0189). An account device without it has a machine's standing: person-only actions
+   * pins (ADR 0190). An account device without it has a machine's standing: person-only actions
    * need a fresh sign-in, as over the host token.
    */
   person?: boolean | undefined;

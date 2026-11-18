@@ -31,7 +31,7 @@ export interface CommandAdmission {
   authorize(scope: DeviceScope): boolean;
   /**
    * The socket's credential is the person's (`answer-gate.ts`): not the host token, and not an
-   * account device without the person's standing (ADR 0189).
+   * account device without the person's standing (ADR 0190).
    */
   personProven(): boolean;
   send(message: ServerMessage): void;

@@ -14,7 +14,7 @@ export type RelayAdmission =
       account?: string;
       /** For an account device: when its grant runs out, unless the socket refreshes it. */
       grantExpiresAt?: number;
-      /** For an account device: its standing grant said person (ADR 0189). */
+      /** For an account device: its standing grant said person (ADR 0190). */
       person?: boolean;
       refusal?: undefined;
     }
@@ -95,7 +95,7 @@ export async function accountHello(
 /**
  * An admitted account device: admin while it stays admitted, never revoked by device id. It
  * counts as the person for person-only actions only when its standing grant said person and a
- * key this build pins signed it (`person`, ADR 0189); otherwise it has a machine's standing.
+ * key this build pins signed it (`person`, ADR 0190); otherwise it has a machine's standing.
  */
 export function accountDeviceActor(id: DeviceId, now: number, person: boolean): SessionActor {
   return {
@@ -119,7 +119,7 @@ export function mainActor(
   admitted: { id: DeviceId; generation?: string | undefined },
   stillAdmitted: (() => boolean) | undefined,
   options: { auth: RemoteAuth; devices: Devices },
-  /** For an account device: its standing grant said person (ADR 0189). */
+  /** For an account device: its standing grant said person (ADR 0190). */
   person = false,
 ): SessionActor | undefined {
   if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now(), person);

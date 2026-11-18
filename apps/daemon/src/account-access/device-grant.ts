@@ -54,7 +54,7 @@ export function deviceGrantVerdict(
 }
 
 /**
- * Whether an admitted account device speaks for the person (ADR 0189): its hello carried a
+ * Whether an admitted account device speaks for the person (ADR 0190): its hello carried a
  * standing grant that says `person`, signed by a key this build pins (never one fetched from the
  * session's origin or named by the environment), for the same account and device id as its device
  * grant, and not expired. Anything less is a machine's standing. Pure.

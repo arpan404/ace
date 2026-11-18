@@ -34,7 +34,7 @@ export const nodeOnlySuites = [
   // covered against the self-hosted relay.
   "apps/daemon/src/ace-cloud-e2e.process.test.ts",
   // A daemon signed in through that Worker's account API: what its machine credential may do
-  // (ADR 0189). Same harness, same reason.
+  // (ADR 0190). Same harness, same reason.
   "apps/daemon/src/machine-credential.process.test.ts",
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.

@@ -64,14 +64,14 @@ export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
 export const MARKET_GRANT_ISSUER = "cloud.acehq.dev";
 
 /**
- * Who asked for a device grant (ADR 0189): `person`, a session the person signed in to in a
+ * Who asked for a device grant (ADR 0190): `person`, a session the person signed in to in a
  * browser and that only the client they signed in on holds; `machine`, anything a machine keeps
  * (a daemon's machine credential, or a session that was ever written to a machine's disk).
  */
 export const GrantStanding = z.enum(["person", "machine"]);
 export type GrantStanding = z.infer<typeof GrantStanding>;
 /**
- * A standing grant (ADR 0189): format 2, beside a device's format 1 grant. It says whose
+ * A standing grant (ADR 0190): format 2, beside a device's format 1 grant. It says whose
  * session asked for the device grant, so a daemon can tell the person from a process that read a
  * machine's files. Format 1 parsers (older daemons, the relay) refuse it, and this parser refuses
  * format 1, so neither stands in for the other.

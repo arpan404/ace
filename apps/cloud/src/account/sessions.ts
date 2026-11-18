@@ -15,7 +15,7 @@ const Row = z.object({
   standing: z.enum(["person", "legacy", "exposed"]).catch("exposed"),
 });
 /**
- * Whether a session may speak for the person (ADR 0189, migration 0004): `person` for a sign-in
+ * Whether a session may speak for the person (ADR 0190, migration 0004): `person` for a sign-in
  * only the client that made it holds; `legacy` for one from before standing was kept; `exposed`
  * for one a machine kept on its disk.
  */

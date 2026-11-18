@@ -290,7 +290,7 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        */
       grant: z.string().min(1).max(2048).optional(),
       /**
-       * With a grant: the standing grant the backend returned with it (ADR 0189). The daemon
+       * With a grant: the standing grant the backend returned with it (ADR 0190). The daemon
        * counts the device as the person only when this says `person`; without it the device has
        * a machine's standing. Older daemons ignore it.
        */

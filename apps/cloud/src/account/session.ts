@@ -7,7 +7,7 @@ import type { AccountProvider } from "./workos.ts";
 
 /**
  * `signedInAt`: when the person signed in for this session (0 for sessions from before it was
- * kept). `standing`: whether it may still speak for the person (ADR 0189).
+ * kept). `standing`: whether it may still speak for the person (ADR 0190).
  */
 export type ActiveSession = {
   account: AceAccount;

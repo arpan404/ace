@@ -81,7 +81,7 @@ export interface SocketContext {
   hostCredential?(): boolean;
   /**
    * Whether this socket's credential is the person's for person-only actions (ADR 0178 §12.7,
-   * ADR 0189): a paired device, or an account device whose standing grant says person. Not the
+   * ADR 0190): a paired device, or an account device whose standing grant says person. Not the
    * host token, which any process that reads it holds, and not an account device with only a
    * machine's standing. Absent counts as not.
    */

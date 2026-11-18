@@ -48,7 +48,7 @@ export async function hostMarketRefusal(input: {
   readonly operation: MarketOperation;
   /**
    * The socket's credential isn't the person's: the host token, or an account device whose
-   * standing grant didn't say person (ADR 0189).
+   * standing grant didn't say person (ADR 0190).
    */
   readonly unproven: boolean;
   readonly fresh: () => Promise<boolean>;

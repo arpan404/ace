@@ -18,7 +18,7 @@ export type StoredMachineCredential = {
 };
 
 /**
- * Machine credentials in D1 (ADR 0189), keyed by the credential's digest. A credential holds no
+ * Machine credentials in D1 (ADR 0190), keyed by the credential's digest. A credential holds no
  * WorkOS token of its own: it lives on the session it was exchanged from.
  */
 export function machineCredentialStore(db: D1Database) {

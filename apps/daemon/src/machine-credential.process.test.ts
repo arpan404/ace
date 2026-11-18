@@ -18,7 +18,7 @@ import { relayHostIdFor } from "./account-access/relay-host-id.ts";
 import { StoredSession } from "./account-access/session-file.ts";
 import { fixture } from "./socket-test-support.ts";
 
-// ADR 0189 end to end: a real daemon signed in through ace's account backend (the Worker and D1
+// ADR 0190 end to end: a real daemon signed in through ace's account backend (the Worker and D1
 // under Miniflare, against a fake WorkOS). A process holding only what the daemon writes to
 // ACE_HOME never gets the person's standing; the person, signed in in a browser, does. The
 // person-only action observed is "Ask me before agents publish", which the daemon refuses to

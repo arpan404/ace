@@ -3,7 +3,7 @@ export interface FetchedGrant {
   token: string;
   /** Epoch milliseconds, on the backend's clock. */
   expiresAt: number;
-  /** The standing grant the backend gave with it (ADR 0189), for the hello. */
+  /** The standing grant the backend gave with it (ADR 0190), for the hello. */
   standing?: string | undefined;
 }
 
@@ -34,7 +34,7 @@ export interface GrantCache {
    * for a grant fetched fresh for that machine's attempt, which a fresh one would not change.
    */
   refused(grant: string, machine?: string): boolean;
-  /** The standing grant that came with `grant` (ADR 0189), while it is one of the latest. */
+  /** The standing grant that came with `grant` (ADR 0190), while it is one of the latest. */
   standing(grant: string): string | undefined;
   /**
    * `machine` no longer needs to know how it got its grant: its connection was welcomed, or the

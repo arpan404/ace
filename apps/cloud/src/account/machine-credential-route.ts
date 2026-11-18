@@ -7,7 +7,7 @@ import { bearer, fail, json, jsonBody } from "./respond.ts";
 import type { SessionStore } from "./sessions.ts";
 
 /**
- * POST /v1/machine-credentials (ADR 0189): a daemon exchanges an ace session for a credential
+ * POST /v1/machine-credentials (ADR 0190): a daemon exchanges an ace session for a credential
  * of its machine's own, bound to its host id, and keeps that instead. A credential can't be
  * exchanged again, and nothing it mints speaks for the person.
  *

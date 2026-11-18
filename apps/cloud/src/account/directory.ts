@@ -15,7 +15,7 @@ import type { Principal, PrincipalReader } from "./principal.ts";
 import type { SessionStore } from "./sessions.ts";
 
 /**
- * Whether a principal's device grants carry the person's standing (ADR 0189): a session signed
+ * Whether a principal's device grants carry the person's standing (ADR 0190): a session signed
  * in after standing was kept, never written to a machine's disk. A session from before is the
  * person's only until `legacyPersonUntil`, the transition the deployment chose (none by default).
  */
@@ -33,14 +33,14 @@ export function speaksForPerson(
 
 /**
  * Grants and the machine directory (ADR 0111). Every route but the key set needs a live ace
- * session or machine credential (ADR 0189); reading it refreshes with WorkOS, so a signed-out or
+ * session or machine credential (ADR 0190); reading it refreshes with WorkOS, so a signed-out or
  * deleted account stops getting grants at once and loses relay access within one grant lifetime.
  */
 export function directoryRoutes(deps: {
   principals: PrincipalReader;
   /** To mark a session a machine kept on its disk. */
   sessionStore: Pick<SessionStore, "expose">;
-  /** Until when sessions from before ADR 0189 still speak for the person; undefined: never. */
+  /** Until when sessions from before ADR 0190 still speak for the person; undefined: never. */
   legacyPersonUntil?: number | undefined;
   machines: ReturnType<typeof machineStore>;
   /** Runs after a machine is forgotten, so one still on the relay can list itself again. */
@@ -75,7 +75,7 @@ export function directoryRoutes(deps: {
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");
         if (purpose === "spade-cloud" && kind !== "machine") return fail(400, "invalid_request");
-        // A machine credential speaks for its own machine only (ADR 0189).
+        // A machine credential speaks for its own machine only (ADR 0190).
         if (principal.kind === "machine" && kind === "machine" && subject !== principal.hostId)
           return fail(403, "other_machine");
         // A session asking as a machine is one an older daemon keeps in its session file: it has
@@ -97,7 +97,7 @@ export function directoryRoutes(deps: {
                   signingKey,
                 )
               : signGrant(claims, signingKey);
-        // A device grant comes with its standing grant: whose session asked (ADR 0189).
+        // A device grant comes with its standing grant: whose session asked (ADR 0190).
         const standing =
           kind === "device" && purpose === undefined
             ? signStandingGrant(

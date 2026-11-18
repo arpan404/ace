@@ -45,7 +45,7 @@ export const AccountConfig = z.object({
   previousGrantKey: PreviousGrantKey.optional(),
   allowedOrigins: z.array(Origin).min(1),
   /**
-   * `ACE_LEGACY_PERSON_UNTIL`, an ISO date: until then, sessions from before ADR 0189 that no
+   * `ACE_LEGACY_PERSON_UNTIL`, an ISO date: until then, sessions from before ADR 0190 that no
    * machine was seen keeping still mint person-standing device grants, so clients aren't asked to
    * sign in again on the day it ships. Unset (the default) means never: every such session has a
    * machine's standing from the start.

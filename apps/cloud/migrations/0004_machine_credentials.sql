@@ -1,4 +1,4 @@
--- Machine credentials (ADR 0189). A daemon keeps a credential bound to its host id instead of the
+-- Machine credentials (ADR 0190). A daemon keeps a credential bound to its host id instead of the
 -- person's ace session, so nothing on a machine's disk can mint a grant that carries the person's
 -- standing.
 --
