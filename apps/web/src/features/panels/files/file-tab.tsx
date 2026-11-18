@@ -235,6 +235,7 @@ export function FileTab(props: TabViewProps) {
           path={path}
           preview={data.preview === true}
           source={data.source === true}
+          wrap={prefs.wrap}
           finding={find !== undefined}
           treeOpen={treeShown}
           readable={readable}
@@ -247,6 +248,7 @@ export function FileTab(props: TabViewProps) {
           }}
           onKeep={() => update({ preview: false })}
           onSource={(source) => update({ source })}
+          onWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
           onFind={toggleFind}
           onTree={() => update({ tree: !treeShown })}
         />
@@ -273,6 +275,8 @@ export function FileTab(props: TabViewProps) {
                   threadId={threadId}
                   path={path}
                   draft={data.draft}
+                  wrap={prefs.wrap}
+                  onToggleWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
                   onChange={(draft) => update({ draft })}
                   onClose={() => update({ draft: undefined })}
                   onSaved={() => {
@@ -288,6 +292,8 @@ export function FileTab(props: TabViewProps) {
                 content={content.data}
                 error={content.error}
                 source={data.source === true}
+                wrap={prefs.wrap}
+                onToggleWrap={() => memory.setPrefs({ wrap: !prefs.wrap })}
                 find={find?.query ? { query: find.query, hit: hits[hitIndex] } : undefined}
                 line={data.line}
                 marks={marks}
