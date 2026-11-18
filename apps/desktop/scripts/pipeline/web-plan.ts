@@ -9,9 +9,9 @@ import { gh, output, say, step, summary, tagArgument, tagCommit } from "./github
  *   node apps/desktop/scripts/pipeline/web-plan.ts <tag>
  *
  * Reads the tag's commit and the published releases; `webDeployPlan` decides. Outputs `deploy`
- * (`true` or `false`) and, to deploy, `version`, `branch`, `commit` and `message`. The workflow
- * then builds `apps/web` with `ACE_VERSION=<version>` and runs `wrangler pages deploy`; this
- * step never sees the Cloudflare token.
+ * (`true` or `false`) and, to deploy, `version`, `branches` (space-separated), `commit` and
+ * `message`. The workflow then builds `apps/web` once with `ACE_VERSION=<version>` and runs
+ * `wrangler pages deploy` for each branch; this step never sees the Cloudflare token.
  */
 const Releases = z.array(z.object({ tagName: z.string(), isDraft: z.boolean() }));
 
@@ -29,15 +29,16 @@ step(async () => {
   const published = releases.filter((release) => !release.isDraft).map((r) => r.tagName);
   const plan = webDeployPlan({ tag, commit, published });
 
-  output("deploy", String(plan.action === "deploy"));
-  if (plan.action === "skip") {
-    say(`not deploying the web app: ${plan.reason}`);
-    summary(`Web app not deployed: ${plan.reason}.`);
-    return;
+  for (const { branch, reason } of plan.skip) {
+    say(`not deploying the web app to ${branch}: ${reason}`);
+    summary(`Web app not deployed to \`${branch}\`: ${reason}.`);
   }
+  output("deploy", String(plan.deploy.length > 0));
+  if (!plan.deploy.length) return;
   output("version", plan.version);
-  output("branch", plan.branch);
+  output("branches", plan.deploy.map((target) => target.branch).join(" "));
   output("commit", commit);
   output("message", plan.message);
-  summary(`Web app **${plan.version}** to ${plan.site} (Pages branch \`${plan.branch}\`).`);
+  for (const { branch, site } of plan.deploy)
+    summary(`Web app **${plan.version}** to ${site} (Pages branch \`${branch}\`).`);
 });

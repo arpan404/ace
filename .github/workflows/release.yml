@@ -402,7 +402,8 @@ jobs:
     name: Deploy the web app
     needs: [gate, prepare, deploy-production]
     # After the cloud it talks to, before publish: a stable release's web app goes to
-    # app.acehq.dev (Pages project ace-web), a beta's to its Pages branch `beta`.
+    # app.acehq.dev (Pages project ace-web, branch main) and beta.app.acehq.dev (branch beta),
+    # a beta's to beta.app.acehq.dev only.
     if: ${{ !cancelled() && needs.deploy-production.result == 'success' }}
     runs-on: [self-hosted, linux, omarchy]
     environment: production
@@ -426,7 +427,7 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile --ignore-scripts
-      # Skipped when a later release of the same line is already published: never goes back.
+      # A branch is skipped when it already serves a later published release: never goes back.
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
@@ -437,9 +438,10 @@ jobs:
         env:
           ACE_VERSION: ${{ steps.plan.outputs.version }}
         run: apps/web/scripts/cloudflare-pages-build.sh
-      # Only this step holds the token. It runs in tools/workers-release for that package's
-      # wrangler, with no wrangler config or functions folder there for Pages to pick up. A rerun
-      # deploys again: Pages uploads only files it lacks, and the result is the same build.
+      # One build to each planned branch. Only this step holds the token. It runs in
+      # tools/workers-release for that package's wrangler, with no wrangler config or functions
+      # folder there for Pages to pick up. A rerun deploys again: Pages uploads only files it
+      # lacks, and the result is the same build.
       - if: steps.plan.outputs.deploy == 'true'
         working-directory: tools/workers-release
         env:
@@ -447,13 +449,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CI: "1"
           WRANGLER_SEND_METRICS: "false"
-          BRANCH: ${{ steps.plan.outputs.branch }}
+          BRANCHES: ${{ steps.plan.outputs.branches }}
           COMMIT: ${{ steps.plan.outputs.commit }}
           MESSAGE: ${{ steps.plan.outputs.message }}
-        run: >-
-          bun x wrangler pages deploy "$GITHUB_WORKSPACE/apps/web/dist" --project-name ace-web
-          --branch "$BRANCH" --commit-hash "$COMMIT" --commit-message "$MESSAGE"
-          --commit-dirty=false
+        run: |
+          set -eu
+          for branch in $BRANCHES; do
+            bun x wrangler pages deploy "$GITHUB_WORKSPACE/apps/web/dist" --project-name ace-web \
+              --branch "$branch" --commit-hash "$COMMIT" --commit-message "$MESSAGE" \
+              --commit-dirty=false
+          done
 
   publish:
     name: Publish
@@ -482,6 +487,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: node apps/desktop/scripts/pipeline/publish.ts "$TAG" "$VERSION"
+
+  refresh-marketing:
+    name: Rebuild acehq.dev
+    needs: [prepare, publish]
+    # acehq.dev builds its download links and version from the latest release; rebuild it once a
+    # stable release is live. Runs no repository code, and never fails the release: an unset hook
+    # or a failed request is only a notice, and notify doesn't wait for it.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.prepare.outputs.kind == 'stable' }}
+    runs-on: [self-hosted, linux, omarchy]
+    environment: production
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - env:
+          HOOK: ${{ secrets.MARKETING_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::No MARKETING_DEPLOY_HOOK in the production environment; acehq.dev rebuilds on its next push to main."
+          elif curl -fsS -o /dev/null -X POST --max-time 30 --retry 2 "$HOOK"; then
+            echo "Asked Pages to rebuild ace-marketing."
+          else
+            echo "::warning::The ace-marketing deploy hook failed; rebuild acehq.dev from the Pages dashboard."
+          fi
 
   notify:
     name: Tell the owner
