@@ -34,6 +34,7 @@ export function useCardFocus(card: RefObject<HTMLElement | null>, page: number):
     if (typing(active) && !element.contains(active)) return;
     const first = element.querySelector<HTMLElement>(control);
     (first ?? element).focus({ preventScroll: true });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- `page` asks again.
   }, [card, page]);
   useEffect(() => {
     const column = card.current?.closest("[data-thread-column]") ?? null;

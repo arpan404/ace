@@ -25,15 +25,16 @@ import { useSpadeStatus } from "./use-spade-status.ts";
 import { useTellZone } from "./use-spade-zone.ts";
 import { useSpadeGroups } from "./use-spade-groups.ts";
 
+const isMain = (entry: SpadeListEntry) => entry.kind === "bot" && entry.bot.kind === "main";
+
 /**
- * Spade's panel, a messenger's list (ADR 0127, docs/design/spade.md §2). Three buttons on top:
- * Search, which opens in place over the rows and finds conversations by their words, Plugins &
- * marketplace, and + (New bot, New group, Import bot). Then one row per bot or group on every
- * machine this window reaches: Spade, the main bot, first as an ordinary row, then what needs
- * the person, what works, what failed and what they haven't seen, then the rest by latest
- * activity. While Spade runs but waits on the person (a keychain prompt), what to look for, under
- * the top. The panel sees every machine, so it keeps Spade, the main
- * bot, on one (`useOneSpade`).
+ * Spade's panel, a messenger's list (ADR 0127, docs/design/spade.md §2). The head is Spade, the
+ * main bot, with Search (which takes the head's place and finds conversations by their words),
+ * Plugins & marketplace, and + (New bot, New group, Import bot). Then one row per bot or group on
+ * every machine this window reaches: what needs the person, what works, what failed and what
+ * they haven't seen, then the rest by latest activity. The foot is the person and the gear.
+ * While Spade runs but waits on the person (a keychain prompt), what to look for, under the head.
+ * The panel sees every machine, so it keeps Spade, the main bot, on one (`useOneSpade`).
  */
 export function SpadeSidebar() {
   const status = useSpadeStatus();
@@ -63,7 +64,6 @@ export function SpadeSidebar() {
     : splitPinned(nested, all);
   const rest = split.rest;
   // The main bot is the head, not a row or a pin: it only turns up among search results.
-  const isMain = (entry: SpadeListEntry) => entry.kind === "bot" && entry.bot.kind === "main";
   const main = all.find((entry): entry is MainEntry => entry.kind === "bot" && isMain(entry));
   const entries = searched ? rest : rest.filter((entry) => !isMain(entry));
   const pinned = split.pinned.filter((entry) => !isMain(entry));
