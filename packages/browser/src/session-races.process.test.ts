@@ -265,7 +265,6 @@ it("going back checks the place after reading the history, right before the move
               ],
             };
           }
-          if (method === "Page.navigateToHistoryEntry") moves.push(method);
           return send(method, params);
         },
       },
@@ -276,6 +275,9 @@ it("going back checks the place after reading the history, right before the move
   const page = backend.pages.at(-1);
   if (!page) throw new Error("no page");
   page.url = "https://docs.example/b";
+  page.onSend = (method) => {
+    if (method === "Page.navigateToHistoryEntry") moves.push(method);
+  };
   const tabId = f.service.state("thread").activeTabId ?? "page";
   await expect(
     f.service.execute("thread", {
@@ -333,33 +335,18 @@ it("closing or keeping a tab acts only on the tab the caller checked, at its add
 });
 
 it("a double click whose first click navigates never sends its second click to the new page", async () => {
-  const backend = new FakeHeadless(),
-    open = backend.open.bind(backend);
-  const pressed: number[] = [];
-  backend.open = async (request) => {
-    const session = await open(request),
-      send = session.cdp.send;
-    return {
-      ...session,
-      cdp: {
-        ...session.cdp,
-        send: async (method: string, params?: Record<string, unknown>) => {
-          if (method === "Input.dispatchMouseEvent" && params?.["type"] === "mousePressed") {
-            pressed.push(Number(params["clickCount"]));
-            // The first click follows a link to the person's settings.
-            const page = backend.pages.at(-1);
-            if (page) page.url = "https://docs.example/settings";
-          }
-          return send(method, params);
-        },
-      },
-    };
-  };
-  const f = await backendFixture({ headlessBackend: backend, backendPreference: () => "headless" });
+  const f = await backendFixture({ backendPreference: () => "headless" });
   await f.open();
-  const page = backend.pages.at(-1);
+  const page = f.headless.pages.at(-1);
   if (!page) throw new Error("no page");
   page.url = "https://docs.example/guide";
+  // What reached the page: the first press follows a link to the person's settings.
+  const sent: string[] = [];
+  page.onSend = (method, params) => {
+    if (method !== "Input.dispatchMouseEvent") return;
+    sent.push(`${String(params?.["type"])}:${String(params?.["clickCount"] ?? "")}`);
+    if (params?.["type"] === "mousePressed") page.url = "https://docs.example/settings";
+  };
   const tabId = f.service.state("thread").activeTabId ?? "page";
   await expect(
     f.service.execute("thread", {
@@ -370,5 +357,6 @@ it("a double click whose first click navigates never sends its second click to t
       expect: { tabId, url: "https://docs.example/guide" },
     }),
   ).rejects.toMatchObject({ code: "place_changed" });
-  expect(pressed).toEqual([1]);
+  // Its release and the whole second click never reached the settings page.
+  expect(sent).toEqual(["mouseMoved:", "mousePressed:1"]);
 });

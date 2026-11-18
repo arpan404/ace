@@ -1,3 +1,4 @@
+import { dispatched } from "./place-guard.ts";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
@@ -69,6 +70,15 @@ export class CdpConnection {
     method: string,
     params?: Record<string, unknown>,
     options: CdpCommandOptions = {},
+  ): Promise<unknown> {
+    // Every command of every session of this connection leaves here: a command held to a place
+    // checks it at each input (place-guard.ts).
+    return dispatched(method, params, (name, values) => this.transmitted(name, values, options));
+  }
+  private transmitted(
+    method: string,
+    params: Record<string, unknown> | undefined,
+    options: CdpCommandOptions,
   ): Promise<unknown> {
     if (this.reason) return Promise.reject(new Error(this.reason));
     const timeoutMs = options.timeoutMs ?? this.options.commandTimeoutMs ?? 60_000;

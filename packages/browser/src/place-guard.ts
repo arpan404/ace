@@ -1,52 +1,25 @@
-import type { BrowserBackendPage, BrowserCdp } from "./backend.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 /**
- * The page a command acts through while its caller's gate holds it to a place (`expect`, ADR
- * 0171 amendment 3). Every input dispatch passes here: the backend's input primitives and the
- * CDP methods that send input or move the page, in the page and in each of its frames. Each
- * re-checks the place first, so no command, loop or repetition can send input after the tab
- * moved on. Reads pass untouched.
+ * The place a caller's gate held a command to (`expect`, ADR 0171 amendment 3), enforced where
+ * every input leaves for the page: each backend's transport calls `beforeDispatch` right before
+ * it sends a CDP command or an input operation, for the page, its frames and every session the
+ * backend holds, whichever helper captured the session. The command runs inside `holdTo`, so
+ * the check follows it (and only it) through every await; the person's own input and other
+ * commands run outside it and are never held to an agent's place.
  */
-export function guardedPage(page: BrowserBackendPage, check: () => void): BrowserBackendPage {
-  const cdp = guardedCdp(page.cdp, check);
-  return new Proxy(page, {
-    get(target, property) {
-      if (property === "cdp") return cdp;
-      const value: unknown = Reflect.get(target, property, target);
-      if (typeof value !== "function") return value;
-      if (property === "frames")
-        return async () => {
-          const frames: Awaited<ReturnType<NonNullable<BrowserBackendPage["frames"]>>> =
-            await value.call(target);
-          const guarded: typeof frames = [];
-          for (const frame of frames) {
-            const each: (typeof frames)[number] = {
-              frameId: frame.frameId,
-              cdp: guardedCdp(frame.cdp, check),
-            };
-            if (frame.parentId !== undefined) each.parentId = frame.parentId;
-            guarded.push(each);
-          }
-          return guarded;
-        };
-      if (typeof property === "string" && pagePrimitives.has(property))
-        return (...args: unknown[]) => {
-          check();
-          return value.apply(target, args);
-        };
-      return value.bind(target);
-    },
-  });
+interface Hold {
+  check(): void;
+  /** Presses, keys and touches begun under this hold and not yet let go. */
+  begun: Set<string>;
 }
 
-/** The backend's own input primitives. */
-const pagePrimitives: ReadonlySet<string> = new Set([
-  "click",
-  "insertText",
-  "press",
-  "wheel",
-  "navigate",
-]);
+const holding = new AsyncLocalStorage<Hold>();
+
+/** Runs `work` held to a place: `check` throws `place_changed` when the tab moved on. */
+export function holdTo<T>(check: () => void, work: () => Promise<T>): Promise<T> {
+  return holding.run({ check, begun: new Set() }, work);
+}
 
 /** CDP methods outside `Input.*` that change what the page holds or where it is. */
 const moves: ReadonlySet<string> = new Set([
@@ -54,36 +27,99 @@ const moves: ReadonlySet<string> = new Set([
   "Page.navigate",
   "Page.navigateToHistoryEntry",
   "Page.reload",
+  "Page.handleJavaScriptDialog",
 ]);
 
-/**
- * The end of a gesture already begun: letting go of a pressed button, key or touch is never
- * refused, so a place that changed mid-gesture never leaves one held down.
- */
-const endings: ReadonlySet<unknown> = new Set([
-  "mouseReleased",
-  "keyUp",
-  "touchEnd",
-  "touchCancel",
-]);
+/** What a transport does with one outgoing command. */
+export type Dispatch =
+  /** Send it. */
+  | { kind: "send" }
+  /**
+   * The place changed after a press, key or touch began: the gesture's end must never reach
+   * the new page (its mouseup, click, keyup or drop would land there). Don't send it; send
+   * `instead` if given (cancelling a drag), then fail the command with `error`.
+   */
+  | { kind: "drop"; instead?: { method: string; params: Record<string, unknown> }; error: unknown };
 
-/** Whether a CDP call sends the page input or moves it, so the place is checked before it. */
-export function dispatchesInput(method: string, params?: Record<string, unknown>): boolean {
-  if (method.startsWith("Input.")) return !endings.has(params?.["type"]);
-  return moves.has(method);
+/** The gesture a CDP input event begins or ends, and whether it ends one. */
+function gesture(
+  method: string,
+  params?: Record<string, unknown>,
+): { key: string; ends: boolean } | undefined {
+  const type = params?.["type"];
+  if (method === "Input.dispatchMouseEvent") {
+    const key = `mouse:${String(params?.["button"] ?? "left")}`;
+    if (type === "mousePressed") return { key, ends: false };
+    if (type === "mouseReleased") return { key, ends: true };
+    return undefined;
+  }
+  if (method === "Input.dispatchKeyEvent") {
+    const key = `key:${String(params?.["code"] ?? params?.["key"] ?? "")}`;
+    if (type === "keyDown" || type === "rawKeyDown") return { key, ends: false };
+    if (type === "keyUp") return { key, ends: true };
+    return undefined;
+  }
+  if (method === "Input.dispatchTouchEvent") {
+    if (type === "touchStart") return { key: "touch", ends: false };
+    if (type === "touchEnd") return { key: "touch", ends: true };
+    return undefined;
+  }
+  if (method === "Input.dispatchDragEvent" && type === "drop") return { key: "drag", ends: true };
+  return undefined;
 }
 
-export function guardedCdp(cdp: BrowserCdp, check: () => void): BrowserCdp {
-  return new Proxy(cdp, {
-    get(target, property) {
-      const value: unknown = Reflect.get(target, property, target);
-      if (typeof value !== "function") return value;
-      if (property === "send")
-        return (method: string, params?: Record<string, unknown>) => {
-          if (dispatchesInput(method, params)) check();
-          return value.call(target, method, params);
-        };
-      return value.bind(target);
-    },
-  });
+/** Whether a CDP command sends the page input or moves it. */
+export function dispatchesInput(method: string): boolean {
+  return method.startsWith("Input.") || moves.has(method);
+}
+
+/**
+ * The check every transport runs right before a command leaves for the page. Outside a held
+ * command, or for a read, it sends. Held, an input checks the place first (throwing
+ * `place_changed`); the end of a gesture begun under the hold that finds the place changed is
+ * dropped, with a drag cancelled, so nothing activates on the page the tab moved to.
+ */
+export function beforeDispatch(method: string, params?: Record<string, unknown>): Dispatch {
+  const hold = holding.getStore();
+  if (!hold || !dispatchesInput(method)) return { kind: "send" };
+  const part = gesture(method, params);
+  if (part?.ends) {
+    try {
+      hold.check();
+    } catch (error) {
+      hold.begun.delete(part.key);
+      return {
+        kind: "drop",
+        error,
+        ...(part.key === "mouse:left" || part.key === "drag"
+          ? { instead: { method: "Input.cancelDragging", params: {} } }
+          : {}),
+      };
+    }
+    hold.begun.delete(part.key);
+    return { kind: "send" };
+  }
+  hold.check();
+  if (part) hold.begun.add(part.key);
+  return { kind: "send" };
+}
+
+/**
+ * The same check for an input a backend sends outside CDP (the desktop's key press and
+ * navigation): it throws `place_changed` when the tab moved on.
+ */
+export function beforeInputOperation(): void {
+  holding.getStore()?.check();
+}
+
+/** Runs `send` for a command unless the hold drops it (then fails with the hold's error). */
+export async function dispatched<T>(
+  method: string,
+  params: Record<string, unknown> | undefined,
+  send: (method: string, params?: Record<string, unknown>) => Promise<T>,
+): Promise<T> {
+  const decided = beforeDispatch(method, params);
+  if (decided.kind === "send") return send(method, params);
+  if (decided.instead) await send(decided.instead.method, decided.instead.params).catch(() => {});
+  throw decided.error;
 }

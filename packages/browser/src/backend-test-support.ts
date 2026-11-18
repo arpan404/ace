@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { afterEach } from "vitest";
 import { installOriginGuard } from "./origin-guard.ts";
+import { beforeInputOperation, dispatched } from "./place-guard.ts";
 import type { CarriedCookie } from "./cookie-carry.ts";
 import { BrowserBackendClientMessage, BrowserBackendServerMessage } from "@ace/protocol";
 import {
@@ -31,9 +32,15 @@ export class FakePage {
   /** Cookies a headless backend set in this page's context before it loaded. */
   planted: readonly CarriedCookie[] = [];
   events = new EventEmitter();
+  /** Called with each CDP command that left for the page (after a held command's check). */
+  onSend: ((method: string, params?: Record<string, unknown>) => void) | undefined;
+  // A transport, as every real backend's is: a held command's input is checked as it leaves.
   readonly cdp = {
     send: (method: string, params?: Record<string, unknown>) =>
-      Promise.resolve(this.command(method, params)),
+      dispatched(method, params, (name, values) => {
+        this.onSend?.(name, values);
+        return Promise.resolve(this.command(name, values));
+      }),
     on: (method: string, listener: (value: unknown) => void) => this.events.on(method, listener),
     off: (method: string, listener: (value: unknown) => void) => this.events.off(method, listener),
   };
@@ -95,21 +102,28 @@ export class FakeHeadless implements BrowserBackend {
     return {
       cdp: page.cdp,
       url: () => page.url,
+      // Input sent as operations, as the desktop sends a key press: checked as each leaves.
       navigate: async (url: string) => {
+        beforeInputOperation();
         page.url = url;
         request.navigation();
       },
       insertText: async (text: string) => {
+        beforeInputOperation();
         page.effects.push("text");
         page.text += text;
       },
       click: async () => {
+        beforeInputOperation();
         page.effects.push("click");
       },
       press: async () => {
+        beforeInputOperation();
         page.effects.push("key");
       },
-      wheel: async () => {},
+      wheel: async () => {
+        beforeInputOperation();
+      },
       screenshot: async () => Buffer.from([0]),
       resize: async (width: number, height: number) => {
         viewport = { width, height };

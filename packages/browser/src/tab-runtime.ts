@@ -24,7 +24,7 @@ import { screenshotRegion } from "./page-capture.ts";
 import { BrowserOriginError } from "./policy.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import { SnapshotRefs } from "./refs.ts";
-import { guardedPage } from "./place-guard.ts";
+import { holdTo } from "./place-guard.ts";
 import { executeBrowserCommand, type TabCommand } from "./session-commands.ts";
 import type { TabView } from "./page-tools.ts";
 import { agentScreenshot, type AgentScreenshot } from "./session-images.ts";
@@ -796,55 +796,57 @@ export class TabRuntime {
             throw new BrowserActionError("place_changed");
         }
       : () => {};
-    // The page the command acts through: with a held place, every input dispatch re-checks it.
-    const page = held ? guardedPage(this.page, place) : this.page;
-    return executeBrowserCommand(command, actor, signal, generation, {
-      options: host.options,
-      tabId: this.id,
-      page,
-      answer: (dialogId, accept, promptText) => {
-        place();
-        return host.answer(dialogId, accept, promptText);
-      },
-      beforeInput,
-      navigate: navigate && (() => (place(), navigate())),
-      refs: this.refs,
-      annotation: this.annotation,
-      view: this.view,
-      logs: host.logs,
-      policies: host.policies,
-      state: () => host.state(),
-      read: () => this.readCheck(actor, epoch),
-      blocked: () => host.blocked(),
-      clearBlocked: () => host.clearBlocked(),
-      check: (who, checkSignal, checkGeneration) =>
-        this.check(who, checkSignal, checkGeneration, epoch),
-      // Input to an element goes through its ref, whose own CDP the guarded page doesn't hold.
-      refDispatch: (ref) =>
-        this.refs.dispatch(ref, () => {
-          this.check(actor, signal, generation, epoch);
+    // Held to a place, the command runs inside its hold: every input any session sends for it,
+    // whichever helper sends it, checks the place where it leaves (place-guard.ts).
+    const execute = () =>
+      executeBrowserCommand(command, actor, signal, generation, {
+        options: host.options,
+        tabId: this.id,
+        page: this.page,
+        answer: (dialogId, accept, promptText) => {
           place();
-        }),
-      personPresent: () => this.humanWithin(host.timing.presentMs),
-      personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
-      point: (point, kind) => this.point(actor, point, kind),
-      cursor:
-        actor.kind === "agent" && this.cursor.visible
-          ? {
-              point: (at, click) => this.cursor.point(actor.agentId, at, click),
-              drag: (from, to) => this.cursor.drag(actor.agentId, from, to),
-              typing: (field) => this.cursor.typing(actor.agentId, field),
-              scroll: (dx, dy) => this.cursor.scroll(actor.agentId, dx, dy),
-            }
-          : undefined,
-      capture: (work) => this.cursor.capture(work),
-      emit: () => host.emit(),
-      // A command run inside this one (a measured interaction's) is held to the same place.
-      run: (inner, who, innerSignal, innerGeneration, before) =>
-        this.run(inner, who, innerSignal, innerGeneration, before, undefined, held),
-      beginRecording: (check, by) => host.beginRecording(this.id, check, by),
-      finishRecording: () => host.finishRecording(),
-    });
+          return host.answer(dialogId, accept, promptText);
+        },
+        beforeInput,
+        navigate: navigate && (() => (place(), navigate())),
+        refs: this.refs,
+        annotation: this.annotation,
+        view: this.view,
+        logs: host.logs,
+        policies: host.policies,
+        state: () => host.state(),
+        read: () => this.readCheck(actor, epoch),
+        blocked: () => host.blocked(),
+        clearBlocked: () => host.clearBlocked(),
+        check: (who, checkSignal, checkGeneration) =>
+          this.check(who, checkSignal, checkGeneration, epoch),
+        // Input to an element goes through its ref, whose own CDP the guarded page doesn't hold.
+        refDispatch: (ref) =>
+          this.refs.dispatch(ref, () => {
+            this.check(actor, signal, generation, epoch);
+            place();
+          }),
+        personPresent: () => this.humanWithin(host.timing.presentMs),
+        personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
+        point: (point, kind) => this.point(actor, point, kind),
+        cursor:
+          actor.kind === "agent" && this.cursor.visible
+            ? {
+                point: (at, click) => this.cursor.point(actor.agentId, at, click),
+                drag: (from, to) => this.cursor.drag(actor.agentId, from, to),
+                typing: (field) => this.cursor.typing(actor.agentId, field),
+                scroll: (dx, dy) => this.cursor.scroll(actor.agentId, dx, dy),
+              }
+            : undefined,
+        capture: (work) => this.cursor.capture(work),
+        emit: () => host.emit(),
+        // A command run inside this one (a measured interaction's) is held to the same place.
+        run: (inner, who, innerSignal, innerGeneration, before) =>
+          this.run(inner, who, innerSignal, innerGeneration, before, undefined, held),
+        beginRecording: (check, by) => host.beginRecording(this.id, check, by),
+        finishRecording: () => host.finishRecording(),
+      });
+    return held ? holdTo(place, execute) : execute();
   }
 }
 

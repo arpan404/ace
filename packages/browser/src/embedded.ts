@@ -1,3 +1,4 @@
+import { beforeInputOperation, dispatched } from "./place-guard.ts";
 import { consoleEntry } from "./console-entry.ts";
 import { pageStatus } from "./page-status.ts";
 import { mkdir } from "node:fs/promises";
@@ -160,7 +161,36 @@ export class EmbeddedBackend implements BrowserBackend {
     operation: BrowserBackendOperation,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    return this.slots.run(() => this.dispatch(sessionId, operation, signal), signal);
+    const run = (next: BrowserBackendOperation) =>
+      this.slots.run(() => this.dispatch(sessionId, next, signal), signal);
+    // Every operation for the desktop's pages leaves here, a tab's CDP inside `ace.tabs.cdp`
+    // too: a command held to a place checks it at each input (place-guard.ts).
+    if (operation.kind === "press" || operation.kind === "navigate") {
+      try {
+        beforeInputOperation();
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      return run(operation);
+    }
+    if (operation.kind !== "cdp") return run(operation);
+    const tab = operation.method === "ace.tabs.cdp" ? tabCdp(operation.params) : undefined;
+    if (operation.method === "ace.tabs.cdp" && !tab)
+      return Promise.reject(new Error("A tab's CDP command names no method"));
+    return dispatched(
+      tab?.method ?? operation.method,
+      tab ? tab.params : operation.params,
+      (method, params) =>
+        run(
+          tab
+            ? {
+                kind: "cdp",
+                method: "ace.tabs.cdp",
+                params: { ...tab.routing, method, ...(params ? { params } : {}) },
+              }
+            : { kind: "cdp", method, ...(params ? { params } : {}) },
+        ),
+    );
   }
   /**
    * A command got no answer in time, or the computer woke from sleep. It fails alone: a slow page (a long script, a dialog, a
@@ -751,4 +781,21 @@ function embeddedTabSurface(
     networkPending: () => tabs.inspection.pending(tabs.active()),
     frames: () => tabs.frames(),
   };
+}
+
+/** A tab's CDP command inside `ace.tabs.cdp`: its method, its params and the rest that routes it. */
+function tabCdp(raw: Record<string, unknown> | undefined):
+  | {
+      method: string;
+      params: Record<string, unknown> | undefined;
+      routing: Record<string, unknown>;
+    }
+  | undefined {
+  const { method, params, ...routing } = raw ?? {};
+  if (typeof method !== "string") return undefined;
+  const fields =
+    typeof params === "object" && params !== null && !Array.isArray(params)
+      ? Object.fromEntries(Object.entries(params))
+      : undefined;
+  return { method, params: fields, routing };
 }

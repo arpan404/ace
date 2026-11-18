@@ -107,9 +107,11 @@ it("a measured interaction's later repetitions never act on a page the first one
   const open = backend.open.bind(backend);
   const pressed: string[] = [];
   backend.open = async (request) => {
-    const session = await open(request);
+    const session = await open(request),
+      press = session.press;
     // The first Enter submits a form that lands on the person's mail.
     session.press = async (key) => {
+      await press(key);
       pressed.push(key);
       const page = backend.pages.at(-1);
       if (page) page.url = "https://mail.google.com/mail/u/0";

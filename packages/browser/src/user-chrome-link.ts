@@ -1,3 +1,4 @@
+import { dispatched } from "./place-guard.ts";
 import { EventEmitter } from "node:events";
 import {
   UserBrowserExtensionMessage,
@@ -203,13 +204,17 @@ export class UserChromeLink {
       (method, params) =>
         detached
           ? Promise.reject(new Error("This tab is no longer shared with ace"))
-          : this.command({
-              op: "cdp",
-              tabId,
-              ...(sessionId === undefined ? {} : { sessionId }),
-              method,
-              ...(params ? { params } : {}),
-            });
+          : // Every CDP command for the person's tab and its frames leaves here: a command
+            // held to a place checks it at each input (place-guard.ts).
+            dispatched(method, params, (name, values) =>
+              this.command({
+                op: "cdp",
+                tabId,
+                ...(sessionId === undefined ? {} : { sessionId }),
+                method: name,
+                ...(values ? { params: values } : {}),
+              }),
+            );
     return {
       tabId,
       ...surface(listeners, send()),
