@@ -46,6 +46,13 @@ struct TranscriptSettle: Equatable, Sendable {
         !restoring && (!following || fromEnd <= 1)
     }
 
+    /// What must hold still for an opening to settle. A feed following its end only has to stay
+    /// at it (`opened`): a streaming answer grows its height every few frames and the feed follows,
+    /// which is settled. A feed opened elsewhere waits for its content's height and its offset.
+    static func watched(following: Bool, height: Double, offset: Double) -> [Double] {
+        following ? [] : [height, offset]
+    }
+
     private static func matches(_ a: [Double], _ b: [Double]) -> Bool {
         a.count == b.count && zip(a, b).allSatisfy { abs($0 - $1) < tolerance }
     }

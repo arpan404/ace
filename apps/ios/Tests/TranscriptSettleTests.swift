@@ -67,3 +67,35 @@ import Testing
         #expect(TranscriptSettle.opened(following: false, fromEnd: 3_000, restoring: false), "the saved row is in place")
     }
 }
+
+/// What must hold still before an opening shows: where it reads from, not how tall a streaming
+/// answer has grown.
+@Suite struct TranscriptOpeningWatchTests {
+    @Test func aFeedFollowingAStreamingEndSettlesWhileItStaysAtTheEnd() {
+        var settle = TranscriptSettle(at: 0)
+        var height = 40_000.0
+        var outcome = TranscriptSettle.Outcome.waiting
+        var time = 0.0
+        while outcome == .waiting, time < 1 {
+            time += 0.016
+            height += 30 // a line of the answer every frame, the feed following it
+            let watched = TranscriptSettle.watched(following: true, height: height, offset: height - 800)
+            outcome = settle.frame(watched, placed: true, at: time)
+        }
+        #expect(outcome == .settled, "growing at the end doesn't keep it hidden")
+        #expect(time < 0.06)
+    }
+
+    @Test func aFeedReadingAwayFromTheEndWaitsForItsHeightAndOffset() {
+        var settle = TranscriptSettle(at: 0)
+        var height = 40_000.0
+        var outcome = TranscriptSettle.Outcome.waiting
+        var time = 0.0
+        while outcome == .waiting, time < 1 {
+            time += 0.016
+            height += 30 // rows above the saved place still measuring
+            outcome = settle.frame(TranscriptSettle.watched(following: false, height: height, offset: 12_000), at: time)
+        }
+        #expect(outcome == .capped)
+    }
+}

@@ -686,7 +686,8 @@ struct ConversationFeed: View {
             let metrics = intent.metrics
             let placed = TranscriptSettle.opened(following: pinned, fromEnd: Double(metrics.bottom),
                                                  restoring: viewport.sessionAnchor != nil || reading.loading)
-            return settle.frame([Double(metrics.height), Double(metrics.y)], placed: placed, at: time)
+            let watched = TranscriptSettle.watched(following: pinned, height: Double(metrics.height), offset: Double(metrics.y))
+            return settle.frame(watched, placed: placed, at: time)
         }) { outcome in
             var still = Transaction()
             still.disablesAnimations = true
