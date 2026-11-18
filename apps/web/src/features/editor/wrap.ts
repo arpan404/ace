@@ -160,7 +160,7 @@ function wrapGraphemes(text: string, width: number): WrapRow[] {
       fit = part.end;
       fitAt = index;
       if (isBreak(part.text) && part.start >= indentEnd) {
-        // The run's first space is the break; the rest of the run is dropped with it.
+        // The run's first space is where the row ends; the whole run stays at that end.
         if (!inRun) breakAt = part.start;
         inRun = true;
         let next = index;
