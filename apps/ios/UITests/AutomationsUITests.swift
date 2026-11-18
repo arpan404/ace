@@ -80,6 +80,8 @@ import XCTest
         screenshot("once")
         choose(app, "automation.cadence", "Custom")
         let expression = app.textFields["automation.expression"]
+        // The list builds the field once it comes near, so it is scrolled to first.
+        reveal(app, expression)
         XCTAssertTrue(expression.waitForExistence(timeout: 10))
         expression.tap()
         expression.typeText("FREQ=BOGUS")
