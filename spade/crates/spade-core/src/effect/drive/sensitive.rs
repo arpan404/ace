@@ -256,8 +256,9 @@ const PATH_PARTS: &[(&str, &str)] = &[
     ("messages", MAIL),
 ];
 
-/// Query keys whose values are what someone searched for, not where the page is: their words
-/// never make a page sensitive (`?q=checkout+bags` is a search).
+/// Query keys whose values are usually what someone searched for, not where the page is: their
+/// plain text (`?q=cheap flights`) never makes a page sensitive, but a value that reads as a
+/// route (`?q=/settings`, `?s=checkout`) does.
 const SEARCH_KEYS: &[&str] = &["q", "query", "search", "s", "term", "text", "keyword", "k"];
 
 /// Why a page (its canonical host and decoded path, query and fragment) is the person's.
@@ -288,7 +289,7 @@ pub fn site(page: &super::address::Page) -> Option<&'static str> {
         // A single-page app's route (`#/settings`, `?view=settings`) is a path too.
         let query = page.query.split('&').flat_map(|pair| {
             let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-            let value = if SEARCH_KEYS.contains(&key) {
+            let value = if SEARCH_KEYS.contains(&key) && searched(value) {
                 ""
             } else {
                 value
@@ -305,6 +306,15 @@ pub fn site(page: &super::address::Page) -> Option<&'static str> {
             .iter()
             .find_map(|(word, why)| parts.contains(word).then_some(*why))
     })
+}
+
+/// Whether a search key's value is plain text someone searched for: words, with nothing of a
+/// route about it (no `/`, `#` or `\\`), and not one route word on its own.
+fn searched(value: &str) -> bool {
+    let routed = value.contains(['/', '#', '\\']);
+    let one_word = !value.trim().contains(char::is_whitespace);
+    let route_word = PATH_PARTS.iter().any(|(word, _)| value.trim() == *word);
+    !(routed || (one_word && route_word))
 }
 
 /// The person's own machine: a loopback address, or a name only this machine or network

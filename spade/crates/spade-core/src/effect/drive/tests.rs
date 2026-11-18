@@ -444,3 +444,93 @@ fn a_page_a_device_opens_is_never_a_site_a_grant_names_either_way() {
     );
     assert!(paying.sensitive.is_some());
 }
+
+#[test]
+fn only_input_into_a_tab_or_an_app_needs_ace_to_hold_it_there() {
+    let Ok(tab) = in_tab(json!({}), &tabs(&[("t1", "https://docs.rs/", true, false)])).place else {
+        panic!("placed");
+    };
+    for tool in [
+        "browser_act",
+        "browser_evaluate",
+        "browser_history",
+        "browser_measure",
+    ] {
+        assert!(needs_binding(tool, &tab), "{tool}");
+    }
+    // Listing, opening or setting up tabs sends no input to the page.
+    for tool in ["browser_tabs", "browser_open", "browser_settings"] {
+        assert!(!needs_binding(tool, &tab), "{tool}");
+    }
+    let app = Place::App {
+        id: "com.apple.TextEdit".into(),
+        name: "TextEdit".into(),
+    };
+    assert!(needs_binding("screen_act", &app) && needs_binding("screen_state", &app));
+    // An address being opened has no tab to hold it to.
+    let Ok(opening) = site("https://docs.rs/").place else {
+        panic!("placed");
+    };
+    assert!(!needs_binding("browser_act", &opening));
+}
+
+#[test]
+fn a_search_key_holding_a_route_is_read_as_one_and_plain_search_text_is_not() {
+    for url in [
+        "https://example.com/?q=/settings",
+        "https://example.com/?q=%2Faccount%2Fsecurity",
+        "https://example.com/?s=checkout",
+        "https://example.com/?query=sign-in",
+        "https://example.com/?search=%23/billing",
+        "https://example.com/?next=/settings/keys",
+        "https://example.com/?return_to=%2Fadmin",
+    ] {
+        assert!(site(url).sensitive.is_some(), "{url}");
+    }
+    for url in [
+        "https://example.com/?q=cheap+flights",
+        "https://example.com/?q=cheap%20flights%20to%20lisbon",
+        "https://www.google.com/search?q=checkout+bags",
+        "https://example.com/?s=how+to+pay+less+tax",
+    ] {
+        assert_eq!(site(url).sensitive, None, "{url}");
+    }
+}
+
+#[test]
+fn a_step_only_the_reviewer_let_run_runs_only_where_ace_holds_it() {
+    let Ok(tab) = in_tab(json!({}), &tabs(&[("t1", "https://docs.rs/", true, false)])).place else {
+        panic!("placed");
+    };
+    let held = json!({"tabId": "t1", "url": "https://docs.rs/"});
+    // ace takes `expect`: the step carries it, over anything the model put there.
+    let sent = bind(
+        "browser_act",
+        json!({"action": "press", "key": "Enter", "expect": {"tabId": "t9", "url": "x"}}),
+        &tab,
+        true,
+        true,
+    );
+    assert_eq!(sent.map(|args| args["expect"].clone()), Ok(held));
+    // An ace that can't hold it, or arguments it can't be added to: not run on the review alone.
+    let press = json!({"action": "press", "key": "Enter"});
+    assert_eq!(
+        bind("browser_act", press.clone(), &tab, false, true),
+        Err(CANT_HOLD)
+    );
+    assert_eq!(
+        bind("browser_act", json!("Enter"), &tab, true, true),
+        Err(CANT_HOLD)
+    );
+    // The person allowed it: it runs as they allowed it.
+    assert_eq!(
+        bind("browser_act", press.clone(), &tab, false, false),
+        Ok(press.clone())
+    );
+    // A step that sends the page no input needs no holding.
+    let list = json!({"action": "list"});
+    assert_eq!(
+        bind("browser_tabs", list.clone(), &tab, false, true),
+        Ok(list)
+    );
+}
