@@ -34,10 +34,22 @@ export interface LineEdit {
   insertedLines: number;
 }
 
+/** One range a transaction replaced: its old bounds and where the new text ends. */
+export interface TextReplacement {
+  /** Where the replaced text began, in the document before the transaction. */
+  start: Position;
+  /** Where the replaced text ended, in the document before the transaction. */
+  end: Position;
+  /** Where the text that replaced it ends, in the document after the transaction. */
+  postEnd: Position;
+}
+
 /** What a completed edit changed: the document version and one entry per changed region. */
 export interface Applied {
   version: number;
   spans: LineEdit[];
+  /** The replaced ranges in document order, for carrying a stored position through the edit. */
+  replacements: TextReplacement[];
 }
 
 /** A find request: literal by default, case-sensitive and not whole-word unless asked. */

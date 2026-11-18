@@ -73,7 +73,7 @@ export function useWrap(options: {
     appliedRef.current = {
       before: remember,
       after: (batch) => {
-        anchor.mapThrough(batch.spans);
+        anchor.mapThrough(batch.replacements);
         index.apply([batch]);
         // oxlint-disable-next-line react-compiler/set-state-in-effect -- the index is an external store; a slice of rows changed under React.
         setRevision((value) => value + 1);

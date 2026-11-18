@@ -35,6 +35,29 @@ describe("EditorDocument", () => {
     expect(applied.spans).toEqual([{ firstLine: 0, removedLines: 3, insertedLines: 3 }]);
   });
 
+  it("reports the range an edit replaced and where its replacement ends", () => {
+    const document = new EditorDocument("hello world");
+    document.setSelections([caret(0, 5)]);
+
+    const applied = document.insertText("!");
+
+    expect(applied.replacements).toEqual([
+      {
+        start: { line: 0, column: 5 },
+        end: { line: 0, column: 5 },
+        postEnd: { line: 0, column: 6 },
+      },
+    ]);
+    // The undo's range is in the coordinates the undo starts from, ready for the same mapping.
+    expect(document.undo()?.replacements).toEqual([
+      {
+        start: { line: 0, column: 5 },
+        end: { line: 0, column: 6 },
+        postEnd: { line: 0, column: 5 },
+      },
+    ]);
+  });
+
   it("undo restores the text and the selections", () => {
     const document = new EditorDocument("hello world");
     document.setSelections([{ anchor: { line: 0, column: 6 }, head: { line: 0, column: 11 } }]);

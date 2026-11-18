@@ -2,7 +2,7 @@
 
 //! Transactions and the line spans they report to a highlighter.
 
-use editor_core::{Document, LineEdit, Position, Selection, Transaction};
+use editor_core::{Document, LineEdit, Position, Replacement, Selection, Transaction};
 
 #[test]
 fn deleting_a_selection_across_lines_reports_the_changed_span() {
@@ -48,6 +48,52 @@ fn apply_replaces_a_range_and_undo_restores_it() {
 
     document.undo().expect("the replacement");
     assert_eq!(document.text(), "hello");
+}
+
+#[test]
+fn an_edit_reports_the_range_it_replaced_and_where_its_text_ends() {
+    let mut document = Document::new("abc\ndef");
+    let applied = document.apply(Transaction::replace(
+        editor_core::Range::new(Position::new(0, 1), Position::new(1, 2)),
+        "X\nY",
+    ));
+
+    assert_eq!(
+        applied.replacements,
+        vec![Replacement {
+            start: Position::new(0, 1),
+            end: Position::new(1, 2),
+            post_end: Position::new(1, 1),
+        }]
+    );
+
+    // Undo replaces the text the edit inserted; its range is in the coordinates it starts from.
+    let undone = document.undo().expect("the replacement");
+    assert_eq!(
+        undone.replacements,
+        vec![Replacement {
+            start: Position::new(0, 1),
+            end: Position::new(1, 1),
+            post_end: Position::new(1, 2),
+        }]
+    );
+}
+
+#[test]
+fn an_edit_inside_one_line_reports_columns_the_view_can_map() {
+    let mut document = Document::new("hello world");
+    document.set_selections(vec![Selection::caret(Position::new(0, 5))]);
+
+    let applied = document.insert_text("!");
+
+    assert_eq!(
+        applied.replacements,
+        vec![Replacement {
+            start: Position::new(0, 5),
+            end: Position::new(0, 5),
+            post_end: Position::new(0, 6),
+        }]
+    );
 }
 
 #[test]

@@ -4,6 +4,7 @@ import {
   type Applied,
   type LineEdit,
   type Selection,
+  type TextReplacement,
 } from "@ace/editor";
 import { fileLanguage, type LineMark } from "@ace/ui-core";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -42,6 +43,8 @@ export interface EditorDocumentState {
 /** One applied edit's changed lines, with the document's line count and version after it. */
 export interface EditBatch {
   spans: readonly LineEdit[];
+  /** The ranges the transaction replaced, for carrying a stored position through it. */
+  replacements: readonly TextReplacement[];
   lines: number;
   /** The document's version once the spans were applied. */
   version: number;
@@ -156,20 +159,16 @@ export function useEditorDocument(options: {
   );
 
   const after = useCallback(
-    (applied: Applied, colours = true) => {
+    (batch: EditBatch, colours = true) => {
       if (!doc) return;
       if (colours)
-        for (const span of applied.spans) {
+        for (const span of batch.spans) {
           const inserted = doc.lines(span.firstLine, span.firstLine + span.insertedLines);
           highlighter?.edit(span.firstLine, span.removedLines, inserted);
         }
       onEdit.current?.();
       // Before React redraws: a layout that measures the new text must already know the edit.
-      onApplied.current?.({
-        spans: applied.spans,
-        lines: doc.lenLines(),
-        version: applied.version,
-      });
+      onApplied.current?.(batch);
       setSelections(doc.selections());
       setPrimary(doc.primarySelection());
       setVersion((value) => value + 1);
@@ -184,7 +183,12 @@ export function useEditorDocument(options: {
       onBeforeEdit.current?.();
       const applied = run(doc);
       if (!applied) return false;
-      after(applied);
+      after({
+        spans: applied.spans,
+        replacements: applied.replacements,
+        lines: doc.lenLines(),
+        version: applied.version,
+      });
       return true;
     },
     [doc, editable, after],
@@ -209,7 +213,12 @@ export function useEditorDocument(options: {
       doc.setSelections(before);
       // One whole-text replacement, never also an edit span for the same change.
       highlighter?.setText(next);
-      after(applied, false);
+      // A reload is not an edit at the reader's position: its one range covers the file, and
+      // mapping through it would put the view at the end. The remembered line stays where it is.
+      after(
+        { spans: applied.spans, replacements: [], lines: doc.lenLines(), version: applied.version },
+        false,
+      );
       commit();
     },
     [doc, highlighter, after, commit],

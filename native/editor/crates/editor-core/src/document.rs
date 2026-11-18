@@ -188,6 +188,7 @@ impl Document {
             removed_lines: 0,
             inserted_lines: 0,
             spans: Vec::new(),
+            replacements: Vec::new(),
             version: self.version,
         }
     }

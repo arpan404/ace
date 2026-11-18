@@ -403,6 +403,35 @@ test("a newline above the view keeps the same text at the top, and undoing it pu
   expect(rowText(start)).toBe(`line ${top} `);
 });
 
+test("typing at the start of the top line keeps the wrapped row under the edge", async () => {
+  const text = Array.from({ length: 120 }, (_, at) => `line ${at} `.padEnd(300, "word ")).join(
+    "\n",
+  );
+  const { ref } = await openView({ text, wrap: true });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  await waitFor(() => expect(document.querySelector('[data-line="1"]')).toBeTruthy());
+
+  // Line 50's second visual row is at the top edge; the caret goes to the line's start.
+  const lines = text.split("\n");
+  const line = lines[50] ?? "";
+  const wrapped = wrapLine(line, columns);
+  const second = wrapped[1];
+  if (!second) throw new Error("Line 50 should wrap");
+  const watched = line.slice(second.start, second.end);
+  const top = rowStart(lines, 50) + 1;
+  scroller.scrollTop = top * 22;
+  fireEvent.scroll(scroller);
+  act(() => ref.current?.setSelections([caret(50, 0)]));
+
+  await userEvent.keyboard("x");
+
+  // The inserted character shifts every break on the line by one column; the row the reader was
+  // looking at stays at the top because the anchor moved with the text, not against it.
+  await waitFor(() => expect(rowText(top)).toBe(watched));
+  expect(scroller.scrollTop).toBe(top * 22);
+});
+
 test("toggling wrap in the middle of a line keeps that line at the top", async () => {
   const ref = createRef<EditorHandle>();
   const text = Array.from({ length: 200 }, (_, at) => `line ${at} `.padEnd(300, "x")).join("\n");

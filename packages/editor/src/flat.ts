@@ -1,4 +1,4 @@
-import type { Applied, LineEdit, Position, Range, Selection } from "./types.ts";
+import type { Applied, LineEdit, Position, Range, Selection, TextReplacement } from "./types.ts";
 import type { WasmApplied } from "./wasm-types.ts";
 
 /** Positions to the quads the boundary reads. */
@@ -34,7 +34,7 @@ export function readRanges(flat: Uint32Array): Range[] {
   return ranges;
 }
 
-/** One applied edit, with its span triples turned into named offsets. */
+/** One applied edit, with its span triples and replacement six-tuples turned into named values. */
 export function readApplied(raw: WasmApplied): Applied {
   const flat = raw.spans;
   const spans: LineEdit[] = [];
@@ -45,7 +45,16 @@ export function readApplied(raw: WasmApplied): Applied {
       insertedLines: flat[index + 2] ?? 0,
     });
   }
-  return { version: raw.version, spans };
+  const replacements: TextReplacement[] = [];
+  const quads = raw.replacements;
+  for (let index = 0; index + 5 < quads.length; index += 6) {
+    replacements.push({
+      start: point(quads[index] ?? 0, quads[index + 1] ?? 0),
+      end: point(quads[index + 2] ?? 0, quads[index + 3] ?? 0),
+      postEnd: point(quads[index + 4] ?? 0, quads[index + 5] ?? 0),
+    });
+  }
+  return { version: raw.version, spans, replacements };
 }
 
 function quad(anchor: Position, head: Position): Uint32Array {
