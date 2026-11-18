@@ -250,9 +250,10 @@ Measured on `main`'s model and wiring, with the same labeller:
    pages, unnamed calls counted unsafe) alone the threshold would be far lower, since few risky
    calls have a hard form at all (`REPORT.md` gives it), so the floor stays and binds.
 6. **Not mainly the model's capacity.** A small MLP (one hidden layer of 16 ReLU units, the same
-   data, calibration and checks) settles up to 2 points more of the low-risk calls in the untouched
-   sets at no false low-risk, at about 1.8× the work and 2 MB of weights, and with 12 units it once
-   settled a risky held-out command. What binds now is which commands have a hard form
+   data, calibration and checks) settles up to 2.3 points more of the low-risk calls in the
+   untouched sets, but settles one tldr-pages call that isn't low-risk where the linear model
+   settles none, at about 1.8× the work and 2 MB of weights, and with 12 units it once settled a
+   risky held-out command. What binds now is which commands have a hard form
    (amendment 3), not capacity. The linear model stays; `REPORT.md` reruns the comparison.
 
 ### Decision
