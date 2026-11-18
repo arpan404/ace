@@ -16,7 +16,7 @@
 
 #![allow(unsafe_code)]
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, SyncSender};
@@ -28,7 +28,7 @@ use notify::Event;
 use notify::event::{EventKind, ModifyKind, RenameMode};
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_IO_PENDING, ERROR_NOTIFY_ENUM_DIR, ERROR_OPERATION_ABORTED, HANDLE,
-    INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0,
+    INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
@@ -56,6 +56,9 @@ const BUFFER_BYTES: usize = 64 * 1024;
 
 /// How long [`Watch::start`] waits for the thread to issue its first read.
 const ARMING: Duration = Duration::from_secs(5);
+
+/// How long a rename's old half waits for its new half before it is reported as a deletion.
+const RENAME_TIMEOUT: u32 = 100;
 
 /// What the watch asks the kernel to report; the same set `notify` requests.
 const FILTER: u32 = FILE_NOTIFY_CHANGE_FILE_NAME
@@ -260,9 +263,27 @@ fn run(
             let _ = started.send(Ok(()));
         }
         let handles = [stop.0, completion.0];
-        // SAFETY: both handles stay open until this thread returns, and the array holds the
-        // two entries the count names; waiting touches no buffer.
-        let waited = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) };
+        let waited = loop {
+            // A lone old half of a rename waits for its new half; the kernel puts them in
+            // adjacent records, so the wait is short. A move out of the tree never sends the
+            // new half, and the old path must still be reported as gone.
+            let timeout = if renames.pending() {
+                RENAME_TIMEOUT
+            } else {
+                INFINITE
+            };
+            // SAFETY: both handles stay open until this thread returns, and the array holds the
+            // two entries the count names; waiting touches no buffer.
+            let waited = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, timeout) };
+            if waited != WAIT_TIMEOUT {
+                break waited;
+            }
+            let mut out = Vec::new();
+            renames.flush(&mut out);
+            for event in out {
+                events.send(event);
+            }
+        };
         let mut bytes = 0u32;
         if waited != WAIT_OBJECT_0 + 1 {
             if waited == WAIT_FAILED {
@@ -389,12 +410,18 @@ struct Rename {
 }
 
 impl Rename {
+    /// Whether an old half is still waiting for its new half.
+    fn pending(&self) -> bool {
+        self.old.is_some()
+    }
+
     /// Appends the events one buffer's records describe, in order.
-    fn events(&mut self, root: &Path, records: &[(u32, String)], out: &mut Vec<Event>) {
+    fn events(&mut self, root: &Path, records: &[(u32, OsString)], out: &mut Vec<Event>) {
         for (action, name) in records {
             // The name is relative to the watched root and uses backslashes, which `join` and
-            // files-safe's relative form both understand.
-            let path = root.join(name);
+            // files-safe's relative form both understand. It stays raw: a name with an unpaired
+            // surrogate is still a record that must end a waiting pair.
+            let path = root.join(Path::new(name));
             match *action {
                 FILE_ACTION_RENAMED_OLD_NAME => {
                     self.flush(out);
@@ -458,6 +485,7 @@ fn emit(root: &Path, bytes: &[u8], events: &Events, renames: &mut Rename) {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::path::Path;
 
     use notify::event::{CreateKind, EventKind, ModifyKind, RenameMode};
@@ -469,15 +497,15 @@ mod tests {
         Path::new("root")
     }
 
-    fn one(action: u32, name: &str) -> Vec<(u32, String)> {
-        vec![(action, name.to_owned())]
+    fn one(action: u32, name: &str) -> Vec<(u32, OsString)> {
+        vec![(action, OsString::from(name))]
     }
 
     #[test]
     fn a_rename_is_one_pair_whether_the_halves_share_a_buffer_or_not() {
         let records = [
-            (FILE_ACTION_RENAMED_OLD_NAME, "foo.txt".to_owned()),
-            (FILE_ACTION_RENAMED_NEW_NAME, "Foo.txt".to_owned()),
+            (FILE_ACTION_RENAMED_OLD_NAME, OsString::from("foo.txt")),
+            (FILE_ACTION_RENAMED_NEW_NAME, OsString::from("Foo.txt")),
         ];
         let mut renames = Rename::default();
         let mut out = Vec::new();
