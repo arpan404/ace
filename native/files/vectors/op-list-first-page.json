@@ -3,10 +3,7 @@
     "id": 16,
     "op": {
       "dir": "",
-      "hide": [
-        ".git",
-        ".DS_Store"
-      ],
+      "hide": [".git", ".DS_Store"],
       "limit": 500,
       "op": "list",
       "root": 1

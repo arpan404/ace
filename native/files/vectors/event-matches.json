@@ -6,22 +6,12 @@
           {
             "line": 12,
             "preview": "  const cached = cache.get(key);",
-            "ranges": [
-              [
-                17,
-                22
-              ]
-            ]
+            "ranges": [[17, 22]]
           },
           {
             "line": 40,
             "preview": "  cache.set(key, value);",
-            "ranges": [
-              [
-                2,
-                7
-              ]
-            ]
+            "ranges": [[2, 7]]
           }
         ],
         "path": "apps/daemon/src/cache.ts"

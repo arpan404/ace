@@ -4,10 +4,7 @@
     "op": {
       "cursor": "eyJtdGltZSI6MTY3MDAwMDAwMDEyMywicG9zIjoxMjB9",
       "dir": "crates",
-      "hide": [
-        ".git",
-        ".DS_Store"
-      ],
+      "hide": [".git", ".DS_Store"],
       "limit": 500,
       "op": "list",
       "root": 1

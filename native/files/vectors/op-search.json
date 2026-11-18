@@ -3,12 +3,8 @@
     "id": 15,
     "op": {
       "case": "smart",
-      "exclude": [
-        "**/dist/**"
-      ],
-      "include": [
-        "*.ts"
-      ],
+      "exclude": ["**/dist/**"],
+      "include": ["*.ts"],
       "includeIgnored": false,
       "maxFileBytes": 1048576,
       "maxMatches": 1000,

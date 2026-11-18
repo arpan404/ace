@@ -95,9 +95,7 @@ describe("FilesClient", () => {
     const { client } = harnessWith("search-fails");
     await client.start();
     const root = await client.openRoot("/repo");
-    await expect(
-      client.search(root, query, { onMatches: () => {} }),
-    ).rejects.toMatchObject({
+    await expect(client.search(root, query, { onMatches: () => {} })).rejects.toMatchObject({
       code: "INVALID_ARGUMENT",
       message: "the pattern could not be compiled: cache",
     });
