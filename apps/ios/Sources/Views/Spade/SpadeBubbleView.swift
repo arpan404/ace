@@ -60,7 +60,7 @@ struct SpadeBubbleView: View {
 
 /// A request waiting on the person, raised above the chat: its sentence after the needs-you
 /// glyph, the detail that matters (a command, a path), why it asks when the review said, then
-/// Deny and Always allow as quiet words and Allow as the one primary.
+/// Deny, Always allow and Allow as the thread's own approval buttons, Allow the prominent one.
 private struct SpadeApprovalCard: View {
     let sentence: String
     let detail: String?
@@ -77,15 +77,14 @@ private struct SpadeApprovalCard: View {
                 RequestHeader(title: sentence, detail: reason ?? "")
             }
             if let detail { CommandBlock(command: detail) }
-            HStack(spacing: AceTheme.Spacing.xxs) {
-                Button("Deny") { reply(false, false) }.buttonStyle(RequestButtonStyle())
+            RequestActions {
+                CardButton(title: "Deny") { reply(false, false) }
                     .accessibilityIdentifier("spade.deny")
                 if always {
-                    Button("Always allow") { reply(true, true) }.buttonStyle(RequestButtonStyle())
+                    CardButton(title: "Always allow") { reply(true, true) }
                         .accessibilityIdentifier("spade.alwaysAllow")
                 }
-                Spacer(minLength: AceTheme.Spacing.none)
-                Button("Allow") { reply(true, false) }.buttonStyle(RequestButtonStyle(primary: true))
+                CardButton(title: "Allow", primary: true) { reply(true, false) }
                     .accessibilityIdentifier("spade.allow")
             }
             .disabled(answered)
