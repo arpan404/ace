@@ -5,6 +5,8 @@
 
 pub mod credentials;
 pub mod egress;
+#[cfg(unix)]
+pub mod fds;
 pub mod linux;
 pub mod policy;
 pub mod runner;

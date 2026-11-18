@@ -159,7 +159,9 @@ impl Runner {
 
     /// Whether [`Runner::wrap_offline`] can hold a run here: every boundary contained.
     pub fn holds_offline(&self) -> bool {
-        self.status.usable() && self.status.contains() && platform::OFFLINE
+        self.status.usable()
+            && self.status.contains()
+            && platform::holds_offline(self.launcher.as_deref())
     }
 
     /// `program args` started under `policy`, read-only when `read_only` (ADR 0172, amendment 7):
@@ -282,12 +284,15 @@ mod platform {
         Ok(dir)
     }
 
-    /// Seatbelt holds a run with no network rule at all.
-    pub(super) const OFFLINE: bool = true;
+    /// Seatbelt holds a run with no network rule at all; Spade's own program goes first, to drop
+    /// what the run would inherit, so an offline run needs it.
+    pub(super) fn holds_offline(launcher: Option<&Path>) -> bool {
+        launcher.is_some()
+    }
 
     pub(super) fn wrap(
         _status: &Status,
-        _launcher: Option<&Path>,
+        launcher: Option<&Path>,
         policy: &Policy,
         program: &Path,
         args: &[OsString],
@@ -301,10 +306,29 @@ mod platform {
         let mut all: Vec<OsString> = vec!["-p".into(), profile.into()];
         all.push(program.as_os_str().to_owned());
         all.extend(args.iter().cloned());
-        Ok(Launch {
-            program: PathBuf::from(seatbelt::SANDBOX_EXEC),
-            args: all,
-        })
+        // An offline or read-only run starts with its stdio alone (ADR 0171, amendment 4): Spade's
+        // own program marks every descriptor it inherited close-on-exec, then becomes
+        // `sandbox-exec`. Where it isn't known (a test's runner), a read-only run starts as before.
+        match (mode, launcher) {
+            (Mode::Normal, _) | (Mode::ReadOnly, None) => Ok(Launch {
+                program: PathBuf::from(seatbelt::SANDBOX_EXEC),
+                args: all,
+            }),
+            (Mode::Offline, None) => Err(Unavailable(
+                "Spade's own program is unknown, so a run can't be held offline".to_owned(),
+            )),
+            (Mode::ReadOnly | Mode::Offline, Some(launcher)) => {
+                let mut sealed: Vec<OsString> = vec![
+                    crate::fds::SEAL_ARG.into(),
+                    PathBuf::from(seatbelt::SANDBOX_EXEC).into(),
+                ];
+                sealed.extend(all);
+                Ok(Launch {
+                    program: launcher.to_path_buf(),
+                    args: sealed,
+                })
+            }
+        }
     }
 }
 
@@ -416,8 +440,11 @@ mod platform {
         Status::none("This build of Spade has no Linux sandbox.")
     }
 
-    /// Landlock with the syscall filter holds a run offline (the launcher refuses otherwise).
-    pub(super) const OFFLINE: bool = true;
+    /// Landlock with the syscall filter holds a run offline (the launcher refuses otherwise, and
+    /// drops what the run would inherit).
+    pub(super) fn holds_offline(launcher: Option<&Path>) -> bool {
+        launcher.is_some()
+    }
 
     pub(super) fn wrap(
         status: &Status,
@@ -510,7 +537,9 @@ mod platform {
     }
 
     /// Not yet: a run is held offline only where Spade checked it can be.
-    pub(super) const OFFLINE: bool = false;
+    pub(super) fn holds_offline(_launcher: Option<&Path>) -> bool {
+        false
+    }
 
     pub(super) fn wrap(
         _status: &Status,
@@ -559,7 +588,9 @@ mod platform {
 mod platform {
     use super::*;
 
-    pub(super) const OFFLINE: bool = false;
+    pub(super) fn holds_offline(_launcher: Option<&Path>) -> bool {
+        false
+    }
 
     pub(super) fn probe(_launcher: Option<&Path>) -> Status {
         Status::none("Spade has no sandbox for this system.")

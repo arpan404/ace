@@ -24,6 +24,23 @@ const SERVICES: &[&str] = &[
     "com.apple.trustd.agent",
 ];
 
+/// The Mach services an offline run keeps (ADR 0171, amendment 4): only ones that never reach the
+/// network on its behalf, kept so the runtimes a plugin server uses start and report cleanly:
+/// - `com.apple.system.logger`: the system log (`os_log`, ASL) every runtime writes to; local.
+/// - `com.apple.system.notification_center`: `notifyd`, the local notifications libSystem posts
+///   and watches (time zone and other settings changes); local.
+///
+/// Left out, as from a read-only run: `trustd` and `trustd.agent` (certificate checks fetch
+/// issuers and revocation over the network: AIA, OCSP, CRL), and `opendirectoryd`'s lookups
+/// (on a Mac bound to a directory they go to its LDAP or Active Directory servers; without them
+/// user and group lookups degrade as with a missing `/etc/passwd`). Nothing that resolves names
+/// or opens connections (`mDNSResponder`, `nsurlsessiond`, `networkd`, `configd`) is in any
+/// profile.
+const OFFLINE_SERVICES: &[&str] = &[
+    "com.apple.system.logger",
+    "com.apple.system.notification_center",
+];
+
 /// The system's folders, read-only: programs, libraries, frameworks, the system's settings, the
 /// developer tools and Homebrew. Not `/Users`, `/Volumes`, `/private/var` (but for the time zones
 /// and the developer tools' link) or `/private/tmp`.
@@ -104,10 +121,12 @@ fn profile_in(policy: &Policy, read_only: bool, offline: bool) -> String {
             "(allow ipc-posix-sem)\n\
              (allow ipc-posix-shm-read-data (ipc-posix-name \"apple.shm.notification_center\"))\n",
         );
+        // An offline run gets only the services that stay on this machine.
+        let services = if offline { OFFLINE_SERVICES } else { SERVICES };
         rule(
             &mut out,
             "allow mach-lookup",
-            SERVICES.iter().map(|s| global(s)),
+            services.iter().map(|s| global(s)),
         );
     }
     // Reads: the system's own folders and what the policy opens, nothing else. The home folders,
@@ -360,12 +379,58 @@ mod tests {
             assert!(normal.contains(network), "{network}");
             assert!(!offline.contains(network), "{network}");
         }
-        // Everything else is the normal run's: its writes and services stay.
+        // Its files are the normal run's.
         assert_eq!(
             offline.matches("file-write").count(),
             normal.matches("file-write").count()
         );
-        assert!(offline.contains("mach-lookup"));
+    }
+
+    /// The Mach services a profile lets a run look up.
+    fn services(text: &str) -> Vec<String> {
+        // A rule is its head, then one filter per line, until the next rule.
+        text.split("\n(")
+            .filter(|rule| {
+                rule.trim_start_matches('(')
+                    .starts_with("allow mach-lookup")
+            })
+            .flat_map(|rule| rule.split("(global-name \"").skip(1))
+            .filter_map(|rest| rest.split('"').next())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn an_offline_run_looks_up_no_service_that_can_reach_the_network() {
+        let offline = services(&profile_offline(&policy()));
+        assert_eq!(
+            offline,
+            [
+                "com.apple.system.logger",
+                "com.apple.system.notification_center"
+            ]
+        );
+        for reaches in [
+            "trustd",
+            "opendirectoryd",
+            "DirectoryService",
+            "mDNSResponder",
+            "nsurlsessiond",
+            "networkd",
+            "configd",
+        ] {
+            assert!(
+                !offline.iter().any(|service| service.contains(reaches)),
+                "{reaches}"
+            );
+        }
+        // A normal run keeps trustd for TLS revocation; a read-only one looks up nothing.
+        assert!(
+            services(&profile(&policy(), false))
+                .iter()
+                .any(|s| s == "com.apple.trustd")
+        );
+        assert!(services(&profile(&policy(), true)).is_empty());
     }
 
     #[test]
