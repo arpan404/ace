@@ -7,6 +7,8 @@ import { Suspense, useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { useUpdateClosing } from "@/boot/desktop-updates.ts";
+import { updateClosingWords } from "./update-status.ts";
 
 /** What still works offline and what waits; it loads when the connection first drops. */
 const DeferredOfflineNotice = deferredComponent(() =>
@@ -29,12 +31,15 @@ function fatalReason(error: ClientError | undefined): string {
 
 /**
  * Connection trouble, said once and quietly under the header. Never implies anything about
- * agent progress: agents keep working on the daemon while this window is away.
+ * agent progress: agents keep working on the daemon while this window is away. From the
+ * person's Restart to update until the window closes, it says that instead: the daemon
+ * stopping then is the restart, not trouble.
  */
 export function ConnectionNotice() {
   const state = useConnectionState();
   const client = useClient();
   const connection = useDaemonConnection();
+  const closing = useUpdateClosing();
   const [late, setLate] = useState(false);
   useEffect(() => {
     if (state !== "reconnecting") return;
@@ -44,6 +49,12 @@ export function ConnectionNotice() {
       setLate(false);
     };
   }, [state]);
+  if (closing)
+    return (
+      <div role="status" className="flex shrink-0 items-center text-xs text-muted-foreground">
+        {updateClosingWords}
+      </div>
+    );
   if (state === "ready" || state === "connecting" || state === "starting") return null;
   if (state === "offline")
     return (

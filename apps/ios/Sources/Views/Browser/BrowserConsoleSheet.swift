@@ -52,7 +52,7 @@ struct BrowserConsoleSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .onChange(of: [section, level, requests], initial: true) { send(clear: false) }
         .onDisappear { model.closeBrowserConsole() }
@@ -140,7 +140,7 @@ struct BrowserShotSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
     }
 }

@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// DESIGN.md §3 "Empty state", centred: a faint icon, the title, one muted line, and at
-/// most one action, as a word (design language §5: actions are words, never a filled pill). The
-/// error state drops the icon: one sentence in the failed colour, a line of why, its way out.
+/// most one action, as a real button (ADR 0184): the prominent one, since it is the page's only
+/// way forward. The error state drops the icon and keeps `ProblemRow`'s order and button: one
+/// sentence in the failed colour, a line of why, then its way out as a secondary button.
 struct EmptyState<Action: View>: View {
     let icon: AceIcon.Name?
     let title: String
@@ -33,9 +34,10 @@ struct EmptyState<Action: View>: View {
                     .font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceDesign.Ink.muted)
             }
-            action()
-                .buttonStyle(.textAction(.prominent))
-                .padding(.top, AceDesign.Space.tight)
+            Group {
+                if failed { action().buttonStyle(.secondaryAction) } else { action().buttonStyle(.primaryAction) }
+            }
+            .padding(.top, AceDesign.Space.tight)
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: AceDesign.Size.emptyWidth)

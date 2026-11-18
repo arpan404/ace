@@ -9,6 +9,7 @@ struct QuietPage<Content: View>: View {
                 .padding(.vertical, AceDesign.Space.related)
         }
         .background(AceDesign.Surface.background)
+        .barEdge()
         .buttonStyle(.textAction())
     }
 }

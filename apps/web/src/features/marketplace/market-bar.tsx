@@ -60,7 +60,8 @@ export function MarketBar(props: {
       onClick={() => nav.go("installed")}
     >
       Installed
-      {installed && <span className="mk-count">{updates || installed.length}</span>}
+      {/* Only what the marketplace installed: no count at zero, as built-in Suits aren't counted. */}
+      {installed?.length ? <span className="mk-count">{updates || installed.length}</span> : null}
     </button>
   );
   const placeholder =

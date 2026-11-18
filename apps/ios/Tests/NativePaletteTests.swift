@@ -83,6 +83,52 @@ import Testing
         #expect(NativePaletteBridge.pair(for: "card", light: 0xFFFFFF, dark: 0x1A1A1D) == NativePalette.Pair(light: 0xFFFFFF, dark: 0x1A1A1D))
     }
 
+    @Test func actionsKeepAColouredAccentAndTurnBlueWhenTheAccentIsInk() throws {
+        let model = NativePaletteModel(defaults: try suite())
+        NativePaletteBridge.model = model
+        defer { NativePaletteBridge.model = nil }
+        let blue = NativePalette.Pair(light: 0x0062CC, dark: 0x0A84FF)
+
+        // The default accent is the body ink, so an action would read as a label.
+        #expect(AceDesign.Ink.actionPair == blue)
+        model.choose(accent: "orange")
+        #expect(AceDesign.Ink.actionPair == NativePalette.Pair(light: 0xB83E0B, dark: 0xF5925A))
+        model.choose(accent: "ink")
+        #expect(AceDesign.Ink.actionPair == blue)
+        // A theme's own near-black ink is still ink.
+        model.choose(theme: "paper")
+        #expect(AceDesign.Ink.actionPair == blue)
+    }
+
+    @Test func actionWordsReadAtFourAndAHalfToOneOnAGroupedRowInEveryThemeAndAccent() throws {
+        let model = NativePaletteModel(defaults: try suite())
+        NativePaletteBridge.model = model
+        defer { NativePaletteBridge.model = nil }
+        for theme in AceTheme.themeChoices.map(\.id) {
+            model.choose(theme: theme)
+            for accent in AceTheme.accentChoices.map(\.id) {
+                model.choose(accent: accent)
+                let action = AceDesign.Ink.actionPair
+                let row = NativePaletteBridge.pair(for: "fill", light: 0xE7E7E7, dark: 0x191919)
+                #expect(Self.contrast(action.light, row.light) >= 4.5, "\(theme) · \(accent), light")
+                #expect(Self.contrast(action.dark, row.dark) >= 4.5, "\(theme) · \(accent), dark")
+            }
+        }
+    }
+
+    /// WCAG 2's contrast ratio, written out here as the standard states it.
+    private static func contrast(_ one: UInt32, _ other: UInt32) -> Double {
+        func channel(_ value: UInt32) -> Double {
+            let c = Double(value & 255) / 255
+            return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        func luminance(_ rgb: UInt32) -> Double {
+            0.2126 * channel(rgb >> 16) + 0.7152 * channel(rgb >> 8) + 0.0722 * channel(rgb)
+        }
+        let lighter = max(luminance(one), luminance(other)), darker = min(luminance(one), luminance(other))
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
     private func suite() throws -> UserDefaults {
         try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)"))
     }

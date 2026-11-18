@@ -1,8 +1,14 @@
 import { lockedUseEnvironment } from "../../packaging/locked-use.ts";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { delimiter, dirname } from "node:path";
+import { dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
+import {
+  encodeLoginPathLine,
+  loginPathPending,
+  prefixedPath,
+  type PendingLoginPath,
+} from "@ace/service/login-path";
 import type { Launch } from "./launch-priority.ts";
 import { requestStop } from "./stop-request.ts";
 import { withoutBenchWorkerPreload } from "@ace/provider-kit/worker";
@@ -47,6 +53,11 @@ export interface SpawnOptions {
   resources: DaemonResources;
   /** The login-shell PATH, so provider CLIs and git resolve as in a terminal. */
   path: string;
+  /**
+   * Set when `path` is last session's saved PATH: the login shell's, which the daemon gets on
+   * its stdin and waits for before it reads provider CLIs (`spawn-path.ts`).
+   */
+  loginPath?: Promise<string> | undefined;
   version: string;
   env: NodeJS.ProcessEnv;
   /** One line of the daemon's output, without its newline. */
@@ -65,22 +76,31 @@ function daemonVersion(appVersion: string): string {
   return DaemonHealth.shape.version.safeParse(appVersion).success ? appVersion : "development";
 }
 
+/** The daemon's PATH: the bundled tools' folder first, then `path`. */
+export function daemonPath(resources: DaemonResources, path: string): string {
+  return prefixedPath(resources.binDirectory, path);
+}
+
 /** Environment for the daemon child, run by `program`. */
 export function daemonEnvironment(
   options: Omit<SpawnOptions, "onOutput">,
   program: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const { resources } = options;
-  const path = resources.binDirectory
-    ? [resources.binDirectory, options.path].join(delimiter)
-    : options.path;
   const env: NodeJS.ProcessEnv = {
     ...options.env,
     ...program,
     ACE_HOME: options.home,
     ACE_VERSION: daemonVersion(options.version),
-    PATH: path,
+    PATH: daemonPath(resources, options.path),
   };
+  // The daemon reads the login shell itself, as below, if this app never sends its PATH.
+  if (options.loginPath)
+    env[loginPathPending] = JSON.stringify({
+      prefix: resources.binDirectory,
+      inherited: options.env.PATH ?? "",
+    } satisfies PendingLoginPath);
+  else delete env[loginPathPending];
   // Electron-only switches must not leak into the Node child.
   if (!program.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_ENABLE_LOGGING;
@@ -111,9 +131,18 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
   const child = spawn(launch.command, launch.args, {
     cwd: dirname(options.resources.entry),
     env: daemonEnvironment(options, program.env),
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
+  // A daemon that exited first closed its end; nothing is left to tell it.
+  child.stdin.on("error", () => {});
+  // Ending without a line lets the daemon go on with the PATH it started on.
+  if (!options.loginPath) child.stdin.end();
+  else
+    void options.loginPath.then(
+      (path) => child.stdin.end(encodeLoginPathLine(daemonPath(options.resources, path))),
+      () => child.stdin.end(),
+    );
   for (const [name, stream] of [
     ["stdout", child.stdout],
     ["stderr", child.stderr],

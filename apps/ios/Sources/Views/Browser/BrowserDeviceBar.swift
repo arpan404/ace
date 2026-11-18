@@ -47,7 +47,7 @@ struct BrowserDeviceBar: View {
         .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .font(AceDesign.Typeface.body)
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .padding(.horizontal, AceDesign.Space.margin)
         .overlay(alignment: .top) {
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)

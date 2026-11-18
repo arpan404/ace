@@ -87,3 +87,12 @@ export function useSuitLook(key: EntryKey, installedAs?: string): SuitDetail | u
 export function useBotLook(key: EntryKey): BotFace | undefined {
   return faceFromReview(useHeldReview(key)?.review);
 }
+
+/**
+ * Whether this machine's Suit library already holds a Suit with this id: built into ace, made
+ * here or installed before. The library refuses a second Suit with the same id.
+ */
+export function useInLibrary(type: string, id: string): boolean {
+  const summaries = useSuitLibrary().summaries;
+  return type === "suit" && (summaries?.some((suit) => suit.id === id) ?? false);
+}

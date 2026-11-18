@@ -150,15 +150,20 @@ struct FleetUpdatesSection: View {
                             }
                         }
                         .accessibilityIdentifier("fleet.updates.headline")
-                        if headline.actions.contains("all") {
-                            Button("Update all") { Task { await updates.updateAll(inbox, mode: "idle") } }
-                                .buttonStyle(.textAction(.prominent))
-                                .accessibilityIdentifier("fleet.updates.all")
-                        }
-                        if headline.actions.contains("all-now") {
-                            Button("Update all now…") { confirming = true }
-                                .buttonStyle(.textAction())
-                                .accessibilityIdentifier("fleet.updates.allNow")
+                        if headline.actions.contains("all") || headline.actions.contains("all-now") {
+                            HStack(spacing: AceDesign.Space.related) {
+                                if headline.actions.contains("all") {
+                                    Button("Update all") { Task { await updates.updateAll(inbox, mode: "idle") } }
+                                        .buttonStyle(.primaryAction)
+                                        .accessibilityIdentifier("fleet.updates.all")
+                                }
+                                if headline.actions.contains("all-now") {
+                                    Button("Update all now…") { confirming = true }
+                                        .buttonStyle(.secondaryAction)
+                                        .accessibilityIdentifier("fleet.updates.allNow")
+                                }
+                            }
+                            .padding(.vertical, AceDesign.Space.tight)
                         }
                     }
                     ForEach(reply.lines, id: \.id) { line in

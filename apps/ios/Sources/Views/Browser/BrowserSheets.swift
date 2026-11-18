@@ -92,7 +92,7 @@ struct BrowserTabsSheet: View {
                 }
             }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
 
@@ -149,7 +149,7 @@ struct BrowserDownloadsSheet: View {
             .navigationTitle("Downloads").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
     private func saving(_ download: BrowserViewInfo.Download) -> BrowserSaving? {
@@ -238,7 +238,7 @@ struct BrowserHistorySheet: View {
             .navigationTitle("History").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onChange(of: query, initial: true) { model.browserVisits(open: true, query: query) }
         .onDisappear { model.browserVisits(open: false) }

@@ -64,14 +64,20 @@ import XCTest
         XCTAssertTrue(codex.waitForExistence(timeout: 20))
         codex.tap()
         app.buttons["Accounts"].firstMatch.tap()
-        let edit = app.buttons["Edit name and badge"].firstMatch
-        XCTAssertTrue(edit.waitForExistence(timeout: 20))
+        // One row per account: its actions wait in the row's ⋯ menu, not as rows of their own.
+        let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'accounts.actions.'")).firstMatch
+        XCTAssertTrue(actions.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["Edit name and badge"].exists, "an account's actions stay in its menu")
         screenshot("accounts")
         let keyLine = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Add an API key in ace on'")).firstMatch
         for _ in 0..<5 where !keyLine.exists { app.swipeUp() }
         XCTAssertTrue(keyLine.exists)
         screenshot("accounts-api-key-line")
-        for _ in 0..<5 where !edit.isHittable { app.swipeDown() }
+        for _ in 0..<5 where !actions.isHittable { app.swipeDown() }
+        actions.tap()
+        let edit = app.buttons["Edit name and badge"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        screenshot("accounts-menu")
         edit.tap()
         XCTAssertTrue(app.textFields["Badge letters"].waitForExistence(timeout: 10))
         screenshot("badge-editor")
@@ -79,11 +85,12 @@ import XCTest
         app.buttons["Violet"].tap()
         screenshot("badge-editor-rocket")
         app.buttons["Save"].tap()
-        XCTAssertTrue(edit.waitForExistence(timeout: 10))
+        XCTAssertTrue(actions.waitForExistence(timeout: 10))
         screenshot("accounts-after-badge")
 
+        actions.tap()
         let remove = app.buttons["Remove account"].firstMatch
-        for _ in 0..<3 where !remove.isHittable { app.swipeUp() }
+        XCTAssertTrue(remove.waitForExistence(timeout: 5))
         remove.tap()
         XCTAssertTrue(app.buttons["Remove and delete its files"].waitForExistence(timeout: 10))
         screenshot("remove-confirm")

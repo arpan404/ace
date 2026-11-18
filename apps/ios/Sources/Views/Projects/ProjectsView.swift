@@ -96,7 +96,7 @@ struct ProjectsView: View {
                         }
                     }
             }
-            .tint(AceDesign.Ink.accent)
+            .tint(AceDesign.Ink.action)
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
     }

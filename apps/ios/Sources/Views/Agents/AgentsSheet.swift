@@ -33,6 +33,6 @@ struct AgentsSheet: View {
                     }
                 }
         }
-        .tint(AceDesign.Ink.accent)
+        .tint(AceDesign.Ink.action)
     }
 }

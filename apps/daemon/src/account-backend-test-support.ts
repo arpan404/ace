@@ -31,7 +31,11 @@ const bearer = (request: IncomingMessage) =>
  */
 export async function startFakeAccountBackend(
   now: () => number,
-  options: { readonly signedInAt?: () => number } = {},
+  options: {
+    readonly signedInAt?: () => number;
+    /** Each grant is answered once this settles: a slow backend, as the test controls it. */
+    readonly grantGate?: () => Promise<void>;
+  } = {},
 ) {
   const signingKey = { id: "k1", privateKey: new Uint8Array(randomBytes(32)) };
   const token = base64url43();
@@ -84,6 +88,18 @@ export async function startFakeAccountBackend(
         if (!parsed.success) return reply(response, 400, { error: "invalid" });
         const body = parsed.data;
         grantRequests.push(body);
+        if (options.grantGate) {
+          const gate = options.grantGate;
+          void gate().then(
+            () => grant(body),
+            () => reply(response, 503, {}),
+          );
+          return;
+        }
+        return grant(body);
+      }
+      reply(response, 404, {});
+      function grant(body: z.infer<typeof GrantBody>) {
         const exp = now() + GRANT_LIFETIME_MS;
         const claims = {
           kind: body.kind,
@@ -108,7 +124,6 @@ export async function startFakeAccountBackend(
           expiresAt: exp,
         });
       }
-      reply(response, 404, {});
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

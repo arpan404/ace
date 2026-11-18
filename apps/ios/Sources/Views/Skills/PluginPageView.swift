@@ -95,7 +95,7 @@ struct PluginPageView: View {
                         .accessibilityIdentifier("plugin.remove")
                     }
                 }
-                if let problem { QuietProblem(message: problem, id: "plugin.problem") }
+                if let problem { ProblemRow(problem, id: "plugin.problem") }
             }
             .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
         }

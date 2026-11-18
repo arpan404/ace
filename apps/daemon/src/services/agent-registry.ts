@@ -1,3 +1,4 @@
+import { followLoginPath } from "../login-path-handoff.ts";
 import { join } from "node:path";
 import {
   AgentCatalog,
@@ -25,7 +26,7 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
     target,
     storage: fileInventoryStorage(join(root, "inventory.json"), id),
     digests: fileDigestMemory(join(root, "digests.json"), id),
-    env: { ...process.env, ...options.providerStatus?.env },
+    env: followLoginPath(options.loginPath, { ...process.env, ...options.providerStatus?.env }),
     ...(options.acpManagers ? { managers: options.acpManagers } : {}),
   });
   resources.own(() => registry.close());

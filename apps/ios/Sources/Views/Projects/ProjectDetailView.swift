@@ -97,12 +97,12 @@ struct ProjectDetailView: View {
                     else if saved == .saved { saves += 1; Task { await reread() } }
                 }
             }
-            .tint(AceDesign.Ink.accent)
+            .tint(AceDesign.Ink.action)
             .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $publishing) {
             NavigationStack { PublishRepositoryView(model: model, project: project) { publishing = false } }
-                .tint(AceDesign.Ink.accent)
+                .tint(AceDesign.Ink.action)
                 .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
         .task(id: [model.connection, String(model.readGeneration(ProjectsView.firstPage))]) { await reread() }

@@ -33,20 +33,28 @@ struct ForgeHome: View {
     @State private var features: ForgeFeatures?
     @State private var projects: [ForgeProject] = []
     @State private var projectsFailed: String?
-    @State private var pullsFilter = PullsFilter()
-    @State private var issuesFilter = IssuesFilter()
-    @State private var notificationsFilter = NotificationsFilter()
+    /// Each list's filters, kept by the page that shows this one so they outlive it.
+    @Binding var filters: ForgeListFilters
     @State private var creating = false
     /// New issue's place, captured with the list that named its repository.
     @State private var creatingIssue: ForgeNewIssueTarget?
     @State private var pulls = ForgeListModel<ForgePullList>()
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
+    private var pullsFilter: PullsFilter {
+        get { filters.pulls }
+        nonmutating set { filters.pulls = newValue }
+    }
+    private var issuesFilter: IssuesFilter {
+        get { filters.issues }
+        nonmutating set { filters.issues = newValue }
+    }
+    private var notificationsFilter: NotificationsFilter { filters.notifications }
 
     /// Opens on the projects and lists this phone last saw on the machine, read again behind
     /// them, so coming back to Pulls never starts from a spinner.
-    init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>, actions: ForgeTabActions,
-         openMachines: @escaping () -> Void = {}, pair: (() -> Void)? = nil) {
+    init(inbox: MachineInbox, machine: Binding<String>, project: Binding<String>, query: String, kind: Binding<ForgeKind>,
+         filters: Binding<ForgeListFilters>, actions: ForgeTabActions, openMachines: @escaping () -> Void = {}, pair: (() -> Void)? = nil) {
         self.inbox = inbox
         self.openMachines = openMachines
         self.pair = pair
@@ -54,6 +62,7 @@ struct ForgeHome: View {
         _project = project
         self.query = query
         _kind = kind
+        _filters = filters
         self.actions = actions
         guard let session = Self.session(inbox, machine.wrappedValue) else { return }
         let client = session.client
@@ -61,11 +70,12 @@ struct ForgeHome: View {
         _projects = State(initialValue: projects)
         let remembered = UserDefaults.standard.string(forKey: ForgeProjectChoice.key) ?? ""
         guard let chosen = ForgeProjectChoice.pick(chip: project.wrappedValue, remembered: remembered, projects: projects) else { return }
-        let pulls = client.kept(ClientModel.forgePullsRead(project: chosen, filter: PullsFilter(), query: query), as: ForgePullList.self)
-        let issues = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: IssuesFilter(), query: query), as: ForgeIssueList.self)
-        _pulls = State(initialValue: ForgeListModel(list: pulls, key: Self.listKey(session.hostId, chosen, .pulls, String(describing: PullsFilter()), query),
+        let (pullsFilter, issuesFilter) = (filters.wrappedValue.pulls, filters.wrappedValue.issues)
+        let pulls = client.kept(ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query), as: ForgePullList.self)
+        let issues = client.kept(ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query), as: ForgeIssueList.self)
+        _pulls = State(initialValue: ForgeListModel(list: pulls, key: Self.listKey(session.hostId, chosen, .pulls, String(describing: pullsFilter), query),
                                                     scope: ForgeListScope(machineId: session.hostId, project: chosen)))
-        _issues = State(initialValue: ForgeListModel(list: issues, key: Self.listKey(session.hostId, chosen, .issues, String(describing: IssuesFilter()), query),
+        _issues = State(initialValue: ForgeListModel(list: issues, key: Self.listKey(session.hostId, chosen, .issues, String(describing: issuesFilter), query),
                                                      scope: ForgeListScope(machineId: session.hostId, project: chosen)))
     }
 
@@ -80,7 +90,7 @@ struct ForgeHome: View {
     var body: some View {
         content
             // The chips pinned under the title, in the navigation bar's own region.
-            .pinnedTopBar { chips }
+            .pinnedTopBar(resetOn: shownList) { chips }
             // The system's large title (Pulls, Issues or Inbox), the project under it and the
             // machine and project pickers in its menu.
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
@@ -108,6 +118,13 @@ struct ForgeHome: View {
                     }
                 }
             }
+    }
+
+    /// The list on the page: another machine, project or list, or another Inbox filter (the
+    /// notifications read again from the top), puts the pinned bar's edge away.
+    private var shownList: String {
+        let base = "\(session?.hostId ?? "")|\(chosen ?? "")|\(kind)"
+        return kind == .inbox ? "\(base)|\(notificationsFilter)" : base
     }
 
     private var listKey: String {
@@ -237,9 +254,9 @@ struct ForgeHome: View {
                 .accessibilityIdentifier("forge.newissue")
         }
         if kind == .inbox {
-            ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)
+            ForgeNotificationsFilterMenu(filter: $filters.notifications, reasons: notificationReasons)
         } else {
-            ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
+            ForgeFiltersMenu(kind: kind, pulls: $filters.pulls, issues: $filters.issues,
                              pullList: pulls.list, issueList: issues.list)
         }
     }

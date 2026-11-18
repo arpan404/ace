@@ -184,7 +184,7 @@ private struct UsageBankedResets: View {
             } else if account.provider == "codex", account.instanceId != nil {
                 Button(pending ? "Applying…" : attempt == nil ? "Use reset" : "Retry reset") { confirming = true }
                     .font(AceDesign.Typeface.body)
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
+                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.action)
                     .disabled(pending)
                     .confirmationDialog("Use one banked reset?", isPresented: $confirming, titleVisibility: .visible) {
                         Button("Use reset") { Task { await use() } }

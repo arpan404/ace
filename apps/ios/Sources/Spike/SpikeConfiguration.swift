@@ -30,6 +30,23 @@ enum SpikeConfiguration {
     /// `--spike-unpaired`: a fresh install with no computer paired, connecting to no fixture, so
     /// home and Code review offer pairing.
     static var unpaired: Bool { enabled && ProcessInfo.processInfo.arguments.contains("--spike-unpaired") }
+    /// `--spike-camera allowed|denied|restricted|none`: the pairing scanner's camera, so its
+    /// screens can be seen on a simulator, which has none. `allowed` draws the scanner over black
+    /// and, with `--spike-scan TEXT`, reads TEXT as a code a moment after it opens.
+    static var camera: CameraProbe? {
+        guard enabled else { return nil }
+        let arguments = ProcessInfo.processInfo.arguments
+        func value(_ flag: String) -> String? {
+            arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+        }
+        guard let kind = value("--spike-camera") else { return nil }
+        switch kind {
+        case "allowed": return CameraProbe(access: .allowed, hasCamera: true, live: false, standInCode: value("--spike-scan"))
+        case "denied": return CameraProbe(access: .denied, hasCamera: true, live: false)
+        case "restricted": return CameraProbe(access: .restricted, hasCamera: true, live: false)
+        default: return CameraProbe(access: .allowed, hasCamera: false, live: false)
+        }
+    }
     /// `--spike-account`: the app signs in to the fixture's fake account backend
     /// (`scripts/spike-account.ts`) on the fixture's port, so Profile's signed-in half runs
     /// against requests a test can read back. Nil without the flag.
