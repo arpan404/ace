@@ -161,7 +161,8 @@ fn device_input_has_no_place_and_opening_a_sensitive_app_is_the_persons() {
         &json!({"simId": "s1", "action": "open_app", "appId": "com.apple.calculator"}),
         None,
     );
-    assert_eq!(calculator.sensitive, None);
+    // Even an everyday app on a device is the person's: nothing there can hold a step.
+    assert_eq!(calculator.sensitive, Some(ON_DEVICE));
     // No device place is ever granted: a grant for "Simulator" would cover every app on it.
     let Ok(place) = calculator.place else {
         panic!("open_app is placed by the app");

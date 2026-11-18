@@ -795,7 +795,7 @@ fn a_step_ace_cant_hold_to_its_place_asks_the_person_instead_of_the_reviewer() {
         );
         assert!(line.contains("Updating ace"), "{line}");
     }
-    // The person's own Always allow for the tool still runs it, as before.
+    // Not even the person's own Always allow for the tool lets it run unheld.
     let always = Call {
         always: true,
         rule: Decision::Run,
@@ -805,5 +805,84 @@ fn a_step_ace_cant_hold_to_its_place_asks_the_person_instead_of_the_reviewer() {
         },
         ..step(Ok("docs.rs"), None, false)
     };
-    assert_eq!(route(always), Route::Run);
+    assert!(route_of(always).contains("this version of ace"));
+}
+
+/// The route of a `sim_*` call, with the facts the engine would find for it (no lookup: a device
+/// step names its own place), granted and allowed always as given.
+fn device_route(tool: &str, arguments: serde_json::Value, always: bool) -> Route {
+    let step = drive::read(tool, &arguments, None);
+    let call = Call {
+        always,
+        rule: if always { Decision::Run } else { Decision::Ask },
+        drive: Drive {
+            target: step
+                .place
+                .as_ref()
+                .map(drive::Place::shown)
+                .map_err(|why| *why),
+            sensitive: step.sensitive,
+            granted: true,
+            bound: true,
+        },
+        ..call(tool, Some(Effect::Drive))
+    };
+    route(call)
+}
+
+#[test]
+fn every_simulator_and_device_operation_asks_the_person() {
+    for row in drive::table::TABLE
+        .iter()
+        .filter(|row| row.tool.starts_with("sim_"))
+    {
+        let mut arguments = json!({"simId": "s1", "appId": "com.apple.calculator",
+                                   "url": "https://docs.rs/", "text": "hi"});
+        if let Some(op) = row.op {
+            arguments["action"] = json!(op);
+        }
+        for always in [false, true] {
+            let route = device_route(row.tool, arguments.clone(), always);
+            asked_about_driving(&route);
+        }
+    }
+    // And a simulator tool or operation the table doesn't know yet asks too.
+    asked_about_driving(&device_route("sim_new", json!({"simId": "s1"}), true));
+    asked_about_driving(&device_route(
+        "sim_act",
+        json!({"simId": "s1", "action": "shake"}),
+        true,
+    ));
+}
+
+#[test]
+fn an_always_allow_for_sim_act_never_skips_the_person() {
+    let open = json!({"simId": "s1", "action": "open_app", "appId": "com.apple.calculator"});
+    let route = device_route("sim_act", open, true);
+    let line = asked_about_driving(&route).to_owned();
+    assert!(line.contains(drive::ON_DEVICE), "{line}");
+}
+
+#[test]
+fn every_kind_of_device_place_is_the_persons_alone() {
+    let Some(page) = drive::address::parse("https://docs.rs/") else {
+        panic!("a web address");
+    };
+    for place in [
+        drive::Place::Device {
+            device: "s1".into(),
+        },
+        drive::Place::DeviceApp {
+            device: "s1".into(),
+            app: "com.apple.calculator".into(),
+        },
+        drive::Place::DeviceSite {
+            device: "s1".into(),
+            page,
+        },
+    ] {
+        assert_eq!(place.persons_alone(), Some(drive::ON_DEVICE), "{place:?}");
+        assert!(drive::sensitive(&place).is_some(), "{place:?}");
+        assert_eq!(place.grant(), None, "{place:?}");
+    }
 }

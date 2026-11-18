@@ -494,13 +494,13 @@ fn drive(call: Call<'_>, allowed: bool) -> Route {
         Ok(target) => target,
         Err(why) => return ask(why.to_owned()),
     };
-    if allowed {
-        return Route::Run;
-    }
-    // The reviewer alone may let a step run only where ace holds it to the place it read: an
-    // ace that can't would let the page move on while the step waits in its queue.
+    // A step ace can't hold to its place asks whatever else says yes, the person's Always allow
+    // too: only the person, seeing this step, may let it run unheld.
     if !call.drive.bound {
         return ask(format!("It acts in {target}, and {}", drive::UNBOUND));
+    }
+    if allowed {
+        return Route::Run;
     }
     if !call.fits {
         return ask(TOO_LONG.to_owned());

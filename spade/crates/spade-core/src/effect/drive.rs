@@ -54,6 +54,18 @@ impl Place {
         }
     }
 
+    /// Why every step here is the person's, whatever a review, a grant or an Always allow would
+    /// say: on a simulator or device ace reports nothing Spade could hold a step to. Every kind
+    /// of place says, so a new one (or a new operation placed on a device) can't slip through.
+    pub fn persons_alone(&self) -> Option<&'static str> {
+        match self {
+            Self::Device { .. } | Self::DeviceApp { .. } | Self::DeviceSite { .. } => {
+                Some(ON_DEVICE)
+            }
+            Self::App { .. } | Self::Site { .. } => None,
+        }
+    }
+
     /// The grant a "for this bot" answer would make: an app or a site, never a device.
     pub fn grant(&self) -> Option<crate::grant::Scope> {
         use crate::grant::Scope;
@@ -424,15 +436,19 @@ fn device(finds: Finds, arguments: &Value) -> Step {
 /// Why a place is the person's alone, as the request words it ("mail or messages, where it can
 /// send in your name"); `None` where the reviewer may decide.
 pub fn sensitive(place: &Place) -> Option<&'static str> {
-    match place {
+    let specific = match place {
         Place::App { id, name } => sensitive::app_by_name(name)
             .or_else(|| sensitive::app_by_name(id))
             .or_else(|| sensitive::app_given(id)),
         Place::Site { page, .. } | Place::DeviceSite { page, .. } => sensitive::site(page),
         Place::DeviceApp { app, .. } => sensitive::app_given(app),
         Place::Device { .. } => None,
-    }
+    };
+    specific.or_else(|| place.persons_alone())
 }
+
+/// Why every step on a simulator or device is the person's.
+pub const ON_DEVICE: &str = "a simulator or device, where every step is yours";
 
 /// Whether a drive grant for the app id `app` may be made: never for a sensitive one.
 pub fn grantable_app(app: &str) -> Result<(), &'static str> {

@@ -907,3 +907,70 @@ async fn a_verdict_given_on_one_page_is_not_reused_on_another_after_a_restart() 
     assert_eq!((ran, reviews), (1, 1));
     Ok(())
 }
+
+#[tokio::test]
+async fn an_always_allow_an_earlier_build_stored_for_sim_act_never_skips_the_person() -> Result {
+    let tool = || {
+        FakeTool::new("sim_act", Risk::Write, "{}")
+            .declares(spade_core::effect::Effect::Drive)
+            .schema(holds_place())
+    };
+    let spade = Spade::start(Vec::new(), vec![Arc::new(tool()) as Arc<dyn Tool>]).await?;
+    let agent = spade.new_agent("Builder", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    // An earlier build asked about sim_act with no reason of Spade's, and the person answered
+    // Always allow: the conversation holds an Always allow for the tool.
+    let stored = |seq: u32, body: Value| {
+        format!(
+            "INSERT INTO events (conversation_id, seq, at_ms, body) SELECT '{conversation}', \
+             COALESCE(MAX(seq), 0) + {seq}, 0, '{body}' FROM events \
+             WHERE conversation_id = '{conversation}';"
+        )
+    };
+    let seed = [
+        stored(
+            1,
+            json!({ "type": "approval_requested", "reply": "r0", "call_id": "old",
+                    "name": "sim_act", "arguments": {} }),
+        ),
+        stored(
+            1,
+            json!({ "type": "approval_answered", "reply": "r0", "call_id": "old",
+                    "allowed": true, "always": true }),
+        ),
+    ]
+    .join("\n");
+    let act = tool();
+    let opened = act.calls();
+    let spade = spade
+        .restart_paused_with(
+            &seed,
+            vec![Arc::new(act) as Arc<dyn Tool>],
+            vec![Script::reply("").call(
+                "c1",
+                "sim_act",
+                json!({ "simId": "s1", "action": "open_app", "appId": "com.apple.calculator" }),
+            )],
+            support::Options::default(),
+        )
+        .await?;
+    spade.say(&conversation, "Open the calculator").await?;
+    let events = spade
+        .wait_for_count(&conversation, "approval_requested", 2)
+        .await?;
+    let asked = requests(&events);
+    let last = asked.last().map(|each| each.to_owned()).unwrap_or_default();
+    assert_eq!(last["call_id"], "c1");
+    assert_eq!(last["ask"], "drive");
+    let line = last["reviewer_reason"].as_str().unwrap_or_default();
+    assert!(line.contains("a simulator or device"), "{line}");
+    assert!(
+        last.get("app").is_none(),
+        "a device is never allowed for the bot"
+    );
+    assert_eq!(ran(&opened), 0);
+    Ok(())
+}
