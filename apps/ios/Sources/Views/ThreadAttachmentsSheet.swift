@@ -113,11 +113,13 @@ struct ThreadFilesSheet: View {
         .swipeActions(edge: .trailing) {
             if model.canOperate {
                 Button("Remove", role: .destructive) { removing = file }.disabled(busy != nil)
+                    .accessibilityLabel("Remove \(file.name)")
             }
         }
         .contextMenu {
             if model.canOperate {
                 Button("Remove", systemImage: "trash", role: .destructive) { removing = file }.disabled(busy != nil)
+                    .accessibilityLabel("Remove \(file.name)")
             }
         }
     }
