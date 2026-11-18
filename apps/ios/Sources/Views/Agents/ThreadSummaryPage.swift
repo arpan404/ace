@@ -281,8 +281,14 @@ private struct SummaryAutomationsLine: View {
         .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceDesign.Space.margin)
-        // Read again when the machine reconnects: a schedule may have been made or run meanwhile.
-        .task(id: "\(workspaceId):\(model.connection)") { await read() }
+        // Again every half minute and when the machine reconnects, as the thread's automation
+        // strip reads: "in 1h" moves on, and a schedule may be made or run while the page is open.
+        .task(id: "\(workspaceId):\(model.connection)") {
+            while !Task.isCancelled {
+                await read()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
         .sheet(isPresented: $opened) { NavigationStack { AutomationsView(model: model) } }
     }
 
