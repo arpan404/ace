@@ -24,13 +24,11 @@ enum HomeTabs {
         }
     }
 
-    /// Spade's tab glyph; the iPad sidebar draws its own mark (`SpadeMark`).
-    static let spadeSymbol = "suit.spade"
-
     /// The tab bar's glyph: ace's own icon (the one the iPad sidebar draws) at the bar's glyph
-    /// size, filled while its tab is chosen, as the system's tabs fill theirs.
+    /// size, filled while its tab is chosen, as the system's tabs fill theirs. Spade's is its
+    /// face, as the web rail draws it (`tab-spade`, from ui-core's geometry).
     static func tabImage(_ tab: InboxTab, chosen: Bool) -> String {
-        "tab-\(icon(tab).rawValue)\(chosen ? "-fill" : "")"
+        "tab-\(tab == .spade ? "spade" : icon(tab).rawValue)\(chosen ? "-fill" : "")"
     }
 
     /// The iPad sidebar's glyph, the web rail's own.

@@ -270,7 +270,7 @@ export const tabIcons = [
   "magnifying-glass",
   "note-pencil",
 ];
-/** The system tab bar's glyph box, as Spade's tab mark (`SpadeMark.tabImage`) is drawn. */
+/** The system tab bar's glyph box. */
 export const tabIconSize = 26;
 
 /**

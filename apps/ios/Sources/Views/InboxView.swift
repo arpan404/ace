@@ -133,7 +133,7 @@ struct InboxView: View {
             .accessibilityIdentifier("tab.chats")
             // Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
             if showsSpade {
-                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) { spade }
+                Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade }
                     .accessibilityIdentifier("tab.spade")
             }
             Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
