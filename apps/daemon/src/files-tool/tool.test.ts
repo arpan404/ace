@@ -82,10 +82,6 @@ class FakeClient implements FilesToolClient {
     throw new Error("the fake lists folders, it does not describe entries");
   }
 
-  checkMutation(): never {
-    throw new Error("the fake lists folders, it does not check mutations");
-  }
-
   read(): never {
     throw new Error("the fake lists folders, it does not read them");
   }
@@ -104,6 +100,14 @@ class FakeClient implements FilesToolClient {
 
   rename(): never {
     throw new Error("the fake lists folders, it does not rename");
+  }
+
+  trash(): never {
+    throw new Error("the fake lists folders, it does not trash");
+  }
+
+  untrash(): never {
+    throw new Error("the fake lists folders, it does not restore");
   }
 
   remove(): never {

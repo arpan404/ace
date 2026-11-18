@@ -453,6 +453,44 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     // The checkout's own git store stays: its ignore rules are part of the fixture.
   });
 
+  it("keeps a link into git's store or the trash out of reads and listings", async () => {
+    await mkdir(join(root, ".ace-upload-trash-read"), { recursive: true });
+    await writeFile(join(root, ".ace-upload-trash-read", "kept.md"), "deleted\n");
+    await symlink(".git", join(root, "git-link"));
+    await symlink(".ace-upload-trash-read", join(root, "trash-link"));
+    try {
+      for (const operation of [
+        { op: "stat", path: "git-link/config" },
+        { op: "read", path: "git-link/config" },
+        { op: "stat", path: "trash-link/kept.md" },
+        { op: "read", path: "trash-link/kept.md" },
+      ]) {
+        const refused = failure(await ask(native, operation));
+        expect(refused, JSON.stringify(operation)).toMatchObject({ code: "INVALID_PATH" });
+      }
+      for (const path of ["git-link", "trash-link"]) {
+        const refused = await tool.listFolder(root, path).then(
+          () => ({ code: "done" }),
+          (error: unknown) => ({
+            code: error instanceof Error && "code" in error ? String(error.code) : "UNKNOWN",
+          }),
+        );
+        expect(refused, path).toMatchObject({ code: "INVALID_PATH" });
+      }
+      expect(
+        failure(await openDownload(native, { op: "download", path: "git-link/config", offset: 0 })),
+      ).toMatchObject({ code: "INVALID_PATH" });
+      expect(await readFile(join(root, ".git", "config"), "utf8")).toContain("[core]");
+      expect(await readFile(join(root, ".ace-upload-trash-read", "kept.md"), "utf8")).toBe(
+        "deleted\n",
+      );
+    } finally {
+      await rm(join(root, "git-link"));
+      await rm(join(root, "trash-link"));
+      await rm(join(root, ".ace-upload-trash-read"), { recursive: true });
+    }
+  });
+
   it("refuses every operation that follows a link out of the checkout", async () => {
     for (const operation of [
       { op: "stat", path: "escape" },
