@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-files"
+description = "The daemon's file system process: files-wire on stdio, one runtime per checkout"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+files-index = { path = "../files-index" }
+files-io = { path = "../files-io" }
+files-list = { path = "../files-list" }
+files-safe = { path = "../files-safe" }
+files-search = { path = "../files-search" }
+files-watch = { path = "../files-watch" }
+files-wire = { path = "../files-wire" }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+tempfile = "3"
