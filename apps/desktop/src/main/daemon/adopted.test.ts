@@ -84,6 +84,20 @@ it("the adopted run, still holding the lock, is signalled", async () => {
   expect(w.sent).toEqual(["SIGTERM"]);
 });
 
+it("on Windows, a stop request that fails after the run changed hands sends no signal", async () => {
+  const w = world({ windows: true });
+  const answer = Promise.withResolvers<boolean>();
+  w.ports.requestStop = () => answer.promise;
+  const daemon = adoptedProcess(7, w.ports);
+  daemon.kill("SIGTERM");
+  await w.advance(0);
+  // While the request waits, the adopted daemon exits and a CLI daemon takes its pid.
+  w.state.lock = { pid: 7, id: "cli-run" };
+  answer.resolve(false);
+  await w.advance(0);
+  expect(w.sent).toEqual([]);
+});
+
 it.each([
   [true, ["POST /v1/stop"]],
   [false, ["POST /v1/stop", "SIGTERM"]],

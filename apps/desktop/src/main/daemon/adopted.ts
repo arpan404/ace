@@ -62,14 +62,17 @@ export function adoptedProcess(pid: number, ports: AdoptedPorts): DaemonProcess 
   return {
     pid,
     kill(signal) {
-      // Every signal is sent only after a look that finds the same run still there.
-      void look()
-        .then(async (same) => {
-          if (!same) return;
-          if (signal === "SIGTERM" && ports.requestStop && (await ports.requestStop(pid))) return;
-          send(signal);
-        })
-        .catch(() => {});
+      // A signal goes out only right after a look that finds the same run still there: anything
+      // awaited in between (Windows' stop request, up to seconds) is followed by a fresh look.
+      const stop = async () => {
+        if (!(await look())) return;
+        if (signal === "SIGTERM" && ports.requestStop) {
+          if (await ports.requestStop(pid)) return;
+          if (!(await look())) return;
+        }
+        send(signal);
+      };
+      void stop().catch(() => {});
     },
     onExit(listener) {
       if (result) listener(...result);
