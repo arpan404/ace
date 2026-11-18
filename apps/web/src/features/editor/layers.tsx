@@ -1,10 +1,9 @@
-import type { Position, Selection } from "@ace/editor";
+import type { Selection } from "@ace/editor";
 import { ordered } from "./cursor.ts";
 import { lineHeight, visualColumn } from "./geometry.ts";
 
-/** The composing string, drawn at the caret until the IME commits it. */
+/** The composing string, drawn at every caret until the IME commits it. */
 export interface Composing {
-  position: Position;
   text: string;
 }
 
@@ -99,22 +98,28 @@ export function CaretLayers(props: {
           style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
         />
       ))}
-      {compose && compose.text ? (
-        <div
-          data-composing
-          className="absolute whitespace-pre text-foreground shadow-[inset_0_-2px_0_var(--ring)]"
-          style={{
-            left:
-              props.gutter +
-              visualColumn(props.lines(compose.position.line), compose.position.column) *
-                props.cell,
-            top: compose.position.line * lineHeight,
-            height: lineHeight,
-          }}
-        >
-          {compose.text}
-        </div>
-      ) : null}
+      {compose && compose.text
+        ? props.selections.map((selection) => (
+            <div
+              key={`compose-${selection.head.line}-${selection.head.column}`}
+              data-composing
+              className="absolute whitespace-pre bg-background text-foreground shadow-[inset_0_-2px_0_var(--ring)]"
+              style={{
+                left:
+                  props.gutter +
+                  visualColumn(
+                    props.lines(selection.head.line),
+                    Math.min(selection.head.column, props.lines(selection.head.line).length),
+                  ) *
+                    props.cell,
+                top: selection.head.line * lineHeight,
+                height: lineHeight,
+              }}
+            >
+              {compose.text}
+            </div>
+          ))
+        : null}
     </div>
   );
 }

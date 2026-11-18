@@ -1,11 +1,11 @@
 import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useEffectEvent, useState } from "react";
-import { CodeEditor } from "@/features/editor";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { CodeEditor, type EditorHandle } from "@/features/editor";
 import { Button } from "@/components/ui/button.tsx";
 import { checkoutError, type FileContent } from "./checkout-source.ts";
 import { fileManagement } from "./file-management-source.ts";
-import { useCheckoutSource, useSettled } from "./use-checkout.ts";
+import { useCheckoutSource } from "./use-checkout.ts";
 
 /** The tab (and with it the stored workspace) gets the typed text once typing pauses this long. */
 const keepAfter = 400;
@@ -18,9 +18,8 @@ export interface FileDraft {
 
 /**
  * A checkout file being edited: the editor fills the tab, with the Save, conflict and draft
- * behaviour the plain-textarea editor had. The text lives here while it is typed because the
- * tab's data is stored with the whole workspace, so handing it each keystroke would serialize
- * every tab of every thread per key.
+ * behaviour the plain-textarea editor had. The text is read from the editor only when it is
+ * needed (a pause, a save, leaving the tab), never copied on a keystroke.
  */
 export function FileEditor(props: {
   threadId: string;
@@ -29,42 +28,56 @@ export function FileEditor(props: {
   onChange(draft: FileDraft): void;
   onClose(): void;
   onSaved(content: Extract<FileContent, { kind: "text" }>): void;
+  onOverflowEnd?(overflow: boolean): void;
 }) {
   const client = useClient();
   const queries = useQueryClient();
   const source = useCheckoutSource();
+  const editor = useRef<EditorHandle>(null);
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState<string>();
   const [error, setError] = useState<string>();
+  const [dirty, setDirty] = useState(props.draft.text !== props.draft.original);
   const [initial] = useState(props.draft.text);
-  const [text, setText] = useState(initial);
-  const settled = useSettled(text, keepAfter);
-  const keep = (next: string) => {
-    if (next !== props.draft.text) props.onChange({ ...props.draft, text: next });
+  const closing = useRef(false);
+  const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const keepNow = () => {
+    const text = editor.current?.text();
+    if (text === undefined || text === props.draft.text) return;
+    props.onChange({ ...props.draft, text });
   };
-  const keepSettled = useEffectEvent(keep);
-  useEffect(() => keepSettled(settled), [settled]);
-  const dirty = text !== props.draft.original;
+  const keep = useEffectEvent(keepNow);
+
+  const scheduleKeep = () => {
+    if (settle.current !== undefined) clearTimeout(settle.current);
+    settle.current = setTimeout(() => {
+      settle.current = undefined;
+      keep();
+    }, keepAfter);
+  };
+
   useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
+    const flush = () => {
+      if (settle.current !== undefined) clearTimeout(settle.current);
+      if (!closing.current) keep();
     };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-  // Leaving the editor (another tab, the page going away) keeps what was typed at once.
-  const flush = useEffectEvent(() => keep(text));
-  useEffect(() => {
     window.addEventListener("pagehide", flush);
-    return () => window.removeEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      // Leaving the tab (another file, another view) keeps what was typed.
+      flush();
+    };
   }, []);
 
   const save = async (expected = props.draft.version) => {
     if (busy) return;
+    if (settle.current !== undefined) clearTimeout(settle.current);
+    const text = editor.current?.text() ?? initial;
     setBusy(true);
     setError(undefined);
     setConflict(undefined);
+    closing.current = true;
     try {
       const result = await fileManagement(client, props.threadId).mutate({
         op: "write",
@@ -81,6 +94,7 @@ export function FileEditor(props: {
       });
       void queries.invalidateQueries({ queryKey: ["checkout"] });
     } catch (failure) {
+      closing.current = false;
       const parsed = checkoutError(failure);
       if (parsed.code === "CONFLICT") {
         try {
@@ -102,7 +116,15 @@ export function FileEditor(props: {
         <span role="status" className="mr-auto text-xs text-muted-foreground">
           {dirty ? "Unsaved changes" : "Editing"}
         </span>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={props.onClose}>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            closing.current = true;
+            props.onClose();
+          }}
+        >
           {dirty ? "Discard changes" : "Cancel"}
         </Button>
         <Button size="sm" disabled={busy || !dirty} onClick={() => void save()}>
@@ -129,16 +151,21 @@ export function FileEditor(props: {
       )}
       <div className="min-h-0 flex-1">
         <CodeEditor
+          ref={editor}
           text={initial}
           path={props.path}
           readOnly={busy}
           label={`Editing ${props.path}`}
           focusOnMount
-          onTextChange={(next) => {
-            setText(next);
-            // The tab's close warning reads the draft: it learns at once that it is edited.
-            if ((next !== props.draft.original) !== (props.draft.text !== props.draft.original))
-              keep(next);
+          onEdit={() => {
+            setDirty(true);
+            scheduleKeep();
+          }}
+          onBlur={keepNow}
+          onHorizontalOverflow={props.onOverflowEnd}
+          onTextDispose={(text) => {
+            if (!closing.current && text !== props.draft.text)
+              props.onChange({ ...props.draft, text });
           }}
           onSave={() => void save()}
         />

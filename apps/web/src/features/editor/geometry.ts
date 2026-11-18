@@ -1,6 +1,6 @@
 /*
  * The editor's text geometry: one measured monospace width for every plain line, and a real
- * measurement only for a line with tabs or wide characters (where columns stop being cells).
+ * measurement for a line with tabs or wide characters (where columns stop being cells).
  *
  * Every value here is in CSS pixels inside the editor's text column; the gutter is added by the
  * caller. Columns are UTF-16 offsets, the unit the document and the DOM use.
@@ -14,6 +14,11 @@ export const tabSize = 2;
 export const fallbackCharWidth = 7.8;
 
 const widths = new Map<string, number>();
+
+/** Forgets every measured font width; a web font arrived or the display density changed. */
+export function clearMeasurements(): void {
+  widths.clear();
+}
 
 /** The width of one monospace cell for `font`, measured once and kept by the font string. */
 export function charWidthFor(font: string): number {
@@ -38,7 +43,53 @@ export function gutterWidth(lines: number): number {
   return Math.max(48, String(Math.max(1, lines)).length * 8 + 24);
 }
 
-/** Columns a character occupies: a tab goes to its stop, wide scripts and emoji take two. */
+const segmenter =
+  typeof Intl !== "undefined" && "Segmenter" in Intl
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : undefined;
+
+/** One user-perceived character: its UTF-16 span and the cells it takes. */
+export interface Grapheme {
+  text: string;
+  start: number;
+  end: number;
+  width: number;
+}
+
+/** A string's grapheme clusters, so an emoji joined from five code points stays one cell pair. */
+export function graphemes(text: string): Grapheme[] {
+  if (!segmenter) {
+    return Array.from(text).map((char, index) => ({
+      text: char,
+      start: index,
+      end: index + char.length,
+      width: charWidth(char),
+    }));
+  }
+  const out: Grapheme[] = [];
+  for (const part of segmenter.segment(text)) {
+    const value = part.segment;
+    out.push({
+      text: value,
+      start: part.index,
+      end: part.index + value.length,
+      width: clusterWidth(value),
+    });
+  }
+  return out;
+}
+
+function clusterWidth(cluster: string): number {
+  let width = 0;
+  for (const char of cluster) {
+    const cells = charWidth(char);
+    if (cells === 2) return 2;
+    if (cells === 1) width = 1;
+  }
+  return width;
+}
+
+/** Columns a character occupies: wide scripts and emoji take two, combining marks none. */
 export function charWidth(char: string): number {
   const code = char.codePointAt(0) ?? 0;
   if (code === 9) return 0;
@@ -61,12 +112,10 @@ export function charWidth(char: string): number {
 /** The visual column a UTF-16 column lands on, with tabs expanded to `size` stops. */
 export function visualColumn(text: string, column: number, size = tabSize): number {
   let visual = 0;
-  let at = 0;
-  for (const char of text) {
-    if (at >= column) break;
-    if (char === "\t") visual += size - (visual % size);
-    else visual += charWidth(char);
-    at += char.length;
+  for (const grapheme of graphemes(text)) {
+    if (grapheme.start >= column) break;
+    if (grapheme.text === "\t") visual += size - (visual % size);
+    else visual += grapheme.width;
   }
   return visual;
 }
@@ -74,32 +123,27 @@ export function visualColumn(text: string, column: number, size = tabSize): numb
 /** The UTF-16 column at a visual column, clamped to the line's end. */
 export function columnAtVisual(text: string, target: number, size = tabSize): number {
   let visual = 0;
-  let at = 0;
-  for (const char of text) {
-    if (visual >= target) return at;
-    if (char === "\t") {
+  for (const grapheme of graphemes(text)) {
+    if (visual >= target) return grapheme.start;
+    if (grapheme.text === "\t") {
       visual += size - (visual % size);
-      if (visual > target) return at;
+      if (visual > target) return grapheme.start;
     } else {
-      const width = charWidth(char);
-      if (visual + width > target) return at;
-      visual += width;
+      if (visual + grapheme.width > target) return grapheme.start;
+      visual += grapheme.width;
     }
-    at += char.length;
   }
-  return at;
+  return text.length;
 }
 
 /** The UTF-16 column nearest to `x` on a line. */
 export function columnAtX(text: string, x: number, cell: number, size = tabSize): number {
   if (x <= 0) return 0;
   let visual = 0;
-  let at = 0;
-  for (const char of text) {
-    const width = char === "\t" ? size - (visual % size) : charWidth(char);
-    if ((visual + width / 2) * cell >= x) return at;
+  for (const grapheme of graphemes(text)) {
+    const width = grapheme.text === "\t" ? size - (visual % size) : grapheme.width;
+    if ((visual + width / 2) * cell >= x) return grapheme.start;
     visual += width;
-    at += char.length;
   }
   return text.length;
 }
@@ -111,47 +155,22 @@ export function isPlain(text: string): boolean {
   return plain.test(text);
 }
 
-interface Metre {
-  span: HTMLSpanElement;
-  measured: Map<string, number>;
-}
-
-const metres = new WeakMap<HTMLElement, Metre>();
-
-function metreFor(host: HTMLElement): Metre {
-  const known = metres.get(host);
-  if (known) return known;
-  const span = document.createElement("span");
-  span.setAttribute(
-    "style",
-    "position:absolute;top:0;left:0;visibility:hidden;white-space:pre;pointer-events:none",
-  );
-  span.style.tabSize = String(tabSize);
-  host.append(span);
-  const metre = { span, measured: new Map<string, number>() };
-  metres.set(host, metre);
-  return metre;
-}
-
-/** A line's width: cells for plain ASCII, a measured span for tabs and wide characters. */
-export function lineWidth(
-  host: HTMLElement | null,
-  text: string,
-  cell: number,
-  size = tabSize,
-): number {
+/** A line's width from the cell estimate; plain ASCII is exactly one cell per character. */
+export function lineWidth(text: string, cell: number, size = tabSize): number {
   if (isPlain(text)) return text.length * cell;
-  const estimate = visualColumn(text, text.length, size) * cell;
-  if (!host) return estimate;
-  const metre = metreFor(host);
-  const known = metre.measured.get(text);
-  if (known !== undefined) return known;
-  metre.span.textContent = text;
-  metre.span.style.tabSize = String(size);
-  const width = metre.span.getBoundingClientRect().width;
-  // A frame with no layout (tests) measures every span at zero: the estimate stands in.
-  const value = width > 0 ? width : estimate;
-  if (metre.measured.size >= 512) metre.measured.clear();
-  metre.measured.set(text, value);
-  return value;
+  return visualColumn(text, text.length, size) * cell;
+}
+
+/**
+ * A rendered line span's width, from a DOM Range. This is the real measurement for non-ASCII
+ * text, whose glyphs a monospace cell count cannot predict (ligatures, emoji, fallbacks).
+ */
+export function measureElement(element: HTMLElement): number {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  // jsdom has no layout: the caller falls back to the cell estimate.
+  if (typeof range.getBoundingClientRect !== "function") return 0;
+  const rect = range.getBoundingClientRect();
+  const first = range.getClientRects()[0];
+  return rect.width || first?.width || 0;
 }

@@ -111,16 +111,18 @@ export function useEditorKeys(options: EditorKeyOptions) {
   return (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     const doc = state.doc;
     if (!doc) return;
+    // An IME owns every key while it composes; nothing here may move the caret under it.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const mod = mac ? event.metaKey : event.ctrlKey;
     const word = mac ? event.altKey : event.ctrlKey;
     const key = event.key;
 
-    if (mod && key.toLowerCase() === "z") {
+    if (!options.readOnly && mod && key.toLowerCase() === "z") {
       event.preventDefault();
       state.edit((target) => (event.shiftKey ? target.redo() : target.undo()));
       return;
     }
-    if (!mac && event.ctrlKey && key.toLowerCase() === "y") {
+    if (!options.readOnly && !mac && event.ctrlKey && key.toLowerCase() === "y") {
       event.preventDefault();
       state.edit((target) => target.redo());
       return;
@@ -152,7 +154,8 @@ export function useEditorKeys(options: EditorKeyOptions) {
       state.edit((target) => target.toggleLineComment(token));
       return;
     }
-    if (!options.readOnly && mod && key.toLowerCase() === "d") {
+    // Shift+mod+D is ace's Changes shortcut: leave it for the page.
+    if (!options.readOnly && mod && !event.shiftKey && key.toLowerCase() === "d") {
       event.preventDefault();
       if (doc.selectNextOccurrence()) state.select(doc.selections());
       return;
@@ -170,7 +173,13 @@ export function useEditorKeys(options: EditorKeyOptions) {
       options.reveal(head());
       return;
     }
-    if (!options.readOnly && event.altKey && (key === "ArrowUp" || key === "ArrowDown")) {
+    if (
+      !options.readOnly &&
+      event.altKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      (key === "ArrowUp" || key === "ArrowDown")
+    ) {
       event.preventDefault();
       goal.current = undefined;
       state.edit((target) => (key === "ArrowUp" ? target.moveLinesUp() : target.moveLinesDown()));

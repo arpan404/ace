@@ -1,9 +1,11 @@
 import { init } from "@ace/editor";
+import * as glue from "@ace/editor/pkg/editor_wasm.js";
+import wasmUrl from "@ace/editor/pkg/editor_wasm_bg.wasm?url";
 
 /*
- * Loads the editor's Wasm once per page. A browser build fetches the module the package ships
- * beside itself; jsdom (the web app's tests) cannot import that URL, so tests hand the loader
- * the built files from disk instead, exactly as `packages/editor`'s own tests do.
+ * Loads the editor's Wasm once per page. Vite emits the glue and the `.wasm` beside the app's
+ * bundle, so both are static imports; jsdom (the web app's tests) reads the built bytes from
+ * disk instead, exactly as `packages/editor`'s own tests do.
  */
 
 let loading: Promise<void> | undefined;
@@ -25,5 +27,5 @@ async function start(): Promise<void> {
     await initEditorForTests();
     return;
   }
-  await init();
+  await init({ module: glue, wasm: wasmUrl });
 }

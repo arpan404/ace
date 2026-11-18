@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { beforeEach, expect, test } from "vitest";
@@ -112,21 +112,26 @@ test("only the lines near the view are in the DOM for a 50,000-line file", async
   expect(document.querySelector('[data-line="49999"]')).toBeNull();
 });
 
-test("the textarea names the file, the lines are hidden from assistive tech, and the caret is announced", async () => {
+test("the textarea names the file, mirrors the current line, and announces an explicit jump", async () => {
   const { ref } = await openView({
     text: "alpha\nbeta gamma",
     readOnly: true,
     path: "src/hello.ts",
+    line: 2,
   });
   const box = screen.getByRole("textbox", { name: "hello.ts" });
   const region = screen.getByRole("region", { name: "Source of src/example.ts" });
   expect(within(region).getByText("alpha")).toBeTruthy();
+  expect(document.querySelector<HTMLElement>('[data-line-text="0"]')?.style.tabSize).toBe("2");
   expect(document.querySelector('[data-line="0"]')?.closest('[aria-hidden="true"]')).toBeTruthy();
+  expect(await screen.findByText("Line 2, column 1")).toBeTruthy();
 
+  act(() => ref.current?.focus());
   act(() =>
     ref.current?.setSelections([{ anchor: { line: 1, column: 2 }, head: { line: 1, column: 2 } }]),
   );
-  await waitFor(() => expect(screen.getByText("Line 2, column 3")).toBeTruthy());
+  await waitFor(() => expect((box as HTMLTextAreaElement).value).toBe("beta gamma"));
+  expect((box as HTMLTextAreaElement).selectionStart).toBe(2);
   expect(box.getAttribute("aria-label")).toBe("hello.ts");
 });
 
@@ -153,4 +158,52 @@ test("a read-only editor shows the text but takes no keyboard input", async () =
   act(() => ref.current?.focus());
   await userEvent.keyboard("typed");
   expect(ref.current?.text()).toBe("unchanged");
+});
+
+test("a file changed on disk keeps the reader's scroll and selection", async () => {
+  const ref = createRef<EditorHandle>();
+  const props = { path: "src/example.ts", label: "Source of src/example.ts", readOnly: true };
+  const view = render(<CodeEditor ref={ref} text={"one\ntwo\nthree"} {...props} />);
+  await screen.findByRole("textbox");
+  await waitFor(() => expect(ref.current).toBeTruthy());
+  act(() =>
+    ref.current?.setSelections([{ anchor: { line: 1, column: 1 }, head: { line: 1, column: 1 } }]),
+  );
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("Missing the editor's scroller");
+  scroller.scrollTop = 44;
+
+  view.rerender(<CodeEditor ref={ref} text={"one\nTWO\nthree"} {...props} />);
+
+  await waitFor(() =>
+    expect(document.querySelector('[data-line="1"]')?.textContent).toContain("TWO"),
+  );
+  expect(scroller.scrollTop).toBe(44);
+  expect(ref.current?.selections()).toEqual([
+    { anchor: { line: 1, column: 1 }, head: { line: 1, column: 1 } },
+  ]);
+});
+
+test("copy joins lines with the document's own line ending", async () => {
+  const ref = createRef<EditorHandle>();
+  render(
+    <CodeEditor ref={ref} text={"one\r\ntwo\r\nthree"} path="src/example.ts" label="Editor" />,
+  );
+  const box = await screen.findByRole("textbox");
+  await waitFor(() => expect(ref.current).toBeTruthy());
+  act(() =>
+    ref.current?.setSelections([
+      { anchor: { line: 0, column: 0 }, head: { line: 0, column: 3 } },
+      { anchor: { line: 2, column: 0 }, head: { line: 2, column: 5 } },
+    ]),
+  );
+  const copied: { text?: string } = {};
+  fireEvent.copy(box, {
+    clipboardData: {
+      setData: (_type: string, value: string) => {
+        copied.text = value;
+      },
+    },
+  });
+  expect(copied.text).toBe("one\r\nthree");
 });

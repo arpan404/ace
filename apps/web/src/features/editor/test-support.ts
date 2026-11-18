@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { init } from "@ace/editor";
+import * as glue from "@ace/editor/pkg/editor_wasm.js";
 
 /*
  * Loads the built editor Wasm for jsdom tests, the way `packages/editor`'s own tests do: the
- * bytes go straight to `WebAssembly.instantiate`. jsdom gives `import.meta.url` an http URL, so
- * the glue is passed as a file URL too. `node packages/editor/scripts/build.mjs` builds both.
+ * bytes go straight to `WebAssembly.instantiate`, through the same static glue the app bundles.
+ * `node packages/editor/scripts/build.mjs` builds both (the root postinstall runs it too).
  */
 
 let loading: Promise<void> | undefined;
@@ -22,9 +22,6 @@ function packageFile(name: string): string {
 }
 
 export function initEditorForTests(): Promise<void> {
-  loading ??= init({
-    moduleUrl: pathToFileURL(packageFile("editor_wasm.js")).href,
-    wasm: readFileSync(packageFile("editor_wasm_bg.wasm")),
-  });
+  loading ??= init({ module: glue, wasm: readFileSync(packageFile("editor_wasm_bg.wasm")) });
   return loading;
 }

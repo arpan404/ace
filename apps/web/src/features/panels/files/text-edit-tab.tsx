@@ -1,8 +1,8 @@
 import { FileTextIcon } from "@ace/icons";
-import { useCallback, useContext, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
-import { CodeEditor } from "@/features/editor";
+import { CodeEditor, type EditorHandle } from "@/features/editor";
 import {
   TextEditsContext,
   type TabViewProps,
@@ -39,8 +39,24 @@ export default function TextEditTab(props: TabViewProps) {
 
 function Editor(props: { name: string; session: TextEditSession }) {
   const { session } = props;
+  const editor = useRef<EditorHandle>(null);
+  const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [text, setText] = useState(() => session.typed());
   const [failed, setFailed] = useState(false);
+  const typeSettled = () => {
+    if (settle.current !== undefined) clearTimeout(settle.current);
+    settle.current = setTimeout(() => {
+      settle.current = undefined;
+      const next = editor.current?.text();
+      if (next !== undefined) session.type(next);
+    }, 150);
+  };
+  useEffect(
+    () => () => {
+      if (settle.current !== undefined) clearTimeout(settle.current);
+    },
+    [],
+  );
   useEffect(() => {
     let current = true;
     session.file.text().then(
@@ -65,13 +81,12 @@ function Editor(props: { name: string; session: TextEditSession }) {
       <h2 className="sr-only">{props.name}</h2>
       <div className="min-h-0 flex-1">
         <CodeEditor
+          ref={editor}
           text={text}
           path={props.name}
           label={`Editing ${props.name}`}
           focusOnMount
-          onTextChange={(next) => {
-            session.type(next);
-          }}
+          onEdit={typeSettled}
         />
       </div>
     </section>

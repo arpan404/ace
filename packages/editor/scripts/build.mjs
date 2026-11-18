@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -18,6 +26,14 @@ const workspace = join(root, "native", "editor");
 const crate = join(workspace, "crates", "editor-wasm");
 const out = join(here, "..", "pkg");
 const compiled = join(workspace, "target", "wasm32-unknown-unknown", "release", "editor_wasm.wasm");
+const wasmOutput = join(out, "editor_wasm_bg.wasm");
+
+// The root postinstall runs this; a package built since the last source change is reused, so a
+// checkout without Rust can still install once its `pkg/` is there.
+if (existsSync(wasmOutput) && !outOfDate()) {
+  process.stdout.write("editor wasm: up to date\n");
+  process.exit(0);
+}
 
 const pinned = /wasm-bindgen = "=([0-9.]+)"/.exec(
   readFileSync(join(crate, "Cargo.toml"), "utf8"),
@@ -51,6 +67,34 @@ process.stdout.write(`editor wasm: ${kib(bytes)} KiB (${bytes} bytes), gzip ${ki
 
 function kib(value) {
   return (value / 1024).toFixed(1);
+}
+
+/** True when a crate source is newer than the built Wasm. */
+function outOfDate() {
+  const built = statSync(wasmOutput).mtimeMs;
+  const seen = new Set();
+  const visit = (file) => {
+    const info = statSync(file);
+    if (info.isDirectory()) {
+      for (const entry of readdirSync(file)) visit(join(file, entry));
+    } else if (info.mtimeMs > built) {
+      seen.add(file);
+    }
+  };
+  for (const name of readdirSync(join(workspace, "crates"))) {
+    const crate = join(workspace, "crates", name);
+    visit(join(crate, "src"));
+    for (const manifest of ["Cargo.toml", "build.rs"]) {
+      const file = join(crate, manifest);
+      if (existsSync(file) && statSync(file).mtimeMs > built) seen.add(file);
+    }
+  }
+  for (const file of ["Cargo.toml", "Cargo.lock"]) {
+    const path = join(workspace, file);
+    if (existsSync(path) && statSync(path).mtimeMs > built) seen.add(path);
+  }
+  if (seen.size) process.stdout.write(`editor wasm: rebuilding for ${[...seen][0]}\n`);
+  return seen.size > 0;
 }
 
 /** The bindings must come from the CLI version the crate was built against. */

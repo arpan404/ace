@@ -12,16 +12,20 @@ import {
   useState,
   type Ref,
 } from "react";
+import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { EditorFindBar } from "./find-bar.tsx";
 import type { MatchSegment } from "./find-matches.ts";
 import {
   charWidthFor,
+  clearMeasurements,
   fallbackCharWidth,
   gutterWidth,
+  isPlain,
   lineHeight,
   lineWidth,
+  measureElement,
   visualColumn,
 } from "./geometry.ts";
 import { useEditorKeys } from "./keys.ts";
@@ -63,8 +67,14 @@ export interface CodeEditorProps {
   find?: { query: string; hit?: { line: number; column: number } | undefined } | undefined;
   /** The line area's region name for assistive tech. */
   label: string;
-  onTextChange?: ((text: string) => void) | undefined;
+  /** Called after each edit; read the text through the handle when it is actually needed. */
+  onEdit?: (() => void) | undefined;
+  onBlur?: (() => void) | undefined;
+  /** The text once, as the editor unmounts, for a caller that keeps a draft. */
+  onTextDispose?: ((text: string) => void) | undefined;
   onSave?: (() => void) | undefined;
+  /** Whether lines run past the editor's right edge, for the toolbar's fade. */
+  onHorizontalOverflow?: ((overflow: boolean) => void) | undefined;
   /** Idle time that ends a typing run, as one undo step. */
   commitAfter?: number;
   /** How long typing settles before colours are rebuilt; tests stretch it. */
@@ -85,11 +95,14 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     text: props.text,
     path: props.path,
     original: props.marks ? undefined : props.text,
-    ...(props.onTextChange ? { onTextChange: props.onTextChange } : {}),
+    editable: !readOnly,
+    ...(props.onEdit ? { onEdit: props.onEdit } : {}),
+    ...(props.onTextDispose ? { onTextDispose: props.onTextDispose } : {}),
     ...(props.commitAfter === undefined ? {} : { commitAfter: props.commitAfter }),
     ...(props.highlightDelay === undefined ? {} : { highlightDelay: props.highlightDelay }),
   });
   const doc = state.doc;
+  const seenText = useRef(props.text);
   const scroller = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -100,7 +113,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   });
   const [cell, setCell] = useState(fallbackCharWidth);
   const [paint, setPaint] = useState(0);
+  const [announcement, setAnnouncement] = useState<{ text: string; seq: number }>();
   const viewport = useElementSize(scroller);
+  const input = useEditorInput(state, readOnly, field);
 
   const name = pathParts(props.path).name;
   const lineCount = doc?.lenLines() ?? 0;
@@ -132,6 +147,32 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   }, []);
 
   useEffect(() => {
+    const measure = () => {
+      clearMeasurements();
+      const element = scroller.current;
+      if (element) setCell(charWidthFor(getComputedStyle(element).font));
+    };
+    document.fonts?.addEventListener("loadingdone", measure);
+    let density: MediaQueryList | undefined;
+    if (typeof matchMedia !== "function")
+      return () => document.fonts?.removeEventListener("loadingdone", measure);
+    const watchDensity = () => {
+      density?.removeEventListener("change", changed);
+      density = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+      density.addEventListener("change", changed);
+    };
+    const changed = () => {
+      measure();
+      watchDensity();
+    };
+    watchDensity();
+    return () => {
+      document.fonts?.removeEventListener("loadingdone", measure);
+      density?.removeEventListener("change", changed);
+    };
+  }, []);
+
+  useEffect(() => {
     const highlighter = state.highlighter;
     if (!highlighter || !doc) return;
     const stop = highlighter.subscribe(() => setPaint((value) => value + 1));
@@ -144,7 +185,13 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     const element = host.current;
     if (!element) return;
     let widest = 0;
-    for (const text of lines) widest = Math.max(widest, lineWidth(element, text, cell));
+    lines.forEach((text, offset) => {
+      const rendered = element.querySelector<HTMLElement>(`[data-line-text="${first + offset}"]`);
+      const width = isPlain(text)
+        ? lineWidth(text, cell)
+        : measureElement(rendered ?? element) || lineWidth(text, cell);
+      widest = Math.max(widest, width);
+    });
     const width = gutter + widest + paddingRight;
     setContent((previous) => {
       const base = previous.doc === doc ? previous.width : 0;
@@ -152,13 +199,57 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       if (previous.doc === doc && previous.width === next) return previous;
       return { doc, width: next };
     });
-  }, [doc, lines, cell, gutter]);
+  }, [doc, lines, cell, gutter, first]);
   const contentWidth = content.doc === doc ? content.width : 0;
+  const onOverflow = props.onHorizontalOverflow;
+
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const measure = () =>
+      onOverflow?.(element.scrollLeft + element.clientWidth < element.scrollWidth - 1);
+    measure();
+    element.addEventListener("scroll", measure, { passive: true });
+    const observer =
+      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => {
+      element.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [onOverflow, contentWidth, state.version]);
 
   const primary = state.selections[state.primary] ?? state.selections[0];
   const caretLine = primary?.head.line ?? 0;
   const caretColumn = primary?.head.column ?? 0;
   const selected = selectedLineSpan(state.selections);
+
+  /** Screen readers get the current line, not an empty text box, while the caret moves. */
+  const mirror = useCallback(() => {
+    const element = field.current;
+    if (!element || document.activeElement !== element || input.composingText !== undefined) return;
+    const text = lineAt(caretLine);
+    if (element.value !== text) element.value = text;
+    const selection = state.selections[state.primary];
+    const anchor = selection
+      ? selection.anchor.line === caretLine
+        ? selection.anchor.column
+        : selection.anchor.line < caretLine
+          ? 0
+          : text.length
+      : caretColumn;
+    const from = Math.max(0, Math.min(anchor, caretColumn, text.length));
+    const to = Math.max(0, Math.min(Math.max(anchor, caretColumn), text.length));
+    element.setSelectionRange(from, to);
+  }, [lineAt, caretLine, caretColumn, state.selections, state.primary, input.composingText]);
+
+  useEffect(() => mirror(), [mirror, state.version]);
+
+  const announce = (position: Position) =>
+    setAnnouncement((previous) => ({
+      text: `Line ${position.line + 1}, column ${position.column + 1}`,
+      seq: (previous?.seq ?? 0) + 1,
+    }));
 
   const reveal = useCallback(
     (position: Position) => {
@@ -181,21 +272,37 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   );
 
   useEffect(() => {
-    if (props.line && props.line > 0) reveal({ line: props.line - 1, column: 0 });
+    if (!props.line || props.line <= 0) return;
+    const position = { line: props.line - 1, column: 0 };
+    reveal(position);
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- a go-to-line is an explicit jump, announced once.
+    announce(position);
   }, [props.line, reveal]);
 
   const hitLine = props.find?.hit?.line;
   const hitColumn = props.find?.hit?.column;
   useEffect(() => {
-    if (hitLine !== undefined && hitColumn !== undefined)
-      reveal({ line: hitLine, column: hitColumn });
+    if (hitLine === undefined || hitColumn === undefined) return;
+    const position = { line: hitLine, column: hitColumn };
+    reveal(position);
+    // oxlint-disable-next-line react-compiler/set-state-in-effect -- a find hit is an explicit jump, announced once.
+    announce(position);
   }, [hitLine, hitColumn, reveal]);
+
+  useEffect(() => {
+    if (props.text === seenText.current) return;
+    seenText.current = props.text;
+    if (state.doc && state.doc.text() !== props.text) state.replaceText(props.text);
+  }, [props.text, state]);
 
   const finder = useFindInFile({
     doc,
     version: state.version,
     select: (range) => state.select([{ anchor: range.start, head: range.end }]),
-    reveal,
+    reveal: (position) => {
+      reveal(position);
+      announce(position);
+    },
     focusEditor: () => field.current?.focus({ preventScroll: true }),
   });
   const external = useFindResults(doc, state.version, {
@@ -214,7 +321,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   }, [matches, props.find?.hit]);
   const currentIndex = finder.open ? finder.index : externalIndex;
 
-  const onKeyDown = useEditorKeys({
+  const navigationKeys = useEditorKeys({
     state,
     readOnly,
     path: props.path,
@@ -228,6 +335,13 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     },
     reveal,
   });
+
+  const onKeyDown = (event: Parameters<typeof navigationKeys>[0]) => {
+    // The mirrored line is for screen readers between keystrokes; a key starts from an empty box.
+    if (field.current && !/^(Shift|Control|Alt|Meta)$/.test(event.key)) field.current.value = "";
+    if (input.onKeyDown(event)) return;
+    navigationKeys(event);
+  };
 
   const byLine = useMemo(() => {
     const found = new Map<number, MatchSegment[]>();
@@ -257,8 +371,6 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     // oxlint-disable-next-line react-hooks/exhaustive-deps, react/exhaustive-effect-dependencies -- first and last are already in the key.
   }, [tokenKey, state.highlighter]);
 
-  const input = useEditorInput(state, readOnly);
-
   const pointer = usePointerSelection({
     state,
     cell,
@@ -280,12 +392,15 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
 
   if (state.failed)
     return (
-      <div
-        role="region"
-        aria-label={props.label}
-        className={cn("min-h-0 overflow-auto", props.className)}
-      >
-        <pre className="p-2 pr-6 font-mono text-ui leading-[22px] whitespace-pre">{props.text}</pre>
+      <div role="region" aria-label={props.label} className={cn("h-full min-h-0", props.className)}>
+        <div role="alert" className="flex flex-col items-start gap-2 p-4 text-ui">
+          <p className="text-muted-foreground">
+            The editor couldn't start. The file itself is unchanged.
+          </p>
+          <Button size="sm" variant="secondary" onClick={state.retry}>
+            Try again
+          </Button>
+        </div>
       </div>
     );
 
@@ -294,7 +409,10 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
       role="region"
       aria-label={props.label}
       data-selected-lines={selected}
-      className={cn("relative h-full min-h-0", props.className)}
+      className={cn(
+        "relative h-full min-h-0 focus-within:shadow-[inset_0_0_0_2px_var(--focus,var(--ring))]",
+        props.className,
+      )}
     >
       <div
         ref={scroller}
@@ -342,12 +460,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
               gutter={gutter}
               cell={cell}
               composing={
-                input.composingText === undefined
-                  ? undefined
-                  : {
-                      position: { line: caretLine, column: caretColumn },
-                      text: input.composingText,
-                    }
+                input.composingText === undefined ? undefined : { text: input.composingText }
               }
             />
           </div>
@@ -362,13 +475,15 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           autoCapitalize="off"
           autoCorrect="off"
           readOnly={readOnly}
+          onBlur={props.onBlur}
+          onFocus={mirror}
           autoFocus={props.focusOnMount}
           onKeyDown={onKeyDown}
-          onBeforeInput={input.onBeforeInput}
           onInput={input.onInput}
           onCopy={input.onCopy}
           onCut={input.onCut}
           onPaste={input.onPaste}
+          onDrop={input.onDrop}
           onCompositionStart={input.onCompositionStart}
           onCompositionUpdate={input.onCompositionUpdate}
           onCompositionEnd={input.onCompositionEnd}
@@ -376,9 +491,11 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
           style={{ left: textareaLeft, top: textareaTop }}
         />
       ) : null}
-      <span aria-live="polite" className="sr-only">
-        {`Line ${caretLine + 1}, column ${caretColumn + 1}`}
-      </span>
+      {announcement ? (
+        <span key={announcement.seq} aria-live="polite" className="sr-only">
+          {announcement.text}
+        </span>
+      ) : null}
       {finder.open ? (
         <EditorFindBar
           query={finder.query}

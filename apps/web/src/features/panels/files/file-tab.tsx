@@ -8,7 +8,6 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useScrollEdges } from "@/lib/edge-fade.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -131,8 +130,15 @@ export function FileTab(props: TabViewProps) {
   const layout = treeLayout(width, treeWidth, { file: !!path, chosen: data.tree });
   const treeShown = !data.draft && layout !== "hidden";
   const over = layout === "over";
-  const viewer = useRef<HTMLDivElement>(null);
-  const edges = useScrollEdges(viewer);
+  const [overflow, setOverflow] = useState<{ path: string | undefined; end: boolean }>({
+    path: undefined,
+    end: false,
+  });
+  const overflowEnd = overflow.path === path && overflow.end;
+  const onOverflowEnd = (end: boolean) =>
+    setOverflow((previous) =>
+      previous.path === path && previous.end === end ? previous : { path, end },
+    );
   const open = (target: string, keep: boolean) =>
     openFile(workspace, actions, target, {
       keep,
@@ -259,7 +265,7 @@ export function FileTab(props: TabViewProps) {
               onClose={() => setFind(undefined)}
             />
           )}
-          <div ref={viewer} className="relative h-full overflow-auto" tabIndex={-1}>
+          <div className="relative h-full overflow-auto" tabIndex={-1}>
             {path && data.draft ? (
               <Suspense fallback={null}>
                 <FileEditor
@@ -273,6 +279,7 @@ export function FileTab(props: TabViewProps) {
                     update({ draft: undefined });
                     void content.refetch();
                   }}
+                  onOverflowEnd={onOverflowEnd}
                 />
               </Suspense>
             ) : path ? (
@@ -288,13 +295,14 @@ export function FileTab(props: TabViewProps) {
                 onRetry={() => void content.refetch()}
                 onDownload={() => void fileActions.save(path)}
                 onFind={() => quickOpen.set(() => threadId)}
+                onOverflowEnd={onOverflowEnd}
               />
             ) : (
               <NoFile onSearch={() => quickOpen.set(() => threadId)} />
             )}
           </div>
           {/* Lines run on past the right edge: a fade says so; the editor scrolls sideways. */}
-          {edges.end && (
+          {overflowEnd && (
             <span
               aria-hidden
               className="pointer-events-none absolute inset-y-0 right-0 w-6"

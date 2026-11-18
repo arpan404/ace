@@ -40,10 +40,12 @@ export class WholeFileLineHighlighter implements LineHighlighter {
   #disposed = false;
 
   readonly #delay: number;
+  readonly #source: (() => string) | undefined;
 
-  constructor(language: string | undefined, delay = highlightDelay) {
+  constructor(language: string | undefined, delay = highlightDelay, source?: () => string) {
     this.#language = language;
     this.#delay = delay;
+    this.#source = source;
   }
 
   setText(text: string): void {
@@ -88,7 +90,9 @@ export class WholeFileLineHighlighter implements LineHighlighter {
   #highlight(): void {
     this.#timer = undefined;
     if (this.#disposed) return;
-    const text = this.#text;
+    // The caller's getter is read only here, on the debounced highlight, never on a keystroke.
+    const text = this.#source ? this.#source() : this.#text;
+    this.#text = text;
     const hash = codeHash(text, this.#language);
     this.#lease?.release();
     const lease = highlightJobs.acquire(

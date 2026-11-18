@@ -143,6 +143,7 @@ export function FileViewer(props: {
   onRetry(): void;
   onDownload(): void;
   onFind(): void;
+  onOverflowEnd?(overflow: boolean): void;
 }) {
   const online = useConnectionState() === "ready";
   const name = pathParts(props.path).name;
@@ -235,7 +236,7 @@ export function FileViewer(props: {
         );
       const source = (
         <CodeEditor
-          key={`${props.path}:${content.version}`}
+          key={props.path}
           text={content.text}
           path={props.path}
           readOnly
@@ -243,6 +244,7 @@ export function FileViewer(props: {
           line={props.line}
           marks={props.marks}
           label={`Source of ${props.path}`}
+          onHorizontalOverflow={props.onOverflowEnd}
         />
       );
       return props.onMention ? (

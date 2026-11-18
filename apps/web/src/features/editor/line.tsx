@@ -5,7 +5,7 @@ import type { LineMark } from "@ace/ui-core";
 import { memo } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { MatchSegment } from "./find-matches.ts";
-import { lineHeight } from "./geometry.ts";
+import { lineHeight, tabSize } from "./geometry.ts";
 import type { Token } from "./highlighter.ts";
 
 /** Lines longer than this skip tokenization and are drawn as plain, clipped text. */
@@ -93,7 +93,11 @@ export const EditorLine = memo(function EditorLine(props: {
       >
         {props.index + 1}
       </span>
-      <span className="min-w-0 pr-6 whitespace-pre text-foreground">
+      <span
+        data-line-text={props.index}
+        className="min-w-0 pr-6 whitespace-pre text-foreground"
+        style={{ tabSize: String(tabSize) }}
+      >
         {props.query && props.matches?.length ? (
           marked(text, props.matches)
         ) : kept ? (

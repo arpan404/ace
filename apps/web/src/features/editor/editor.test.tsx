@@ -151,3 +151,110 @@ test("IME composition shows its text inline and commits it once", async () => {
   expect(document.querySelector("[data-composing]")).toBeNull();
   expect(ref.current?.text()).toBe("日本");
 });
+
+test("Backspace, Delete and Enter edit once through the keyboard", async () => {
+  const { ref } = await openEditor({ text: "ab\ncd" });
+
+  act(() => ref.current?.setSelections([caret(0, 2)]));
+  await userEvent.keyboard("{Backspace}");
+  expect(ref.current?.text()).toBe("a\ncd");
+
+  act(() => ref.current?.setSelections([caret(1, 0)]));
+  await userEvent.keyboard("{Delete}");
+  expect(ref.current?.text()).toBe("a\nd");
+
+  act(() => ref.current?.setSelections([caret(1, 1)]));
+  await userEvent.keyboard("{Enter}");
+  expect(ref.current?.text()).toBe("a\nd\n");
+});
+
+test("word delete removes the word before and after the caret", async () => {
+  const { ref } = await openEditor({ text: "one two three" });
+
+  act(() => ref.current?.setSelections([caret(0, 13)]));
+  await userEvent.keyboard("{Alt>}{Backspace}{/Alt}");
+  expect(ref.current?.text()).toBe("one two ");
+
+  act(() => ref.current?.setSelections([caret(0, 0)]));
+  await userEvent.keyboard("{Alt>}{Delete}{/Alt}");
+  expect(ref.current?.text()).toBe(" two ");
+});
+
+test("Enter on an indented line keeps its indentation", async () => {
+  const { ref } = await openEditor({ text: "  indented" });
+
+  act(() => ref.current?.setSelections([caret(0, 10)]));
+  await userEvent.keyboard("{Enter}");
+
+  expect(ref.current?.text()).toBe("  indented\n  ");
+});
+
+test("a native beforeinput delete applies once, not twice", async () => {
+  const { ref, box } = await openEditor({ text: "abc" });
+  act(() => ref.current?.setSelections([caret(0, 3)]));
+
+  act(() => {
+    box.dispatchEvent(
+      new InputEvent("beforeinput", {
+        inputType: "deleteContentBackward",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+
+  expect(ref.current?.text()).toBe("ab");
+});
+
+test("a read-only editor ignores cut and undo", async () => {
+  const { ref, box } = await openEditor({ text: "unchanged", readOnly: true });
+  act(() =>
+    ref.current?.setSelections([{ anchor: { line: 0, column: 0 }, head: { line: 0, column: 4 } }]),
+  );
+
+  fireEvent.cut(box, { clipboardData: { setData: () => undefined, getData: () => "" } });
+  await userEvent.keyboard("{Meta>}z{/Meta}");
+
+  expect(ref.current?.text()).toBe("unchanged");
+});
+
+test("IME composition is drawn at every caret", async () => {
+  const { ref, box } = await openEditor({ text: "one\ntwo" });
+  act(() => ref.current?.setSelections([caret(0, 3), caret(1, 3)]));
+
+  fireEvent.compositionStart(box);
+  fireEvent.compositionUpdate(box, { data: "に" });
+  await waitFor(() => expect(document.querySelectorAll("[data-composing]")).toHaveLength(2));
+
+  fireEvent.compositionEnd(box, { data: "日本" });
+  await waitFor(() => expect(ref.current?.text()).toBe("one日本\ntwo日本"));
+});
+
+test("Shift+Cmd+D is not swallowed by select-next-occurrence", async () => {
+  const { ref, box } = await openEditor({ text: "foo foo" });
+  act(() =>
+    ref.current?.setSelections([{ anchor: { line: 0, column: 0 }, head: { line: 0, column: 3 } }]),
+  );
+  let reached = 0;
+  const listener = () => {
+    reached++;
+  };
+  document.addEventListener("keydown", listener);
+  const notPrevented = fireEvent.keyDown(box, { key: "d", metaKey: true, shiftKey: true });
+  document.removeEventListener("keydown", listener);
+
+  expect(notPrevented).toBe(true);
+  expect(reached).toBe(1);
+  expect(ref.current?.selections()).toHaveLength(1);
+});
+
+test("Alt+Arrow moves a line while Alt+Cmd+Arrow leaves it alone", async () => {
+  const { ref } = await openEditor({ text: "one\ntwo" });
+  act(() => ref.current?.setSelections([caret(0, 1)]));
+
+  await userEvent.keyboard("{Alt>}{ArrowDown}{/Alt}");
+  expect(ref.current?.text()).toBe("two\none");
+
+  await userEvent.keyboard("{Meta>}{Alt>}{ArrowUp}{/Alt}{/Meta}");
+  expect(ref.current?.text()).toBe("two\none");
+});
