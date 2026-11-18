@@ -30,7 +30,7 @@ struct ForgeMergeCommitSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
                     Text(title).meta().lineLimit(2)
-                    if !current { Text("Pull request changed. Your draft is kept here; merging is disabled for this head or method.").meta() }
+                    if !current { Text("The pull request changed. Your draft is saved. Reopen Merge to continue.").meta() }
                     TextField("Commit title", text: commitTitle)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
