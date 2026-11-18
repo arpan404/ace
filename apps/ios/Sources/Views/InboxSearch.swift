@@ -99,6 +99,9 @@ struct InboxSearchList: View {
     /// The thread open on Threads or Chats, whose commands are offered under its title.
     let openTitle: String?
     let actions: SearchActions
+    /// The app has a lock, so App lock is among this phone's pages.
+    var hasLock = false
+    @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
     @State private var messages = InboxMessageSearch()
     @State private var everything = SearchEverything()
     @State private var pulls = SearchPulls()
@@ -118,7 +121,8 @@ struct InboxSearchList: View {
             .environment(\.defaultMinListRowHeight, 0)
             .task(id: "\(text)|\(openTitle != nil)|\(scope.project)|\(connections)") {
                 let project = scope.machine.flatMap { machine in scope.workspace.map { (machineId: machine, workspaceId: $0) } }
-                await everything.run(inbox, query: text, threadOpen: openTitle != nil, project: project)
+                let phone = SettingsSearch.phoneItems(notifications: notifications != nil, lock: hasLock)
+                await everything.run(inbox, query: text, threadOpen: openTitle != nil, project: project, phone: phone)
             }
             .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(connections)") {
                 guard scope.kind == "all", scope.project.isEmpty else { return }
@@ -137,6 +141,15 @@ struct InboxSearchList: View {
 
     @ViewBuilder private var results: some View {
         if everyKind { actionSection }
+        if offline, everyKind, !everything.commands.isEmpty {
+            // This phone's pages are found offline; what the machines hold waits for one.
+            Text("Threads, projects, pull requests and messages search when reconnected.")
+                .meta(AceTheme.Colours.subtleForeground)
+                .padding(.horizontal, AceTheme.Spacing.rowInner)
+                .padding(.vertical, AceDesign.Space.row)
+                .accessibilityIdentifier("search.offline")
+                .listRowSeparator(.hidden).listRowBackground(Color.clear)
+        }
         if scope.kind == "all" || scope.kind == "thread" {
             let threads = foundThreads
             if !threads.isEmpty {
@@ -178,7 +191,7 @@ struct InboxSearchList: View {
             ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 .accessibilityLabel("Searching")
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
-        } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
+        } else if !messages.loading && foundThreads.isEmpty && !(everyKind && (!everything.commands.isEmpty || !everything.projects.isEmpty))
                     && pulls.found.isEmpty && !(everyKind && pulls.problem != nil) && messages.merged(inbox).isEmpty {
             // The scoped machines are unreachable: nothing was asked, so "No results" would be wrong.
             Group {

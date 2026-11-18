@@ -222,6 +222,28 @@ import XCTest
         XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
     }
 
+    func testWithTheMachineOfflineSearchStillFindsSettingsPages() {
+        let app = XCUIApplication()
+        // Paired, but nothing listens on this port: the machine never connects.
+        app.launchArguments = ["--spike", "--spike-port", "1025"]
+        app.launchWithArguments()
+        defer { app.terminate() }
+        allowNotifications()
+        app.openSearch()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("dark mode")
+        let appearance = app.buttons["search.command.settings:appearance"]
+        XCTAssertTrue(appearance.waitForExistence(timeout: 10))
+        XCTAssertTrue(appearance.label.contains("Settings"))
+        // The note covers only what waits for a machine.
+        XCTAssertTrue(app.staticTexts["search.offline"].exists)
+        capture("search-offline")
+        appearance.tap()
+        XCTAssertTrue(app.navigationBars["Appearance"].waitForExistence(timeout: 10))
+    }
+
     func testAThreadOpenedFromSearchShowsOnThreads() {
         let app = launch()
         app.openSearch()
