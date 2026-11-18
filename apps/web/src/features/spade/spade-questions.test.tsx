@@ -156,7 +156,12 @@ test("Answer later folds the card to one line, the header counts its questions, 
   // One card of two questions: two questions for later.
   const later = await screen.findByRole("button", { name: "2 questions for later" });
   await userEvent.click(later);
-  await waitFor(() => expect(document.activeElement?.getAttribute("data-question")).toBe("q1"));
+  // Reaching it opens it with focus inside, on its first option.
+  await waitFor(() =>
+    expect(document.activeElement?.closest("[data-question]")?.getAttribute("data-question")).toBe(
+      "q1",
+    ),
+  );
   // Answer later folds it back to its line, asking Spade nothing more; Answer opens it again.
   await userEvent.click(
     (await card("Travel asks 2 questions")).getByRole("button", { name: "Answer later" }),
@@ -202,4 +207,37 @@ test("an older question with no kinds is one text card", async () => {
   const asked = await card("Travel asks: Which airport?");
   await userEvent.type(asked.getByRole("textbox", { name: "Which airport?" }), "Heathrow{Enter}");
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: ["Heathrow"] }]));
+});
+
+test("an open card takes focus, so a digit picks an option and is not typed into the composer", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) =>
+    api.card(travel(api), "q1", seatAndNights),
+  );
+  const asked = await card("Travel asks 2 questions");
+  // Nothing was clicked: the card's first option already holds focus.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(asked.getByRole("radio", { name: "Window" })),
+  );
+  await userEvent.keyboard("2");
+  expect(asked.getByRole("radio", { name: "Aisle" }).getAttribute("aria-checked")).toBe("true");
+  expect(
+    (screen.getByRole("combobox", { name: "Message Travel" }) as HTMLElement).textContent,
+  ).toBe("");
+  expect(spade.sent("POST", path)).toEqual([]);
+});
+
+test("when the card closes, focus goes back to the composer", async () => {
+  await spadeApp("/spade/travel", (api) =>
+    api.card(travel(api), "q1", [{ prompt: "Which airport?", kind: "text" }]),
+  );
+  const asked = await card("Travel asks: Which airport?");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(asked.getByRole("textbox", { name: "Which airport?" })),
+  );
+  await userEvent.type(asked.getByRole("textbox", { name: "Which airport?" }), "Lisbon");
+  await userEvent.click(asked.getByRole("button", { name: "Send" }));
+  await cardWith("Travel asks: Which airport?", "Lisbon");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Message Travel" })),
+  );
 });
