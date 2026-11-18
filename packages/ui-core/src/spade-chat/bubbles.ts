@@ -13,10 +13,11 @@ import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
+import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 
 /*
- * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
- * bot works. Tool calls, background jobs and compaction stay with the bot; an approval arrives
+ * A conversation as a chat (ADR 0127): the person's messages and the bot's, and under each reply
+ * its steps folded into one quiet line. Background jobs and compaction stay with the bot; an approval arrives
  * as a bubble of the bot's that the person answers, in place after the step that asked, and
  * stays once answered; a question as the bot's bubble (ADR 0128), and a note the bot saved as
  * one quiet line between its bubbles. Each carries when it was said, where that is known: a
@@ -58,6 +59,11 @@ type SpadeBubbleOf =
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
     }
+  /**
+   * The steps a reply took, as one quiet line under it that opens to each (`spadeReplySteps`);
+   * the ones the person must see stand under it unopened.
+   */
+  | { kind: "steps"; key: string; summary: string; steps: readonly SpadeStep[] }
   /** Files a tool kept with no reply after them yet: chips on the bot's side. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
@@ -311,8 +317,8 @@ function askBubble(
  * A reply's bubbles: each step's words is a bubble of its own, as a messenger shows several
  * messages in a row; a note it remembered or a question it asked splits the words too. The images
  * and documents its tools showed ride on the bubble before them (ADR 0134). The steps it took
- * leave no line: while it works they are the working line's, after, the profile's Activity. A
- * request the person answered once the reply has ended goes with them. The first bubble keeps the
+ * fold into one line under its words (`spadeReplySteps`): a step still running is the working
+ * line's, and a request the person answered is one of the steps. The first bubble keeps the
  * reply's key, so a bubble keeps its place as the reply grows.
  */
 function replyBubbles(
@@ -407,6 +413,9 @@ function replyBubbles(
     if (tail()) attach();
     else say("", false);
   }
+  // What it did, under what it said.
+  const steps = spadeReplySteps(entry);
+  if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps });
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
   if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });

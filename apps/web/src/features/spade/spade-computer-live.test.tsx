@@ -2,7 +2,7 @@ import type { FakeDaemon, FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botAtWork, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -15,6 +15,8 @@ function seed(spade: FakeSpadeApi) {
   withEndpoint(spade);
   spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   spade.addAgent({ id: "scout", name: "Scout" });
+  // At work: what it uses is what it drives now.
+  botAtWork(spade, "scout", "browser_act");
 }
 
 /**

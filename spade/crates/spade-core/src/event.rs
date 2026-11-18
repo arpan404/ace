@@ -247,6 +247,28 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         documents: Vec<DocumentRef>,
     },
+    /// Where a command ran and how it went, stored right after its `tool_finished` like
+    /// `shared`: whether Spade's sandbox held it, its exit, and the hosts it reached and the
+    /// network policy refused. The model never reads it (its result already says how it ended);
+    /// the app shows it in the reply's steps, so what a command did is seen in the conversation.
+    CommandRan {
+        reply: String,
+        call_id: String,
+        /// The sandbox held it. False when it ran outside it: the person allowed that one
+        /// command, or this machine has no sandbox and it was reviewed.
+        contained: bool,
+        /// None when a signal ended it, or it never started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        timed_out: bool,
+        /// Hosts it reached through Spade's proxy, each once, in the order first asked.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reached: Vec<String>,
+        /// Hosts the network policy refused it, each once.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        refused: Vec<RefusedHost>,
+    },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.
     JobStarted {
@@ -745,6 +767,15 @@ pub struct FromRoutine {
     /// (ADR 0144): its instruction may have been planted, so a turn it starts is untrusted.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub untrusted: bool,
+}
+
+/// A host the network policy refused a command, with why (`command_ran`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedHost {
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub reason: String,
 }
 
 /// An attached image, as stored in an event: its SHA-256 (hex), media type and size.

@@ -233,6 +233,16 @@ pub fn output<'a>(events: &'a [Value], call: &str) -> &'a str {
         .unwrap_or_default()
 }
 
+/// The `command_ran` stored for call `call`: where it ran and what the sandbox did; null when
+/// none was stored.
+pub fn command_ran(events: &[Value], call: &str) -> Value {
+    events
+        .iter()
+        .find(|e| e["type"] == "command_ran" && e["call_id"] == call)
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
 pub fn shell(id: &str, command: String) -> Script {
     Script::reply("").call(id, "shell", json!({ "command": command }))
 }

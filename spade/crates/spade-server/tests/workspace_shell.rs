@@ -149,6 +149,14 @@ async fn always_allows_that_exact_command_and_no_other() -> Result {
         finished(&events, "c2").map(|e| e["is_error"].clone()),
         Some(json!(false))
     );
+    // With no sandbox it says it ran outside one, and how it ended.
+    let ran = events
+        .iter()
+        .find(|e| e["type"] == "command_ran" && e["call_id"] == "c2");
+    assert_eq!(
+        ran.map(|e| (e["contained"].clone(), e["exit_code"].clone())),
+        Some((json!(false), json!(0)))
+    );
 
     spade.say(&conversation, "Make another").await?;
     let events = spade
@@ -164,6 +172,13 @@ async fn always_allows_that_exact_command_and_no_other() -> Result {
     assert!(
         !root.join("two.txt").exists(),
         "a declined command never runs"
+    );
+    let events = spade.events(&conversation).await?;
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "command_ran" && e["call_id"] == "c3"),
+        "a command that never ran says nothing of where"
     );
     Ok(())
 }

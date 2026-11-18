@@ -189,6 +189,8 @@ pub struct Confined {
     pub path_first: Vec<String>,
     /// The run's proxy access, ended when the run is.
     pub hold: Box<dyn std::any::Any + Send + Sync>,
+    /// What the run did through the proxy, read once it ends; none when its network is off.
+    pub watch: Option<spade_sandbox::egress::Watch>,
 }
 
 /// The ends of a command's processes, as they happen: each recorded before it runs and settled
@@ -254,6 +256,10 @@ pub struct Ran {
     pub cut: bool,
     /// Not everything the command started could be seen to stop: some may still run.
     pub incomplete: bool,
+    /// The sandbox held it.
+    pub contained: bool,
+    /// The hosts it reached through the proxy and the ones its policy refused.
+    pub network: spade_sandbox::egress::Seen,
 }
 
 #[derive(Clone)]
@@ -490,7 +496,13 @@ impl Shell {
         // Whatever it left running in the background goes now, before the pipes are drained.
         let settled = contained.kill().await && settled;
         let pipes_closed = readers.finish(DRAIN).await;
-        // The run's proxy access ends with it.
+        // The run's proxy access ends with it; what it did on the network stays readable.
+        let contained = confined.is_some();
+        let network = confined
+            .as_ref()
+            .and_then(|c| c.watch.as_ref())
+            .map(spade_sandbox::egress::Watch::seen)
+            .unwrap_or_default();
         drop(confined);
         let (stdout, out_cut) = stdout.map(|o| o.take()).unwrap_or_default();
         let (stderr, err_cut) = stderr.map(|o| o.take()).unwrap_or_default();
@@ -501,6 +513,8 @@ impl Shell {
             timed_out,
             cut: out_cut || err_cut || !pipes_closed,
             incomplete: !settled,
+            contained,
+            network,
         })
     }
 }

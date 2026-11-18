@@ -4,6 +4,8 @@ export * from "./media.ts";
 export * from "./fold.ts";
 export * from "./view.ts";
 export * from "./bubbles.ts";
+export * from "./steps.ts";
+export type { SpadeStepWeight } from "./step-facts.ts";
 export * from "./words.ts";
 export * from "./helper-words.ts";
 export * from "./agents.ts";

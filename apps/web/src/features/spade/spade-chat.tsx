@@ -34,6 +34,7 @@ import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
+import { SpadeStepsLine } from "./spade-steps-line.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -53,8 +54,9 @@ export interface ChatBot {
  * on a new day, a routine's run named in its line; messages other bots sent here under their
  * face and name. Each bubble offers its exact time, Copy and Read aloud on hover or a long
  * press. Each thing the bot says is a bubble of its own, stacked as a messenger shows several
- * messages; nothing of how it works shows once it is done:
- * no steps, tool arguments, jobs, compaction or the notes it saves (ADR 0128). A request
+ * messages; under a reply, the steps it took fold into one quiet line that opens to each, with
+ * what was blocked, refused, hard to undo or done outside its box shown unopened
+ * (`SpadeStepsLine`). Jobs, compaction and the notes it saves don't show (ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
  * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set up shows nothing (Settings ›
@@ -405,6 +407,8 @@ function RunItem(props: {
           </div>
         </BubbleFrame>
       );
+    case "steps":
+      return <SpadeStepsLine summary={item.summary} steps={item.steps} />;
     case "files":
       return (
         <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>

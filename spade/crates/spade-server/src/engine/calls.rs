@@ -924,6 +924,10 @@ async fn finish_tool(
             documents: output.shared.documents,
         }));
     }
+    // Where a command ran and what the sandbox did with it, for the reply's steps.
+    if let Some(command) = output.command {
+        events.push(command.event(reply, &call.id));
+    }
     super::jobs::keep_trying(|| {
         let _order = engine.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         engine.append_events(id, &events).map(|_| ())

@@ -11,6 +11,8 @@ import {
 } from "./fold-capabilities.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
+import { spadeRiskWeight, spadeStepFacts, type SpadeStepWeight } from "./step-facts.ts";
+import type { SpadeRefusedHost } from "./wire.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -70,6 +72,12 @@ export type SpadeReplyPart =
       logged?: number;
       /** Why the auto-review refused it, when it did. */
       reason?: string;
+      /** One line of what it touched: its command, a file's path, a page's address. */
+      detail?: string;
+      /** It deletes or can't be undone, or acts outside the bot (`spadeStepFacts`). */
+      weight?: SpadeStepWeight;
+      /** Where a command ran and how it went, once Spade says (`command_ran`). */
+      ran?: SpadeCommandRan;
     }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
@@ -88,6 +96,19 @@ export type SpadeReplyPart =
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
     };
+
+/** Where a command ran and how it went (`command_ran`). */
+export interface SpadeCommandRan {
+  /** Spade's sandbox held it; undefined when Spade's word on it couldn't be read. */
+  contained: boolean | undefined;
+  /** Undefined when a signal ended it. */
+  exitCode: number | undefined;
+  timedOut: boolean;
+  /** Hosts it reached through Spade's proxy. */
+  reached: readonly string[];
+  /** Hosts its network policy refused it, with why. */
+  refused: readonly SpadeRefusedHost[];
+}
 
 export type SpadeReplyEnd =
   | { kind: "finished" }
@@ -500,12 +521,17 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         parts: [
           ...entry.parts,
           ...(event.text.trim() ? [{ kind: "text" as const, key, text: event.text }] : []),
-          ...event.calls.map((call) => ({
-            kind: "call" as const,
-            key: call.id,
-            name: call.name,
-            state: "queued" as const,
-          })),
+          ...event.calls.map((call) => {
+            const { detail, weight } = spadeStepFacts(call.name, call.arguments);
+            return {
+              kind: "call" as const,
+              key: call.id,
+              name: call.name,
+              state: "queued" as const,
+              ...(detail === undefined ? {} : { detail }),
+              ...(weight === undefined ? {} : { weight }),
+            };
+          }),
         ],
       }));
     }
@@ -578,10 +604,28 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.reviews.delete(event.call_id);
       if (!event.allowed) setCall(state, event.reply, event.call_id, undefined, "declined");
       return true;
-    case "tool_started":
+    case "tool_started": {
       state.running.set(event.call_id, { reply: event.reply, name: event.name });
       setCall(state, event.reply, event.call_id, event.name, "running", stored.seq);
+      // Spade's own word on what the call could change outweighs what its arguments read as.
+      const weight = spadeRiskWeight(event.name, event.risk);
+      if (weight)
+        patchCall(state, event.reply, event.call_id, (part) =>
+          part.weight === "destructive" || part.weight === weight ? undefined : { ...part, weight },
+        );
       return true;
+    }
+    case "command_ran":
+      return patchCall(state, event.reply, event.call_id, (part) => ({
+        ...part,
+        ran: {
+          contained: event.contained,
+          exitCode: event.exit_code ?? undefined,
+          timedOut: event.timed_out,
+          reached: event.reached,
+          refused: event.refused,
+        },
+      }));
     case "tool_finished":
       state.running.delete(event.call_id);
       setCall(
@@ -1005,6 +1049,30 @@ function setCall(
       },
     ],
   }));
+}
+
+type CallPart = Extract<SpadeReplyPart, { kind: "call" }>;
+
+/**
+ * Change call `callId` of reply `reply` where its step stands (as `setCall` finds it); false when
+ * no step lists it or `change` leaves it as it is.
+ */
+function patchCall(
+  state: SpadeConversationState,
+  reply: string,
+  callId: string,
+  change: (part: CallPart) => CallPart | undefined,
+): boolean {
+  const index = state.calls.get(callId)?.index ?? callIn(state, reply, callId);
+  const entry = index === undefined ? undefined : state.entries[index];
+  if (index === undefined || entry?.kind !== "reply") return false;
+  const at = entry.parts.findIndex((part) => part.kind === "call" && part.key === callId);
+  const part = entry.parts[at];
+  if (part?.kind !== "call") return false;
+  const next = change(part);
+  if (!next) return false;
+  state.entries[index] = { ...entry, parts: entry.parts.with(at, next) };
+  return true;
 }
 
 /** Mark call `callId` refused by the auto-review, with its reason, wherever its step stands. */
