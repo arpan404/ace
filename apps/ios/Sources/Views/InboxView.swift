@@ -184,7 +184,7 @@ struct InboxView: View {
 
     /// The compose tab: tapping it starts a chat or a thread (`tabChanged`), never shows a page.
     private var composeTab: some TabContent<InboxTab> {
-        let title: String = tab == .chats ? "New chat" : "New thread"
+        let title: LocalizedStringKey = tab == .chats ? "New chat" : "New thread"
         let image: String = HomeTabs.tabImage(.compose, chosen: false)
         return Tab(title, image: image, value: InboxTab.compose, role: Self.composeRole) { Color.clear }
     }
