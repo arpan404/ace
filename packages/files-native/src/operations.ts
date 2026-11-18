@@ -1,6 +1,7 @@
 import { FilesRequestError, type FilesResult, type FilesState } from "./errors.ts";
 import type { EventPayload, FileMatches, Op, SearchQuery, Summary } from "./schemas.ts";
 import { SearchBook, type SearchEntry } from "./search-book.ts";
+import { supervisionTimings } from "./supervision.ts";
 
 /** An open watch. Dispose it, or `await using` it, to tell ace-files to stop. */
 export type FilesWatch = {
@@ -38,9 +39,13 @@ type WatchEntry = {
   root: number;
   binary: number | undefined;
   onBatch: (payload: EventPayload) => void;
+  /** Retryable re-open failures this watch has had since it was last subscribed. */
+  retries: number;
 };
 /** Codes that mean the run itself is in trouble, not one root or one subscription. */
 const transportCodes = new Set(["FILES_RESTARTING", "TIMEOUT", "CANCELLED", "BUSY", "PROTOCOL"]);
+/** Transport failures worth another attempt for one watch, without killing the run. */
+const retryableCodes = new Set(["TIMEOUT", "BUSY"]);
 
 /**
  * What the daemon already asked ace-files to keep open: roots, watches and running searches.
@@ -113,7 +118,7 @@ export class Operations {
         {
           onReply: (answer) => {
             if (answer.type !== "subscription") return;
-            const entry = { root, binary: answer.subscription, onBatch };
+            const entry = { root, binary: answer.subscription, onBatch, retries: 0 };
             this.#watches.set(subscription, entry);
             this.#watchesByBinary.set(answer.subscription, subscription);
           },
@@ -186,12 +191,23 @@ export class Operations {
   /**
    * Re-open every root and watch on a fresh process. One root the binary refuses (its folder
    * vanished, say) is marked unavailable and its watches get a warning; only a transport failure
-   * escapes, and the process then kills the run. A watch that is re-subscribed gets one `rescan`:
-   * whatever changed while the process was down was never reported to it.
+   * escapes, and the process then kills the run.
+   *
+   * The watches that get re-subscribed are returned rather than told here: their one `rescan` says
+   * whatever changed while the process was down, and it is only true once the process answers
+   * requests again, so the caller delivers it after marking the run up. A watch whose re-open fails
+   * retryably stays in the book and asks for another pass, so a busy or slow start does not cost a
+   * trigger its changes.
    */
-  async restore(timeoutMs: number): Promise<void> {
+  async restore(
+    timeoutMs: number,
+  ): Promise<{ restored: readonly number[]; pending: boolean }> {
+    const restored: number[] = [];
+    let pending = false;
     for (const [rootNumber, root] of Array.from(this.#roots)) {
       if (!this.#roots.has(rootNumber)) continue;
+      // A root another pass already re-opened on this run stays open.
+      if (root.binary !== undefined) continue;
       let failure: FilesRequestError | undefined;
       try {
         const { reply } = await this.#ports.send({ op: "openRoot", path: root.path }, timeoutMs, {
@@ -218,12 +234,15 @@ export class Operations {
 
     for (const [subscription, watch] of Array.from(this.#watches)) {
       if (!this.#watches.has(subscription)) continue;
+      // A watch another pass already re-subscribed is not subscribed twice.
+      if (watch.binary !== undefined) continue;
       const root = this.#roots.get(watch.root);
       if (!root || root.binary === undefined) {
         this.#clearWatchBinary(subscription);
         continue;
       }
       let failure: FilesRequestError | undefined;
+      let retryable = false;
       let reopened: number | undefined;
       try {
         const { reply } = await this.#ports.send({ op: "watch", root: root.binary }, timeoutMs, {
@@ -235,8 +254,11 @@ export class Operations {
         });
         if (reply.type !== "subscription") throw protocol("watch", reply);
       } catch (error) {
-        if (isTransport(error)) throw error;
+        // A run that died mid-restore is the caller's problem, not this watch's; a watch that was
+        // merely busy or slow gets another pass.
+        if (isTransport(error) && !isRetryable(error)) throw error;
         failure = asRequestError(error);
+        retryable = isRetryable(error);
         this.#clearWatchBinary(subscription);
       }
       if (!this.#watches.has(subscription)) {
@@ -245,9 +267,32 @@ export class Operations {
         if (reopened !== undefined) await this.#stopWatch(reopened, timeoutMs);
         continue;
       }
+      if (retryable && failure) {
+        watch.retries++;
+        if (watch.retries > supervisionTimings.restoreRetries) {
+          this.#warnWatch(
+            subscription,
+            watch,
+            `${failure.message}; the watch was not restored after ${watch.retries} attempts`,
+          );
+        } else {
+          pending = true;
+        }
+        continue;
+      }
       if (failure) this.#warnWatch(subscription, watch, failure.message);
-      else this.#deliver(watch, { type: "rescan" });
+      else {
+        watch.retries = 0;
+        restored.push(subscription);
+      }
     }
+    return { restored, pending };
+  }
+
+  /** Deliver the one rescan a re-subscribed watch is owed, once the run answers requests. */
+  rescan(subscription: number): void {
+    const watch = this.#watches.get(subscription);
+    if (watch) this.#deliver(watch, { type: "rescan" });
   }
 
   /**
@@ -396,4 +441,9 @@ function asRequestError(error: unknown): FilesRequestError {
 
 function isTransport(error: unknown): boolean {
   return !(error instanceof FilesRequestError) || transportCodes.has(error.code);
+}
+
+/** One watch's re-open may simply arrive while the process is busy or slow. */
+function isRetryable(error: unknown): boolean {
+  return error instanceof FilesRequestError && retryableCodes.has(error.code);
 }

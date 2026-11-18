@@ -8,6 +8,10 @@ export const supervisionTimings = {
   healthyResetMs: 60_000,
   restartBaseMs: 250,
   restartMaxMs: 10_000,
+  /** How long a watch whose re-open failed retryably waits before its next attempt. */
+  restoreRetryMs: 500,
+  /** Attempts one watch gets before a retryable re-open failure becomes a warning. */
+  restoreRetries: 5,
   /** Frames held for a child that is not reading stdin; past this, body writes get `BUSY`. */
   stdinQueueLimit: 64 * 1024 * 1024,
 } as const;

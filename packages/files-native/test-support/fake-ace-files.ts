@@ -14,6 +14,8 @@
  * - `FAKE_FILES_MISSING_ROOT`: a path whose `openRoot` fails with `NOT_FOUND` while
  *   `FAKE_FILES_VANISH_FILE` exists (all generations, when that env is unset).
  * - `FAKE_FILES_SLOW_WATCH_MS`: delays a watch's reply by this many ms.
+ * - `FAKE_FILES_WATCH_FAILURES`: in a restarted generation, refuse this many watch requests with
+ *   `BUSY` before subscribing, as a process still starting its watcher does.
  *
  * Reply, matches and searchDone (or reply and the first changes) go out in one write, so a
  * supervisor that registers its book only after the awaiting caller resumes loses them.
@@ -31,6 +33,7 @@ const version = process.env.FAKE_FILES_VERSION ?? "0.0.0-test";
 const missingRoot = process.env.FAKE_FILES_MISSING_ROOT;
 const vanishFile = process.env.FAKE_FILES_VANISH_FILE;
 const slowWatchMs = Number(process.env.FAKE_FILES_SLOW_WATCH_MS ?? 0) || 0;
+const watchFailures = Number(process.env.FAKE_FILES_WATCH_FAILURES ?? 0) || 0;
 
 function log(record: Record<string, unknown>): void {
   if (logPath) appendFileSync(logPath, `${JSON.stringify({ pid: process.pid, ...record })}\n`);
@@ -46,6 +49,7 @@ const rootBase = (generation + 1) * 1000;
 const subscriptionBase = (generation + 1) * 10_000;
 let nextRoot = 0;
 let nextSubscription = 0;
+let watchesFailed = 0;
 
 log({ event: "spawn", generation });
 if (behaviour === "exit") process.exit(1);
@@ -163,6 +167,11 @@ function answer(id: number, op: Extract<Message, { type: "request" }>["op"]): vo
       respond(id, { type: "done" });
       return;
     case "watch": {
+      if (generation > 0 && watchesFailed < watchFailures) {
+        watchesFailed++;
+        send({ type: "error", id, code: "BUSY", message: "the watcher is still starting" });
+        return;
+      }
       const subscription = subscriptionBase + nextSubscription++;
       const reply: Message = {
         type: "response",
