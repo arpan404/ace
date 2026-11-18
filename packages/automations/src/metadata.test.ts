@@ -1,7 +1,7 @@
 import { AutomationStore } from "./index.ts";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
-import { harness, definition } from "./service-test-support.ts";
+import { harness, definition, scheduled, start } from "./service-test-support.ts";
 it("catalog metadata is scoped and follows saves, disables and deletions without loading prompt payloads", () => {
   const h = harness();
   const auto = definition({ prompt: "large prompt ".repeat(10000) });
@@ -126,6 +126,36 @@ it("an automation another build wrote is kept and passed over: the rest start, l
   ).toBe("running");
   await h.finish();
   // Still stored, for a build that reads it.
+  const check = new DatabaseSync(h.storePath);
+  try {
+    expect(check.prepare("SELECT 1 FROM automation_jobs WHERE id=?").get(newer.id)).toBeDefined();
+  } finally {
+    check.close();
+  }
+});
+it("an unreadable automation with the earliest deadline never keeps the next readable one from its timer", async () => {
+  const h = harness();
+  const kept = { ...scheduled(), id: "kept" };
+  const newer = { ...scheduled(), id: "newer" };
+  h.service.put(kept);
+  h.service.put(newer);
+  const db = new DatabaseSync(h.storePath);
+  try {
+    // Another build wrote it, with a provider this build doesn't know, due before the other.
+    db.prepare(
+      "UPDATE automation_jobs SET body=json_set(body,'$.provider','future-provider'),due=due-60000 WHERE id=?",
+    ).run(newer.id);
+  } finally {
+    db.close();
+  }
+  expect(() => h.restart()).not.toThrow();
+  expect(h.timer.active.size).toBe(1);
+  h.now = start;
+  await h.timer.fire();
+  await h.finish();
+  expect(h.inputs).toHaveLength(1);
+  // Told once, however often the deadline is chosen again; still stored.
+  expect(h.errors.filter((error) => String(error).includes("newer"))).toHaveLength(1);
   const check = new DatabaseSync(h.storePath);
   try {
     expect(check.prepare("SELECT 1 FROM automation_jobs WHERE id=?").get(newer.id)).toBeDefined();

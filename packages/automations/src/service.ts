@@ -159,11 +159,16 @@ export class AutomationService {
       if (this.lifecycle.endStart()) this.stop();
     }
   }
-  /** A stored automation or run this build can't read: reported, kept, and passed over. */
-  private unreadable = (id: string, error: unknown) =>
+  /** Unreadable records already reported; each is told once, however often it is passed over. */
+  private reportedUnreadable = new Set<string>();
+  /** A stored automation or run this build can't read: reported once, kept, and passed over. */
+  private unreadable = (id: string, error: unknown) => {
+    if (this.reportedUnreadable.has(id)) return;
+    this.reportedUnreadable.add(id);
     this.report(
       new Error(`Automation record ${id} can't be read by this build; skipped`, { cause: error }),
     );
+  };
   private isolateJob(job: JobMetadata, generation: number, error: unknown): void {
     if (!this.live || generation !== this.generation) return;
     try {
@@ -525,7 +530,9 @@ export class AutomationService {
     });
   }
   private nextJob(): JobMetadata | undefined {
-    return this.polling.size >= 4 ? this.store.nextScheduled() : this.store.next([...this.polling]);
+    return this.polling.size >= 4
+      ? this.store.nextScheduled(this.unreadable)
+      : this.store.next([...this.polling], this.unreadable);
   }
   private async tick(): Promise<void> {
     this.ticking = true;

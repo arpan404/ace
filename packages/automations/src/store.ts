@@ -297,18 +297,42 @@ export class AutomationStore {
       .slice(0, 128)
       .map(({ id, title }) => ({ id, title }));
   }
-  next(excluded: readonly string[] = []): JobMetadata | undefined {
+  /**
+   * The readable automation due first. One this build can't read is told to `unreadable`, kept
+   * and passed over, so it never keeps the next one from its deadline; the scan is bounded by
+   * the automation limit.
+   */
+  next(excluded: readonly string[] = [], unreadable?: Unreadable): JobMetadata | undefined {
     if (excluded.length > 4) throw new Error("Too many excluded polls");
-    const row = this.sql(
-      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1",
-    ).get(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? "");
-    return row ? this.metadata(String(row.id)) : undefined;
+    return this.firstReadable(
+      this.sql(
+        "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND id NOT IN(?,?,?,?) ORDER BY due,id LIMIT 1001",
+      ).iterate(excluded[0] ?? "", excluded[1] ?? "", excluded[2] ?? "", excluded[3] ?? ""),
+      unreadable,
+    );
   }
-  nextScheduled(): JobMetadata | undefined {
-    const row = this.sql(
-      "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1",
-    ).get();
-    return row ? this.metadata(String(row.id)) : undefined;
+  nextScheduled(unreadable?: Unreadable): JobMetadata | undefined {
+    return this.firstReadable(
+      this.sql(
+        "SELECT id FROM automation_jobs WHERE due IS NOT NULL AND json_extract(body,'$.trigger.kind')='schedule' ORDER BY due,id LIMIT 1001",
+      ).iterate(),
+      unreadable,
+    );
+  }
+  private firstReadable(
+    rows: Iterable<Record<string, unknown>>,
+    unreadable: Unreadable | undefined,
+  ): JobMetadata | undefined {
+    for (const row of rows) {
+      const id = String(row.id);
+      try {
+        const job = this.metadata(id);
+        if (job) return job;
+      } catch (error) {
+        unreadable?.(id, error);
+      }
+    }
+    return undefined;
   }
   advance(id: string, nominal: number | undefined, due: number | undefined): void {
     this.sql("UPDATE automation_jobs SET nominal=?,due=? WHERE id=?").run(
