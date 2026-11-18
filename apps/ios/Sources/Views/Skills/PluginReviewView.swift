@@ -30,7 +30,7 @@ struct PluginReviewView: View {
                         SkeletonRows(count: 3, label: "Reading review")
                     }
                     if let problem {
-                        QuietProblem(message: problem, id: "plugins.review.problem")
+                        ProblemRow(problem, id: "plugins.review.problem")
                         Text("Close and retry from Skills. Pending reviews remain available there.")
                             .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)

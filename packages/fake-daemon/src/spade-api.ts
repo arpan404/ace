@@ -262,9 +262,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     callId: string,
     name: string,
     args: unknown,
-    ask: "undeclared" | "outside_sandbox",
+    ask: "undeclared" | "outside_sandbox" | "drive",
+    app?: string,
   ): void {
-    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask });
+    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask, app });
   }
 
   private request(
@@ -276,6 +277,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       reply: string;
       reviewerReason?: string;
       ask?: string;
+      app?: string | undefined;
     },
   ): void {
     const { callId, name, args, reply: id } = call;
@@ -294,6 +296,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...(args === undefined ? {} : { arguments: args }),
       ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
       ...(call.ask === undefined ? {} : { ask: call.ask }),
+      ...(call.app === undefined ? {} : { app: call.app }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }
@@ -919,6 +922,20 @@ export class FakeSpadeApi implements FakeSpadeServer {
         agent.task_state = { status: "working" };
       if (agent) this.status(agent, "working", null);
       return reply({});
+    }
+    if (sub === "retry" && request.method === "POST") {
+      // Try again: only the last reply, while it failed; the new reply opens in its place.
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const last = list.findLast((stored) => stored.event.type === "reply_started");
+      const failed = list.some(
+        (stored) => stored.event.type === "reply_failed" && stored.event.reply === body.reply,
+      );
+      if (!failed || last?.event.reply !== body.reply)
+        return problem(409, "only the last reply can be tried again, and only when it failed");
+      this.store(id, { type: "reply_retried", reply: body.reply });
+      this.store(id, { type: "reply_started", reply: `${String(body.reply)}~again` });
+      if (agent) this.status(agent, "working", "Thinking");
+      return reply({}, 202);
     }
     if (sub === "stop" && request.method === "POST") {
       const open = list.findLast((stored) => stored.event.type === "reply_started");

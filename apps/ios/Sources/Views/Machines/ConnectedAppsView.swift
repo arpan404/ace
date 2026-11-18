@@ -13,12 +13,15 @@ struct ConnectedAppsView: View {
 
     var body: some View {
         List {
+            if let problem {
+                ProblemRow(problem, id: "connectedApps.problem") { model.retry(); Task { await read() } }
+            }
             if let apps {
                 let live = apps.grants.filter(\.active)
                 let ended = apps.grants.filter { !$0.active }
                 Section {
                     if live.isEmpty {
-                        Text("No apps are connected. An app such as claude.ai asks to sign in here, and you approve it in ace.")
+                        Text("No apps connected.")
                             .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                     }
                     ForEach(live) { grant in
@@ -28,7 +31,7 @@ struct ConnectedAppsView: View {
                         .accessibilityIdentifier("outside.grant.\(grant.id)")
                     }
                 } header: { InsetHeader("Connected to \(machine)") } footer: {
-                    Text("Apps outside ace that can reach this machine's threads. None can answer approvals or questions; you answer those in ace.")
+                    Text("Answer approval requests and agent questions in ace.")
                 }
                 .insetRowBackground()
                 ConnectAppSection(model: model, machine: machine, refresh: refreshes)
@@ -38,13 +41,7 @@ struct ConnectedAppsView: View {
                     } header: { InsetHeader("Ended") }
                     .insetRowBackground()
                 }
-            } else if let problem {
-                Section {
-                    ServiceProblem(message: problem)
-                    Button("Retry") { Task { await read() } }
-                }
-                .insetRowBackground()
-            } else {
+            } else if problem == nil {
                 Section { SkeletonRows(count: 2, label: "Reading this machine's connected apps").listRowInsets(EdgeInsets()) }
                     .insetRowBackground()
             }
@@ -58,7 +55,8 @@ struct ConnectedAppsView: View {
     }
 
     private func read() async {
-        guard model.connection == "ready" else { return }
+        // Offline, say so instead of leaving the placeholder up for good.
+        guard model.connection == "ready" else { problem = "Can’t reach \(machine)."; return }
         do { apps = try await model.connectedApps(machine: machine); problem = nil }
         catch { problem = error.localizedDescription }
     }
@@ -149,9 +147,9 @@ struct ConnectedAppDetailView: View {
             OutsideAccessSections(choices: grant.choices, scopes: $scopes, projects: apps.projects,
                                   allProjects: $allProjects, chosen: $chosen, expiries: apps.expiries, expiry: $expiry,
                                   expiryNote: ConnectedAppWords.expires(grant))
-            if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
+            if let problem { ProblemRow(problem, id: "outside.problem") }
             Section {
-                Button("Revoke", role: .destructive) { revoking = true }.accessibilityIdentifier("outside.revoke")
+                Button("Revoke", role: .destructive) { revoking = true }.buttonStyle(.rowAction).accessibilityIdentifier("outside.revoke")
             } footer: { Text("\(grant.name) loses access to \(machine) at once and stops any work it started here.") }
             .insetRowBackground()
         }

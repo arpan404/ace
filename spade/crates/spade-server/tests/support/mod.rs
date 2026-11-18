@@ -50,6 +50,8 @@ pub struct FakeTool {
     pub unplaced: bool,
     /// A fake `shell` on a machine with no read-only sandbox: the classifier settles nothing.
     pub no_sandbox: bool,
+    /// Answers given in turn before `answer`, the last of them again and again.
+    pub answers: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeTool {
@@ -74,6 +76,7 @@ impl FakeTool {
             declared: None,
             unplaced: false,
             no_sandbox: false,
+            answers: Arc::default(),
         }
     }
 
@@ -86,6 +89,20 @@ impl FakeTool {
     /// A fake `shell` whose command starts where Spade can't place it against the bot's folder.
     pub fn unplaced(mut self) -> Self {
         self.unplaced = true;
+        self
+    }
+
+    /// Takes arguments shaped by `schema`, as its server says.
+    pub fn schema(mut self, schema: Value) -> Self {
+        self.def.spec.schema = schema;
+        self
+    }
+
+    /// Answers `answers` in turn, then the last of them on every later call.
+    pub fn then_answers(mut self, answers: &[&str]) -> Self {
+        // Kept last first, so each call pops the next and the last stays.
+        let queued: Vec<String> = answers.iter().rev().map(|a| (*a).to_owned()).collect();
+        self.answers = Arc::new(Mutex::new(queued));
         self
     }
 
@@ -195,7 +212,18 @@ impl Tool for FakeTool {
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let calls = self.calls.clone();
-        let answer = self.answer.clone();
+        let answer = self
+            .answers
+            .lock()
+            .ok()
+            .and_then(|mut queued| {
+                if queued.len() > 1 {
+                    queued.pop()
+                } else {
+                    queued.last().cloned()
+                }
+            })
+            .unwrap_or_else(|| self.answer.clone());
         let images = self.images.clone();
         let delay = self.delay;
         Box::pin(async move {
@@ -233,6 +261,9 @@ pub struct Spade {
 
 pub struct Options {
     pub limits: Limits,
+    /// The fake endpoints' key variables are unset: no preset is imported, as on a first run
+    /// with nothing set up.
+    pub no_env_keys: bool,
     pub skills: Option<Arc<dyn SkillLibrary>>,
     /// Finds ace from this folder's files, retrying quickly.
     pub ace_home: Option<PathBuf>,
@@ -373,6 +404,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             limits: Limits::default(),
+            no_env_keys: false,
             skills: None,
             ace_home: None,
             ace_retry: None,
@@ -540,6 +572,7 @@ impl Spade {
         let delay = options.keychain_delay;
         let gate = options.keychain_gate.clone();
         let gate_for = options.keychain_gate_for;
+        let env_keys = !options.no_env_keys;
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::keychain_then_env(
@@ -554,7 +587,10 @@ impl Spade {
                     }
                     keychain.get(endpoint).ok().flatten()
                 },
-                |var| matches!(var, "FAKE_KEY" | "UNREACHED_KEY").then(|| "fake-key".to_owned()),
+                move |var| {
+                    (env_keys && matches!(var, "FAKE_KEY" | "UNREACHED_KEY"))
+                        .then(|| "fake-key".to_owned())
+                },
             ),
             spade_server::home::VERSION,
         )?;
@@ -773,6 +809,24 @@ impl Spade {
         rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Stops this server, runs `sql` on its database (to leave its events as a stop at a chosen
+    /// point would), and opens a new engine and server on it with `options`.
+    pub async fn restart_paused_with(
+        mut self,
+        sql: &str,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, options).await
     }
 
     /// Like `restart`, with `options` for the new server.

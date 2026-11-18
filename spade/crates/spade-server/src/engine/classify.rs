@@ -229,6 +229,7 @@ impl Engine {
             model: model.id().to_owned(),
             cost_micros: 0,
             bound: super::autonomy::binding(&s.classed.shown),
+            acts_in: None,
         });
         Ok(match self.record_unless_stopped(id, reply, &event)? {
             true => screened,

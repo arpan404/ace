@@ -5,7 +5,7 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import { createDevThread } from "../src/commands.ts";
 import { Store } from "../src/store.ts";
 import { sidebarPageStorage } from "../src/sidebar-page-storage.ts";
-import { confirmThreadRows } from "../src/thread-row-trust.ts";
+import { confirmRecentThreadRows, confirmThreadRows } from "../src/thread-row-trust.ts";
 import { openSidebarColumns } from "../src/sidebar-columns.ts";
 import {
   confirmThreadRow,
@@ -17,12 +17,12 @@ import {
 /**
  * What decoding threads rows costs validated against reading rows this build confirmed as
  * stored (ADR 0125, `thread-row-trust.ts`). Read-only against a database copy; the stamp
- * table is a temporary one, so the copy is never written:
+ * tables are temporary ones, so the copy is never written:
  *
  *   bun apps/daemon/bench/thread-rows.ts /tmp/ace-clone/events.sqlite
  *
  * Reports how many rows confirm (read the same as stored as validated), what confirming them
- * all costs and what one open's capped pass costs, CPU per row decoded, and CPU per sidebar page read with
+ * all costs and what open's check of the most recent rows costs, CPU per row decoded, and CPU per sidebar page read with
  * a cold thread cache (every entry decoded), before and after the stamps.
  */
 const path = process.argv[2];
@@ -30,7 +30,9 @@ if (!path) throw new Error("usage: thread-rows.ts <events.sqlite copy> [page siz
 const pageSize = Number(process.argv[3] ?? 50);
 const db = new DatabaseSync(path, { readOnly: true });
 db.exec(
-  "CREATE TEMP TABLE thread_row_trust (thread_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, canonical INTEGER NOT NULL)",
+  `CREATE TEMP TABLE thread_row_trust (thread_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, canonical INTEGER NOT NULL);
+  CREATE TEMP TABLE thread_row_trust_progress (id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, orphans_after TEXT);
+  INSERT INTO thread_row_trust_progress VALUES (1, 0, NULL);`,
 );
 type Row = Record<string, SQLOutputValue>;
 const rows = db.prepare(`SELECT ${threadRowColumns} FROM ${threadRowSource}`).all() as Row[];
@@ -46,20 +48,31 @@ function cpu(run: () => void): number {
   return (used.user + used.system) / 1000;
 }
 
-// Open-time confirmation after an upgrade: every row checked once.
+/** Clear every stamp and walk the idle pass back to the first revision. */
+const unconfirm = () =>
+  db.exec(
+    "DELETE FROM thread_row_trust; UPDATE thread_row_trust_progress SET revision = 0, orphans_after = NULL",
+  );
+/** The idle pass's walk to the end: every row checked once. */
+const confirmAll = () => {
+  while (confirmThreadRows(db, 64).more);
+};
+// Confirmation after an upgrade: every row checked once, across the idle pass's steps.
 const confirmMs = median(
   Array.from({ length: 5 }, () => {
-    db.exec("DELETE FROM thread_row_trust");
-    return cpu(() => confirmThreadRows(db, -1));
+    unconfirm();
+    return cpu(confirmAll);
   }),
 );
+// What open itself checks after an upgrade: the most recently changed rows.
 const perOpenMs = median(
   Array.from({ length: 5 }, () => {
-    db.exec("DELETE FROM thread_row_trust");
-    return cpu(() => confirmThreadRows(db));
+    unconfirm();
+    return cpu(() => confirmRecentThreadRows(db));
   }),
 );
-confirmThreadRows(db, -1);
+unconfirm();
+confirmAll();
 // The sidebar's facts table, in the temp schema too (sidebar-columns.ts).
 openSidebarColumns(db, "temp");
 const confirmed = Number(

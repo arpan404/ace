@@ -11,6 +11,7 @@ import type { BaseRefs } from "@/lib/branches.ts";
 import { cn } from "@/lib/cn.ts";
 import { BasePicker } from "./base-picker.tsx";
 import type { WorkMode } from "./choices.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const divider = <span aria-hidden className="mx-0.5 h-3.5 w-px shrink-0 bg-border" />;
 
@@ -91,6 +92,7 @@ export function NewThreadEnvironment(props: {
                 <Tip label="The branch it starts from" side="top">
                   <PopoverTrigger
                     aria-label={`Start from: ${base}`}
+                    {...part("select", undefined, "branch")}
                     className={cn(composerStrip, "max-w-48 text-foreground")}
                   >
                     <GitBranchIcon

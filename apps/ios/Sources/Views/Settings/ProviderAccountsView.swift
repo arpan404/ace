@@ -49,8 +49,9 @@ struct PlainAnswer: ManageAnswer {
     let problem: String?
 }
 
-/// A provider's accounts: each one's badge, state and actions as visible buttons, then Add
-/// account with every way the daemon offers.
+/// A provider's accounts, as iOS lists accounts: one row each with its badge, name and state,
+/// its actions in the row's ⋯ menu (and Edit and Remove on a swipe), then the one Add account row.
+/// An account that needs signing in says so with a Sign in button on its row.
 struct ProviderAccountsView: View {
     let model: ClientModel
     let provider: String
@@ -65,25 +66,29 @@ struct ProviderAccountsView: View {
     @State private var changed = 0
     var body: some View {
         List {
+            if let problem {
+                ProblemRow(problem, id: "accounts.problem") { Task { await read() } }
+            }
             Group {
                 if let screen {
-                    ForEach(screen.accounts) { account in section(account, screen: screen) }
-                    if model.canOperate {
-                        Section {
-                            Button("Add account") { adding = true }.frame(minHeight: AceDesign.Size.tap)
-                        } footer: {
-                            let lines = [screen.accounts.isEmpty ? "No accounts yet." : nil, screen.apiKey].compactMap { $0 }
-                            if !lines.isEmpty { Text(lines.joined(separator: " ")) }
+                    Section {
+                        ForEach(screen.accounts) { account in
+                            ProviderAccountRow(account: account, ways: screen.reauth, canOperate: model.canOperate,
+                                               signIn: { way in signingIn = AccountSignInTarget(account: account, way: way) },
+                                               makeDefault: { act(account, "setDefault") },
+                                               edit: { editing = account },
+                                               remove: { removing = account })
                         }
+                        if model.canOperate {
+                            Button { adding = true } label: { AddRow("Add account") }
+                                .accessibilityIdentifier("accounts.add")
+                        }
+                    } footer: {
+                        let lines = [screen.accounts.isEmpty ? "No accounts yet." : nil, screen.apiKey].compactMap { $0 }
+                        if !lines.isEmpty { Text(lines.joined(separator: " ")) }
                     }
                 } else if problem == nil {
                     Section { ForEach(0..<2, id: \.self) { _ in placeholder } }.redacted(reason: .placeholder)
-                }
-                if let problem {
-                    Section {
-                        ServiceProblem(message: problem)
-                        Button("Retry") { Task { await read() } }
-                    }
                 }
             }
             .insetRowBackground()
@@ -115,43 +120,6 @@ struct ProviderAccountsView: View {
     }
     private var placeholder: some View {
         HStack(spacing: AceDesign.Space.row) { Circle().frame(width: AceDesign.Size.avatar, height: AceDesign.Size.avatar); Text("Account name"); Spacer(); Text("Signed in") }
-    }
-    @ViewBuilder private func section(_ account: AccountRowData, screen: AccountsScreenData) -> some View {
-        Section {
-            HStack(spacing: AceDesign.Space.row) {
-                AccountBadgeMark(look: account.badge)
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    Text(account.label).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
-                    let detail = [account.isDefault ? "Default" : nil, account.method, account.signedInAs].compactMap { $0 }.joined(separator: " · ")
-                    if !detail.isEmpty {
-                        Text(detail).font(AceDesign.Typeface.meta)
-                            .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
-                    }
-                }
-                Spacer(minLength: AceDesign.Space.related)
-                Text(account.state).font(AceDesign.Typeface.body)
-                    .foregroundStyle(account.tone == "problem" ? AceTheme.StatusText.failed : account.needsSignIn ? AceTheme.StatusText.needsYou : AceDesign.Ink.muted)
-                    .lineLimit(1)
-            }
-            .padding(.vertical, AceDesign.Space.tight)
-            .accessibilityElement(children: .combine)
-            if model.canOperate {
-                signInButton(account, ways: screen.reauth)
-                if account.canMakeDefault { Button("Use by default") { act(account, "setDefault") } }
-                Button("Edit name and badge") { editing = account }
-                if account.removable { Button("Remove account", role: .destructive) { removing = account } }
-            }
-        }
-    }
-    @ViewBuilder private func signInButton(_ account: AccountRowData, ways: [AccountWay]) -> some View {
-        let title = account.needsSignIn ? "Sign in" : "Sign in again"
-        if ways.count > 1 {
-            Menu(title) {
-                ForEach(ways) { way in Button(way.label) { signingIn = AccountSignInTarget(account: account, way: way) } }
-            }
-        } else if let way = ways.first {
-            Button(title) { signingIn = AccountSignInTarget(account: account, way: way) }
-        }
     }
     private func act(_ account: AccountRowData, _ action: String) {
         busy = true; problem = nil

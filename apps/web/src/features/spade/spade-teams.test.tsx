@@ -242,18 +242,45 @@ test("New group drafts in place: Spade starts picked, members of both machines j
   await screen.findByRole("feed", { name: "Conversation in Trips" });
 });
 
-test("a draft can't be made until it has a name and two members", async () => {
+test("Make group says why it can't be made yet, beside it and to assistive tech", async () => {
   await spadeApp("/spade", team, { machines: [studio] });
   await openNew("New group");
   const draft = within(await screen.findByRole("form", { name: "New group" }));
-  const make = draft.getByRole("button", { name: "Make group" });
-  await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
-  expect(make).toHaveProperty("disabled", true);
+  const make = draft.getByRole<HTMLButtonElement>("button", { name: "Make group" });
+  const why = () =>
+    document.getElementById(make.getAttribute("aria-describedby") ?? "")?.textContent;
+  expect(make.disabled).toBe(true);
+  expect(why()).toBe("Name the group.");
   await userEvent.type(draft.getByRole("textbox", { name: "Name" }), "Trips");
-  expect(make).toHaveProperty("disabled", false);
+  expect(make.disabled).toBe(true);
+  expect(why()).toBe("Pick at least one more bot.");
+  await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
+  expect(make.disabled).toBe(false);
+  expect(why()).toBeUndefined();
+  expect(draft.queryByText("Pick at least one more bot.")).toBeNull();
   await userEvent.click(draft.getByRole("checkbox", { name: "Research" }));
-  expect(make).toHaveProperty("disabled", true);
-  await draft.findByText("Pick at least one more bot.");
+  expect(make.disabled).toBe(true);
+  expect(draft.getByText("Pick at least one more bot.").id).toBe(
+    make.getAttribute("aria-describedby"),
+  );
+});
+
+test("New group shows no faces until it has two members, and ticking one moves nothing under the pointer", async () => {
+  await spadeApp("/spade", team, { machines: [studio] });
+  await openNew("New group");
+  const form = await screen.findByRole("form", { name: "New group" });
+  const draft = within(form);
+  const faces = () => form.querySelectorAll("[data-group-faces]").length;
+  const rows = () => draft.getAllByRole("checkbox").map((box) => box.getAttribute("aria-label"));
+  // Spade starts picked, but one bot isn't a group yet: no faces.
+  expect(faces()).toBe(0);
+  const before = rows();
+  // Who answers is there from the start, so a second member inserts nothing above Make group.
+  const lead = draft.getByRole("combobox", { name: "Lead" });
+  await userEvent.click(await draft.findByRole("checkbox", { name: "Research" }));
+  expect(faces()).toBe(1);
+  expect(rows()).toEqual(before);
+  expect(draft.getByRole("combobox", { name: "Lead" })).toBe(lead);
 });
 
 test("making Spade lead in the profile, of a group it isn't in, adds Spade to the members and names it as lead", async () => {
@@ -386,23 +413,26 @@ test("a finished group the person hasn't seen is marked seen once they open it a
   await waitFor(() => expect(spade.sent("PUT", "/v1/conversations/c-trips/seen")).toEqual([{}]));
 });
 
-test("a bot's own chat labels a group's message with the group, not as the person", async () => {
+test("a group's turn lives in the group: the bot's own chat shows neither the ask nor the answer", async () => {
   await spadeApp("/spade", (spade) => {
     team(spade);
     const research = spade.agents.find((agent) => agent.id === "research");
     if (!research) return;
+    spade.store(research.conversation, { type: "user_message", text: "Hello" });
+    spade.reply(research, "Hi, what should I look into?");
     spade.store(research.conversation, {
       type: "user_message",
       text: "Find flights",
       from_group: { id: "trips", name: "Trips", run: "u1", ask: "a1", untrusted: false },
     });
+    spade.reply(research, "Two flights under $900.");
   });
   await userEvent.click(await botRow("Research"));
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Research" }));
-  expect((await chat.findByRole("note", { name: "In Trips" })).textContent).toContain(
-    "Find flights",
-  );
-  expect(chat.queryByRole("article", { name: "You" })).toBeNull();
+  await chat.findByText("Hi, what should I look into?");
+  expect(chat.queryByText("Find flights")).toBeNull();
+  expect(chat.queryByText("Two flights under $900.")).toBeNull();
+  expect(chat.queryByRole("note", { name: "In Trips" })).toBeNull();
 });
 
 test("Duplicate copies the bot and opens the copy; Export saves its file under its name", async () => {

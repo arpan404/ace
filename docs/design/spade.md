@@ -74,8 +74,15 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Working line.** Under the last bubble while the bot works: its 32px face, moving, one line of
   what it is doing and a running time. It goes when the reply ends. Only a working face moves
   (ADR 0127); every other pose moves once and holds.
-- **Steps.** Approved steps fold into one line under the reply that opens to them. Helpers are one
-  line each, opening to their steps. Raw markdown and tool arguments never show.
+- **Steps.** A reply's finished steps fold into one quiet line under its words, counted in words
+  ("Ran 3 commands, changed 2 files"), that opens to each: what it did and the one thing it
+  touched (a command, a path, an address), where it ran (in its sandbox or outside it) and how it
+  ended. A step the person must see stands under the line unopened, in full ink: one the network
+  policy blocked ("Blocked example.com: …"), the review refused or the person declined, one that
+  deletes or can't be undone, and one that acted outside the bot's box (ran outside the sandbox,
+  reached the network, pushed, commented, sent). Words only: no icons, badges or tints. Notes it
+  saved and what it showed the person keep their own places. Helpers are one line each, opening
+  to their steps. Raw markdown and raw tool arguments never show.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.
 - **Raised card** (an open question or request, and only those): `--chat-raised`, its edge and
   lift (`shadow-chat-raised`), 18 corners, 20px padding, at most 600px. The amber needs-you glyph
@@ -105,7 +112,10 @@ Spade is one of ace's places. It adds no navigation of its own.
 - **Library:** notes (Spade's own starts with About you), files and skills. A suggested note offers
   Keep or Dismiss; ↵ saves an edit, Esc puts it back.
 - **Computer:** the surfaces it used (screen, browser, terminal) live at panel size, Activity in
-  words (only exceptions stand out), and Take over only while it drives; after that, Hand back.
+  words (only exceptions stand out), and Take over only while it drives (it is at work and the
+  surface is live, never live alone: Spade keeps a surface live a while after its last use);
+  after that, Hand back. Idle, one quiet sentence ("Flights isn't using the terminal now.") and
+  no face, button or spinner.
   While the computer starts, its small face and "Waking up…". Never used: one line.
 
 ## 5. New bot and groups

@@ -5,10 +5,12 @@ import {
   startupLeaveMs,
   startupSlowMs,
   startupStalledMs,
+  startupActivity,
   startupStep,
   type StartupEvent,
   type StartupState,
 } from "./startup-state.ts";
+import { startupStepLongMs, type StartupActivity } from "./startup-activity.ts";
 
 type Schedule = (delayMs: number, run: () => void) => () => void;
 
@@ -44,6 +46,18 @@ export function createStartup(options: {
   let cancelCap: (() => void) | undefined;
   let manual: (() => void) | undefined;
   let waits: (() => void)[] = [];
+  // The activity on screen and its own clock: one that lasts is said as taking longer.
+  let activity: StartupActivity | undefined;
+  let cancelLong: (() => void) | undefined;
+  const follow = () => {
+    const now = startupActivity(state);
+    if (now === activity) return;
+    activity = now;
+    cancelLong?.();
+    cancelLong = now
+      ? options.schedule(startupStepLongMs, () => startup.dispatch({ type: "long", activity: now }))
+      : undefined;
+  };
 
   const emit = () => {
     for (const listener of listeners) listener();
@@ -79,6 +93,7 @@ export function createStartup(options: {
         cancelFrame?.();
         cancelFrame = undefined;
       }
+      follow();
       if (state.phase === "leaving" && was !== "leaving") {
         for (const stop of waits) stop();
         // The fade's end says when it's gone; this covers a fade that never runs (hidden window).
@@ -116,6 +131,7 @@ export function createStartup(options: {
     options.schedule(startupSlowMs, () => startup.dispatch({ type: "slow" })),
     options.schedule(startupStalledMs, () => startup.dispatch({ type: "stalled" })),
   ];
+  follow();
   return startup;
 }
 

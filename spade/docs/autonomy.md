@@ -60,8 +60,10 @@ In order, first match wins:
 | Facts                                                                             | Goes to                                                                               |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`                                      |
-| `pay`, `drive`, `change_access`, `unknown`                                        | the person, unless allowed always                                                     |
+| `pay`, `change_access`, `unknown`                                                 | the person, unless allowed always                                                     |
 | `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
+| `drive` in a sensitive place, or one Spade can't name                             | the person (`ask: drive`), even when allowed always                                   |
+| `drive` elsewhere                                                                 | runs on Always allow; otherwise the reviewer, told where it acts (below)              |
 | a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
 | it declares nothing, in the sandbox                                               | runs                                                                                  |
 | it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
@@ -82,11 +84,97 @@ sourced tools would be offered under (two servers, or names cut to a provider's 
 offered for neither. A remembered allow still asks the person while untrusted content is in view.
 A covered push or comment under untrusted content is reviewed with the grant named. Requests the
 rules raise store `call_reviewed` as `escalate` with `model: ""`; the bubble's `reviewer_reason`
-is the rule's line, such as "It could spend money, so you decide.", "It acts in a page or app as
-you, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
+is the rule's line, such as "It could spend money, so you decide.", "It acts in Mail, mail or
+messages, where it can send in your name, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
 decide.", "It sends something in your name to github.com/acme/app#7, so you decide.", "It
 declares something Spade doesn't know yet, so you decide.", "It doesn't say what it does, so you
 decide once for this bot." or "It asks to run outside the sandbox, so you decide."
+
+### Driving a page or app
+
+[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendment 3. Right before the gate
+decides, Spade asks ace where a `drive` step acts (`spade_core::effect::drive::lookup`): the tab
+it runs in (its `tabId`, else ace's current tab) from `browser_tabs list`, or every app ace could
+open for its `app` from `screen_apps`. A step that opens an address acts there. A tab that is
+loading, missing or private, a name that matches several apps, and input on a simulator or device
+have no place, and go to the person. Right before the step runs, Spade asks again; if the place
+changed, the step isn't run and the bot looks again. It goes to the person in mail, messages or chat, a bank,
+wallet, payment, checkout or cart, a password manager, the system's settings, a sign-in, account,
+security, settings, keys or members page, a social site, a web browser driven through the screen,
+or a place Spade can't name (`drive::sensitive`). Elsewhere the reviewer is told it acts there
+as the person and to escalate a send, a payment, a purchase, an access change or a password;
+under untrusted content, to check the step serves the person's request.
+
+A request for a step outside those places offers "Allow \<app\> for this bot" (the request's
+`app`). It answers always and adds the grant `drive_app {app}` (the app's id) or
+`drive_site {host}` for the place the request kept (`acts_in`): the steps it covers are reviewed,
+told the person allowed the app, without asking. A drive grant is refused for a sensitive place,
+a `tool` grant never covers a driving tool, and the request never stores an Always allow.
+
+#### Where each operation acts
+
+One table decides (`spade_core::effect::drive::table`): a row per tool and operation, what that
+operation acts on in ace's own implementation, the only fields the gate reads to find it, and
+whether ace must hold it there (`expect`) before the reviewer alone may let it run. A field an
+operation ignores never moves the place, and a tool or operation missing from the table has no
+place, so the person decides. Read-only tools (`browser_snapshot`, `_wait_for`, `_find`,
+`_screenshot`, `_logs`, `screen_apps`, `screen_display`, `screen_windows`, `screen_ui_tree`,
+`screen_screenshot`, `sim_list`, `sim_ui`, `sim_screenshot`, `sim_logs`) are `read` and never
+reach the table.
+
+| Tool and operation                                   | What it acts on in ace                                                                      | How the gate finds it                                                  | Held |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---- |
+| `browser_open`                                       | navigates `tabId`, else the caller's own tab, to `url`                                      | `url`; without one, the tab ace lists (`tabId`, current)               | no   |
+| `browser_tabs list`                                  | lists the tabs                                                                              | the current tab (`tabId` ignored)                                      | no   |
+| `browser_tabs open`                                  | a new tab at `url`                                                                          | `url`; without one, no place                                           | no   |
+| `browser_tabs select`                                | makes `tabId` current, then opens `url` there if given                                      | `url` if given, else the tab `tabId` names                             | yes  |
+| `browser_tabs keep`, `close`                         | the tab `tabId` names (`url` ignored); the last one closes all                              | the tab `tabId` names; without one, no place                           | yes  |
+| `browser_act` (click … scroll)                       | input to `tabId`, else the caller's current tab                                             | the tab ace lists (`tabId`, else current)                              | yes  |
+| `browser_act dialog`                                 | the tab that raised `dialogId`, whatever `tabId` says                                       | the tab whose `pending_dialog` is `dialogId`                           | yes  |
+| `browser_evaluate` with `mode: read-only`            | a side-effect-free script (an isolated world, `throwOnSideEffect`) in `tabId`, else current | the tab ace lists                                                      | yes  |
+| `browser_evaluate`, unrestricted (ace's default)     | any script in the page                                                                      | no place: the person decides                                           | —    |
+| `browser_history back`, `forward`, `reload`, `stop`  | moves `tabId`, else current                                                                 | the tab ace lists                                                      | yes  |
+| `browser_history` with no direction                  | reads the tab's history                                                                     | the tab ace lists                                                      | no   |
+| `browser_measure`                                    | every repetition's input to `tabId`, else current                                           | the tab ace lists                                                      | yes  |
+| `browser_settings resize`, `emulate`, `record_start` | the tab's size, device or recording                                                         | the tab ace lists                                                      | no   |
+| `browser_settings record_stop`, `extensions`         | the session's recording, the browser's extensions (`tabId` ignored)                         | no place: the person decides                                           | —    |
+| `browser_settings close`                             | the whole browser and every tab                                                             | no place: the person decides                                           | —    |
+| `browser_request_help`                               | hands the named tab to the person                                                           | the tab `tabId` names                                                  | no   |
+| `screen_state`, `screen_act`                         | the app ace opens for `app`; a batch goes to its id                                         | every app `screen_apps` lists for `app`                                | yes  |
+| `screen_open_app` (older toolkit)                    | opens `bundleId`                                                                            | the app `bundleId`                                                     | no   |
+| `screen_ui_act`, `screen_input`, `screen_measure`    | a session's app (older toolkit)                                                             | no place: the person decides                                           | —    |
+| `sim_start`, `sim_stop`                              | the device `simId`                                                                          | the device: the person decides, every step                             | —    |
+| `sim_act open_app`, `open_url`                       | the app or address the device opens                                                         | `appId`, or `url` as the device's page: the person decides, every step | —    |
+| `sim_act install`, `record_*`, `posture`             | the device                                                                                  | the device: the person decides, every step                             | —    |
+| `sim_act ui`, `tap`, … `type`, `key`, `clipboard_*`  | whatever app is in the device's foreground                                                  | no place: the person decides                                           | —    |
+
+So does every step in an app whose window shows another device or computer, on every screen tool
+path (`screen_state`, `screen_act`, the older `screen_open_app`, another machine's): the iOS
+Simulator, Xcode and Android Studio (their device windows can't be told apart from the rest of them), Android emulators and
+qemu, scrcpy, iPhone Mirroring, QuickTime Player, Vysor, Genymotion, Sidecar-style displays, Screen
+Sharing, VNC and RDP clients, and VM apps (UTM, Parallels, VMware Fusion, VirtualBox and others).
+They are in the same app table, by name and id, and can't be allowed for a bot.
+
+Every step on a simulator or device goes to the person, whatever the operation: ace holds nothing
+there to a place, so a device place has no route but the person's (`Place::persons_alone`, checked
+before an Always allow, a grant or the reviewer), and a step ace can't hold asks even when the
+person allowed the tool always.
+
+ace checks a held step in the tab's queue, and the command then runs inside its hold: every CDP
+command that sends input or moves the page, from any session the backend holds (the page, its
+frames, the person's own Chrome, the desktop's tabs) and whichever helper sends it, and every
+input the desktop takes as an operation, checks the place where it leaves for the page: inside
+the transport's slot, right before the write, after waiting for one, and against the page's own
+answer to where it is (asked of the page right then, so a route a handler just changed counts
+before the browser reports it; a frame, or a page that gives no value, falls back to the
+browser's report, and one that can't answer fails the step). A dialog's answer can't ask the page
+(its script waits while the dialog is open): it is checked against what the browser reported, the
+dialog's own tab and the address it reported the dialog with. The end of
+a press, key or touch begun under the hold that finds the place changed is never sent (a drag is
+cancelled instead), so no mouseup, click, keyup or drop lands on the page the tab moved to; the
+step fails with `place_changed`. A test lists every way a command leaves for a page and fails if
+one skips the hold. Only the tools ace holds take `expect`; a test fails if a tool takes it and
+drops it before it runs.
 
 An answer to a request Spade asked for a reason of its own (`ask`) is never stored as an Always
 allow. On the outside card, Always for this bot sets the bot's `commands` to `outside` and runs

@@ -14,6 +14,7 @@ import {
   type MarketPublishType,
 } from "./market-publish-port.ts";
 import { Stage } from "./market-stage.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * The Item step: which one. A look is one of the person's own Suits, read from their library by
@@ -37,6 +38,7 @@ function SuitChoices(props: {
         <button
           key={each.name}
           type="button"
+          {...part("card", props.chosen?.name === each.name && "checked", "market-choice")}
           className="mk-choice"
           aria-pressed={props.chosen?.name === each.name}
           onClick={() => props.onChoose(each)}
@@ -157,7 +159,7 @@ export function ChooseItem(props: {
   return (
     <div className="mk-inner" data-width="form">
       <Steps now={props.now} />
-      <h1 className="mk-display-sm">
+      <h1 {...part("page-title", undefined, "market")} className="mk-display-sm">
         Which {type === "suit" ? "Suit" : typeWord(type).toLowerCase()}?
       </h1>
       {type === "suit" ? (

@@ -14,6 +14,7 @@ mod computer;
 mod continuation;
 mod control;
 mod digests;
+mod drive;
 mod endpoints;
 mod episodes;
 mod goals;
@@ -46,6 +47,7 @@ mod search;
 mod security;
 mod services;
 mod trim;
+mod try_again;
 mod turn;
 mod turn_log;
 mod types;
@@ -58,7 +60,7 @@ pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
-pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
+pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
 pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
@@ -81,6 +83,7 @@ pub use retry::Retry;
 pub use roster::{LastMessage, State};
 pub use routing::{RolesChange, entry_role};
 pub(crate) use search::Native;
+pub use try_again::RetryError;
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
     CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
@@ -199,6 +202,9 @@ pub struct Engine {
     /// What the gate authorized for each call about to run, by call key (ADR 0171; ADR 0167
     /// Windows hardening): outside the sandbox, contained only, or reviewed. Taken once at launch.
     launches: Mutex<HashMap<String, crate::workspace::shell::Launch>>,
+    /// Where the gate found each driving step about to run acts, by call key (ADR 0171,
+    /// amendment 3): checked again right before it runs. Taken once.
+    drive_places: Mutex<HashMap<String, (spade_core::effect::drive::Place, bool)>>,
     /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
     continuations: Mutex<HashMap<String, String>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
@@ -311,6 +317,7 @@ impl Engine {
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             launches: Mutex::default(),
+            drive_places: Mutex::default(),
             continuations: Mutex::default(),
             helpers: helpers::Shared::default(),
             wakes: wakes::Shared::default(),
@@ -493,6 +500,20 @@ impl Engine {
     pub(crate) fn set_status(&self, id: &str, status: Option<String>) {
         let live = self.live(id);
         *live.status.lock().unwrap_or_else(|p| p.into_inner()) = status;
+        self.announce(id);
+    }
+
+    /// The open step's words began to stream: a turn that was thinking now writes. Told once
+    /// per step, not per piece; any other status (a tool, a retry) is left as it is.
+    pub(crate) fn writing(&self, id: &str) {
+        {
+            let live = self.live(id);
+            let mut status = live.status.lock().unwrap_or_else(|p| p.into_inner());
+            if status.as_deref() != Some(roster::THINKING) {
+                return;
+            }
+            *status = Some(roster::WRITING.to_owned());
+        }
         self.announce(id);
     }
 

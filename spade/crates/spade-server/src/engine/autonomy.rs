@@ -91,6 +91,7 @@ pub(super) fn record_rule(
         model: String::new(),
         cost_micros: 0,
         bound,
+        acts_in: None,
     });
     engine.record_unless_stopped(id, reply, &event)
 }
@@ -105,6 +106,9 @@ pub(super) struct Under<'a> {
     pub shown: &'a [spade_core::autonomy::shell::Shown],
     /// Why the rules singled the call out, told to the reviewer.
     pub concern: Option<&'a str>,
+    /// For a driving step, where it acts as the gate just found: the verdict is stored with it
+    /// and reused only there.
+    pub acts_in: Option<&'a spade_core::effect::drive::Place>,
 }
 
 /// The hash a call's shown files are bound by; `None` when it runs none.
@@ -136,7 +140,8 @@ pub(super) async fn review(
     under: Under<'_>,
     stop: &mut watch::Receiver<bool>,
 ) -> Reviewed {
-    if let Some((verdict, reason)) = review::stored(events, &under.call.id) {
+    // Stored before a restart: reused only where it was given (ADR 0171, amendment 3).
+    if let Some((verdict, reason)) = review::stored_at(events, &under.call.id, under.acts_in) {
         return of(verdict, reason);
     }
     let model = engine.review_model(id);
@@ -200,6 +205,7 @@ pub(super) async fn review(
         model,
         cost_micros: cost,
         bound: binding(under.shown),
+        acts_in: under.acts_in.cloned().map(Box::new),
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict, reason),

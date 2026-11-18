@@ -61,6 +61,10 @@ export async function runtimeCommand(args: Args, config: Config) {
     await daemon.close();
     throw error;
   }
+  // The daemon listens before remote access starts. The LAN or Tailscale address this prints
+  // is local and quick to start; a network that takes longer than this is left out, as one that
+  // failed is, and status shows it once it serves.
+  await settledWithin(daemon.remoteStarted.direct, remoteLineWaitMs);
   const started = {
     running: true as const,
     url: daemon.url,
@@ -73,6 +77,21 @@ export async function runtimeCommand(args: Args, config: Config) {
     args,
     args.flags.json || args.flags.jq ? startedJson(started) : startedText(started),
   );
+}
+
+/** How long `ace start` waits on the LAN or Tailscale listener before it prints. */
+const remoteLineWaitMs = 5_000;
+
+async function settledWithin(task: Promise<void>, milliseconds: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      task,
+      new Promise<void>((resolve) => (timer = setTimeout(resolve, milliseconds))),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Node's listen error for a port another process holds, however the startup wrapped it. */

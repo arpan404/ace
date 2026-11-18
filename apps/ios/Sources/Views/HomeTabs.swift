@@ -4,13 +4,15 @@ import SwiftUI
 enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 
 /// The home tabs in their order (Projects · Chats · Spade · Code review · Search, then compose) and
-/// what each is called, in the web rail's words: the thread list is Projects there. Code review
-/// is the web rail's place for pull requests and issues. Spade, ace's assistant, has its tab only
-/// while a paired machine shows it (Settings › Beta's Spade, ADR 0139), as the web rail shows its
-/// place: in its slot after Chats, and its glyph in the iPad sidebar, with nothing else to lay
-/// out again.
+/// what each is called, in the web rail's words: the thread list is Projects there. Code review is
+/// the web rail's place for pull requests and issues: a tab in a regular window, while a phone's
+/// tab bar leaves it to the Projects list's top bar so the lists keep their room. Spade, ace's
+/// assistant, has its tab only while a paired machine shows it (Settings › Beta's Spade, ADR
+/// 0139), as the web rail shows its place: in its slot after Chats, and its glyph in the iPad
+/// sidebar, with nothing else to lay out again.
 enum HomeTabs {
-    /// The places the tab bar (and the iPad sidebar's foot) switches between, in order.
+    /// The places the iPad sidebar's foot switches between, in order; a phone's tab bar holds
+    /// them but Code review.
     static func switchable(spade: Bool) -> [InboxTab] { [.threads, .chats] + (spade ? [.spade] : []) + [.review, .search] }
 
     static func title(_ tab: InboxTab) -> String {
@@ -24,13 +26,11 @@ enum HomeTabs {
         }
     }
 
-    /// Spade's tab glyph; the iPad sidebar draws its own mark (`SpadeMark`).
-    static let spadeSymbol = "suit.spade"
-
     /// The tab bar's glyph: ace's own icon (the one the iPad sidebar draws) at the bar's glyph
-    /// size, filled while its tab is chosen, as the system's tabs fill theirs.
+    /// size, filled while its tab is chosen, as the system's tabs fill theirs. Spade's is its
+    /// face, as the web rail draws it (`tab-spade`, from ui-core's geometry).
     static func tabImage(_ tab: InboxTab, chosen: Bool) -> String {
-        "tab-\(icon(tab).rawValue)\(chosen ? "-fill" : "")"
+        "tab-\(tab == .spade ? "spade" : icon(tab).rawValue)\(chosen ? "-fill" : "")"
     }
 
     /// The iPad sidebar's glyph, the web rail's own.

@@ -36,7 +36,7 @@ test("an available update offers Update when idle and Update now, asking first",
   const phone = await open();
   phone.daemon.machineUpdate.seed({ state: "available", available: "0.0.19", busy: 2 });
   const page = await phone.read();
-  expect(page.line).toBe("ace 0.0.18. 0.0.19 is available.");
+  expect(page.line).toBe("ace 0.0.18 · Update available · 0.0.19");
   expect(page.actions.map((entry) => entry.label)).toEqual(["Update when idle", "Update now"]);
   expect(page.confirm).toMatchObject({ title: "Update studio now?", agents: 2 });
   expect(page.confirm?.body).toContain("2 agents are working there");

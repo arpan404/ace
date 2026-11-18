@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { BotReview } from "./market-publish-bot-review.tsx";
 import { failedWords, sizeWords, useDraftCheck, useReport } from "./market-publish-review.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * What publishing would upload, shown before Next (ADR 0174 §2). For files: every file that
@@ -34,7 +35,9 @@ function FilesReview(props: {
   useReport(ready ? { hash: check.hash, binaries: [...binaries], accepted } : undefined, onChecked);
   return (
     <section aria-label="Its files" style={{ marginTop: 32, maxWidth: 640 }}>
-      <h2 className="mk-quiet-head">What will upload</h2>
+      <h2 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+        What will upload
+      </h2>
       <ul aria-label="What will upload" style={{ margin: 0, padding: 0, listStyle: "none" }}>
         {check.files.map((file) => (
           <li key={file.path} className="mk-fact-row">
@@ -67,7 +70,9 @@ function FilesReview(props: {
       </ul>
       {check.excluded.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Left out</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Left out
+          </h3>
           <ul aria-label="Left out" style={{ margin: 0, padding: 0, listStyle: "none" }}>
             {check.excluded.map((item) => (
               <li key={item.path} className="mk-fact-row">
@@ -82,7 +87,9 @@ function FilesReview(props: {
       )}
       {blocking.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">To fix before publishing</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            To fix before publishing
+          </h3>
           {blocking.map((finding) => (
             <p
               key={`${finding.path}:${finding.line}:${finding.sentence}`}
@@ -98,7 +105,9 @@ function FilesReview(props: {
       )}
       {blocking.length === 0 && open.length > 0 && (
         <>
-          <h3 className="mk-quiet-head">Check before it is public</h3>
+          <h3 {...part("section-title", undefined, "quiet")} className="mk-quiet-head">
+            Check before it is public
+          </h3>
           {open.map((finding) => (
             <p key={`${finding.path}:${finding.line}:${finding.text}`} className="mk-line">
               {finding.path}

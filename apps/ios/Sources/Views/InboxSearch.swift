@@ -99,6 +99,9 @@ struct InboxSearchList: View {
     /// The thread open on Threads or Chats, whose commands are offered under its title.
     let openTitle: String?
     let actions: SearchActions
+    /// The app has a lock, so App lock is among this phone's pages.
+    var hasLock = false
+    @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
     @State private var messages = InboxMessageSearch()
     @State private var everything = SearchEverything()
     @State private var pulls = SearchPulls()
@@ -118,7 +121,8 @@ struct InboxSearchList: View {
             .environment(\.defaultMinListRowHeight, 0)
             .task(id: "\(text)|\(openTitle != nil)|\(scope.project)|\(connections)") {
                 let project = scope.machine.flatMap { machine in scope.workspace.map { (machineId: machine, workspaceId: $0) } }
-                await everything.run(inbox, query: text, threadOpen: openTitle != nil, project: project)
+                let phone = SettingsSearch.phoneItems(notifications: notifications != nil, lock: hasLock)
+                await everything.run(inbox, query: text, threadOpen: openTitle != nil, project: project, phone: phone)
             }
             .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(connections)") {
                 guard scope.kind == "all", scope.project.isEmpty else { return }
@@ -135,8 +139,23 @@ struct InboxSearchList: View {
     /// The machines the scope searches are paired but none answers: the search couldn't be asked.
     private var offline: Bool { scope.offline(inbox.sessions.map { (hostId: $0.hostId, connection: $0.client.connection) }) }
 
+    /// Pull requests show only for an unfiltered search with a machine to ask; the empty state
+    /// reads the same rule, so a hidden answer never stands in for "Search is offline".
+    private var showsPulls: Bool { everyKind && !offline && (!pulls.visible(inbox).isEmpty || pulls.problem != nil) }
+
     @ViewBuilder private var results: some View {
         if everyKind { actionSection }
+        if offline, everyKind, !everything.commands.isEmpty {
+            // This phone's pages are found offline; what the machines hold waits for one.
+            Text("Threads, pull requests and messages show once a machine connects.")
+                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, AceTheme.Spacing.rowInner)
+                .padding(.vertical, AceDesign.Space.row)
+                .accessibilityIdentifier("search.offline")
+                .listRowSeparator(.hidden).listRowBackground(Color.clear)
+        }
         if scope.kind == "all" || scope.kind == "thread" {
             let threads = foundThreads
             if !threads.isEmpty {
@@ -158,16 +177,16 @@ struct InboxSearchList: View {
                 }
             } header: { SearchHeader("Projects") }
         }
-        if everyKind, !pulls.found.isEmpty || pulls.problem != nil {
+        if showsPulls {
             Section {
-                ForEach(pulls.found) { found in
+                ForEach(pulls.visible(inbox)) { found in
                     Button { remember(); actions.pull(found.route) } label: { ForgePullRowView(row: found.row) }
                         .buttonStyle(.row)
                         .accessibilityIdentifier("search.pull.\(found.row.number)")
                         .inboxRowChrome()
                 }
                 if let problem = pulls.problem {
-                    QuietProblemRow(title: problem, action: "Try again", identifier: "search.pulls.retry") {
+                    ProblemRow(problem, retryId: "search.pulls.retry") {
                         Task { await pulls.retry(inbox) }
                     }
                 }
@@ -178,8 +197,8 @@ struct InboxSearchList: View {
             ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 .accessibilityLabel("Searching")
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
-        } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
-                    && pulls.found.isEmpty && !(everyKind && pulls.problem != nil) && messages.merged(inbox).isEmpty {
+        } else if !messages.loading && foundThreads.isEmpty && !(everyKind && (!everything.commands.isEmpty || !everything.projects.isEmpty))
+                    && !showsPulls && messages.merged(inbox).isEmpty {
             // The scoped machines are unreachable: nothing was asked, so "No results" would be wrong.
             Group {
                 if offline {

@@ -140,6 +140,8 @@ export const suitParts = [
   "market-stage",
   "market-hero",
   "market-try",
+  // Added 2026-11-17 (Suit coverage)
+  "section-title",
 ] as const;
 export const SuitPart = z.enum(suitParts);
 export type SuitPart = z.infer<typeof SuitPart>;

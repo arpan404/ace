@@ -24,7 +24,8 @@ struct FoundThread: Identifiable, Equatable { let machineId: String; let thread:
 
 /// The search-everything sheet's commands, projects and threads across every paired machine.
 /// The shared runtime ranks each machine's own (`palette.query`); this keeps the last answer on
-/// screen until the next one arrives and merges the machines by score.
+/// screen until the next one arrives and merges the machines by score. With no machine to answer
+/// for the commands, this phone's own pages stand in for them.
 @MainActor @Observable final class SearchEverything {
     private(set) var commands: [PaletteAnswer.Command] = []
     private(set) var projects: [FoundProject] = []
@@ -32,7 +33,10 @@ struct FoundThread: Identifiable, Equatable { let machineId: String; let thread:
     @ObservationIgnored private var generation = 0
 
     /// `project` scopes the threads to one machine's project, filtered before they are ranked.
-    func run(_ inbox: MachineInbox, query: String, threadOpen: Bool, project: (machineId: String, workspaceId: String)? = nil) async {
+    /// `phone` is this phone's own settings (`SettingsSearch.phoneItems`): while no machine
+    /// answers for the commands, its pages are the commands, so Settings is found offline too.
+    func run(_ inbox: MachineInbox, query: String, threadOpen: Bool, project: (machineId: String, workspaceId: String)? = nil,
+             phone: [SettingsResult] = []) async {
         generation += 1
         let current = generation
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,7 +67,7 @@ struct FoundThread: Identifiable, Equatable { let machineId: String; let thread:
             for ask in asks { ask.cancel() }
         }
         guard !Task.isCancelled, current == generation else { return }
-        commands = answers.flatMap(\.1.commands)
+        commands = answers.contains { $0.0 == commander } ? answers.flatMap(\.1.commands) : SettingsSearch.phoneCommands(phone, query: text)
         projects = answers.flatMap { host, answer in answer.projects.map { FoundProject(machineId: host, project: $0) } }
             .sorted { $0.project.score > $1.project.score }
         threads = answers.flatMap { host, answer in answer.threads.map { FoundThread(machineId: host, thread: $0) } }

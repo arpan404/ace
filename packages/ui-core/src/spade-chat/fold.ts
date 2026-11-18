@@ -11,6 +11,8 @@ import {
 } from "./fold-capabilities.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
+import { spadeRiskWeight, spadeStepFacts, type SpadeStepWeight } from "./step-facts.ts";
+import type { SpadeRefusedHost } from "./wire.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -70,6 +72,12 @@ export type SpadeReplyPart =
       logged?: number;
       /** Why the auto-review refused it, when it did. */
       reason?: string;
+      /** One line of what it touched: its command, a file's path, a page's address. */
+      detail?: string;
+      /** It deletes or can't be undone, or acts outside the bot (`spadeStepFacts`). */
+      weight?: SpadeStepWeight;
+      /** Where a command ran and how it went, once Spade says (`command_ran`). */
+      ran?: SpadeCommandRan;
     }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
@@ -88,6 +96,19 @@ export type SpadeReplyPart =
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
     };
+
+/** Where a command ran and how it went (`command_ran`). */
+export interface SpadeCommandRan {
+  /** Spade's sandbox held it; undefined when Spade's word on it couldn't be read. */
+  contained: boolean | undefined;
+  /** Undefined when a signal ended it. */
+  exitCode: number | undefined;
+  timedOut: boolean;
+  /** Hosts it reached through Spade's proxy. */
+  reached: readonly string[];
+  /** Hosts its network policy refused it, with why. */
+  refused: readonly SpadeRefusedHost[];
+}
 
 export type SpadeReplyEnd =
   | { kind: "finished" }
@@ -194,15 +215,20 @@ export interface SpadeQuestionCard {
   askedForLater: boolean;
 }
 
-export type SpadeAskKind = "undeclared" | "outside_sandbox";
+export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive";
 
 export interface SpadeRequest {
   callId: string;
   name: string;
   arguments: unknown;
   reason: string | undefined;
-  /** Why Spade asked (ADR 0171): a tool with no declared effect, or a command outside the sandbox. */
+  /**
+   * Why Spade asked (ADR 0171): a tool with no declared effect, a command outside the sandbox, or
+   * a step that acts in a page or app.
+   */
   ask?: SpadeAskKind;
+  /** For a driving step, the app or site its "always" allows for the bot. */
+  app?: string;
   helper?: { job: string; task: string };
   answer: "allowed" | "denied" | undefined;
   /** Allowed always. */
@@ -220,6 +246,7 @@ export interface SpadeApproval {
   /** Why the model review asked the person rather than let it run (ADR 0135). */
   reason: string | undefined;
   ask?: SpadeAskKind;
+  app?: string;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
 }
@@ -274,8 +301,24 @@ export interface SpadeConversationState {
   reviews: Map<string, string>;
   /** What the agent last said it does now, from the live stream; cleared once it is idle. */
   status: string | undefined;
+  /**
+   * The live stream's last `status` frame: the agent's state by Spade's roster rules, workers and
+   * wakes included, and the last `seq` folded when it came. It speaks for the events before it.
+   */
+  reported: SpadeReported | undefined;
+  /** How long the open reply has waited on the person (a card, an approval), in ms. */
+  waited: number;
+  /** When the open reply began its current wait on the person; undefined while it doesn't wait. */
+  waitingSince: number | undefined;
   /** Open wakes and the names their words use (ADR 0160, 0161). */
   capabilities: SpadeCapabilityState;
+}
+
+/** What a `status` frame said, and the last `seq` folded when it came. */
+export interface SpadeReported {
+  state: "idle" | "working" | "waiting" | "sleeping";
+  status: string | undefined;
+  seq: number;
 }
 
 /** A message sent from here that Spade hasn't stored yet, as the person sent it. */
@@ -321,6 +364,9 @@ export function emptySpadeConversation(): SpadeConversationState {
     decisions: [],
     reviews: new Map(),
     status: undefined,
+    reported: undefined,
+    waited: 0,
+    waitingSince: undefined,
     capabilities: emptySpadeCapabilities(),
   };
 }
@@ -357,10 +403,16 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
       return changed;
     }
     case "status": {
+      const before = state.reported;
+      state.reported = { state: input.state, status: input.status, seq: state.lastSeq };
+      const reported =
+        before?.state !== input.state ||
+        before.status !== input.status ||
+        before.seq !== state.lastSeq;
       // Asleep, its words are the resting line's, from its wakes.
       const status =
         input.state === "idle" || input.state === "sleeping" ? undefined : input.status;
-      if (state.status === status) return false;
+      if (state.status === status) return reported;
       state.status = status;
       return true;
     }
@@ -387,7 +439,24 @@ function foldStored(state: SpadeConversationState, stored: SpadeStored): boolean
     state.unknown++;
     return firstLoad;
   }
-  return foldKnown(state, event, stored) || firstLoad;
+  const changed = foldKnown(state, event, stored);
+  countWaiting(state, stored.at);
+  return changed || firstLoad;
+}
+
+/**
+ * The open reply's time waiting on the person, as its chat shows the wait (a card or an
+ * approval open): counted from the event that began it to the one that ended it, so the working
+ * line's clock counts only the bot's own work.
+ */
+function countWaiting(state: SpadeConversationState, at: number) {
+  const waiting =
+    state.open !== undefined && (state.question !== undefined || state.approvals.length > 0);
+  if (waiting && state.waitingSince === undefined) state.waitingSince = at;
+  else if (!waiting && state.waitingSince !== undefined) {
+    state.waited += Math.max(0, at - state.waitingSince);
+    state.waitingSince = undefined;
+  }
 }
 
 function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored: SpadeStored) {
@@ -439,6 +508,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         startedAt: stored.at,
       });
       state.open = { reply: event.reply, index: state.entries.length - 1 };
+      state.waited = 0;
+      state.waitingSince = undefined;
       return true;
     case "reply_progress":
       // A checkpoint is never newer than the live pieces that already extend it.
@@ -456,12 +527,17 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         parts: [
           ...entry.parts,
           ...(event.text.trim() ? [{ kind: "text" as const, key, text: event.text }] : []),
-          ...event.calls.map((call) => ({
-            kind: "call" as const,
-            key: call.id,
-            name: call.name,
-            state: "queued" as const,
-          })),
+          ...event.calls.map((call) => {
+            const { detail, weight } = spadeStepFacts(call.name, call.arguments);
+            return {
+              kind: "call" as const,
+              key: call.id,
+              name: call.name,
+              state: "queued" as const,
+              ...(detail === undefined ? {} : { detail }),
+              ...(weight === undefined ? {} : { weight }),
+            };
+          }),
         ],
       }));
     }
@@ -477,6 +553,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           // An escalation carries the reviewer's reason itself; an older Spade sent it apart.
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
           ...(event.ask ? { ask: event.ask } : {}),
+          ...(event.ask === "drive" && event.app ? { app: event.app } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
@@ -491,6 +568,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           arguments: asked.arguments,
           reason: asked.reason,
           ...(asked.ask ? { ask: asked.ask } : {}),
+          ...(asked.app ? { app: asked.app } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
           answer: undefined,
           always: false,
@@ -534,10 +612,28 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.reviews.delete(event.call_id);
       if (!event.allowed) setCall(state, event.reply, event.call_id, undefined, "declined");
       return true;
-    case "tool_started":
+    case "tool_started": {
       state.running.set(event.call_id, { reply: event.reply, name: event.name });
       setCall(state, event.reply, event.call_id, event.name, "running", stored.seq);
+      // Spade's own word on what the call could change outweighs what its arguments read as.
+      const weight = spadeRiskWeight(event.name, event.risk);
+      if (weight)
+        patchCall(state, event.reply, event.call_id, (part) =>
+          part.weight === "destructive" || part.weight === weight ? undefined : { ...part, weight },
+        );
       return true;
+    }
+    case "command_ran":
+      return patchCall(state, event.reply, event.call_id, (part) => ({
+        ...part,
+        ran: {
+          contained: event.contained,
+          exitCode: event.exit_code ?? undefined,
+          timedOut: event.timed_out,
+          reached: event.reached,
+          refused: event.refused,
+        },
+      }));
     case "tool_finished":
       state.running.delete(event.call_id);
       setCall(
@@ -679,6 +775,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       );
     case "reply_interrupted":
       return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
+    case "reply_retried": {
+      // The next reply answers the same turn: the failure goes, what the reply said stays.
+      const index = replyAt(state, event.reply);
+      const entry = index === undefined ? undefined : state.entries[index];
+      if (index === undefined || entry?.kind !== "reply" || entry.end?.kind !== "failed")
+        return false;
+      state.entries[index] = { ...entry, end: { kind: "finished" } };
+      return true;
+    }
     case "task_paused":
       state.entries.push({ kind: "task-paused", key, reason: event.reason, steps: event.steps });
       return true;
@@ -952,6 +1057,30 @@ function setCall(
       },
     ],
   }));
+}
+
+type CallPart = Extract<SpadeReplyPart, { kind: "call" }>;
+
+/**
+ * Change call `callId` of reply `reply` where its step stands (as `setCall` finds it); false when
+ * no step lists it or `change` leaves it as it is.
+ */
+function patchCall(
+  state: SpadeConversationState,
+  reply: string,
+  callId: string,
+  change: (part: CallPart) => CallPart | undefined,
+): boolean {
+  const index = state.calls.get(callId)?.index ?? callIn(state, reply, callId);
+  const entry = index === undefined ? undefined : state.entries[index];
+  if (index === undefined || entry?.kind !== "reply") return false;
+  const at = entry.parts.findIndex((part) => part.kind === "call" && part.key === callId);
+  const part = entry.parts[at];
+  if (part?.kind !== "call") return false;
+  const next = change(part);
+  if (!next) return false;
+  state.entries[index] = { ...entry, parts: entry.parts.with(at, next) };
+  return true;
 }
 
 /** Mark call `callId` refused by the auto-review, with its reason, wherever its step stands. */

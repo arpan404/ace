@@ -451,7 +451,8 @@
   :root[data-scheme="light"] .mk-avatar {
     color: color-mix(in srgb, var(--tone, var(--mk-muted)) 58%, #000);
   }
-  .mk-avatar[data-ace] {
+  .mk-avatar[data-ace],
+  :root[data-scheme="light"] .mk-avatar[data-ace] {
     background: var(--foreground);
     color: var(--background);
     font-size: calc(var(--size) * 0.36);

@@ -1,14 +1,19 @@
 import { posix, win32 } from "node:path";
 import { z } from "zod";
-import { quote, taskXml, xml } from "./plan.ts";
+import { quote, taskXml, unquote, unxml, xml } from "./plan.ts";
+import { homeServiceTag, taggedName } from "./service-name.ts";
 
 /**
  * Spade's per-user service (ADR 0123), registered beside the daemon's and never under it. The
  * service runs `<ACE_HOME>/releases/spade/current/spade` with exactly Spade's environment and
  * appends its output to `<ACE_HOME>/logs/spade.log`. Pure: rendering only, no I/O.
+ *
+ * These are the default home's names (`~/.ace`). Any other home's service carries a short hash
+ * of its path after them (ADR 0185), so two homes on one machine never share a service.
  */
 export const spadeLabel = "dev.ace.next.spade";
-export const spadeUnit = "ace-next-spade.service";
+const spadeUnitBase = "ace-next-spade";
+export const spadeUnit = `${spadeUnitBase}.service`;
 export const spadeTaskName = "ace-next-spade";
 /** The Windows launcher the task runs, in the home's `bin` folder beside `ace.cmd`. */
 export const SPADE_CMD_LAUNCHER = "spade.cmd";
@@ -25,6 +30,11 @@ export interface SpadeAccount {
   sid?: string;
   /** Windows: `%SystemRoot%`. */
   systemRoot?: string;
+  /**
+   * The tag of this home's service names, chosen by the I/O shell (`chooseServiceIdentity`):
+   * empty for the default names. When absent, it follows from the paths alone.
+   */
+  serviceTag?: string | undefined;
 }
 
 interface PlanBase {
@@ -51,7 +61,7 @@ export interface PreviousSpadeRegistration {
 }
 export interface DarwinSpadePlan extends PlanBase {
   platform: "darwin";
-  /** `gui/<uid>/dev.ace.next.spade`. */
+  /** `gui/<uid>/<label>`: `dev.ace.next.spade` for the default home. */
   domain: string;
 }
 export interface LinuxSpadePlan extends PlanBase {
@@ -60,7 +70,7 @@ export interface LinuxSpadePlan extends PlanBase {
 }
 export interface WindowsSpadePlan extends PlanBase {
   platform: "win32";
-  /** The task's path in Task Scheduler's root folder, `\ace-next-spade`. */
+  /** The task's path in Task Scheduler's root folder: `\ace-next-spade` for the default home. */
   name: string;
   program: string;
   arguments: string;
@@ -142,6 +152,26 @@ export function spadeRegistrationKind(
   return undefined;
 }
 
+/**
+ * The ace home a Spade registration runs, when it names one: the plist's or unit's
+ * `SPADE_ACE_HOME`, or on Windows the home of the launcher the loaded task (`schtasks /Query
+ * /XML`) starts. Lets ace tell whose service holds a name instead of overwriting it.
+ */
+export function registeredSpadeHome(platform: SpadePlatform, content: string): string | undefined {
+  if (platform === "darwin") {
+    const found = /<key>SPADE_ACE_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(content)?.[1];
+    return found === undefined ? undefined : unxml(found);
+  }
+  if (platform === "linux") {
+    const found = /"SPADE_ACE_HOME=((?:[^"\\]|\\.)*)"/.exec(content)?.[1];
+    return found === undefined ? undefined : unquote(found);
+  }
+  const args = /<Arguments>([^<]*)<\/Arguments>/.exec(content)?.[1];
+  const launcher = args === undefined ? undefined : /@ "([^"]+)"\s*$/.exec(unxml(args))?.[1];
+  const suffix = `\\bin\\${SPADE_CMD_LAUNCHER}`;
+  return launcher?.toLowerCase().endsWith(suffix) ? launcher.slice(0, -suffix.length) : undefined;
+}
+
 type Rendered =
   | Omit<DarwinSpadePlan, "previous">
   | Omit<LinuxSpadePlan, "previous">
@@ -159,21 +189,23 @@ function render(
   const program = posix.join(root, "releases", "spade", "current", binary);
   const logFile = posix.join(root, "logs", "spade.log");
   const environment = spadeEnvironment(root, platform);
+  const tag = account.serviceTag ?? homeServiceTag(root, userHome, platform);
   if (platform === "darwin") {
     const uid = Uid.parse(account.uid);
+    const label = taggedName(spadeLabel, ".", tag);
     const variables = environment
       .map(([key, value]) => `<key>${key}</key><string>${xml(value)}</string>`)
       .join("");
     return {
       platform,
       home: root,
-      file: posix.join(userHome, `Library/LaunchAgents/${spadeLabel}.plist`),
-      domain: `gui/${uid}/${spadeLabel}`,
+      file: posix.join(userHome, `Library/LaunchAgents/${label}.plist`),
+      domain: `gui/${uid}/${label}`,
       command: [program],
       logFile,
       // KeepAlive with the daemon's throttle: a second instance's exit 3 waits 15 s each time.
       content: `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>
-<key>Label</key><string>${spadeLabel}</string>
+<key>Label</key><string>${label}</string>
 <key>ProgramArguments</key><array><string>${xml(program)}</string></array>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>ThrottleInterval</key><integer>15</integer>
@@ -184,11 +216,12 @@ function render(
     };
   }
   const unitEnvironment = environment.map(([key, value]) => quote(`${key}=${value}`)).join(" ");
+  const unit = `${taggedName(spadeUnitBase, "-", tag)}.service`;
   return {
     platform,
     home: root,
-    file: posix.join(userHome, `.config/systemd/user/${spadeUnit}`),
-    unit: spadeUnit,
+    file: posix.join(userHome, `.config/systemd/user/${unit}`),
+    unit,
     command: [program],
     logFile,
     // Exit 3 is a second instance: one already runs, so systemd does not start another.
@@ -216,7 +249,7 @@ function windowsPlan(
     content: taskXml({ description: "Spade, ace's assistant", user, program, args }),
     command: [launcher],
     logFile: win32.join(home, "logs", "spade.log"),
-    name: `\\${spadeTaskName}`,
+    name: `\\${taggedName(spadeTaskName, "-", account.serviceTag ?? homeServiceTag(home, text.parse(account.userHome), "win32"))}`,
     program,
     arguments: args,
     user,

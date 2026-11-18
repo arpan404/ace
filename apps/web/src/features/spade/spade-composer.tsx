@@ -2,6 +2,7 @@ import { spadeQuoted } from "@ace/ui-core/spade-chat";
 import { XIcon } from "@ace/icons";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
   Composer,
@@ -23,7 +24,8 @@ const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const
  * draft is empty. A message always sends: while a reply runs it steers it. Files attach as they
  * do in a thread: images go as images, anything else as a document Spade reads (ADR 0134). The
  * mic records a voice message whose words land here to be checked. Until Spade runs, sending
- * says why.
+ * says why. While the bot has no model it can use, sending is held: one line above the field says
+ * so, with Set up a model beside it.
  */
 export function SpadeComposer(props: {
   /** The bot it sends to. */
@@ -32,6 +34,8 @@ export function SpadeComposer(props: {
   answering: boolean;
   /** Why nothing can be sent yet (Spade is off or starting). */
   blocked: string | undefined;
+  /** The bot has no model it can use: sending waits, and this sets one up. */
+  needsModel?: { onSetUp(): void } | undefined;
   placeholder: string;
   attached?: ReactNode;
   /** Stops the bot; with it, Stop takes the end of an empty capsule while the bot works. */
@@ -50,6 +54,8 @@ export function SpadeComposer(props: {
 }) {
   const toast = useToast();
   const reason = useId();
+  const held = props.needsModel ? `${props.name} needs a model before it can answer.` : undefined;
+  const blocked = props.blocked ?? held;
   const composer = useRef<ComposerHandle>(null);
   // The transcription model the person chose, if any: the mic's way when the device has none.
   const models = useSpadeModels(props.blocked === undefined);
@@ -89,10 +95,22 @@ export function SpadeComposer(props: {
   };
   return (
     <ComposerDock>
-      <div className="[--composer-control:var(--spade-composer-button)] [&_[data-slot=composer][data-pill]]:min-h-13">
+      {/*
+        The capsule grows in place: its buttons stay at the bottom edge as the words wrap, and the
+        field keeps the same room above and below its first line.
+      */}
+      <div className="[--composer-control:var(--spade-composer-button)] [&_[data-slot=composer][data-pill]]:min-h-13 [&_[data-slot=composer][data-pill]]:items-end [&_[data-slot=composer][data-pill]]:rounded-[1.625rem] [&_[data-slot=composer][data-pill]]:pb-1.5 [&_[data-slot=composer][data-pill]>[data-slot=composer-input]]:pt-4 [&_[data-slot=composer][data-pill]>[data-slot=composer-input]]:pb-2.5">
         {props.blocked && (
           <p id={reason} className="sr-only">
             {props.blocked}
+          </p>
+        )}
+        {!props.blocked && props.needsModel && (
+          <p className="mb-2 flex flex-wrap items-center justify-center gap-x-1 px-1 text-ui text-muted-foreground">
+            <span id={reason}>{held}</span>
+            <Button size="xs" variant="ghost" onClick={props.needsModel.onSetUp}>
+              Set up a model
+            </Button>
           </p>
         )}
         <Composer
@@ -115,7 +133,7 @@ export function SpadeComposer(props: {
           label={`Message ${props.name}`}
           placeholder={props.placeholder}
           shortPlaceholder={`Message ${props.name}`}
-          sendBlocked={props.blocked ? { reason: props.blocked, describedBy: reason } : undefined}
+          sendBlocked={blocked ? { reason: blocked, describedBy: reason } : undefined}
           trailing={<MicButton voice={voice} />}
           idleAction={<VoiceButton name={props.name} />}
           attached={

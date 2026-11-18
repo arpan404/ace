@@ -103,7 +103,7 @@ private struct ArchiveRows: View {
             else { HStack { Spacer(); ProgressView().accessibilityLabel("Loading older threads"); Spacer() } }
 
         } else if !archive.list.loaded {
-            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.") { Button("Retry") { client.retry(); retry() }.buttonStyle(.textAction()) }
+            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.", failed: true) { Button("Retry") { client.retry(); retry() } }
         } else if empty {
             EmptyState(systemImage: "archivebox", title: "Nothing archived", line: "Threads you archive on this machine wait here.")
         } else if archive.canLoadMore {

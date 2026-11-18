@@ -81,6 +81,17 @@ export function SpadeRequestBubble(props: {
   // bot, so its one Allow is the always; outside the sandbox it is once.
   const main: RequestAnswer = item.ask === "undeclared" ? "always" : "allow";
   const mainWord = item.ask === "undeclared" ? "Allow" : outside ? "Allow once" : "Allow";
+  // A step in a page or app (ADR 0171, amendment 3): its always allows that one app or site for
+  // the bot, and only where Spade offers it; never an Always allow for the tool.
+  const drive = item.ask === "drive";
+  const alwaysWord = outside
+    ? "Always for this bot"
+    : drive && item.app
+      ? `Allow ${item.app} for this bot`
+      : "Always allow";
+  const offersAlways = drive
+    ? item.app !== undefined
+    : outside || (card.always && item.ask !== "undeclared");
   return (
     <RaisedCard
       asks="request"
@@ -113,13 +124,9 @@ export function SpadeRequestBubble(props: {
       <CardFooter
         start={
           <>
-            {(outside || (card.always && item.ask !== "undeclared")) && (
+            {offersAlways && (
               <CardWord disabled={answering !== undefined} onClick={() => answer("always")}>
-                {answering === "always"
-                  ? "Allowing…"
-                  : outside
-                    ? "Always for this bot"
-                    : "Always allow"}
+                {answering === "always" ? "Allowing…" : alwaysWord}
               </CardWord>
             )}
             <CardWord disabled={answering !== undefined} onClick={() => answer("deny")}>

@@ -100,6 +100,19 @@ function withPicture(state: ComputerState, text: string): Content {
   return content;
 }
 
+/**
+ * Refuses a request for an app other than the one a caller's gate checked (`expect`, ADR 0171
+ * amendment 3): the helper sends every step of a batch to the app's id, so a request bound to
+ * the checked id can't act anywhere else.
+ */
+function heldCheck(app: { name: string; bundleId: string; held?: { app: string } }): void {
+  if (app.held && app.held.app.toLowerCase() !== app.bundleId.toLowerCase())
+    throw new ComputerError(
+      "place_changed",
+      `That name now finds ${app.name} (${app.bundleId}), not the app that was checked (${app.held.app}). Nothing was done; look again with screen_state.`,
+    );
+}
+
 const callerOf = (context: ToolContext) => `${context.caller.threadId}/${context.caller.agentId}`;
 const textOf = (content: Content) => (content[0]?.type === "text" ? content[0].text : "");
 
@@ -155,7 +168,8 @@ export function computerToolkit(
   const target = async (
     app: string,
     context: ToolContext,
-  ): Promise<ResolvedApp & { key: string; running?: boolean }> => {
+    expected?: { app: string },
+  ): Promise<ResolvedApp & { key: string; running?: boolean; held?: { app: string } }> => {
     const key = `${callerOf(context)}/${app.trim().toLowerCase()}`;
     let found: (ResolvedApp & { running?: boolean }) | undefined = memory.app(key);
     if (!found) {
@@ -167,12 +181,16 @@ export function computerToolkit(
     }
     const blocked = blockedReason(found, await personBlocked(), host);
     if (blocked) throw new ComputerError("app_blocked", blocked);
-    return { ...found, key };
+    // The caller's gate decided on one app: the name now finds another, so nothing is done. The
+    // helper sends every step of the batch to this app's id, so it can't drift after this.
+    const held = { ...found, key, ...(expected ? { held: expected } : {}) };
+    heldCheck(held);
+    return held;
   };
 
   /** Runs a helper request for an app, telling `using` and forgetting a vanished app. */
   const use = async (
-    app: ResolvedApp & { key: string },
+    app: ResolvedApp & { key: string; held?: { app: string } },
     context: ToolContext,
     op: "state" | "act",
     payload: Record<string, unknown>,
@@ -182,6 +200,9 @@ export function computerToolkit(
       op === "state" ? options.using?.(context.caller.threadId, app.name, app.bundleId) : undefined;
     try {
       const send = (signal: AbortSignal) => {
+        // Every request to the helper, each retry and each wait's end, goes to the app the
+        // caller's gate checked, or nowhere.
+        heldCheck(app);
         // A take-over may happen during the cowork wait or locked-use preparation.
         if (op === "act" && options.personExclusive?.(app.bundleId))
           throw new PublicToolError("person_driving");
@@ -231,9 +252,9 @@ export function computerToolkit(
       return { content: [{ type: "text", text }] };
     },
     async screen_state(args, context) {
-      const { app, window, screenshot, outline, full, find } =
+      const { app, window, screenshot, outline, full, find, expect } =
         computerSchemas.screen_state.parse(args);
-      const resolved = await target(app, context);
+      const resolved = await target(app, context, expect);
       const pictureOnly = outline === false;
       const state = ComputerState.parse(
         await use(resolved, context, "state", {
@@ -276,8 +297,9 @@ export function computerToolkit(
       }
     },
     async screen_act(args, context) {
-      const { app, actions, window, screenshot, observe } = computerSchemas.screen_act.parse(args);
-      const resolved = await target(app, context);
+      const { app, actions, window, screenshot, observe, expect } =
+        computerSchemas.screen_act.parse(args);
+      const resolved = await target(app, context, expect);
       if (options.personExclusive?.(resolved.bundleId)) throw new PublicToolError("person_driving");
       if (resolved.running === false)
         throw new ComputerError(

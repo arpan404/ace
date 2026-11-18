@@ -13,8 +13,15 @@ export function failure(status: DaemonStatus): Error {
   return new Error(status.message ?? `The daemon is ${status.state}`);
 }
 
-/** The status without the last exit's account, for a new attempt or a running daemon. */
+/** The status without the last exit's account or start's step, for a new attempt or a running daemon. */
 export function fresh(status: DaemonStatus): DaemonStatus {
-  const { message: _message, cause: _cause, retry: _retry, ...rest } = status;
+  const {
+    message: _message,
+    cause: _cause,
+    retry: _retry,
+    stage: _stage,
+    safeMode: _safe,
+    ...rest
+  } = status;
   return rest;
 }

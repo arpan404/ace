@@ -261,6 +261,24 @@ pub fn replay(calls: &[Call], model: &Model, decide: Decide<'_>, with_workspace:
                     Risk::Write
                 };
                 let declared = effect::ace(tool, risk, None, arguments);
+                // A driving step's place, as the server reads it (ADR 0171, amendment 3). The
+                // replay has no live ace to ask, and the bot holds no drive grants.
+                let driven =
+                    (declared == Effect::Drive).then(|| effect::drive::read(tool, arguments, None));
+                let drive =
+                    driven
+                        .as_ref()
+                        .map_or_else(effect::Drive::default, |step| effect::Drive {
+                            target: step
+                                .place
+                                .as_ref()
+                                .map(effect::drive::Place::shown)
+                                .map_err(|why| *why),
+                            sensitive: step.sensitive,
+                            granted: false,
+                            // The ace these calls came from holds a step to its place.
+                            bound: step.place.is_ok(),
+                        });
                 let route = effect::route(effect::Call {
                     tool,
                     rule: gate::decide(risk, false, tainted),
@@ -276,6 +294,7 @@ pub fn replay(calls: &[Call], model: &Model, decide: Decide<'_>, with_workspace:
                     granted: Granted::No,
                     checkpointed: false,
                     target: None,
+                    drive,
                 });
                 // ace's tools declare what they do: the classifier isn't shown them.
                 count_route(&mut o, &route);
@@ -329,6 +348,7 @@ fn shell_call(
         granted: Granted::No,
         checkpointed: false,
         target: None,
+        drive: effect::Drive::default(),
     });
     let Route::Review(concern) = route else {
         count_route(o, &route);

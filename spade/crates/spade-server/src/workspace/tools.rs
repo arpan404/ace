@@ -691,10 +691,16 @@ impl Tool for ShellTool {
             let shown = tokio::task::spawn_blocking(move || workspace.keep_large(&name, &text))
                 .await
                 .unwrap_or_else(|_| "The output could not be read.".to_owned());
-            if failed {
+            let output = if failed {
                 ToolOutput::error(shown)
             } else {
                 ToolOutput::ok(shown)
+            };
+            ToolOutput {
+                // Where it ran and what the sandbox did with it, for the reply's steps; a
+                // command that never started has nothing to say there beyond its result.
+                command: ran.ok().map(|ran| Box::new(command_run(ran))),
+                ..output
             }
         })
     }
@@ -751,6 +757,26 @@ async fn in_terminal(
             !overrides.is_empty(),
         )
         .await
+}
+
+/// Where a command ran and how it went, as its step shows it (`command_ran`).
+fn command_run(ran: Ran) -> crate::tools::CommandRun {
+    crate::tools::CommandRun {
+        contained: ran.contained,
+        exit_code: ran.code,
+        timed_out: ran.timed_out,
+        reached: ran.network.reached,
+        refused: ran
+            .network
+            .refused
+            .into_iter()
+            .map(|r| spade_core::event::RefusedHost {
+                host: r.host,
+                port: r.port,
+                reason: r.reason,
+            })
+            .collect(),
+    }
 }
 
 /// A run as the model reads it: how it ended, then its output.

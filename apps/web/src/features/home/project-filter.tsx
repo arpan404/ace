@@ -25,6 +25,7 @@ import { useSidebarDevice } from "./device-filter-state.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { AddProjectItem, ManageProjectItems } from "@/features/projects/index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const all = "\u0000all";
 
@@ -67,6 +68,7 @@ export function ProjectFilter() {
         <Tip label={fullTitle}>
           <MenuTrigger
             aria-label={`Project filter: ${label}${deviceName ? `, Device: ${deviceName}` : ""}`}
+            {...part("button", undefined, "filter")}
             className="group/filter flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-md font-medium text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground aria-expanded:bg-active aria-expanded:text-foreground"
           >
             <span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">

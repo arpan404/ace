@@ -44,11 +44,11 @@ struct SkillSourceView: View {
                     }
                 }
                 if let actionProblem {
-                    QuietProblem(message: actionProblem, id: "plugin.source.action.problem")
+                    ProblemRow(actionProblem, id: "plugin.source.action.problem")
                 }
                 if loading { SkeletonRows(count: 4, label: "Reading source") }
                 if let problem {
-                    QuietProblem(message: problem, id: "plugin.source.problem") { Task { await read() } }
+                    ProblemRow(problem, id: "plugin.source.problem") { Task { await read() } }
                 }
                 if hash != nil {
                     if editing {

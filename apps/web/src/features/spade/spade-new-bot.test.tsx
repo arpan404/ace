@@ -63,6 +63,47 @@ test("New bot is a conversation: a name that suits its face, and the first messa
   expect((await botRow("Trips")).getAttribute("aria-current")).toBe("page");
 });
 
+test("New bot opens at its top, its face and name in view, however long its templates run", async () => {
+  // jsdom lays nothing out: here a scroller holds 5000px and keeps where it was scrolled to.
+  const content = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight");
+  const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
+  const tops = new WeakMap<Element, number>();
+  Object.defineProperty(Element.prototype, "scrollHeight", {
+    configurable: true,
+    get: () => 5000,
+  });
+  Object.defineProperty(Element.prototype, "scrollTop", {
+    configurable: true,
+    get(this: Element) {
+      return tops.get(this) ?? 0;
+    },
+    set(this: Element, value: number) {
+      tops.set(this, value);
+    },
+  });
+  try {
+    await spadeApp("/spade", (api) => {
+      withSpade(api);
+      api.teams.templates.push({
+        id: "digest",
+        name: "Morning digest",
+        blurb: "Your feeds, summed up.",
+        task: "Summarise my feeds.",
+        face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
+        model_kind: "fast",
+        routines: [],
+      });
+    });
+    await openNew("New bot");
+    await screen.findByRole("button", { name: /^Morning digest/ });
+    const name = await screen.findByRole("textbox", { name: "Name" });
+    for (let at: Element | null = name; at; at = at.parentElement) expect(at.scrollTop).toBe(0);
+  } finally {
+    if (content) Object.defineProperty(Element.prototype, "scrollHeight", content);
+    if (top) Object.defineProperty(Element.prototype, "scrollTop", top);
+  }
+});
+
 test("the bot runs on the machine and model chosen on its line", async () => {
   const { spade, others } = await spadeApp("/spade", withSpade, { machines: [studio] });
   await newBot("Travel");

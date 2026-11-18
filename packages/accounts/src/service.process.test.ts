@@ -1,11 +1,11 @@
 import { afterEach, expect, test } from "vitest";
 import { readdir, realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { ThreadId } from "@ace/protocol";
+import { AcpIdentity, ThreadId } from "@ace/protocol";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
 import { quotaPayload } from "./test-support.ts";
-import { AccountService, openRegistry } from "./index.ts";
+import { AccountService, createAcpInstance, openRegistry } from "./index.ts";
 import { cleanup, hash, homes, idle, rollout } from "./test-support.ts";
 afterEach(cleanup);
 const context: SessionContext = {
@@ -262,6 +262,51 @@ test("a switch during a sign-in on either account is refused without copying", a
     expect(await readdir(request.to.homeDir)).toEqual(["accounts.sqlite"]);
     release();
     expect(await service.handle(wire(request))).toMatchObject({ result: { status: "migrated" } });
+  } finally {
+    registry.close();
+  }
+});
+test("account sessions and ACP environments launch on the PATH the daemon settled after starting", async () => {
+  const request = await homes("codex");
+  const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
+  await registry.register(request.to);
+  const identity = AcpIdentity.parse({
+    acpAgentId: "local:synthetic",
+    installationId: "approved",
+    instanceId: "approved:default",
+  });
+  await registry.register(
+    createAcpInstance({ identity, label: "Synthetic", userHome: request.to.homeDir }),
+  );
+  // The environment is copied when the service starts, on the PATH saved last launch.
+  const env = { PATH: "/saved/bin" };
+  const service = new AccountService({ registry, now: () => 1, timeZone: "UTC", env });
+  service.usePath("/login/bin:/saved/bin");
+  const launched: (string | undefined)[] = [];
+  const adapter: ProviderAdapter = {
+    provider: "codex",
+    ...unused,
+    openSession: async (ctx) => {
+      launched.push(ctx.env?.PATH);
+      return {
+        nativeSessionId: "fresh-path",
+        send: async () => {},
+        interrupt: async () => {},
+        resolve: async () => {},
+        stopTask: async () => {},
+        close: async () => {},
+      };
+    },
+  };
+  try {
+    const opened = await service.openSession(adapter, context, {
+      instanceId: request.to.id,
+      role: "worker",
+      estimatedLoad: 1,
+    });
+    await opened.session.close("idle");
+    expect(launched).toEqual(["/login/bin:/saved/bin"]);
+    expect(service.acpEnvironment(identity).env.PATH).toBe("/login/bin:/saved/bin");
   } finally {
     registry.close();
   }

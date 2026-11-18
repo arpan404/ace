@@ -53,6 +53,7 @@ impl Confine for ReadOnlyHere {
             env: Vec::new(),
             path_first: Vec::new(),
             hold: Box::new(()),
+            watch: None,
         })
     }
 }

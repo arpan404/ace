@@ -264,6 +264,74 @@ function tokens(count: number): string {
 
 const trim = (value: number) => String(Math.round(value * 10) / 10);
 
+/**
+ * The model Spade gives a new bot when the person chose none: the first model of the first
+ * endpoint that can be used now, as `endpoint/model`. Undefined when there is none: Spade then
+ * gives no model rather than one the person hasn't set up.
+ */
+export function spadeFirstUsableModel(endpoints: readonly SpadeEndpoint[]): string | undefined {
+  for (const endpoint of endpoints) {
+    if (endpoint.needsKey && !endpoint.keySet) continue;
+    const model = endpoint.models[0];
+    if (model) return `${endpoint.id}/${model.id}`;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a bot's model (`endpoint/model`, or a subscription's `cli:…`) can answer now: `ready`;
+ * `none` when no model is chosen, its endpoint is gone, or the endpoint has no key; `checking`
+ * while its key isn't known yet (the keychain hasn't answered). A subscription's model is its
+ * CLI's to answer for.
+ */
+export function spadeModelState(
+  model: string,
+  endpoints: readonly SpadeEndpoint[],
+): "ready" | "none" | "checking" {
+  const chosen = model.trim();
+  if (!chosen) return "none";
+  if (chosen.startsWith("cli:")) return "ready";
+  const id = chosen.slice(0, Math.max(0, chosen.indexOf("/")));
+  const endpoint = endpoints.find((each) => each.id === id);
+  if (!endpoint) return "none";
+  if (!endpoint.needsKey || endpoint.keySet === true) return "ready";
+  return endpoint.keySet === undefined ? "checking" : "none";
+}
+
+/**
+ * Presets as a first choice offers them: by the service's plain name, without the wire format a
+ * preset is written in ("Google Gemini (OpenAI format)" reads "Google Gemini"), and once per
+ * service: a second format of the same one (for other models it serves) stays in Settings.
+ */
+export function spadePresetChoices(
+  presets: readonly SpadePreset[],
+): { preset: SpadePreset; label: string }[] {
+  const seen = new Set<string>();
+  return presets.flatMap((preset) => {
+    const label = preset.name.replace(/\s*\([^()]*\bformat\)\s*$/i, "").trim() || preset.name;
+    if (seen.has(label.toLowerCase())) return [];
+    seen.add(label.toLowerCase());
+    return [{ preset, label }];
+  });
+}
+
+/**
+ * A name for a server the person added by its address: "Local server" on this computer, else its
+ * host ("models.example.com"). Undefined for an address that isn't one.
+ */
+export function spadeServerName(address: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(address.trim());
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "::1" || host.startsWith("127.")) return "Local server";
+  return host || undefined;
+}
+
 /** Whether any endpoint can be used now: it needs no key, or has one. */
 export function spadeHasUsableEndpoint(endpoints: readonly SpadeEndpoint[]): boolean {
   return endpoints.some((endpoint) => !endpoint.needsKey || endpoint.keySet);

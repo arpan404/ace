@@ -1,4 +1,8 @@
-import { spadeSetupSentence, type SpadeModels } from "@ace/ui-core/spade-chat";
+import {
+  spadeFirstUsableModel,
+  spadeSetupSentence,
+  type SpadeModels,
+} from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, type ReactNode } from "react";
 import { SettingCard, SettingRow, settingsGroup } from "@/components/setting-row.tsx";
@@ -6,6 +10,7 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { setFastModel, setNewBotModel, setTranscriptionModel } from "./spade-api.ts";
 import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
 import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
+import { firstUsableWords } from "./spade-model-options.ts";
 import { CouldNotRead, ModelSettingRow, useSpadeRunning } from "./spade-settings-rows.tsx";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -96,7 +101,8 @@ function ModelRows(props: { models: SpadeModels; review: ReactNode }) {
       <ModelSettingRow
         title="Model for new bots"
         value={models.newBotModel}
-        none="Your first usable model"
+        none={firstUsableWords(spadeFirstUsableModel(models.endpoints))}
+        follows={spadeFirstUsableModel(models.endpoints)}
         save={saved((model) => setNewBotModel(client, model))}
       />
       <ModelSettingRow
