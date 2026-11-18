@@ -150,19 +150,27 @@ pub fn resolve(command: &str, home: &Path) -> Option<Reads> {
             None => return None,
         }
     }
+    // On macOS, `/usr/bin/git` (and `strings`) is an xcrun shim that opens the developer dir
+    // itself, which the sandbox refuses. So put the developer dir's `usr/bin` first on the PATH and
+    // run the real tool directly, never the shim; grant read on the developer dir's `usr` tree (its
+    // `libexec/git-core` helpers, `share/git-core` templates and libraries) and its frameworks. The
+    // developer dir is the active one (full Xcode or the Command Line Tools); if it can't be
+    // resolved, a command that runs such a tool doesn't settle.
     #[cfg(target_os = "macos")]
-    match developer_dir() {
-        Some(dev) => {
-            for sub in ["usr/bin", "usr/lib", "usr/libexec", "usr/share"] {
-                let p = dev.join(sub);
-                if p.exists() {
-                    reads.reads.push(p);
-                }
+    if needs_developer {
+        let Some(dev) = developer_dir() else {
+            return None;
+        };
+        let bin = dev.join("usr/bin");
+        if bin.is_dir() {
+            reads.path_first.push(bin);
+        }
+        for sub in ["usr", "Library/Frameworks", "Library/PrivateFrameworks"] {
+            let p = dev.join(sub);
+            if p.exists() {
+                reads.reads.push(p);
             }
         }
-        // A command that runs a developer-tools shim can't settle without the developer dir.
-        None if needs_developer => return None,
-        None => {}
     }
     dedup(&mut reads.reads);
     dedup(&mut reads.path_first);
@@ -252,43 +260,64 @@ mod macos {
         runner.status().contains().then_some(runner)
     }
 
-    /// Runs `script` through `/bin/sh -c` in the read-only sandbox, with the reads `resolve` found
-    /// for it, as a settled one-shot command does. `None` when the command wouldn't settle.
-    fn run(runner: &Runner, w: &World, script: &str) -> Option<std::process::Output> {
-        let reads = resolve(script, &w.home)?;
-        let policy = Policy::build(&Facts {
+    /// A read-only policy for `w` with the given extra reads, as `confine::read_only` builds it.
+    fn policy(w: &World, reads: Vec<std::path::PathBuf>) -> Policy {
+        Policy::build(&Facts {
             home: w.home.clone(),
             spade_data: w.home.join(".local/share/spade"),
             workspace: w.workspace.clone(),
-            also_read: reads.reads,
+            also_read: reads,
             ..Default::default()
-        });
+        })
+    }
+
+    /// Runs `/bin/sh -c script` under `policy`, with `path_first` before the system folders on PATH
+    /// and `TMPDIR` the workspace, as a settled command runs.
+    fn launch_sh(
+        runner: &Runner,
+        w: &World,
+        policy: &Policy,
+        path_first: &[std::path::PathBuf],
+        script: &str,
+    ) -> std::process::Output {
         let launch = runner
-            .wrap_read_only(&policy, Path::new("/bin/sh"), &["-c".into(), script.into()])
+            .wrap_read_only(policy, Path::new("/bin/sh"), &["-c".into(), script.into()])
             .unwrap_or_else(|e| panic!("the read-only sandbox could not start: {e}"));
-        let path_first: Vec<String> = reads
-            .path_first
-            .iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
         let path = path_first
             .iter()
-            .map(String::as_str)
-            .chain(["/usr/bin", "/bin"])
+            .map(|p| p.to_string_lossy().into_owned())
+            .chain(["/usr/bin".to_owned(), "/bin".to_owned()])
             .collect::<Vec<_>>()
             .join(":");
-        Some(
-            Command::new(&launch.program)
-                .args(&launch.args)
-                .current_dir(&w.workspace)
-                .env_clear()
-                .env("PATH", path)
-                .env("HOME", &w.workspace)
-                .env("TMPDIR", "/nonexistent")
-                .stdin(std::process::Stdio::null())
-                .output()
-                .unwrap_or_else(|e| panic!("{e}")),
-        )
+        Command::new(&launch.program)
+            .args(&launch.args)
+            .current_dir(&w.workspace)
+            .env_clear()
+            .env("PATH", path)
+            .env("HOME", &w.workspace)
+            .env("TMPDIR", &w.workspace)
+            // As a settled `git` runs in production (the hardening overrides, ADR 0172 amendment
+            // 3): no system or global config, so git reads no config file outside the folder.
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// Runs `script` as a settled one-shot command would: the reads `resolve` found for it.
+    /// `None` when the command wouldn't settle.
+    fn run(runner: &Runner, w: &World, script: &str) -> Option<std::process::Output> {
+        let reads = resolve(script, &w.home)?;
+        let policy = policy(w, reads.reads);
+        Some(launch_sh(runner, w, &policy, &reads.path_first, script))
+    }
+
+    /// Runs `script` under the base read-only policy, bypassing `resolve` — for a script whose
+    /// program wouldn't settle on its own (an `exec` redirect) but whose sandbox behaviour we test.
+    fn run_raw(runner: &Runner, w: &World, script: &str) -> std::process::Output {
+        let policy = policy(w, Vec::new());
+        launch_sh(runner, w, &policy, &[], script)
     }
 
     fn text(out: &std::process::Output) -> String {
@@ -349,21 +378,25 @@ mod macos {
         let out = run(&runner, &w, "grep -r SECRET-xyz .").unwrap_or_else(|| panic!("settle"));
         assert!(!text(&out).contains("SECRET-xyz"), "{}", text(&out));
 
-        // A write is refused; /dev/null is open; /dev/tty is not; loopback is unreachable; /Users
-        // and `ps`/`open` outside the sandbox are refused.
+        // A write is refused; /dev/null is open; /dev/tty is not; /Users outside the sandbox is
+        // refused.
         assert!(!run(&runner, &w, "touch new.txt").unwrap().status.success());
         assert!(!w.workspace.join("new.txt").exists());
         assert!(run(&runner, &w, "cat /dev/null").unwrap().status.success());
         assert!(!run(&runner, &w, "cat /dev/tty").unwrap().status.success());
-        assert!(
-            !run(&runner, &w, "exec 3<>/dev/tcp/127.0.0.1/22")
-                .unwrap()
-                .status
-                .success()
-        );
         assert!(!run(&runner, &w, "ls /Users").unwrap().status.success());
 
-        // The fix: the `/usr/bin/git` xcrun shim resolves the developer dir and runs.
+        // Loopback is unreachable. `exec` wouldn't settle on its own, so this bypasses `resolve`
+        // and tests the profile directly: the shell can't open a socket.
+        let net = run_raw(&runner, &w, "exec 3<>/dev/tcp/127.0.0.1/22");
+        assert!(
+            !net.status.success(),
+            "loopback was reachable: {}",
+            text(&net)
+        );
+
+        // The fix: the real git (not the `/usr/bin/git` xcrun shim) runs via the developer bin on
+        // PATH, once the developer dir is resolved and granted.
         let version =
             run(&runner, &w, "git --version").unwrap_or_else(|| panic!("git should settle"));
         assert!(

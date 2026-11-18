@@ -632,16 +632,20 @@ now the narrowest one that still lets each settled program start.
    so a settled command can never run half-confined, for one-shot runs or persistent terminals.
    Windows has no read-only profile yet and never advertises one. Spade makes no temporary folder
    for a read-only run (which would follow a symlinked `.spade` out of the folder before the sandbox
-   applied); `TMPDIR` points at an unwritable path, so a program needing scratch space fails closed.
+   applied); `TMPDIR` points at the bot's folder, which the sandbox keeps unwritable, so a program
+   needing scratch fails closed (and one that only queries `TMPDIR`, like `git`, resolves it cleanly
+   instead of warning about `DARWIN_USER_TEMP_DIR`).
 5. **The gate resolves each program before settling.** A settled command's own programs may live
    outside the narrow allowlist — Homebrew's `/opt/homebrew`, a Cargo `~/.cargo/bin`, or, on macOS,
    the real `git` behind the `/usr/bin/git` xcrun shim. Spade resolves each program on the clean
    PATH outside the sandbox (`security/read_only.rs`) and adds exactly the extra read roots it needs
    (a resolved program's install prefix, read-only; on macOS the active developer dir from
-   `xcode-select -p`, and the `/private/var/select/sh` and developer-dir links the `/bin/sh`
-   trampoline and the shims read — the links alone, not their folders). A program that can't be
-   resolved means the command does **not** settle: it goes to the reviewer rather than failing
-   "command not found" inside the sandbox. This is checked at admission and again when the launch
+   `xcode-select -p`, and the `/private/var/select/sh` link the `/bin/sh` trampoline reads — the
+   link alone, not its folder). On macOS the shim at `/usr/bin/git` opens the developer dir itself,
+   which the sandbox refuses, so the developer dir's `usr/bin` goes first on the command's PATH and
+   the **real** tool runs directly, never the shim. A program that can't be resolved means the
+   command does **not** settle: it goes to the reviewer rather than failing "command not found"
+   inside the sandbox. This is checked at admission and again when the launch
    builds the policy.
 6. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
    behind the gate's own refusals, not a replacement for them; the classifier still never lowers a

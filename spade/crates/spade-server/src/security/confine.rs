@@ -214,17 +214,19 @@ impl Confine for Security {
         });
         // A read-only run writes nowhere, so Spade makes no temporary folder for it. Creating one
         // before the sandbox applies would follow a symlinked `.spade` out of the folder (finding
-        // 5); instead `TMPDIR` points at a path the sandbox makes unwritable, so a program that
-        // needs scratch space fails closed rather than writing outside.
+        // 5). `TMPDIR` points at the bot's folder: it exists and is readable, so a program that
+        // queries it (git, which otherwise warns about `DARWIN_USER_TEMP_DIR` and falls back to
+        // `/tmp`) resolves cleanly, and the sandbox still makes it unwritable, so a program that
+        // tries to write scratch fails closed rather than writing outside.
         // Read-only sandboxing of a settled command is Unix-only for now; Windows reviews it.
         #[cfg(windows)]
         {
-            let _ = (policy, reads.path_first);
+            let _ = (policy, reads.path_first, home);
             return Err("Spade has no read-only sandbox for Windows yet".to_owned());
         }
         #[cfg(not(windows))]
         {
-            let env = vec![("TMPDIR".to_owned(), "/nonexistent".to_owned())];
+            let env = vec![("TMPDIR".to_owned(), home.to_string_lossy().into_owned())];
             let path_first = reads
                 .path_first
                 .iter()
