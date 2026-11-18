@@ -75,10 +75,10 @@ sudo useradd --create-home --shell /bin/bash ace-ci
 sudo loginctl enable-linger ace-ci          # a user manager for rootless podman
 
 # Rootless containers, and arm64 emulation for the Linux arm64 build.
-sudo pacman -S --needed podman qemu-user-static qemu-user-static-binfmt git curl
+sudo pacman -S --needed podman qemu-user-static qemu-user-static-binfmt git curl github-cli
 grep -q '^ace-ci:' /etc/subuid || sudo usermod --add-subuids 200000-265535 --add-subgids 200000-265535 ace-ci
 sudo systemctl restart systemd-binfmt
-sudo -iu ace-ci podman run --rm --platform linux/arm64 docker.io/library/debian:12 uname -m   # prints aarch64
+# Rootless podman runs inside the runner service, which checks it on every start (below).
 ```
 
 As `ace-ci` (`sudo -iu ace-ci`):
@@ -87,7 +87,6 @@ As `ace-ci` (`sudo -iu ace-ci`):
 # The release-notes agent's CLI, logged in as ace-ci (ADR 0002): ace never holds the login.
 # Install Claude Code for this user, then:
 claude          # /login once, then quit
-# (Or Codex, if release/notes.json names it: codex login.)
 
 mkdir -p ~/.config/ace-runner && chmod 700 ~/.config/ace-runner
 install -m 600 /dev/stdin ~/.config/ace-runner/token    # paste the fine-grained token, then Ctrl-D
@@ -106,8 +105,9 @@ printf 'ACE_RELEASE_NOTIFY=/home/ace-ci/.config/ace-runner/notify\n' | tee -a ~/
 A hook can be any executable, for example one that posts to a phone push service. When ace's CLI
 gains a notify command, the hook calls it.
 
-Copy `tools/release/runners/run-ephemeral.sh` from the repository to `/home/ace-ci/bin/`
-(owned by root, mode 755: the runner's jobs must not be able to change it). Then, as root,
+As root, install `tools/release/runners/run-ephemeral.sh` from the repository outside `ace-ci`'s
+home, so the runner's jobs can't change it:
+`sudo install -D -o root -g root -m 755 run-ephemeral.sh /usr/local/libexec/ace-ci/run-ephemeral.sh`. Then, as root,
 `/etc/systemd/system/ace-runner@.service`:
 
 ```ini
@@ -120,25 +120,31 @@ Wants=network-online.target
 User=ace-ci
 # ace-ci's id, from `id -u ace-ci`; rootless podman needs its runtime folder.
 Environment=XDG_RUNTIME_DIR=/run/user/<ace-ci uid>
-ExecStart=/home/ace-ci/bin/run-ephemeral.sh /home/ace-ci/runner-%i omarchy-%i omarchy
+# Rootless podman and arm64 emulation, checked in this exact service context before the runner
+# registers: a failure keeps the runner offline and shows in `systemctl status`.
+ExecStartPre=/usr/bin/podman run --rm --platform linux/arm64 docker.io/library/debian:12 uname -m
+ExecStart=/usr/local/libexec/ace-ci/run-ephemeral.sh /home/ace-ci/runner-%i omarchy-%i omarchy
 Restart=always
 RestartSec=10
-NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=strict
-ReadWritePaths=/home/ace-ci /run/user
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Then:
+No `NoNewPrivileges=`, and none of the sandboxing options that turn it on (`RestrictSUIDSGID=`,
+`SystemCallFilter=`, `RestrictNamespaces=`, `PrivateDevices=`, `ProtectKernel*=` and the like):
+rootless podman maps its users through the setuid `newuidmap` and `newgidmap`, which
+`NoNewPrivileges` disables. The containers themselves are the isolation for the build. Then:
 
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now ace-runner@1 ace-runner@2 ace-runner@3
-journalctl -u ace-runner@1 -f        # "Listening for Jobs"
+journalctl -u ace-runner@1 -b | grep -E 'aarch64|Listening for Jobs'   # both lines
 ```
+
+`aarch64` comes from the start check: podman ran an arm64 container as `ace-ci` under the
+service's own settings. If it's missing, `systemctl status ace-runner@1` shows the error.
 
 They appear under Settings › Actions › Runners as `omarchy-1..3` with labels `self-hosted`,
 `Linux`, `X64`, `omarchy`. Workflows match labels case-insensitively.

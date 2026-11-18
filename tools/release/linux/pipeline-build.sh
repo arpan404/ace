@@ -42,8 +42,10 @@ private_key=
     fi
   '
 
-# The packages on Ubuntu 24.04: the deb installs its command (never /usr/bin/ace) and the
-# AppImage holds the app, its screen helper, daemon and runtime.
+# The packages on Ubuntu 24.04: the deb installs the ace-desktop command and, on a clean system,
+# the `ace` CLI shim (apps/desktop/build/linux/after-install.tpl) pointing at the bundled
+# runtime and daemon, which must run; the AppImage holds the app, its screen helper, daemon and
+# runtime.
 "$engine" run --rm --platform "$platform" \
   --volume "$workspace/dist/releases/$tag:/release:ro" \
   docker.io/library/ubuntu:24.04 sh -euc '
@@ -51,7 +53,17 @@ private_key=
     apt-get update -qq
     apt-get install -y -qq /release/*.deb >/dev/null
     test -x /usr/bin/ace-desktop
-    test ! -e /usr/bin/ace
+    test -f /usr/bin/ace && test ! -L /usr/bin/ace && test -x /usr/bin/ace
+    grep -qF "ace-cli-shim: written by the ace desktop app on launch" /usr/bin/ace
+    # The shim execs two quoted paths: the bundled node, then the daemon script.
+    node=$(sed -n "s/^exec '"'"'\([^'"'"']*\)'"'"'.*/\1/p" /usr/bin/ace)
+    daemon=$(sed -n "s/^exec .* '"'"'\([^'"'"']*\.mjs\)'"'"'.*/\1/p" /usr/bin/ace)
+    test -n "$node" && test -x "$node"
+    test -n "$daemon" && test -f "$daemon"
+    case "$node$daemon" in /opt/*/resources/runtime/bin/node/opt/*/resources/daemon/ace.mjs) ;; *)
+      echo "/usr/bin/ace points at $node $daemon, not the installed app" >&2; exit 1 ;;
+    esac
+    /usr/bin/ace --version
     cd "$(mktemp -d)"
     cp /release/*.AppImage app.AppImage
     chmod +x app.AppImage

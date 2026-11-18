@@ -30,6 +30,12 @@ import {
 step(async () => {
   const tag = tagArgument();
   const commit = tagCommit(tag);
+  // The commit the workflow's gate checked and checked out; the tag must still point at it.
+  const gated = process.env.RELEASE_COMMIT;
+  if (gated && gated !== commit)
+    throw new Error(
+      `${tag} points at ${commit.slice(0, 12)}, not the ${gated.slice(0, 12)} the gate checked`,
+    );
   run("git", ["fetch", "--quiet", "origin", "main"]);
   const onMain = attempt("git", ["merge-base", "--is-ancestor", commit, "origin/main"]).ok;
   const tags = remoteTagNames(run("git", ["ls-remote", "--tags", "origin"]));

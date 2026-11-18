@@ -32,10 +32,55 @@ env:
   BUN_VERSION: 1.4.4
 
 jobs:
+  gate:
+    name: Check who started it and which tag
+    # Runs no repository code: only the shell below, so nothing from the tag runs before the
+    # actor, the tag's name and its commit's place on main are checked. For a manual run this
+    # file is main's copy (the ref check below refuses any other); for a tag push it is the
+    # tag's, which only the owner can create (tag ruleset, ADR 0188).
+    runs-on: [self-hosted, linux, omarchy]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          fail() { echo "::error::$1"; exit 1; }
+          # The owner started it, and the owner reran it (a rerun keeps the first actor).
+          [ "$ACTOR" = "$OWNER" ] || fail "Only $OWNER starts a release, not $ACTOR"
+          [ "$TRIGGERING_ACTOR" = "$OWNER" ] || fail "Only $OWNER reruns a release, not $TRIGGERING_ACTOR"
+          case "$EVENT" in
+            push) [ "$REF" = "refs/tags/$TAG" ] || fail "Pushed ref $REF is not tag $TAG" ;;
+            workflow_dispatch) [ "$REF" = refs/heads/main ] || fail "Run it from main, not $REF" ;;
+            *) fail "A release starts only from a tag push or a manual rerun, not $EVENT" ;;
+          esac
+          n='(0|[1-9][0-9]{0,8})'
+          printf '%s\n' "$TAG" | grep -Eqx "v$n\.$n\.$n|ace-$n\.$n\.$n-beta-[1-9][0-9]{0,5}" ||
+            fail "$TAG is neither vX.Y.Z nor ace-X.Y.Z-beta-N"
+          sha=$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)
+          [ "$EVENT" != push ] || [ "$sha" = "$GITHUB_SHA" ] || fail "$TAG moved since it was pushed"
+          # main is ahead of (or at) the tag's commit: the commit is on main.
+          status=$(gh api "repos/$REPO/compare/$sha...main" --jq .status)
+          case "$status" in
+            ahead | identical) ;;
+            *) fail "$TAG points at ${sha%"${sha#????????????}"}, which isn't on main ($status)" ;;
+          esac
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
   prepare:
     name: Check the tag and plan the run
-    # A manual run uses main's copy of this workflow, never a branch's.
-    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
+    needs: gate
     runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 20
     permissions:
@@ -51,7 +96,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -65,11 +110,12 @@ jobs:
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.gate.outputs.sha }}
         run: node apps/desktop/scripts/pipeline/prepare.ts "$TAG"
 
   build-mac:
     name: Build, sign and notarize macOS
-    needs: prepare
+    needs: [gate, prepare]
     if: needs.prepare.outputs.build-mac == 'true'
     # The owner's Mac: if it is asleep, this job waits for it.
     runs-on: [self-hosted, macOS, ace-mac]
@@ -83,7 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
@@ -125,7 +171,7 @@ jobs:
 
   build-linux:
     name: Build Linux ${{ matrix.arch }}
-    needs: prepare
+    needs: [gate, prepare]
     if: needs.prepare.outputs.linux-arches != '[]'
     runs-on: [self-hosted, linux, omarchy]
     environment: release
@@ -140,7 +186,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
@@ -168,7 +214,7 @@ jobs:
 
   build-windows:
     name: Build Windows x64
-    needs: prepare
+    needs: [gate, prepare]
     if: needs.prepare.outputs.build-windows == 'true'
     # An ARM64 VM: x64 Node and Bun run under emulation, so the whole build is x64.
     runs-on: [self-hosted, Windows, ace-win]
@@ -191,7 +237,7 @@ jobs:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
           submodules: recursive
           persist-credentials: false
@@ -215,7 +261,7 @@ jobs:
 
   upload:
     name: Upload the builds to the draft
-    needs: [prepare, build-mac, build-linux, build-windows]
+    needs: [gate, prepare, build-mac, build-linux, build-windows]
     # Runs after a failed build too, so the builds that finished are kept for the rerun.
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.published != 'true' }}
     runs-on: [self-hosted, linux, omarchy]
@@ -225,7 +271,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -260,7 +306,7 @@ jobs:
 
   notes:
     name: Write the release notes
-    needs: prepare
+    needs: [gate, prepare]
     if: needs.prepare.outputs.published != 'true'
     runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 40
@@ -270,7 +316,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -289,7 +335,7 @@ jobs:
 
   deploy-staging:
     name: Deploy staging
-    needs: [prepare, upload]
+    needs: [gate, prepare, upload]
     if: ${{ !cancelled() && needs.upload.result == 'success' }}
     runs-on: [self-hosted, linux, omarchy]
     environment: staging
@@ -303,7 +349,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           submodules: recursive
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -315,11 +361,11 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       # The cloud Workers to staging, smoke-tested; Workers already at this release are skipped.
-      - run: bun run deploy:workers staging
+      - run: bun run deploy:workers staging --version "$TAG"
 
   deploy-production:
     name: Deploy production
-    needs: [prepare, deploy-staging]
+    needs: [gate, prepare, deploy-staging]
     # After every platform built and before publish, so the cloud is ready when apps update.
     if: ${{ !cancelled() && needs.deploy-staging.result == 'success' }}
     runs-on: [self-hosted, linux, omarchy]
@@ -338,7 +384,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           submodules: recursive
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -350,11 +396,11 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       # Straight to 100% with a smoke check; rolls back to the previous Worker version on failure.
-      - run: bun run deploy:workers production
+      - run: bun run deploy:workers production --version "$TAG"
 
   publish:
     name: Publish
-    needs: [prepare, upload, notes, deploy-production]
+    needs: [gate, prepare, upload, notes, deploy-production]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.prepare.outputs.published == 'true' || (needs.upload.result == 'success' && needs.notes.result == 'success' && needs.deploy-production.result == 'success')) }}
     runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 30
@@ -363,7 +409,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ needs.gate.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v7
@@ -384,6 +430,7 @@ jobs:
     name: Tell the owner
     needs:
       [
+        gate,
         prepare,
         build-mac,
         build-linux,
@@ -394,7 +441,8 @@ jobs:
         deploy-production,
         publish,
       ]
-    if: always()
+    # Only after the gate passed: notify runs the validated commit's code, nothing else.
+    if: ${{ always() && needs.gate.result == 'success' }}
     runs-on: [self-hosted, linux, omarchy]
     timeout-minutes: 10
     permissions:
@@ -402,6 +450,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:
@@ -416,4 +465,4 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: >-
           node apps/desktop/scripts/pipeline/notify.ts "$TAG" "$RUN_URL"
-          prepare build-mac build-linux build-windows upload notes deploy-staging deploy-production publish
+          gate prepare build-mac build-linux build-windows upload notes deploy-staging deploy-production publish

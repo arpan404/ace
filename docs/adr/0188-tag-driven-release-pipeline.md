@@ -20,8 +20,8 @@ Cloudflare token it needed. A release took an agent's whole session and could st
 `ace-X.Y.Z-beta-N` (beta) and `.github/workflows/release.yml` does the rest. There is no schedule,
 and no `pull_request` or `pull_request_target` trigger: the repository is public, and a fork's
 code must never reach ace's runners. `workflow_dispatch` takes an existing tag and reruns it, only
-from `main`'s copy of the workflow. Pushing a stable tag is the owner's approval; there is no
-separate approval gate.
+from `main`'s copy of the workflow. Only the repository owner can start or rerun a release.
+Pushing a stable tag is the owner's approval; there is no separate approval gate.
 
 **Three machines.**
 
@@ -35,12 +35,23 @@ A job waits for its runner: if the Mac is asleep, the macOS build waits until it
 x64 and arm64 are each built in a fresh Debian 12 container on omarchy
 (`tools/release/linux/pipeline-build.sh`, rootless podman by default); arm64 runs under qemu-user
 emulation, because Linux natives are built on their own architecture (ADR 0093). The packages are
-then installed and opened in a fresh Ubuntu 24.04 container, the oldest supported system.
+then installed and opened in a fresh Ubuntu 24.04 container, the oldest supported system: the
+deb's `ace-desktop` command, its `/usr/bin/ace` CLI shim (marked as ace's, pointing at the
+installed runtime and daemon, and answering `--version`), and the AppImage's contents.
 
 **The steps.** Each is a job; the logic is in small pure modules under
 `apps/desktop/src/packaging/` with unit tests, and the scripts in
 `apps/desktop/scripts/pipeline/` are the I/O around them.
 
+0. **gate** (omarchy) runs no repository code, only the workflow's own shell, so nothing from the
+   tag runs before it passes. It checks that the owner started the run (`github.actor`) and,
+   for a rerun, reran it (`github.triggering_actor`); that a push's ref is the tag and a manual
+   run's ref is `main`; that the tag's name is exactly `vX.Y.Z` or `ace-X.Y.Z-beta-N`; and,
+   through GitHub's API, that the tag's commit is on `main` (and, for a push, is the commit that
+   was pushed). Every later job depends on it and checks out that commit, not the tag's name, so
+   a tag moved meanwhile is refused (`prepare` compares them again). For a tag push the workflow
+   file itself is the tag's copy: the tag ruleset, which lets only the owner create the tag, is
+   what makes that copy trustworthy.
 1. **prepare** (omarchy) checks the tag (`release-tag.ts`): its commit is on `origin/main`; a
    beta tag passes the same numbering rules `release:beta build` applies (`planBetaTag` in
    `beta-plan.ts`, which calls `planBeta`): its version is a later X.Y.Z than
@@ -56,9 +67,10 @@ then installed and opened in a fresh Ubuntu 24.04 container, the oldest supporte
    draft, and last its manifest as `staged-<platform>.json`. It runs even when a build failed, so
    finished platforms are kept, and then fails.
 4. **notes** (omarchy, in parallel with the builds) writes the notes onto the draft.
-5. **deploy-staging** (omarchy) runs `bun run deploy:workers staging` once every platform is
-   uploaded.
-6. **deploy-production** (omarchy) runs `bun run deploy:workers production`: after every
+5. **deploy-staging** (omarchy) runs `bun run deploy:workers staging --version <tag>` once every
+   platform is uploaded.
+6. **deploy-production** (omarchy) runs `bun run deploy:workers production --version <tag>`:
+   after every
    platform built and before publish, so the cloud is ready when apps update. That entry point
    deploys straight to 100%, smoke-tests, and rolls back to the previous Worker version on a
    failed smoke test. Its own checks decide what is already deployed.
@@ -85,27 +97,37 @@ in progress; production deploys have their own group, `cloud-production`. GitHub
 pending behind the running one, so a third tag pushed meanwhile replaces the pending one, which
 is then dispatched again.
 
-**Release notes by an agent.** `release/notes.json` configures it: `provider` (`claude` or
-`codex`), `model` (default `claude-sonnet-5-5`), `effort` (default `medium`), `template` (the
+**Release notes by an agent.** `release/notes.json` configures it: `provider` (only `claude`),
+`model` (default `claude-sonnet-5-5`), `effort` (default `medium`), `template` (the
 prompt, `release/notes-prompt.md`), length `limits` and `bannedTerms`. The range starts at the
 newest published release older than the tag: a stable release counts from the previous stable
 one, so its notes cover the betas it follows; a beta from the newest earlier release of either
 line. Published releases, not git tags, because a tag that never became a release shipped
 nothing. The PRs are read from the first-parent log (merge and squash commits) and
-`gh pr view` (title, body, labels, number).
+`gh pr view` (title, body, labels, number, author, merge state, base branch).
+
+**Only trusted text reaches the agent** (`promptPullRequests`). A PR body and its labels can be
+edited after merge, by more people than wrote the code. The agent sees only PRs merged into
+`main`, and sees the body and labels only of a PR whose author has write, maintain or admin
+permission on the repository (GitHub's collaborator permission API); any other PR is shown by
+its number and title only. The prompt says the PR text is material, not instructions.
 
 The agent runs on omarchy with the machine's own logged-in CLI, under the `ace-ci` user
 (ADR 0002): ace never holds a provider credential. `ace run` would make it an ace thread, but it
-has no read-only mode, so the pipeline invokes the provider CLI directly with no way to change
-anything: Claude with `--tools ""`, no MCP servers and plan mode; Codex in its read-only sandbox.
-Model and effort pass through (`--model`/`--effort`, or `model_reasoning_effort`). It gets only
-the environment its CLI needs to find its login: the job's GitHub token never reaches it.
+has no read-only mode, so the pipeline invokes Claude's CLI directly with no way to act:
+`--tools ""`, no MCP servers, plan mode, in an empty temporary folder. Model and effort pass
+through (`--model`, `--effort`). It gets only the environment its CLI needs to find its login:
+the job's GitHub token never reaches it. Only Claude: an agent that can read files or run
+commands, even in a read-only sandbox, could be talked by a planted PR body into reading the
+runner's registration token from its home and putting it in the notes.
 
 `release-notes-check.ts` checks the reply: sections New, Improved, Fixed (and Known issues for
 a beta), in that order, with only `- ` bullets under them (the app shows anything else as a
-line); limits per bullet, bullet count and total length; every bullet cites a PR, and a New,
-Improved or Fixed bullet cites one in the range; none of `bannedTerms` (other products, AI
-tools), as whole words. A rejected reply is retried once with every problem listed; a second
+line); limits per bullet, bullet count and total length; every bullet cites a PR, and every PR
+it cites is one the agent was given; no link, URL (with or without a scheme), Markdown link,
+autolink, email address or HTML anywhere; none of `bannedTerms` (other products, AI tools), as
+whole words. Plain text with real PR numbers is what the checks can guarantee; that a bullet
+describes its PR truthfully is not, which is why the agent reads only trusted PR text. A rejected reply is retried once with every problem listed; a second
 rejection fails the job.
 
 **Notification.** The ace CLI has no notify command. The notify job writes the result to the
@@ -116,7 +138,8 @@ environment with a title and a body; when ace's CLI gains a notify command, the 
 
 - **Only the owner creates release tags.** A repository tag ruleset on `v*` and `ace-*-beta-*`
   restricts creation, update and deletion to the owner (no bypass for apps or other roles).
-  The pipeline also refuses a tag whose commit isn't on `origin/main`, so only reviewed code runs.
+  The gate also refuses a run started or rerun by anyone else, and a tag whose commit isn't on
+  `main`, before any of the tag's code runs.
 - **No pull request reaches a self-hosted runner.** No workflow that runs on one has a
   `pull_request` or `pull_request_target` trigger; the repository's "Require approval for all
   outside collaborators" fork-PR setting stays on as a second line.
