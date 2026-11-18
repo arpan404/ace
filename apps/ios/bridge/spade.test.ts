@@ -271,6 +271,112 @@ test("opening a conversation Spade counts unseen marks it seen, and its row sett
   await until(() => patches.state?.list.rows?.[0]?.state === "rest");
 });
 
+/** A bot waiting on a card of questions (ADR 0154), opened on the phone. */
+async function asked(questions: Record<string, unknown>[]) {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const set = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Planner" });
+    fake.card(bot, "q1", questions);
+  });
+  if (!bot) throw new Error("no bot");
+  const conversation = bot.conversation;
+  set.spade.handle({ type: "spade.open", conversationId: conversation });
+  const card = () =>
+    set.patches.bubbles.find(
+      (row): row is Extract<SpadeBubbleRow, { kind: "question" }> => row.kind === "question",
+    );
+  await until(() => card()?.label.startsWith("Planner"));
+  const reply = (body: Extract<NativeSpadeRequest, { type: "spade.question" }>["reply"]) =>
+    set.ask({ type: "spade.question", conversationId: conversation, callId: "q1", reply: body });
+  const posted = () => set.api.sent("POST", `/v1/conversations/${conversation}/questions/q1`);
+  return { ...set, card, reply, posted };
+}
+
+const trip = [
+  {
+    prompt: "Where to?",
+    kind: "choice",
+    options: ["Lisbon", { label: "Porto", detail: "By train" }],
+  },
+  { prompt: "How many nights?", kind: "number", min: 1, max: 14, unit: "nights" },
+];
+
+test("a card of questions waits with each question's inputs, and its answers settle it in the person's words", async () => {
+  const { card, reply, posted } = await asked(trip);
+
+  expect(card()).toMatchObject({
+    standing: "open",
+    label: "Planner asks 2 questions",
+    questions: [
+      {
+        prompt: "Where to?",
+        kind: "choice",
+        options: [
+          { label: "Lisbon", detail: null },
+          { label: "Porto", detail: "By train" },
+        ],
+        other: false,
+      },
+      { prompt: "How many nights?", kind: "number", unit: "nights" },
+    ],
+  });
+
+  const sent = await reply({
+    drafts: [
+      { kind: "picks", picked: ["Porto"], other: "" },
+      { kind: "field", text: "3" },
+    ],
+  });
+
+  expect(sent).toEqual({ ok: true });
+  expect(posted()).toEqual([{ answers: ["Porto", 3] }]);
+  await until(() => card()?.standing === "settled");
+  expect(card()).toMatchObject({ answers: ["Porto", "3 nights"], line: null });
+});
+
+test("a card missing an answer never reaches Spade and names the question that needs it", async () => {
+  const { reply, posted, api } = await asked(trip);
+
+  expect(
+    await reply({
+      drafts: [
+        { kind: "picks", picked: ["Lisbon"], other: "" },
+        { kind: "field", text: "30" },
+      ],
+    }),
+  ).toEqual({ ok: false, title: "", message: "At most 14.", at: 1 });
+  expect(posted()).toEqual([]);
+
+  // Spade has the last word, and its refusal turns the card to the question it names.
+  api.refuseQuestion = { status: 400, error: "Question 2: at most 14 nights." };
+  expect(
+    await reply({
+      drafts: [
+        { kind: "picks", picked: ["Lisbon"], other: "" },
+        { kind: "field", text: "4" },
+      ],
+    }),
+  ).toMatchObject({ ok: false, at: 1 });
+});
+
+test("Answer later folds the card and the top bar counts it; Never mind then settles it as dismissed", async () => {
+  const { card, reply, posted, patches } = await asked([{ prompt: "Which colour?" }]);
+
+  expect(await reply({ defer: true })).toEqual({ ok: true });
+
+  await until(() => card()?.standing === "later");
+  expect(patches.head).toMatchObject({
+    later: { words: "1 question for later", callId: "q1" },
+  });
+
+  expect(await reply({ dismiss: true })).toEqual({ ok: true });
+
+  await until(() => card()?.standing === "settled");
+  expect(card()).toMatchObject({ answers: null, line: "Dismissed" });
+  expect(patches.head).toMatchObject({ later: null });
+  expect(posted()).toEqual([{ defer: true }, { dismiss: true }]);
+});
+
 function lastWords(text: string) {
   return { from: "agent" as const, text, at: 50, from_agent: null };
 }

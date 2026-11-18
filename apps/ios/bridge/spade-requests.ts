@@ -1,12 +1,19 @@
 import type { ClientCore } from "@ace/client";
 import { SpadeRequestError } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
+import {
+  SpadeDraftWire,
+  spadeCardReply,
+  spadeOpenCard,
+  spadeRefusedAt,
+} from "./spade-question-rows.ts";
 import { segment, spadeText, type NativeSpade } from "./spade.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on: send a message, stop a reply,
- * answer an approval, turn Spade on. Every answer is `{ok: true}` or `{ok: false, title,
- * message}` in the person's words.
+ * answer an approval or a card of questions, turn Spade on. Every answer is `{ok: true}` or
+ * `{ok: false, title, message}` in the person's words; a card's also says which question
+ * (`at`) needs more.
  */
 
 const conversationId = z.string().min(1).max(256);
@@ -25,11 +32,22 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
     allowed: z.boolean(),
     always: z.boolean(),
   }),
+  /** A card of questions (ADR 0154): its drafts to answer it, Answer later, or Never mind. */
+  z.object({
+    type: z.literal("spade.question"),
+    conversationId,
+    callId: z.string().min(1).max(256),
+    reply: z.union([
+      z.object({ drafts: z.array(SpadeDraftWire).min(1).max(10) }),
+      z.object({ defer: z.literal(true) }),
+      z.object({ dismiss: z.literal(true) }),
+    ]),
+  }),
   z.object({ type: z.literal("spade.enable") }),
 ]);
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
-type Outcome = { ok: true } | { ok: false; title: string; message: string };
+type Outcome = { ok: true } | { ok: false; title: string; message: string; at?: number };
 
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
 const refused = (title: string, error: unknown): Outcome => ({
@@ -72,8 +90,42 @@ export async function answerSpade(
       } catch (error) {
         return refused("Couldn't answer", error);
       }
+    case "spade.question":
+      return question(spade, request, (body) =>
+        ask("POST", `${path(request.conversationId)}/questions/${segment(request.callId)}`, body),
+      );
     case "spade.enable":
       return enable(owner, spade, signal);
+  }
+}
+
+/**
+ * A card's reply. Drafts are checked by the shared rules first, so a card that isn't ready yet
+ * never reaches Spade and turns to the question that needs more; Spade checks again, and its
+ * refusal names the question it means.
+ */
+async function question(
+  spade: NativeSpade,
+  request: Extract<NativeSpadeRequest, { type: "spade.question" }>,
+  post: (body: unknown) => Promise<string>,
+): Promise<Outcome> {
+  const card = spade.follow(request.conversationId)?.get().view;
+  const open = card && spadeOpenCard(card, request.callId);
+  let body: unknown = request.reply;
+  if ("drafts" in request.reply) {
+    if (!open) return { ok: false, title: "", message: "That question isn't open any more." };
+    const read = spadeCardReply(open, request.reply.drafts);
+    if ("missing" in read) return { ok: false, title: "", message: read.missing, at: read.at };
+    body = { answers: read.answers };
+  }
+  try {
+    await post(body);
+    spade.refresh();
+    return { ok: true };
+  } catch (error) {
+    const said = refused("", error);
+    const at = open ? spadeRefusedAt(open, said.message) : undefined;
+    return at === undefined ? said : { ...said, at };
   }
 }
 
