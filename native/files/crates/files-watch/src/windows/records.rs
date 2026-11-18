@@ -95,8 +95,10 @@ mod tests {
 
     #[test]
     fn records_are_read_in_order_with_their_paths() {
-        let mut buffer = record(FILE_ACTION_ADDED, "src/main.rs", 28);
-        buffer.extend(record(FILE_ACTION_REMOVED, "old.txt", 0));
+        let second = record(FILE_ACTION_REMOVED, "old.txt", 0);
+        let first = record(FILE_ACTION_ADDED, "src/main.rs", second.len() as u32);
+        let mut buffer = first;
+        buffer.extend(second);
         assert_eq!(
             parse(&buffer),
             [
@@ -108,7 +110,7 @@ mod tests {
 
     #[test]
     fn a_truncated_name_ends_the_scan_instead_of_panicking() {
-        let mut buffer = record(FILE_ACTION_ADDED, "src/main.rs", 28);
+        let mut buffer = record(FILE_ACTION_ADDED, "src/main.rs", 0);
         buffer.truncate(buffer.len() - 4);
         assert!(parse(&buffer).is_empty());
     }
