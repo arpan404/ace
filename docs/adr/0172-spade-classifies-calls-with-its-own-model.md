@@ -25,7 +25,10 @@ way every time, and leave the rest to the reviewer as today.
    - The model is never the security boundary and never lowers a deterministic decision. The
      sandbox, declared effects, the credential refusal and the person-only effects (`pay`,
      `send_as_person`, `change_access`, `credential`, `drive`, `unknown`) are decided before it,
-     exactly as in ADR 0171. It only sees calls the rules already sent to the reviewer.
+     exactly as in ADR 0171. It only sees calls the rules already sent to the reviewer. Since
+     ADR 0171 amendment 3 an ace driving step goes to the reviewer instead of the person; the
+     model isn't shown ace's tools, so it neither settles nor raises one. It may still raise a
+     connector's or plugin's tool it reads as `drive`.
    - It can do two things, each only above a calibrated threshold:
      - **raise** a call to the person when it reads a person-only effect;
      - **settle** a call as clearly low-risk (`read`, or `write_local` in the bot's folders).

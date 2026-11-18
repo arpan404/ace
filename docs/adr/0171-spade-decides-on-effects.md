@@ -185,6 +185,58 @@ denied" joins the sandbox-failure markers. On a kernel without Landlock, or wher
 can't run, Linux keeps the review path with a one-line reason in the sandbox status. Windows is
 unchanged.
 
+## Amendment 3: driving a page or app is reviewed, and asks where it matters (2026-11-17)
+
+Replaces amendment 1's "Driving a page or app is the person's" and removes `drive` from its
+"Person-only effects come first". Decided by the owner (2026-11-17: Spade asked them to approve
+every click, keystroke and scroll of a computer-use session, so a session in an ordinary app was
+a stream of requests). A request for each step taught the person to press Allow without reading,
+which is worse than no request.
+
+- **A step goes to the reviewer.** A `browser_*`, `screen_*` or `sim_*` call ace doesn't mark
+  read-only is still `drive`, and still never runs unreviewed on a grant. Its review is told
+  where it acts and that it acts there as the person, and to escalate a step that sends, pays,
+  buys, changes access or enters a password, or that the person's request doesn't explain. With
+  untrusted content in view the review is the strict one, as for other effects: it checks the
+  step serves the person's request, not that content.
+- **Where it acts.** The app is the call's `app`; a page is the call's `url`, else the page ace
+  last reported for that tab in the session (a browser tool's `url`, a snapshot's `Page:` line).
+  A `sim_*` step acts in the simulator or the app it opens. ace finds an app by part of its name,
+  so the app is also known by what ace reported for that name earlier in the session
+  (`TextEdit (com.apple.TextEdit)`); that report can add a reason to ask, never remove one the
+  name gave.
+- **The person decides in the places that matter.** A step goes to the person (`ask: drive`)
+  when it acts in mail, messages or chat; a bank, wallet, payment, checkout or cart; a password
+  manager or Keychain; the system's settings; a sign-in, account, security, settings, keys or
+  members page; a social site; a web browser driven through the screen (Spade can't see the
+  site); or a place Spade can't name. The list is `spade_core::effect::drive`: app words and
+  names, hosts and their parent domains, parts of a host (`bank`, `pay`, `login`) and of a path
+  (`/checkout`, `/settings`). A part of a sensitive app's name (`ail`) counts as that app until
+  ace reports which it opened. The person's own dev server (`localhost`, `*.local`, `*.test`)
+  is no one's account. Their Always allow for a driving tool still runs it elsewhere, but not
+  here: in these places each step is theirs.
+- **The reviewer can still ask.** A step it escalates, or one too long for it to read whole,
+  goes to the person, as any reviewed call does.
+- **Allow one app or site for a bot.** A request for a step in a place that isn't sensitive
+  offers "Allow \<app\> for this bot". It answers always and makes a grant `drive {app}` (ADR
+  0167 decision 5) for the app as ace reported it, else as the call named it, or for the site's
+  host. A step a drive grant covers is still reviewed, told the person allowed the app, and the
+  review escalates only a send, a payment, a purchase, an access change or a password, so the
+  rest of the session there runs without asking. A drive grant is refused at creation for a
+  sensitive place, and one stored by hand covers nothing. The request's always never stores an
+  Always allow for the tool. A `tool` grant still never covers a driving tool: it would cover
+  every page.
+- **ace's own list is ace's.** An app under ace's Apps agents can't use, and the apps ace always
+  refuses (terminals, Keychain Access, Passwords, sign-in prompts), are refused by ace before a
+  step reaches them, whatever Spade decided, so Spade doesn't keep a copy.
+- **Stored events still fold.** `approval_requested` gains `ask: drive` and an optional `app`; a
+  client that doesn't know them shows the usual request, with no always.
+
+Tested in `spade_core::effect` (each place to its route, and a granted app, a sensitive one and a
+tainted step), `spade_core::effect::drive` (apps and sites to their reasons, where a step acts,
+what may be granted), `spade_core::grant` and, through the API, in `spade-server/tests/effects.rs`
+(a click in TextEdit is reviewed, typing in Mail asks, and allowing TextEdit stops the asking).
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

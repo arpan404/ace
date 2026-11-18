@@ -60,8 +60,10 @@ In order, first match wins:
 | Facts                                                                             | Goes to                                                                               |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`                                      |
-| `pay`, `drive`, `change_access`, `unknown`                                        | the person, unless allowed always                                                     |
+| `pay`, `change_access`, `unknown`                                                 | the person, unless allowed always                                                     |
 | `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
+| `drive` in a sensitive place, or one Spade can't name                             | the person (`ask: drive`), even when allowed always                                   |
+| `drive` elsewhere                                                                 | runs on Always allow; otherwise the reviewer, told where it acts (below)              |
 | a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
 | it declares nothing, in the sandbox                                               | runs                                                                                  |
 | it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
@@ -82,11 +84,27 @@ sourced tools would be offered under (two servers, or names cut to a provider's 
 offered for neither. A remembered allow still asks the person while untrusted content is in view.
 A covered push or comment under untrusted content is reviewed with the grant named. Requests the
 rules raise store `call_reviewed` as `escalate` with `model: ""`; the bubble's `reviewer_reason`
-is the rule's line, such as "It could spend money, so you decide.", "It acts in a page or app as
-you, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
+is the rule's line, such as "It could spend money, so you decide.", "It acts in Mail, mail or
+messages, where it can send in your name, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
 decide.", "It sends something in your name to github.com/acme/app#7, so you decide.", "It
 declares something Spade doesn't know yet, so you decide.", "It doesn't say what it does, so you
 decide once for this bot." or "It asks to run outside the sandbox, so you decide."
+
+### Driving a page or app
+
+[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md) amendment 3. A `drive` step acts in
+the app its `app` names, the page its `url` names, or the page ace last reported for its tab
+(`spade_core::effect::drive::target`). It goes to the person in mail, messages or chat, a bank,
+wallet, payment, checkout or cart, a password manager, the system's settings, a sign-in, account,
+security, settings, keys or members page, a social site, a web browser driven through the screen,
+or a place Spade can't name (`drive::sensitive`). Elsewhere the reviewer is told it acts there
+as the person and to escalate a send, a payment, a purchase, an access change or a password;
+under untrusted content, to check the step serves the person's request.
+
+A request for a step outside those places offers "Allow \<app\> for this bot" (the request's
+`app`). It answers always and adds the grant `drive {app}`: the steps it covers are reviewed,
+told the person allowed the app, without asking. A drive grant is refused for a sensitive place,
+a `tool` grant never covers a driving tool, and the request never stores an Always allow.
 
 An answer to a request Spade asked for a reason of its own (`ask`) is never stored as an Always
 allow. On the outside card, Always for this bot sets the bot's `commands` to `outside` and runs
