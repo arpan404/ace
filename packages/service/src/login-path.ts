@@ -10,6 +10,8 @@ export interface LoginShellTiming {
   timeoutMs?: number;
   /** Once answered, what is left of the shell's group gets SIGTERM, then SIGKILL this long later. */
   killGraceMs?: number;
+  /** Ends the lookup at once (a stopping daemon): it answers the current PATH, and the shell's group is ended. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -22,10 +24,10 @@ export interface LoginShellTiming {
  */
 export function loginShellPath(
   env: NodeJS.ProcessEnv,
-  { timeoutMs = 10_000, killGraceMs = 2_000 }: LoginShellTiming = {},
+  { timeoutMs = 10_000, killGraceMs = 2_000, signal }: LoginShellTiming = {},
 ): Promise<string> {
   const current = env.PATH ?? "";
-  if (process.platform === "win32") return Promise.resolve(current);
+  if (process.platform === "win32" || signal?.aborted) return Promise.resolve(current);
   const shell = env.SHELL || "/bin/sh";
   return new Promise((resolve) => {
     let done = false;
@@ -35,6 +37,7 @@ export function loginShellPath(
       if (done) return;
       done = true;
       clearTimeout(deadline);
+      signal?.removeEventListener("abort", stop);
       resolve(found ? mergePaths(found, current) : current);
       // A process the profile left holding stdout open must not keep this end of the pipe.
       child?.stdout?.destroy();
@@ -42,6 +45,8 @@ export function loginShellPath(
     };
     const deadline = setTimeout(() => finish(undefined), timeoutMs);
     deadline.unref();
+    const stop = () => finish(undefined);
+    signal?.addEventListener("abort", stop, { once: true });
     try {
       // Its own process group, so the stop reaches whatever the shell profile started too.
       child = spawn(shell, ["-ilc", `printf '%s%s%s' ${marker} "$PATH" ${marker}`], {
@@ -68,32 +73,80 @@ export function loginShellPath(
   });
 }
 
+/** What signalling a process group showed: it has members, it has none, or it can't tell. */
+type GroupState = "present" | "absent" | "unknown";
+
+/** What ending a process group touches outside this module; tests substitute it. */
+export interface GroupPorts {
+  /** `process.kill` on the group: throws as it does. */
+  kill(pgid: number, signal: NodeJS.Signals | 0): void;
+  /** Calls `run` every `ms` until the returned function is called; keeps the process alive. */
+  every(ms: number, run: () => void): () => void;
+  now(): number;
+  /** Runs `run` if the process exits first; returns a function that removes it. */
+  atExit(run: () => void): () => void;
+  warn(message: string): void;
+}
+
+const systemGroupPorts: GroupPorts = {
+  kill: (pgid, signal) => process.kill(-pgid, signal),
+  every(ms, run) {
+    const timer = setInterval(run, ms);
+    return () => clearInterval(timer);
+  },
+  now: () => performance.now(),
+  atExit(run) {
+    process.once("exit", run);
+    return () => process.off("exit", run);
+  },
+  warn: (message) => process.emitWarning(message),
+};
+
 /**
  * Ends process group `pgid` whether or not its leader is still running: SIGTERM now, then
- * SIGKILL to the whole group after `graceMs` if any member is left. While members are left this
- * keeps the process alive (it owns them), and an exit before the grace ends kills them at once.
- * A group that is already empty costs nothing.
+ * SIGKILL to the whole group after `graceMs` if it still has members. The group id is held only
+ * while the group is known to exist: once it is gone (ESRCH) nothing more is sent, since the id
+ * could name another group by then. A group that can't be read (EPERM, which Darwin also reports
+ * for unreaped zombies, or any other error) is reported once and never killed on that basis.
+ * While members are left this keeps the process alive (it owns them), and an exit before the
+ * grace ends kills them at once.
  */
-function endProcessGroup(pgid: number, graceMs: number): void {
-  // Signal 0 checks the group still has a member this process may signal.
-  const signal = (name: NodeJS.Signals | 0): boolean => {
+export function endProcessGroup(
+  pgid: number,
+  graceMs: number,
+  ports: GroupPorts = systemGroupPorts,
+): void {
+  const signal = (name: NodeJS.Signals | 0): GroupState => {
     try {
-      process.kill(-pgid, name);
-      return true;
-    } catch {
-      return false;
+      ports.kill(pgid, name);
+      return "present";
+    } catch (error) {
+      return error instanceof Error && "code" in error && error.code === "ESRCH"
+        ? "absent"
+        : "unknown";
     }
   };
-  if (!signal("SIGTERM")) return;
-  const killNow = () => void signal("SIGKILL");
-  process.once("exit", killNow);
-  const until = performance.now() + graceMs;
-  const watch = setInterval(() => {
-    if (signal(0) && performance.now() < until) return;
-    signal("SIGKILL");
-    clearInterval(watch);
-    process.off("exit", killNow);
-  }, 50);
+  let warned = false;
+  const unreadable = () => {
+    if (warned) return;
+    warned = true;
+    ports.warn(`The login shell's processes (group ${pgid}) could not be signalled`);
+  };
+  const first = signal("SIGTERM");
+  if (first === "absent") return;
+  if (first === "unknown") unreadable();
+  const removeExit = ports.atExit(() => {
+    if (signal(0) === "present") signal("SIGKILL");
+  });
+  const until = ports.now() + graceMs;
+  const stop = ports.every(50, () => {
+    const state = signal(0);
+    if (state === "unknown") unreadable();
+    if (state !== "absent" && ports.now() < until) return;
+    if (state === "present") signal("SIGKILL");
+    stop();
+    removeExit();
+  });
 }
 
 /** Login-shell entries first, then anything only the current environment had. */
