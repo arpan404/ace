@@ -131,7 +131,6 @@ function privatePath(path: string): boolean {
   return path.split("/").some((part) => part === ".git" || part.startsWith(".ace-upload-"));
 }
 
-/** The daemon's kinds for ace-files' tagged kind. */
 /** A path that is not there, which the port reports as `null`. */
 function missing(error: unknown): boolean {
   return error instanceof FilesRequestError && error.code === "NOT_FOUND";

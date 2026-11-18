@@ -77,8 +77,5 @@ export interface IoOptions {
   signal?: AbortSignal | undefined;
 }
 
-/** The workspace's port and the map of roots it is allowed to act on. */
-export type IoFor = (root: string) => FilesIo;
-
-/** The local port: Node's I/O through a confined `SafeRoot`, one per root. */
+/** The local port's roots: one confined `SafeRoot` per folder it is asked about. */
 export type SafeRootSource = (root: string) => Promise<SafeRoot>;
