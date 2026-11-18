@@ -62,6 +62,9 @@ const fn row(tool: &'static str, op: Option<&'static str>, finds: Finds, holds: 
 }
 
 pub const CLOSES_BROWSER: &str = "It closes the whole browser and every tab in it, so you decide.";
+pub const STOPS_RECORDING: &str =
+    "It stops the browser's recording wherever it runs, so you decide.";
+pub const WHOLE_BROWSER: &str = "It acts on the whole browser, not one tab, so you decide.";
 pub const LEGACY_SCREEN: &str =
     "It acts through an older screen tool Spade can't tell the app of, so you decide.";
 pub const NO_URL: &str = "It opens a tab with no address yet, so you decide.";
@@ -108,10 +111,22 @@ pub const TABLE: &[Operation] = &[
     row("browser_settings", Some("resize"), Tab, false),
     row("browser_settings", Some("emulate"), Tab, false),
     row("browser_settings", Some("record_start"), Tab, false),
-    row("browser_settings", Some("record_stop"), Tab, false),
-    row("browser_settings", Some("extensions"), CurrentTab, false),
+    // ace stops the session's recording and lists the browser's extensions whatever tab the
+    // call names: neither acts in one tab.
+    row(
+        "browser_settings",
+        Some("record_stop"),
+        Nowhere(STOPS_RECORDING),
+        false,
+    ),
+    row(
+        "browser_settings",
+        Some("extensions"),
+        Nowhere(WHOLE_BROWSER),
+        false,
+    ),
     row("browser_settings", Some("close"), Browser, false),
-    row("browser_request_help", None, Tab, false),
+    row("browser_request_help", None, NamedTab, false),
     row("screen_state", None, App, true),
     row("screen_act", None, App, true),
     row("screen_open_app", None, AppById, false),

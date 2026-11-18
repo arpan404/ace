@@ -657,3 +657,24 @@ fn every_row_of_the_table_is_one_of_aces_driving_tools_and_appears_once() {
         );
     }
 }
+
+#[test]
+fn an_operation_ace_runs_for_the_whole_session_has_no_tab_to_place_it_in() {
+    let answer = tabs(&[("t1", "https://docs.rs/", true, false)]);
+    for (action, why) in [
+        ("record_stop", table::STOPS_RECORDING),
+        ("extensions", table::WHOLE_BROWSER),
+        ("close", table::CLOSES_BROWSER),
+    ] {
+        // Naming an ordinary tab doesn't place it there: ace ignores the tab.
+        let arguments = json!({"action": action, "tabId": "t1"});
+        let step = read("browser_settings", &arguments, Some(&answer));
+        assert_eq!(step.place, Err(why), "{action}");
+    }
+    // Asking the person for help names its tab, which ace requires.
+    let help = json!({"reason": "sign_in", "message": "Sign in"});
+    assert_eq!(
+        read("browser_request_help", &help, Some(&answer)).place,
+        Err(NO_TAB)
+    );
+}
