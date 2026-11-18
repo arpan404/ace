@@ -98,6 +98,22 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
         return number.stringValue
     }
 
+    /// A date question's answer read back, for the picker to show what the card will send.
+    static func date(from text: String, time: Bool, in zone: TimeZone = .current) -> Date? {
+        if time {
+            let reader = ISO8601DateFormatter()
+            reader.formatOptions = [.withInternetDateTime]
+            return reader.date(from: text)
+        }
+        let parts = text.split(separator: "-", omittingEmptySubsequences: false).compactMap { Int($0) }
+        guard parts.count == 3, text.count == 10 else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let day = DateComponents(year: parts[0], month: parts[1], day: parts[2])
+        guard day.isValidDate(in: calendar) else { return nil }
+        return calendar.date(from: day)
+    }
+
     /// A date question's answer as Spade takes it: `2026-11-17`, or with the time and the zone's
     /// offset, `2026-11-17T09:30:00-06:00`.
     static func dateText(_ date: Date, time: Bool, in zone: TimeZone = .current) -> String {

@@ -114,29 +114,50 @@ struct SpadeQuestionInputs: View {
     }
 }
 
-/// A date (and time) question: nothing is picked until the person picks, so an untouched card
-/// never answers with today.
+/// A date (and time) question, shown from the card's draft so paging away and back keeps it.
+/// Nothing is picked until the person picks and taps Done, so an untouched card never answers
+/// with today, and opening the picker again changes nothing until Done.
 private struct SpadeDateInput: View {
     let time: Bool
     @Binding var draft: SpadeQuestionCard.Draft
-    @State private var picked: Date?
+    /// The date on the open picker; nil while it is closed.
+    @State private var choosing: Date?
 
-    var body: some View {
-        if let picked {
-            DatePicker(time ? "Date and time" : "Date", selection: Binding(get: { picked }, set: choose),
-                       displayedComponents: time ? [.date, .hourAndMinute] : [.date])
-                .datePickerStyle(.compact)
-                .labelsHidden()
-                .accessibilityIdentifier("spade.question.date")
-        } else {
-            Button(time ? "Pick a date and time" : "Pick a date") { choose(Date()) }
-                .buttonStyle(RequestButtonStyle())
-                .accessibilityIdentifier("spade.question.pickDate")
-        }
+    private var saved: Date? {
+        guard case let .field(text) = draft else { return nil }
+        return SpadeQuestionCard.date(from: text, time: time)
     }
 
-    private func choose(_ date: Date) {
-        picked = date
-        draft = .field(SpadeQuestionCard.dateText(date, time: time))
+    private var label: String {
+        guard let saved else { return time ? "Pick a date and time" : "Pick a date" }
+        return saved.formatted(date: .abbreviated, time: time ? .shortened : .omitted)
+    }
+
+    var body: some View {
+        Button(label) { choosing = saved ?? Date() }
+            .buttonStyle(RequestButtonStyle())
+            .accessibilityIdentifier("spade.question.pickDate")
+            .popover(isPresented: Binding(get: { choosing != nil }, set: { if !$0 { choosing = nil } })) {
+                picker.presentationCompactAdaptation(.popover)
+            }
+    }
+
+    private var picker: some View {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.related) {
+            DatePicker(time ? "Date and time" : "Date", selection: Binding(get: { choosing ?? Date() }, set: { choosing = $0 }),
+                       displayedComponents: time ? [.date, .hourAndMinute] : [.date])
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .accessibilityIdentifier("spade.question.date")
+            Button("Done") { commit() }
+                .buttonStyle(RequestButtonStyle(primary: true))
+                .accessibilityIdentifier("spade.question.dateDone")
+        }
+        .padding(AceDesign.Space.margin)
+    }
+
+    private func commit() {
+        if let choosing { draft = .field(SpadeQuestionCard.dateText(choosing, time: time)) }
+        choosing = nil
     }
 }

@@ -43,4 +43,16 @@ import Testing
         // Not a number in that locale: sent as typed, so the shared rules say why.
         #expect(SpadeQuestionCard.Draft.field("lots").payload(for: nights, in: german)["text"] as? String == "lots")
     }
+
+    @Test func aPickedDateReadsBackFromTheDraftAsTheSameDay() throws {
+        let zone = try #require(TimeZone(secondsFromGMT: -6 * 3600))
+        let date = Date(timeIntervalSince1970: 1_794_929_400)
+        let day = SpadeQuestionCard.dateText(date, time: false, in: zone)
+        let read = try #require(SpadeQuestionCard.date(from: day, time: false, in: zone))
+        #expect(SpadeQuestionCard.dateText(read, time: false, in: zone) == "2026-11-17")
+        let withTime = SpadeQuestionCard.dateText(date, time: true, in: zone)
+        #expect(SpadeQuestionCard.date(from: withTime, time: true, in: zone) == date)
+        #expect(SpadeQuestionCard.date(from: "", time: false, in: zone) == nil)
+        #expect(SpadeQuestionCard.date(from: "2026-13-40", time: false, in: zone) == nil)
+    }
 }
