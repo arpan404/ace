@@ -40,6 +40,8 @@ const Pending = z.object({
 });
 type Pending = z.infer<typeof Pending>;
 type Outcome = "done" | "skipped";
+/** How often open requests are checked for a tab that closed with nothing else happening. */
+const sweepMs = 15_000;
 
 /** What the thread's browser reports about a tab; undefined when it has no such tab. */
 export type BrowserHelpTab = (
@@ -57,6 +59,8 @@ export type BrowserHelpTab = (
  */
 export class BrowserHelp {
   private readonly waiters = new Map<string, (outcome: Outcome | undefined) => void>();
+  /** Cancels the next sweep while one is scheduled. */
+  private watching: (() => void) | undefined;
   private readonly deps: {
     store: Store;
     engine(): Engine | undefined;
@@ -84,13 +88,8 @@ export class BrowserHelp {
     const tab = this.deps.tab(threadId, input.tabId, caller.agentId);
     if (!tab) throw new PublicToolError("tab_not_found");
     // Asking again about the same tab waits on the request already open, while the person can
-    // still answer it. One an interrupted turn closed is forgotten, and a new one opens.
-    const open = this.pending(threadId).find((row) => {
-      if (row.tab_id !== input.tabId) return false;
-      if (this.deps.store.getInteraction(row.interaction_id)?.state === "pending") return true;
-      this.forget(row.interaction_id);
-      return false;
-    });
+    // still answer it (`current`); otherwise a new one opens.
+    const open = this.pending(threadId).find((row) => row.tab_id === input.tabId);
     const interactionId = open?.interaction_id ?? this.open(engine, threadId, input, tab);
     const outcome = await new Promise<Outcome | undefined>((resolve) => {
       const finish = (value: Outcome | undefined) => {
@@ -138,14 +137,59 @@ export class BrowserHelp {
    * The agent carried on (a new turn started) while no call waits on its request: the request
    * is withdrawn, so the thread no longer reads as needing the person for it.
    */
-  withdrawIdle(threadId: ThreadId): void {
+  withdrawIdle(threadId: ThreadId, agentId: string): void {
     const engine = this.deps.engine();
     if (!engine) return;
     for (const row of this.pending(threadId)) {
       if (this.waiters.has(row.interaction_id)) continue;
-      engine.resolveHostApproval(threadId, row.key, { state: "cancelled" });
-      this.forget(row.interaction_id);
+      // Only the agent that carries on, or one under it, stops waiting: another agent's
+      // request stays the person's to answer.
+      const owner = this.deps.store.getInteraction(row.interaction_id)?.agentId;
+      if (!owner || !engine.withinAgent(threadId, owner, agentId)) continue;
+      this.withdraw(engine, threadId, row);
     }
+  }
+
+  /**
+   * A request is withdrawn once its thread is archived or its tab is gone: nobody can act on it,
+   * so the thread must not keep waiting on the person. Runs on each of the thread's events, and
+   * on a timer while any request is open (a tab can close with nothing else happening).
+   */
+  sweep(threadId: ThreadId): void {
+    const engine = this.deps.engine();
+    if (!engine) return;
+    const archived = this.deps.store.getThread(threadId)?.archivedAt !== undefined;
+    for (const row of this.pending(threadId)) {
+      const owner = this.deps.store.getInteraction(row.interaction_id)?.agentId ?? "";
+      if (!archived && this.deps.tab(threadId, row.tab_id, owner)) continue;
+      this.withdraw(engine, threadId, row);
+    }
+  }
+
+  private withdraw(engine: Engine, threadId: ThreadId, row: Pending): void {
+    engine.resolveHostApproval(threadId, row.key, { state: "cancelled" });
+    this.forget(row.interaction_id);
+    this.waiters.get(row.interaction_id)?.(undefined);
+  }
+
+  /** Stops sweeping, as the daemon closes. */
+  close(): void {
+    this.watching?.();
+    this.watching = undefined;
+  }
+
+  /** Sweeps every thread with an open request while there is one; stops when none is left. */
+  private watch(): void {
+    if (this.watching) return;
+    this.watching = this.deps.schedule(() => {
+      this.watching = undefined;
+      const threads = this.deps.store.atomic((db) =>
+        db.prepare("SELECT DISTINCT thread_id FROM browser_help_pending").all(),
+      );
+      for (const row of threads)
+        this.sweep(ThreadId.parse(z.object({ thread_id: z.string() }).parse(row).thread_id));
+      if (threads.length > 0) this.watch();
+    }, sweepMs);
   }
 
   private open(
@@ -185,6 +229,7 @@ export class BrowserHelp {
         .prepare("INSERT INTO browser_help_pending VALUES (?,?,?,?,?)")
         .run(interactionId, threadId, key, input.tabId, summary.slice(0, 2000)),
     );
+    this.watch();
     return interactionId;
   }
 
@@ -192,7 +237,7 @@ export class BrowserHelp {
     const row = this.deps.store.atomic((db) =>
       db.prepare("SELECT * FROM browser_help_pending WHERE interaction_id=?").get(interactionId),
     );
-    return row ? Pending.parse(row) : undefined;
+    return row ? this.current(Pending.parse(row)) : undefined;
   }
 
   private pending(threadId: ThreadId): Pending[] {
@@ -200,7 +245,18 @@ export class BrowserHelp {
       .atomic((db) =>
         db.prepare("SELECT * FROM browser_help_pending WHERE thread_id=?").all(threadId),
       )
-      .map((row) => Pending.parse(row));
+      .flatMap((row) => this.current(Pending.parse(row)) ?? []);
+  }
+
+  /**
+   * The record while its request is still open. One whose request closed some other way (an
+   * interrupted turn, a restart that expired it) is forgotten, so a late Done or Skip can't
+   * answer it and a retry opens a new request.
+   */
+  private current(row: Pending): Pending | undefined {
+    if (this.deps.store.getInteraction(row.interaction_id)?.state === "pending") return row;
+    this.forget(row.interaction_id);
+    return undefined;
   }
 
   private forget(interactionId: string): void {
