@@ -10,6 +10,7 @@ use cap_std::fs::{Dir, File, Metadata, MetadataExt};
 use files_safe::Root;
 
 use crate::Error;
+use crate::number::js_number;
 
 /// The version of the entry at `path`, or `None` when there is nothing there.
 ///
@@ -114,29 +115,6 @@ struct Facts {
     ino: u64,
     mtime: f64,
     ctime: f64,
-}
-
-/// A JavaScript number in string form.
-///
-/// A version component is a non-negative integer or a millisecond timestamp, so it stays inside
-/// the range where ECMAScript and Rust both print plain decimal digits (1e-6 up to 1e21).
-/// Outside it JavaScript switches to exponent form, which is reproduced for completeness.
-fn js_number(value: f64) -> String {
-    if value == 0.0 {
-        return "0".to_owned();
-    }
-    let magnitude = value.abs();
-    if !(1e-6..1e21).contains(&magnitude) {
-        let mut text = format!("{value:e}");
-        if let Some(exponent) = text.find('e') {
-            let positive = !text[exponent + 1..].starts_with('-');
-            if positive {
-                text.insert(exponent + 1, '+');
-            }
-        }
-        return text;
-    }
-    format!("{value}")
 }
 
 #[cfg(unix)]
@@ -254,4 +232,105 @@ fn windows_millis(ticks: i64) -> f64 {
     const TICKS_PER_SECOND: i64 = 10_000_000;
     let delta = ticks - EPOCH_DIFFERENCE;
     unix_millis(delta / TICKS_PER_SECOND, delta % TICKS_PER_SECOND * 100)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    use super::unix_millis;
+    use crate::number::js_number;
+
+    /// Every timestamp a version can carry must print exactly as node prints it.
+    ///
+    /// The two sides print the same shortest decimal for all but the halfway timestamps, which a
+    /// file modified between two nanoseconds can report. This needs `node` on PATH and fails
+    /// rather than skipping without it: a skipped parity test proves nothing.
+    #[test]
+    fn timestamps_print_as_javascript_prints_them() {
+        let timestamps = timestamps();
+        let javascript = javascript_prints(&timestamps);
+        assert_eq!(
+            javascript.len(),
+            timestamps.len(),
+            "node prints one line per timestamp"
+        );
+        for ((seconds, nanoseconds), expected) in timestamps.iter().zip(javascript) {
+            assert_eq!(
+                js_number(unix_millis(*seconds, *nanoseconds)),
+                expected,
+                "{seconds} seconds and {nanoseconds} nanoseconds must print as node prints them"
+            );
+        }
+    }
+
+    /// Nanoseconds at, beside and away from whole milliseconds, plus a seeded sweep of the range.
+    fn timestamps() -> Vec<(i64, i64)> {
+        let mut timestamps = vec![
+            (1_731_800_000, 999_999_999),
+            (1_731_800_000, 500_000),
+            (1_731_800_000, 123_456_789),
+            (1_731_800_000, 1),
+            (1_731_800_000, 0),
+            (1_911_493_843, 781_250),
+            (-315_619_200, 123_456_789),
+            (-1, 999_999_999),
+            (0, 1),
+            (0, 999_999_999),
+        ];
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for index in 0..1_000 {
+            let seconds = 1_000_000_000 + (next() % 1_000_000_000) as i64;
+            let nanoseconds = (next() % 1_000_000_000) as i64;
+            timestamps.push(if index % 2 == 0 {
+                (seconds, nanoseconds)
+            } else {
+                (-seconds, nanoseconds)
+            });
+        }
+        timestamps
+    }
+
+    /// What node prints for those timestamps, from one process, one line each.
+    fn javascript_prints(timestamps: &[(i64, i64)]) -> Vec<String> {
+        let script = "const lines = require('node:fs').readFileSync(0, 'utf8').split('\\n').filter(Boolean);\n\
+                      process.stdout.write(lines.map((line) => {\n\
+                      const [seconds, nanoseconds] = line.split(' ').map(Number);\n\
+                      return String(seconds * 1000 + nanoseconds / 1e6);\n\
+                      }).join('\\n'));";
+        let mut child = Command::new("node")
+            .arg("-e")
+            .arg(script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("node is required to check version formatting");
+        let input: String = timestamps
+            .iter()
+            .map(|(seconds, nanoseconds)| format!("{seconds} {nanoseconds}\n"))
+            .collect();
+        let mut stdin = child.stdin.take().expect("a pipe to node");
+        stdin
+            .write_all(input.as_bytes())
+            .expect("write the timestamps");
+        drop(stdin);
+        let output = child.wait_with_output().expect("node's answer");
+        assert!(
+            output.status.success(),
+            "node failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("node prints UTF-8")
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
 }
