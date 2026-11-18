@@ -57,7 +57,8 @@ export function filesScope(ports: FilesScopePorts): FilesScope {
         operation,
         () => ports.connected() && ports.authorize("read"),
       );
-      if (binding.root !== undefined) void tool?.warm(binding.root);
+      // warm() reports its own failure; a request must not wait for its checkout to warm.
+      if (binding.root !== undefined) void tool?.warm(binding.root).catch(() => {});
       return binding;
     }
     if (scope === "support") {
@@ -91,7 +92,8 @@ export function filesScope(ports: FilesScopePorts): FilesScope {
       };
     }
     const root = files.root(threadId);
-    void tool?.warm(root);
+    // warm() reports its own failure; the request reads the same root either way.
+    void tool?.warm(root).catch(() => {});
     const { service, release } = await files.acquire(threadId);
     let source: ThreadId | undefined;
     try {

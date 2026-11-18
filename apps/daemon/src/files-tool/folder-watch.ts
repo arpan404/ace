@@ -1,4 +1,4 @@
-import type { EventPayload } from "@ace/files-native";
+import type { EventPayload, FilesLog } from "@ace/files-native";
 import type { FilesServerMessage, ThreadId } from "@ace/protocol";
 import { WatchFanout, type FoldersUpdate, type WatchClock } from "./watch-fanout.ts";
 
@@ -24,6 +24,8 @@ export type FolderWatchOptions = {
   clock: WatchClock;
   /** Coalescing window per client and thread; the plan's 100 ms. */
   windowMs?: number | undefined;
+  /** Where a watch this book stops on its own reports a failure; there is no caller to throw to. */
+  log?: FilesLog | undefined;
 };
 
 type RootSubscription = {
@@ -54,6 +56,7 @@ export class FolderWatch {
    * outlives the socket, and the entry goes when the drop it queued has drained.
    */
   readonly #sessions = new Map<string, Session>();
+  readonly #log: FilesLog;
   #closed = false;
 
   /** Sessions this book still remembers; a closed socket must leave nothing behind. */
@@ -63,6 +66,7 @@ export class FolderWatch {
 
   constructor(ports: FolderWatchPorts, options: FolderWatchOptions) {
     this.#ports = ports;
+    this.#log = options.log ?? (() => {});
     this.#fanout = new WatchFanout({
       clock: options.clock,
       send: (clientId, update) => this.#push(clientId, update),
@@ -183,12 +187,12 @@ export class FolderWatch {
     const root = this.#watched.get(clientId)?.get(update.threadId);
     if (root === undefined) return;
     if (!client.sendable()) {
-      void this.#stopNow(clientId, update.threadId);
+      this.#stopLater(clientId, update.threadId);
       return;
     }
     if (!client.valid({ id: update.threadId, root })) {
       const folders = this.#fanout.folders(clientId, update.threadId);
-      void this.#stopNow(clientId, update.threadId);
+      this.#stopLater(clientId, update.threadId);
       this.#send(client, {
         type: "files.folders_changed",
         threadId: update.threadId,
@@ -211,6 +215,13 @@ export class FolderWatch {
     } catch {
       // A socket that cannot take the push is its own session's to close.
     }
+  }
+
+  /** A push cannot throw, so a stop it forces reports through the book's log instead. */
+  #stopLater(clientId: string, threadId: ThreadId): void {
+    void this.#stopNow(clientId, threadId).catch((error: unknown) =>
+      this.#log("error", "Could not stop a folder watch", { error: String(error) }),
+    );
   }
 
   /** Stop a thread's watch from inside a push; the caller owns no ordering there. */
@@ -282,10 +293,13 @@ export class FolderWatch {
     const next = previous.then(task);
     const settled = next.catch(() => {});
     this.#tails.set(clientId, settled);
-    void settled.finally(() => {
-      // The queue drained: forget it, so a channel that stopped talking leaves no entry behind.
-      if (this.#tails.get(clientId) === settled) this.#tails.delete(clientId);
-    });
+    // The task's failure went to its caller; this only forgets the drained queue entry.
+    void settled
+      .finally(() => {
+        // The queue drained: forget it, so a channel that stopped talking leaves no entry behind.
+        if (this.#tails.get(clientId) === settled) this.#tails.delete(clientId);
+      })
+      .catch(() => {});
     return next;
   }
 }

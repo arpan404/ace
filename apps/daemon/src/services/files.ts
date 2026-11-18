@@ -208,7 +208,10 @@ export function createFilesSession(context: SocketContext): SocketService {
   /** Run a files task under the socket's budget, so a slow listing cannot pile up. */
   const background = (task: Promise<void>) => {
     context.tasks.add(task);
-    void task.finally(() => context.tasks.delete(task));
+    // Each task reports its own failure; one that still rejects reaches the socket's log.
+    void task
+      .finally(() => context.tasks.delete(task))
+      .catch((error: unknown) => context.options.log?.(error));
   };
   /** At most this many folder listings run at once on one socket; more get BUSY. */
   const listingLimit = 8;
@@ -293,9 +296,12 @@ export function createFilesSession(context: SocketContext): SocketService {
       for (const controller of aborting.values()) controller.abort();
       aborting.clear();
       if (native) {
-        const dropping = native.folders.disconnect(context.sessionId).catch(() => {});
+        const dropping = native.folders.disconnect(context.sessionId).catch((error: unknown) => {
+          context.options.log?.(error);
+        });
         context.tasks.add(dropping);
-        void dropping.finally(() => context.tasks.delete(dropping));
+        // The disconnect reports its own failure above; this only forgets the task.
+        void dropping.finally(() => context.tasks.delete(dropping)).catch(() => {});
       }
       if (attachments) {
         const closing = attachments.close().catch(() => {});

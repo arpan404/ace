@@ -22,7 +22,10 @@ export function startFilesNative(context: ServiceContext): FilesNative {
   });
   const folders = new FolderWatch(
     { watch: (path, onBatch) => tool.watch(path, onBatch) },
-    { clock: systemFilesClock },
+    {
+      clock: systemFilesClock,
+      log: (level, message, fields) => context.log.log(level, `folders: ${message}`, fields),
+    },
   );
   return { tool, folders };
 }

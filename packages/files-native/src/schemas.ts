@@ -15,14 +15,13 @@ export type FileKind =
   | { type: "other" }
   | { type: "symlink"; target?: FileKind | undefined };
 
-export const fileKindSchema: z.ZodType<FileKind> = z.lazy(() =>
-  z.discriminatedUnion("type", [
-    z.object({ type: z.literal("file") }),
-    z.object({ type: z.literal("directory") }),
-    z.object({ type: z.literal("other") }),
-    z.object({ type: z.literal("symlink"), target: fileKindSchema.optional() }),
-  ]),
-);
+// Built once at module level; only the symlink's target loops back, through a bare reference.
+export const fileKindSchema: z.ZodType<FileKind> = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("file") }),
+  z.object({ type: z.literal("directory") }),
+  z.object({ type: z.literal("other") }),
+  z.object({ type: z.literal("symlink"), target: z.lazy(() => fileKindSchema).optional() }),
+]);
 
 /** One entry of a listed folder. */
 export const entrySchema = z.object({

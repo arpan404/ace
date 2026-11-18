@@ -166,7 +166,8 @@ export class Operations {
               search.onAbort = () => {
                 this.#searches.remove(subscription);
                 rejectSummary(new FilesRequestError("CANCELLED", "the search was cancelled"));
-                void this.#stopSearch(subscription, timeoutMs);
+                // Dropping the watch reports nothing; the cancelled search already carries its failure.
+                void this.#stopSearch(subscription, timeoutMs).catch(() => {});
               };
               options.signal.addEventListener("abort", search.onAbort, { once: true });
             }

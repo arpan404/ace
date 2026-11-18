@@ -206,7 +206,11 @@ export class FilesProcess {
       const text = new TextDecoder().decode(chunk).trim();
       if (text) this.#log?.("debug", `ace-files: ${text}`);
     });
-    void child.exited.then((exit) => this.#onExit(run, exit));
+    void child.exited
+      .then((exit) => this.#onExit(run, exit))
+      .catch((error: unknown) =>
+        this.#log?.("error", "ace-files exit handling failed", { error: String(error) }),
+      );
     run.stopHelloTimer = this.#clock.setTimeout(() => {
       if (run.dead || run.handshaken) return;
       this.#log?.("error", "ace-files did not answer hello");
@@ -266,7 +270,8 @@ export class FilesProcess {
         run.readyAt = this.#clock.now();
         run.version = message.version;
         run.stopHelloTimer();
-        void this.#restore(run);
+        // restore() reports its own failure and kills a process that cannot re-open its roots.
+        void this.#restore(run).catch(() => {});
         return;
       case "response":
         this.#requests.acceptResponse(message.id, message.result);

@@ -136,7 +136,12 @@ export function relayFiles(options: RelayFilesOptions): RelayFiles {
     },
     close() {
       closed = true;
-      if (options.folders) void options.folders.disconnect(options.clientId);
+      if (options.folders)
+        void options.folders
+          .disconnect(options.clientId)
+          .catch((error: unknown) =>
+            options.warn?.("A relay file channel could not be dropped", { error: String(error) }),
+          );
     },
   };
 }
