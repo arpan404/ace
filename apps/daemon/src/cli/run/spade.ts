@@ -119,6 +119,8 @@ async function bots(context: CommandContext, one: boolean): Promise<void> {
   });
 }
 
+const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
 async function move(context: CommandContext): Promise<void> {
   const { listBots, findBot } = await import("../spade-bots.ts");
   const { findMachine, moveBot } = await import("../spade-move.ts");
@@ -137,7 +139,6 @@ async function move(context: CommandContext): Promise<void> {
     );
     const { SpadeMachinesResult } = await import("@ace/protocol");
     const machine = findMachine(SpadeMachinesResult.parse(listed).machines, to);
-    const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
     const moved = await moveBot(call, bot, machine, limit, wait);
     await emit(context.args, moved, {
       human: (value) => [
