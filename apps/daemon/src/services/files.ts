@@ -8,12 +8,7 @@ import { repeatableWarmup } from "./warmup.ts";
 import { backgroundFailure } from "./background.ts";
 import { startFilesNative, sweepFilesRoots } from "../files-tool/wiring.ts";
 import { filesErrorCode } from "../files-tool/tool.ts";
-import {
-  FilesService,
-  attachFilesSocket,
-  chunkFilesChannel,
-  attachmentChannel,
-} from "@ace/files";
+import { FilesService, attachFilesSocket, chunkFilesChannel, attachmentChannel } from "@ace/files";
 import { mkdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
