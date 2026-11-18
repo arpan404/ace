@@ -77,6 +77,8 @@ import XCTest
         XCTAssertTrue(row.label.contains("On for Claude Code, Codex and Cursor"))
         row.tap()
         let pi = app.switches["plugin.agent.pi"]
+        // A tap while the list still glides after the swipes only stops it; the next opens the row.
+        if !pi.waitForExistence(timeout: 5) { row.tap() }
         XCTAssertTrue(pi.waitForExistence(timeout: 10))
         XCTAssertEqual(pi.value as? String, "0")
         screenshot("plugin")
@@ -139,9 +141,19 @@ import XCTest
         defer { app.terminate() }
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         app.openBrowseDestination("library.skills")
-        let row = app.buttons["skills.row.research"]
+        // A project's skill: the fixture reads it, and it can be changed, so it shows Change.
+        let picker = app.buttons["skills.project"].firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 15))
+        let project = app.buttons["skills-demo"].firstMatch
+        for _ in 0..<10 where !project.exists {
+            picker.tap()
+            if project.waitForExistence(timeout: 2) { break }
+            app.navigationBars.firstMatch.tap()
+        }
+        project.tap()
+        let row = app.buttons["skills.row.release-desktop"]
         for _ in 0..<6 where !(row.exists && row.isHittable) { app.swipeUp() }
-        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
         row.tap()
         let change = app.buttons["skill.agents"]
         for _ in 0..<6 where !(change.exists && change.isHittable) { app.swipeUp() }
