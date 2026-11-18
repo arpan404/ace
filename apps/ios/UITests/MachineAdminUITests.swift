@@ -14,27 +14,47 @@ import XCTest
         let pair = app.buttons["devices.pair"]
         XCTAssertTrue(pair.waitForExistence(timeout: 20), "the machine's devices load")
         shot("machine-devices", app)
-        pair.tap()
-        XCTAssertTrue(app.buttons["pair.access.read"].waitForExistence(timeout: 10))
-        app.textFields["pair.label"].tap()
-        app.textFields["pair.label"].typeText("Kitchen iPad")
-        app.buttons["pair.access.read"].tap()
-        shot("pair-device-form", app)
-        app.buttons["pair.make"].tap()
-        XCTAssertTrue(app.staticTexts["pair.code"].waitForExistence(timeout: 20), "the machine made a link")
-        shot("pair-device-link", app)
-        app.buttons["Done"].tap()
-        // The link's Cancel waits in its row's ⋯ menu, as a device's Revoke does.
-        let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "devices.link.")).firstMatch
-        XCTAssertTrue(actions.waitForExistence(timeout: 20), "the open link is listed")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Kitchen iPad")).firstMatch.exists)
-        shot("machine-devices-open-link", app)
-        actions.tap()
+        makeLink(app, label: "Kitchen iPad", shots: true)
+        makeLink(app, label: "Hall iPad", shots: false)
+        // Each link's Cancel waits in its own row's ⋯ menu, as a device's Revoke does.
+        let kitchen = app.buttons["Actions for Kitchen iPad"]
+        let hall = app.buttons["Actions for Hall iPad"]
+        XCTAssertTrue(kitchen.waitForExistence(timeout: 20), "the first open link is listed")
+        XCTAssertTrue(hall.waitForExistence(timeout: 20), "the second open link is listed")
+        shot("machine-devices-open-links", app)
+        kitchen.tap()
         let cancel = app.buttons["Cancel link"].firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 5))
         cancel.tap()
-        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: actions)
-        wait(for: [gone], timeout: 20)
+        wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: kitchen)], timeout: 20)
+        XCTAssertTrue(hall.exists, "cancelling one link leaves the other open")
+
+        // A swipe, however long, only uncovers Cancel link; the link goes once that is tapped.
+        let hallRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Hall iPad")).firstMatch
+        XCTAssertTrue(hallRow.exists)
+        hallRow.swipeLeft(velocity: .fast)
+        let uncovered = app.buttons["Cancel link"].firstMatch
+        XCTAssertTrue(uncovered.waitForExistence(timeout: 5), "the swipe uncovers Cancel link")
+        sleep(2)
+        XCTAssertTrue(hall.exists, "a full swipe doesn't cancel the link by itself")
+        shot("machine-devices-swiped-link", app)
+        uncovered.tap()
+        wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: hall)], timeout: 20)
+    }
+
+    /// Pair a device: name it, make it view-only, make the link, then close the sheet.
+    private func makeLink(_ app: XCUIApplication, label: String, shots: Bool) {
+        app.buttons["devices.pair"].tap()
+        XCTAssertTrue(app.buttons["pair.access.read"].waitForExistence(timeout: 10))
+        app.textFields["pair.label"].tap()
+        app.textFields["pair.label"].typeText(label)
+        app.buttons["pair.access.read"].tap()
+        if shots { shot("pair-device-form", app) }
+        app.buttons["pair.make"].tap()
+        XCTAssertTrue(app.staticTexts["pair.code"].waitForExistence(timeout: 20), "the machine made a link")
+        if shots { shot("pair-device-link", app) }
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["devices.pair"].waitForExistence(timeout: 10))
     }
 
     func testLinkedMachinesAndFleetRulesShowEveryMachinesValues() {
