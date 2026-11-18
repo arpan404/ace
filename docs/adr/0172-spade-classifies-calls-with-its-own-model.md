@@ -269,7 +269,7 @@ Measured on `main`'s model and wiring, with the same labeller:
    command with its own `cwd`, a start folder outside the workspace) is never settled.
 3. **More things it never settles**, in code (decision 3): an option that runs another program
    (`rg --pre`, `tar --to-command`/`-I`, `rsync -e`, `find -exec`, `fd -x`, `git -c`, `sort
-   --compress-program`), and a wrapper that runs a command with the person's secrets in its
+--compress-program`), and a wrapper that runs a command with the person's secrets in its
    environment (`doppler run`, `op run`, `aws-vault exec`, `infisical`, `sops exec-env`…), which
    the parser takes off. The next word after a subcommand whose meaning it changes (`git remote`,
    `git stash`, `git bisect`, `jj git`, `brew services`, `npm config`…) is a key part; a digit after
@@ -293,26 +293,26 @@ Measured on `main`'s model and wiring, with the same labeller:
 wired here. Template rows are the shipped model on the fresh sets and the measured model on the
 first test sets; tldr's held-out pages use the measured model, which never saw them.
 
-| Set | Low-risk recall | False low-risk | Person precision | Person recall |
-| --- | --- | --- | --- | --- |
-| Fresh, clean | 0.118 → **0.477** | 0 of 1,920 → **0 of 1,920** | 0.983 → 0.972 | 0.942 → 0.935 |
-| Fresh, adversarial | 0.032 → **0.155** | 0 of 5,139 → **0 of 5,139** | 0.973 → 0.979 | 0.842 → 0.829 |
-| First test, clean | 0.285 → **0.497** | 0 of 3,019 → 0 of 3,559 | 0.997 → 0.998 | 0.789 → **0.844** |
-| First test, adversarial | 0.081 → **0.146** | 0 of 8,062 → 0 of 9,670 | 0.994 → 0.998 | 0.646 → **0.675** |
-| Held-out tricks and tools (shipped) | 0.070 → 0.060 | 0 of 3,312 → 0 of 3,747 | 1.000 → 1.000 | 0.895 → **0.906** |
-| Hand-labelled hard set | 0.449 → **0.771** | 0 of 95 → **0 of 95** | 0.979 → **1.000** | 0.920 → **0.940** |
-| tldr-pages, held-out pages | 0.054 → **0.098** | 1 → 10 of 6,978, all unnamed, read by hand: help, list and version commands of tools the labeller doesn't know | 0.201 → **0.391** | 0.208 → **0.349** |
+| Set                                           | Low-risk recall   | False low-risk                                                                                                     | Person precision  | Person recall     |
+| --------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------- | ----------------- |
+| Fresh, clean                                  | 0.118 → **0.477** | 0 of 1,920 → **0 of 1,920**                                                                                        | 0.983 → 0.972     | 0.942 → 0.935     |
+| Fresh, adversarial                            | 0.032 → **0.155** | 0 of 5,139 → **0 of 5,139**                                                                                        | 0.973 → 0.979     | 0.842 → 0.829     |
+| First test, clean                             | 0.285 → **0.497** | 0 of 3,019 → 0 of 3,559                                                                                            | 0.997 → 0.998     | 0.789 → **0.844** |
+| First test, adversarial                       | 0.081 → **0.146** | 0 of 8,062 → 0 of 9,670                                                                                            | 0.994 → 0.998     | 0.646 → **0.675** |
+| Held-out tricks and tools (shipped)           | 0.070 → 0.060     | 0 of 3,312 → 0 of 3,747                                                                                            | 1.000 → 1.000     | 0.895 → **0.906** |
+| Hand-labelled hard set                        | 0.449 → **0.771** | 0 of 95 → **0 of 95**                                                                                              | 0.979 → **1.000** | 0.920 → **0.940** |
+| tldr-pages, held-out pages                    | 0.054 → **0.098** | 1 → 10 of 6,978, all unnamed, read by hand: help, list and version commands of tools the labeller doesn't know     | 0.201 → **0.391** | 0.208 → **0.349** |
 | Real sessions, distinct commands, model alone | 0.024 → **0.061** | 1 → 2 of 2,298, both unnamed: they run a script, which the rules show the reviewer, so the gate never settles them | 0.136 → **0.944** | 0.070 → **0.133** |
-| Hand-labelled connector calls (raise only) | – | – | 0.900 → **0.947** | 0.857 → 0.857 |
+| Hand-labelled connector calls (raise only)    | –                 | –                                                                                                                  | 0.900 → **0.947** | 0.857 → 0.857     |
 
 End to end, real sessions (shares of 6,708 calls):
 
-| Replay | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer | Decided without the reviewer | False low-risk |
-| --- | --- | --- | --- | --- | --- |
-| As recorded, `main` | 0.1% | 0.8% (1 of 57) | 78.1% | 21.9% | 0 |
-| As recorded, this build | **2.2%** | 0.3% (17 of 18) | **76.6%** | **23.4%** | **0** |
-| Placed in the folder each thread worked in, `main` | 0.1% | 0.8% (1 of 57) | 79.1% | 20.9% | 0 |
-| Placed in the folder each thread worked in, this build | **22.4%** | 0.3% (16 of 17) | **57.4%** | **42.6%** | **0** |
+| Replay                                                 | Run on the classifier | Raised to the person (person-only of all it raised) | Reviewer  | Decided without the reviewer | False low-risk |
+| ------------------------------------------------------ | --------------------- | --------------------------------------------------- | --------- | ---------------------------- | -------------- |
+| As recorded, `main`                                    | 0.1%                  | 0.8% (1 of 57)                                      | 78.1%     | 21.9%                        | 0              |
+| As recorded, this build                                | **2.2%**              | 0.3% (17 of 18)                                     | **76.6%** | **23.4%**                    | **0**          |
+| Placed in the folder each thread worked in, `main`     | 0.1%                  | 0.8% (1 of 57)                                      | 79.1%     | 20.9%                        | 0              |
+| Placed in the folder each thread worked in, this build | **22.4%**             | 0.3% (16 of 17)                                     | **57.4%** | **42.6%**                    | **0**          |
 
 Run by the rules (12.0%), asked by the rules (7.8%, 6.8% placed) and refused (1.1%) are the same
 in every row. Of the 55 person-only real calls the rules sent to review, the classifier raises 16
