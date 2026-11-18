@@ -18,7 +18,7 @@ import {
   useWearing,
   versionFacts,
 } from "./market-entry-parts.tsx";
-import { faceFromReview, useSuitLook } from "./market-looks.ts";
+import { faceFromReview, useInLibrary, useSuitLook } from "./market-looks.ts";
 import { canDoSentences, entryAction, failureSentence, typeWord } from "./market-model.ts";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
 import { AppMark, SuitPicture, Stage } from "./market-stage.tsx";
@@ -165,7 +165,9 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   const [picked, setPicked] = useState<"light" | "dark">();
   const scheme = picked ?? shown;
   const both = suit ? suit.summary.schemes.length > 1 : false;
-  const worn = useWearing(installed?.target);
+  // Already in the library (built into ace, or made here) and not from the market: wear it.
+  const inLibrary = useInLibrary(summary.type, summary.name) && !installed;
+  const worn = useWearing(inLibrary ? summary.name : installed?.target);
   const palette = suit ? suitPalette(suit.manifest, scheme) : undefined;
   const offline = nav.offline;
   const tryIt = (
@@ -181,6 +183,13 @@ function SuitPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   );
   const actions = worn.wearing ? (
     <span className="mk-state-word">Wearing</span>
+  ) : inLibrary ? (
+    <>
+      <span className="mk-state-word">In your Suits</span>
+      <Button variant="primary" size="lg" onClick={worn.wear}>
+        Wear it
+      </Button>
+    </>
   ) : installed && installed.state === "on" && !installed.update ? (
     <>
       {tryIt}

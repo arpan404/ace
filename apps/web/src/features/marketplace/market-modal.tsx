@@ -6,6 +6,7 @@ import "./market-frame.css";
 import "./market-visuals.css";
 import "./market-pages.css";
 import "./market-people.css";
+import "./market-review.css";
 import "./market-widths.css";
 import { formatMarket, type MarketView } from "./market-address.ts";
 import { useMarketChanges, useMarketSources } from "./market-api.ts";

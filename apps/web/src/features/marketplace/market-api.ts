@@ -199,10 +199,16 @@ export function useInstall() {
         { op: "install", id: input.review.id, hash: input.review.hash, choices: input.choices },
         "done",
       ),
-    onSettled: (_answer, _error, input) => {
-      cache.removeQueries({ queryKey: [...marketKey, "review"] });
-      void cache.invalidateQueries({ queryKey: marketKey });
-      return input;
+    // The review is spent once installed, or once the daemon says it is stale. Any other
+    // refusal (a sign-in, a busy daemon) leaves it in place, so the page keeps saying why and
+    // Install can run again on the same review.
+    onSettled: (_answer, error) => {
+      const stale =
+        !error ||
+        (error instanceof MarketFailure && (error.code === "expired" || error.code === "conflict"));
+      if (stale) cache.removeQueries({ queryKey: [...marketKey, "review"] });
+      void cache.invalidateQueries({ queryKey: [...marketKey, "installed"] });
+      if (!error) void cache.invalidateQueries({ queryKey: marketKey });
     },
   });
 }
