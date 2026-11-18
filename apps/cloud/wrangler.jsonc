@@ -75,7 +75,7 @@
         // Canonical broker callbacks, and the exact origins serving account sign-in.
         "ACE_ACCOUNT_PUBLIC_URL": "https://cloud.acehq.dev",
         "ACE_ACCOUNT_PUBLIC_ORIGINS": "https://cloud.acehq.dev,https://relay.acehq.dev",
-        "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,app://ace",
+        "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,https://beta.app.acehq.dev,app://ace",
       },
       "durable_objects": {
         "bindings": [
