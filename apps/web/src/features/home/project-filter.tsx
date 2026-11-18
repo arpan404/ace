@@ -1,6 +1,6 @@
 import { ProjectMark } from "@/components/project-mark.tsx";
 import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@ace/icons";
-import { isChatEntry, projectBadge, projectCounts, projectTint } from "@ace/ui-core";
+import { projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -25,7 +25,7 @@ import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { DeviceFilter, ScopeMark, scopeNames, useScopeMachines } from "./device-filter.tsx";
 import { useSidebarDevice } from "./device-filter-state.ts";
-import { checkoutKey, filterRows } from "./project-scope.ts";
+import { filterRows, threadCounts } from "./project-scope.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useProjectGroups } from "./use-project-scope.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
@@ -56,19 +56,10 @@ export function ProjectFilter() {
   const groups = useProjectGroups();
   const directory = useProjectDirectory();
   const { name } = directory;
-  const counts = useMemo(() => {
-    const counted = new Map(withThreads.map((p) => [checkoutKey(own, p.id), p.threads]));
-    const byHost = new Map<string, typeof others>();
-    for (const entry of others) {
-      const host = machineRow(entry.id)?.hostId;
-      if (!host || isChatEntry(entry)) continue;
-      byHost.set(host, [...(byHost.get(host) ?? []), entry]);
-    }
-    for (const [host, entries] of byHost)
-      for (const each of projectCounts(entries))
-        counted.set(checkoutKey(host, each.id), each.threads);
-    return counted;
-  }, [withThreads, others, own]);
+  const counts = useMemo(
+    () => threadCounts(withThreads, others, own, (entry) => machineRow(entry.id)?.hostId),
+    [withThreads, others, own],
+  );
   const rows = useMemo(
     () =>
       filterRows({

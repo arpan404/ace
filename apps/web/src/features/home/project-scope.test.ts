@@ -1,6 +1,7 @@
+import { ThreadListEntry } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { groupProjects, type GroupableProject } from "@ace/ui-core/project-groups";
-import { filterRows, scopeOf } from "./project-scope.ts";
+import { archivedInScope, filterRows, scopeOf, threadCounts } from "./project-scope.ts";
 
 const ace = { remoteKey: { remotes: ["github.com/arpan/ace"], subpath: "" } };
 const project = (id: string, name: string, extra: Partial<GroupableProject> = {}) => ({
@@ -103,4 +104,67 @@ test("a project only threads mention, or no choice, filters as before", () => {
 test("a stored choice of another machine's checkout selects the group's row", () => {
   const row = rowsFor(undefined, "rijan/a2").find(([label]) => label === "ace");
   expect(row?.[1]).toBe("rijan/a2");
+});
+
+const thread = (id: string, workspaceId: string, extra: Record<string, unknown> = {}) =>
+  ThreadListEntry.parse({
+    id,
+    workspaceId,
+    title: id,
+    provider: "codex",
+    createdAt: 0,
+    updatedAt: 0,
+    status: { state: "done" },
+    ...extra,
+  });
+
+test("the archive shows both of this machine's checkouts of the chosen project", () => {
+  // ace and a worktree of it registered beside it, both on this Mac.
+  const twoHere = groupProjects([
+    {
+      machineId: "mac",
+      machineName: "Mac",
+      online: true,
+      here: true,
+      projects: [
+        project("a1", "ace", ace),
+        project("a9", "ace-review", ace),
+        project("n1", "notes"),
+      ],
+    },
+  ]);
+  const archived = [
+    thread("t1", "a1", { archivedAt: 10 }),
+    thread("t2", "a9", { archivedAt: 20 }),
+    thread("t3", "n1", { archivedAt: 30 }),
+  ];
+  expect(archivedInScope(archived, scopeOf("a1", twoHere, "mac").checkouts, "mac")).toEqual([
+    "t2",
+    "t1",
+  ]);
+  expect(archivedInScope(archived, scopeOf(null, twoHere, "mac").checkouts, "mac")).toEqual([
+    "t3",
+    "t2",
+    "t1",
+  ]);
+  // A project with no checkout here has nothing in this machine's archive.
+  expect(archivedInScope(archived, scopeOf("omarchy/f3", groups, "mac").checkouts, "mac")).toEqual(
+    [],
+  );
+});
+
+const hostOf = (entry: ThreadListEntry) => entry.id.split(":")[0];
+
+test("counts add each machine's threads to its checkout, leaving out chats, drafts and removed ones", () => {
+  const others = [
+    thread("rijan:1", "a2"),
+    thread("rijan:2", "a2"),
+    thread("omarchy:1", "a3"),
+    thread("omarchy:2", "a3", { deletedAt: 5 }),
+    thread("omarchy:3", "a3", {
+      details: { workspace: { id: "a3", name: "Chat", path: "/chats/a3", kind: "chat" } },
+    }),
+  ];
+  const counted = threadCounts([{ id: "a1", threads: 3 }], others, "mac", hostOf);
+  expect(Object.fromEntries(counted)).toEqual({ "mac/a1": 3, "rijan/a2": 2, "omarchy/a3": 1 });
 });

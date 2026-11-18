@@ -1,4 +1,6 @@
 import { defaultCheckout, groupMachines, type ProjectGroup } from "@ace/ui-core/project-groups";
+import type { ThreadListEntry } from "@ace/protocol";
+import { archivedOrder, isChatEntry, isDraft, isRemoved, type ProjectCount } from "@ace/ui-core";
 import { inScope, type DeviceScope } from "./device-filter-state.ts";
 
 /*
@@ -108,4 +110,46 @@ export function filterRows(input: {
     }
   }
   return rows.toSorted((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
+}
+
+/** Whether a thread on `hostId` in project `workspaceId` is in the chosen project's checkouts. */
+export const inProjectScope = (
+  checkouts: ProjectScope["checkouts"],
+  hostId: string,
+  workspaceId: string,
+) => !checkouts || checkouts.has(checkoutKey(hostId, workspaceId));
+
+/**
+ * This machine's archive (`archivedOrder`) within the panel's project filter: every one of its
+ * checkouts of the chosen project, and none for a project with no checkout here.
+ */
+export function archivedInScope(
+  entries: readonly ThreadListEntry[],
+  checkouts: ProjectScope["checkouts"],
+  own: string,
+): string[] {
+  const inside = checkouts
+    ? entries.filter((entry) => inProjectScope(checkouts, own, entry.workspaceId))
+    : entries;
+  return archivedOrder(inside, { project: null });
+}
+
+/**
+ * Threads per checkout key: this machine's counts (`local`, by project id) and other machines'
+ * threads, counted as `projectCounts` counts (no removed threads, drafts or chats), in one pass.
+ */
+export function threadCounts(
+  local: readonly ProjectCount[],
+  others: readonly ThreadListEntry[],
+  own: string,
+  hostOf: (entry: ThreadListEntry) => string | undefined,
+): Map<string, number> {
+  const counts = new Map(local.map((each) => [checkoutKey(own, each.id), each.threads]));
+  for (const entry of others) {
+    const host = hostOf(entry);
+    if (!host || isChatEntry(entry) || isRemoved(entry) || isDraft(entry)) continue;
+    const key = checkoutKey(host, entry.workspaceId);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
 }

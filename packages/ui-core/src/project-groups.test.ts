@@ -242,20 +242,30 @@ test.each([
   expect(keysOf(lists)).toEqual(groups);
 });
 
+/** The one group `lists` makes, read in both orders: the same key both times, and a real one. */
+const onlyKey = (lists: MachineProjectList[]) => {
+  const forward = groupProjects(lists);
+  const backward = groupProjects(lists.toReversed());
+  expect(forward).toHaveLength(1);
+  expect(backward).toHaveLength(1);
+  const key = forward[0]?.key;
+  expect(typeof key === "string" && key.length > 0).toBe(true);
+  expect(backward[0]?.key).toBe(key);
+  return forward[0];
+};
+
 test("a group joined by remote keeps one key however its machines list it, and names its ids", () => {
-  const lists = [
+  const group = onlyKey([
     machine("mac", [project("1", "ace", undefined, remote([ace]))], { here: true }),
     machine("rijan", [project("2", "ace", Q, remote([ace]))]),
-  ];
-  const [group] = groupProjects(lists);
-  const [again] = groupProjects(lists.toReversed());
-  expect(group?.key).toBe(again?.key);
+  ]);
+  expect(group?.key).toBe(Q);
   expect(group?.identityIds).toEqual([Q]);
   expect(group?.label).toBe("ace");
-  // Without any identity the key is still the same on every read.
-  const plain = [
+  // Without any identity the key is still the same on every read, and it is the remote's.
+  const plain = onlyKey([
     machine("mac", [project("1", "ace", undefined, remote([ace]))]),
     machine("rijan", [project("2", "ace", undefined, remote([ace]))]),
-  ];
-  expect(groupProjects(plain)[0]?.key).toBe(groupProjects(plain.toReversed())[0]?.key);
+  ]);
+  expect(plain?.key).toContain(ace);
 });

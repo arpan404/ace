@@ -6,11 +6,8 @@ const ace = { remotes: ["github.com/arpan/ace"], subpath: "" };
 
 /** A paged read whose pages were all answered before `release` lets it land. */
 function slowRead(list: P[]) {
-  let release = () => {};
-  const landed = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { read: () => landed.then(() => list), release: () => release() };
+  const { promise, resolve } = Promise.withResolvers<void>();
+  return { read: () => promise.then(() => list), release: () => resolve() };
 }
 
 test("a checkout unlinked while a read is out keeps no key when that read lands", async () => {
