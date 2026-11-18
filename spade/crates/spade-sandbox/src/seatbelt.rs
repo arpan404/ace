@@ -291,6 +291,24 @@ fn string(text: &str) -> String {
     out
 }
 
+/// `profile` letting a run start Spade's own program at `helper` (its real path) inside the
+/// sandbox, as the first thing it runs there: it restores the run's environment and becomes the
+/// command (ADR 0171, amendment 4). It reads that one file and looks up the folders above it,
+/// nothing else of where it lives.
+pub fn with_helper(mut profile: String, helper: &Path) -> String {
+    rule(
+        &mut profile,
+        "allow file-read*",
+        std::iter::once(literal(helper)),
+    );
+    rule(
+        &mut profile,
+        "allow file-read-metadata",
+        helper.ancestors().skip(1).map(literal),
+    );
+    profile
+}
+
 /// The folders above every place the policy opens, up to the root.
 fn ancestors(policy: &Policy) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = policy
@@ -398,6 +416,18 @@ mod tests {
             .filter_map(|rest| rest.split('"').next())
             .map(str::to_owned)
             .collect()
+    }
+
+    #[test]
+    fn spades_own_program_is_readable_inside_and_nothing_else_beside_it() {
+        let helper = Path::new("/Users/p/.ace/releases/spade/v1/spade");
+        let text = with_helper(profile_offline(&policy()), helper);
+        assert!(text.contains("(literal \"/Users/p/.ace/releases/spade/v1/spade\")"));
+        // Its folders can be looked up, not read: nothing else there is opened.
+        assert!(!text.contains("(subpath \"/Users/p/.ace"));
+        assert!(text.contains("(literal \"/Users/p/.ace/releases/spade/v1\")"));
+        // And it adds no network.
+        assert!(!text.contains("network"));
     }
 
     #[test]

@@ -225,21 +225,17 @@ impl Servers {
                                 // Spade's own program starts the server: the plugin's environment
                                 // (its tokens, and any `LD_*` or `DYLD_*` it names) is carried
                                 // past it to the server inside the sandbox, never set on it.
-                                if launched.seals_env {
-                                    command.env = spade_sandbox::run_env::sealed(std::mem::take(
-                                        &mut command.env,
-                                    ))
-                                    .into_iter()
-                                    .map(|(name, value)| {
-                                        (
-                                            name.to_string_lossy().into_owned(),
-                                            value.to_string_lossy().into_owned(),
-                                        )
-                                    })
-                                    .collect();
-                                }
+                                // A variable it can't carry exactly: not started at all.
+                                let carried = if launched.seals_env {
+                                    carry(&mut command.env)
+                                } else {
+                                    Ok(())
+                                };
                                 offline = confined.offline;
-                                (Some(confined.hold), None)
+                                match carried {
+                                    Ok(()) => (Some(confined.hold), None),
+                                    Err(why) => (None, Some(why)),
+                                }
                             }
                             Err(why) => (None, Some(why)),
                         }
@@ -425,6 +421,22 @@ fn server_plan(confinement: Result<Confinement, String>) -> ServerPlan {
         Ok(Confinement::NeedsReview(reason)) => ServerPlan::Refuse(reason),
         Err(why) => ServerPlan::Refuse(why),
     }
+}
+
+/// `env`, carried past Spade's own program (`spade_sandbox::run_env`); an error, and `env` left
+/// empty, when a name can't be carried exactly.
+fn carry(env: &mut Vec<(String, String)>) -> Result<(), String> {
+    let carried = spade_sandbox::run_env::sealed(std::mem::take(env))?;
+    *env = carried
+        .into_iter()
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    Ok(())
 }
 
 #[cfg(test)]

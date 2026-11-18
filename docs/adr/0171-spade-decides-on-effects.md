@@ -354,8 +354,11 @@ send, post or pay as the person, and nothing looked.
   name what the system's loader runs before any of Spade's code (`LD_PRELOAD`,
   `DYLD_INSERT_LIBRARIES`). So such a launch (`Launch::seals_env`) starts that program with the
   run's variables renamed under a marker (`spade_sandbox::run_env`), which no loader reads, and
-  it restores them only on the command it starts inside the sandbox (on macOS, on
-  `sandbox-exec`, a system binary whose loader ignores `DYLD_*`). The release's `spade` is also
+  they are restored only once the sandbox holds the run: on Linux on the command the launcher
+  starts in its confined thread; on macOS by Spade's program run a second time, by `sandbox-exec`,
+  inside Seatbelt (the profile lets it read that one file), so neither `sandbox-exec` nor the
+  outer program ever runs with them. A name that can't be carried exactly (empty, holding `=`, or
+  not UTF-8) stops the launch rather than being dropped. The release's `spade` is also
   signed with the hardened runtime and no `allow-dyld-environment-variables` entitlement, so
   dyld ignores `DYLD_*` for it anyway; the carrying doesn't rely on that.
 
@@ -380,9 +383,20 @@ send, post or pay as the person, and nothing looked.
   rules. Sealing promises that the sealed server's own calls reach nothing outside the machine,
   not that nothing else on the machine does.
 - **A classification that fails never widens where a call runs.** A call whose classification
-  runs out of time or fails stays in the sandbox (a launch held to it is refused where there is
-  none), and one that asked to run outside goes to the person (`ask: outside_sandbox`), in every
-  mode.
+  runs out of time or fails stays in the sandbox, and one that asked to run outside is refused:
+  an approval to run outside is held to what Spade read the command would run, so it is created,
+  and checked again right before the launch, only from a classification that succeeded; one that
+  fails at the launch refuses the call.
+- **Every launch keeps the gate's decision.** What the gate authorized (outside, only contained,
+  or as the sandbox finds it) is carried to the launch of a one-shot command, a terminal command
+  and an owned service (recorded with the service, so a kept one started again after a restart is
+  held the same way); a run the gate let start only contained is refused wherever nothing holds
+  it (no sandbox, or one that doesn't apply), never run plainly. Helpers and routines run through
+  the same tools; plugin servers and hooks have no gate decision, and a server nothing holds is
+  never sealed.
+- **An app's tool can't write the bot's folder.** An unsealed connector's or plugin's tool
+  declared `write_local` (with a read-only hint or not) is decided as a write outside the bot:
+  reviewed after the person's own checks, never the local-write shortcut.
 - **A person's "no" holds wherever the tool runs.** An undeclared tool the person declined for
   the bot is refused before any sandbox shortcut, so a plugin server that becomes sealed later
   doesn't bring a declined tool back.

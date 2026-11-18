@@ -307,30 +307,43 @@ mod platform {
             Mode::ReadOnly => seatbelt::profile(policy, true),
             Mode::Offline => seatbelt::profile_offline(policy),
         };
-        let mut all: Vec<OsString> = vec!["-p".into(), profile.into()];
-        all.push(program.as_os_str().to_owned());
-        all.extend(args.iter().cloned());
-        // An offline or read-only run starts with its stdio alone (ADR 0171, amendment 4): Spade's
-        // own program marks every descriptor it inherited close-on-exec, then becomes
-        // `sandbox-exec`. Where it isn't known (a test's runner), a read-only run starts as before.
+        // An offline or read-only run starts with its stdio alone and with nothing from its
+        // environment acting before the sandbox holds it (ADR 0171, amendment 4). Spade's own
+        // program runs twice: outside, it marks every descriptor it inherited close-on-exec and
+        // becomes `sandbox-exec` with the environment still carried; `sandbox-exec` applies the
+        // profile and starts it again, inside, where it restores the environment and becomes
+        // the command. Where it isn't known (a test's runner), a read-only run starts as before.
         match (mode, launcher) {
-            (Mode::Normal, _) | (Mode::ReadOnly, None) => Ok(Launch {
-                program: PathBuf::from(seatbelt::SANDBOX_EXEC),
-                args: all,
-                seals_env: false,
-            }),
+            (Mode::Normal, _) | (Mode::ReadOnly, None) => {
+                let mut all: Vec<OsString> = vec!["-p".into(), profile.into()];
+                all.push(program.as_os_str().to_owned());
+                all.extend(args.iter().cloned());
+                Ok(Launch {
+                    program: PathBuf::from(seatbelt::SANDBOX_EXEC),
+                    args: all,
+                    seals_env: false,
+                })
+            }
             (Mode::Offline, None) => Err(Unavailable(
                 "Spade's own program is unknown, so a run can't be held offline".to_owned(),
             )),
             (Mode::ReadOnly | Mode::Offline, Some(launcher)) => {
-                let mut sealed: Vec<OsString> = vec![
+                // As the profile reads it: the program's real path.
+                let helper = std::fs::canonicalize(launcher).unwrap_or_else(|_| launcher.into());
+                let profile = seatbelt::with_helper(profile, &helper);
+                let mut all: Vec<OsString> = vec![
                     crate::fds::SEAL_ARG.into(),
                     PathBuf::from(seatbelt::SANDBOX_EXEC).into(),
+                    "-p".into(),
+                    profile.into(),
+                    helper.clone().into(),
+                    crate::fds::RESTORE_ARG.into(),
+                    program.as_os_str().to_owned(),
                 ];
-                sealed.extend(all);
+                all.extend(args.iter().cloned());
                 Ok(Launch {
-                    program: launcher.to_path_buf(),
-                    args: sealed,
+                    program: helper,
+                    args: all,
                     seals_env: true,
                 })
             }

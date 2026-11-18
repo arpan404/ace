@@ -85,7 +85,7 @@ fn a_preload_a_plugin_names_never_runs_in_the_launcher_outside_the_sandbox() {
     let said = started(
         &launch,
         &world.workspace,
-        spade_sandbox::run_env::sealed(run_env),
+        spade_sandbox::run_env::sealed(run_env).unwrap_or_else(|e| panic!("{e}")),
     );
     assert_eq!(said.trim(), "t0k");
     assert!(!escaped.exists(), "the preload ran outside the sandbox");

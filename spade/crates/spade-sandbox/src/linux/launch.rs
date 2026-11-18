@@ -308,8 +308,12 @@ fn confined(
     let mut command = std::process::Command::new("/usr/bin/setsid");
     // The run's environment, carried past this launcher, goes to the command only: it starts
     // here, inside the sandbox (`run_env`).
-    if let Some(env) = crate::run_env::opened(std::env::vars_os()) {
-        command.env_clear().envs(env);
+    match crate::run_env::opened(std::env::vars_os()) {
+        Ok(Some(env)) => {
+            command.env_clear().envs(env);
+        }
+        Ok(None) => {}
+        Err(why) => return fail(format!("the command's environment: {why}")),
     }
     if start.controlling {
         command.arg("--ctty");
