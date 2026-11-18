@@ -34,6 +34,7 @@
     "./handoff-read": "./src/handoff-read.ts",
     "./pi": "./src/pi.ts",
     "./ids": "./src/ids.ts",
+    "./ace-client": "./src/ace-client.ts",
     "./notifications": "./src/notifications.ts",
     "./thread-status": "./src/thread-status.ts",
     "./background": "./src/background.ts",

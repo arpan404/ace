@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useUpdateClosing } from "@/boot/desktop-updates.ts";
+import { useDaemonStartWords } from "@/boot/desktop-daemon-start.ts";
 import { updateClosingWords } from "./update-status.ts";
 
 /** What still works offline and what waits; it loads when the connection first drops. */
@@ -40,6 +41,8 @@ export function ConnectionNotice() {
   const client = useClient();
   const connection = useDaemonConnection();
   const closing = useUpdateClosing();
+  // The desktop is still starting its daemon (the window opened on what it kept): say its step.
+  const starting = useDaemonStartWords();
   const [late, setLate] = useState(false);
   useEffect(() => {
     if (state !== "reconnecting") return;
@@ -90,9 +93,7 @@ export function ConnectionNotice() {
           <Spinner />
           {client.error?.code === "version_mismatch"
             ? versionMismatchWords
-            : late
-              ? "Offline"
-              : "Reconnecting"}
+            : (starting ?? (late ? "Offline" : "Reconnecting"))}
           <IconButton
             icon={ArrowClockwiseIcon}
             label="Retry now"

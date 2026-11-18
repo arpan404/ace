@@ -2,6 +2,8 @@
 export interface Thaw {
   at: number;
   frozenMs: number;
+  /** The gap was the computer sleeping, not the app freezing (the OS said it resumed). */
+  slept?: boolean | undefined;
 }
 
 /** Tells when the app's main thread last came back from a freeze (`diagnostics/main-beat.ts`). */
@@ -45,10 +47,10 @@ const BEAT_MS = 500;
  * is ever in flight; a check that finds the previous probe still pending waits on it again
  * rather than sending another.
  *
- * The checks run on this process's timers, so a frozen app sees every one of them late: a
- * timeout fires long after its deadline and a request's own abort beats the answer that waited
- * unread in the socket. Neither says anything about the daemon. A check during which the
- * app's timers ran late is not counted; it is sent again once the app runs. Only checks the
+ * The checks run on this process's timers, so a frozen app (or a computer that slept) sees every
+ * one of them late: a timeout fires long after its deadline and a request's own abort beats the
+ * answer that waited unread in the socket. Neither says anything about the daemon. A check
+ * during which the app's timers ran late is not counted; it is sent again once the app runs. Only checks the
  * app saw on time can stop a daemon. Returns a function that stops the watch.
  */
 export function watchHealth(options: WatchdogOptions): () => void {
@@ -112,13 +114,23 @@ export function watchHealth(options: WatchdogOptions): () => void {
       cancel?.();
       cancel = undefined;
       const now = options.now();
-      const timeoutLateMs = answer === "timeout" ? now - startedAt - options.timeoutMs : 0;
+      // Past the check's own deadline by more than the tolerance, whatever the answer: this
+      // process's timers ran late (the app froze, or the computer slept and its request failed
+      // on waking before the beat noticed), so the answer says nothing about the daemon.
+      const lateMs = now - startedAt - options.timeoutMs;
       const thaw = lastThaw();
-      if (answer !== true && (timeoutLateMs > tolerance || (thaw?.at ?? -1) >= since)) {
-        options.log("info", "The app froze during a daemon health check; checking again", {
-          frozenMs: Math.round(Math.max(thaw?.frozenMs ?? 0, timeoutLateMs)),
-          missed,
-        });
+      if (answer !== true && (lateMs > tolerance || (thaw?.at ?? -1) >= since)) {
+        const slept = thaw?.slept === true && thaw.at >= since;
+        options.log(
+          "info",
+          slept
+            ? "The computer slept during a daemon health check; checking again"
+            : "The app froze during a daemon health check; checking again",
+          {
+            [slept ? "sleptMs" : "frozenMs"]: Math.round(Math.max(thaw?.frozenMs ?? 0, lateMs)),
+            missed,
+          },
+        );
         // After the I/O the freeze held back: an answer waiting in the socket counts.
         cancel = options.timers.set(0, () => {
           cancel = undefined;

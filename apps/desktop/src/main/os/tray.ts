@@ -6,12 +6,14 @@ export interface TrayActions {
   open(): void;
   pause(paused: boolean): void;
   quitAll(): void;
+  /** Quits and stops the daemon too. */
+  quitCompletely(): void;
 }
 
 /**
  * The menu-bar (macOS) or notification-area icon while ace keeps running in the background:
- * daemon status, the needs-you count, Open, Pause new work, and Quit (which also stops a
- * daemon this app started).
+ * daemon status, the needs-you count, Open, Pause new work, Quit (the daemon this app started
+ * keeps running, ADR 0186) and Quit ace completely (it stops too).
  */
 export class StatusTray {
   private tray: Tray | undefined;
@@ -85,6 +87,7 @@ export class StatusTray {
         },
         { type: "separator" },
         { label: "Quit ace", click: () => this.actions.quitAll() },
+        { label: "Quit ace completely", click: () => this.actions.quitCompletely() },
       ]),
     );
   }

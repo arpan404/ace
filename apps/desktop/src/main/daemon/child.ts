@@ -1,5 +1,7 @@
-/** A daemon child process this app started. */
+/** A daemon process this app started: its child, or one an earlier launch left running. */
 export interface DaemonProcess {
+  /** Unset for a process that never started. */
+  readonly pid?: number | undefined;
   kill(signal: NodeJS.Signals): void;
   /**
    * Called once when the process is gone. `error` is set when it never started (ENOENT,

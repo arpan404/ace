@@ -1,3 +1,4 @@
+import type { ServerGate } from "@ace/service/client-features";
 import type { Env } from "./env.ts";
 import type { KeySource } from "./grant-keys.ts";
 import type { Databases } from "./store/databases.ts";
@@ -19,6 +20,11 @@ export interface Context {
   newToken(): string;
   /** Fetch for proof checks (ADR 0174 §13) only; everything else is a binding. */
   fetch(url: string, init: RequestInit): Promise<Response>;
+  /**
+   * Which gated features the calling app supports (ADR 0189), read once from its `ace-client`
+   * header. An app that doesn't say supports none and is otherwise served as before.
+   */
+  gate: ServerGate;
 }
 
 export type IdPrefix = "pub" | "drf" | "trf" | "apl" | "rpt";

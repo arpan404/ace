@@ -7,6 +7,11 @@ const POLL_MS = 200;
  * fallback, for a change the watch missed.
  */
 const WATCHED_POLL_MS = 1_000;
+/**
+ * Once the daemon has published its endpoint it is moments from ready, and the window waits on
+ * that answer: it is asked this often (a local status call) so it is seen within a frame or two.
+ */
+const PUBLISHED_POLL_MS = 25;
 
 /** Changes to the home's `daemon-endpoint`, which a daemon writes once it listens. */
 export interface EndpointWatch {
@@ -27,8 +32,8 @@ export interface ReadinessPorts {
   log(level: "warn", message: string, data?: Record<string, unknown>): void;
 }
 
-const pause = (ports: ReadinessPorts) =>
-  new Promise<void>((resolve) => ports.timers.set(POLL_MS, resolve));
+const pause = (ports: ReadinessPorts, delayMs = POLL_MS) =>
+  new Promise<void>((resolve) => ports.timers.set(delayMs, resolve));
 
 /** The next endpoint change (true), or the fallback poll (false), whichever comes first. */
 function nextChange(ports: ReadinessPorts, watch: EndpointWatch): Promise<boolean> {
@@ -49,8 +54,9 @@ function nextChange(ports: ReadinessPorts, watch: EndpointWatch): Promise<boolea
  * Look for a daemon serving this home until one answers, `live` turns false (the start was
  * superseded, or our child exited) or `timeoutMs` passes. Where the endpoint file can be
  * watched, the lookups wait for the daemon to write it (once it listens), with a slow poll
- * behind that. From then on they poll every 200 ms as without a watch: a daemon answers its
- * status before it is ready, and turning ready changes no file.
+ * behind that. From then on they poll every 25 ms: a daemon answers its status before it is
+ * ready, turning ready changes no file, and the window is waiting on it. Without a watch they
+ * poll every 200 ms.
  */
 export async function waitForDaemon(
   ports: ReadinessPorts,
@@ -61,18 +67,20 @@ export async function waitForDaemon(
 ): Promise<LocalDaemon | undefined> {
   const deadline = ports.now() + timeoutMs;
   let watch = ports.watchEndpoint?.();
+  let seen = false;
   try {
     while (live() && ports.now() < deadline) {
       const found = await ports.find();
       if (found) return found;
       if (!watch) {
-        await pause(ports);
+        await pause(ports, seen ? PUBLISHED_POLL_MS : POLL_MS);
         continue;
       }
       if (await nextChange(ports, watch)) {
         // Published: the daemon is coming up, and its readiness is polled for.
         watch.close();
         watch = undefined;
+        seen = true;
         if (live()) published?.();
       }
     }

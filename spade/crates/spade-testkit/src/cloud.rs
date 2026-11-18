@@ -30,6 +30,8 @@ struct Cloud {
     refresh_down: bool,
     refreshes: Vec<String>,
     starts: usize,
+    /// The `ace-client` header of each start (ADR 0189), in order; None when absent.
+    clients: Vec<Option<String>>,
     start_gate: Option<Arc<tokio::sync::Notify>>,
 }
 
@@ -80,6 +82,11 @@ async fn start(
     let gate = {
         let mut cloud = lock(&state);
         cloud.starts += 1;
+        let client = headers
+            .get("ace-client")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        cloud.clients.push(client);
         cloud.start_gate.clone()
     };
     if let Some(gate) = gate {
@@ -220,5 +227,10 @@ impl FakeCloud {
 
     pub fn starts(&self) -> usize {
         lock(&self.state).starts
+    }
+
+    /// How each start named its caller (`ace-client`, ADR 0189), in order.
+    pub fn clients(&self) -> Vec<Option<String>> {
+        lock(&self.state).clients.clone()
     }
 }

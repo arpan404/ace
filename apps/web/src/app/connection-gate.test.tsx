@@ -559,3 +559,60 @@ test("a worker-style client is identified before its App can create terminal clo
   view.unmount();
   await client.close();
 });
+
+/** A client on the fake daemon whose backoff never runs out by itself: only a wake skips it. */
+function heldBackoffClient(daemon: FakeDaemon): Client {
+  let ids = 0;
+  return new Client({
+    deviceId: DeviceId.parse("asleep-device"),
+    transport: () => fakeTransport(daemon),
+    credential: async () => token,
+    storage: memoryStorage(),
+    scheduler: { set: () => () => {} },
+    random: () => 0.5,
+    id: () => `wake-${++ids}`,
+  });
+}
+
+test.each([
+  ["the desktop says the computer woke", (resumed: () => void) => resumed()],
+  ["the window is shown again", () => document.dispatchEvent(new Event("visibilitychange"))],
+  ["the network comes back", () => window.dispatchEvent(new Event("online"))],
+])(
+  "when %s, the window reconnects at once instead of waiting out its backoff",
+  async (_cue, wake) => {
+    const listeners = new Set<() => void>();
+    Reflect.set(window, "ace", {
+      onSystemResumed: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    });
+    try {
+      const { daemon } = boot({
+        remembered: true,
+        known: "fake-host",
+        createClient: (_target, fake) => {
+          // Asleep: the daemon can't be reached, and the client backs off.
+          fake.refuseConnections(true);
+          return heldBackoffClient(fake);
+        },
+      });
+      await screen.findByRole("navigation", { name: "Projects" });
+      await waitFor(() =>
+        expect(document.querySelector("[data-connection]")?.getAttribute("data-connection")).toBe(
+          "reconnecting",
+        ),
+      );
+      // Awake: the daemon answers again, and nothing but the wake can retry now.
+      daemon.refuseConnections(false);
+      act(() => wake(() => listeners.forEach((listener) => listener())));
+      expect(await screen.findByRole("link", { name: /Fix flaky checkout test/ })).toBeTruthy();
+      expect(document.querySelector("[data-connection]")?.getAttribute("data-connection")).toBe(
+        "ready",
+      );
+    } finally {
+      Reflect.deleteProperty(window, "ace");
+    }
+  },
+);

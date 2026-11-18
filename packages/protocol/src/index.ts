@@ -39,6 +39,7 @@ export * from "./diagnostics.ts";
 export * from "./admission.ts";
 export * from "./app-update.ts";
 export * from "./release-data.ts";
+export * from "./ace-client.ts";
 export * from "./machine-update.ts";
 export * from "./context.ts";
 export * from "./search.ts";
