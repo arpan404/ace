@@ -73,13 +73,16 @@ impl Out {
         self.queue(Item::Body { id, bytes }).await;
     }
 
-    /// Log a failed request and answer it. Every error takes exactly this path, so the log carries
-    /// one line per failure worth a line and stdout carries nothing but frames.
+    /// Answer a failed request. Every error takes exactly this path, so stdout carries nothing but
+    /// frames, and stderr carries one line only for a failure of the machine rather than of the
+    /// request.
     pub async fn error(&self, id: u64, failure: Failure) {
-        eprintln!(
-            "ace-files: request {id} failed: {}: {}",
-            failure.code, failure.message
-        );
+        if crate::error::worth_logging(failure.code) {
+            eprintln!(
+                "ace-files: request {id} failed: {}: {}",
+                failure.code, failure.message
+            );
+        }
         self.send(Message::Error {
             id,
             code: failure.code.to_owned(),

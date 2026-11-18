@@ -80,10 +80,15 @@ impl Shared {
             Ok(summary) => EventPayload::SearchDone {
                 summary: convert::summary(summary),
             },
-            Err(error) => EventPayload::SearchFailed {
-                code: error.code().to_owned(),
-                message: error.to_string(),
-            },
+            Err(error) => {
+                if crate::error::worth_logging(error.code()) {
+                    eprintln!("ace-files: search {id} failed: {}: {error}", error.code());
+                }
+                EventPayload::SearchFailed {
+                    code: error.code().to_owned(),
+                    message: error.to_string(),
+                }
+            }
         };
         self.out
             .send(Message::Event {

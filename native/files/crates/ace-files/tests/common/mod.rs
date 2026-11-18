@@ -415,6 +415,47 @@ impl Client {
         }
     }
 
+    /// Every stderr line the binary wrote within `window`.
+    pub fn stderr_within(&mut self, window: Duration) -> Vec<String> {
+        let stderr = self
+            .stderr
+            .as_mut()
+            .expect("this client was launched with stderr captured");
+        let deadline = Instant::now() + window;
+        let mut lines = Vec::new();
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return lines;
+            }
+            match stderr.recv_timeout(remaining) {
+                Ok(line) => lines.push(line),
+                Err(_) => return lines,
+            }
+        }
+    }
+
+    /// Wait until a stderr line contains `needle`, and hand back the lines it took to get there.
+    pub fn await_stderr(&mut self, needle: &str) -> Vec<String> {
+        let stderr = self
+            .stderr
+            .as_mut()
+            .expect("this client was launched with stderr captured");
+        let deadline = Instant::now() + TIMEOUT;
+        let mut lines = Vec::new();
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let line = stderr
+                .recv_timeout(remaining)
+                .unwrap_or_else(|_| panic!("no stderr line containing {needle:?}; saw {lines:?}"));
+            let found = line.contains(needle);
+            lines.push(line);
+            if found {
+                return lines;
+            }
+        }
+    }
+
     /// How many indexes the binary has published, as `ACE_FILES_INDEX_EVENTS` reports them.
     pub fn index_publishes(&mut self) -> usize {
         let stderr = self
