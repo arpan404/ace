@@ -294,6 +294,13 @@ fn untrash_with(
     }
     let trash = root.dir().try_clone()?;
     match trash.symlink_metadata(endpoint) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            // A delete never parks a link, so an endpoint that is one was planted by something
+            // else; moving it to a client path would install a link the client never named.
+            return Err(Error::InvalidArgument(format!(
+                "{endpoint} is not a trashed entry"
+            )));
+        }
         Ok(_) => {}
         Err(error) if error.kind() == ErrorKind::NotFound => {
             return Err(Error::Io(std::io::Error::from(ErrorKind::NotFound)));
@@ -590,6 +597,23 @@ mod tests {
             assert_eq!(error.code(), "INVALID_ARGUMENT", "{endpoint}");
         }
         assert!(temp.path().join("a.md").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_restore_refuses_a_planted_link_at_the_trash_endpoint() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        fs::write(temp.path().join("target.md"), b"target").expect("write");
+        std::os::unix::fs::symlink("target.md", temp.path().join(".ace-upload-trash-6"))
+            .expect("link");
+        let root = root(temp.path());
+
+        let error = super::untrash(&root, ".ace-upload-trash-6", "back.md")
+            .expect_err("a link is not a trashed entry");
+
+        assert_eq!(error.code(), "INVALID_ARGUMENT");
+        assert!(!temp.path().join("back.md").exists());
+        assert!(temp.path().join(".ace-upload-trash-6").is_symlink());
     }
 
     #[test]
