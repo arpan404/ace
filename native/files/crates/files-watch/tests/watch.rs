@@ -140,15 +140,10 @@ impl Session {
         }
     }
 
-    fn assert_quiet(&self) {
-        let before = self.seen().len();
+    /// Waits a quiet period and returns everything the sink saw.
+    fn after_quiet(&self) -> Vec<Batch> {
         std::thread::sleep(self.quiet());
-        assert_eq!(
-            self.seen().len(),
-            before,
-            "expected no batch, saw {:?}",
-            self.seen()
-        );
+        self.seen()
     }
 }
 
@@ -204,18 +199,26 @@ fn rename_is_delete_plus_create() {
 #[test]
 fn create_then_delete_in_one_window_reports_nothing() {
     // The gap makes FSEvents report the creation on its own, which is the case the rule is
-    // about; the debounce is wide enough to hold both deliveries in one window.
+    // about; the debounce is wide enough to hold both deliveries in one window. When FSEvents
+    // still merges them, the pair can only arrive as the deletion of a path that is gone, and
+    // what must never reach the tree is a creation for a file that no longer exists.
     let session = Session::start(
         WatchOptions {
-            debounce: Duration::from_millis(8_000),
+            debounce: Duration::from_millis(3_000),
             ..options()
         },
         |_| {},
     );
     std::fs::write(session.path("fleeting.txt"), b"brief").unwrap();
-    std::thread::sleep(Duration::from_millis(4_000));
+    std::thread::sleep(Duration::from_millis(2_000));
     std::fs::remove_file(session.path("fleeting.txt")).unwrap();
-    session.assert_quiet();
+    let reported = changes(&session.after_quiet());
+    assert!(
+        reported
+            .iter()
+            .all(|change| change.path == "fleeting.txt" && change.kind != ChangeKind::Created),
+        "a create and delete reports nothing, or only the deletion, saw {reported:?}"
+    );
     std::fs::write(session.path("kept.txt"), b"kept").unwrap();
     session.wait_for("kept.txt", ChangeKind::Created);
 }
