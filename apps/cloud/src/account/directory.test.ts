@@ -150,6 +150,17 @@ it("the account backend refuses a market publishing grant to an account whose em
   expect(await response.json()).toMatchObject({ error: "email_unverified" });
 });
 
+const legacySetup = (until: string) =>
+  readAccountSetup({
+    ACE_ACCOUNT_PUBLIC_URL: "https://cloud.acehq.dev",
+    ACE_ACCOUNT_ALLOWED_ORIGINS: "app://ace",
+    WORKOS_CLIENT_ID: "client_test",
+    WORKOS_API_KEY: "test-key",
+    ACE_ACCOUNT_ENCRYPTION_KEY: "a".repeat(64),
+    ACE_GRANT_KEY: `k:${"A".repeat(43)}`,
+    ACE_LEGACY_PERSON_UNTIL: until,
+  });
+
 it("only a person's session speaks for the person, and an old session only within the chosen transition", () => {
   const base = {
     hash: "h",
@@ -169,19 +180,9 @@ it("only a person's session speaks for the person, and an old session only withi
   expect(speaksForPerson(session("legacy"), 2000, 2000)).toBe(false);
   expect(speaksForPerson(session("exposed"), 1000, 2000)).toBe(false);
   expect(speaksForPerson(machine, 1000, 2000)).toBe(false);
-  const setup = (until: string) =>
-    readAccountSetup({
-      ACE_ACCOUNT_PUBLIC_URL: "https://cloud.acehq.dev",
-      ACE_ACCOUNT_ALLOWED_ORIGINS: "app://ace",
-      WORKOS_CLIENT_ID: "client_test",
-      WORKOS_API_KEY: "test-key",
-      ACE_ACCOUNT_ENCRYPTION_KEY: "a".repeat(64),
-      ACE_GRANT_KEY: `k:${"A".repeat(43)}`,
-      ACE_LEGACY_PERSON_UNTIL: until,
-    });
-  const ready = setup("2026-12-01T00:00:00Z");
+  const ready = legacySetup("2026-12-01T00:00:00Z");
   expect(ready.status === "ready" && ready.config.legacyPersonUntil).toBe(
     Date.parse("2026-12-01T00:00:00Z"),
   );
-  expect(setup("next week").status).toBe("invalid");
+  expect(legacySetup("next week").status).toBe("invalid");
 });

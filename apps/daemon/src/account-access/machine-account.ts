@@ -47,6 +47,19 @@ export type SessionCondition = { session: string | null };
 const accountChanged = () =>
   new AccessError(412, "This machine's ace account changed. Read it again before changing it.");
 const noop = () => {};
+/** What the daemon keeps for a machine credential the backend issued it (ADR 0190). */
+const asCredential = (
+  origin: string,
+  credential: AceAccountGrant,
+  source: StoredSession["source"],
+): StoredSession => ({
+  origin,
+  token: credential.token,
+  account: credential.account,
+  expiresAt: credential.expiresAt,
+  source,
+  kind: "machine",
+});
 
 /**
  * This daemon's ace account (ADR 0111): its one session, sign-in from this machine, machine
@@ -169,18 +182,6 @@ export function machineAccount(options: {
       return undefined;
     }
   }
-  const asCredential = (
-    origin: string,
-    credential: AceAccountGrant,
-    source: StoredSession["source"],
-  ): StoredSession => ({
-    origin,
-    token: credential.token,
-    account: credential.account,
-    expiresAt: credential.expiresAt,
-    source,
-    kind: "machine",
-  });
   /** The backend no longer knows `current`: the machine is signed out, unless it changed since. */
   const forget = (current: StoredSession) =>
     serial(async () => {
