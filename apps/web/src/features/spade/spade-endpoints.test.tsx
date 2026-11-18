@@ -238,6 +238,10 @@ test("Add a model offers what the endpoint lists, with facts only where they are
   );
 });
 
+/** Whether `b` comes after `a` in the page. */
+const follows = (a: Element, b: Element) =>
+  Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
 test("Settings › Models reads in setup order: endpoints, Add an endpoint, then other work", async () => {
   await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
@@ -246,8 +250,6 @@ test("Settings › Models reads in setup order: endpoints, Add an endpoint, then
   const endpoint = await screen.findByRole("region", { name: "OpenRouter" });
   const add = screen.getByRole("button", { name: "Add an endpoint" });
   const roles = await screen.findByRole("region", { name: "Models for other work" });
-  const follows = (a: Element, b: Element) =>
-    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
   expect(follows(endpoint, add)).toBe(true);
   expect(follows(add, roles)).toBe(true);
 });
