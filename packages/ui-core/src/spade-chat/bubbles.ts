@@ -40,17 +40,6 @@ type SpadeBubbleOf =
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
-  /**
-   * A message a group the bot is in sent here (ADR 0132): a small `In <group>` label, never the
-   * person's bubble; `agent` when a member asked, not the person.
-   */
-  | {
-      kind: "group";
-      key: string;
-      group: string;
-      text: string;
-      agent: { id: string; name: string } | undefined;
-    }
   /** A message another bot sent into this conversation, labelled with the name it had. */
   | { kind: "other"; key: string; agent: { id: string; name: string }; text: string }
   | {
@@ -153,6 +142,10 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   // `silent_replies` in spade-core); one that also answers anything else always shows.
   let inputs = false;
   let onlyBeats = true;
+  // And whether all of it came from a group the bot is in: a group's message and the reply to it
+  // live in the group (ADR 0132; `answering_replies` in spade-core), so the bot's own chat shows
+  // only the cards of such a reply still waiting on the person here.
+  let onlyGroups = true;
   const open = new Map(view.approvals.map((approval) => [approval.callId, approval]));
   const shown = new Set<string>();
   const ask = (request: SpadeRequest, key: string, at: number | undefined) => {
@@ -173,6 +166,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.kind === "job") {
       inputs = true;
       onlyBeats = false;
+      onlyGroups = false;
       hold(held, entry.key, entry.files);
     }
     if (entry.kind === "task-paused") {
@@ -187,6 +181,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       continue;
     }
     if (entry.kind === "quiet") {
+      onlyGroups = false;
       bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
       continue;
     }
@@ -199,6 +194,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       if (entry.outcome) {
         inputs = true;
         onlyBeats = false;
+        onlyGroups = false;
       }
       const waiting = view.approvals.some((approval) => approval.helper?.job === entry.job);
       bubbles.push({
@@ -214,6 +210,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.kind === "user") {
       inputs = true;
       onlyBeats &&= entry.fromRoutine?.heartbeat === true;
+      onlyGroups &&= entry.fromGroup !== undefined;
       if (entry.fromRoutine) {
         if (!entry.fromRoutine.heartbeat)
           bubbles.push({
@@ -225,17 +222,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
           });
         continue;
       }
-      if (entry.fromGroup) {
-        bubbles.push({
-          kind: "group",
-          key: entry.key,
-          group: entry.fromGroup.name,
-          text: entry.text,
-          agent: entry.fromAgent,
-          ...stamp(entry.at),
-        });
-        continue;
-      }
+      if (entry.fromGroup) continue;
       bubbles.push(
         entry.fromAgent
           ? {
@@ -274,11 +261,14 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       (entry.end === undefined
         ? spadeQuiet.startsWith(whole.toLowerCase())
         : entry.end.kind === "finished" && isSpadeQuiet(whole));
+    const grouped = inputs && onlyGroups;
     if (entry.end !== undefined) {
       inputs = false;
       onlyBeats = true;
+      onlyGroups = true;
     }
-    if (!quiet) replyBubbles(entry, bubbles, held, ask);
+    if (grouped) cardBubbles(entry, bubbles, ask);
+    else if (!quiet) replyBubbles(entry, bubbles, held, ask);
     else
       for (const part of entry.parts) if (part.kind === "files") hold(held, part.key, part.paths);
   }
@@ -420,6 +410,18 @@ function replyBubbles(
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
   if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
+}
+
+/** A group's reply in the bot's own chat: only its cards, where the person answers them. */
+function cardBubbles(
+  entry: SpadeReplyEntry,
+  bubbles: SpadeBubble[],
+  ask: (request: SpadeRequest, key: string, at: number | undefined) => void,
+) {
+  for (const part of entry.parts)
+    if (part.kind === "question")
+      bubbles.push({ ...part, key: `${entry.key}:${part.key}`, ...stamp(entry.startedAt) });
+    else if (part.kind === "request") ask(part, `${entry.key}:${part.key}`, entry.startedAt);
 }
 
 interface Held {

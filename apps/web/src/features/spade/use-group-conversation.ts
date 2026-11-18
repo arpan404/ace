@@ -1,3 +1,4 @@
+import { spadeLiveGroup } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { GroupFollow } from "./conversation-follow.ts";
@@ -8,7 +9,8 @@ import { spadeTransport } from "./spade-transport.ts";
 import { followDeps } from "./use-spade-conversation.ts";
 import { groupsKey } from "./use-spade-groups.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
-import { useSpadeClient } from "./spade-machine.tsx";
+import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { liveRowKey, usePublishLiveGroup } from "./spade-live-rows.ts";
 
 /**
  * One group's conversation, live (ADR 0132): read like a bot's, from its `conversation`; the
@@ -27,6 +29,13 @@ export function useGroupConversation(group: { id: string; conversation: string }
   }, [follow]);
   useEffect(() => follow.setReady(ready), [follow, ready]);
   const snapshot = useSyncExternalStore(follow.subscribe, follow.get, follow.get);
+  // The list row says what this chat shows, from the same view.
+  const machine = useSpadeMachine().key;
+  usePublishLiveGroup(
+    liveRowKey(machine, group.conversation),
+    spadeLiveGroup(snapshot.view),
+    [...groupsKey, machine],
+  );
   const listChanged = () => void cache.invalidateQueries({ queryKey: groupsKey });
 
   return {

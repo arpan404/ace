@@ -494,24 +494,6 @@ function Single(props: {
           {item.text}
         </p>
       );
-    case "group":
-      // A group the bot is in sent it (ADR 0132): a small label, then what was asked, quietly.
-      return (
-        <div
-          role="note"
-          aria-label={`In ${item.group}`}
-          className={cn("flex flex-col items-center gap-1", space)}
-        >
-          <span className="rounded-full bg-chat-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
-            {item.agent ? `In ${item.group} · ${item.agent.name}` : `In ${item.group}`}
-          </span>
-          {item.text && (
-            <p className="max-w-[80%] text-center text-xs text-muted-foreground wrap-anywhere line-clamp-3">
-              {item.text}
-            </p>
-          )}
-        </div>
-      );
     case "handback":
       // The person handed the computer back: Spade's narration as one quiet line, and the names
       // it involved (files, addresses) as plain text behind a disclosure, never as links.

@@ -274,8 +274,24 @@ export interface SpadeConversationState {
   reviews: Map<string, string>;
   /** What the agent last said it does now, from the live stream; cleared once it is idle. */
   status: string | undefined;
+  /**
+   * The live stream's last `status` frame: the agent's state by Spade's roster rules, workers and
+   * wakes included, and the last `seq` folded when it came. It speaks for the events before it.
+   */
+  reported: SpadeReported | undefined;
+  /** How long the open reply has waited on the person (a card, an approval), in ms. */
+  waited: number;
+  /** When the open reply began its current wait on the person; undefined while it doesn't wait. */
+  waitingSince: number | undefined;
   /** Open wakes and the names their words use (ADR 0160, 0161). */
   capabilities: SpadeCapabilityState;
+}
+
+/** What a `status` frame said, and the last `seq` folded when it came. */
+export interface SpadeReported {
+  state: "idle" | "working" | "waiting" | "sleeping";
+  status: string | undefined;
+  seq: number;
 }
 
 /** A message sent from here that Spade hasn't stored yet, as the person sent it. */
@@ -321,6 +337,9 @@ export function emptySpadeConversation(): SpadeConversationState {
     decisions: [],
     reviews: new Map(),
     status: undefined,
+    reported: undefined,
+    waited: 0,
+    waitingSince: undefined,
     capabilities: emptySpadeCapabilities(),
   };
 }
@@ -357,10 +376,16 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
       return changed;
     }
     case "status": {
+      const before = state.reported;
+      state.reported = { state: input.state, status: input.status, seq: state.lastSeq };
+      const reported =
+        before?.state !== input.state ||
+        before.status !== input.status ||
+        before.seq !== state.lastSeq;
       // Asleep, its words are the resting line's, from its wakes.
       const status =
         input.state === "idle" || input.state === "sleeping" ? undefined : input.status;
-      if (state.status === status) return false;
+      if (state.status === status) return reported;
       state.status = status;
       return true;
     }
@@ -387,7 +412,24 @@ function foldStored(state: SpadeConversationState, stored: SpadeStored): boolean
     state.unknown++;
     return firstLoad;
   }
-  return foldKnown(state, event, stored) || firstLoad;
+  const changed = foldKnown(state, event, stored);
+  countWaiting(state, stored.at);
+  return changed || firstLoad;
+}
+
+/**
+ * The open reply's time waiting on the person, as its chat shows the wait (a card or an
+ * approval open): counted from the event that began it to the one that ended it, so the working
+ * line's clock counts only the bot's own work.
+ */
+function countWaiting(state: SpadeConversationState, at: number) {
+  const waiting =
+    state.open !== undefined && (state.question !== undefined || state.approvals.length > 0);
+  if (waiting && state.waitingSince === undefined) state.waitingSince = at;
+  else if (!waiting && state.waitingSince !== undefined) {
+    state.waited += Math.max(0, at - state.waitingSince);
+    state.waitingSince = undefined;
+  }
 }
 
 function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored: SpadeStored) {
@@ -439,6 +481,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         startedAt: stored.at,
       });
       state.open = { reply: event.reply, index: state.entries.length - 1 };
+      state.waited = 0;
+      state.waitingSince = undefined;
       return true;
     case "reply_progress":
       // A checkpoint is never newer than the live pieces that already extend it.

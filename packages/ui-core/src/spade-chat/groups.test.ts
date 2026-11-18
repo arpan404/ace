@@ -166,23 +166,44 @@ describe("a group's chat", () => {
   });
 });
 
-test("in a bot's own chat a group's message reads as a label, not as the person", () => {
+test("a group's turn lives in the group: the bot's own chat shows only a card it still asks", () => {
   const state = emptySpadeConversation();
-  const input = parseSpadeLiveFrame(
-    "stored",
-    JSON.stringify({
-      seq: 1,
-      at: 1,
-      event: {
-        type: "user_message",
-        text: "Find flights",
-        from_group: { id: "g1", name: "Trips", run: "u1", ask: "a1", untrusted: false },
-      },
-    }),
-  );
-  if (input) foldSpade(state, input);
-  expect(spadeBubbles(spadeView(state))).toEqual([
-    { kind: "group", key: "s1", group: "Trips", text: "Find flights", agent: undefined, at: 1 },
+  let seq = 0;
+  const stored = (event: Record<string, unknown>) => {
+    const input = parseSpadeLiveFrame("stored", JSON.stringify({ seq: ++seq, at: seq, event }));
+    if (input) foldSpade(state, input);
+  };
+  const said = () =>
+    spadeBubbles(spadeView(state)).map((bubble) =>
+      bubble.kind === "bot" || bubble.kind === "person"
+        ? `${bubble.kind}: ${bubble.text}`
+        : bubble.kind,
+    );
+  const fromGroup = { id: "g1", name: "Trips", run: "u1", ask: "a1", untrusted: false };
+  stored({ type: "user_message", text: "Find flights", from_group: fromGroup });
+  stored({ type: "reply_started", reply: "r1" });
+  stored({ type: "step_finished", reply: "r1", text: "Two flights.", calls: [] });
+  stored({ type: "reply_finished", reply: "r1", text: "Two flights." });
+  expect(said()).toEqual([]);
+
+  stored({ type: "user_message", text: "Which seat?", from_group: fromGroup });
+  stored({ type: "reply_started", reply: "r2" });
+  stored({
+    type: "step_finished",
+    reply: "r2",
+    text: "Let me ask.",
+    calls: [{ id: "q1", name: "ask_user" }],
+  });
+  stored({ type: "question_asked", reply: "r2", call_id: "q1", question: "Window?" });
+  expect(said()).toEqual(["question"]);
+
+  // The person writes here while it answers the group: the reply answers them too, so it shows.
+  stored({ type: "user_message", text: "Also, the hotel" });
+  stored({ type: "reply_finished", reply: "r2", text: "Window it is. Hotel booked." });
+  expect(said()).toEqual([
+    "question",
+    "person: Also, the hotel",
+    "bot: Window it is. Hotel booked.",
   ]);
 });
 

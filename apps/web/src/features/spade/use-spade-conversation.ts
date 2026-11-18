@@ -1,4 +1,4 @@
-import { type SpadeAnswer } from "@ace/ui-core/spade-chat";
+import { spadeLiveAgent, type SpadeAnswer } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
@@ -7,7 +7,8 @@ import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-reques
 import { agentsKey } from "./use-spade-roster.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
-import { useSpadeClient } from "./spade-machine.tsx";
+import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { liveRowKey, usePublishLiveBot } from "./spade-live-rows.ts";
 
 /** What a card posts: exactly one of these. */
 export type QuestionReply =
@@ -44,6 +45,12 @@ export function useSpadeConversation(conversation: string) {
   useEffect(() => follow.setReady(ready), [follow, ready]);
   const side: Pick<ConversationFollow, "onSide" | "onEnded"> = follow;
   const snapshot = useSyncExternalStore(follow.subscribe, follow.get, follow.get);
+  // The list row says what this chat shows, from the same view.
+  const machine = useSpadeMachine().key;
+  usePublishLiveBot(liveRowKey(machine, conversation), spadeLiveAgent(snapshot.view), [
+    ...agentsKey,
+    machine,
+  ]);
   const path = `/v1/conversations/${segment(conversation)}`;
   const listChanged = () => void cache.invalidateQueries({ queryKey: agentsKey });
 

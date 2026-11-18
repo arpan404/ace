@@ -65,6 +65,8 @@ export interface SpadeGroupState {
   status: string | undefined;
   /** The member the server says waits for the person, while the group waits. */
   waitingMember: SpadeGroupBot | undefined;
+  /** A `status` frame has come: `state` is the stream's word, not the empty default. */
+  reported: boolean;
 }
 
 const sameBot = (a: SpadeGroupBot, b: SpadeGroupBot) =>
@@ -81,6 +83,7 @@ export function emptySpadeGroup(): SpadeGroupState {
     state: "idle",
     status: undefined,
     waitingMember: undefined,
+    reported: false,
   };
 }
 
@@ -113,7 +116,9 @@ export function foldSpadeGroup(state: SpadeGroupState, input: SpadeFoldInput): b
           sameBot(state.waitingMember, waiting));
       // A group never sleeps itself; a stream that says so reads as at work, as older clients do.
       const next = input.state === "sleeping" ? "working" : input.state;
-      if (state.state === next && state.status === status && sameWaiting) return false;
+      const first = !state.reported;
+      state.reported = true;
+      if (state.state === next && state.status === status && sameWaiting) return first;
       state.state = next;
       state.status = status;
       state.waitingMember = waiting;
@@ -223,6 +228,8 @@ export interface SpadeGroupView {
   asked: SpadeGroupBot[];
   /** The member that waits for the person, as the server named it. */
   waitingMember: SpadeGroupBot | undefined;
+  /** Caught up and told the group's state by its live stream: `state` is the stream's word. */
+  live: boolean;
 }
 
 export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
@@ -259,6 +266,7 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
     working: asked.at(-1),
     asked,
     waitingMember: state.waitingMember,
+    live: state.caughtUp && state.reported,
   };
 }
 
