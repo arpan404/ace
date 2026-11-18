@@ -21,11 +21,11 @@ import { rowsPerBackfill } from "./stored-trust-rows.ts";
  * dropped until it opens again. Once the pass finishes nothing watches the generation: one
  * daemon owns a data directory (`acquireLock`), so a second writer of another build while this
  * one runs is unsupported. Thread rows not yet confirmed (`thread-row-trust.ts`) are confirmed
- * first, in small batches, instead of waiting for later opens; then older revision and chunk rows
+ * first, in small batches walking row revisions from a saved position; then older revision and chunk rows
  * are mapped by sequence (`stored-trust-rows.ts`), since no sequence is confirmed before they are.
  */
 
-/** Thread rows confirmed per batch. */
+/** Thread rows checked per batch. */
 export const threadRowsPerBatch = 64;
 /** Batches between saves of the pass's progress. */
 export const batchesPerSave = 32;
@@ -122,8 +122,11 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
       return false;
     }
     if (!threadsDone) {
-      if (options.writes.stampThreadRows(threadRowsPerBatch) > 0) return true;
-      threadsDone = true;
+      // A step that only read revisions whose rows were all checked costs little, so when
+      // nothing is left the same tick goes on to the next phase.
+      const step = options.writes.stampThreadRows(threadRowsPerBatch);
+      if (!step.more) threadsDone = true;
+      if (step.checked > 0 || step.more) return true;
     }
     if (!rowsMapped) {
       if (options.writes.indexRows(backfill)) return true;

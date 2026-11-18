@@ -1,3 +1,4 @@
+import { followLoginPath } from "../login-path-handoff.ts";
 import { logFields } from "@ace/diagnostics";
 import { createAcpInstance } from "@ace/accounts";
 import { registryInstaller } from "../provider-install/registry.ts";
@@ -11,7 +12,10 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export function startProviderInstalls(context: ServiceContext): void {
   const installs = new ProviderInstalls(
     {
-      env: { ...process.env, ...context.options.providerStatus?.env },
+      env: followLoginPath(context.options.loginPath, {
+        ...process.env,
+        ...context.options.providerStatus?.env,
+      }),
       home: context.options.providerStatus?.env?.HOME ?? process.env.HOME ?? homedir(),
       ...(context.services.agentRegistry
         ? {

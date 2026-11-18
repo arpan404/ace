@@ -56,6 +56,12 @@ export function startProviderStatuses(context: ServiceContext): void {
     {
       ...context.options.providerStatus,
       probe: context.options.providerStatus?.probe ?? probes.probe,
+      ...(context.options.loginPath
+        ? {
+            // A stopping daemon's PATH is settled unchanged, never confirmed: probe nothing.
+            pathReady: context.options.loginPath.final.then(() => context.signal.throwIfAborted()),
+          }
+        : {}),
       antigravity: (signal) => antigravityDiscovery(context, signal),
       modelsAvailable: () =>
         Boolean(

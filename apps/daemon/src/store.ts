@@ -2,7 +2,7 @@ import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
 import { storedEntityShape } from "./entity-shape.ts";
 import { storedEventShape } from "./stored-shape.ts";
 import { openStoreTrust, startStoreTrustPass, type StoredTrustOptions } from "./store-trust.ts";
-import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
+import { confirmRecentThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
@@ -348,8 +348,9 @@ export class Store {
       });
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
       this.atomic(seedSentMessages);
-      // After the passes above that rewrite threads rows; the writer keeps stamps current.
-      this.atomic((db) => confirmThreadRows(db));
+      // After the passes above that rewrite threads rows; the writer keeps stamps current and
+      // the idle trust pass checks the rest. Bounded: only the most recently changed rows.
+      this.atomic((db) => confirmRecentThreadRows(db));
       // After every open-time pass that rewrites stored rows, before the first append.
       opened = openStoreTrust(this.db, eventShape, options, this.trust);
       this.devices = new Devices(this.db, {

@@ -118,6 +118,7 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     quit: options.quit,
     report: options.report,
     log: options.log,
+    now: options.now,
   });
   let schedule: CheckSchedule | undefined;
   return {
