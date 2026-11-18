@@ -74,7 +74,8 @@ routines and notes, but never its conversation, knowledge, workspace or anything
 7. **What stays.** Endpoint API keys (they live in each machine's keychain, ADR 0119; the bot keeps
    its model choice and the result names each endpoint to add there), connected apps' sign-ins,
    the computer's browser profile and sign-ins, plugin approvals to run outside the sandbox, and
-   workspace checkpoints (snapshots of this machine's files). Links in the workspace are not
+   workspace checkpoints (snapshots of this machine's files), and the bytes of documents and
+   recordings attached to its messages (the messages keep their words; images move). Links in the workspace are not
    followed and stay behind, named in the result.
 8. **Copy, check, then commit.** The source freezes the bot (messages to it are refused with "It is
    moving to Studio", nothing of it starts), writes the export as numbered parts with a manifest
