@@ -151,6 +151,14 @@ export class EventWriter {
             event.at,
             thread.imported ? JSON.stringify(thread.imported) : null,
           );
+        // Work starting in a project makes it the most recently used one there (ADR 0180): a
+        // machine's default checkout. A thread imported from history started nothing now.
+        if (!thread.imported)
+          this.source
+            .statement(
+              "INSERT INTO workspace_recent VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET opened_at=max(opened_at,excluded.opened_at)",
+            )
+            .run(thread.workspaceId, event.at);
       } else {
         const existing = previous;
         if (!existing) throw new Error("Unknown thread");

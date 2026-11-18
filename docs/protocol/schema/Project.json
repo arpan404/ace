@@ -31,6 +31,9 @@
     "id": {
       "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
     },
+    "identity": {
+      "$ref": "https://ace.local/protocol/v1/ProjectIdentity.json"
+    },
     "kind": {
       "$ref": "https://ace.local/protocol/v1/ProjectKind.json"
     },
@@ -44,6 +47,10 @@
       },
       "maxItems": 50,
       "type": "array"
+    },
+    "openedAt": {
+      "minimum": 0,
+      "type": "number"
     },
     "path": {
       "maxLength": 4096,

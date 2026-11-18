@@ -1428,7 +1428,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"workspace.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"forge"},"data":{"$ref":"https://ace.local/protocol/v1/ForgeBrowserResult.json"}},"required":["kind","data"]},{"type":"object","properties":{"kind":{"type":"string","const":"scripts"},"scripts":{"maxItems":256,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/WorkspaceScript.json"}}},"required":["kind","scripts"]},{"type":"object","properties":{"kind":{"type":"string","const":"editors"},"editors":{"maxItems":32,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/InstalledEditor.json"}},"fileManager":{"type":"string","minLength":1,"maxLength":64}},"required":["kind","editors"]},{"type":"object","properties":{"kind":{"type":"string","const":"opened"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"branches"},"branches":{"maxItems":1000,"type":"array","items":{"type":"string","maxLength":1024}},"truncated":{"type":"boolean"},"refs":{"maxItems":1000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/BranchRef.json"}},"defaultBranch":{"type":"string","maxLength":1024},"unbornHead":{"type":"boolean"}},"required":["kind","branches","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"origin"},"url":{"anyOf":[{"type":"string","maxLength":4096},{"type":"null"}]}},"required":["kind","url"]},{"type":"object","properties":{"kind":{"type":"string","const":"match"},"workspaceId":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},{"type":"null"}]}},"required":["kind","workspaceId"]},{"type":"object","properties":{"kind":{"type":"string","const":"details"},"details":{"$ref":"https://ace.local/protocol/v1/ThreadDetails.json"}},"required":["kind","details"]},{"type":"object","properties":{"kind":{"type":"string","const":"pr"},"status":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ForgePrStatus.json"},{"type":"null"}]}},"required":["kind","status"]},{"type":"object","properties":{"kind":{"type":"string","const":"gitStatus"},"files":{"maxItems":500,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/GitStatusFile.json"}},"truncated":{"type":"boolean"},"head":{"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]},"hooks":{"type":"string","enum":["run","skipped"]}},"required":["kind","files","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"gitDiff"},"patch":{"type":"string","maxLength":262144},"truncated":{"type":"boolean"},"nextOffset":{"type":"integer","exclusiveMinimum":0,"maximum":33554432},"validator":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","patch","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"runs"},"runs":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Run.json"}},"total":{"type":"integer","minimum":0,"maximum":9007199254740991},"nextBefore":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["kind","runs","total"]},{"type":"object","properties":{"kind":{"type":"string","const":"workspaces"},"workspaces":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Project.json"}},"next":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","workspaces"]},{"type":"object","properties":{"kind":{"type":"string","const":"draftContext"},"context":{"$ref":"https://ace.local/protocol/v1/SourceControlContext.json"}},"required":["kind","context"]},{"type":"object","properties":{"kind":{"type":"string","const":"draft"},"draft":{"$ref":"https://ace.local/protocol/v1/SourceControlDraft.json"},"context":{"$ref":"https://ace.local/protocol/v1/SourceControlContext.json"}},"required":["kind","draft","context"]},{"type":"object","properties":{"kind":{"type":"string","const":"draftCancelled"}},"required":["kind"]},{"$ref":"https://ace.local/protocol/v1/GitConflictsResult.json"},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","maxLength":128}},"required":["kind","code"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"forge"},"data":{"$ref":"https://ace.local/protocol/v1/ForgeBrowserResult.json"}},"required":["kind","data"]},{"type":"object","properties":{"kind":{"type":"string","const":"scripts"},"scripts":{"maxItems":256,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/WorkspaceScript.json"}}},"required":["kind","scripts"]},{"type":"object","properties":{"kind":{"type":"string","const":"editors"},"editors":{"maxItems":32,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/InstalledEditor.json"}},"fileManager":{"type":"string","minLength":1,"maxLength":64}},"required":["kind","editors"]},{"type":"object","properties":{"kind":{"type":"string","const":"opened"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"branches"},"branches":{"maxItems":1000,"type":"array","items":{"type":"string","maxLength":1024}},"truncated":{"type":"boolean"},"refs":{"maxItems":1000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/BranchRef.json"}},"defaultBranch":{"type":"string","maxLength":1024},"unbornHead":{"type":"boolean"}},"required":["kind","branches","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"origin"},"url":{"anyOf":[{"type":"string","maxLength":4096},{"type":"null"}]}},"required":["kind","url"]},{"type":"object","properties":{"kind":{"type":"string","const":"match"},"workspaceId":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},{"type":"null"}]}},"required":["kind","workspaceId"]},{"type":"object","properties":{"kind":{"type":"string","const":"checkout"},"checkout":{"$ref":"https://ace.local/protocol/v1/ProjectCheckoutFacts.json"}},"required":["kind","checkout"]},{"type":"object","properties":{"kind":{"type":"string","const":"identitySuggestions"},"suggestions":{"maxItems":64,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ProjectIdentitySuggestion.json"}},"next":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"},{"type":"null"}]}},"required":["kind","suggestions","next"]},{"type":"object","properties":{"kind":{"type":"string","const":"details"},"details":{"$ref":"https://ace.local/protocol/v1/ThreadDetails.json"}},"required":["kind","details"]},{"type":"object","properties":{"kind":{"type":"string","const":"pr"},"status":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ForgePrStatus.json"},{"type":"null"}]}},"required":["kind","status"]},{"type":"object","properties":{"kind":{"type":"string","const":"gitStatus"},"files":{"maxItems":500,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/GitStatusFile.json"}},"truncated":{"type":"boolean"},"head":{"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]},"hooks":{"type":"string","enum":["run","skipped"]}},"required":["kind","files","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"gitDiff"},"patch":{"type":"string","maxLength":262144},"truncated":{"type":"boolean"},"nextOffset":{"type":"integer","exclusiveMinimum":0,"maximum":33554432},"validator":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","patch","truncated"]},{"type":"object","properties":{"kind":{"type":"string","const":"runs"},"runs":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Run.json"}},"total":{"type":"integer","minimum":0,"maximum":9007199254740991},"nextBefore":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["kind","runs","total"]},{"type":"object","properties":{"kind":{"type":"string","const":"workspaces"},"workspaces":{"maxItems":100,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/Project.json"}},"next":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","workspaces"]},{"type":"object","properties":{"kind":{"type":"string","const":"draftContext"},"context":{"$ref":"https://ace.local/protocol/v1/SourceControlContext.json"}},"required":["kind","context"]},{"type":"object","properties":{"kind":{"type":"string","const":"draft"},"draft":{"$ref":"https://ace.local/protocol/v1/SourceControlDraft.json"},"context":{"$ref":"https://ace.local/protocol/v1/SourceControlContext.json"}},"required":["kind","draft","context"]},{"type":"object","properties":{"kind":{"type":"string","const":"draftCancelled"}},"required":["kind"]},{"$ref":"https://ace.local/protocol/v1/GitConflictsResult.json"},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"type":"string","maxLength":128}},"required":["kind","code"]}]} |
 
 Example:
 
@@ -1436,8 +1436,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "kind": "origin",
-    "url": null
+    "kind": "match",
+    "workspaceId": null
   },
   "type": "workspace.result"
 }
@@ -1462,6 +1462,7 @@ Example:
       "id": "example",
       "name": "example",
       "notes": [],
+      "openedAt": 4,
       "path": "example"
     }
   },
@@ -4021,120 +4022,86 @@ Example:
 
 ```json
 {
+  "alive": {
+    "agentsRunning": 7,
+    "operationsRunning": 2,
+    "terminalsOpen": 0
+  },
   "commandId": "example",
-  "editor": {
-    "editor": {
-      "command": "example",
-      "id": "example",
-      "name": "example"
-    },
-    "path": "example"
+  "commit": "25874081f40603ec73885981b53638e6e35263f0daf230bdcedaa",
+  "detail": "example",
+  "forkThreadId": "example",
+  "inspection": {
+    "git": null,
+    "path": "example",
+    "suggestedRepoRoot": "example"
   },
-  "forgeLifecycle": {
-    "headSha": "ab194Be256c4C864Ca9FdBdFfdbe5bA20FA675dbFdD0A4a",
-    "outcome": "head_changed",
-    "revertPr": {
-      "number": 5,
-      "repository": {
-        "forge": "gitea",
-        "host": "fsbz8qTV",
-        "name": "sg6IA0",
-        "owner": "uWfIZNjLMj/7SAram/LU_zQoT._C/qsM/yTcx8iPZ4_/2N2PrzXTl6/Pzxsqm/ZWx2KZ8aqTx"
-      }
-    }
-  },
-  "issue": {
-    "number": 9,
+  "ok": false,
+  "pr": {
+    "number": 5,
     "repository": {
-      "forge": "github",
-      "host": "ll0Oad0MpN1",
-      "name": "93VxQgr2Y",
-      "owner": "LgIknVhfmQ-/G"
+      "forge": "gitea",
+      "host": "kUH7TAs",
+      "name": "GtQ",
+      "owner": "m/U_zQoT./C/qsM/yTcx8iPZ4_/2N2PrzXTl6/Pzxsqm/ZWx2KZ8aqTx/sg6IA0/Mt7ko3"
     }
   },
-  "issueAction": {
-    "action": "comment",
-    "id": "example",
-    "state": "uncertain"
-  },
-  "locksCleared": 2,
-  "ok": true,
-  "prExisting": false,
-  "remoteHead": "f41429ff0e225874081f40603ec73885981b53638e6e35263f0da",
-  "review": {
-    "comment": {
-      "anchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "id": "example",
-      "originalAnchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "resolved": true,
-      "sessionId": "example",
-      "text": "example"
+  "publication": {
+    "error": null,
+    "input": {
+      "account": "dTIXMI8whGm",
+      "description": "example",
+      "host": "cv.t",
+      "name": "9LgIknVhfm",
+      "owner": "gllZNadZLpN",
+      "visibility": "private"
     },
-    "nextCursor": "example",
+    "phase": "pushed",
+    "remote": {
+      "archived": true,
+      "cloneUrl": "example",
+      "description": "example",
+      "fork": true,
+      "id": 9,
+      "raw": null,
+      "repository": {
+        "forge": "origin",
+        "host": "VyRhs2Y4kC",
+        "name": "cn",
+        "owner": "Lx/f-yiZfW/ROC7eD3R.T/QavZfdb/iYm6ocI/2fHyxqQ/bdM9/vlQZ0fVx7/Wxb9GjwiFo"
+      },
+      "url": "example",
+      "visibility": "private"
+    },
+    "updatedAt": 5,
+    "workspaceId": "example"
+  },
+  "review": {
+    "comments": [],
     "reply": {
       "commentId": "example",
       "id": "example",
       "text": "example"
     },
     "session": {
-      "createdAt": 6,
+      "createdAt": 7,
       "id": "example",
       "source": {
         "from": {
-          "kind": "working-tree"
+          "id": "example",
+          "kind": "checkpoint"
         },
         "to": {
           "kind": "working-tree"
         },
         "workspaceId": "example"
       },
-      "status": "open"
+      "status": "approved"
     }
   },
-  "type": "commandResult",
-  "workspace": {
-    "badge": {},
-    "defaultIcon": null,
-    "id": "example",
-    "name": "example",
-    "path": "example"
-  }
+  "terminalId": "example",
+  "threadId": "example",
+  "type": "commandResult"
 }
 ```
 

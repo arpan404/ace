@@ -962,7 +962,8 @@ test("fake creation accepts an existing empty folder and preserves a nonempty de
   });
   expect(initialized).toMatchObject({
     ok: true,
-    workspace: first.workspace,
+    // The same project; adding it again makes it the most recently used one.
+    workspace: { ...first.workspace, openedAt: expect.any(Number) },
     inspection: { git: { branch: "trunk" } },
   });
   expect(await client.projects.create({ parent: "/fake", name: "existing" })).toMatchObject({

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { HostId, ThreadId, WorkspaceId } from "./ids.ts";
+import { ProjectIdentityId, maxIdentityAliases } from "./project-identity.ts";
 import { ProviderKind } from "./provider.ts";
 import { PortableHandoff } from "./thread-transitions.ts";
 import { TransferMethod } from "./transfers.ts";
@@ -32,6 +33,12 @@ export const TransferOrigin = z.object({
   hostName: z.string().min(1).max(256),
 });
 export type TransferOrigin = z.infer<typeof TransferOrigin>;
+
+/**
+ * The work landed in a registration there that belongs to another logical project: its
+ * identity was kept, and the client may offer to link the two.
+ */
+export const TransferIdentityConflict = z.object({ identityId: ProjectIdentityId });
 
 /** What the target is asked to take, before any byte moves. */
 export const TransferBegin = z.strictObject({
@@ -90,6 +97,16 @@ export const TransferCommit = z.strictObject({
       files: z.number().int().nonnegative(),
     })
     .optional(),
+  /**
+   * The source registration's logical project (ADR 0180) and its aliases there. Sent only to a
+   * target that answers with `identity: true`: an older target refuses fields it doesn't know.
+   */
+  identity: z
+    .object({
+      id: ProjectIdentityId,
+      aliases: z.array(ProjectIdentityId).max(maxIdentityAliases),
+    })
+    .optional(),
 });
 export type TransferCommit = z.infer<typeof TransferCommit>;
 
@@ -140,6 +157,8 @@ export const IncomingTransfer = z.object({
    * origin lacks. False: it couldn't clone origin; send a full bundle instead.
    */
   hasOrigin: z.boolean().optional(),
+  /** The target keeps logical project identities: `commit` may carry the source's. */
+  identity: z.literal(true).optional(),
   result: z
     .object({
       workspaceId: WorkspaceId,
@@ -151,6 +170,8 @@ export const IncomingTransfer = z.object({
       keptFiles: z.number().int().nonnegative().optional(),
       /** See `Transfer.result.branchOnly`. */
       branchOnly: z.boolean().optional(),
+      /** See `Transfer.result.identityConflict`. */
+      identityConflict: TransferIdentityConflict.optional(),
     })
     .optional(),
   error: z.object({ code: z.string().min(1).max(64), message: z.string().max(512) }).optional(),

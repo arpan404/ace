@@ -99,6 +99,8 @@ export function harness(
       name: string;
       /** What this window's device may do there; everything when absent. */
       scopes?: readonly DeviceScope[];
+      /** false: a daemon from before logical project identity (ADR 0180). */
+      projectIdentity?: false;
     }[];
     /**
      * "pending": this device hasn't been through provider setup, so an empty Home opens it (the
@@ -128,6 +130,7 @@ export function harness(
         hostId: machine.hostId,
         displayName: machine.name,
         ...(machine.scopes ? { deviceScopes: { "test-device": machine.scopes } } : {}),
+        ...(machine.projectIdentity === false ? { projectIdentity: false as const } : {}),
         ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
       }),
   );

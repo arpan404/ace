@@ -426,6 +426,28 @@ export class FakeWorkspaceWire {
           : { kind: "error", code: "workspace_not_found" },
       });
     }
+    if (op.op === "workspace.checkout" || op.op === "workspaces.identitySuggestions") {
+      // A daemon from before identities can't parse these: it answers `invalid_message`.
+      if (!this.projects.identities.enabled)
+        return ServerMessage.parse({
+          type: "error",
+          code: "invalid_message",
+          message: "Message does not match the protocol",
+          requestId: request.requestId,
+        });
+      const checkout =
+        op.op === "workspace.checkout" ? this.projects.checkout(op.workspaceId) : undefined;
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result:
+          op.op === "workspaces.identitySuggestions"
+            ? this.projects.identitySuggestions(op.remotes, op.subpath, op.after, op.limit)
+            : checkout
+              ? { kind: "checkout", checkout }
+              : { kind: "error", code: "workspace_not_found" },
+      });
+    }
     if (op.op === "workspaces.match")
       return ServerMessage.parse({
         type: "workspace.result",

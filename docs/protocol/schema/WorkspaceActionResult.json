@@ -170,6 +170,53 @@
         },
         {
           "properties": {
+            "checkout": {
+              "$ref": "https://ace.local/protocol/v1/ProjectCheckoutFacts.json"
+            },
+            "kind": {
+              "const": "checkout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "checkout"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "identitySuggestions",
+              "type": "string"
+            },
+            "next": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "suggestions": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ProjectIdentitySuggestion.json"
+              },
+              "maxItems": 64,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "suggestions",
+            "next"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "details": {
               "$ref": "https://ace.local/protocol/v1/ThreadDetails.json"
             },

@@ -16,6 +16,7 @@ import { ignoredPaths } from "./transfer-ignored.ts";
 import { fetchOrigin, hasCommit } from "./transfer-origin-fetch.ts";
 import { bundleRefs, createBranch, deleteRef, pinRef, transferOrigin } from "./transfer-refs.ts";
 import { sourceCheckout, type SourceCheckout } from "./transfer-source.ts";
+import { checkoutFacts } from "./checkout-facts.ts";
 
 /** A repository directory the caller holds open, entered by descriptor instead of by path. */
 export interface Held {
@@ -61,6 +62,10 @@ export class GitTransfer {
   /** `origin`'s fetch URL and its `normalizeRemoteUrl` key; undefined without an origin. */
   transferOrigin(path: string) {
     return this.within(path, (root) => transferOrigin(this.repository, root));
+  }
+  /** Every remote and the folder inside the work tree; undefined outside Git (ADR 0180). */
+  checkoutFacts(path: string) {
+    return checkoutFacts(this.repository, path);
   }
   /** Uncommitted changes as a commit on HEAD at `ref`; checkout and index untouched. */
   captureChanges(path: string, options: { ref: string; message?: string | undefined }) {
