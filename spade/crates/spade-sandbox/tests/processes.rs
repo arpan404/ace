@@ -86,6 +86,7 @@ fn without_a_namespace_no_process_folder_can_be_read_not_even_its_own() {
         &linux::policy(&w, None),
         Network::Filtered,
         Processes::Hidden,
+        false,
     );
     let run = |script: &str| {
         let out = linux::launched(&hidden, "/bin/sh", &["-c", script])

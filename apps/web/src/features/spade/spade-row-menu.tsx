@@ -93,16 +93,19 @@ function BotMenu(props: { bot: RosterBot; children: ReactNode }) {
         label={`Actions for ${bot.name}`}
         items={
           <>
-            <MenuItem
-              onClick={() =>
-                void run(
-                  () => pinAgent(client, bot.id, !pinned),
-                  `Couldn't ${pinned ? "unpin" : "pin"} ${bot.name}`,
-                )
-              }
-            >
-              {pinned ? "Unpin" : "Pin"}
-            </MenuItem>
+            {/* Spade, the main bot, is the list's head: always first, so nothing to pin. */}
+            {bot.kind !== "main" && (
+              <MenuItem
+                onClick={() =>
+                  void run(
+                    () => pinAgent(client, bot.id, !pinned),
+                    `Couldn't ${pinned ? "unpin" : "pin"} ${bot.name}`,
+                  )
+                }
+              >
+                {pinned ? "Unpin" : "Pin"}
+              </MenuItem>
+            )}
             {bot.unseen && (
               <MenuItem
                 onClick={() =>

@@ -192,6 +192,15 @@ pub enum Known {
         /// the tool's server and version, its own name and its schema (ADR 0171, amendment 1).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tool_key: Option<String>,
+        /// For a driving step (`ask: drive`), the app or site its "always" allows for the bot
+        /// (ADR 0171, amendment 3). Absent where it can't be allowed: a sensitive place, one
+        /// Spade can't name, or any other request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        app: Option<String>,
+        /// For a driving step, where Spade found it acts when it asked: the step runs only if
+        /// it still acts there (ADR 0171, amendment 3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
         /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -315,6 +324,10 @@ pub enum Known {
         /// approved with these runs only while they are unchanged.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bound: Option<String>,
+        /// For a driving step, where it acted when it was reviewed (ADR 0171, amendment 3): the
+        /// verdict holds only there, so a restart never carries it to another page or app.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        acts_in: Option<Box<crate::effect::drive::Place>>,
     },
     /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
     /// events naming `ask` or `full_access` read as `auto_review`.

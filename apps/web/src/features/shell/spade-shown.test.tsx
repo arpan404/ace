@@ -9,15 +9,15 @@ test("the rail shows Spade's place or its coming-soon mark as the daemon says, a
   const app = harness();
   app.daemon.spade.status = hidden;
   await app.open("/new");
-  expect(await screen.findByRole("img", { name: "Spade, coming soon" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Spade, coming soon" })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Spade" })).toBeNull();
 
   app.daemon.spade.setStatus({ state: "off" });
   expect(await screen.findByRole("link", { name: "Spade" })).toBeTruthy();
-  expect(screen.queryByRole("img", { name: "Spade, coming soon" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Spade, coming soon" })).toBeNull();
 
   app.daemon.spade.setStatus(hidden);
-  expect(await screen.findByRole("img", { name: "Spade, coming soon" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Spade, coming soon" })).toBeTruthy();
 });
 
 test("opening Spade or its settings while the daemon hides it leads away from them", async () => {

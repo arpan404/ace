@@ -130,17 +130,25 @@ describe("the routine list", () => {
 
   test("says when in the routine's zone, relative to today", () => {
     const now = Date.parse("2026-11-12T12:00:00Z");
-    expect(spadeWhen(Date.parse("2026-11-12T17:00:00Z"), now, "UTC")).toBe("17:00");
-    expect(spadeWhen(Date.parse("2026-11-13T09:00:00Z"), now, "UTC")).toBe("Tomorrow 9:00");
-    expect(spadeWhen(Date.parse("2026-11-16T09:00:00Z"), now, "UTC")).toBe("Mon 9:00");
-    expect(spadeWhen(Date.parse("2026-12-01T09:00:00Z"), now, "UTC")).toBe("Dec 1, 9:00");
+    const when = (iso: string, zone = "UTC") => spadeWhen(Date.parse(iso), now, zone, "en-GB");
+    expect(when("2026-11-12T17:00:00Z")).toBe("17:00");
+    expect(when("2026-11-13T09:00:00Z")).toBe("Tomorrow 9:00");
+    expect(when("2026-11-16T09:00:00Z")).toBe("Mon 9:00");
+    expect(when("2026-12-01T09:00:00Z")).toBe("Dec 1, 9:00");
     // 9:00 in New York is 14:00 UTC.
-    expect(spadeWhen(Date.parse("2026-11-12T14:00:00Z"), now, "America/New_York")).toBe("9:00");
+    expect(when("2026-11-12T14:00:00Z", "America/New_York")).toBe("9:00");
+  });
+
+  test("the clock follows the reader's locale, 12-hour where theirs is", () => {
+    const now = Date.parse("2026-11-12T12:00:00Z");
+    const at = (iso: string) => spadeWhen(Date.parse(iso), now, "UTC", "en-US");
+    expect(at("2026-11-12T21:37:00Z")).toBe("9:37 PM");
+    expect(at("2026-11-13T09:00:00Z")).toBe("Tomorrow 9:00 AM");
   });
 
   test("inside a sentence, only tomorrow and yesterday are lower case", () => {
     const now = Date.parse("2026-11-12T12:00:00Z");
-    const when = (iso: string) => spadeWhenInSentence(Date.parse(iso), now, "UTC");
+    const when = (iso: string) => spadeWhenInSentence(Date.parse(iso), now, "UTC", "en-GB");
     expect(when("2026-11-13T08:00:00Z")).toBe("tomorrow 8:00");
     expect(when("2026-11-11T08:00:00Z")).toBe("yesterday 8:00");
     expect(when("2026-11-16T08:00:00Z")).toBe("Mon 8:00");

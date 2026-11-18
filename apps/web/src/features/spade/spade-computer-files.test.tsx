@@ -257,3 +257,18 @@ test("a delete or move waits for the file's check, and goes only if the person m
   expect(writes(spade)).toEqual([]);
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\n");
 });
+
+test("Spade's own .spade folder stays out of the bot's files, its other folders show", async () => {
+  await spadeApp("/spade/scout?computer=files", (api) => {
+    seed(api);
+    api.files.set("scout", {
+      "plan.md": "# Plan\n",
+      ".spade/state.json": "{}",
+      "trips/lisbon.md": "Lisbon",
+    });
+  });
+  const files = await screen.findByRole("list", { name: "Files" });
+  await within(files).findByRole("button", { name: /^plan\.md/ });
+  expect(within(files).getByRole("button", { name: /^trips/ })).toBeTruthy();
+  expect(within(files).queryByRole("button", { name: /^\.spade/ })).toBeNull();
+});

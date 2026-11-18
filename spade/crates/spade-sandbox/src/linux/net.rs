@@ -30,6 +30,10 @@ pub struct Rules {
     pub proxy_port: Option<u16>,
     /// Where Unix sockets may be: the bot's workspace.
     pub sockets: PathBuf,
+    /// A read-only settled run (ADR 0172, amendment 7): nothing on the network. The launcher's
+    /// filter already denies `socket` so no call reaches here, but this refuses every address too,
+    /// so a supervised `connect`, `bind` or `listen` can never succeed even by mistake.
+    pub offline: bool,
 }
 
 /// What the supervisor does for one call.
@@ -51,6 +55,9 @@ pub enum Verdict {
 /// The verdict for `call` with the address `bytes`, made by a thread whose working folder is
 /// `cwd` (for a relative Unix socket path).
 pub fn decide(call: Call, bytes: &[u8], cwd: &Path, rules: &Rules) -> Verdict {
+    if rules.offline {
+        return Verdict::Deny;
+    }
     let Some(family) = bytes.get(..2).map(|b| u16::from_ne_bytes([b[0], b[1]])) else {
         return Verdict::Deny;
     };
@@ -167,6 +174,7 @@ mod tests {
         Rules {
             proxy_port: Some(4100),
             sockets: PathBuf::from("/h/spade/workspace/b1"),
+            offline: false,
         }
     }
 
@@ -237,6 +245,23 @@ mod tests {
             v6(Ipv4Addr::new(1, 1, 1, 1).to_ipv6_mapped(), 4100),
         ] {
             assert_eq!(connect(&refused), Verdict::Deny, "{refused:?}");
+        }
+    }
+
+    #[test]
+    fn an_offline_run_reaches_nothing_at_all() {
+        let offline = Rules {
+            offline: true,
+            ..rules()
+        };
+        let cwd = Path::new("/h/spade/workspace/b1");
+        // Even the proxy port, a loopback bind, and a Unix socket inside the workspace are refused.
+        for (call, bytes) in [
+            (Call::Connect, v4([127, 0, 0, 1], 4100)),
+            (Call::Bind, v4([127, 0, 0, 1], 3000)),
+            (Call::Connect, unix_at(b"/h/spade/workspace/b1/db.sock\0")),
+        ] {
+            assert_eq!(decide(call, &bytes, cwd, &offline), Verdict::Deny);
         }
     }
 

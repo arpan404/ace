@@ -95,15 +95,16 @@ struct ForgeLinePickStrip: View {
                     Text(pick.extending ? "Done" : "Select more").contentTransition(.opacity)
                 }
             }
+            .buttonStyle(.textAction())
             .accessibilityLabel(pick.extending ? "Done" : "Select more")
             .accessibilityIdentifier("forge.pick.extend")
             Button("Clear", action: clear)
+                .buttonStyle(.textAction())
                 .accessibilityIdentifier("forge.pick.clear")
             Button("Comment", action: comment)
-                .fontWeight(.semibold)
+                .buttonStyle(.primaryAction).controlSize(.small)
                 .accessibilityIdentifier("forge.pick.comment")
         }
-        .buttonStyle(.forgeWord)
         .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
         .padding(.horizontal, AceTheme.Spacing.lg)
         .frame(minHeight: AceDesign.Size.rowDetail)

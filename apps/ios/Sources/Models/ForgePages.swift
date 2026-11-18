@@ -181,3 +181,24 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let unconfirmed: [ForgeManage.Unconfirmed]
     let start: Start
 }
+
+/// Merge and squash commits the person edited but couldn't send because the pull request's head
+/// moved under them, kept per pull request and method so reopening Merge picks the words up at
+/// the new head. Discarding or merging drops them; words that are GitHub's own again are no
+/// draft.
+struct ForgeMergeDrafts {
+    private struct Key: Hashable { let number: Int; let repository: ForgeRepository; let method: String }
+    private var kept: [Key: ForgePullPage.MergeCommit] = [:]
+
+    /// What Merge opens with: the kept draft for this pull request and method, else GitHub's.
+    func opening(number: Int, repository: ForgeRepository, method: String, prefill: ForgePullPage.MergeCommit) -> ForgePullPage.MergeCommit {
+        kept[Key(number: number, repository: repository, method: method)] ?? prefill
+    }
+
+    /// Keeps `commit` for the next opening, or forgets the draft when nil or GitHub's own.
+    mutating func keep(_ commit: ForgePullPage.MergeCommit?, number: Int, repository: ForgeRepository, method: String,
+                       prefill: ForgePullPage.MergeCommit) {
+        let key = Key(number: number, repository: repository, method: method)
+        if let commit, commit != prefill { kept[key] = commit } else { kept[key] = nil }
+    }
+}

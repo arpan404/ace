@@ -185,18 +185,22 @@ export function AppRail(props: {
   );
 }
 
-/** Spade in a build without it: its mark, which goes nowhere yet. */
+/**
+ * Spade in a build without it: its mark, which goes nowhere yet. It takes focus, so the keyboard
+ * and a screen reader reach it and the tooltip says why it does nothing.
+ */
 export function SpadeComingSoon() {
   return (
     <Tip label="Spade · Coming soon">
-      <span
-        role="img"
+      <button
+        type="button"
+        aria-disabled="true"
         aria-label="Spade, coming soon"
         data-part="rail-item"
         className={`${railPlaceClass} cursor-default`}
       >
         <SpadeMark size={20} />
-      </span>
+      </button>
     </Tip>
   );
 }

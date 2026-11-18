@@ -41,15 +41,18 @@ fn masked(arg: u32, mask: u64, n: u64) -> ScmpArgCompare {
     ScmpArgCompare::new(arg, ScmpCompareOp::MaskedEqual(mask), n)
 }
 
-pub fn filter(landlock_truncates: bool) -> Result<ScmpFilterContext, String> {
+pub fn filter(landlock_truncates: bool, offline: bool) -> Result<ScmpFilterContext, String> {
     if !matches!(ScmpArch::native(), ScmpArch::X8664 | ScmpArch::Aarch64) {
         return Err(
             "the default-deny syscall policy is verified only on x86_64 and aarch64".to_owned(),
         );
     }
-    build(landlock_truncates).map_err(|e| e.to_string())
+    build(landlock_truncates, offline).map_err(|e| e.to_string())
 }
-fn build(landlock_truncates: bool) -> Result<ScmpFilterContext, libseccomp::error::SeccompError> {
+fn build(
+    landlock_truncates: bool,
+    offline: bool,
+) -> Result<ScmpFilterContext, libseccomp::error::SeccompError> {
     let mut ctx = ScmpFilterContext::new(ScmpAction::Errno(EPERM))?;
     ctx.set_act_badarch(ScmpAction::KillProcess)?;
     ctx.set_ctl_nnp(true)?;
@@ -110,22 +113,28 @@ fn build(landlock_truncates: bool) -> Result<ScmpFilterContext, libseccomp::erro
             &[equal(0, *option)],
         )?;
     }
-    for family in [2, 10] {
-        for protocol in [0, 6] {
-            ctx.add_rule_conditional(
-                ScmpAction::Allow,
-                ScmpSyscall::from_name("socket")?,
-                &[equal(0, family), masked(1, 0xf, 1), equal(2, protocol)],
-            )?;
+    // A read-only settled run is offline: no socket is created at all (ADR 0172, amendment 7), so
+    // it can reach no machine, bind nothing and open no Unix socket. `socket`/`socketpair` fall to
+    // the default EPERM. A normal run may make the TCP and Unix stream sockets its proxy and local
+    // services need.
+    if !offline {
+        for family in [2, 10] {
+            for protocol in [0, 6] {
+                ctx.add_rule_conditional(
+                    ScmpAction::Allow,
+                    ScmpSyscall::from_name("socket")?,
+                    &[equal(0, family), masked(1, 0xf, 1), equal(2, protocol)],
+                )?;
+            }
         }
-    }
-    for name in ["socket", "socketpair"] {
-        for kind in [1, 5] {
-            ctx.add_rule_conditional(
-                ScmpAction::Allow,
-                ScmpSyscall::from_name(name)?,
-                &[equal(0, 1), masked(1, 0xf, kind), equal(2, 0)],
-            )?;
+        for name in ["socket", "socketpair"] {
+            for kind in [1, 5] {
+                ctx.add_rule_conditional(
+                    ScmpAction::Allow,
+                    ScmpSyscall::from_name(name)?,
+                    &[equal(0, 1), masked(1, 0xf, kind), equal(2, 0)],
+                )?;
+            }
         }
     }
     // GNU make restores its effective IDs before exec. Only the current real ID and
