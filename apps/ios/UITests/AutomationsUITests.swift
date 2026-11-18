@@ -48,9 +48,16 @@ import XCTest
         XCTAssertTrue(title.waitForExistence(timeout: 15))
         title.tap()
         title.typeText("Weekly report")
+        // Without a prompt there is nothing to run: Save waits and the foot says why.
+        let save = app.buttons["automation.save"]
+        expectation(for: NSPredicate(format: "isEnabled == false"), evaluatedWith: save)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(element(app, "automation.problem").waitForExistence(timeout: 10), "the foot says what Save waits for")
         let prompt = app.textViews["automation.prompt"].exists ? app.textViews["automation.prompt"] : app.textFields["automation.prompt"]
         prompt.tap()
         prompt.typeText("Summarise what merged this week")
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: save)
+        waitForExpectations(timeout: 10)
         screenshot("new")
         choose(app, "automation.cadence", "Weekly")
         choose(app, "automation.day", "Friday")
@@ -69,10 +76,31 @@ import XCTest
         XCTAssertTrue(expression.waitForExistence(timeout: 10))
         expression.tap()
         expression.typeText("FREQ=BOGUS")
-        app.buttons["automation.save"].tap()
         XCTAssertTrue(element(app, "automation.problem").waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "isEnabled == false"), evaluatedWith: save)
+        waitForExpectations(timeout: 10)
         screenshot("custom-problem")
+        // Closing with changes asks first: Keep editing keeps the draft, Discard changes closes.
         app.buttons["automation.cancel"].tap()
+        let keep = app.buttons["Keep editing"].firstMatch
+        XCTAssertTrue(keep.waitForExistence(timeout: 5), "closing a changed draft asks first")
+        keep.tap()
+        XCTAssertEqual(title.value as? String, "Weekly report", "Keep editing keeps the draft")
+        app.buttons["automation.cancel"].tap()
+        let discard = app.buttons["Discard changes"].firstMatch
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 10), "Discard changes closes the editor")
+    }
+
+    func testClosingAnUnchangedEditorAsksNothing() throws {
+        let app = launchIntoAutomations()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 20))
+        app.buttons["automations.new"].tap()
+        XCTAssertTrue(app.textFields["automation.title"].waitForExistence(timeout: 15))
+        app.buttons["automation.cancel"].tap()
+        XCTAssertTrue(app.buttons["automations.new"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Discard changes"].exists, "an untouched draft closes without asking")
     }
 
     func testGitHubAndFileTriggersAreMadeOnThePhone() throws {

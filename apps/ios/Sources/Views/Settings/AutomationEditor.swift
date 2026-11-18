@@ -21,6 +21,9 @@ struct AutomationEditor: View {
     /// Fields the person changed: their problems show as they type. All show after a Save.
     @State private var touched: Set<String> = []
     @State private var attempted = false
+    /// The form as it opened, so Close knows whether there is anything to lose.
+    @State private var opened: AutomationFormValues?
+    @State private var discarding = false
     /// Fields changed since the bridge last checked the form: their old problem is stale.
     @State private var unchecked: Set<String> = []
     @State private var saving = false
@@ -84,17 +87,23 @@ struct AutomationEditor: View {
         .navigationTitle(editing == nil ? "New automation" : "Edit automation").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button { dismiss() } label: { Image(systemName: "xmark") }
+                Button { if dirty { discarding = true } else { dismiss() } } label: { Image(systemName: "xmark") }
                     .accessibilityLabel("Close").accessibilityIdentifier("automation.cancel")
+                    .confirmationDialog("Discard your changes?", isPresented: $discarding, titleVisibility: .visible) {
+                        Button("Discard changes", role: .destructive) { dismiss() }
+                        Button("Keep editing", role: .cancel) {}
+                    }
             }
             ToolbarItem(placement: .confirmationAction) {
                 if saving { WorkingMark(label: "Saving") } else {
                     Button("Save") { Task { await save() } }
-                        .disabled(!model.canOperate || form == nil)
+                        .disabled(!model.canOperate || form == nil || view?.problem != nil)
                         .accessibilityIdentifier("automation.save")
                 }
             }
         }
+        // A swipe down never throws a changed draft away; Close asks first.
+        .interactiveDismissDisabled(dirty)
         .sensoryFeedback(.success, trigger: savedCount)
         .sheet(isPresented: $choosingModel) {
             AutomationModelSheet(compose: model.compose, pick: Binding(get: { pick }, set: { pick = $0; pickChanged = true }),
@@ -111,7 +120,11 @@ struct AutomationEditor: View {
         .onChange(of: accessKey) { _, _ in sendChoice() }
         // A new automation starts in the first project once the projects arrive.
         .onChange(of: model.compose.projects.first?.path) { _, path in
-            if let path, form?.workspace.isEmpty == true { form?.workspace = path }
+            guard let path, form?.workspace.isEmpty == true else { return }
+            // Filling in the project isn't the person's change: an untouched draft stays untouched.
+            let untouched = form == opened
+            form?.workspace = path
+            if untouched { opened = form }
         }
         .onDisappear { model.composeAction(["kind": "close"]) }
     }
@@ -194,7 +207,8 @@ struct AutomationEditor: View {
         HStack(spacing: AceDesign.Space.row) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 if let shown = shownProblem {
-                    Text(shown).foregroundStyle(AceTheme.StatusText.failed)
+                    // Why Save waits: quiet until the person has touched the form, then in the failed colour.
+                    Text(shown).foregroundStyle(attempted || !touched.isEmpty ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                         .accessibilityIdentifier("automation.problem")
                 } else {
                     Text(view?.summary ?? "").foregroundStyle(AceDesign.Ink.primary)
@@ -240,7 +254,9 @@ struct AutomationEditor: View {
         return view?.errors?[name]
     }
     /// What the form still needs; a failed save or read shows once, as the row at the top.
-    private var shownProblem: String? { attempted ? view?.problem : nil }
+    private var shownProblem: String? { view?.problem }
+    /// The draft differs from what opened: a field, an idea taken or the model picked.
+    private var dirty: Bool { (form != nil && form != opened) || pickChanged }
     private var chosenModel: ComposeAgent.Model? {
         guard let pick else { return nil }
         let models = model.compose.agentsRead.agents.first { $0.provider == pick.provider }?.models ?? []
@@ -307,6 +323,7 @@ struct AutomationEditor: View {
                 form = reply.form
                 // A new automation starts in the first project, whenever the projects arrived.
                 if form?.workspace.isEmpty == true, let first = model.compose.projects.first { form?.workspace = first.path }
+                opened = form
             }
             sendChoice()
         } catch { problem = error.localizedDescription }
