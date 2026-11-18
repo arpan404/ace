@@ -1,29 +1,78 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { delimiter } from "node:path";
 import { z } from "zod";
 
 const marker = "__ACE_PATH__";
 
+/** How long a login shell may take, and how long it gets to exit once told to stop. */
+export interface LoginShellTiming {
+  /** The answer is settled by then whatever the shell does. */
+  timeoutMs?: number;
+  /** After the deadline, the shell gets SIGTERM, then SIGKILL this long later. */
+  killGraceMs?: number;
+}
+
 /**
  * GUI apps on macOS and many Linux desktops start with a minimal PATH (`/usr/bin:/bin`), so
  * provider CLIs installed by Homebrew, npm or installers are invisible. Ask the user's login
  * shell once for its PATH. Allow slow shell startup before selecting an installation. Falls back
- * to the current PATH on any failure.
+ * to the current PATH on any failure, and at the deadline at the latest, even if the shell
+ * ignores being stopped: the shell's process group is then ended separately.
  */
-export function loginShellPath(env: NodeJS.ProcessEnv, timeoutMs = 10_000): Promise<string> {
+export function loginShellPath(
+  env: NodeJS.ProcessEnv,
+  { timeoutMs = 10_000, killGraceMs = 2_000 }: LoginShellTiming = {},
+): Promise<string> {
   const current = env.PATH ?? "";
   if (process.platform === "win32") return Promise.resolve(current);
   const shell = env.SHELL || "/bin/sh";
   return new Promise((resolve) => {
-    execFile(
-      shell,
-      ["-ilc", `printf '%s%s%s' ${marker} "$PATH" ${marker}`],
-      { timeout: timeoutMs, env: { ...env, TERM: "dumb" }, encoding: "utf8" },
-      (error, stdout) => {
-        const found = error ? undefined : stdout.split(marker)[1];
-        resolve(found ? mergePaths(found, current) : current);
-      },
-    );
+    let done = false;
+    let output = "";
+    const finish = (found: string | undefined) => {
+      if (done) return;
+      done = true;
+      clearTimeout(deadline);
+      resolve(found ? mergePaths(found, current) : current);
+    };
+    let child: ChildProcess;
+    try {
+      // Its own process group, so a stop reaches whatever the shell profile started too.
+      child = spawn(shell, ["-ilc", `printf '%s%s%s' ${marker} "$PATH" ${marker}`], {
+        env: { ...env, TERM: "dumb" },
+        stdio: ["ignore", "pipe", "ignore"],
+        detached: true,
+      });
+    } catch {
+      return finish(undefined);
+    }
+    const stop = (signal: NodeJS.Signals) => {
+      if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
+      try {
+        process.kill(-child.pid, signal);
+      } catch {
+        child.kill(signal);
+      }
+    };
+    const deadline = setTimeout(() => {
+      finish(undefined);
+      stop("SIGTERM");
+      setTimeout(() => stop("SIGKILL"), killGraceMs).unref();
+    }, timeoutMs);
+    deadline.unref();
+    child.stdout?.setEncoding("utf8").on("data", (chunk: string) => {
+      output += chunk;
+      // Answered once both markers are in: a profile that leaves a process holding stdout
+      // open must not hold the answer.
+      const parts = output.split(marker);
+      if (parts.length >= 3) finish(parts[1]);
+    });
+    child.once("error", () => finish(undefined));
+    // All output read (`exit` can come before the last of it).
+    child.once("close", () => {
+      const parts = output.split(marker);
+      finish(parts.length >= 3 ? parts[1] : undefined);
+    });
   });
 }
 
@@ -59,11 +108,11 @@ export function prefixedPath(prefix: string | undefined, path: string): string {
 export async function daemonLoginPath(
   pending: PendingLoginPath,
   env: NodeJS.ProcessEnv,
-  timeoutMs?: number,
+  timing?: LoginShellTiming,
 ): Promise<string> {
   return prefixedPath(
     pending.prefix,
-    await loginShellPath({ ...env, PATH: pending.inherited }, timeoutMs),
+    await loginShellPath({ ...env, PATH: pending.inherited }, timing),
   );
 }
 
