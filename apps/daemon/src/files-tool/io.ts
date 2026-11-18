@@ -28,6 +28,10 @@ export function aceFilesIo(tool: FilesTool): FilesIo {
     async metadata(root, path) {
       try {
         const entry = await run(root, (client, number) => client.stat(number, path));
+        // A link the listing could not resolve is dangling or leaves the checkout; describing it
+        // says which, as the daemon's own metadata does by resolving the final link.
+        if (entry.kind.type === "symlink" && entry.kind.target === undefined)
+          await run(root, (client, number) => client.describe(number, path));
         return { kind: entry.kind.type, size: entry.size };
       } catch (error) {
         if (missing(error)) return null;

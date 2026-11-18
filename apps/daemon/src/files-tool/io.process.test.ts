@@ -219,6 +219,31 @@ describe.skipIf(!binary)("the daemon's file operations answered by ace-files", (
     expect(limited).toEqual({ path: "large.bin", version: versioned, type: "file", size: 4096 });
   });
 
+  it("describes an inside link by its target and reports a dangling one as absent", async () => {
+    const inside = join(root, "docs", "inside.md");
+    const dangling = join(root, "docs", "dangling.md");
+    await symlink("guide.md", inside);
+    await symlink("nothing.md", dangling);
+    try {
+      const link = value(await both({ op: "stat", path: "docs/inside.md" }));
+      expect(link).toMatchObject({ type: "symlink", size: 6, version: versioned });
+      expect(link.version).toBe(
+        String(value(await ask(local, { op: "stat", path: "docs/guide.md" })).version),
+      );
+      expect(value(await both({ op: "read", path: "docs/inside.md" }))).toMatchObject({
+        type: "symlink",
+        size: 6,
+      });
+      for (const path of ["docs/dangling.md", "docs/gone.md"]) {
+        expect(value(await both({ op: "stat", path }))).toEqual({ path, version: null });
+        expect(value(await both({ op: "read", path }))).toEqual({ path, version: null });
+      }
+    } finally {
+      await rm(inside);
+      await rm(dangling);
+    }
+  });
+
   it("answers a stale read validator with the current version", async () => {
     const stale = failure(await both({ op: "read", path: "notes.md", validator: "1:2:3:4:5" }));
     expect(stale.code).toBe("CONFLICT");

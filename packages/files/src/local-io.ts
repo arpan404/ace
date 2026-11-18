@@ -72,13 +72,18 @@ export function localFilesIo(
           mode: info.mode & 0o777,
         };
       }
-      const current = await observed(safe, path, options.signal);
-      if (current === null) return null;
-      const resolved = await safe.target(path);
-      const info = await lstat(resolved.path);
+      // A link is described as itself with its target's version, as `stat` always has.
+      const resolved = await safe.resolve(path).catch((error: unknown) => {
+        if (absent(error)) return undefined;
+        throw error;
+      });
+      if (resolved === undefined) return null;
+      const info = await lstat(resolved);
       const link = await lstat(join(safe.root, ...path.split("/"))).catch(() => undefined);
       return {
-        version: current,
+        version: info.isDirectory()
+          ? await treeVersion(safe, path, info, options.signal)
+          : version(info),
         size: info.size,
         kind: link?.isSymbolicLink() ? "symlink" : kindAt(info),
         mode: info.mode & 0o777,
