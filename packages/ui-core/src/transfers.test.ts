@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { DeviceId, HostId, type FleetLink } from "@ace/protocol";
-import { allowProjectsOffer, transferMachines } from "./transfers.ts";
+import { allowProjectsOffer, scopeChangeRefusal, transferMachines } from "./transfers.ts";
 
 const link = (extra: Partial<FleetLink>): FleetLink => ({
   hostId: HostId.parse("laptop"),
@@ -55,4 +55,25 @@ describe("choosing a machine that doesn't allow projects", () => {
   test("waits while that machine's devices are read", () => {
     expect(offer("pending")).toBe("checking");
   });
+
+  test("doesn't offer Projects to a link that may only view there, since it couldn't take work", () => {
+    const viewOnly = { id: "mac-on-laptop", scopes: ["read"] as const };
+    expect(
+      allowProjectsOffer({ reached: true, deviceId: "mac-on-laptop", devices: [viewOnly] }),
+    ).toBe("viewOnly");
+  });
+
+  test("goes on when the link already holds both, whatever the picker read earlier", () => {
+    const both = { id: "mac-on-laptop", scopes: ["read", "operate", "projects"] as const };
+    expect(allowProjectsOffer({ reached: true, deviceId: "mac-on-laptop", devices: [both] })).toBe(
+      "held",
+    );
+  });
+});
+
+test("a machine too old to change a link's scopes says to update it or link again", () => {
+  expect(scopeChangeRefusal("invalid_message", "Old laptop")).toMatch(
+    /^Old laptop runs an older ace .* Update ace there, or unlink and link them again/,
+  );
+  expect(scopeChangeRefusal("forbidden", "Old laptop")).toBeUndefined();
 });

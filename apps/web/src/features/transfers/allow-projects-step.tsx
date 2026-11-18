@@ -1,5 +1,9 @@
 import { fleetRefusal } from "@ace/ui-core";
-import { allowProjectsOffer, type TransferMachine } from "@ace/ui-core/transfers";
+import {
+  allowProjectsOffer,
+  scopeChangeRefusal,
+  type TransferMachine,
+} from "@ace/ui-core/transfers";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button.tsx";
@@ -21,7 +25,9 @@ import {
  * A machine that doesn't take projects from the sending one (ADR 0101): why in one sentence, and
  * the next step. When this window manages that machine and may grant Projects there, "Allow
  * projects on <machine>" widens the link's own device at once and goes on to the options;
- * otherwise "Open Settings › Fleet" opens that machine's page, where whoever can allows them.
+ * otherwise "Open Settings › Fleet" opens that machine's page, where whoever can allows them. A
+ * link that may only view there is sent to link again, and a machine whose ace predates the
+ * command says to update it.
  */
 export function AllowProjectsStep(props: {
   /** "Continue on Old laptop" or "Open on Old laptop". */
@@ -66,11 +72,17 @@ export function AllowProjectsStep(props: {
     onSuccess: props.onAllowed,
   });
   const why = `${machine.name} doesn't take projects from ${sender.name} yet`;
-  const words = allow.isError
-    ? fleetRefusal(refusalCode(allow.error), machine.name)
-    : offer === "settings"
-      ? `${why}; allow them on ${machine.name} in Settings › Fleet.`
-      : `${why}.`;
+  const refused = allow.isError ? refusalCode(allow.error) : undefined;
+  const words =
+    refused !== undefined
+      ? (scopeChangeRefusal(refused, machine.name) ?? fleetRefusal(refused, machine.name))
+      : offer === "viewOnly"
+        ? `${sender.name}'s link can only view on ${machine.name}, so it can't take projects; unlink and link them again in Settings › Fleet.`
+        : offer === "held"
+          ? `${machine.name} takes projects from ${sender.name} now.`
+          : offer === "settings"
+            ? `${why}; allow them on ${machine.name} in Settings › Fleet.`
+            : `${why}.`;
   const settings = () => {
     props.onClose();
     void navigate({
@@ -88,7 +100,12 @@ export function AllowProjectsStep(props: {
         {words}
       </p>
       <CommandStepFooter>
-        {offer === "settings" || allow.isError ? (
+        {offer === "held" && !allow.isError ? (
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- Enter takes the one next step.
+          <Button variant="primary" size="sm" autoFocus onClick={props.onAllowed}>
+            Continue
+          </Button>
+        ) : offer === "settings" || offer === "viewOnly" || allow.isError ? (
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- Enter takes the one next step.
           <Button variant="primary" size="sm" autoFocus onClick={settings}>
             Open Settings › Fleet

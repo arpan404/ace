@@ -59,3 +59,43 @@ test("a window that can't manage that machine is sent to its Fleet page instead"
   expect(await screen.findByRole("heading", { name: "Old laptop", level: 2 })).toBeTruthy();
   expect(linkOnLaptop(fixture)?.scopes).not.toContain("projects");
 }, 30_000);
+
+test("a link that may only view there isn't offered Projects, since it still couldn't take work", async () => {
+  const fixture = linkedMachines();
+  const { app } = fixture;
+  app.daemon.linkTo(fixture.machine("laptop"), { access: "read", projects: false });
+  await app.open("/t/thread-forecast");
+  const dialog = await continueOn();
+  await userEvent.click(await within(dialog).findByRole("option", { name: "Old laptop" }));
+
+  expect(
+    await within(dialog).findByText(
+      "This Mac's link can only view on Old laptop, so it can't take projects; unlink and link them again in Settings › Fleet.",
+    ),
+  ).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: /^Allow projects/ })).toBeNull();
+  expect(within(dialog).getByRole("button", { name: "Open Settings › Fleet" })).toBeTruthy();
+  expect(linkOnLaptop(fixture)?.scopes).toEqual(["read"]);
+}, 30_000);
+
+test("a machine whose ace can't change a link in place says to update it or link again", async () => {
+  const fixture = linkedMachines();
+  const { app } = fixture;
+  fixture.machine("laptop").services.fleet.unknownOps.add("scope");
+  await app.open("/t/thread-forecast");
+  const dialog = await continueOn();
+  await userEvent.click(await within(dialog).findByRole("option", { name: "Old laptop" }));
+  const allow = await within(dialog).findByRole<HTMLButtonElement>("button", {
+    name: "Allow projects on Old laptop",
+  });
+  await waitFor(() => expect(allow.disabled).toBe(false));
+  await userEvent.click(allow);
+
+  expect(
+    await within(dialog).findByText(
+      "Old laptop runs an older ace that can't allow projects from here. Update ace there, or unlink and link them again in Settings › Fleet.",
+    ),
+  ).toBeTruthy();
+  expect(within(dialog).queryByRole("button", { name: /^Allow projects/ })).toBeNull();
+  expect(within(dialog).getByRole("button", { name: "Open Settings › Fleet" })).toBeTruthy();
+}, 30_000);

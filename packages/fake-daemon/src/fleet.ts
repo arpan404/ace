@@ -36,6 +36,11 @@ export class FakeFleet {
   /** Levels set per paired device; the rest are this fake's fixed starting levels. */
   private chosen = new Map<string, Partial<MachineGrants>>();
   private linked = 0;
+  /**
+   * Operations this fake answers as a daemon from before them would: the whole request doesn't
+   * parse, so it's refused `invalid_message` (tests stage an older machine).
+   */
+  readonly unknownOps = new Set<FleetOperation["op"]>();
   private access: FakeAccess;
   constructor(access: FakeAccess) {
     this.access = access;
@@ -60,6 +65,8 @@ export class FakeFleet {
     operation: FleetOperation,
     device: string,
   ): FleetOutcome | { code: string; message: string } {
+    if (this.unknownOps.has(operation.op))
+      return { code: "invalid_message", message: "Message does not match the protocol" };
     switch (operation.op) {
       case "links":
         return { kind: "links", links: this.links() };

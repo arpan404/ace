@@ -52,11 +52,16 @@ export function transferMachines(links: readonly FleetLink[]): TransferMachine[]
 }
 
 /**
- * What choosing a machine that doesn't allow projects offers (ADR 0101): allowing them from this
- * window, which needs an administrator there holding Projects itself (a device grants only what
- * it holds), else Settings › Fleet at that machine. `devices` is that machine's paired devices as
- * this window reads them, `self` marking its own; `refused` when it may not read them (not an
- * administrator there), `pending` while it reads.
+ * What choosing a machine that doesn't take projects from this one offers (ADR 0101). A transfer
+ * needs the link's device there to hold both `operate` and `projects`:
+ * - `allow`: it holds operate, and this window may grant Projects there (an administrator holding
+ *   Projects itself, since a device grants only what it holds, or that machine's own app).
+ * - `viewOnly`: the link may only view there; adding Projects wouldn't let it take work, so the
+ *   person links again from Settings › Fleet.
+ * - `held`: it already holds both (what the picker read was older); go on to the options.
+ * - `settings`: this window can't change it from here; Settings › Fleet at that machine.
+ * `devices` is that machine's paired devices as this window reads them, `self` marking its own;
+ * `refused` when it may not read them (not an administrator there), `pending` while it reads.
  */
 export function allowProjectsOffer(input: {
   /** Whether this window reaches that machine now. */
@@ -66,14 +71,27 @@ export function allowProjectsOffer(input: {
     | "pending"
     | "refused"
     | readonly { id: string; scopes: readonly DeviceScope[]; self?: boolean }[];
-}): "checking" | "allow" | "settings" {
+}): "checking" | "allow" | "viewOnly" | "held" | "settings" {
   if (!input.reached || input.devices === "refused") return "settings";
   if (input.devices === "pending") return "checking";
-  if (!input.devices.some((device) => device.id === input.deviceId)) return "settings";
+  const link = input.devices.find((device) => device.id === input.deviceId);
+  if (!link) return "settings";
+  if (!link.scopes.includes("operate") && !link.scopes.includes("admin")) return "viewOnly";
+  if (link.scopes.includes("projects")) return "held";
   const self = input.devices.find((device) => device.self);
   // Not listed: this window is that machine's own app, which holds every scope.
   if (!self) return "allow";
   return self.scopes.includes("projects") || self.scopes.includes("desktop") ? "allow" : "settings";
+}
+
+/**
+ * Why a machine refused changing a link's scopes, in words the person acts on. A daemon from
+ * before `scope` can't parse it and answers `invalid_message` (or `unsupported`).
+ */
+export function scopeChangeRefusal(code: string, machine: string): string | undefined {
+  if (code === "invalid_message" || code === "unsupported")
+    return `${machine} runs an older ace that can't allow projects from here. Update ace there, or unlink and link them again in Settings › Fleet.`;
+  return undefined;
 }
 
 /** Where the work goes on the other machine. */
