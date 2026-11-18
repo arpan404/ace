@@ -509,3 +509,88 @@ async fn a_stamp_spade_took_is_refused_again_after_a_restart() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_parents_raise_waits_while_its_workers_change_is_being_decided() -> Result {
+    let w = world(false, vec![], |_| {
+        vec![
+            Script::reply("").call(
+                "m1",
+                "bot_create",
+                json!({ "name": "Kid", "task": "Help.", "brief": "Wait for me." }),
+            ),
+            Script::reply("Done."),
+            Script::reply("Done."),
+            Script::reply("Done."),
+        ]
+    })
+    .await?;
+    // The parent makes a worker (in Full access, so its bot_create runs without a reviewer).
+    assert_eq!(as_person(&w, &w.bot, json!("full_access")).await?.0, 200);
+    w.spade.say(&w.conversation, "Make a helper").await?;
+    let mut kid = None;
+    for _ in 0..200 {
+        let (_, list) = w.spade.get("/v1/agents").await?;
+        kid = list["agents"].as_array().and_then(|agents| {
+            agents
+                .iter()
+                .find(|a| a["parent"]["id"] == w.bot.as_str())
+                .and_then(|a| a["id"].as_str())
+                .map(str::to_owned)
+        });
+        if kid.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let kid = kid.ok_or("the worker wasn't made")?;
+    // The parent back on the auto-review, the worker pinned to it.
+    let parent = format!("{}/autonomy", security(&w.bot));
+    let child = format!("{}/autonomy", security(&kid));
+    for path in [&parent, &child] {
+        let (status, body) = w
+            .spade
+            .put(path, json!({ "autonomy": "auto_review" }))
+            .await?;
+        assert_eq!(status, 200, "{body}");
+    }
+    // While the worker's reset to follow its parent is being decided, it is held.
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let (go, wait) = std::sync::mpsc::channel::<()>();
+    let wait = std::sync::Mutex::new(wait);
+    let (at, held) = (reached.clone(), kid.clone());
+    w.security
+        .hold_autonomy_decisions(Arc::new(move |bot: &str| {
+            if bot == held {
+                at.notify_one();
+                if let Ok(wait) = wait.lock() {
+                    let _ = wait.recv_timeout(std::time::Duration::from_secs(10));
+                }
+            }
+        }));
+    let reset = w.spade.put(&child, json!({ "autonomy": null }));
+    let raise = async {
+        reached.notified().await;
+        let raise = as_person(&w, &w.bot, json!("full_access"));
+        tokio::pin!(raise);
+        // The person's raise of the parent waits for the worker's change: decided on the
+        // parent as it is, never on a parent read before it changed.
+        let early = tokio::time::timeout(std::time::Duration::from_millis(400), &mut raise).await;
+        let _ = go.send(());
+        assert!(
+            early.is_err(),
+            "the parent's raise went through while its worker's change was being decided"
+        );
+        raise.await
+    };
+    let (reset, raise) = tokio::join!(reset, raise);
+    assert_eq!(
+        reset?.0, 200,
+        "decided while the parent was on the auto-review"
+    );
+    assert_eq!(raise?.0, 200);
+    // The worker follows the parent the person raised.
+    let (_, view) = w.spade.get(&security(&kid)).await?;
+    assert_eq!(view["autonomy"], "full_access");
+    Ok(())
+}

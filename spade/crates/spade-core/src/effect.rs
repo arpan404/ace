@@ -454,10 +454,16 @@ pub fn route(call: Call<'_>) -> Route {
     }
 }
 
-/// Where a tool that declares nothing goes: inside the sandbox it runs; elsewhere the person
-/// decides once for the bot, and their answer is kept, except that untrusted content in view
+/// Where a tool that declares nothing goes: one the person declined for the bot is refused
+/// wherever it runs; otherwise inside the sandbox it runs, and elsewhere the person decides once
+/// for the bot, and their answer is kept, except that untrusted content in view
 /// brings an allowed one back to them (ADR 0130). Every mode: nothing says it doesn't send or pay.
 fn undeclared(call: Call<'_>) -> Route {
+    // The person's "no" for the bot holds wherever the tool now runs: a plugin's server that is
+    // sealed today may not have been when they declined it.
+    if call.remembered == Some(false) {
+        return Route::Refuse(DECLINED_TOOL.to_owned());
+    }
     if call.place == Place::Sandbox {
         return Route::Run;
     }

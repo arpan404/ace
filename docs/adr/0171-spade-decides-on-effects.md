@@ -349,23 +349,43 @@ send, post or pay as the person, and nothing looked.
   - **Windows**, and any machine whose sandbox is partial: no offline launch, so no plugin
     server is sealed there.
 
+  Spade's own program never runs with a plugin's environment. The Linux launcher, and on macOS
+  the program in front of `sandbox-exec`, start outside the sandbox, and a plugin's entry can
+  name what the system's loader runs before any of Spade's code (`LD_PRELOAD`,
+  `DYLD_INSERT_LIBRARIES`). So such a launch (`Launch::seals_env`) starts that program with the
+  run's variables renamed under a marker (`spade_sandbox::run_env`), which no loader reads, and
+  it restores them only on the command it starts inside the sandbox (on macOS, on
+  `sandbox-exec`, a system binary whose loader ignores `DYLD_*`). The release's `spade` is also
+  signed with the hardened runtime and no `allow-dyld-environment-variables` entitlement, so
+  dyld ignores `DYLD_*` for it anyway; the carrying doesn't rely on that.
+
   An offline run, like a read-only one, starts with its stdio alone: every descriptor the
   process starting it holds above stdio is marked close-on-exec first (`spade_sandbox::fds`), on
   Linux by the launcher, on macOS by Spade's own program run in front of `sandbox-exec`, so no
-  socket or pipe Spade happened to leave open can carry a sealed server's calls out. Where Spade's
+  socket or pipe Spade happened to leave open can carry a sealed server's calls out. The sweep
+  fails closed: if the descriptors can't all be listed and marked, the run doesn't start. Where Spade's
   own program isn't known, macOS holds nothing offline.
 
   Only a sealed server's tools keep decision 1's rule: the sandbox decides, with no classifier
   and no reviewer. Connectors are never sealed: they are remote.
 
-- **Outside the sealing guarantee: the workspace as a channel.** A sealed server can still write
-  in the bot's workspace, so a process outside it that can reach the network and reads that
-  folder (polling a file, a FIFO) could relay for it. Sealing doesn't cover that: it takes a
+- **Outside the sealing guarantee: local channels.** A sealed server can still write in the
+  bot's workspace, so a process outside it that can reach the network and reads that folder
+  (polling a file, a FIFO) could relay for it. On macOS it can also post and read `notifyd`
+  notifications (kept for the runtimes, above), whose names and states a cooperating local
+  process can watch, so they can carry data too. Sealing doesn't cover that: it takes a
   cooperating process that isn't sealed and that the bot already controls (its own command, its
   terminal, a service, another plugin's server), and that process is decided by the gate on its
   own terms, its network calls by its sandbox and policy, and its outward effects by this ADR's
   rules. Sealing promises that the sealed server's own calls reach nothing outside the machine,
   not that nothing else on the machine does.
+- **A classification that fails never widens where a call runs.** A call whose classification
+  runs out of time or fails stays in the sandbox (a launch held to it is refused where there is
+  none), and one that asked to run outside goes to the person (`ask: outside_sandbox`), in every
+  mode.
+- **A person's "no" holds wherever the tool runs.** An undeclared tool the person declined for
+  the bot is refused before any sandbox shortcut, so a plugin server that becomes sealed later
+  doesn't bring a declined tool back.
 
 - **Full access** ([ADR 0163](0163-spade-auto-review-only.md), amendment 2) applies the same
   rule, then its own: the classifier required for an app's write, the reviewer under untrusted

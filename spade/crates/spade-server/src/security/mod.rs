@@ -119,7 +119,12 @@ pub struct Security {
     maintenance: Arc<Mutex<std::collections::HashSet<String>>>,
     /// The person's stamps on changes only they may make.
     attestor: attest::Attestor,
+    /// What a test runs while a change to how a bot decides is being decided.
+    autonomy_hook: Mutex<Option<AutonomyHook>>,
 }
+
+/// What a test runs, with the bot's id, while a change to how that bot decides is being decided.
+pub type AutonomyHook = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// A bot's workspace held for maintenance; released when dropped.
 pub struct Reservation {
@@ -191,6 +196,7 @@ impl Security {
             )),
             maintenance: Arc::default(),
             attestor: attest::Attestor::new(setup.person_key),
+            autonomy_hook: Mutex::default(),
         })
     }
 
@@ -290,9 +296,12 @@ impl Security {
         mode: Option<Mode>,
         stamp: Option<&str>,
     ) -> Result<BotSecurity, SecurityError> {
-        let above = self.above(bot);
         self.change(bot, |current| {
+            // Read under the same lock as the write, with the machine's: a parent raised or a
+            // machine default changed meanwhile is what this change is decided against.
+            let above = self.above(bot);
             let machine = self.machine().autonomy;
+            self.deciding(bot);
             let with = |own: Option<Mode>| {
                 let mut chain = above.clone();
                 chain.push(BotSecurity {
@@ -325,6 +334,24 @@ impl Security {
         let claim = |nonce: &str, now: i64| attest::claim_in(&self.store, nonce, now);
         self.attestor
             .person(stamp, target, value, self.clock.now_ms(), &claim)
+    }
+
+    /// Waits here, while a change to how `bot` decides is being decided, when a test holds it.
+    fn deciding(&self, bot: &str) {
+        let hook = self
+            .autonomy_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hook) = hook {
+            hook(bot);
+        }
+    }
+
+    /// Calls `hook` with the bot's id while a change to how it decides is being decided, under
+    /// the settings lock; for tests that must see two changes meet.
+    pub fn hold_autonomy_decisions(&self, hook: AutonomyHook) {
+        *self.autonomy_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
     }
 
     /// Sets how bots without their own setting decide; Full access needs the person's stamp.

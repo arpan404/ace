@@ -181,7 +181,8 @@ v1.<ms>.<nonce>.<HMAC-SHA256>`, keyed with `<ACE_HOME>/spade-person.key` (writte
    with the person's standing: the app and paired devices as they are, the host token only with
    an ace sign-in from the last ten minutes (as the market's person-only actions, ADR 0178
    §12.5), and never an agent's device (`ace-agent`, `ace-reviewer`); a raise in parts is
-   refused. Nothing in Spade calls the setter but its person API: no tool, routine, note or
+   refused. A bot's change is decided under the same lock as its write, against its parents
+   and the machine as they are then: a parent raised meanwhile is what it is decided on. Nothing in Spade calls the setter but its person API: no tool, routine, note or
    skill. The key and Spade's token are in the credential places a bot's arguments are refused
    for, and the sandbox denies ace's data. What is left: a process outside any sandbox running
    as the person can read the key file, as it can the daemon's own token.

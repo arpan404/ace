@@ -48,7 +48,11 @@ impl Confine for ReadOnlyHere {
     fn read_only(&self, _home: &Path, _command: &str) -> std::result::Result<Confined, String> {
         Ok(Confined {
             launch: Box::new(|program: &Path, args: &[std::ffi::OsString]| {
-                Ok((program.to_path_buf(), args.to_vec()))
+                Ok(spade_sandbox::Launch {
+                    program: program.to_path_buf(),
+                    args: args.to_vec(),
+                    seals_env: false,
+                })
             }),
             env: Vec::new(),
             path_first: Vec::new(),
