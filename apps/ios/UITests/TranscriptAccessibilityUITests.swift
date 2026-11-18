@@ -134,7 +134,11 @@ import XCTest
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         var flings = 0
         while (app.probeValue("pages.older") ?? 0) < 3, flings < 120 {
+            // Each paging fling waits for the app to go idle too, so a page that stalls layout
+            // when it lands fails here instead of clearing before the timed swipes begin.
+            let started = Date()
             transcript.fling(older: true)
+            XCTAssertLessThan(Date().timeIntervalSince(started), 15, "an older page didn't settle as it landed")
             flings += 1
         }
         XCTAssertGreaterThanOrEqual(app.probeValue("pages.older") ?? 0, 3, "older pages read in \(flings) flings")
