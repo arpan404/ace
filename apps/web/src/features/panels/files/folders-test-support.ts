@@ -138,9 +138,6 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
     const requestId = envelope.data.requestId ?? "fixture-list.folder";
     const folder = clean(operation.path);
     requests.push({ path: folder, cursor: operation.cursor, limit: operation.limit });
-    const failure = failures.get(folder)?.shift();
-    if (failure)
-      return { type: "files.error", requestId, code: failure, message: "Folder listing failed" };
     const offset = operation.cursor === undefined ? 0 : Number(operation.cursor);
     if (!Number.isInteger(offset) || offset < 0)
       return {
@@ -156,6 +153,9 @@ export function folderFixture(client: ClientApi, thread: string): FolderFixture 
       holds.delete(folder);
       await held;
     }
+    const failure = failures.get(folder)?.shift();
+    if (failure)
+      return { type: "files.error", requestId, code: failure, message: "Folder listing failed" };
     const entries = entriesOf(paths, folder);
     const page = entries.slice(offset, offset + operation.limit);
     const nextCursor = offset + page.length < entries.length ? String(offset + page.length) : null;

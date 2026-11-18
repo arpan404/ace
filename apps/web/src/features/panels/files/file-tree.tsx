@@ -1,11 +1,9 @@
-import { CaretRightIcon, FolderIcon, FolderOpenIcon, MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { useConnectionState } from "@ace/client-react";
 import {
   ancestorFolders,
   buildFileTree,
   checkoutTreeRows,
-  cleanPath,
-  fuzzyPositions,
+  folderKey,
   openedFolders,
   pathParts,
   revealingFolders,
@@ -22,15 +20,13 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Icon } from "@/components/icon.tsx";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { attachWorkspaceScroll } from "@/lib/workspace/index.ts";
-import { Highlighted } from "./highlighted-path.tsx";
-import { fileIcon } from "@/components/file-icon.ts";
-import { FileMenu, FileRowMenu } from "./file-menu.tsx";
 import type { FileOperationDialog } from "./file-operation.ts";
+import { FileTreeRowView } from "./file-tree-row.tsx";
+import { FileTreeSearch } from "./file-tree-search.tsx";
 import { useCheckoutSearch, usePrefetchFile } from "./use-checkout.ts";
 import { useFolderTree } from "./use-folder-tree.ts";
 
@@ -38,19 +34,6 @@ import { useFolderTree } from "./use-folder-tree.ts";
 const virtualAbove = 200;
 /** How long the pointer rests on a file before it's read ahead: passing over rows reads nothing. */
 const prefetchDelay = 80;
-
-const rowClass =
-  "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-sm pr-2 group-hover/file:pr-8 group-focus-within/file:pr-8 text-left text-ui outline-none select-none transition-colors duration-(--motion-fast) hover:bg-accent focus-visible:shadow-[inset_0_0_0_1.5px_var(--ring)] aria-selected:bg-sidebar-accent";
-
-/** The marker before a status row's words, sized like a row's caret and icon. */
-function RowIndent() {
-  return (
-    <>
-      <span aria-hidden className="size-4 shrink-0" />
-      <span aria-hidden className="size-3.5 shrink-0" />
-    </>
-  );
-}
 
 /** The file tree of a thread's checkout: a folder is listed when it opens, a page at a time. */
 export function FileTree(props: {
@@ -95,7 +78,7 @@ export function FileTree(props: {
     const missing = revealingFolders(opened, currentPath);
     if (missing.length) onExpanded([...opened, ...missing]);
   }, [currentPath, opened, onExpanded]);
-  const tree = useFolderTree({ threadId: props.threadId, expanded: opened, active: !searching });
+  const tree = useFolderTree({ threadId: props.threadId, expanded: opened, paused: searching });
   const searchRows = useMemo<FolderRow[]>(
     () =>
       checkoutTreeRows(found, () => true).map((row) => ({
@@ -136,6 +119,15 @@ export function FileTree(props: {
     rowsHandle.current?.scrollToIndex(rows.findIndex((each) => each.key === key));
     requestAnimationFrame(() => find()?.focus());
   };
+  // A folder whose cursor went stale restarts; focus goes back to that folder's row.
+  const focusRowRef = useRef(focusRow);
+  useEffect(() => {
+    focusRowRef.current = focusRow;
+  });
+  const restart = tree.focus;
+  useEffect(() => {
+    if (restart?.folder) focusRowRef.current(folderKey(restart.folder));
+  }, [restart]);
   /** The next row a key press may land on, skipping a folder's loading or error line. */
   const step = (index: number, delta: number) => {
     for (let at = index + delta; at >= 0 && at < rows.length; at += delta) {
@@ -209,6 +201,10 @@ export function FileTree(props: {
         else focusRow(step(index, 1)?.key);
         break;
       case "ArrowLeft":
+        if (row.kind === "more") {
+          focusRow(row.folder ? folderKey(row.folder) : undefined);
+          break;
+        }
         if (row.kind === "folder" && row.expanded) toggle(row.key, false);
         else focusRow(ancestorFolders(row.key).at(-1));
         break;
@@ -237,7 +233,6 @@ export function FileTree(props: {
     event.dataTransfer.dropEffect = "copy";
     setDropTarget(folder);
   };
-  const upload = useRef<HTMLInputElement>(null);
   // Opening a file keeps the tree where it was: the tab owns the scroll position, restored once
   // the rows are tall enough and saved when scrolling settles or the tab goes away.
   const initialScroll = useRef(props.scrollTop ?? 0);
@@ -280,129 +275,6 @@ export function FileTree(props: {
     status = <Note>ace is offline. Files load again once it reconnects.</Note>;
   else if (!searching && !rows.length) status = <Note>This checkout is empty.</Note>;
 
-  const render = (row: FolderRow, index: number) => {
-    const positions = searching ? (fuzzyPositions(query.trim(), cleanPath(row.key)) ?? []) : [];
-    const nameStart = cleanPath(row.key).length - row.name.length;
-    const indent = { paddingLeft: 4 + row.depth * 12 };
-    if (row.kind === "loading")
-      return (
-        <div
-          role="none"
-          data-part="tree-status"
-          className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
-          style={indent}
-        >
-          <RowIndent />
-          <span className="min-w-0 truncate">Loading…</span>
-        </div>
-      );
-    if (row.kind === "error")
-      return (
-        <div
-          role="none"
-          data-part="tree-status"
-          className="flex h-8 w-full min-w-0 items-center gap-1.5 pr-2 text-ui text-muted-foreground select-none"
-          style={indent}
-        >
-          <RowIndent />
-          <span role="alert" className="min-w-0 flex-1 truncate">
-            {row.error}
-          </span>
-          <button
-            type="button"
-            className="shrink-0 font-medium text-foreground underline-offset-2 outline-none hover:underline focus-ring"
-            onClick={() => tree.retry(row.folder ?? "")}
-          >
-            Try again
-          </button>
-        </div>
-      );
-    if (row.kind === "more")
-      return (
-        <button
-          type="button"
-          role="treeitem"
-          data-part="list-row"
-          data-variant="more"
-          data-row={row.key}
-          aria-level={row.depth + 1}
-          tabIndex={row.key === focusable ? 0 : -1}
-          onFocus={() => setFocusKey(row.key)}
-          onClick={() => tree.showMore(row.folder ?? "")}
-          onKeyDown={(event) => onRowKey(event, row, index)}
-          style={indent}
-          className={cn(rowClass, "text-muted-foreground hover:text-foreground")}
-        >
-          <RowIndent />
-          <span className="min-w-0 truncate">Show more</span>
-        </button>
-      );
-    const folder = row.kind === "folder";
-    return (
-      <FileRowMenu
-        key={row.key}
-        path={row.key}
-        name={row.name}
-        folder={folder}
-        disabled={!online}
-        tabbable={row.key === focusable}
-        onOperation={props.onOperation}
-      >
-        <button
-          type="button"
-          role="treeitem"
-          data-part="list-row"
-          data-state={row.key === currentPath ? "selected" : undefined}
-          data-variant={folder ? "folder" : "file"}
-          data-path={row.key}
-          data-row={row.key}
-          data-ignored={row.ignored || undefined}
-          aria-level={row.depth + 1}
-          aria-expanded={folder ? row.expanded : undefined}
-          aria-selected={row.key === currentPath}
-          tabIndex={row.key === focusable ? 0 : -1}
-          title={row.key}
-          onFocus={() => setFocusKey(row.key)}
-          onPointerEnter={() => hoverStart(row)}
-          onPointerLeave={hoverEnd}
-          onClick={() => activate(row, false)}
-          onDoubleClick={() => !folder && props.onOpen(row.key, true)}
-          onKeyDown={(event) => onRowKey(event, row, index)}
-          onDragOver={folder ? (event) => dragOver(event, row.key) : undefined}
-          onDrop={folder ? (event) => drop(event, row.key) : undefined}
-          style={indent}
-          className={cn(
-            rowClass,
-            row.ignored ? "text-muted-foreground" : "text-foreground",
-            folder && dropTarget === row.key && "shadow-[inset_0_0_0_1.5px_var(--ring)]",
-          )}
-        >
-          <span className="grid size-4 shrink-0 place-items-center">
-            {folder && (
-              <CaretRightIcon
-                aria-hidden
-                size={10}
-                weight="bold"
-                className={cn(
-                  "text-subtle-foreground transition-transform duration-(--motion-fast)",
-                  row.expanded && "rotate-90",
-                )}
-              />
-            )}
-          </span>
-          <Icon
-            icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
-            size={14}
-            className="text-subtle-foreground"
-          />
-          <span className="min-w-0 truncate">
-            <Highlighted text={row.name} offset={nameStart} positions={positions} />
-          </span>
-        </button>
-      </FileRowMenu>
-    );
-  };
-
   return (
     <div
       className="flex h-full min-h-0 flex-col"
@@ -413,68 +285,20 @@ export function FileTree(props: {
       }}
       onDrop={(event) => drop(event, currentFolder ? `${currentFolder}/` : "")}
     >
-      <div className="flex h-10 shrink-0 items-center gap-1 px-2">
-        <label className="relative flex h-8 min-w-0 flex-1 items-center rounded-md bg-foreground/5 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--motion-fast) focus-within:shadow-[inset_0_0_0_1px_var(--ring)]">
-          <MagnifyingGlassIcon
-            aria-hidden
-            size={14}
-            className="ml-2.5 shrink-0 text-subtle-foreground"
-          />
-          <input
-            type="search"
-            aria-label="Find files in the checkout"
-            placeholder="Find files…"
-            value={query}
-            spellCheck={false}
-            autoComplete="off"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && query) {
-                event.preventDefault();
-                event.stopPropagation();
-                setQuery("");
-              } else if (event.key === "ArrowDown") {
-                event.preventDefault();
-                focusRow(navigable[0]?.key);
-              } else if (event.key === "Enter") {
-                const first = rows.find((row) => row.kind === "file");
-                if (first) props.onOpen(first.key, true);
-              }
-            }}
-            className="h-full min-w-0 flex-1 bg-transparent pr-1 pl-2 text-ui text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:hidden"
-          />
-          {searching && search.pending && <Spinner className="mr-1.5" />}
-          {query && (
-            <button
-              type="button"
-              aria-label="Clear search"
-              onClick={() => setQuery("")}
-              className="mr-1 grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground outline-none hover:bg-accent hover:text-foreground focus-ring"
-            >
-              <XIcon aria-hidden size={12} />
-            </button>
-          )}
-        </label>
-        <FileMenu
-          folder={currentFolder}
-          disabled={!online}
-          onOperation={props.onOperation}
-          onUpload={() => upload.current?.click()}
-        />
-        <input
-          ref={upload}
-          type="file"
-          multiple
-          hidden
-          aria-hidden
-          tabIndex={-1}
-          onChange={(event) => {
-            const files = [...(event.target.files ?? [])];
-            event.target.value = "";
-            if (files.length) props.onUpload(files, currentFolder ? `${currentFolder}/` : "");
-          }}
-        />
-      </div>
+      <FileTreeSearch
+        query={query}
+        onQuery={setQuery}
+        pending={searching && search.pending}
+        folder={currentFolder}
+        disabled={!online}
+        onOperation={props.onOperation}
+        onUpload={props.onUpload}
+        onFirstRow={() => focusRow(navigable[0]?.key)}
+        onEnter={() => {
+          const first = rows.find((row) => row.kind === "file");
+          if (first) props.onOpen(first.key, true);
+        }}
+      />
       <div ref={attachScroll} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <div
           ref={list}
@@ -494,7 +318,28 @@ export function FileTree(props: {
             handle={rowsHandle}
             rowKey={(row) => row.key}
             estimate={32}
-            render={render}
+            render={(row, index) => (
+              <FileTreeRowView
+                row={row}
+                index={index}
+                current={currentPath}
+                focusable={row.key === focusable}
+                searching={searching}
+                query={query}
+                online={online}
+                dropTarget={dropTarget}
+                onActivate={activate}
+                onKeyDown={onRowKey}
+                onFocus={setFocusKey}
+                onOperation={props.onOperation}
+                onDragOver={dragOver}
+                onDrop={drop}
+                onHoverStart={hoverStart}
+                onHoverEnd={hoverEnd}
+                onRetry={tree.retry}
+                onMore={tree.showMore}
+              />
+            )}
           />
         </div>
         {status}

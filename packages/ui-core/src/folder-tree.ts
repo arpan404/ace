@@ -116,9 +116,6 @@ export function visibleOpenFolders(open: Iterable<string>): ReadonlySet<string> 
   return visible;
 }
 
-/** @deprecated Use `visibleOpenFolders`. */
-export const visibleFolders = visibleOpenFolders;
-
 /** A folder's depth: the root is 0, "a/" is 1, "a/b/" is 2. */
 export function folderDepth(folder: string): number {
   const path = folderRequestPath(folder);
@@ -217,9 +214,6 @@ export function retryPage(
     return { mode: "more", cursor: state.nextCursor };
   return { mode: "first" };
 }
-
-/** @deprecated Use `retryPage`. */
-export const folderRetry = retryPage;
 
 /** The page size a re-list asks for: what the folder already shows, at least 500, at most 5000. */
 export function relistLimit(state: FolderState | undefined): number {

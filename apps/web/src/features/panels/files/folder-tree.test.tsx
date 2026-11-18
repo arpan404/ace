@@ -141,3 +141,72 @@ test("this window's move re-lists only the two folders whose rows changed", asyn
   expect(folders.count("apps/web/src")).toBe(1);
   expect(folders.count("")).toBe(1);
 });
+
+test("a search pauses listing; clearing it lists only what changed meanwhile", async () => {
+  const { panel, folders, tree } = await openFiles();
+  await userEvent.click(within(tree).getByRole("treeitem", { name: "apps" }));
+  await within(tree).findByRole("treeitem", { name: "web" });
+  expect(folders.count("apps")).toBe(1);
+  expect(folders.count("")).toBe(1);
+
+  const filter = within(panel).getByRole("searchbox", { name: "Find files in the checkout" });
+  await userEvent.type(filter, "socket");
+  await within(panel).findByRole("tree", { name: "Matching files" });
+  folders.changed(["apps"]);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(folders.count("apps")).toBe(1);
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Clear search" }));
+  await within(panel).findByRole("tree", { name: "Checkout files" });
+  await waitFor(() => expect(folders.count("apps")).toBe(2));
+  expect(folders.count("")).toBe(1);
+});
+
+test("folding a folder stops watching what it held open, and keeps it for reopening", async () => {
+  const { folders, tree } = await openFiles();
+  await userEvent.click(within(tree).getByRole("treeitem", { name: "apps" }));
+  await userEvent.click(await within(tree).findByRole("treeitem", { name: "web" }));
+  await within(tree).findByRole("treeitem", { name: "src" });
+  await waitFor(() => expect(folders.watches.at(-1)).toEqual(["", "apps", "apps/web"]));
+  const apps = folders.count("apps");
+  const web = folders.count("apps/web");
+
+  await userEvent.click(within(tree).getByRole("treeitem", { name: "apps" }));
+  await waitFor(() => expect(folders.watches.at(-1)).toEqual([""]));
+  folders.changed(["apps/web"]);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  expect(folders.count("apps/web")).toBe(web);
+
+  await userEvent.click(within(tree).getByRole("treeitem", { name: "apps" }));
+  await waitFor(() => expect(folders.count("apps")).toBe(apps + 1));
+  await waitFor(() => expect(folders.count("apps/web")).toBe(web + 1));
+  expect(await within(tree).findByRole("treeitem", { name: "src" })).toBeTruthy();
+});
+
+test("a stale folder cursor restarts the folder and moves focus to its row", async () => {
+  const { panel, folders, tree } = await openFiles();
+  folders.failNext("apps", "INVALID_CURSOR");
+  const release = folders.hold("apps");
+  const apps = within(tree).getByRole("treeitem", { name: "apps" });
+  await userEvent.click(apps);
+  // Focus moves away while the stale cursor is being retried.
+  within(panel).getByRole("searchbox", { name: "Find files in the checkout" }).focus();
+  release();
+  await within(tree).findByRole("treeitem", { name: "web" });
+  expect(folders.count("apps")).toBe(2);
+  await waitFor(() => expect(document.activeElement).toBe(apps));
+});
+
+test("a folder waiting for its first page is busy and shows a disabled Loading row", async () => {
+  const { folders, tree } = await openFiles();
+  const release = folders.hold("apps");
+  await userEvent.click(within(tree).getByRole("treeitem", { name: "apps" }));
+  const loading = await within(tree).findByRole("treeitem", { name: "Loading…" });
+  expect(loading.getAttribute("aria-disabled")).toBe("true");
+  expect(within(tree).getByRole("treeitem", { name: "apps" }).getAttribute("aria-busy")).toBe(
+    "true",
+  );
+  release();
+  await within(tree).findByRole("treeitem", { name: "web" });
+  expect(within(tree).getByRole("treeitem", { name: "apps" }).getAttribute("aria-busy")).toBeNull();
+});
