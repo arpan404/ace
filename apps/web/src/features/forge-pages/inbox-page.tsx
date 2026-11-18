@@ -73,7 +73,7 @@ function GroupBy(props: { value: "date" | "repo"; onValue(value: "date" | "repo"
     <Menu>
       <MenuTrigger
         aria-label={`Group by: ${groupWords[props.value]}`}
-        {...part("select", undefined, "filter")}
+        {...part("button", undefined, "filter")}
         className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2.5 text-ui text-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover aria-expanded:bg-hover"
       >
         <span className="text-muted-foreground">Group by:</span>

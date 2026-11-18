@@ -26,7 +26,7 @@ export function FilterMenu<T extends string>(props: {
     <Menu>
       <MenuTrigger
         aria-label={`${props.label}: ${current?.label ?? ""}`}
-        {...part("select", undefined, "filter")}
+        {...part("button", undefined, "filter")}
         className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-ui text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent"
       >
         {current?.icon && <Glyph>{current.icon}</Glyph>}
