@@ -11,6 +11,7 @@ mod encoding;
 mod error;
 mod handle;
 mod mutate;
+mod number;
 mod read;
 mod tree;
 mod version;

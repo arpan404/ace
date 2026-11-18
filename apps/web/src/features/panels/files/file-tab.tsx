@@ -25,7 +25,6 @@ import {
   treeLayout,
   useFilePrefs,
   useFilesMemory,
-  useRecentFiles,
   useRecentFilesStore,
 } from "./files-state.ts";
 import { openFile } from "./open-file.ts";
@@ -33,7 +32,7 @@ import { quickOpen } from "./quick-open-store.ts";
 import { useFindHits } from "./use-find-hits.ts";
 import { FindBar } from "./find-bar.tsx";
 import { useChangeMarks } from "./use-change-marks.ts";
-import { useEditedPaths, useFileContent } from "./use-checkout.ts";
+import { useFileContent } from "./use-checkout.ts";
 import { useFileActions, type UploadState } from "./use-file-actions.ts";
 
 const FileEditor = lazy(() =>
@@ -97,8 +96,11 @@ export function FileTab(props: TabViewProps) {
               (event) =>
                 event.threadId === threadId && event.payload.type === "workspace.files_changed",
             ))
-        )
+        ) {
+          // The lazy tree follows agents through files.folders_changed; this only refreshes
+          // the open file's content.
           void queries.invalidateQueries({ queryKey: ["checkout"] });
+        }
       }),
     [client, queries, threadId],
   );
@@ -111,9 +113,7 @@ export function FileTab(props: TabViewProps) {
   const online = useConnectionState() === "ready";
   const memory = useFilesMemory();
   const [prefs] = useFilePrefs();
-  const recent = useRecentFiles(threadId);
-  const edited = useEditedPaths(threadId);
-  const known = [...new Set([...(path ? [path] : []), ...recent, ...edited])];
+  const recentStore = useRecentFilesStore();
   const content = useFileContent(threadId, path);
   const [operation, setOperation] = useState<FileOperationDialog>();
   const query = data.query ?? "";
@@ -141,7 +141,6 @@ export function FileTab(props: TabViewProps) {
     });
   const fileActions = useFileActions(threadId, (uploaded) => open(uploaded, true));
 
-  const recentStore = useRecentFilesStore();
   useEffect(() => {
     if (path) recentStore.remember(threadId, path);
   }, [recentStore, threadId, path]);
@@ -333,12 +332,11 @@ export function FileTab(props: TabViewProps) {
             <FileTree
               threadId={threadId}
               onOperation={setOperation}
-              known={known}
               current={path}
               query={query}
               onQuery={setQuery}
-              collapsed={data.collapsed}
-              onCollapsed={(collapsed) => update({ collapsed })}
+              expanded={data.expanded}
+              onExpanded={(expanded) => update({ expanded })}
               scrollTop={data.treeScroll ?? 0}
               onScroll={(treeScroll) => update({ treeScroll })}
               onOpen={open}

@@ -107,6 +107,7 @@
         "@ace/diagnostics": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/files": "workspace:*",
+        "@ace/files-native": "workspace:*",
         "@ace/forge": "workspace:*",
         "@ace/git": "workspace:*",
         "@ace/handoff": "workspace:*",

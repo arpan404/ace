@@ -73,6 +73,9 @@ fn populate(fixture: &Fixture) {
         fixture.write(path, contents.as_bytes());
     }
     fixture.write("folder/.gitignore", b"ignored.log\n");
+    // A timestamp exactly halfway between two decimals that both read back as it.
+    fixture.write("folder/halfway.txt", b"a time between two nanoseconds");
+    fixture.set_modified("folder/halfway.txt", 1_911_493_843, 781_250);
     symlink("a.txt", fixture.path("folder/link.txt")).expect("file symlink");
     symlink("sub", fixture.path("folder/linkdir")).expect("folder symlink");
 }

@@ -263,6 +263,8 @@ export class FakeFilesWire {
             return;
           }
           if (message.type === "files.credit") throw new Error("INVALID_MESSAGE");
+          // The fake serves no watcher: a test drives files.folders_changed itself.
+          if (message.type === "files.watch") return;
           if (message.type === "files.pull" || message.type === "files.chunk") {
             const channel = channels.get(message.channel);
             if (!channel) throw new Error("NOT_FOUND");

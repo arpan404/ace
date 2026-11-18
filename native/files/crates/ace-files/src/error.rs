@@ -25,6 +25,16 @@ impl Failure {
     }
 }
 
+/// Whether a failure earns a line on stderr.
+///
+/// Only failures of the machine or the process do: an `IO_ERROR` or a `PERMISSION_DENIED` means
+/// something is wrong with the checkout or the system. A `NOT_FOUND` from a folder that changed
+/// under the person, an `ABORTED` the daemon asked for and a `CONFLICT` from a guarded write are
+/// all outcomes the daemon handles, so they stay off the log.
+pub fn worth_logging(code: &str) -> bool {
+    matches!(code, "IO_ERROR" | "PERMISSION_DENIED")
+}
+
 /// Everything a request can fail with, one variant per crate that can refuse it.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

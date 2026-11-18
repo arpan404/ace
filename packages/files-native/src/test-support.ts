@@ -96,6 +96,7 @@ export type FakeFilesBehaviour =
   | "corrupt-reply"
   | "read-no-body"
   | "search-hang"
+  | "search-fails"
   | "search-hold"
   | "hold-requests";
 

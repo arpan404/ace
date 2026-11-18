@@ -1,24 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! The OS backend, plus the polling one used when the OS cannot watch the root.
+//! The OS watcher, plus the polling one used when the OS cannot watch the root.
+//!
+// Windows: `notify` ignores `ReadDirectoryChangesW`'s overflow, so the `ERROR_NOTIFY_ENUM_DIR`
+//! status never reaches this crate as `Event::need_rescan()`. A burst bigger than the kernel
+//! buffer is therefore reported as the events that did arrive, without the rescan the plan asks
+//! for; fixing it needs a backend that surfaces that status, which is wave 3 work.
 
-#[cfg(not(target_os = "linux"))]
+use std::time::Duration;
+
 use files_safe::Root;
-use notify::PollWatcher;
-#[cfg(not(target_os = "linux"))]
-use notify::Watcher as NotifyWatcher;
+use notify::{PollWatcher, Watcher as NotifyWatcher};
 
-use crate::batch::Change;
-use crate::observed::Flavour;
-#[cfg(not(target_os = "linux"))]
-use crate::{
-    error::Error,
-    exclude::Excluder,
-    watch::{Events, no_backend},
-};
+use crate::error::Error;
+use crate::exclude::Excluder;
+use crate::translate::Notice;
+use crate::watch::Events;
 
 #[cfg(target_os = "linux")]
 pub(crate) use crate::linux::Folders as Native;
+
+fn unsupported(error: notify::Error) -> Error {
+    Error::Unsupported(error.to_string())
+}
+
+/// How often the polling fallback scans the tree.
+pub(crate) const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// One recursive OS watch, or one watch per folder on Linux.
 pub(crate) enum Backend {
@@ -27,20 +34,29 @@ pub(crate) enum Backend {
 }
 
 impl Backend {
-    /// How far this backend's event kinds can be trusted.
-    pub(crate) fn flavour(&self) -> Flavour {
+    /// Adds the watches a folder that just appeared needs; only Linux does anything here.
+    pub(crate) fn adopt(
+        &mut self,
+        root: &Root,
+        excluder: &Excluder,
+        notices: &mut Vec<Notice>,
+    ) -> Result<(), Error> {
         match self {
-            Backend::Native(native) => native.flavour(),
-            Backend::Polling(_) => Flavour::Exact,
+            Backend::Native(native) => native.adopt(root, excluder, notices),
+            Backend::Polling(_) => Ok(()),
         }
     }
 
-    /// Adds watches for folders that just appeared. Linux only; other backends watch
-    /// recursively and return no message.
-    pub(crate) fn adopt(&mut self, changes: &mut Vec<Change>) -> Option<String> {
+    /// Re-adds whatever the kernel lost when it overflowed.
+    pub(crate) fn rescan(
+        &mut self,
+        root: &Root,
+        excluder: &Excluder,
+        dir: Option<&str>,
+    ) -> Result<(), Error> {
         match self {
-            Backend::Native(native) => native.adopt(changes),
-            Backend::Polling(_) => None,
+            Backend::Native(native) => native.rescan(root, excluder, dir),
+            Backend::Polling(_) => Ok(()),
         }
     }
 
@@ -51,6 +67,18 @@ impl Backend {
             Backend::Polling(watcher) => drop(watcher),
         }
     }
+}
+
+/// The polling fallback: a snapshot every two seconds, never following symbolic links.
+pub(crate) fn poll(root: &Root, events: Events) -> Result<PollWatcher, Error> {
+    let config = notify::Config::default()
+        .with_poll_interval(POLL_INTERVAL)
+        .with_follow_symlinks(false);
+    let mut watcher = PollWatcher::new(events, config).map_err(unsupported)?;
+    watcher
+        .watch(root.path(), notify::RecursiveMode::Recursive)
+        .map_err(unsupported)?;
+    Ok(watcher)
 }
 
 /// One recursive OS watch: FSEvents on macOS, ReadDirectoryChangesW on Windows.
@@ -67,19 +95,31 @@ impl Native {
         events: Events,
     ) -> Result<Native, Error> {
         let mut watcher = notify::RecommendedWatcher::new(events, notify::Config::default())
-            .map_err(no_backend)?;
+            .map_err(unsupported)?;
         watcher
             .watch(root.path(), notify::RecursiveMode::Recursive)
-            .map_err(no_backend)?;
+            .map_err(unsupported)?;
         Ok(Native { watcher })
     }
 
-    pub(crate) fn flavour(&self) -> Flavour {
-        Flavour::native()
+    /// The OS watch is recursive: new folders are already covered.
+    pub(crate) fn adopt(
+        &mut self,
+        _root: &Root,
+        _excluder: &Excluder,
+        _notices: &mut Vec<Notice>,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
-    pub(crate) fn adopt(&mut self, _changes: &mut Vec<Change>) -> Option<String> {
-        None
+    /// Nothing to rebuild after an overflow: the OS watch is still whole.
+    pub(crate) fn rescan(
+        &mut self,
+        _root: &Root,
+        _excluder: &Excluder,
+        _dir: Option<&str>,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 
     pub(crate) fn stop(self) {

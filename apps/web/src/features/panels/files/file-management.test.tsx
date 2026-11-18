@@ -5,6 +5,7 @@ import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
+import { folderFixture } from "./folders-test-support.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -32,6 +33,7 @@ afterEach(() => {
 });
 async function openFiles() {
   const app = harness();
+  const folders = folderFixture(app.client, "thread-cold-start");
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
@@ -43,7 +45,7 @@ async function openFiles() {
   await userEvent.click(within(tools).getByRole("button", { name: /^Files/ }));
   await within(panel).findByRole("tab", { name: "Files", selected: true });
   await within(panel).findByRole("treeitem", { name: "README.md" });
-  return { app, panel };
+  return { app, panel, folders };
 }
 async function manage(panel: HTMLElement, label: string) {
   await userEvent.click(within(panel).getByRole("button", { name: "Manage files" }));

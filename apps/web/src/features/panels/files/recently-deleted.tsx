@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { checkoutError } from "./checkout-source.ts";
+import { checkoutChanged } from "./checkout-refresh.ts";
 import { fileManagement, type TrashEntry } from "./file-management-source.ts";
 import { formatBytes } from "./use-file-actions.ts";
 
@@ -40,6 +41,7 @@ export function TrashDialog(props: {
     try {
       await manager.mutate({ op: "restore", trashId: entry.id, path: entry.path, expected: null });
       setPrevious((list) => list.filter((item) => item.id !== entry.id));
+      checkoutChanged(props.threadId, [entry.path]);
       await queries.invalidateQueries({ queryKey: ["checkout"] });
       props.onChanged(entry.path);
     } catch (failure) {

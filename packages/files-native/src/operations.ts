@@ -185,7 +185,8 @@ export class Operations {
   /**
    * Re-open every root and watch on a fresh process. One root the binary refuses (its folder
    * vanished, say) is marked unavailable and its watches get a warning; only a transport failure
-   * escapes, and the process then kills the run.
+   * escapes, and the process then kills the run. A watch that is re-subscribed gets one `rescan`:
+   * whatever changed while the process was down was never reported to it.
    */
   async restore(timeoutMs: number): Promise<void> {
     for (const [rootNumber, root] of Array.from(this.#roots)) {
@@ -244,6 +245,7 @@ export class Operations {
         continue;
       }
       if (failure) this.#warnWatch(subscription, watch, failure.message);
+      else this.#deliver(watch, { type: "rescan" });
     }
   }
 

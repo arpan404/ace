@@ -5,6 +5,8 @@
 
 mod common;
 
+use std::time::Duration;
+
 use common::{Client, checkout};
 use files_wire::{Case, EventPayload, Message, Op, Reply, SearchQuery};
 
@@ -22,6 +24,30 @@ fn query(pattern: &str) -> SearchQuery {
     }
 }
 
+fn regex(pattern: &str) -> SearchQuery {
+    SearchQuery {
+        regex: true,
+        ..query(pattern)
+    }
+}
+
+/// Start a search and hand back its subscription.
+fn subscribe(client: &mut Client, root: u64, query: SearchQuery) -> u64 {
+    let id = client.request(Op::Search { root, query });
+    match client.reply(id) {
+        Reply::Subscription { subscription } => subscription,
+        other => panic!("search answered {other:?}"),
+    }
+}
+
+/// Wait for the search to fail and hand back its code.
+fn await_failure(client: &mut Client, subscription: u64) -> String {
+    match client.event(subscription) {
+        EventPayload::SearchFailed { code, .. } => code,
+        other => panic!("expected a searchFailed event, got {other:?}"),
+    }
+}
+
 #[test]
 fn streams_matches_then_search_done() {
     let checkout = checkout(&[
@@ -32,14 +58,7 @@ fn streams_matches_then_search_done() {
     let mut client = Client::greeted();
     let root = client.open_root(checkout.path());
 
-    let id = client.request(Op::Search {
-        root,
-        query: query("cache"),
-    });
-    let subscription = match client.reply(id) {
-        Reply::Subscription { subscription } => subscription,
-        other => panic!("search answered {other:?}"),
-    };
+    let subscription = subscribe(&mut client, root, query("cache"));
 
     let mut files = Vec::new();
     let summary = loop {
@@ -69,7 +88,7 @@ fn streams_matches_then_search_done() {
 }
 
 #[test]
-fn cancel_of_a_long_search_answers_aborted() {
+fn cancel_of_a_long_search_fails_the_subscription() {
     // A file large enough that scanning it outlasts the round trip of the cancel that follows the
     // subscription, so the search is still walking when it is told to stop.
     let line = "the quick brown fox jumps over the lazy dog\n";
@@ -81,19 +100,21 @@ fn cancel_of_a_long_search_answers_aborted() {
         root,
         query: query("wombat"),
     });
-    match client.reply(id) {
-        Reply::Subscription { .. } => {}
+    let subscription = match client.reply(id) {
+        Reply::Subscription { subscription } => subscription,
         other => panic!("search answered {other:?}"),
-    }
+    };
     client.send(&Message::Cancel { id });
-    let error = client.error(id);
-    assert_eq!(error.code, "ABORTED");
+    assert_eq!(await_failure(&mut client, subscription), "ABORTED");
+    // The request id was answered once, by the subscription: no second reply follows it.
+    client.expect_no_reply(id, Duration::from_millis(300));
 }
 
 #[test]
 fn unwatch_stops_a_long_search() {
     // The same large file as the cancel test: the search cannot finish before the unsubscribe
-    // reaches it, so the request must come back as stopped.
+    // reaches it, so the request must stop. The subscription is already gone, so the stop is not
+    // reported anywhere, and the request it belonged to is not answered twice.
     let line = "the quick brown fox jumps over the lazy dog\n";
     let checkout = checkout(&[("big.txt", &line.repeat(600_000))]);
     let mut client = Client::greeted();
@@ -109,5 +130,38 @@ fn unwatch_stops_a_long_search() {
     };
     let unwatched = client.request(Op::Unwatch { subscription });
     assert_eq!(client.reply(unwatched), Reply::Done);
-    assert_eq!(client.error(id).code, "ABORTED");
+    client.expect_no_reply(id, Duration::from_millis(500));
+}
+
+#[test]
+fn a_panicking_search_worker_fails_the_subscription() {
+    let checkout = checkout(&[("a.txt", "cache\n")]);
+    let mut client = Client::launch(&[("ACE_FILES_PANIC_SEARCH", "boom")], false);
+    client.hello();
+    let root = client.open_root(checkout.path());
+
+    let subscription = subscribe(&mut client, root, query("boom"));
+    // A worker that panicked never walks, so the search can only end as a failure. It must end.
+    assert_eq!(await_failure(&mut client, subscription), "IO_ERROR");
+}
+
+#[test]
+fn an_invalid_regex_answers_one_error_reply() {
+    let checkout = checkout(&[("a.txt", "cache\n")]);
+    let mut client = Client::greeted();
+    let root = client.open_root(checkout.path());
+
+    let id = client.request(Op::Search {
+        root,
+        query: regex("cache("),
+    });
+    let error = client.error(id);
+    assert_eq!(error.code, "INVALID_ARGUMENT");
+    assert!(
+        error.message.contains("regex") || error.message.contains("group"),
+        "the message says what is wrong with the pattern: {}",
+        error.message
+    );
+    // No subscription was ever handed out, so nothing may follow: the request got its one answer.
+    client.expect_silence(Duration::from_millis(300));
 }
