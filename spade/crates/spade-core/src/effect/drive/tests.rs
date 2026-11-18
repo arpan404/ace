@@ -457,7 +457,10 @@ fn only_input_into_a_tab_or_an_app_or_a_change_to_a_tab_needs_ace_to_hold_it_the
     for (tool, arguments) in [
         ("browser_act", json!({"action": "press", "key": "Enter"})),
         ("browser_act", json!({"action": "dialog", "dialogId": "d1"})),
-        ("browser_evaluate", json!({"expression": "1"})),
+        (
+            "browser_evaluate",
+            json!({"expression": "1", "mode": "read-only"}),
+        ),
         ("browser_history", json!({"direction": "back"})),
         ("browser_measure", json!({})),
         ("browser_tabs", json!({"action": "close", "tabId": "t1"})),
@@ -677,4 +680,23 @@ fn an_operation_ace_runs_for_the_whole_session_has_no_tab_to_place_it_in() {
         read("browser_request_help", &help, Some(&answer)).place,
         Err(NO_TAB)
     );
+}
+
+#[test]
+fn an_unrestricted_script_is_always_the_persons_and_only_a_side_effect_free_one_may_be_reviewed() {
+    let answer = tabs(&[("t1", "https://docs.rs/", true, false)]);
+    for arguments in [
+        json!({"expression": "location.href = '/settings'"}),
+        json!({"expression": "1", "mode": "unrestricted"}),
+    ] {
+        let step = read("browser_evaluate", &arguments, Some(&answer));
+        assert_eq!(step.place, Err(table::RUNS_SCRIPT), "{arguments}");
+    }
+    let read_only = json!({"expression": "document.title", "mode": "read-only"});
+    let step = read("browser_evaluate", &read_only, Some(&answer));
+    assert_eq!(tab_of(&step), Some("t1"));
+    let Ok(place) = step.place else {
+        panic!("placed");
+    };
+    assert!(needs_binding("browser_evaluate", &read_only, &place));
 }

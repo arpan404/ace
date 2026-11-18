@@ -62,6 +62,8 @@ const fn row(tool: &'static str, op: Option<&'static str>, finds: Finds, holds: 
 }
 
 pub const CLOSES_BROWSER: &str = "It closes the whole browser and every tab in it, so you decide.";
+pub const RUNS_SCRIPT: &str =
+    "It runs a script in the page that could do anything there, so you decide.";
 pub const STOPS_RECORDING: &str =
     "It stops the browser's recording wherever it runs, so you decide.";
 pub const WHOLE_BROWSER: &str = "It acts on the whole browser, not one tab, so you decide.";
@@ -75,6 +77,8 @@ pub const OP_FIELDS: &[(&str, &str, Option<&str>)] = &[
     ("browser_tabs", "action", Some("list")),
     ("browser_history", "direction", Some("list")),
     ("browser_settings", "action", None),
+    // ace's own default is an unrestricted script.
+    ("browser_evaluate", "mode", Some("unrestricted")),
     ("sim_act", "action", None),
 ];
 
@@ -101,7 +105,15 @@ pub const TABLE: &[Operation] = &[
     row("browser_act", Some("focus"), Tab, true),
     row("browser_act", Some("upload"), Tab, true),
     row("browser_act", Some("scroll"), Tab, true),
-    row("browser_evaluate", None, Tab, true),
+    // A script can do anything a page lets it: no check on its CDP calls confines it. Only one
+    // ace runs side-effect free (an isolated world, `throwOnSideEffect`) may be reviewed.
+    row("browser_evaluate", Some("read-only"), Tab, true),
+    row(
+        "browser_evaluate",
+        Some("unrestricted"),
+        Nowhere(RUNS_SCRIPT),
+        false,
+    ),
     row("browser_history", Some("back"), Tab, true),
     row("browser_history", Some("forward"), Tab, true),
     row("browser_history", Some("reload"), Tab, true),
