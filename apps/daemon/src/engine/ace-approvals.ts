@@ -27,7 +27,8 @@ export function liveAceCall(
 /**
  * The agent making a live call to ace's `tool` whose arguments `matches`: its key when exactly
  * one agent is, so a request the call opens (browser help, say) belongs to the subagent that asked
- * and shows in its lane. Undefined when none is, or several are and the caller can't be told.
+ * and shows in its lane. Only agents on this machine count. Undefined when none is, or several
+ * are and the caller can't be told, so the request falls back to the root.
  */
 export function aceCaller(
   state: ThreadState,
@@ -42,7 +43,10 @@ export function aceCaller(
     if (detail.kind !== "mcp" || detail.server !== "ace" || detail.tool !== tool) continue;
     if (!matches(detail.arguments)) continue;
     const agent = state.indexes.agentKeysById[item.agentId];
-    if (agent !== undefined) callers.add(agent);
+    // Only this machine's agents can have made the call: tab ids repeat across machines, and a
+    // child elsewhere asks through its own machine.
+    if (agent === undefined || state.agents[agent]?.agent.machine !== undefined) continue;
+    callers.add(agent);
   }
   return callers.size === 1 ? [...callers][0] : undefined;
 }

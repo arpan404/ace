@@ -60,3 +60,25 @@ test("when two agents ask about the same tab, or none is calling, nobody is gues
     ),
   ).toBeUndefined();
 });
+
+test("a child on another machine asking about the same tab id is never taken for the local caller", () => {
+  // Native tab ids repeat across machines: only this machine's agents can be the caller here.
+  const remote: Fact = {
+    ...facts.subagent("claude", "studio-child", "Studio child", "root"),
+    machine: { machine: "studio", name: "Studio" },
+  } as Fact;
+  const state = thread(
+    remote,
+    facts.turn("studio-child"),
+    helpCall("studio-child", "call-1", "tab-1"),
+  );
+  expect(aceCaller(state, "browser_request_help", forTab("tab-1"))).toBeUndefined();
+  // With the local call there too, the local one is the caller.
+  const both = thread(
+    remote,
+    facts.turn("studio-child"),
+    helpCall("studio-child", "call-1", "tab-1"),
+    helpCall("worker", "call-2", "tab-1"),
+  );
+  expect(aceCaller(both, "browser_request_help", forTab("tab-1"))).toBe("worker");
+});
