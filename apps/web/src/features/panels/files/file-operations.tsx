@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { checkoutError } from "./checkout-source.ts";
+import { checkoutChanged } from "./checkout-refresh.ts";
 import { useCheckoutSource } from "./use-checkout.ts";
 import { fileManagement, type FileMutation } from "./file-management-source.ts";
 import { cleanPath, parentPath, type FileOperationDialog } from "./file-operation.ts";
@@ -43,7 +44,10 @@ export function FileOperations(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const manager = fileManagement(client, props.threadId);
-  const refresh = () => void queries.invalidateQueries({ queryKey: ["checkout"] });
+  const refresh = () => {
+    checkoutChanged();
+    void queries.invalidateQueries({ queryKey: ["checkout"] });
+  };
   if (op.kind === "archive")
     return <ArchiveDialog threadId={props.threadId} path={original} onClose={props.onClose} />;
   if (op.kind === "trash")
