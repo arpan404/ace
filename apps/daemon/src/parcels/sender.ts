@@ -61,6 +61,8 @@ export interface ParcelSenderDeps {
    * a message to it does, since the parcel's notice starts a new turn there.
    */
   reopenChild(id: string): void;
+  /** Whether a failed hold change failed because its thread or agent no longer exists. */
+  holdGone(threadId: string, agentId: string, error: unknown): boolean;
   now(): number;
   /** Runs `run` after `ms`; returns its cancel. */
   schedule(ms: number, run: () => void): () => void;
@@ -188,10 +190,7 @@ export class ParcelSender {
       title: `Sending ${name.data} to ${plan.route === "local" ? "a thread here" : plan.route === "outbox" ? "its parent" : plan.machine}`,
     });
     if (plan.route === "local") await this.local(row);
-    else if (plan.route === "push") {
-      deps.reopenChild(plan.to);
-      this.kick();
-    }
+    else if (plan.route === "push") this.kick();
     return {
       parcelId,
       to: plan.to,
@@ -309,7 +308,16 @@ export class ParcelSender {
   }
   /** Copies to threads here that a restart cut off: done again, or settled when they landed. */
   async recoverLocal(): Promise<void> {
-    for (const row of this.deps.rows.unsettledLocal()) {
+    // Each pass settles what it takes, so the next one reaches the rows after them.
+    for (let rows = this.deps.rows.unsettledLocal(); rows.length > 0;) {
+      await this.recoverSome(rows);
+      const next = this.deps.rows.unsettledLocal();
+      if (next.every((row) => rows.some((done) => done.parcelId === row.parcelId))) return;
+      rows = next;
+    }
+  }
+  private async recoverSome(rows: OutRow[]): Promise<void> {
+    for (const row of rows) {
       const landed = this.deps.rows.in(row.parcelId);
       if (landed?.state === "delivered") {
         this.settle(row.parcelId, "delivered");
@@ -399,6 +407,13 @@ export class ParcelSender {
       } catch (error) {
         if (signal.aborted) return;
         if (error instanceof MachineFailure && error.kind === "refused") {
+          // Whatever it holds of it is dropped there now, not kept for a day.
+          void this.call(
+            row,
+            profile,
+            { action: "cancel", parcelId: row.facts.parcelId },
+            AbortSignal.timeout(10_000),
+          ).catch(() => {});
           this.settle(parcelId, "failed", error.message.slice(0, 300));
           return;
         }
@@ -453,6 +468,10 @@ export class ParcelSender {
   settle(parcelId: string, state: "delivered" | "failed" | "cancelled", error?: string): void {
     const { deps } = this;
     if (!deps.rows.settleOut(parcelId, state, deps.now(), error)) return;
+    // A child there now holds its notice as queued input: open again in its parent's tree here,
+    // before the sender's hold ends, so the tree never reads done while the child works on it.
+    const row = deps.rows.out(parcelId);
+    if (state === "delivered" && row?.route === "push") deps.reopenChild(row.toThread);
     deps.log("Parcel settled", { parcelId, state });
     void deps.files.removeOut(parcelId).catch(() => {});
     this.report(parcelId);
@@ -465,7 +484,8 @@ export class ParcelSender {
     try {
       deps.deliver(row.fromThread, `parcel-result:${row.parcelId}`, resultText(row));
     } catch {
-      // Not ready yet: told on a later sweep. One that keeps failing stops holding its place.
+      // Not ready yet: told on a later sweep. After MAX_REPORT_TRIES the text is given up, so a
+      // row that can never be told stops holding its place; its hold still ends below.
       const tries = (this.reportTries.get(parcelId) ?? 0) + 1;
       this.reportTries.set(parcelId, tries);
       if (tries < MAX_REPORT_TRIES) return;
@@ -480,8 +500,10 @@ export class ParcelSender {
               ? "stopped"
               : "failed",
       });
-    } catch {
-      // The thread or its agent is gone: there is no hold left to end.
+    } catch (error) {
+      // Only a thread or agent that is gone has no hold left to end; anything else (a busy
+      // store) is tried again on the next sweep, so a hold is never left running.
+      if (!deps.holdGone(row.fromThread, row.fromAgent, error)) return;
     }
     deps.rows.markOutDelivered(row.parcelId);
   }

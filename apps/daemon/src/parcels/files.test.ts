@@ -88,3 +88,16 @@ it("saveAs makes nothing outside the project through a linked folder and never r
   });
   expect(readFileSync(join(project, "inputs", "y.txt"), "utf8")).toBe("mine");
 });
+
+it("saveAs refuses a folder that only leads into .git through a link", async () => {
+  const { files, project } = place();
+  await delivered(files, "pcl-g", "#!/bin/sh");
+  mkdirSync(join(project, ".git", "hooks"), { recursive: true });
+  symlinkSync(join(project, ".git"), join(project, "docs"));
+  await expect(
+    files.saveAs("pcl-g", "note.txt", project, "docs/hooks/pre-commit"),
+  ).rejects.toMatchObject({
+    code: "invalid",
+  });
+  expect(existsSync(join(project, ".git", "hooks", "pre-commit"))).toBe(false);
+});

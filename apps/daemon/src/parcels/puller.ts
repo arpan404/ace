@@ -77,6 +77,19 @@ export class ParcelPuller {
     if (!parsed.success) throw new MachineFailure("refused", "invalid", "Unreadable answer");
     return parsed.data;
   }
+  private async refuse(
+    profile: RemoteProfile,
+    entry: OutboxParcel,
+    reason: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    await this.call(
+      profile,
+      entry.to,
+      { action: "ack", parcelId: entry.parcel.parcelId, outcome: "refused", reason },
+      signal,
+    ).catch(() => {});
+  }
   /** One round over every machine that may hold parcels for this one. */
   async round(signal: AbortSignal): Promise<void> {
     if (this.busy) return;
@@ -184,6 +197,13 @@ export class ParcelPuller {
         if (!("data" in answer)) return;
         const bytes = Buffer.from(answer.data, "base64");
         if (bytes.length === 0 || bytes.length > range.length) return;
+        // Space is counted by bytes held, so it is checked as they come, as for a push.
+        if (bytes.length > deps.room()) {
+          await deps.files.removeIn(row.parcelId);
+          deps.rows.updateIn(row.parcelId, { state: "cancelled", held: 0 }, deps.now());
+          await this.refuse(profile, entry, "Its parent's machine has no room for it.", signal);
+          return;
+        }
         await deps.files.append(row.parcelId, range.offset, bytes);
         held += bytes.length;
         deps.rows.updateIn(row.parcelId, { held }, deps.now());
@@ -219,7 +239,11 @@ export class ParcelPuller {
       const landed = deps.rows.in(row.parcelId);
       if (landed) deps.arrived(landed);
     }
-    if (row.state === "cancelled") return;
+    // Refused before and the refusal may not have arrived: say so again.
+    if (row.state === "cancelled") {
+      await this.refuse(profile, entry, "Its parent's machine refused it.", signal);
+      return;
+    }
     await this.call(
       profile,
       entry.to,

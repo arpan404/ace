@@ -201,8 +201,14 @@ export class ParcelFiles {
         if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
       });
       parent = await realpath(next);
-      if (!inside(root, parent))
-        throw new ParcelFileError("invalid", "saveAs must stay inside this project.");
+      // Where it really leads, not only how it is written: a link to `.git` is refused too.
+      if (
+        !inside(root, parent) ||
+        relative(root, parent)
+          .split(sep)
+          .some((segment) => segment.toLowerCase() === ".git")
+      )
+        throw new ParcelFileError("invalid", "saveAs must stay inside this project, not in .git.");
     }
     const final = join(parent, fileName);
     const input = await open(this.placed(parcelId, name), "r");

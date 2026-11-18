@@ -190,6 +190,13 @@ export function startParcels(context: ServiceContext): void {
     deliver,
     arrived,
     room,
+    holdGone: (threadId, agentId, error) => {
+      const parsed = ThreadId.safeParse(threadId);
+      const found = parsed.success ? store.getThread(parsed.data) : undefined;
+      if (!found || found.deletedAt !== undefined) return true;
+      // The engine names an agent it no longer knows this way (`externalHold`).
+      return error instanceof Error && error.message === "Unknown background owner" && !!agentId;
+    },
     reopenChild: (id) => {
       const parsed = ThreadId.safeParse(id);
       if (parsed.success) services.machines?.children.reopen(parsed.data);
@@ -281,15 +288,16 @@ export function startParcels(context: ServiceContext): void {
   };
   void services.engine
     ?.ready()
-    .then(async () => {
-      await sender.recoverLocal();
-      await sweep();
-    })
-    .catch((error: unknown) => record("warn")("Parcels not recovered", { error: String(error) }))
-    .finally(() => {
+    .then(() => {
+      // The loops start at once; copies a restart cut off are redone beside them.
       every(pollMs, () => puller.round(stopping.signal), "Parcels not collected");
       every(Math.min(SWEEP_MS, pollMs * 30), sweep, "Parcel sweep failed");
-    });
+      void sweep().catch((error: unknown) =>
+        record("warn")("Parcel sweep failed", { error: String(error) }),
+      );
+      return sender.recoverLocal();
+    })
+    .catch((error: unknown) => record("warn")("Parcels not recovered", { error: String(error) }));
 
   const described = (profile: RemoteProfile, description: MachineDescription) => {
     const paths = (description.paths ?? []).flatMap((entry) => {
