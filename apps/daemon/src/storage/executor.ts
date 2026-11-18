@@ -3,6 +3,7 @@ import { executeWorktreeCleanup } from "./worktree-executor.ts";
 import { CommandId, ThreadId } from "@ace/protocol";
 import type { StorageOwner, ReviewedStorageItem } from "./types.ts";
 import type { StorageInventory } from "./inventory.ts";
+import { IDLE_PURGE, purgeThread, retireThread } from "../thread-gone.ts";
 import { hasTable, storageMembers, storageProtections } from "./ownership.ts";
 
 /** The journal commits "running" and admission fences before this shell performs effects. */
@@ -37,20 +38,22 @@ export async function executeStorageItem(
       if (!allowed() || storageProtections(owner, [id]).length)
         throw new Error("storage_item_changed");
       await store.writable();
-      if (store.getThread(id)?.deletedAt === undefined)
-        store.appendEvents(
-          id,
-          [{ type: "thread.client.updated", changes: { deletedAt: now(), autoSettleAt: null } }],
-          now(),
-        );
+      retireThread(
+        store,
+        id,
+        now(),
+        services.engine
+          ? (gone, command) => services.engine?.prepareDeletion(gone, command)
+          : undefined,
+        `storage:${id}`,
+      );
       if (!services.context) throw new Error("storage_context_unavailable");
       await services.context.uploads.releaseThread(id);
       if (!allowed()) throw new Error("storage_forbidden");
       await store.writable();
-      store.atomic(() => {
-        store.purgeThreadData(id);
-        store.statement("INSERT OR REPLACE INTO storage_purged VALUES (?,?)").run(id, now());
-      });
+      // A batch at a time, never one long write; a stop here is finished after it.
+      if (!(await purgeThread(store, id, now(), { ...IDLE_PURGE, going: allowed })))
+        throw new Error("storage_forbidden");
       services.engine?.forgetPurged(id);
       return;
     }

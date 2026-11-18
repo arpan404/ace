@@ -199,7 +199,9 @@ export class EngineModels {
     resolveCached: NonNullable<ModelCatalogApi["resolveCached"]>,
     id: ThreadId,
   ): void {
-    const state = this.repo.requireState(id);
+    // A purged thread keeps its session row but has no state: nothing is left to migrate.
+    const state = this.repo.state(id);
+    if (!state) return;
     const metadata = this.repo.session(state.threadId);
     const selection = this.repo.transitions.get(state.threadId).selection;
     const legacyOpenCode =

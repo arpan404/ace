@@ -227,7 +227,7 @@ it("an unknown, removed or doubly scoped project is refused, and a removal ends 
   ).toMatchObject({ type: "files.error", code: "INVALID_MESSAGE" });
   const ready = await f.request({ op: "download", path: "README.md", offset: 0 });
   if (ready.type !== "files.ready") throw new Error(`Unexpected ${ready.type}`);
-  new ProjectStorage(f.daemon.store, () => 2).remove(f.workspaceId, true, () => false);
+  new ProjectStorage(f.daemon.store, () => 2).remove(f.workspaceId, true, () => false, undefined);
   await f.wire.send({ type: "files.pull", requestId: "pull", channel: ready.channel });
   expect(await f.wire.next()).toMatchObject({ type: "files.error", code: "FORBIDDEN" });
   expect(await f.request({ op: "list", path: "", limit: 10 })).toMatchObject({

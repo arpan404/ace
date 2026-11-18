@@ -13,6 +13,7 @@ import {
 import type { Store } from "./store.ts";
 import { ProjectError } from "./project-policy.ts";
 import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
+import { retireThread, type DeletionPolicy } from "./thread-gone.ts";
 
 const recentRow = z.object({ path: Project.shape.path, opened_at: z.number().nonnegative() });
 const folderRow = z.object({ opened_at: z.number().nonnegative().nullable() });
@@ -352,7 +353,12 @@ export class ProjectStorage {
    * on screen. Its threads were already deleted through the thread lifecycle where it runs; one
    * that started since is refused while it runs unless the person chose to stop running ones.
    */
-  remove(id: WorkspaceId, stopRunning: boolean, hasOwnedWork: (id: ThreadId) => boolean): void {
+  remove(
+    id: WorkspaceId,
+    stopRunning: boolean,
+    hasOwnedWork: (id: ThreadId) => boolean,
+    policy: DeletionPolicy | undefined,
+  ): void {
     this.store.atomic((db) => {
       const workspace = this.get(id);
       this.store.workspaceReservations.assertAvailable(
@@ -363,16 +369,7 @@ export class ProjectStorage {
         if (!thread || thread.deletedAt !== undefined) return;
         if (!stopRunning && running(thread.status.state, hasOwnedWork(threadId)))
           throw new ProjectError("workspace_threads_running");
-        this.store.appendEvents(
-          threadId,
-          [
-            {
-              type: "thread.client.updated",
-              changes: { deletedAt: this.now(), autoSettleAt: null },
-            },
-          ],
-          this.now(),
-        );
+        retireThread(this.store, threadId, this.now(), policy, `project-removed:${id}:${threadId}`);
       });
       db.prepare(
         "INSERT INTO workspace_unregistered VALUES (?,?) ON CONFLICT(workspace_id) DO UPDATE SET removed_at=excluded.removed_at",
@@ -388,6 +385,7 @@ export class ProjectStorage {
   deleteLeftoverThreads(
     after: string,
     hasOwnedWork: (id: ThreadId) => boolean,
+    policy: DeletionPolicy | undefined,
   ): string | undefined {
     const rows = this.store
       .statement(
@@ -403,16 +401,7 @@ export class ProjectStorage {
         const thread = this.store.getThread(threadId);
         if (!thread || thread.deletedAt !== undefined) continue;
         if (running(thread.status.state, hasOwnedWork(threadId))) continue;
-        this.store.appendEvents(
-          threadId,
-          [
-            {
-              type: "thread.client.updated",
-              changes: { deletedAt: this.now(), autoSettleAt: null },
-            },
-          ],
-          this.now(),
-        );
+        retireThread(this.store, threadId, this.now(), policy, `project-leftover:${threadId}`);
       }
     });
     return rows.length === 64 ? rows[63] : undefined;

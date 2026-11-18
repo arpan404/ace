@@ -976,6 +976,10 @@ export class Engine {
       this.sessions.isClosing(id)
     );
   }
+  /** Whether this thread has engine state: none once its data was purged, or if it never ran. */
+  hasState(id: ThreadId): boolean {
+    return this.repo.state(id) !== undefined;
+  }
   cleanupThreads(id: ThreadId): ThreadId[] {
     return this.liveness.tree(id);
   }

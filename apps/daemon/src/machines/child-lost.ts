@@ -5,6 +5,7 @@ import {
   type HostId,
   type InteractionRequest,
   type MachineThreadView,
+  type ThreadId,
 } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { childAgentKey } from "../engine/remote-child-status.ts";
@@ -22,7 +23,8 @@ export const STOP_TRACKING = "stop-tracking";
 export interface LostChildrenDeps {
   store: Store;
   ledger: ChildLedger;
-  engine(): Engine | undefined;
+  /** The engine, for a child whose parent is still there to show it; undefined once it is gone. */
+  engine(parent: ThreadId): Engine | undefined;
   now(): number;
   label(machine: string): string;
   host?(machine: string): HostId | undefined;
@@ -310,7 +312,7 @@ export class LostChildren {
    * parent is gone. Throws when the write fails.
    */
   private open(row: ChildRow, request: InteractionRequest): boolean {
-    const engine = this.deps.engine();
+    const engine = this.deps.engine(row.parent_thread);
     if (!engine || parentGone(this.deps.store, row.parent_thread)) return false;
     const key = `machine-lost:${row.id}:${this.deps.now()}:${++this.asks}`;
     const ask = engine.openHostApproval(
@@ -328,7 +330,9 @@ export class LostChildren {
     if (!row.lost_key || !row.lost_ask) return;
     if (this.deps.store.getInteraction(InteractionId.parse(row.lost_ask))?.state !== "pending")
       return;
-    this.deps.engine()?.resolveHostApproval(row.parent_thread, row.lost_key, result);
+    this.deps
+      .engine(row.parent_thread)
+      ?.resolveHostApproval(row.parent_thread, row.lost_key, result);
   }
   /**
    * The child's row in its parent, with `status`; an outcome ends the parent's hold on it. A
@@ -344,7 +348,7 @@ export class LostChildren {
     contact?: "lost",
   ): void {
     if (parentGone(this.deps.store, row.parent_thread)) return;
-    this.deps.engine()?.machineChild(
+    this.deps.engine(row.parent_thread)?.machineChild(
       {
         id: row.id,
         parentId: row.parent_thread,

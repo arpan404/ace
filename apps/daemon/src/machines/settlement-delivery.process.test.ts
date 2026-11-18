@@ -315,3 +315,21 @@ test("a parent freed without activity on its own thread (an ancestor resumed) ge
   await h.fire();
   expect(h.delivered).toEqual([expect.stringContaining("Freed by an ancestor")]);
 });
+
+test("a stop check that fails in one poll never holds back a result owed in the same poll", async () => {
+  const h = machine();
+  h.answers.deliver = () => {
+    throw new Error("Agent control is not ready");
+  };
+  h.report(h.add("child"), done("Ready"));
+  await h.fire();
+  expect(h.attempts).toHaveLength(1);
+  // The parent takes it now; its machine can't be read, and the stop check fails this poll.
+  h.answers.deliver = () => {};
+  h.reads.error = new Error("offline");
+  h.faults.failSql = "stop_started_at IS NOT NULL ORDER BY stop_started_at";
+  h.clock.now += 1_000;
+  await h.fire();
+  expect(h.delivered).toEqual([expect.stringContaining("Ready")]);
+  expect(logged(h, "Machine child stops not checked")).toHaveLength(1);
+});
