@@ -80,7 +80,8 @@ export function openedFolders(
   stored: readonly string[] | undefined,
   current: string | undefined,
 ): ReadonlySet<string> {
-  return new Set(stored ?? (current ? ancestorFolders(current) : []));
+  if (stored) return new Set(stored.map(folderKey));
+  return new Set(current ? ancestorFolders(current) : []);
 }
 
 /** The current file's ancestors the open set is missing, to reveal it in the tree. */
