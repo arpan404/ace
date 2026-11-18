@@ -141,6 +141,11 @@ impl Terminals {
         self.shell.read_only_available()
     }
 
+    /// Whether `command` can settle in a read-only sandbox here (ADR 0172, amendment 7).
+    pub fn read_only_settles(&self, command: &str) -> bool {
+        self.shell.read_only_settles(command)
+    }
+
     /// Who hears that a terminal started, ended or ran something.
     pub fn on_change(&self, changed: Changed) {
         *lock(&self.changed) = Some(changed);

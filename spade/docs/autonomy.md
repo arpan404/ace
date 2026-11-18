@@ -254,7 +254,11 @@ no decision-to-launch race to lose. The sandbox is a second wall behind the gate
 substitute for them. It is enforced fully or not at all: a command settles only where the whole
 boundary holds (the file ABI that contains truncation, the loaded syscall filter, process and IPC
 isolation), checked both when the gate admits the settle and again at launch; where it doesn't, the
-command goes to the reviewer. Windows has no read-only profile yet and reviews these commands.
+command goes to the reviewer. Before settling, Spade resolves each program the command runs on the
+clean PATH outside the sandbox and grants the read-only sandbox exactly the extra read roots they
+need (a Homebrew or Cargo install prefix; on macOS the active developer dir behind the `/usr/bin/git`
+shim, and the links the `/bin/sh` trampoline reads); a program that can't be resolved means the
+command doesn't settle. Windows has no read-only profile yet and reviews these commands.
 
 A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
 cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older

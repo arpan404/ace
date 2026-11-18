@@ -165,10 +165,17 @@ pub trait Confine: Send + Sync {
         false
     }
 
-    /// A read-only confinement of a command whose home is `home`: the folder and the system paths
-    /// readable, no writes, no network (ADR 0172, amendment 7). `Err` when it can't be built, so a
-    /// settled command never runs unconfined.
-    fn read_only(&self, _home: &Path) -> Result<Confined, String> {
+    /// Whether a settled `command` can run in the read-only sandbox here: every program it runs
+    /// resolves on the clean PATH (ADR 0172, amendment 7), so it won't fail "not found" inside the
+    /// sandbox. `false` sends it to the reviewer instead of settling.
+    fn read_only_settles(&self, _command: &str) -> bool {
+        true
+    }
+
+    /// A read-only confinement of `command` whose home is `home`: the folder, the narrow system
+    /// paths and the command's own resolved program roots readable, no writes, no network (ADR
+    /// 0172, amendment 7). `Err` when it can't be built, so a settled command never runs unconfined.
+    fn read_only(&self, _home: &Path, _command: &str) -> Result<Confined, String> {
         Err("this machine has no read-only sandbox".to_owned())
     }
 
@@ -322,6 +329,14 @@ impl Shell {
             .is_some_and(|confine| confine.read_only_available())
     }
 
+    /// Whether `command` can settle in a read-only sandbox here: a sandbox is available and every
+    /// program it runs resolves on the clean PATH (ADR 0172, amendment 7).
+    pub fn read_only_settles(&self, command: &str) -> bool {
+        self.confine.as_ref().is_some_and(|confine| {
+            confine.read_only_available() && confine.read_only_settles(command)
+        })
+    }
+
     /// Whether a bot command with home `home` runs contained (files and network) here.
     pub fn contains(&self, home: &Path) -> bool {
         self.confine
@@ -445,7 +460,7 @@ impl Shell {
             // A settled command (ADR 0172, amendment 7): a read-only sandbox confined to the
             // folder, whatever the bot's setting. It never runs unconfined; a sandbox that can't
             // be built fails the command closed.
-            Some(confine) if job.read_only => Some(confine.read_only(home)?),
+            Some(confine) if job.read_only => Some(confine.read_only(home, job.script)?),
             // Outside the sandbox: no checkpoint, no proxy, the person's machine as it is.
             Some(_) if job.outside => None,
             Some(confine) => {

@@ -527,9 +527,15 @@ impl Tool for ShellTool {
             }
             _ => spade_core::autonomy::ConfigTools::default(),
         };
+        // A command settles only if a read-only sandbox is available and every program it runs
+        // resolves on the clean PATH (ADR 0172, amendment 7); otherwise it goes to the reviewer.
+        let command = arguments
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let sandboxable = match &self.shell {
-            Commands::OneShot(shell) => shell.read_only_available(),
-            Commands::Terminal(terminals) => terminals.read_only_available(),
+            Commands::OneShot(shell) => shell.read_only_settles(command),
+            Commands::Terminal(terminals) => terminals.read_only_settles(command),
         };
         let classed = spade_core::autonomy::Classed {
             workspace: folder.map(|root| root.to_string_lossy().into_owned()),

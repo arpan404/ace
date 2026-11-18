@@ -62,6 +62,10 @@ impl Terminals {
         false
     }
 
+    pub fn read_only_settles(&self, _command: &str) -> bool {
+        false
+    }
+
     pub fn of(&self, _bot: &str) -> Result<Arc<Terminal>, String> {
         Err(NONE.to_owned())
     }

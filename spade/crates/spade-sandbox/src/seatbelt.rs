@@ -61,6 +61,16 @@ const ROOT_LINKS: &[&str] = &[
 /// they can hold the person's data.
 const READ_ONLY_SYSTEM_READ: &[&str] = &["/System", "/usr/lib", "/usr/bin", "/bin", "/usr/libexec"];
 
+/// Links a read-only run reads exactly (not the folder they live in): macOS's `/bin/sh` is a
+/// trampoline that reads `/private/var/select/sh`, and the developer-tools shims read the active
+/// developer-dir link. Allowing the links alone lets the shell and `xcode-select` resolve without
+/// opening `/private/var/select` or `/var/db` as a tree (ADR 0172, amendment 7).
+const READ_ONLY_LINKS: &[&str] = &[
+    "/private/var/select/sh",
+    "/private/var/select/developer_dir",
+    "/var/db/xcode_select_link",
+];
+
 /// Device nodes every command may read and write.
 const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/random", "/dev/urandom"];
 
@@ -86,7 +96,7 @@ pub fn profile(policy: &Policy, read_only: bool) -> String {
     // A read-only run reads only the narrow program and library trees it needs to start, never the
     // broad system folders a normal run may read (ADR 0172, amendment 7).
     let (system_read, system_files): (&[&str], &[&str]) = if read_only {
-        (READ_ONLY_SYSTEM_READ, &[])
+        (READ_ONLY_SYSTEM_READ, READ_ONLY_LINKS)
     } else {
         (SYSTEM_READ, SYSTEM_READ_FILES)
     };
@@ -381,6 +391,23 @@ mod tests {
                 !text.contains(&format!("(subpath \"{closed}\")")),
                 "{closed} should not be opened read-only"
             );
+        }
+    }
+
+    #[test]
+    fn read_only_allows_the_shell_and_developer_dir_links_but_not_their_folders() {
+        let text = profile(&policy(), true);
+        // The exact links the `/bin/sh` trampoline and the developer-tools shims read.
+        for link in [
+            "/private/var/select/sh",
+            "/private/var/select/developer_dir",
+            "/var/db/xcode_select_link",
+        ] {
+            assert!(text.contains(&format!("(literal \"{link}\")")), "{link}");
+        }
+        // The folders they live in are not opened as a tree.
+        for tree in ["/private/var/select\"", "/var/db\""] {
+            assert!(!text.contains(&format!("(subpath \"{tree}")), "{tree}");
         }
     }
 

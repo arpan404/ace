@@ -45,7 +45,7 @@ impl Confine for ReadOnlyHere {
     fn read_only_available(&self) -> bool {
         true
     }
-    fn read_only(&self, _home: &Path) -> std::result::Result<Confined, String> {
+    fn read_only(&self, _home: &Path, _command: &str) -> std::result::Result<Confined, String> {
         Ok(Confined {
             launch: Box::new(|program: &Path, args: &[std::ffi::OsString]| {
                 Ok((program.to_path_buf(), args.to_vec()))

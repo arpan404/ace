@@ -625,13 +625,24 @@ now the narrowest one that still lets each settled program start.
    Windows has no read-only profile yet and never advertises one. Spade makes no temporary folder
    for a read-only run (which would follow a symlinked `.spade` out of the folder before the sandbox
    applied); `TMPDIR` points at an unwritable path, so a program needing scratch space fails closed.
-5. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
+5. **The gate resolves each program before settling.** A settled command's own programs may live
+   outside the narrow allowlist — Homebrew's `/opt/homebrew`, a Cargo `~/.cargo/bin`, or, on macOS,
+   the real `git` behind the `/usr/bin/git` xcrun shim. Spade resolves each program on the clean
+   PATH outside the sandbox (`security/read_only.rs`) and adds exactly the extra read roots it needs
+   (a resolved program's install prefix, read-only; on macOS the active developer dir from
+   `xcode-select -p`, and the `/private/var/select/sh` and developer-dir links the `/bin/sh`
+   trampoline and the shims read — the links alone, not their folders). A program that can't be
+   resolved means the command does **not** settle: it goes to the reviewer rather than failing
+   "command not found" inside the sandbox. This is checked at admission and again when the launch
+   builds the policy.
+6. **This is not the security boundary moving to the classifier.** The sandbox is a second wall
    behind the gate's own refusals, not a replacement for them; the classifier still never lowers a
    deterministic decision (decision 2 of the original ADR). It closes the gap that a *settled* read
    — one the gate already judged low-risk — could still reach a byte outside the folder.
 
-None of this changes which commands settle (the profile only shapes how a settled one runs), so the
-shipped weights and the measures are unchanged.
+None of this changes which commands the model settles (the profile only shapes how a settled one
+runs, and resolution only moves an unresolvable program to the reviewer), so the shipped weights and
+the measures are unchanged.
 
 Tests: `spade-sandbox` `read_only.rs`, against real Linux objects — every settled program starts
 under the narrow allowlist; a read-only run can make no socket (an INET/INET6/loopback-bind/
@@ -640,8 +651,14 @@ workspace-Unix attempt via python3 is all refused); a symlink to a readable file
 file outside the folder reads nothing and errors; `grep -r`/`find` through a symlinked directory out
 of the folder see nothing outside; a credential symlinked in is denied; a write is refused; `git
 rev-parse` with a `.git` file pointing at a repository outside the folder cannot read it. `net.rs`
-an offline run's rules deny every address. `spade-server` `classifier.rs`
+an offline run's rules deny every address. `security/read_only.rs` resolution: a system program
+needs no extra read, a program given by an absolute path or one that resolves nowhere on the clean
+PATH doesn't settle. `spade-server` `classifier.rs`
 `with_no_read_only_sandbox_a_plain_read_goes_to_the_reviewer` (the fail-closed gate) and
-`classifier_git.rs` (a settled read launches confined). These ran on Linux here; the macOS Seatbelt
-read-only profile is asserted by its generated text (`seatbelt.rs`: narrow reads, `/dev/null` only,
-no network) but not run, and Windows has no read-only profile.
+`classifier_git.rs` (a settled read launches confined). These ran on Linux here. For macOS, the
+Seatbelt read-only profile text is asserted (`seatbelt.rs`: narrow reads, the shell and developer-dir
+links alone, `/dev/null` only, no network), and a `#[cfg(target_os = "macos")]` process test
+(`security/read_only.rs::macos::containment_holds_and_the_settled_programs_still_run`) is provided
+for a Mac: it runs the probe cases (symlink/recursive/credential reads, writes, `/dev/tty`, loopback
+and `/Users` all refused) and checks that `git --version` and `git log -1` succeed under read-only
+once the developer dir is resolved. Windows has no read-only profile.

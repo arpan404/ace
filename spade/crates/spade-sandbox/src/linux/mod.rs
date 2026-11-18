@@ -222,9 +222,11 @@ pub fn plan(policy: &Policy, network: Network, processes: Processes, read_only: 
     if !read_only {
         add(&mut policy.read.iter().cloned(), false, &policy.deny);
         add(&mut policy.write.iter().cloned(), true, &policy.deny);
-        // A plugin's folder sits inside ace's data, which is denied: only credentials stay closed.
-        add(&mut policy.reopen.iter().cloned(), false, &policy.secrets);
     }
+    // `reopen` carries, for a normal run, a plugin's folder inside ace's data; for a read-only run,
+    // the narrow extra read roots the gate resolved for the settled command's programs (a
+    // Homebrew/cargo prefix). Either way it is read-only and credential places stay closed.
+    add(&mut policy.reopen.iter().cloned(), false, &policy.secrets);
     // The workspace is inside Spade's data folder: only denied places inside it are closed. Under
     // `read_only` the `add` closure opens it read-only.
     let inside: Vec<PathBuf> = policy

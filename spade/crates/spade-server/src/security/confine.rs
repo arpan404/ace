@@ -176,25 +176,39 @@ impl Confine for Security {
         }
     }
 
-    fn read_only(&self, home: &Path) -> Result<Confined, String> {
+    fn read_only_settles(&self, command: &str) -> bool {
+        // The command settles only if every program it runs resolves on the clean PATH (ADR 0172,
+        // amendment 7): otherwise it would fail "command not found" inside the sandbox, so it goes
+        // to the reviewer instead.
+        super::read_only::resolve(command, &self.home).is_some()
+    }
+
+    fn read_only(&self, home: &Path, command: &str) -> Result<Confined, String> {
         if self.bot_of(home).is_none() {
             return Err("this conversation has no bot".to_owned());
         }
         if !self.runner.status().contains() {
             return Err("this machine can't fully confine a read-only command".to_owned());
         }
+        // The extra read roots and PATH folders the command's own programs need, resolved outside
+        // the sandbox (Homebrew/Cargo prefixes; on macOS the active developer dir). `None` means a
+        // program couldn't be resolved, so the command must not run here.
+        let Some(reads) = super::read_only::resolve(command, &self.home) else {
+            return Err(
+                "a program this command runs could not be resolved on the clean PATH".to_owned(),
+            );
+        };
         // A read-only policy: the workspace and the system paths readable, nothing writable, no
-        // network (ADR 0172, amendment 7). No consented folders, no proxy ticket, no scratch.
+        // network (ADR 0172, amendment 7). No consented folders, no proxy ticket, no scratch; the
+        // resolved program roots go in `also_read`, read-only.
         let policy = Policy::build(&Facts {
             home: self.home.clone(),
             spade_data: self.spade_data.clone(),
             ace_data: self.ace_data.clone(),
             workspace: home.to_path_buf(),
             folders: Vec::new(),
-            // A settled command runs with Spade's clean environment (PATH = system folders), so a
-            // bot's own toolchains are neither on the path nor opened.
             toolchains: Vec::new(),
-            also_read: Vec::new(),
+            also_read: reads.reads,
             scratch: Vec::new(),
             proxy_port: None,
         });
@@ -205,13 +219,17 @@ impl Confine for Security {
         // Read-only sandboxing of a settled command is Unix-only for now; Windows reviews it.
         #[cfg(windows)]
         {
-            let _ = policy;
+            let _ = (policy, reads.path_first);
             return Err("Spade has no read-only sandbox for Windows yet".to_owned());
         }
         #[cfg(not(windows))]
         {
             let env = vec![("TMPDIR".to_owned(), "/nonexistent".to_owned())];
-            let path_first = Vec::new();
+            let path_first = reads
+                .path_first
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
             let runner = self.runner.clone();
             let launch: crate::workspace::shell::Launcher = Box::new(move |program, args| {
                 runner
