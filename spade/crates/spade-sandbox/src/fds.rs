@@ -5,30 +5,54 @@
 //! is close-on-exec already.
 
 use std::os::fd::RawFd;
+use std::path::Path;
 
-/// The descriptors this process holds, read from the system's own list.
-fn held() -> Vec<RawFd> {
-    let list = if cfg!(target_os = "linux") {
+/// Where the system lists the descriptors this process holds.
+fn list() -> &'static Path {
+    Path::new(if cfg!(target_os = "linux") {
         "/proc/self/fd"
     } else {
         "/dev/fd"
-    };
-    std::fs::read_dir(list)
-        .map(|entries| {
-            entries
-                .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
-                .collect()
+    })
+}
+
+/// The descriptors listed in `list`; an error when it can't be read whole.
+fn held(list: &Path) -> Result<Vec<RawFd>, String> {
+    let entries = std::fs::read_dir(list)
+        .map_err(|error| format!("the open descriptors couldn't be listed: {error}"))?;
+    entries
+        .map(|entry| {
+            let name = entry
+                .map_err(|error| format!("the open descriptors couldn't be listed: {error}"))?
+                .file_name();
+            name.to_str()
+                .and_then(|name| name.parse().ok())
+                .ok_or_else(|| format!("{name:?} isn't a descriptor"))
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Marks every descriptor above stdio close-on-exec, so nothing this process inherited reaches a
-/// program it starts. One the list read itself used is already closed: nothing to mark there.
-pub fn seal_inherited() {
+/// program it starts. Fails closed: if they can't all be listed and marked, the run mustn't
+/// start. One that is already closed (the list's own) can't leak, so it is skipped.
+pub fn seal_inherited() -> Result<(), String> {
+    seal_listed(list())
+}
+
+fn seal_listed(list: &Path) -> Result<(), String> {
+    use nix::errno::Errno;
     use nix::fcntl::{FcntlArg, FdFlag, fcntl};
-    for fd in held().into_iter().filter(|fd| *fd > 2) {
-        let _ = fcntl(fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC));
+    for fd in held(list)?.into_iter().filter(|fd| *fd > 2) {
+        match fcntl(fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
+            Ok(_) | Err(Errno::EBADF) => {}
+            Err(error) => {
+                return Err(format!(
+                    "descriptor {fd} couldn't be closed on exec: {error}"
+                ));
+            }
+        }
     }
+    Ok(())
 }
 
 /// The launcher's first argument for a run that only drops what it inherited, then becomes the
@@ -43,8 +67,18 @@ pub fn exec_sealed(args: &[std::ffi::OsString]) -> std::process::ExitCode {
         eprintln!("spade {SEAL_ARG}: a program is needed");
         return std::process::ExitCode::from(126);
     };
-    seal_inherited();
-    let error = std::process::Command::new(program).args(rest).exec();
+    if let Err(why) = seal_inherited() {
+        eprintln!("spade {SEAL_ARG}: {why}");
+        return std::process::ExitCode::from(126);
+    }
+    let mut command = std::process::Command::new(program);
+    command.args(rest);
+    // The run's environment, carried past this program, goes to `sandbox-exec` (a system binary
+    // whose loader ignores `DYLD_*`) and so to the command it starts inside the sandbox.
+    if let Some(env) = crate::run_env::opened(std::env::vars_os()) {
+        command.env_clear().envs(env);
+    }
+    let error = command.exec();
     eprintln!("spade {SEAL_ARG}: {error}");
     std::process::ExitCode::from(126)
 }
@@ -63,8 +97,8 @@ mod tests {
         let _ = fcntl(fd, FcntlArg::F_SETFD(FdFlag::empty()));
         let flags = || fcntl(fd, FcntlArg::F_GETFD).unwrap_or_default();
         assert_eq!(flags() & FdFlag::FD_CLOEXEC.bits(), 0);
-        assert!(held().contains(&fd));
-        seal_inherited();
+        assert!(held(list()).unwrap_or_default().contains(&fd));
+        assert_eq!(seal_inherited(), Ok(()));
         assert_ne!(flags() & FdFlag::FD_CLOEXEC.bits(), 0);
         // Stdio is never touched.
         for stdio in [0, 1, 2] {
@@ -72,5 +106,17 @@ mod tests {
                 assert_eq!(flags & FdFlag::FD_CLOEXEC.bits(), 0, "{stdio}");
             }
         }
+    }
+
+    #[test]
+    fn a_list_that_cant_be_read_stops_the_seal_rather_than_passing_what_was_inherited() {
+        let missing = Path::new("/nonexistent/spade/fd");
+        assert!(seal_listed(missing).is_err());
+        // A list with something that isn't a descriptor in it isn't trusted either.
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        std::fs::write(dir.path().join("7"), "").unwrap_or_else(|_| std::process::abort());
+        std::fs::write(dir.path().join("not-a-number"), "")
+            .unwrap_or_else(|_| std::process::abort());
+        assert!(seal_listed(dir.path()).is_err());
     }
 }

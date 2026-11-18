@@ -60,8 +60,10 @@ pub fn main(args: &[OsString]) -> ExitCode {
     };
     // An offline or read-only run starts with its stdio alone: nothing the process that started
     // the launcher left open without close-on-exec reaches it (ADR 0171, amendment 4).
-    if plan.offline {
-        crate::fds::seal_inherited();
+    if plan.offline
+        && let Err(why) = crate::fds::seal_inherited()
+    {
+        return refused(&why);
     }
     if namespaced && rustix::process::getpid().as_raw_nonzero().get() != 1 {
         return refused("the signal supervisor must be the private PID namespace's init");
@@ -304,6 +306,11 @@ fn confined(
     // A freshly spawned child is not a process-group leader, so setsid does not fork. With
     // `--ctty` it makes its stdin, the dedicated pty, the new session's controlling terminal.
     let mut command = std::process::Command::new("/usr/bin/setsid");
+    // The run's environment, carried past this launcher, goes to the command only: it starts
+    // here, inside the sandbox (`run_env`).
+    if let Some(env) = crate::run_env::opened(std::env::vars_os()) {
+        command.env_clear().envs(env);
+    }
     if start.controlling {
         command.arg("--ctty");
     }
