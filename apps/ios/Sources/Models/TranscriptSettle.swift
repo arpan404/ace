@@ -35,8 +35,10 @@ struct TranscriptSettle: Equatable, Sendable {
         defer { last = values }
         let unchanged = last.map { Self.matches($0, values) } ?? false
         still = unchanged && placed ? still + 1 : 0
-        if still >= Self.stillFrames { return .settled }
-        return time - started >= Self.limit ? .capped : .waiting
+        // Past the limit it says so even when still, so a caller holding a settled feed back
+        // for something else (a page's hold) still shows it there.
+        if time - started >= Self.limit { return .capped }
+        return still >= Self.stillFrames ? .settled : .waiting
     }
 
     /// Whether an opening feed is where it opens: at its end when `following` it (`fromEnd` is

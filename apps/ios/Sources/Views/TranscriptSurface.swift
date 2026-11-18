@@ -15,11 +15,17 @@ import UIKit
 @MainActor final class TranscriptSurface {
     /// What waits for the feed to settle. Each runs on its own: an older page landing while a
     /// thread's opening is still hidden doesn't cancel the reveal.
-    enum Run: Hashable, Sendable { case reveal, page }
+    ///
+    /// A reveal doesn't settle while a page's hold is still placing its row: the feed would show
+    /// mid-correction. It still shows at its limit if the hold outlasts it.
+    enum Run: Hashable, Sendable, CaseIterable {
+        // The order each frame asks them in: a hold ending this frame lets the reveal settle in it.
+        case page, reveal
+    }
 
     private weak var scroller: UIScrollView?
     private var link: CADisplayLink?
-    private var ticks: [Run: (CFTimeInterval) -> Bool] = [:]
+    private var runs: [Run: (settle: (CFTimeInterval) -> TranscriptSettle.Outcome, done: (TranscriptSettle.Outcome) -> Void)] = [:]
     private var frozen: UIView?
 
     /// The scroll view's offset from its content's top, in points.
@@ -40,12 +46,7 @@ import UIKit
     /// left alone.
     func untilSettled(_ run: Run, _ settle: @escaping (CFTimeInterval) -> TranscriptSettle.Outcome,
                       done: @escaping (TranscriptSettle.Outcome) -> Void) {
-        ticks[run] = { time in
-            let outcome = settle(time)
-            if outcome == .waiting { return true }
-            done(outcome)
-            return false
-        }
+        runs[run] = (settle, done)
         guard link == nil else { return }
         let link = CADisplayLink(target: SurfaceTicker(surface: self), selector: #selector(SurfaceTicker.tick(_:)))
         link.add(to: .main, forMode: .common)
@@ -53,26 +54,31 @@ import UIKit
     }
 
     /// Whether `run` is still waiting for the feed to settle.
-    func running(_ run: Run) -> Bool { ticks[run] != nil }
+    func running(_ run: Run) -> Bool { runs[run] != nil }
 
     /// One drawn frame at `time`: each run waiting is asked whether the feed has settled. The
     /// display link calls it.
     func drawn(at time: CFTimeInterval) {
-        for (run, tick) in ticks where !tick(time) {
-            ticks[run] = nil
+        for run in Run.allCases {
+            guard let (settle, done) = runs[run] else { continue }
+            var outcome = settle(time)
+            if run == .reveal, outcome == .settled, running(.page) { outcome = .waiting }
+            guard outcome != .waiting else { continue }
+            runs[run] = nil
+            done(outcome)
         }
-        if ticks.isEmpty { stopLink() }
+        if runs.isEmpty { stopLink() }
     }
 
     /// Ends `run` without its `done`.
     func stop(_ run: Run) {
-        ticks[run] = nil
-        if ticks.isEmpty { stopLink() }
+        runs[run] = nil
+        if runs.isEmpty { stopLink() }
     }
 
     /// Ends every run without their `done`: the feed went away.
     func stopAll() {
-        ticks = [:]
+        runs = [:]
         stopLink()
     }
 
