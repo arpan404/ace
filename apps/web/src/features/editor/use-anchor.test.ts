@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { mapAnchor, type ViewAnchor } from "./use-anchor.ts";
+import { lineHeight } from "./geometry.ts";
+import { ScrollAnchor, mapAnchor, type ViewAnchor } from "./use-anchor.ts";
+import type { RowLayout } from "./wrap-index.ts";
+import type { WrapRow } from "./wrap.ts";
 
 /*
  * The view anchor as a text position: an edit's spans move it by their net line change, a
@@ -47,4 +50,53 @@ test("the anchor never falls before the document", () => {
     column: 0,
     pixels: 0,
   });
+});
+
+/** One line wrapped into fixed-width rows, so a row start is also the row before its end. */
+function wrappingLayout(rows: readonly WrapRow[], lines: number): RowLayout {
+  return {
+    startOf: (line) => line * rows.length,
+    lineAt: (row) => Math.min(lines - 1, Math.floor(row / rows.length)),
+    rowsOf: () => rows,
+    total: () => lines * rows.length,
+  };
+}
+
+test("restoring a row start keeps that row at the top instead of the row before it", () => {
+  // Every row starts where the row before it ends: exactly a hard break's two sides.
+  const rows = Array.from({ length: 40 }, (_, at) => ({
+    start: at * 10,
+    end: (at + 1) * 10,
+    indent: 0,
+  }));
+  const layout = wrappingLayout(rows, 1);
+  const element = document.createElement("div");
+  element.scrollTop = 10 * lineHeight;
+
+  const scroll = new ScrollAnchor({ current: element }, () => undefined);
+  scroll.remember(layout);
+  scroll.restore(layout);
+
+  // The eleventh row's start was remembered; the tenth row's end is the same column.
+  expect(element.scrollTop).toBe(10 * lineHeight);
+});
+
+test("a remembered row start restored twice never walks the view back a row", () => {
+  const rows = Array.from({ length: 40 }, (_, at) => ({
+    start: at * 10,
+    end: (at + 1) * 10,
+    indent: 0,
+  }));
+  const layout = wrappingLayout(rows, 1);
+  const element = document.createElement("div");
+  element.scrollTop = 10 * lineHeight;
+
+  const scroll = new ScrollAnchor({ current: element }, () => undefined);
+  for (let slice = 0; slice < 5; slice++) {
+    // One idle slice of a re-wrap remembers the top and puts it back, rows unchanged.
+    scroll.remember(layout);
+    scroll.restore(layout);
+  }
+
+  expect(element.scrollTop).toBe(10 * lineHeight);
 });

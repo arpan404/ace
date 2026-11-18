@@ -86,7 +86,9 @@ export class ScrollAnchor {
     const element = this.#scroller.current;
     if (!element) return;
     const rows = layout.rowsOf(saved.line);
-    const at = rowOfColumn(rows, saved.column, true);
+    // A remembered row starts at its own column: the start-of-row side belongs to the row after
+    // a hard break, never to the row before it, or a slice of the idle re-wrap walks the view up.
+    const at = rowOfColumn(rows, saved.column);
     // oxlint-disable-next-line react/immutability, react-compiler/immutability -- the scroller's own offset is the browser's to hold.
     element.scrollTop = Math.max(0, (layout.startOf(saved.line) + at) * lineHeight + saved.pixels);
     this.#onScroll({ top: element.scrollTop, left: element.scrollLeft });
