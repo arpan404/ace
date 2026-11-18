@@ -117,6 +117,26 @@ pub fn stored(events: &[Event], call_id: &str) -> Option<(Verdict, String)> {
     })
 }
 
+/// A verdict already stored for the call, reused only where it was given: for a driving step,
+/// the place it acts in now must be the one it was reviewed at; a verdict with no place, or
+/// another, is no verdict for it. Any other call has no place, as when it was reviewed.
+pub fn stored_at(
+    events: &[Event],
+    call_id: &str,
+    acts_in: Option<&crate::effect::drive::Place>,
+) -> Option<(Verdict, String)> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::CallReviewed {
+            call_id: c,
+            verdict,
+            reason,
+            acts_in: reviewed,
+            ..
+        }) if c == call_id => (reviewed.as_deref() == acts_in).then(|| (*verdict, reason.clone())),
+        _ => None,
+    })
+}
+
 pub fn prompt(case: &Case<'_>) -> Prompt {
     let person = if case.person.is_empty() {
         "(none)".to_owned()
@@ -240,5 +260,37 @@ mod tests {
             vec!["Don't pay for anything", "a", "b"],
             "the latest few, across the tree"
         );
+    }
+
+    #[test]
+    fn a_stored_verdict_holds_only_where_the_step_was_reviewed() {
+        use crate::effect::drive::{Place, site};
+        let page = |url: &str| site(url).place.ok();
+        let (docs, gmail) = (
+            page("https://docs.rs/serde"),
+            page("https://mail.google.com/"),
+        );
+        let reviewed = |acts_in: Option<Place>| {
+            vec![Event::Known(Known::CallReviewed {
+                reply: "r".into(),
+                call_id: "c1".into(),
+                name: "browser_act".into(),
+                verdict: Verdict::Allow,
+                reason: String::new(),
+                model: "m".into(),
+                cost_micros: 0,
+                bound: None,
+                acts_in: acts_in.map(Box::new),
+            })]
+        };
+        let allowed = Some((Verdict::Allow, String::new()));
+        let at_docs = reviewed(docs.clone());
+        assert_eq!(stored_at(&at_docs, "c1", docs.as_ref()), allowed);
+        // The page changed between the review and the start, as across a restart: no verdict.
+        assert_eq!(stored_at(&at_docs, "c1", gmail.as_ref()), None);
+        // A verdict stored with no place (an older build) is none for a driving step.
+        assert_eq!(stored_at(&reviewed(None), "c1", docs.as_ref()), None);
+        // Any other call has no place, as when it was reviewed.
+        assert_eq!(stored_at(&reviewed(None), "c1", None), allowed);
     }
 }

@@ -107,6 +107,8 @@ type SpadeBubbleOf =
       reason: string | undefined;
       /** Why Spade asked (ADR 0171); the choices on the card follow it. */
       ask?: SpadeAskKind;
+      /** For a driving step, the app or site the card offers to allow for the bot. */
+      app?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
       state: "open";
@@ -308,6 +310,7 @@ function askBubble(
     arguments: request.arguments,
     reason: waiting.reason ?? request.reason,
     ...((waiting.ask ?? request.ask) ? { ask: waiting.ask ?? request.ask } : {}),
+    ...((waiting.app ?? request.app) ? { app: waiting.app ?? request.app } : {}),
     helper: waiting.helper ?? request.helper,
     state: "open",
   };

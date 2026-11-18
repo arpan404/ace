@@ -45,6 +45,8 @@ pub struct FakeTool {
     pub app: Option<bool>,
     /// What it declares it does (ADR 0171), over what its name or annotations would say.
     pub declared: Option<spade_core::effect::Effect>,
+    /// Answers given in turn before `answer`, the last of them again and again.
+    pub answers: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeTool {
@@ -67,7 +69,22 @@ impl FakeTool {
             calls: Arc::default(),
             app: None,
             declared: None,
+            answers: Arc::default(),
         }
+    }
+
+    /// Takes arguments shaped by `schema`, as its server says.
+    pub fn schema(mut self, schema: Value) -> Self {
+        self.def.spec.schema = schema;
+        self
+    }
+
+    /// Answers `answers` in turn, then the last of them on every later call.
+    pub fn then_answers(mut self, answers: &[&str]) -> Self {
+        // Kept last first, so each call pops the next and the last stays.
+        let queued: Vec<String> = answers.iter().rev().map(|a| (*a).to_owned()).collect();
+        self.answers = Arc::new(Mutex::new(queued));
+        self
     }
 
     /// Declares what it does, as a catalogue entry or manifest would.
@@ -163,7 +180,18 @@ impl Tool for FakeTool {
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let calls = self.calls.clone();
-        let answer = self.answer.clone();
+        let answer = self
+            .answers
+            .lock()
+            .ok()
+            .and_then(|mut queued| {
+                if queued.len() > 1 {
+                    queued.pop()
+                } else {
+                    queued.last().cloned()
+                }
+            })
+            .unwrap_or_else(|| self.answer.clone());
         let images = self.images.clone();
         let delay = self.delay;
         Box::pin(async move {
@@ -749,6 +777,24 @@ impl Spade {
         rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Stops this server, runs `sql` on its database (to leave its events as a stop at a chosen
+    /// point would), and opens a new engine and server on it with `options`.
+    pub async fn restart_paused_with(
+        mut self,
+        sql: &str,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, options).await
     }
 
     /// Like `restart`, with `options` for the new server.

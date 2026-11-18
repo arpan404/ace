@@ -3438,10 +3438,12 @@ name = "spade-core"
 version = "0.1.0"
 dependencies = [
  "jiff",
+ "percent-encoding",
  "schemars 1.2.3",
  "serde",
  "serde_json",
  "spade-models",
+ "url",
 ]
 
 [[package]]

@@ -37,6 +37,7 @@ const Dialog = z.object({
   type: BrowserDialog.shape.type,
   message: z.string(),
   defaultPrompt: z.string().optional(),
+  url: z.string().optional(),
 });
 const WindowOpen = z.object({
   url: z.string().max(8192),
@@ -583,6 +584,7 @@ export class ChromeTabs {
         type: parsed.data.type,
         message: parsed.data.message.slice(0, 4096),
         defaultPrompt: parsed.data.defaultPrompt?.slice(0, 4096),
+        url: parsed.data.url?.slice(0, 8192),
       });
       this.request.changed?.();
     });
