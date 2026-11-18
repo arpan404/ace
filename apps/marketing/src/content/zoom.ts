@@ -1,16 +1,18 @@
 import type { ShotId } from "../scripts/zoom-camera.ts";
+import { product } from "./product.ts";
 import { machines } from "./stage.ts";
 
 /*
  * The home page's opening story: one prompt in ace's composer, then the camera pulls back to
  * show the thread it became, the app around it, the machines it reached and the phone it
  * calls (components/zoom/ZoomStory.astro). The thread and its agents are the ones the drawn
- * window already shows (content/stage.ts); only the headline and captions live here.
+ * window already shows (content/stage.ts); only the captions live here.
  */
 
-export const zoomHero = {
-  headline: ["One prompt in.", "A whole team out."],
-} as const;
+/** The headline, a sentence to a line. */
+export const zoomHeadline: string[] = product.headline
+  .match(/[^.]+\./g)
+  ?.map((line) => line.trim()) ?? [product.headline];
 
 export interface ZoomCaption {
   /** The shot this caption is read on. */

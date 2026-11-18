@@ -11,7 +11,8 @@ import {
   platforms,
   type Downloads,
 } from "../content/release.ts";
-import { scenes } from "../content/stage.ts";
+import { partGroups, type Part } from "../content/parts.ts";
+import { zoomCaptions } from "../content/zoom.ts";
 import { links } from "../site.ts";
 
 /*
@@ -50,6 +51,12 @@ export function downloadLines(downloads: Downloads): string[] {
 const legalBlock = (block: LegalBlock) =>
   typeof block === "string" ? [block, ""] : [...bullets(block.list), ""];
 
+/** One part of ace as a list line: its name (linked when it has a page), then what it does. */
+function partLine(part: Part, href: Href): string {
+  const name = part.href ? `[${part.name}](${href(part.href)})` : part.name;
+  return `${name}${part.beta ? " (beta)" : ""}: ${part.body}`;
+}
+
 function home(href: Href, downloads: Downloads): string[] {
   return [
     `# ${product.name}: ${product.headline}`,
@@ -64,14 +71,22 @@ function home(href: Href, downloads: Downloads): string[] {
     "",
     "## How it works",
     "",
-    ...scenes.flatMap((scene) => [
-      `### ${scene.title}`,
+    ...zoomCaptions.flatMap((caption) => [
+      `### ${caption.title}`,
       "",
-      scene.body,
+      caption.body,
       "",
-      `More: ${href(scene.href)}`,
+      `More: ${href(caption.href)}`,
       "",
     ]),
+    "## Every part of ace",
+    "",
+    ...partGroups.flatMap((group) =>
+      [`### ${group.name}: ${group.line}`, ""].concat(
+        bullets(group.parts.map((part) => partLine(part, href))),
+        "",
+      ),
+    ),
     "## Get ace",
     "",
     ...downloadLines(downloads),

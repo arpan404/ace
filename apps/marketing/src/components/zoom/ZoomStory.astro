@@ -11,7 +11,13 @@
 import { providerIcon } from "@ace/ui-core/provider-icons";
 import { delegates, rows } from "../../content/stage.ts";
 import { product } from "../../content/product.ts";
-import { zoomCaptions, zoomCast, zoomHero, zoomLinks, type CastId } from "../../content/zoom.ts";
+import {
+  zoomCaptions,
+  zoomCast,
+  zoomHeadline,
+  zoomLinks,
+  type CastId,
+} from "../../content/zoom.ts";
 import { shotOrder } from "../../scripts/zoom-camera.ts";
 import { links } from "../../site.ts";
 import BrandMark from "../BrandMark.astro";
@@ -24,7 +30,7 @@ import PhoneLockScreen from "../mac/PhoneLockScreen.astro";
 const places: Record<CastId, { wide: [number, number]; tall: [number, number] }> = {
   mac: { wide: [0, 0], tall: [0, 0] },
   build: { wide: [1592, 0], tall: [0, 1100] },
-  workstation: { wide: [1592, 520], tall: [692, 1100] },
+  workstation: { wide: [1592, 560], tall: [692, 1100] },
   phone: { wide: [-660, 2], tall: [470, 1650] },
 };
 const place = (id: CastId) => {
@@ -91,7 +97,7 @@ webhooks.spec.ts <span class="ok">passes</span></pre>
         cast.map(([id, entry]) => (
           <span class:list={["mark", id === "phone" ? "near" : id === "mac" ? "home" : "far"]} data-label={id}>
             <b>{entry.name}</b>
-            {entry.note}
+            <span class="os">{entry.note}</span>
           </span>
         ))
       }
@@ -107,7 +113,7 @@ webhooks.spec.ts <span class="ok">passes</span></pre>
     <div class="hero" data-zoom-hero>
       <div class="page">
         <h1 data-zoom-edge>
-          {zoomHero.headline.map((line) => <span>{line}</span>)}
+          {zoomHeadline.map((line) => <span>{line}</span>)}
         </h1>
         <p class="summary">{product.summary}</p>
         <div class="actions">
@@ -258,7 +264,7 @@ webhooks.spec.ts <span class="ok">passes</span></pre>
   }
 
   .short {
-    height: 360px;
+    height: 320px;
   }
 
   .bar {
@@ -403,7 +409,7 @@ webhooks.spec.ts <span class="ok">passes</span></pre>
 
   /* A label stands just above its drawing's top left corner. */
   .mark {
-    margin: -30px 0 0 2px;
+    margin: -28px 0 0 2px;
     opacity: var(--machines);
   }
 
@@ -411,6 +417,13 @@ webhooks.spec.ts <span class="ok">passes</span></pre>
     margin-right: 8px;
     color: var(--line);
     font-weight: 600;
+  }
+
+  /* On a narrow screen the labels stand close together, so only the names show. */
+  @media (max-width: 759px) {
+    .os {
+      display: none;
+    }
   }
 
   .verb {

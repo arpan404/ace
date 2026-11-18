@@ -1,0 +1,125 @@
+---
+/*
+ * Every part of ace, in four groups (content/parts.ts). A part with a page of its own is a
+ * link; the rest are plain lines. The home page's story shows a few of these at work, and this
+ * is where a visitor finds the rest.
+ */
+import { partGroups } from "../../content/parts.ts";
+import Icon from "../Icon.astro";
+---
+
+<section class="section page parts">
+  <header class="head reveal">
+    <h2 class="section-title">Every part of ace.</h2>
+    <a class="text-link" href="/features/">All features</a>
+  </header>
+  <div class="groups">
+    {
+      partGroups.map((group) => (
+        <section class="group reveal">
+          <h3>{group.name}</h3>
+          <p class="line">{group.line}</p>
+          <ul>
+            {group.parts.map((part) => {
+              const text = (
+                <>
+                  <span class="name">
+                    {part.name}
+                    {part.beta && <span class="beta">Beta</span>}
+                    {part.href && <Icon name="arrow-right" size={14} />}
+                  </span>
+                  <span class="body">{part.body}</span>
+                </>
+              );
+              return <li>{part.href ? <a href={part.href}>{text}</a> : <div>{text}</div>}</li>;
+            })}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px 24px;
+  }
+
+  .head h2 {
+    font-size: clamp(36px, 5.6vw, 72px);
+  }
+
+  .groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 232px), 1fr));
+    gap: 56px 32px;
+    margin-top: clamp(40px, 6vw, 72px);
+  }
+
+  h3 {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--line);
+  }
+
+  .line {
+    margin: 10px 0 18px;
+    min-height: 2.4em;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 1.2;
+  }
+
+  li {
+    border-top: 1px solid var(--border);
+  }
+
+  li > * {
+    display: grid;
+    gap: 3px;
+    padding: 13px 0 14px;
+    text-decoration: none;
+  }
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .name :global(svg) {
+    margin-left: auto;
+    color: var(--faint);
+    transition:
+      color var(--motion-fast) var(--ease-out),
+      transform var(--motion-base) var(--ease-out);
+  }
+
+  a:hover .name :global(svg) {
+    color: var(--line);
+    transform: translateX(3px);
+  }
+
+  .beta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--subtle);
+  }
+
+  .body {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+</style>

@@ -28,6 +28,16 @@ import {
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
+/** A box with `by` pixels of room added on every side. */
+function grow(rect: Rect, by: number): Rect {
+  return {
+    x: rect.x - by,
+    y: rect.y - by,
+    width: rect.width + by * 2,
+    height: rect.height + by * 2,
+  };
+}
+
 export function startZoomStory(root: HTMLElement): void {
   const q = (selector: string) => root.querySelector<HTMLElement>(selector);
   const stage = q("[data-zoom-stage]");
@@ -84,12 +94,6 @@ export function startZoomStory(root: HTMLElement): void {
       height: box.height / zoom,
     };
   };
-  const grow = (rect: Rect, by: number): Rect => ({
-    x: rect.x - by,
-    y: rect.y - by,
-    width: rect.width + by * 2,
-    height: rect.height + by * 2,
-  });
 
   let size: Size = { width: 1, height: 1 };
   let cameras: Camera[] = [];
@@ -103,7 +107,10 @@ export function startZoomStory(root: HTMLElement): void {
     const { mac, build, workstation, phone } = boxes;
     if (!mac || !build || !workstation || !phone) return;
 
-    const side = Math.max(16, edge.getBoundingClientRect().left - stage.getBoundingClientRect().left);
+    const side = Math.max(
+      16,
+      edge.getBoundingClientRect().left - stage.getBoundingClientRect().left,
+    );
     const narrow = size.width < 760;
     // Clear of the header and a label above the top drawing, and of the captions below.
     const band = size.height - captions.offsetTop;
@@ -115,7 +122,12 @@ export function startZoomStory(root: HTMLElement): void {
     const shots: Record<(typeof shotOrder)[number], Shot> = {
       prompt: {
         rect: promptBox,
-        insets: { top: hero.offsetTop + hero.offsetHeight + 32, right: side, bottom: 24, left: side },
+        insets: {
+          top: hero.offsetTop + hero.offsetHeight + 32,
+          right: side,
+          bottom: 24,
+          left: side,
+        },
         maxScale: 0.92,
         alignX: 0,
         alignY: 0,
