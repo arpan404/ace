@@ -363,15 +363,6 @@ fn shell_call(
     let truth = label(&real::relative_to(command, &call.workspace), None);
     let person = matches!(truth, Label::Sure(e) if spade_classify::PERSON_ONLY.contains(&e));
     o.person_seen += usize::from(person);
-    if person && std::env::var_os("CLASSIFY_DUMP").is_some() && with_workspace {
-        let p = model.predict(&subject);
-        let short: String = command.chars().take(160).collect();
-        eprintln!(
-            "REPLAY PERSON {truth:?} p={:.3} {:?} {short:?}",
-            p.person_only().1,
-            p.top().0
-        );
-    }
     let config_clean = if call.workspace.is_empty() {
         ConfigTools::default()
     } else {
@@ -393,10 +384,6 @@ fn shell_call(
                 truth.low()
             };
             if !right {
-                if std::env::var_os("CLASSIFY_DUMP").is_some() {
-                    let short: String = command.chars().take(300).collect();
-                    eprintln!("REPLAY FALSE-LOW {truth:?} {short:?}");
-                }
                 o.false_low += 1;
                 o.false_low_unsure += usize::from(truth == Label::Unsure);
             }
@@ -404,10 +391,7 @@ fn shell_call(
         Screen::Person(effect) => {
             o.classifier_person += 1;
             o.raised_right += usize::from(person);
-            if !person && with_workspace && std::env::var_os("CLASSIFY_DUMP").is_some() {
-                let short: String = command.chars().take(160).collect();
-                eprintln!("REPLAY WRONG-RAISE {effect:?} {truth:?} {short:?}");
-            }
+            let _ = effect;
         }
         Screen::Abstain => {
             o.reviewer += 1;
@@ -431,16 +415,6 @@ fn shell_call(
                     "under the threshold"
                 };
                 *o.abstained.entry(why).or_default() += 1;
-                if std::env::var_os("CLASSIFY_DUMP").is_some()
-                    && with_workspace
-                    && matches!(why, "under the threshold" | "a part never seen as low-risk")
-                {
-                    let short: String = command.chars().take(150).collect();
-                    eprintln!(
-                        "REPLAY {why} {truth:?} r={:.3} {short:?}",
-                        p.of(Effect::Read)
-                    );
-                }
             }
         }
     }

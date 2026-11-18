@@ -227,7 +227,7 @@ pub const HEADER: &str = "| set | n | accuracy | low-risk precision | low-risk r
 pub fn sweep(model: &Model, val: &[&Scored]) -> String {
     let t = model.header().temperature;
     let mut r = String::from(
-        "| threshold | risky validation calls settled | unnamed validation calls settled | low-risk validation calls settled | at this read threshold: calls that aren't reads | reads |\n|---|---|---|---|---|---|\n",
+        "These are probability crossings on the calibration set, before the code checks (outside,          hidden, unknown, no hard form) that each real decision also applies, so they bound the          thresholds but overcount what actually settles. P(low-risk) ≥ t among calls that could be          settled (not pointing outside); and, for the read threshold, P(read) ≥ t among those that          also cannot reach the network.\n\n| threshold t | risky, P(low-risk) ≥ t | unnamed,          P(low-risk) ≥ t | low-risk, P(low-risk) ≥ t | not-read, P(read) ≥ t | read, P(read) ≥ t          |\n|---|---|---|---|---|---|\n",
     );
     let low = val.iter().filter(|s| LOW_RISK.contains(&s.label)).count();
     for threshold in [0.70f32, 0.80, 0.85, 0.90, 0.95, 0.98] {

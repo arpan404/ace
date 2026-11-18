@@ -206,32 +206,94 @@ pub fn labels(items: &[Item]) -> String {
 
 /// The realistic sets' section: model alone, why low-risk calls weren't settled, and, with real
 /// sessions, the end-to-end replay under each wiring given.
+/// Drops from `items` the calls whose folded signature is in the fit set, so an evaluation set
+/// shares no call the model can't tell from a fit call; returns how many were dropped.
+fn hold_out(items: Vec<Item>, fit: &crate::overlap::Fit) -> (Vec<Item>, usize) {
+    let before = items.len();
+    let kept: Vec<Item> = items
+        .into_iter()
+        .filter(|i| {
+            !fit.has(crate::overlap::command_signature(
+                &i.command,
+                i.workspace.as_deref(),
+            ))
+        })
+        .collect();
+    let dropped = before - kept.len();
+    (kept, dropped)
+}
+
 pub fn report(
     model: &Model,
     tldr: Option<&[tldr::Example]>,
     real: Option<&[Call]>,
+    fit: &crate::overlap::Fit,
     wirings: &[(&str, Decide<'_>, bool)],
 ) -> String {
     let mut r = String::new();
-    let mut sets: Vec<(String, Vec<Item>)> =
-        vec![("hand-labelled hard set".to_owned(), hard_items())];
+    let mut dropped: Vec<(String, usize)> = Vec::new();
+    let mut held = |name: &str, items: Vec<Item>| {
+        let (kept, n) = hold_out(items, fit);
+        dropped.push((name.to_owned(), n));
+        kept
+    };
+    // The `bool` is whether the set is synthetic (hand-written or templated), so its commands may
+    // be printed under CLASSIFY_DUMP. Real sessions are the person's and are never printed.
+    let mut sets: Vec<(String, Vec<Item>, bool)> = vec![(
+        "hand-labelled hard set".to_owned(),
+        held("hand-labelled hard set", hard_items()),
+        true,
+    )];
     if let Some(examples) = tldr {
         let _ = writeln!(r, "\ntldr-pages at commit `{}` (CC BY 4.0).", tldr::COMMIT);
         sets.push((
             "tldr-pages, held-out pages".to_owned(),
-            tldr_items(examples, |e| tldr_test_page(&e.page)),
+            held(
+                "tldr-pages, held-out pages",
+                tldr_items(examples, |e| tldr_test_page(&e.page)),
+            ),
+            true,
         ));
     }
     if let Some(calls) = real {
         sets.push((
             "real sessions, distinct commands, with the folder".to_owned(),
-            real_items(calls, true),
+            held("real sessions, with the folder", real_items(calls, true)),
+            false,
         ));
         sets.push((
-            "real sessions, distinct commands, no folder (as on main)".to_owned(),
-            real_items(calls, false),
+            "real sessions, distinct commands, no folder passed to the classifier".to_owned(),
+            held("real sessions, no folder", real_items(calls, false)),
+            false,
         ));
     }
+    if let Some(path) = std::env::var_os("CLASSIFY_EVAL_OUT") {
+        let mut lines = String::new();
+        for (name, items, synthetic) in &sets {
+            if !*synthetic {
+                continue;
+            }
+            for item in items {
+                let _ = writeln!(
+                    lines,
+                    "{}\t{}\t{}",
+                    name,
+                    item.label.name(),
+                    item.command.replace(['\t', '\n'], " ")
+                );
+            }
+        }
+        let _ = std::fs::write(path, lines);
+    }
+    let _ = writeln!(
+        r,
+        "\nHeld out of the fit set by folded signature (ADR 0172, amendment 6): {}.",
+        dropped
+            .iter()
+            .map(|(name, n)| format!("{name} {n}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     let _ = writeln!(
         r,
         "\n## Realistic sets\n\nLabelled by hand (the hard set) or by the reference labeller \
@@ -239,13 +301,13 @@ pub fn report(
          descriptions), never by the model. A command the labeller can't name counts as risky, so \
          a settled one is a false low-risk here. The model alone, every call shown to it:\n"
     );
-    for (name, items) in &sets {
+    for (name, items, _) in &sets {
         let _ = writeln!(r, "- {name}: {}", labels(items));
     }
     let _ = writeln!(r, "\n{HEADER}");
     let mut blockers = Vec::new();
-    for (name, items) in &sets {
-        dump(model, items, name);
+    for (name, items, synthetic) in &sets {
+        dump(model, items, name, *synthetic);
         let (m, b) = measure(model, items);
         let _ = writeln!(r, "{}", row(name, &m));
         blockers.push((name.clone(), b));
@@ -316,10 +378,12 @@ pub fn report(
     r
 }
 
-/// For whoever tunes the classifier, on this machine only: a sample of the low-risk commands each
-/// check stopped, printed to stderr when `CLASSIFY_DUMP` is set. Never written to a file.
-pub fn dump(model: &Model, items: &[Item], name: &str) {
-    if std::env::var_os("CLASSIFY_DUMP").is_none() {
+/// For whoever tunes the classifier, on this machine only: a sample of the commands each check
+/// stopped, printed to stderr when `CLASSIFY_DUMP` is set and only for synthetic sets
+/// (`show_commands`). Real-session commands are the person's, so they are never printed, here or
+/// anywhere: real sessions are reported only as aggregate counts. Never written to a file.
+pub fn dump(model: &Model, items: &[Item], name: &str, show_commands: bool) {
+    if !show_commands || std::env::var_os("CLASSIFY_DUMP").is_none() {
         return;
     }
     let mut shown = std::collections::BTreeMap::<&str, usize>::new();

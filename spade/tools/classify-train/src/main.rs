@@ -20,6 +20,7 @@ mod label;
 mod measure;
 mod mlp;
 mod obfuscate;
+mod overlap;
 mod real;
 mod replay;
 mod report;
@@ -194,6 +195,38 @@ fn run(
     examples.extend(data::tldr(&tldr_examples));
     let vectors: Vec<spade_classify::Features> =
         examples.iter().map(|e| features(&e.subject())).collect();
+    // Hold the calibration and test sets apart from the fit set by folded signature, so no call
+    // the model can't tell from a fit call is used to tune or measure it (ADR 0172, amendment 6):
+    // disguised tool clones and commands like `pwd` that recur verbatim are dropped.
+    let fit_signatures: std::collections::HashSet<u64> = examples
+        .iter()
+        .zip(&vectors)
+        .filter(|(e, _)| report::role(e) == report::Role::Fit)
+        .map(|(_, v)| overlap::signature(v))
+        .collect();
+    let mut overlap_removed = 0usize;
+    let (mut kept_examples, mut kept_vectors) = (Vec::new(), Vec::new());
+    for (e, v) in examples.into_iter().zip(vectors) {
+        if report::role(&e) != report::Role::Fit && fit_signatures.contains(&overlap::signature(&v))
+        {
+            overlap_removed += 1;
+            continue;
+        }
+        kept_examples.push(e);
+        kept_vectors.push(v);
+    }
+    let (examples, vectors) = (kept_examples, kept_vectors);
+    // The corpus-wide check: after holding out, no calibration or test call shares a fit call's
+    // folded signature. A regression here fails the build.
+    assert!(
+        examples
+            .iter()
+            .zip(&vectors)
+            .all(|(e, v)| report::role(e) == report::Role::Fit
+                || !fit_signatures.contains(&overlap::signature(v))),
+        "a calibration or test call still shares a fit call's folded signature",
+    );
+    let fit_set = overlap::Fit::new(fit_signatures);
     // One model: fitted on the fit data, calibrated on data reserved from the fit, measured on
     // data neither touched. The file written is these exact weights.
     let fitted = |e: &Example| report::role(e) == report::Role::Fit;
@@ -223,15 +256,20 @@ fn run(
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     std::fs::write(out.join("weights.bin"), &file).map_err(|e| e.to_string())?;
     let mut report = report::head(seed, fresh_seed, &examples, &scored, &shipped, file.len());
+    let _ = writeln!(
+        report,
+        "\n{overlap_removed} calibration or test calls were held out of the fit set by folded \
+         signature (ADR 0172, amendment 6).",
+    );
     report.push_str(&everyday(&shipped));
-    let wirings: [(&str, replay::Decide<'_>, bool); 2] = [
-        ("main's wiring", &decide_main, false),
-        ("this build", &decide_this, true),
-    ];
+    // Only this build's wiring: a faithful `main` baseline needs main's model and logic and is
+    // produced separately (ADR 0172, amendment 6), not by passing the shipped model here.
+    let wirings: [(&str, replay::Decide<'_>, bool); 1] = [("this build", &decide_this, true)];
     report.push_str(&measure::report(
         &shipped,
         Some(&tldr_examples),
         real_calls.as_deref(),
+        &fit_set,
         &wirings,
     ));
     if std::env::var_os("CLASSIFY_SKIP_MLP").is_none() {
@@ -375,22 +413,6 @@ fn dump(examples: &[Example], scored: &[Scored], model: &Model) {
     }
 }
 
-/// The classifier's decision as `main` wires it (ADR 0172 decision 2): it may settle only a shell
-/// command the gate lets it settle; anything else it can only raise.
-fn decide_main(
-    model: &Model,
-    subject: &spade_classify::Subject<'_>,
-    reviewing: spade_classify::Reviewing,
-    _config_clean: spade_classify::ConfigTools,
-) -> spade_classify::Screen {
-    let prediction = model.predict(subject);
-    if matches!(subject, spade_classify::Subject::Shell { .. }) && reviewing.may_settle() {
-        model.screen(&prediction)
-    } else {
-        model.raise(&prediction)
-    }
-}
-
 /// The classifier's decision as this build wires it (`spade_classify::Model::decide`).
 fn decide_this(
     model: &Model,
@@ -431,14 +453,17 @@ fn measure_only(mut args: impl Iterator<Item = String>) -> Result<(), String> {
     };
     let tldr = tldr_dir.map(|d| tldr::read(&d)).transpose()?;
     let real = real_dir.map(|d| real::read(&d)).transpose()?;
-    let wirings: [(&str, replay::Decide<'_>, bool); 2] = [
-        ("main's wiring", &decide_main, false),
-        ("this build", &decide_this, true),
-    ];
+    let wirings: [(&str, replay::Decide<'_>, bool); 1] = [("this build", &decide_this, true)];
     println!(
         "Model `{}`.\n{}",
         model.id(),
-        measure::report(&model, tldr.as_deref(), real.as_deref(), &wirings)
+        measure::report(
+            &model,
+            tldr.as_deref(),
+            real.as_deref(),
+            &overlap::Fit::new(std::iter::empty()),
+            &wirings
+        )
     );
     Ok(())
 }
