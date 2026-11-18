@@ -234,7 +234,7 @@ const span: Record<ShowcaseId, string> = {
 
   /*
    * The picture: a piece of the app on the page's own ground, cut off by the tile's edge. A
-   * blue light follows the pointer across the ground, and the window and what floats over it
+   * blue light follows the pointer across it, and the window and what floats over it
    * shift against each other as the pointer moves (`--px`, `--py`, set by the script below).
    */
   .art {
@@ -242,17 +242,12 @@ const span: Record<ShowcaseId, string> = {
     height: 300px;
     overflow: hidden;
     border-bottom: 1px solid var(--border);
-    background-color: var(--background);
-    background-image:
-      radial-gradient(
-        380px circle at var(--lx, 50%) var(--ly, -40%),
-        color-mix(in srgb, var(--line) 14%, transparent),
-        transparent 70%
-      ),
-      radial-gradient(circle, var(--dot) 1px, transparent 1.6px);
-    background-size:
-      auto,
-      22px 22px;
+    background-color: var(--raised);
+    background-image: radial-gradient(
+      380px circle at var(--lx, 50%) var(--ly, -40%),
+      color-mix(in srgb, var(--line) 14%, transparent),
+      transparent 70%
+    );
   }
 
   .win,
