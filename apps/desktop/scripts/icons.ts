@@ -23,7 +23,7 @@ import { appEnvironment, desktop, electronBinary, repo } from "./common.ts";
  *   favicons) and `public/apple-touch-icon.png` (from `brand/apple-touch-icon.svg`).
  *
  * `node apps/desktop/scripts/icons.ts --beta <dir>` renders only `<dir>/icon.icns`, the beta
- * build's Dock icon: the same master in porcelain, light tile and dark wings (ADR 0177). `package.ts` runs it while
+ * build's Dock icon: the same master with its corner peeled back over orange (ADR 0177). `package.ts` runs it while
  * a beta packages; its output is never committed.
  *
  * The installed Electron rasterizes: each size is drawn from the vector at that size, never

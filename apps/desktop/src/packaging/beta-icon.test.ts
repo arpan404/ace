@@ -5,40 +5,30 @@ import { betaIcon } from "./beta-icon.ts";
 
 const master = readFileSync(join(import.meta.dirname, "../../build/icon.svg"), "utf8");
 
-/** Mean relative luminance (0 dark to 1 light) of a gradient's stop colours. */
-function lightness(svg: string, id: string): number {
-  const gradient = svg.match(
-    new RegExp(`<linearGradient\\b[^>]*\\bid="${id}"[\\s\\S]*?</linearGradient>`),
-  );
-  const colours = [...(gradient?.[0] ?? "").matchAll(/stop-color="#([0-9a-f]{6})"/gi)].map(
-    ([, hex]) => hex ?? "",
-  );
-  if (colours.length === 0) throw new Error(`no stops in #${id}`);
-  const sum = colours.reduce((total, hex) => {
-    const [r, g, b] = [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
-    return total + 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
-  }, 0);
-  return sum / colours.length;
+/** Every point a path's outline passes through or bends toward, on the 1024 canvas. */
+function points(d: string): Array<[number, number]> {
+  const numbers = [...d.matchAll(/-?\d*\.?\d+/g)].map(([n]) => Number(n));
+  return numbers.flatMap((x, at) => (at % 2 === 0 ? [[x, numbers[at + 1] ?? 0]] : []));
 }
 
-/** Every path's outline, in order. */
-function shapes(svg: string): Array<string | undefined> {
-  return [...svg.matchAll(/<path\b[^>]*\bd="([^"]+)"/g)].map(([, d]) => d);
-}
-
-it("turns stable's dark tile and light wings into a light tile with dark wings", () => {
+it("keeps the whole stable icon and peels only its bottom-right corner, with no lettering", () => {
+  const body = master.slice(0, master.lastIndexOf("</svg>"));
   const beta = betaIcon(master);
-  // Wings minus tile: strongly positive on stable, strongly negative on the beta.
-  expect(lightness(master, "ink") - lightness(master, "fill")).toBeGreaterThan(0.6);
-  expect(lightness(beta, "fill") - lightness(beta, "ink")).toBeGreaterThan(0.6);
+  expect(beta.startsWith(body)).toBe(true);
+  const peel = beta.slice(body.length);
+  expect(peel).not.toMatch(/<text\b/);
+  const shapes = [...peel.matchAll(/<path\b[^>]*\bd="([^"]+)"/g)].map(([, d]) => d ?? "");
+  expect(shapes.length).toBeGreaterThan(0);
+  // The mark's lower-right tip sits near x + y = 1465. Every curve stays inside its control
+  // points, so points all beyond 1480 mean the peel never covers the mark.
+  for (const [x, y] of shapes.flatMap(points)) expect(x + y).toBeGreaterThan(1480);
 });
 
-it("keeps the stable tile and mark shapes, and adds no lettering", () => {
-  const beta = betaIcon(master);
-  expect(shapes(beta)).toEqual(shapes(master));
-  expect(beta).not.toMatch(/<text\b/);
+it("shows the peeled-back corner inside the tile's own rounded shape", () => {
+  const peel = betaIcon(master).slice(master.lastIndexOf("</svg>"));
+  expect(peel).toMatch(/<path\b[^>]*clip-path="url\(#clip\)"/);
 });
 
-it("refuses a master it can't repaint, rather than ship a beta that looks stable", () => {
+it("refuses a master it can't peel, rather than ship a beta that looks stable", () => {
   expect(() => betaIcon('<svg xmlns="http://www.w3.org/2000/svg"></svg>')).toThrow();
 });
