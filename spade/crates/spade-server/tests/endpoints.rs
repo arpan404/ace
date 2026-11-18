@@ -93,8 +93,10 @@ async fn an_openai_endpoints_models_are_listed_live_and_saved_with_their_facts()
     assert_eq!(
         models,
         json!([
-            { "id": "kimi", "name": "kimi", "context": 262144, "capabilities": ["tools"], "source": "listed" },
-            { "id": "vendor/typed", "name": "vendor/typed", "context": 128000,
+            // Only what someone stated: the list gave a context and no capabilities, the person
+            // capabilities and no context. Spade's own guesses for the rest never show.
+            { "id": "kimi", "name": "kimi", "context": 262144, "capabilities": null, "source": "listed" },
+            { "id": "vendor/typed", "name": "vendor/typed", "context": null,
               "capabilities": ["tools", "images"], "source": "typed" }
         ])
     );

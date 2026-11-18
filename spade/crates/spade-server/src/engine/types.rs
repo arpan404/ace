@@ -216,6 +216,9 @@ pub enum SendError {
     Helper,
     #[error("the message is empty")]
     Empty,
+    /// The bot has no model yet: nothing could answer, so nothing is posted.
+    #[error("this bot has no model yet: choose one in Spade's settings, under Models")]
+    NoModel,
     #[error("the message is too long")]
     TooLong,
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]

@@ -201,6 +201,9 @@ pub struct Spade {
 
 pub struct Options {
     pub limits: Limits,
+    /// The fake endpoints' key variables are unset: no preset is imported, as on a first run
+    /// with nothing set up.
+    pub no_env_keys: bool,
     pub skills: Option<Arc<dyn SkillLibrary>>,
     /// Finds ace from this folder's files, retrying quickly.
     pub ace_home: Option<PathBuf>,
@@ -341,6 +344,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             limits: Limits::default(),
+            no_env_keys: false,
             skills: None,
             ace_home: None,
             ace_retry: None,
@@ -508,6 +512,7 @@ impl Spade {
         let delay = options.keychain_delay;
         let gate = options.keychain_gate.clone();
         let gate_for = options.keychain_gate_for;
+        let env_keys = !options.no_env_keys;
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::keychain_then_env(
@@ -522,7 +527,10 @@ impl Spade {
                     }
                     keychain.get(endpoint).ok().flatten()
                 },
-                |var| matches!(var, "FAKE_KEY" | "UNREACHED_KEY").then(|| "fake-key".to_owned()),
+                move |var| {
+                    (env_keys && matches!(var, "FAKE_KEY" | "UNREACHED_KEY"))
+                        .then(|| "fake-key".to_owned())
+                },
             ),
             spade_server::home::VERSION,
         )?;

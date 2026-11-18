@@ -168,6 +168,7 @@ impl Transcript {
             Known::ReplyInterrupted { reply, text } => {
                 self.update(reply, text, Some(Outcome::Interrupted));
             }
+            Known::ReplyRetried { reply } => self.retried(reply),
             Known::Renamed { title } => self.title = Some(title.clone()),
             Known::StepFinished { reply, text, .. } => {
                 self.paused = false;
@@ -333,6 +334,30 @@ impl Transcript {
         if let Some(outcome) = outcome {
             message.outcome = outcome;
             self.answering.remove(slot);
+        }
+    }
+
+    /// A failed reply tried again: the reply after it takes its place. One that said nothing
+    /// leaves the transcript; one that said something stays, cut short rather than failed. Found
+    /// from the end, where a retried reply always is.
+    fn retried(&mut self, reply: &str) {
+        let Some(at) = self
+            .messages
+            .iter()
+            .rposition(|m| m.reply.as_deref() == Some(reply))
+        else {
+            return;
+        };
+        if !matches!(self.messages[at].outcome, Outcome::Failed(_)) {
+            return;
+        }
+        if at + 1 == self.messages.len()
+            && self.answering.is_empty()
+            && self.messages[at].text.is_empty()
+        {
+            self.messages.pop();
+        } else {
+            self.messages[at].outcome = Outcome::Interrupted;
         }
     }
 

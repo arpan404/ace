@@ -108,6 +108,7 @@ fn failed(kind: FailureKind) -> &'static str {
         FailureKind::Key => "Its reply failed: the endpoint refused the key.",
         FailureKind::RateLimited => "Its reply failed: the endpoint is rate limiting.",
         FailureKind::Model => "Its reply failed: the model failed while answering.",
+        FailureKind::NoModel => "Its reply failed: it has no model it can use.",
         FailureKind::Cap | FailureKind::Other => "Its reply failed.",
     }
 }
