@@ -7,6 +7,13 @@ import { useLayout } from "./layout.tsx";
 import { useClock } from "./time.ts";
 import { useMachines, type Machine } from "./machines.ts";
 import { readProjects, type Project } from "./projects.ts";
+import {
+  applyPush,
+  pushOf,
+  pushesFor,
+  type ProjectPush,
+  type ProjectPushes,
+} from "./project-pushes.ts";
 
 /*
  * Every machine's projects for the logical project lists (ADR 0180): each online machine's
@@ -50,7 +57,7 @@ const KeptLists = z
   );
 type KeptLists = z.infer<typeof KeptLists>;
 
-const keep = (project: Project) => ({
+const keep = (project: GroupableProject) => ({
   id: project.id,
   name: project.name,
   path: project.path,
@@ -68,7 +75,7 @@ const keep = (project: Project) => ({
 export function rememberMachineProjects(
   storage: KeyValueStorage | undefined,
   machineId: string,
-  projects: readonly Project[],
+  projects: readonly GroupableProject[],
   at: number,
 ): void {
   const kept = readJson(storage, storageKey, KeptLists, {});
@@ -82,6 +89,29 @@ export function rememberMachineProjects(
   writeJson(storage, storageKey, Object.fromEntries(newest));
 }
 
+/**
+ * Keep a pushed change in a machine's kept list too, so going offline right after it never
+ * brings back the list from before it. `current` is the list held now, else the kept one is
+ * patched; with neither there is nothing to keep it in yet.
+ */
+export function rememberMachinePush<P extends GroupableProject>(
+  storage: KeyValueStorage | undefined,
+  machineId: string,
+  push: ProjectPush<P>,
+  at: number,
+  current?: readonly P[],
+): P[] | undefined {
+  if (current) {
+    const next = applyPush(current, push);
+    rememberMachineProjects(storage, machineId, next, at);
+    return next;
+  }
+  const kept = keptMachineProjects(storage, machineId)?.projects;
+  if (kept)
+    rememberMachineProjects(storage, machineId, applyPush<GroupableProject>(kept, push), at);
+  return undefined;
+}
+
 /** A machine's list as this device last saw it, with when. */
 export function keptMachineProjects(
   storage: KeyValueStorage | undefined,
@@ -91,6 +121,8 @@ export function keptMachineProjects(
 }
 
 const poolKey = (machineId: string) => ["poolProjects", machineId] as const;
+/** Each machine client's pushes while a read of its list is out. */
+const ledgers = new WeakMap<object, ProjectPushes<Project>>();
 
 const combine = (results: readonly { data?: Project[] | undefined; isPending: boolean }[]) => ({
   data: results.map((result) => result.data),
@@ -115,7 +147,8 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const client = machine.client;
         if (!client) throw new Error("offline");
-        const projects = await readProjects(client, signal);
+        // A push that lands while the pages are out wins over them.
+        const projects = await pushesFor(ledgers, client).track(() => readProjects(client, signal));
         rememberMachineProjects(storage, machine.id, projects, clock());
         return projects;
       },
@@ -123,23 +156,24 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
     // The same object while no machine's list changed, so the lists below are kept too.
     combine,
   });
-  // Each online machine's pushes: a project added, renamed, linked or removed there. A change
-  // that carries the project is put in place; a daemon reading its checkouts' remotes (ADR
-  // 0189) sends one per project, which must not each read the whole list again.
+  // Each online machine's pushes: a project added, renamed, linked or removed there. One that
+  // carries the project is put in place, kept on this device and kept for any read out now, so
+  // a daemon reading its checkouts' remotes (ADR 0189), one push per project, never restarts a
+  // read and an older read never undoes a push.
   const clients = online.map((machine) => [machine.id, machine.client] as const);
   const clientKey = clients.map(([id]) => id).join("\n");
   useEffect(() => {
     const stops = clients.map(([id, client]) =>
       client?.projects.onChanged((change) => {
-        const { workspace } = change;
-        const held = queryClient.getQueryData<Project[]>(poolKey(id));
-        if (workspace && change.change !== "added" && held?.some((p) => p.id === workspace.id)) {
-          queryClient.setQueryData<Project[]>(poolKey(id), (list) =>
-            list?.map((p) => (p.id === workspace.id ? workspace : p)),
-          );
+        const push = pushOf<Project>(change, (workspace) => workspace);
+        if (!push) {
+          void queryClient.invalidateQueries({ queryKey: poolKey(id), exact: true });
           return;
         }
-        void queryClient.invalidateQueries({ queryKey: poolKey(id), exact: true });
+        pushesFor(ledgers, client).record(push);
+        const held = queryClient.getQueryData<Project[]>(poolKey(id));
+        const next = rememberMachinePush(storage, id, push, clock(), held);
+        if (held && next) queryClient.setQueryData<Project[]>(poolKey(id), next);
       }),
     );
     return () => {
@@ -147,7 +181,7 @@ export function usePoolProjects(): { lists: MachineProjectList[]; loaded: boolea
     };
     // The clients change only with the machines' set and status.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientKey, queryClient]);
+  }, [clientKey, queryClient, storage, clock]);
   const { data, pending } = results;
   return useMemo(() => {
     const lists = machines.flatMap((machine: Machine): MachineProjectList[] => {

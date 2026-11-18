@@ -8,6 +8,7 @@ import type {
 import { useClient } from "@ace/client-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
+import { applyPush, pushOf, pushesFor, type ProjectPushes } from "./project-pushes.ts";
 
 /*
  * The shared project list's cache entry (read in `projects.ts`), kept apart so the app shell
@@ -48,21 +49,18 @@ export function rememberProject(queryClient: QueryClient, project: Project): voi
   settle(queryClient);
 }
 
+/** Each daemon client's pushes while a read of its project list is out. */
+const ledgers = new WeakMap<object, ProjectPushes<Project>>();
+
 /**
- * Put an updated project in place. Only a read already in flight, which may predate the
- * change, is read again behind it: a daemon reading every checkout's remotes (ADR 0189) pushes
- * one update per project, and each must not read the whole list again.
+ * Read the shared list through `read`, with every push that lands meanwhile applied over its
+ * pages, so a read that predates a push never undoes it (`ProjectPushes`).
  */
-function updateProject(queryClient: QueryClient, project: Project): void {
-  const held = queryClient.getQueryData<Project[]>(projectsKey);
-  const fetching = queryClient.isFetching({ queryKey: projectsKey, exact: true }) > 0;
-  if (fetching || !held?.some((p) => p.id === project.id)) {
-    rememberProject(queryClient, project);
-    return;
-  }
-  queryClient.setQueryData<Project[]>(projectsKey, (list) =>
-    list?.map((p) => (p.id === project.id ? project : p)),
-  );
+export function trackProjectsRead(
+  client: object,
+  read: () => Promise<Project[]>,
+): Promise<Project[]> {
+  return pushesFor(ledgers, client).track(read);
 }
 
 /** Drop a removed project from the shared list. */
@@ -105,11 +103,15 @@ export function useProjectListSync(): void {
   useEffect(
     () =>
       client.projects.onChanged((change) => {
-        if (change.change === "removed") forgetProject(queryClient, change.workspaceId);
-        else if (change.workspace && change.change === "updated")
-          updateProject(queryClient, change.workspace);
-        else if (change.workspace) rememberProject(queryClient, change.workspace);
-        else settle(queryClient);
+        // Put in place and kept for any read out now, never by restarting that read: a daemon
+        // reading its checkouts' remotes (ADR 0189) pushes once per project.
+        const push = pushOf<Project>(change, (workspace) => workspace);
+        if (push) {
+          pushesFor(ledgers, client).record(push);
+          queryClient.setQueryData<Project[]>(projectsKey, (list) =>
+            list ? applyPush(list, push) : list,
+          );
+        } else settle(queryClient);
         // Its repository choices may be what changed (ADR 0120).
         if (change.change !== "removed") forgetProjectRepositories(queryClient, change.workspaceId);
       }),
