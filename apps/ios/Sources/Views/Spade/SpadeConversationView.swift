@@ -53,11 +53,10 @@ struct SpadeConversationView: View {
     }
 
     private func problemLine(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(text).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
-            Button("Try again") { client.spadeRetry() }.buttonStyle(.textAction(.prominent))
-        }
-        .padding(.top, AceDesign.Space.related)
+        // ProblemRow keeps a list's margin; the transcript already has it.
+        ProblemRow(text, id: "spade.conversationProblem") { client.spadeRetry() }
+            .padding(.horizontal, -AceDesign.Space.margin)
+            .padding(.top, AceDesign.Space.related)
     }
 
     private var typed: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

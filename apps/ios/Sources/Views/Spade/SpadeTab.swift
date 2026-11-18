@@ -78,7 +78,7 @@ private struct SpadeList: View {
                         .accessibilityIdentifier("spade.bot.\(bot.id)")
                 }
             } else if spade.listFailed {
-                EmptyState(icon: nil, title: "Couldn't read your bots", failed: true) {
+                EmptyState(icon: nil, title: "Couldn't read Spade's bots", failed: true) {
                     Button("Try again") { client.spadeRefresh() }
                 }
                 .listRowSeparator(.hidden)
@@ -111,7 +111,7 @@ private struct SpadeList: View {
                         turning = false
                     }
                 }
-                .buttonStyle(.textAction(.prominent))
+                .buttonStyle(.primaryAction)
                 .disabled(turning)
                 .accessibilityIdentifier("spade.turnOn")
             }

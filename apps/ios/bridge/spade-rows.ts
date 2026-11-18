@@ -187,7 +187,7 @@ export function spadeBubbleRow(bubble: SpadeBubble, who: string): SpadeBubbleRow
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
     case "question":
-      return { kind: "note", text: "Asked you a question. Answer it in ace on your computer." };
+      return { kind: "note", text: "Answer this question in ace on your computer." };
     case "search-setup":
       return { kind: "note", text: "Web search isn't set up yet." };
   }

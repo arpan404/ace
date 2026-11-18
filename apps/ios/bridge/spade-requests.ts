@@ -107,7 +107,8 @@ async function send(
       return { ok: true };
     }
     follow?.apply({ kind: "refused", key });
-    return refused("Couldn't send", error);
+    const bot = spade.botName(conversation);
+    return refused(bot ? `Couldn't send to ${bot}` : "Couldn't send", error);
   }
 }
 
