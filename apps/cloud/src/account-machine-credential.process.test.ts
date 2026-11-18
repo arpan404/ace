@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { GrantKeySet, verifyGrant, verifyStandingGrant } from "@ace/account-grant";
 import { aceAccountClient, AceAccountError } from "@ace/client/ace-account";
+import { connectHostToRelay } from "@ace/relay";
 import { hostId, keyPair } from "@ace/secure-channel";
 import { fakeWorkos } from "./testing/fake-workos.ts";
 import type { WorkosUser } from "./testing/fake-workos.ts";
@@ -132,4 +133,43 @@ it("a session exchanged by its only holder stops working by its old token, and s
   expect(await worker.db.prepare("SELECT count(*) AS n FROM sessions").first("n")).toBe(
     Number(before) - 1,
   );
+});
+
+it("an older daemon that keeps the session still connects to the relay, with device standing", async () => {
+  const session = await signInThroughWorker(worker.http, workos, person);
+  // An older daemon asks for its machine grants with the session in its file, as it always has.
+  const hostKeys = keyPair();
+  const machine = await connectHostToRelay({
+    relayUrl: worker.relayUrl,
+    hostKeys,
+    account: {
+      grant: async () =>
+        (
+          await account().grant(
+            session.token,
+            { kind: "machine", subject: hostId(hostKeys.publicKey) },
+            signal(),
+          )
+        ).token,
+      name: "Old box",
+      platform: "linux",
+    },
+    onClientChannel: () => {},
+  });
+  try {
+    expect((await account().machines(session.token, signal())).map((m) => m.name)).toContain(
+      "Old box",
+    );
+  } finally {
+    await machine.close();
+  }
+  // The device grants an older daemon mints with that session are format 1, which its strict
+  // parser still accepts, and their standing is a machine's.
+  const grant = await account().grant(
+    session.token,
+    { kind: "device", subject: "phone" },
+    signal(),
+  );
+  expect(verifyGrant(grant.token, await keys(), Date.now(), "device").v).toBe(1);
+  expect(await standingOf(session.token)).toBe("machine");
 });

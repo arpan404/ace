@@ -146,18 +146,19 @@ export function machineAccount(options: {
   /**
    * This machine's credential for an ace session (ADR 0189), or undefined from a backend that
    * has none (404). `sole`: this daemon was the session's only holder, so the backend retires
-   * its token.
+   * its token. `onDisk`: the session was written to this machine's disk, so the backend never
+   * lets it speak for the person again.
    */
   async function exchange(
     origin: string,
     token: string,
-    sole: boolean,
+    held: { sole: boolean; onDisk: boolean },
     signal: AbortSignal,
   ): Promise<AceAccountGrant | undefined> {
     try {
       const credential = await client(origin).machineCredential(
         token,
-        { hostId: await options.relayHostId(), sole },
+        { hostId: await options.relayHostId(), sole: held.sole, exposed: held.onDisk },
         signal,
       );
       noCredentials = false;
@@ -203,7 +204,7 @@ export function machineAccount(options: {
       credential = await exchange(
         current.origin,
         current.token,
-        current.source === "login",
+        { sole: current.source === "login", onDisk: true },
         request(),
       );
     } catch (error) {
@@ -415,7 +416,7 @@ export function machineAccount(options: {
     ): Promise<MachineAccountStatus> {
       let taken: StoredSession;
       try {
-        const credential = await exchange(origin, token, false, request());
+        const credential = await exchange(origin, token, { sole: false, onDisk: false }, request());
         taken = credential
           ? asCredential(origin, credential, "handover")
           : {
@@ -492,7 +493,7 @@ export function machineAccount(options: {
               // sign-in ends without writing the session; the person signs in again.
               let credential;
               try {
-                credential = await exchange(origin, token, true, signal);
+                credential = await exchange(origin, token, { sole: true, onDisk: false }, signal);
               } catch {
                 await account.logout(token, request()).catch(() => {});
                 return;

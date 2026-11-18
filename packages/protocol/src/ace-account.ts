@@ -159,6 +159,11 @@ export const AceMachineCredentialRequest = z.object({
    * session can no longer be used by its token, and signing the machine out ends it.
    */
   sole: z.boolean().optional(),
+  /**
+   * The session was kept on this machine's disk (a session file from before machine
+   * credentials): it never speaks for the person again.
+   */
+  exposed: z.boolean().optional(),
 });
 export type AceMachineCredentialRequest = z.infer<typeof AceMachineCredentialRequest>;
 

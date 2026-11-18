@@ -11,8 +11,8 @@ import type { SessionStore } from "./sessions.ts";
  * of its machine's own, bound to its host id, and keeps that instead. A credential can't be
  * exchanged again, and nothing it mints speaks for the person.
  *
- * - A session from before standing was kept (`legacy`) comes from a machine's session file, so
- *   it was on that disk: it is marked `exposed`.
+ * - A session the daemon says it kept on its disk (`exposed`), or one from before standing was
+ *   kept (`legacy`), which only a machine's session file exchanges, is marked `exposed`.
  * - `sole`: the daemon was the session's only holder. The session moves to a digest no token
  *   has, so its old token, and any copy of it, stops working.
  */
@@ -31,8 +31,9 @@ export function machineCredentialRoute(deps: {
     if (principal.kind === "machine") return fail(403, "machine_credential");
     const parsed = AceMachineCredentialRequest.safeParse(await jsonBody(request, 4096));
     if (!parsed.success) return fail(400, "invalid_request");
-    const { hostId, sole } = parsed.data;
-    if (principal.standing === "legacy") await sessionStore.expose(principal.hash);
+    const { hostId, sole, exposed } = parsed.data;
+    if (exposed === true || principal.standing === "legacy")
+      await sessionStore.expose(principal.hash);
     let session = principal.hash;
     if (sole === true) {
       const next = await digest(opaqueToken(random));
